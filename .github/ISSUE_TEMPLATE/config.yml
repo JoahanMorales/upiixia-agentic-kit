@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/JoahanMorales/upiixia-agentic-kit/security/advisories/new
+    about: Report privately, not in a public issue.
+  - name: Share your hackathon retro
+    url: https://github.com/JoahanMorales/upiixia-agentic-kit/blob/main/CONTRIBUTING.md#great-first-contributions
+    about: Retros with numbers are the best way to improve the rules.
