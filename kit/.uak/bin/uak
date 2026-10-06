@@ -1,0 +1,853 @@
+#!/usr/bin/env bash
+# Bash 3.2+; Git y utilidades POSIX. No requiere jq ni Python.
+# Why: works on Git Bash, macOS and Linux with no services.
+set -u
+set -o pipefail
+LC_ALL=C
+export LC_ALL
+# Per-worktree identity: .uak-env (written by .uak/bin/wt, git-ignored) only fills empty variables.
+# Why: every terminal or agent in the worktree inherits its identity without manual exports.
+hack_env_file="$(git rev-parse --show-toplevel 2>/dev/null)/.uak-env"
+if [ -f "$hack_env_file" ]; then
+  while IFS='=' read -r hack_key hack_value || [ -n "$hack_key" ]; do
+    case "$hack_key" in
+      UAK_AGENT|UAK_HUMAN|UAK_SESSION|UAK_TASK)
+        case "$hack_value" in ''|*[!A-Za-z0-9_.-]*) continue;; esac
+        [ -n "$(eval "printf '%s' \"\${$hack_key:-}\"")" ] || export "$hack_key=$hack_value";;
+    esac
+  done < "$hack_env_file"
+fi
+LEASE=${UAK_LEASE_SECONDS:-1800}
+REMOTE=${UAK_REMOTE:-origin}
+BASE=${UAK_BASE:-main}
+AGENT=${UAK_AGENT:-}
+HUMAN=${UAK_HUMAN:-}
+ROOT= TX= TXROOT= NOW=
+CMD=${1:-help}
+[ "$#" -eq 0 ] || shift
+say() { printf '%s\n' "$*"; }
+die() { say "ERROR: $*" >&2; exit 2; }
+conflict() { say "CONFLICT: $*" >&2; exit 3; }
+gitfail() { say "GIT_ERROR: $*" >&2; exit 1; }
+valid_id() { printf '%s\n' "$1" | grep -Eq '^[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+$'; }
+one_line() { local text=$1; text=${text//$'\r'/ }; text=${text//$'\n'/ }; printf '%s' "$text"; }
+field() {
+  local line prefix="$2: "
+  [ -f "$1" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in "$prefix"*) printf '%s\n' "${line#"$prefix"}"; return 0;; esac
+  done < "$1"
+}
+clock_now() {
+  NOW=${UAK_NOW:-$(date +%s)}
+  case "$NOW" in ''|*[!0-9]*) die "UAK_NOW must be epoch seconds.";; esac
+  case "$LEASE" in ''|*[!0-9]*|0) die "UAK_LEASE_SECONDS must be positive.";; esac
+}
+identity() {
+  [ -n "$AGENT" ] || AGENT=$HUMAN
+  [ -n "$AGENT" ] || die "Set UAK_AGENT or UAK_HUMAN."
+  case "$AGENT" in *[!A-Za-z0-9_.-]*) die "Identity: use letters, digits, dot, dash or underscore.";; esac
+}
+cleanup() {
+  # Why: only the temp dir created by this invocation is removed.
+  if [ -n "$TXROOT" ] && [ -n "${TMP_BASE:-}" ]; then
+    case "$TXROOT" in "$TMP_BASE"/hack.??????) rm -rf "$TXROOT";; esac
+  fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+usage() {
+  cat <<'USAGE'
+uak v3.0 — multi-agent coordination on the remote claims branch
+status [--task HACK-NNN --summary]
+claim ID --branch RAMA --worktree RUTA [--next TEXTO]
+heartbeat ID
+release ID [--expired --read-summary TOKEN] [--cancel MOTIVO]
+log ID [--state CLAIMED|BLOCKED] TEXTO
+checkpoint ID|--session --done TEXTO --decision TEXTO --why TEXTO --fails TEXTO --commands TEXTO --next TEXTO
+handoff ID
+done ID --pr URL --evidence TEXTO [--integrated COMMIT --reviewer OTRO]
+digest
+tick
+next
+review ID --sha SHA --verdict approve|reject
+register-reviewer NAME  (UAK_HUMAN)
+merge ID
+decision ID --option TEXTO --why TEXTO --reversible yes|no --authorized yes|no --class routine|money|accounts|publish|scope
+secret-exception ID --path RUTA --rule REGLA --reason TEXTO
+init-smoke --command COMANDO
+lint [--secrets]
+doctor [--fix]   preflight: remote, gh permissions, hooks, freeze, ports
+graph [--mermaid] [--min-wave1 N]   backlog DAG: waves, critical path, cycles
+loop --verify CMD [--agent CMD] [--max N] [--task ID]   bounded verify → fix loop
+plan FILE   publish new tasks to claims without a PR (Plan-Channel: claims; needs UAK_HUMAN)
+msg DESTINO TEXTO [--kind TIPO] [--task HACK-NNN]   DESTINO: NOMBRE|HACK-NNN|related:HACK-NNN|all|human
+inbox [--ack] [--all] [--peek] [--task HACK-NNN] [--human]
+UAK_AGENT / UAK_HUMAN · UAK_REMOTE=origin · UAK_BASE=main · lease=1800s
+Why: the remote serializes claims; every session keeps an exact next step.
+USAGE
+}
+case "$CMD" in help|-h|--help) usage; exit 0;; esac
+case "$CMD" in doctor|graph|loop) exec bash "$(dirname "$0")/$CMD" "$@";; esac
+case "$CMD" in status|claim|heartbeat|release|log|checkpoint|handoff|done|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan) ;; *) die "Unknown command: $CMD";; esac
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac
+  ROOT=$(pwd -P)
+}
+ROOT=$(cd "$ROOT" && pwd -P) || gitfail "Cannot open the repository."
+BACKLOG="$ROOT/.uak/TASKS.md"
+OWNERS="$ROOT/.uak/OWNERS.md"
+source "$ROOT/.uak/bin/uak-coordination"
+source "$ROOT/.uak/bin/lib/review-merge.sh"
+source "$ROOT/.uak/bin/lib/security.sh"
+source "$ROOT/.uak/bin/lib/smoke-init.sh"
+source "$ROOT/.uak/bin/lib/messages.sh"
+# Reads one section; accepts - **Field:** value, **Field**: value and Field: value.
+task_field() {
+  awk -v id="$ID" -v key="$1" '
+    /^## / { on=($2==id) }
+    on {
+      s=$0; gsub(/\*\*/, "", s); sub(/^[[:space:]]*-[[:space:]]*/, "", s);
+      sub(/^[[:space:]]*/, "", s);
+      if (index(s,key ":")==1) {
+        sub(/^[^:]*:[[:space:]]*/, "", s); print s; exit
+      }
+    }' "$BACKLOG"
+}
+load_task() {
+  [ -f "$BACKLOG" ] || die "Missing .uak/TASKS.md."
+  awk -v id="$ID" '/^## / && $2==id {found=1} END {exit !found}' "$BACKLOG" ||
+    die "$ID is not in TASKS.md."
+  PRIORITY=$(task_field Priority)
+  case "$PRIORITY" in P0|P1|P2) ;; *) die "$ID needs Priority P0/P1/P2.";; esac
+  PATHS=$(task_field "Paths")
+  [ -n "$PATHS" ] || die "$ID needs Paths."
+  DEPENDS=$(task_field "Depends on")
+  VERIFY=$(task_field "Verify")
+  [ -n "$VERIFY" ] || die "$ID needs Verify."
+  DEFAULT_NEXT=$(task_field "Next step")
+  [ -n "$DEFAULT_NEXT" ] || DEFAULT_NEXT="Implement $ID and run: $VERIFY"
+  normalize_paths "$PATHS" > "$TXROOT/paths-request" || die "Invalid paths in $ID."
+}
+# Globs reserve their whole prefix; a root glob reserves the repo.
+# Why: reversible over-reservation avoids conflicts a glob would hide.
+normalize_paths() {
+  printf '%s\n' "$1" | awk '
+    BEGIN {bad=0}
+    {
+      n=split($0,a,",");
+      for(i=1;i<=n;i++) {
+        p=a[i]; gsub(sprintf("%c",96),"",p);
+        sub(/^[[:space:]]*/,"",p); sub(/[[:space:]]*$/,"",p);
+        gsub(/\\/,"/",p); while(p ~ /^\.\//) sub(/^\.\//,"",p);
+        gsub(/\/+/,"/",p);
+        while(p ~ /\/\.\//) gsub(/\/\.\//,"/",p);
+        sub(/\/\.$/,"",p); p=tolower(p);
+        if(p=="" || p ~ /^\// || p ~ /^[A-Za-z]:/ || p ~ /(^|\/)\.\.(\/|$)/) {bad=1; continue}
+        at=match(p,/[*?\[]/);
+        if(at) {
+          p=substr(p,1,at-1); sub(/[^\/]*$/,"",p);   # escaped \/: BSD awk (macOS) ends the regex at an unescaped /
+          if(p=="") p=".";
+        }
+        sub(/\/$/,"",p); if(p=="") p=".";
+        print p;
+      }
+    }
+    END {exit bad}' | sort -u
+}
+overlaps() {
+  awk 'NR==FNR {a[++n]=$0;next}
+    {for(i=1;i<=n;i++) if(a[i]=="." || $0=="." || a[i]==$0 ||
+      index(a[i],$0 "/")==1 || index($0,a[i] "/")==1) exit 1}' "$1" "$2"
+  [ "$?" -eq 1 ]
+}
+owner_rows() {
+  [ -f "$OWNERS" ] || return 0
+  awk -F'|' '{
+    for(i=1;i<NF;i++) {
+      p=$i; q=$(i+1); gsub(sprintf("%c",96),"",p); gsub(sprintf("%c",96),"",q);
+      sub(/^[[:space:]]*/,"",p);sub(/[[:space:]]*$/,"",p);
+      sub(/^[[:space:]]*/,"",q);sub(/[[:space:]]*$/,"",q);
+      if(q ~ /^[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+$/) print p "|" q
+    }}' "$OWNERS"
+}
+check_owners() {
+  owner_rows > "$TXROOT/owners"
+  while IFS='|' read -r pat owner; do
+    [ -n "$pat" ] || continue
+    normalize_paths "$pat" > "$TXROOT/owner-paths" || die "Invalid OWNERS pattern: $pat"
+    if overlaps "$TXROOT/paths-request" "$TXROOT/owner-paths" && [ "$owner" != "$ID" ]; then
+      conflict "$pat belongs to $owner; split the work or request its contract."
+    fi
+  done < "$TXROOT/owners"
+  while IFS= read -r path; do
+    case "/$path/" in
+      */package-lock.json/*|*/npm-shrinkwrap.json/*|*/pnpm-lock.yaml/*|*/*.lock/*|*/*.lockb/*|*/go.sum/*|*/lockfiles/*|*/migrations/*|*/contracts/*|*/types/*|*/shared-types/*|*/.github/workflows/*|*/.gitlab-ci.yml/*|*/azure-pipelines.yml/*)
+        assigned=no
+        printf '%s\n' "$path" > "$TXROOT/one-path"
+        while IFS='|' read -r pat owner; do
+          normalize_paths "$pat" > "$TXROOT/owner-paths" || die "Invalid OWNERS."
+          if overlaps "$TXROOT/one-path" "$TXROOT/owner-paths" && [ "$owner" = "$ID" ]; then assigned=yes; fi
+        done < "$TXROOT/owners"
+        [ "$assigned" = yes ] || conflict "Shared resource without an owner in OWNERS.md: $path"
+        ;;
+    esac
+  done < "$TXROOT/paths-request"
+}
+init_temp() {
+  TMP_BASE=$(cd "${TMPDIR:-/tmp}" && pwd -P) || gitfail "Cannot open TMPDIR."
+  TXROOT=$(mktemp -d "$TMP_BASE/hack.XXXXXX") || gitfail "Cannot create temp dir."
+}
+remote_setup() {
+  REMOTE_URL=$(git -C "$ROOT" config --get "remote.$REMOTE.url") ||
+    gitfail "Missing remote $REMOTE. Offline claims are not allowed."
+  case "$REMOTE_URL" in /*|[A-Za-z]:*|*://*|*@*:*) ;; *) REMOTE_URL="$ROOT/$REMOTE_URL";; esac
+  USER_NAME=$(git -C "$ROOT" config user.name 2>/dev/null || true)
+  USER_EMAIL=$(git -C "$ROOT" config user.email 2>/dev/null || true)
+  [ -n "$USER_NAME" ] || USER_NAME=${AGENT:-uak}
+  [ -n "$USER_EMAIL" ] || USER_EMAIL=uak@localhost
+}
+fresh_state() {
+  TX="$TXROOT/try-$ATTEMPT"
+  mkdir "$TX" || gitfail "Cannot create transaction."
+  git -C "$TX" init -q || gitfail "git init failed."
+  git -C "$TX" config user.name "$USER_NAME"
+  git -C "$TX" config user.email "$USER_EMAIL"
+  git -C "$TX" remote add origin "$REMOTE_URL" || gitfail "Invalid remote."
+  git -C "$TX" ls-remote --heads origin claims > "$TXROOT/refs" 2> "$TXROOT/git-error" ||
+    gitfail "Remote unreachable. $(head -n 1 "$TXROOT/git-error")"
+  if [ -s "$TXROOT/refs" ]; then
+    git -C "$TX" fetch -q origin refs/heads/claims || gitfail "fetch claims failed."
+    git -C "$TX" checkout -q -b claims FETCH_HEAD || gitfail "checkout claims failed."
+    HAS_REMOTE=yes
+  else
+    git -C "$TX" checkout -q --orphan claims || gitfail "Cannot initialize claims."
+    HAS_REMOTE=no
+  fi
+  mkdir -p "$TX/tasks" "$TX/claims" "$TX/worklog"
+}
+is_reserved() { case "$1" in CLAIMED|BLOCKED|REVIEW) return 0;; *) return 1;; esac; }
+task_file() { printf '%s/tasks/%s.md\n' "$TX" "$ID"; }
+claim_file() { printf '%s/claims/%s.md\n' "$TX" "$ID"; }
+require_owner() {
+  RECORD=$(task_file); CLAIM=$(claim_file)
+  [ -f "$CLAIM" ] && [ -f "$RECORD" ] || conflict "$ID has no active claim; do not modify someone else's work."
+  [ "$(field "$CLAIM" Owner)" = "$AGENT" ] || conflict "$ID belongs to $(field "$CLAIM" Owner)."
+  WL=$(field "$RECORD" Worklog)
+  valid_worklog "$WL" || die "Invalid worklog path."
+  [ -f "$TX/$WL" ] || die "Missing worklog $WL."
+}
+valid_worklog() { printf '%s\n' "$1" | grep -Eq '^worklog/WL-[A-Za-z0-9_.-]+\.md$'; }
+put() {
+  file=$1 key=$2 value=$(one_line "$3")
+  UAK_AWK_VALUE="$value" awk -v key="$key" '
+    BEGIN {value=ENVIRON["UAK_AWK_VALUE"]}
+    index($0,key ": ")==1 {$0=key ": " value; seen=1} {print}
+    END {if(!seen) print key ": " value}' "$file" > "$TXROOT/edit"
+  mv "$TXROOT/edit" "$file"
+}
+summary_text() {
+  valid_worklog "$WL" || die "Invalid worklog path."
+  awk '/^## Live summary$/ {on=1;next} /^## History$/ {on=0} on && NF {print}' "$TX/$WL"
+}
+read_token() { { cat "$(claim_file)"; summary_text; } | cksum | awk '{print $1 "-" $2}'; }
+set_summary() {
+  {
+    printf '# %s · %s\n\n## Live summary\n' "$WL" "$ID"
+    printf '%s\n' "- Done: $(one_line "$DONE_TEXT")" "- Decision: $(one_line "$DECISION_TEXT")" \
+      "- Why: $(one_line "$WHY_TEXT")" "- Failing: $(one_line "$FAILS_TEXT")" \
+      "- Commands: $(one_line "$COMMANDS_TEXT")" "- Next: $(one_line "$NEXT_TEXT")"
+    printf '\n## History\n'
+    [ ! -f "$TX/$WL" ] || awk 'on {print} /^## History$/ {on=1}' "$TX/$WL"
+  } > "$TXROOT/summary"
+  mv "$TXROOT/summary" "$TX/$WL"
+}
+event() { printf '%s\n' "- $NOW | $STATE | $AGENT | $(one_line "$1")" >> "$TX/$WL"; coord_event; }
+update_summary_field() {
+  label=$1 text=$(one_line "$2")
+  UAK_AWK_TEXT="$text" awk -v label="$label" '
+    BEGIN {text=ENVIRON["UAK_AWK_TEXT"]}
+    /^## Live summary$/ {on=1} /^## History$/ {on=0}
+    on && index($0,"- " label ": ")==1 {$0="- " label ": " text}
+    {print}' "$TX/$WL" > "$TXROOT/summary"
+  mv "$TXROOT/summary" "$TX/$WL"
+}
+refresh_lease() {
+  UNTIL=$((NOW + LEASE))
+  [ "$(field "$RECORD" State)" != REVIEW ] || UNTIL=$((NOW + ${REVIEW_LEASE:-$LEASE}))
+  put "$RECORD" Lease-Until "$UNTIL"; put "$RECORD" Updated "$NOW"
+  put "$CLAIM" Lease-Until "$UNTIL"; put "$CLAIM" Updated "$NOW"
+}
+check_dependencies() {
+  deps=$(printf '%s\n' "$DEPENDS" | awk '{
+    s=$0; gsub(/\([^)]*\)/, "", s); while(match(s,/[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+/)) {
+      print substr(s,RSTART,RLENGTH); s=substr(s,RSTART+RLENGTH)
+    }}')
+  for dep in $deps; do
+    [ -f "$TX/tasks/$dep.md" ] && [ "$(field "$TX/tasks/$dep.md" State)" = INTEGRATED ] ||
+      conflict "$ID depends on $dep; claim it after INTEGRATED."
+  done
+}
+check_collisions() {
+  [ ! -f "$(claim_file)" ] || conflict "$ID already has claims/$ID.md; read its summary."
+  if [ -f "$(task_file)" ]; then
+    old_state=$(field "$(task_file)" State)
+    case "$old_state" in INTEGRATED|CANCELLED) conflict "$ID is already $old_state.";; esac
+  fi
+  check_owners; check_dependencies
+  for other in "$TX"/claims/*.md; do
+    [ -f "$other" ] || continue
+    if [ "$(field "$other" Branch)" = "$BRANCH" ] || [ "$(field "$other" Worktree)" = "$WORKTREE" ]; then
+      conflict "Branch/worktree already claimed by $(field "$other" ID); use one per task."
+    fi
+    normalize_paths "$(field "$other" Paths)" > "$TXROOT/other-paths" || die "Claim with invalid Paths."
+    if overlaps "$TXROOT/paths-request" "$TXROOT/other-paths"; then
+      conflict "$ID overlaps $(field "$other" ID) ($(field "$other" Owner)); pick another task."
+    fi
+  done
+}
+snapshot() {
+  [ -f "$TX/DECISIONS.md" ] || {
+    printf '# DECISIONS\n\nCoordination decisions on the claims branch.\nWhy: a reversible option after 15 min keeps work moving.\n' > "$TX/DECISIONS.md"
+  }
+  {
+    phase='execution'
+    freeze=$(coord_config Freeze-Epoch 0)
+    if [ "$freeze" -gt 0 ] && [ "$NOW" -ge "$freeze" ]; then phase='feature freeze; authorized fixes, rehearsal and submission only'; fi
+    printf '# STATE\n\nPhase: %s\nUpdated: %s\n' "$phase" "$NOW"
+    for state in AVAILABLE CLAIMED BLOCKED REVIEW INTEGRATED CANCELLED; do
+      ids=$(for record in "$TX"/tasks/*.md; do
+        [ -f "$record" ] || continue
+        [ "$(field "$record" State)" != "$state" ] || field "$record" ID
+      done | tr '\n' ' ' | cut -c 1-120)
+      if [ "$state" = AVAILABLE ] && [ -f "$BACKLOG" ]; then
+        ids=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG" | while IFS= read -r id; do
+          [ -f "$TX/tasks/$id.md" ] || printf '%s ' "$id"
+        done; printf '%s' "$ids")
+        ids=$(printf '%s' "$ids" | cut -c 1-120)
+      fi
+      printf '%s: %s\n' "$state" "${ids:--}"
+    done
+    printf '\nClaims (first 24; status --task ID shows detail):\n'
+    for c in "$TX"/claims/*.md; do
+      [ -f "$c" ] || continue
+      printf '%s | %s | %s | until %s\n' "$(field "$c" ID)" "$(field "$c" State)" "$(field "$c" Owner)" "$(field "$c" Lease-Until)"
+    done | head -n 24
+    printf '\nBlockers: BLOCKED tasks; use status --task ID --summary.\nCurrent decisions (last 5):\n'
+    grep '^-' "$TX/DECISIONS.md" | tail -n 5 | cut -c 1-180
+    printf '\nGlobal next step: available P0; else review PRs, tests, demo, rehearsal.\nWhy: bounded snapshot to resume without rereading history.\n'
+  } > "$TX/STATE.md"
+}
+mutate() {
+  coord_init
+  RECORD=$(task_file); CLAIM=$(claim_file)
+  case "$CMD" in
+    claim)
+      coord_tick_mutate; load_task
+      [ -n "$REQUEST_NEXT" ] || NEXT_TEXT=$DEFAULT_NEXT
+      coord_claim_gate
+      check_collisions; STATE=CLAIMED; UNTIL=$((NOW + LEASE))
+      WL="worklog/WL-$NOW-$AGENT-$ID-$(basename "$TXROOT").md"
+      task_base=$CLAIM_BASE
+      if [ -f "$RECORD" ]; then
+        prior_wl=$(field "$RECORD" Worklog)
+        if [ -f "$TX/$prior_wl" ]; then
+          WL=$prior_wl
+          task_base=$(field "$RECORD" Task-Base)
+          [ -n "$REQUEST_NEXT" ] || NEXT_TEXT=$(field "$RECORD" Next)
+        fi
+      fi
+      {
+        printf '# %s\n' "$ID"
+        printf '%s\n' "ID: $ID" "State: $STATE" "Owner: $AGENT" "Branch: $BRANCH" "Worktree: $WORKTREE" \
+          "Worklog: $WL" "Priority: $PRIORITY" "Paths: $(one_line "$PATHS")" \
+          "Depends: $(one_line "$DEPENDS")" "Verify: $(one_line "$VERIFY")" \
+          "Lease-Until: $UNTIL" "Updated: $NOW" "Task-Base: $task_base" "Next: $(one_line "$NEXT_TEXT")" "PR: -" "Evidence: -"
+      } > "$RECORD"
+      cp "$RECORD" "$CLAIM"
+      DONE_TEXT="Claim created; implementation pending"
+      DECISION_TEXT="Own branch and worktree"
+      WHY_TEXT="Parallel work without touching the main checkout"
+      FAILS_TEXT="No validation run yet"; COMMANDS_TEXT=$VERIFY
+      if [ -f "$TX/$WL" ]; then update_summary_field Next "$NEXT_TEXT"; else set_summary; fi
+      event "claim; next: $NEXT_TEXT"
+      ;;
+    heartbeat)
+      coord_tick_mutate
+      require_owner; STATE=$(field "$RECORD" State)
+      refresh_lease; event "heartbeat; lease until $UNTIL"
+      ;;
+    release)
+      [ -f "$CLAIM" ] && [ -f "$RECORD" ] || conflict "$ID has no claim."
+      WL=$(field "$RECORD" Worklog); STATE=$(field "$RECORD" State)
+      valid_worklog "$WL" || die "Invalid worklog path."
+      [ -f "$TX/$WL" ] || die "Missing live summary."
+      if [ "$(field "$CLAIM" Owner)" != "$AGENT" ]; then
+        [ "$EXPIRED" = yes ] || conflict "Only the owner can release an unexpired claim."
+        until=$(field "$CLAIM" Lease-Until)
+        case "$until" in ''|*[!0-9]*) die "Invalid lease.";; esac
+        [ "$NOW" -ge "$until" ] || conflict "Lease of $ID still active."
+        [ -n "$TOKEN" ] && [ "$TOKEN" = "$(read_token)" ] ||
+          conflict "Read status --task $ID --summary and pass its current Read-token."
+      fi
+      STATE=AVAILABLE
+      if [ -n "$CANCEL_REASON" ]; then
+        [ "$(field "$CLAIM" Owner)" = "$AGENT" ] || conflict "Only the owner can cancel."
+        STATE=CANCELLED
+        put "$RECORD" Next "Cancelled: $CANCEL_REASON"
+        update_summary_field Next "Cancelled: $CANCEL_REASON"
+      fi
+      put "$RECORD" State "$STATE"; put "$RECORD" Updated "$NOW"; put "$RECORD" Lease-Until 0
+      rm "$CLAIM"; event "release; claim released by $AGENT; reason: ${CANCEL_REASON:--}; summary kept"
+      ;;
+    log)
+      require_owner; STATE=$(field "$RECORD" State)
+      if [ -n "$NEW_STATE" ]; then
+        case "$STATE" in CLAIMED|BLOCKED) ;; *) conflict "log cannot move $ID out of $STATE.";; esac
+        STATE=$NEW_STATE; put "$RECORD" State "$STATE"; put "$CLAIM" State "$STATE"
+      fi
+      [ "$STATE" != BLOCKED ] || update_summary_field Failing "$LOG_TEXT"
+      refresh_lease; event "$LOG_TEXT"
+      ;;
+    checkpoint)
+      if [ "$SESSION_ONLY" = yes ]; then coord_checkpoint_session
+      else
+        if [ -f "$CLAIM" ]; then require_owner
+        else
+          [ -f "$RECORD" ] && [ "$(field "$RECORD" Owner)" = "$AGENT" ] || conflict "Checkpoint needs your own task record or --session."
+          WL=$(field "$RECORD" Worklog); valid_worklog "$WL" && [ -f "$TX/$WL" ] || die "Missing valid worklog."
+        fi
+        STATE=$(field "$RECORD" State); set_summary
+        put "$RECORD" Next "$NEXT_TEXT"
+        if [ -f "$CLAIM" ]; then put "$CLAIM" Next "$NEXT_TEXT"; refresh_lease
+        else put "$RECORD" Updated "$NOW"; fi
+        if [ "$DECISION_TEXT" != "-" ] && [ -n "$DECISION_TEXT" ]; then
+          [ -f "$TX/DECISIONS.md" ] || printf '# DECISIONS\n' > "$TX/DECISIONS.md"
+          printf '%s\n' "- $NOW | $ID | $(one_line "$DECISION_TEXT") | Why: $(one_line "$WHY_TEXT")" >> "$TX/DECISIONS.md"
+        fi
+        event "checkpoint; next: $NEXT_TEXT"
+      fi
+      ;;
+    handoff)
+      if [ -f "$CLAIM" ]; then require_owner; refresh_lease
+      else
+        [ -f "$RECORD" ] && [ "$(field "$RECORD" Owner)" = "$AGENT" ] || conflict "Only the owner can close a handoff."
+        WL=$(field "$RECORD" Worklog)
+      fi
+      STATE=$(field "$RECORD" State); event "handoff; next: $(field "$RECORD" Next)"
+      ;;
+    tick) coord_tick_mutate;;
+    msg) msg_mutate;;
+    inbox) msg_ack_mutate;;
+    review) review_mutate;;
+    register-reviewer) register_reviewer_mutate;;
+    decision) coord_decision_mutate;;
+    plan) plan_mutate;;
+    secret-exception) secret_exception_action;;
+    done)
+      require_owner; STATE=REVIEW
+      task_branch=$(field "$RECORD" Branch)
+      task_worktree=$(field "$RECORD" Worktree)
+      tip=$(field "$RECORD" Task-Tip)
+      if [ -z "$MERGE_COMMIT" ]; then
+        tip=$(git -C "$task_worktree" rev-parse HEAD 2>/dev/null) || die "Missing worktree to record Task-Tip."
+      else
+        git check-ref-format "refs/heads/$BASE" >/dev/null 2>&1 || die "Invalid UAK_BASE."
+        git -C "$TX" fetch -q origin "refs/heads/$BASE:refs/uak/base" ||
+          gitfail "Could not verify remote base branch $BASE."
+        resolve_task_tip || conflict "$RM_REASON"
+        tip=$RM_TIP
+        [ -n "$tip" ] || conflict "Missing Task-Tip; record done (REVIEW) or push the branch first."
+        task_base=$(field "$RECORD" Task-Base)
+        [ -n "$task_base" ] && [ "$tip" != "$task_base" ] ||
+          conflict "TIP equals the claim base; nothing implemented."
+        merged=$(git -C "$TX" rev-parse --verify "$MERGE_COMMIT^{commit}" 2>/dev/null) ||
+          conflict "COMMIT not in the remote history of $BASE."
+        approval_check "$tip" "$PR_URL" || conflict "$RM_REASON"
+        [ -z "$REVIEWER" ] || [ "$REVIEWER" = "$APPROVED_BY" ] || conflict "--reviewer does not match the verified approval."
+        integrated_check "$tip" "$merged" || conflict "$RM_REASON"
+        REVIEWER=$APPROVED_BY
+        put "$RECORD" Integration-Proof "$RM_PROOF"
+        STATE=INTEGRATED
+        put "$RECORD" Merge-Commit "$merged"; put "$RECORD" Reviewer "$REVIEWER"
+      fi
+      put "$RECORD" Task-Tip "$tip"
+      put "$RECORD" State "$STATE"; put "$CLAIM" State "$STATE"
+      put "$RECORD" PR "$PR_URL"; put "$CLAIM" PR "$PR_URL"; put "$RECORD" Evidence "$EVIDENCE"
+      put "$RECORD" Next "Another agent reviews $PR_URL; run .uak/bin/smoke"
+      put "$CLAIM" Next "Another agent reviews $PR_URL; run .uak/bin/smoke"
+      update_summary_field Done "$EVIDENCE"
+      update_summary_field Next "Another agent reviews $PR_URL; run .uak/bin/smoke"
+      if [ "$STATE" = INTEGRATED ]; then
+        put "$RECORD" Next "Integrated in $BASE: $merged; claim next P0"
+        put "$RECORD" Lease-Until 0; put "$RECORD" Updated "$NOW"
+        update_summary_field Next "Integrated in $BASE: $merged; claim next P0"
+        rm "$CLAIM"
+      else refresh_lease; fi
+      event "done; PR $PR_URL; evidence: $EVIDENCE; reviewer: ${REVIEWER:--}"
+      if [ "$STATE" = INTEGRATED ]; then
+        msg_notify_related "$ID" integrated "$ID integrated in $BASE ($merged). If you depend on it: git fetch origin && git merge origin/$BASE"
+      else
+        reviewer=$(msg_pick_reviewer "$AGENT")
+        if [ -n "$reviewer" ]; then
+          msg_append "agent:$reviewer" review "$ID" "$ID ready for review (your turn by rotation): $PR_URL (SHA $tip). /uak-review $ID; if you can't, reply and any free agent takes it (uak next shows it)."
+        else
+          msg_append all review "$ID" "$ID ready for review: $PR_URL (SHA $tip). First free agent: /uak-review $ID"
+        fi
+      fi
+      ;;
+  esac
+  # An idempotent read changes no STATE and creates no empty commit.
+  if [ -n "$(git -C "$TX" status --porcelain)" ]; then snapshot; fi
+}
+plan_mutate() {
+  [ "$(coord_source_field Plan-Channel main)" = claims ] ||
+    conflict "Plan-Channel is not claims in .uak/PROJECT.md: publish the backlog by PR to $BASE."
+  plan_ids=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$PLAN_FILE")
+  [ -n "$plan_ids" ] || die "The file has no ## ID sections."
+  for ID in $plan_ids; do
+    valid_id "$ID" || die "Invalid ID in plan: $ID"
+    [ "$(awk -v id="$ID" '/^## / && $2==id {n++} END {print n+0}' "$BACKLOG" "$PLAN_FILE")" -eq 1 ] ||
+      conflict "$ID already exists in the backlog or is duplicated."
+    for key in Priority "Paths" "Depends on" "Verify"; do
+      [ -n "$(BACKLOG=$PLAN_FILE task_field "$key")" ] || die "$ID needs $key."
+    done
+  done
+  mkdir -p "$TX/backlog"
+  [ -f "$TX/backlog/TASKS.md" ] || printf '%s\n' '# Backlog published on claims (uak plan)' '' \
+    'Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for a PR.' > "$TX/backlog/TASKS.md"
+  awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {on=1} /^# / {on=0} on {print}' "$PLAN_FILE" >> "$TX/backlog/TASKS.md"
+  if grep -Eq '^\|.*\|[[:space:]]*[A-Z][A-Z0-9]*-[0-9]+[[:space:]]*\|' "$PLAN_FILE"; then
+    [ -f "$TX/backlog/OWNERS.md" ] || printf '%s\n' '# Owners published on claims' '' '| Pattern | Owner task |' '|---|---|' > "$TX/backlog/OWNERS.md"
+    grep -E '^\|.*\|[[:space:]]*[A-Z][A-Z0-9]*-[0-9]+[[:space:]]*\|' "$PLAN_FILE" >> "$TX/backlog/OWNERS.md"
+  fi
+  ID=
+  [ -f "$TX/DECISIONS.md" ] || printf "# DECISIONS\n\nCoordination decisions on the claims branch.\n" > "$TX/DECISIONS.md"
+  printf '%s\n' "- $NOW | plan | $HUMAN/$AGENT | tasks added: $(printf '%s ' $plan_ids)| Why: backlog without PR (Plan-Channel: claims)" >> "$TX/DECISIONS.md"
+  msg_append all info - "Backlog: new tasks $(printf '%s ' $plan_ids)published by $HUMAN. uak next shows them."
+}
+transaction() {
+  ATTEMPT=0
+  while :; do
+    ATTEMPT=$((ATTEMPT + 1)); fresh_state; mutate
+    git -C "$TX" add -A || gitfail "git add failed."
+    git -C "$TX" diff --cached --quiet && return 0
+    git -C "$TX" commit -q -m "uak: $CMD $ID ($AGENT)" || gitfail "git commit failed."
+    if git -C "$TX" push --porcelain origin HEAD:refs/heads/claims > "$TXROOT/push" 2>&1; then
+      if [ "${QUIET:-no}" != yes ]; then
+        if [ "$SESSION_ONLY" = yes ]; then say "OK checkpoint --session | budget reset | attempt $ATTEMPT"
+        elif [ "$CMD" = tick ]; then say "OK tick | deadlines reconciled | attempt $ATTEMPT"
+        elif [ "$CMD" = plan ]; then say "OK plan | tasks published on claims | attempt $ATTEMPT"
+        else say "OK $CMD $ID | $(field "$RECORD" State) | attempt $ATTEMPT"; fi
+      fi
+      if [ "$CMD" = handoff ]; then print_task; fi
+      return 0
+    fi
+    if grep -Eqi 'pre-receive hook declined|hook declined|protected branch|permission denied|authentication failed|remote rejected.*(policy|prohibited)' "$TXROOT/push" ||
+       ! grep -Eqi 'fetch first|non-fast-forward|cannot lock ref|already exists|failed to update ref|incorrect old value provided' "$TXROOT/push"; then
+      gitfail "push failed; the claim was not confirmed. $(tail -n 2 "$TXROOT/push")"
+    fi
+    # Why: another valid push means merge and revalidate, not give up.
+    [ "${QUIET:-no}" = yes ] || say "RETRY $CMD $ID | remote contention; fetch, rebase, revalidate" >&2
+    previous_tip=$(git -C "$TX" rev-parse HEAD^ 2>/dev/null || true)
+    git -C "$TX" fetch -q origin refs/heads/claims || gitfail "fetch after rejected push failed."
+    remote_tip=$(git -C "$TX" rev-parse FETCH_HEAD)
+    [ "$remote_tip" != "$previous_tip" ] || gitfail "push rejected without remote progress; check permissions/protection."
+    if ! git -C "$TX" rebase FETCH_HEAD > "$TXROOT/rebase" 2>&1; then
+      git -C "$TX" rebase --abort > /dev/null 2>&1 || true
+    fi
+    # Redoing from the new remote revalidates IDs, leases and overlaps even
+    # if the textual rebase was clean. A stale validation is never published.
+  done
+}
+print_task() {
+  RECORD=$(task_file)
+  if [ -f "$RECORD" ]; then
+    WL=$(field "$RECORD" Worklog)
+    say "$ID | $(field "$RECORD" State) | $(field "$RECORD" Owner)"
+    say "Branch: $(field "$RECORD" Branch)"
+    say "Worktree: $(field "$RECORD" Worktree)"
+    say "Next: $(field "$RECORD" Next)"
+    say "Worklog: $WL (claims branch)"
+    if [ "$SHOW_SUMMARY" = yes ] || [ "$CMD" = handoff ]; then
+      say "Live summary:"; summary_text
+      [ ! -f "$(claim_file)" ] || say "Read-token: $(read_token)"
+    fi
+    [ "$CMD" != handoff ] || coord_handoff
+  else
+    load_task; say "$ID | AVAILABLE | $PRIORITY"; say "Next: $DEFAULT_NEXT"; say "Verify: $VERIFY"
+  fi
+}
+print_status() {
+  [ -z "$ID" ] || { print_task; coord_status_budget; say "$CLOCK_NOTE"; return; }
+  say "uak v3.0 | remote claims | epoch $NOW | lease ${LEASE}s"
+  for state in AVAILABLE CLAIMED BLOCKED REVIEW INTEGRATED CANCELLED; do
+    count=0
+    for f in "$TX"/tasks/*.md; do
+      [ -f "$f" ] || continue
+      [ "$(field "$f" State)" != "$state" ] || count=$((count + 1))
+    done
+    if [ "$state" = AVAILABLE ] && [ -f "$BACKLOG" ]; then
+      extra=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG" | while IFS= read -r id; do
+        [ -f "$TX/tasks/$id.md" ] || say "$id"
+      done | awk 'END {print NR+0}')
+      count=$((count + extra))
+    fi
+    printf '%s=%s ' "$state" "$count"
+  done
+  printf '\n'; say "Claims (max 12; use --task ID):"
+  for f in "$TX"/claims/*.md; do
+    [ -f "$f" ] || continue
+    until=$(field "$f" Lease-Until); expiry=active
+    [ "$NOW" -lt "$until" ] || expiry=VENCIDA
+    say "$(field "$f" ID) | $(field "$f" State) | $(field "$f" Owner) | $expiry | until $until"
+  done | head -n 12
+  scope=$(sed -n 's/^# UAK_SMOKE_SCOPE: //p' "$ROOT/.uak/bin/smoke" 2>/dev/null | head -n 1)
+  say "Smoke: ${scope:-scope not declared; check .uak/bin/smoke}"
+  say "Next: run uak next."
+  coord_status_budget; say "$CLOCK_NOTE"
+}
+print_digest() {
+  say "Human digest | epoch $NOW | remote claims"; found=no
+  for f in "$TX"/tasks/*.md; do
+    [ -f "$f" ] || continue
+    state=$(field "$f" State)
+    case "$state" in REVIEW|BLOCKED)
+      found=yes
+      say "$(field "$f" ID) | $state | $(field "$f" Owner) | PR $(field "$f" PR)"
+      say "  $(field "$f" Next)"
+      ;;
+    esac
+  done
+  [ "$found" = yes ] || say "No pending reviews or blockers."
+  [ ! -f "$TX/DECISIONS.md" ] || grep '^-' "$TX/DECISIONS.md" | tail -n 5
+  human_msgs=$(msg_select human | tail -n 10)
+  [ -z "$human_msgs" ] || { say "Agent messages for humans (last 5):"; say "$human_msgs"; }
+  say "Rule: no answer in 15 min → recorded reversible decision, take another task."
+}
+budget() {
+  [ -f "$1" ] || { say "LINT: missing $1" >&2; LINT_ERRORS=$((LINT_ERRORS + 1)); return; }
+  lines=$(awk 'END {print NR+0}' "$1"); words=$(awk '{n+=NF} END {print n+0}' "$1")
+  say "BUDGET $(basename "$1"): $lines lines / $words words (max $2 / $3)"
+  if [ "$lines" -gt "$2" ] || [ "$words" -gt "$3" ]; then LINT_ERRORS=$((LINT_ERRORS + 1)); fi
+}
+lint_all() {
+  LINT_ERRORS=0; budget "$ROOT/AGENTS.md" 100 1300
+  state_file="$TX/STATE.md"; [ -f "$state_file" ] || state_file="$ROOT/STATE.md"
+  [ ! -f "$state_file" ] || budget "$state_file" 60 700
+  pr_template="$ROOT/.github/pull_request_template.md"
+  if [ ! -f "$pr_template" ] || [ "$(awk 'END {print NR+0}' "$pr_template")" -ne 5 ]; then
+    say "LINT: PR template must have 5 lines" >&2; LINT_ERRORS=$((LINT_ERRORS + 1))
+  fi
+  for w in "$TX"/worklog/*.md; do
+    [ -f "$w" ] || continue
+    summary_lines=$(awk '/^## Live summary$/ {on=1;next} /^## History$/ {on=0} on {n++} END {print n+0}' "$w")
+    if [ "$summary_lines" -gt 15 ] || [ "$(grep -c '^## Live summary$' "$w")" -ne 1 ] ||
+       [ "$(grep -c '^## History$' "$w")" -ne 1 ]; then
+      say "LINT: invalid live summary: $(basename "$w")" >&2; LINT_ERRORS=$((LINT_ERRORS + 1))
+    fi
+    if ! awk '/^## History$/ {on=1;next} on && NF && $0 !~ /^- [0-9]+ \| (AVAILABLE|CLAIMED|BLOCKED|REVIEW|INTEGRATED|CANCELLED) \| / {bad=1} END {exit bad}' "$w"; then
+      say "LINT: history must have one line per event: $(basename "$w")" >&2; LINT_ERRORS=$((LINT_ERRORS + 1))
+    fi
+    rel="worklog/$(basename "$w")"
+    if git -C "$TX" show "HEAD^:$rel" > "$TXROOT/previous" 2>/dev/null; then
+      awk '/^## History$/ {on=1;next} on {print}' "$TXROOT/previous" > "$TXROOT/history-old"
+      awk '/^## History$/ {on=1;next} on {print}' "$w" > "$TXROOT/history-new"
+      n=$(awk 'END {print NR+0}' "$TXROOT/history-old")
+      head -n "$n" "$TXROOT/history-new" > "$TXROOT/history-prefix"
+      if ! cmp -s "$TXROOT/history-old" "$TXROOT/history-prefix"; then
+        say "LINT: history modified, must be append-only: $rel" >&2; LINT_ERRORS=$((LINT_ERRORS + 1))
+      fi
+    fi
+  done
+  for f in "$TX"/tasks/*.md; do
+    [ -f "$f" ] || continue
+    state=$(field "$f" State); id=$(field "$f" ID)
+    case "$state" in AVAILABLE|CLAIMED|BLOCKED|REVIEW|INTEGRATED|CANCELLED) ;; *)
+      say "LINT: invalid state in $id" >&2; LINT_ERRORS=$((LINT_ERRORS + 1));; esac
+    reserved=no; is_reserved "$state" && reserved=yes
+    if { [ "$reserved" = yes ] && [ ! -f "$TX/claims/$id.md" ]; } ||
+       { [ "$reserved" = no ] && [ -f "$TX/claims/$id.md" ]; }; then
+      say "LINT: state and claim inconsistent in $id" >&2; LINT_ERRORS=$((LINT_ERRORS + 1))
+    fi
+    wl=$(field "$f" Worklog)
+    if ! valid_worklog "$wl" || [ ! -f "$TX/$wl" ]; then
+      say "LINT: missing valid worklog $id" >&2; LINT_ERRORS=$((LINT_ERRORS + 1))
+    fi
+  done
+  for f in "$TX"/claims/*.md; do
+    [ -f "$f" ] || continue
+    id=$(field "$f" ID)
+    [ -f "$TX/tasks/$id.md" ] || { say "LINT: orphan claim $id" >&2; LINT_ERRORS=$((LINT_ERRORS + 1)); }
+    if [ -f "$TX/tasks/$id.md" ]; then
+      for key in State Owner Branch Worktree Lease-Until Worklog; do
+        if [ "$(field "$f" "$key")" != "$(field "$TX/tasks/$id.md" "$key")" ]; then
+          say "LINT: claim and task differ in $id/$key" >&2; LINT_ERRORS=$((LINT_ERRORS + 1))
+        fi
+      done
+    fi
+  done
+  owner_rows > "$TXROOT/owners"
+  while IFS='|' read -r pat owner; do
+    [ -n "$owner" ] || continue
+    if ! awk -v id="$owner" '/^## / && $2==id {found=1} END {exit !found}' "$BACKLOG"; then
+      say "LINT: owner not in TASKS: $owner" >&2; LINT_ERRORS=$((LINT_ERRORS + 1))
+    fi
+  done < "$TXROOT/owners"
+  # sprint without a freeze = features until the last minute (Hack-Nation: 8 PRs, incl. a product rename, in the last 6 h).
+  if [ -f "$ROOT/.uak/PROJECT.md" ] && grep -Eq '^[-* ]*Mode:[* ]*sprint' "$ROOT/.uak/PROJECT.md" &&
+     ! grep -Eq '^[-* ]*Freeze-Epoch:[* ]*[1-9][0-9]*' "$ROOT/.uak/PROJECT.md"; then
+    say "LINT: Mode sprint without Freeze-Epoch in .uak/PROJECT.md" >&2; LINT_ERRORS=$((LINT_ERRORS + 1))
+  fi
+  # Execution graph: cycles and unknown dependencies make tasks unclaimable forever.
+  if [ -s "$BACKLOG" ] && [ -f "$ROOT/.uak/bin/graph" ]; then
+    bash "$ROOT/.uak/bin/graph" --file "$BACKLOG" > "$TXROOT/graph" 2>&1 ||
+      { grep -E '^(CYCLE|MISSING|DUPLICATE)' "$TXROOT/graph" | sed 's/^/LINT: /' >&2; LINT_ERRORS=$((LINT_ERRORS + 1)); }
+  fi
+  if [ "$LINT_SECRETS" = yes ]; then secrets_lint || LINT_ERRORS=$((LINT_ERRORS + 1)); fi
+  [ "$LINT_ERRORS" -eq 0 ] || { say "LINT_FAILED $LINT_ERRORS"; return 1; }
+  say "LINT_OK"
+}
+PLAN_FILE= ID= BRANCH= WORKTREE= NEXT_TEXT= REQUEST_NEXT= TOKEN= NEW_STATE= LOG_TEXT= PR_URL= EVIDENCE=
+MERGE_COMMIT= REVIEWER= CANCEL_REASON=
+EXPIRED=no SHOW_SUMMARY=no LINT_SECRETS=no QUIET=no SESSION_ONLY=no
+REVIEW_SHA= REVIEW_VERDICT= REGISTER_REVIEWER= SMOKE_COMMAND= SECRET_PATH= SECRET_RULE= SECRET_REASON=
+DECISION_OPTION= DECISION_REVERSIBLE=no DECISION_AUTHORIZED=no DECISION_CLASS=routine
+DONE_TEXT= DECISION_TEXT= WHY_TEXT= FAILS_TEXT= COMMANDS_TEXT=
+case "$CMD" in
+  status|digest|lint|tick|init-smoke) ;;
+  next) identity;;
+  checkpoint)
+    [ "$#" -gt 0 ] || die "Missing ID or --session."
+    if [ "$1" = --session ]; then SESSION_ONLY=yes; shift
+    else ID=$1; shift; valid_id "$ID" || die "Invalid ID."; fi
+    identity;;
+  register-reviewer)
+    [ "$#" -gt 0 ] || die "Missing NAME."; REGISTER_REVIEWER=$1; ID=$1; shift; identity;;
+  msg)
+    [ "$#" -gt 1 ] || die "Usage: msg TO TEXT [--kind KIND] [--task ID]."
+    MSG_TO=$1; shift; MSG_TASK=${UAK_TASK:-}; identity;;
+  inbox) identity;;
+  plan)
+    [ "$#" -gt 0 ] && [ -f "$1" ] || die "Usage: plan FILE (## ID sections in TASKS.md format)."
+    PLAN_FILE=$(cd "$(dirname "$1")" && pwd -P)/$(basename "$1"); shift
+    [ -n "$HUMAN" ] || die "plan publishes backlog: needs UAK_HUMAN (a human authorizes it)."
+    identity;;
+  *) [ "$#" -gt 0 ] || die "Missing ID."
+     ID=$1; shift; valid_id "$ID" || die "Invalid ID."; identity;;
+esac
+while [ "$#" -gt 0 ]; do
+  opt=$1; shift
+    case "$opt" in
+    --secrets) [ "$CMD" = lint ] || die "Invalid option: $opt"; LINT_SECRETS=yes;;
+    --expired) [ "$CMD" = release ] || die "Invalid option: $opt"; EXPIRED=yes;;
+    --summary) [ "$CMD" = status ] || die "Invalid option: $opt"; SHOW_SUMMARY=yes;;
+    --ack|--all|--peek|--human)
+      [ "$CMD" = inbox ] || die "Invalid option: $opt"
+      case "$opt" in --ack) MSG_ACK=yes;; --all) MSG_MODE=all;; --peek) MSG_MODE=peek;; --human) MSG_MODE=human;; esac;;
+    --kind)
+      [ "$CMD" = msg ] && [ "$#" -gt 0 ] || die "Invalid option: $opt"
+      MSG_KIND=$1; shift; msg_valid_kind "$MSG_KIND" || die "--kind: info|request|contract|blocker|reply|review|approve|reject|integrated|human";;
+    --task|--branch|--worktree|--next|--read-summary|--state|--done|--decision|--why|--fails|--commands|--pr|--evidence|--integrated|--reviewer|--cancel|--sha|--verdict|--command|--option|--reversible|--authorized|--class|--path|--rule|--reason)
+      [ "$#" -gt 0 ] || die "Missing value for $opt."
+      value=$1; shift
+      case "$opt" in
+        --task)
+          valid_id "$value" || die "Invalid ID."
+          case "$CMD" in status) ID=$value;; msg) MSG_TASK=$value;; inbox) MSG_MODE="task:$value";; *) die "Invalid option.";; esac;;
+        --branch) [ "$CMD" = claim ] || die "Invalid option."; BRANCH=$value;;
+        --worktree) [ "$CMD" = claim ] || die "Invalid option."; WORKTREE=$value;;
+        --next) case "$CMD" in claim|checkpoint) NEXT_TEXT=$value;; *) die "Invalid option.";; esac;;
+        --read-summary) [ "$CMD" = release ] || die "Invalid option."; TOKEN=$value;;
+        --state) [ "$CMD" = log ] || die "Invalid option."; NEW_STATE=$value; case "$value" in CLAIMED|BLOCKED) ;; *) die "Invalid state.";; esac;;
+        --done) [ "$CMD" = checkpoint ] || die "Invalid option."; DONE_TEXT=$value;;
+        --decision) [ "$CMD" = checkpoint ] || die "Invalid option."; DECISION_TEXT=$value;;
+        --why) case "$CMD" in checkpoint|decision) ;; *) die "Invalid option.";; esac; WHY_TEXT=$value;;
+        --fails) [ "$CMD" = checkpoint ] || die "Invalid option."; FAILS_TEXT=$value;;
+        --commands) [ "$CMD" = checkpoint ] || die "Invalid option."; COMMANDS_TEXT=$value;;
+        --pr) [ "$CMD" = done ] || die "Invalid option."; PR_URL=$value;;
+        --evidence) [ "$CMD" = done ] || die "Invalid option."; EVIDENCE=$value;;
+        --integrated) [ "$CMD" = done ] || die "Invalid option."; MERGE_COMMIT=$value;;
+        --reviewer) [ "$CMD" = done ] || die "Invalid option."; REVIEWER=$value;;
+        --sha) [ "$CMD" = review ] || die "Invalid option."; REVIEW_SHA=$value;;
+        --verdict) [ "$CMD" = review ] || die "Invalid option."; REVIEW_VERDICT=$value;;
+        --command) [ "$CMD" = init-smoke ] || die "Invalid option."; SMOKE_COMMAND=$value;;
+        --option) [ "$CMD" = decision ] || die "Invalid option."; DECISION_OPTION=$value;;
+        --reversible) [ "$CMD" = decision ] || die "Invalid option."; DECISION_REVERSIBLE=$value;;
+        --authorized) [ "$CMD" = decision ] || die "Invalid option."; DECISION_AUTHORIZED=$value;;
+        --class) [ "$CMD" = decision ] || die "Invalid option."; DECISION_CLASS=$value;;
+        --path) [ "$CMD" = secret-exception ] || die "Invalid option."; SECRET_PATH=$value;;
+        --rule) [ "$CMD" = secret-exception ] || die "Invalid option."; SECRET_RULE=$value;;
+        --reason) [ "$CMD" = secret-exception ] || die "Invalid option."; SECRET_REASON=$value;;
+        --cancel) [ "$CMD" = release ] || die "Invalid option."; CANCEL_REASON=$value;;
+      esac
+      ;;
+    *) case "$CMD" in
+         log) LOG_TEXT="$LOG_TEXT${LOG_TEXT:+ }$opt";;
+         msg) MSG_TEXT="$MSG_TEXT${MSG_TEXT:+ }$opt";;
+         *) die "Unexpected argument: $opt";;
+       esac;;
+  esac
+done
+[ "$SHOW_SUMMARY" = no ] || [ -n "$ID" ] || die "--summary needs --task ID."
+if [ -n "$AGENT" ] || [ -n "$HUMAN" ]; then identity; fi
+clock_now; init_temp
+if [ "$CMD" = init-smoke ]; then init_smoke; exit "$?"; fi
+if [ "$CMD" = claim ]; then
+  [ -n "$BRANCH" ] && [ -n "$WORKTREE" ] || die "claim needs --branch and --worktree."
+  git check-ref-format --branch "$BRANCH" > /dev/null 2>&1 || die "Invalid branch."
+  WORKTREE=$(cd "$WORKTREE" 2>/dev/null && pwd -P) || die "Worktree does not exist."
+  primary=$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^worktree //p' | head -n 1)
+  primary=$(cd "$primary" && pwd -P) || die "Invalid main checkout."
+  [ "$WORKTREE" != "$primary" ] || die "Use a worktree separate from the main checkout."
+  registered_root=$(git -C "$WORKTREE" rev-parse --show-toplevel 2>/dev/null) || die "Invalid worktree."
+  registered_root=$(cd "$registered_root" && pwd -P) || die "Invalid worktree."
+  [ "$WORKTREE" = "$registered_root" ] || die "Use the exact root of a registered worktree."
+  actual=$(git -C "$WORKTREE" symbolic-ref --short HEAD 2>/dev/null) || die "Worktree detached or invalid."
+  [ "$actual" = "$BRANCH" ] || die "Worktree is not on $BRANCH."
+  CLAIM_BASE=$(git -C "$WORKTREE" rev-parse HEAD) || die "Missing initial commit in worktree."
+  common_main=$(git -C "$ROOT" rev-parse --git-common-dir)
+  common_work=$(git -C "$WORKTREE" rev-parse --git-common-dir)
+  common_main=$(cd "$ROOT" && cd "$common_main" && pwd -P) || die "Invalid Git common dir."
+  common_work=$(cd "$WORKTREE" && cd "$common_work" && pwd -P) || die "Invalid Git common dir."
+  [ "$common_main" = "$common_work" ] || die "Worktree belongs to another repository."
+  REQUEST_NEXT=$NEXT_TEXT
+fi
+if [ "$CMD" = checkpoint ]; then
+  [ -n "$DONE_TEXT" ] && [ -n "$DECISION_TEXT" ] && [ -n "$WHY_TEXT" ] &&
+    [ -n "$FAILS_TEXT" ] && [ -n "$COMMANDS_TEXT" ] && [ -n "$NEXT_TEXT" ] ||
+    die "checkpoint needs all six fields; use - for none."
+fi
+if [ "$CMD" = done ]; then
+  case "$PR_URL" in https://*/*) ;; *) die "done needs --pr HTTPS URL.";; esac
+  [ -n "$EVIDENCE" ] || die "done needs --evidence."
+  if [ -n "$REVIEWER" ]; then
+    case "$REVIEWER" in *[!A-Za-z0-9_.-]*) die "Reviewer must be a valid identity.";; esac
+  fi
+fi
+[ "$CMD" != log ] || [ -n "$LOG_TEXT" ] || die "log needs an entry."
+[ "$CMD" != msg ] || [ -n "$MSG_TEXT" ] || die "msg needs a text."
+[ "$CMD" != msg ] || [ -z "$MSG_TASK" ] || valid_id "$MSG_TASK" || MSG_TASK=
+if [ "$CMD" = lint ] && ! git -C "$ROOT" config --get "remote.$REMOTE.url" >/dev/null 2>&1; then
+  TX="$TXROOT/local"; mkdir -p "$TX/worklog" "$TX/tasks" "$TX/claims"; lint_all; exit "$?"
+fi
+# Losing the remote is an explicit read-only mode; no offline writes.
+case "$CMD" in status|next)
+  if ! git -C "$ROOT" ls-remote --heads "$REMOTE" >/dev/null 2>&1; then coord_degraded_status; exit 0; fi;;
+esac
+remote_setup
+case "$CMD" in
+  status|next)
+    saved_cmd=$CMD saved_id=$ID; CMD=tick; ID=; QUIET=yes
+    transaction
+    CMD=$saved_cmd; ID=$saved_id; QUIET=no
+    coord_clock
+    case "$CMD" in status) print_status;; next) coord_next;; esac;;
+  digest|lint)
+    ATTEMPT=1; fresh_state
+    case "$CMD" in digest) print_digest;; lint) lint_all; exit "$?";; esac;;
+  merge) merge_run; exit "$?";;
+  inbox) msg_inbox_run; exit "$?";;
+  msg) QUIET=yes; transaction; say "OK msg $MSG_SENT";;
+  *) [ "$CMD" != tick ] || AGENT=${AGENT:-scheduler}; transaction;;
+esac

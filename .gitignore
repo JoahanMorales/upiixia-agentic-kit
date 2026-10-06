@@ -1,0 +1,7 @@
+.env
+.env.*
+!.env.example
+.uak-env
+.claude/settings.local.json
+__pycache__/
+*.pyc

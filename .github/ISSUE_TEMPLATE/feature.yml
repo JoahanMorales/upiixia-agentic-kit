@@ -1,0 +1,11 @@
+name: Feature or rule proposal
+description: A new feature, stack preset or rule (rules need evidence)
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes: { label: Problem, description: "What went wrong or was slow? Numbers beat opinions (messages, PRs, minutes, tokens)." }
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes: { label: Proposal, description: "The smallest change that would have prevented it: a rule, hook, CLI gate, template or checklist." }

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# UAK_SMOKE_SCOPE: syntax + secrets + product (.uak/bin/smoke-project); --package-only/--full add the kit suite.
+# Why: uak merge runs this smoke on every merge; the kit suite takes minutes and does not test the product.
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+cd "$root"
+mode=product
+case "${1:-}" in
+  "") ;;
+  --package-only) mode=package; shift ;;
+  --full) mode=full; shift ;;
+  *) printf '%s\n' 'Usage: .uak/bin/smoke [--package-only|--full]' >&2; exit 2 ;;
+esac
+[ "$#" -eq 0 ] || { printf '%s\n' 'Extra arguments not allowed.' >&2; exit 2; }
+for script in .uak/bin/uak .uak/bin/uak-coordination .uak/bin/guard .uak/bin/doctor .uak/bin/graph .uak/bin/loop .uak/bin/policy .uak/bin/secret-scan .uak/bin/wt .uak/bin/q .uak/bin/hook .uak/bin/lib/*.sh .githooks/pre-commit; do
+  [ ! -f "$script" ] || bash -n "$script"
+done
+if git rev-parse --show-toplevel >/dev/null 2>&1; then
+  bash .uak/bin/secret-scan --tracked
+else
+  bash .uak/bin/secret-scan --directory "$root"
+fi
+if [ "$mode" != product ]; then
+  python_runtime=''
+  for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys; assert sys.version_info >= (3, 8)' >/dev/null 2>&1; then
+      python_runtime=$candidate
+      break
+    fi
+  done
+  [ -n "$python_runtime" ] || { printf '%s\n' 'PACKAGE_UNVERIFIED: tests need Python 3.8+ (standard library).' >&2; exit 2; }
+  "$python_runtime" .uak/tests/test_hack.py --package "$root"
+  if [ -f .uak/tests/test_policy.py ]; then "$python_runtime" .uak/tests/test_policy.py --package "$root"; fi
+  "$python_runtime" .uak/tests/test_coordination.py --package "$root"
+  "$python_runtime" .uak/tests/test_review_merge.py --package "$root"
+  "$python_runtime" .uak/tests/test_v21_security.py --package "$root"
+  "$python_runtime" .uak/tests/test_v3.py --package "$root"
+  printf '%s\n' 'PACKAGE_PASS: coordination verified with real Git processes and a local bare remote.'
+fi
+if [ "$mode" = package ]; then
+  printf '%s\n' 'PRODUCT_UNVERIFIED: --package-only does not run the app nor enable product auto-merge.'
+  exit 0
+fi
+bash .uak/bin/lib/smoke-init.sh gate

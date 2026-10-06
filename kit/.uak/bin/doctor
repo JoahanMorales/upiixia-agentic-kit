@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# uak doctor: minute-0 preflight. Read-only except --fix (core.hooksPath).
+# Why: at Hack-Nation 2026 we found out late that a gh token could not create PRs (a human opened
+# them by hand), that mawk on the Jetson silently disabled the secret scanner, that port
+# 8000 was taken and that nobody set Freeze-Epoch.
+set -u
+LC_ALL=C; export LC_ALL
+fix=no; [ "${1:-}" != --fix ] || fix=yes
+fails=0 warns=0
+ok()   { printf 'OK    %s\n' "$*"; }
+warn() { printf 'WARN  %s\n' "$*"; warns=$((warns + 1)); }
+bad()  { printf 'FAIL  %s\n' "$*"; fails=$((fails + 1)); }
+field() { sed -n "s/^[-* ]*$1:[* ]*//p" "$project" 2>/dev/null | head -n 1 | tr -d '\r`'; }
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || { bad "not a Git repository"; exit 1; }
+cd "$root" || exit 1
+project=.uak/PROJECT.md
+remote=${UAK_REMOTE:-origin}
+
+# Tools
+bash_major=${BASH_VERSINFO[0]:-0}
+[ "$bash_major" -ge 3 ] && ok "bash $BASH_VERSION" || bad "bash 3.2+ required"
+git_v=$(git --version | awk '{print $3}'); ok "git $git_v"
+command -v python3 >/dev/null 2>&1 && ok "python3 $(python3 -c 'import sys;print(sys.version.split()[0])') (kit tests only)" ||
+  warn "no python3: uak works, but the kit test suite cannot run"
+if printf 'AKIA%s\n' ZZZZZZZZZZZZZZZZ | grep -Eq 'AKIA[A-Z0-9]{16}'; then ok "grep -E supports intervals (secret scanner active)"
+else bad "grep -E lacks intervals: the secret scanner would miss keys"; fi
+awk_name=$(awk -W version 2>&1 | head -n 1 | awk '{print $1}')
+case "$awk_name" in mawk) warn "awk is mawk: uak avoids awk {n} intervals; do not add rules that use them";; esac
+
+# Project
+if [ -f "$project" ]; then
+  mode=$(field Mode)
+  case "$mode" in sprint|marathon) ok "Mode: $mode";; *) bad "PROJECT.md lacks Mode: sprint|marathon";; esac
+  [ "$(field Backlog-Approved)" = yes ] && ok "Backlog-Approved: yes" || warn "Backlog-Approved is not yes: only P0 after 10 min, with Autonomy"
+  freeze=$(field Freeze-Epoch)
+  if [ "$mode" = sprint ]; then
+    case "$freeze" in ''|0|*[!0-9]*) bad "sprint without Freeze-Epoch: set it (date -d 'YYYY-MM-DD HH:MM TZ' +%s)";;
+      *) left=$(( (freeze - $(date +%s)) / 60 )); [ "$left" -gt 0 ] && ok "freeze in ${left} min" || warn "freeze passed: demo fixes only";; esac
+  fi
+else
+  bad "missing $project (bash install.sh --mode sprint|marathon)"
+fi
+[ -f .uak/TASKS.md ] && ok ".uak/TASKS.md exists" || warn "no .uak/TASKS.md yet: run /uak-plan"
+[ "$(git config --get core.hooksPath)" = .githooks ] && ok "pre-commit secret scanner active" || {
+  if [ "$fix" = yes ]; then git config core.hooksPath .githooks && ok "core.hooksPath=.githooks (fixed)"
+  else bad "core.hooksPath is not .githooks: commits skip the scanner (doctor --fix)"; fi; }
+grep -qx '.env' .gitignore 2>/dev/null && ok ".env is git-ignored" || bad ".gitignore does not ignore .env"
+grep -qx '.uak-env' .gitignore 2>/dev/null || warn ".gitignore does not ignore .uak-env"
+
+# Remote and permissions
+if url=$(git config --get "remote.$remote.url"); then
+  if git ls-remote --heads "$remote" >/dev/null 2>&1; then ok "remote $remote reachable"
+  else bad "remote $remote unreachable: no claims possible (credentials or network)"; fi
+  if git push --dry-run -q "$remote" "HEAD:refs/heads/uak-doctor-probe" >/dev/null 2>&1; then ok "push allowed (dry-run)"
+  else bad "push rejected in dry-run: no push means no claims or branches"; fi
+  git ls-remote --exit-code --heads "$remote" claims >/dev/null 2>&1 && ok "claims branch exists" ||
+    warn "claims branch not created yet (first claim creates it)"
+  case "$url" in *github.com*)
+    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+      repo=$(printf '%s' "$url" | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')
+      perm=$(gh api "repos/$repo" --jq '[.permissions.push, .permissions.maintain, .permissions.admin] | map(tostring) | join(",")' 2>/dev/null)
+      case "$perm" in true,*) ok "gh: push on $repo";; '') warn "gh could not read permissions of $repo";; *) bad "gh has no push on $repo";; esac
+      if gh pr list -R "$repo" --limit 1 >/dev/null 2>&1; then ok "gh: can read PRs"; else bad "gh cannot read PRs of $repo"; fi
+      scopes=$(gh auth status 2>&1 | sed -n "s/.*Token scopes: //p" | head -n 1)
+      if [ -n "$scopes" ]; then ok "gh classic token ($scopes)"
+      else warn "fine-grained token: ensure 'Pull requests: Read and write' and 'Contents: Read and write', or humans will open every PR by hand"; fi
+    else warn "gh not authenticated: agents cannot open PRs (gh auth login)"; fi;;
+  esac
+else
+  bad "no remote $remote: uak coordinates through the remote claims branch"
+fi
+
+# Ports
+base=${UAK_PORT_BASE:-8100}
+if command -v ss >/dev/null 2>&1; then used=$(ss -ltn 2>/dev/null | awk 'NR>1 {sub(/.*:/,"",$4); print $4}' | sort -un | tr '\n' ' ')
+elif command -v lsof >/dev/null 2>&1; then used=$(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {sub(/.*:/,"",$9); print $9}' | sort -un | tr '\n' ' ')
+else used=; fi
+if [ -n "$used" ]; then
+  busy=$(for p in 3000 5173 8000 8080 $base; do case " $used " in *" $p "*) printf '%s ' "$p";; esac; done)
+  [ -z "$busy" ] && ok "common ports free" || warn "busy ports: $busy— wt assigns UAK_PORT per worktree (base $base)"
+fi
+
+printf '\nDOCTOR %s · fails=%s warnings=%s\n' "$([ "$fails" -eq 0 ] && printf PASS || printf FAIL)" "$fails" "$warns"
+[ "$fails" -eq 0 ]

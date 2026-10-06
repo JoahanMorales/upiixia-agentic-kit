@@ -1,0 +1,14 @@
+{
+  "name": "upiixia-agentic-kit",
+  "description": "Multi-agent coordination kit for AI coding agents (sprint for hackathons, marathon for products)",
+  "owner": { "name": "Joahan Morales" },
+  "plugins": [
+    {
+      "name": "uak",
+      "description": "Install and run the UPIIXIA Agentic Kit: parallel agents with claims, leases, bounded loops, reviews and merges over Git",
+      "version": "3.0.0",
+      "source": "./",
+      "author": { "name": "Joahan Morales" }
+    }
+  ]
+}

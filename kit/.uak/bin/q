@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Quiet runner: bash .uak/bin/q CMD...  → success = 1 line; failure = last Q_LINES lines (40).
+# Full log in .git/uak-q.log for a specific range (rg/sed -n, never cat).
+# Why: test/build output is the biggest token cost and is re-sent every later turn.
+set -u
+[ "$#" -gt 0 ] || { printf '%s\n' 'Usage: bash .uak/bin/q CMD [ARGS...]' >&2; exit 2; }
+gd=$(git rev-parse --git-dir 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")
+log="$gd/uak-q.log"
+start=$(date +%s)
+"$@" > "$log" 2>&1
+code=$?
+secs=$(( $(date +%s) - start ))
+if [ "$code" -eq 0 ]; then
+  last=$(grep -v '^[[:space:]]*$' "$log" | tail -n 1 | cut -c 1-160)
+  printf 'OK exit=0 %ss · %s\n' "$secs" "${last:--}"
+else
+  printf 'FAIL exit=%s %ss · %s lines · log %s\n' "$code" "$secs" "$(awk 'END {print NR+0}' "$log")" "$log"
+  tail -n "${Q_LINES:-40}" "$log" | cut -c 1-300
+fi
+exit "$code"

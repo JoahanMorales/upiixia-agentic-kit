@@ -1,0 +1,24 @@
+# UPIIXIA Agentic Kit (uak)
+
+> Multi-agent coordination for AI coding agents (Claude Code, Codex, Cursor, Gemini CLI). Several humans and agents work in parallel on one repo with no server: claims, leases, live summaries, typed messages, bounded verify-fix loops (loop engineering), a task DAG (graph engineering), reviewer rotation and a gated merge queue, all stored on a Git branch. Two modes: sprint (hackathons, fast AI prototypes) and marathon (secure, scalable products). Bash 3.2 + Git only. MIT.
+
+Install into a repo: `git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit && bash ~/.uak-kit/install.sh --mode sprint .`
+Claude Code plugin: `/plugin marketplace add JoahanMorales/upiixia-agentic-kit`, then `/plugin install uak@upiixia-agentic-kit`, then `/uak:setup`.
+
+## Core
+- [README](README.md): what it is, quick start, modes, results
+- [AGENTS.md (kit core)](kit/AGENTS.md): the 60-line rules every agent follows
+- [Sprint mode](kit/.uak/modes/sprint.md): hackathon clock, design lock, freeze, submission
+- [Marathon mode](kit/.uak/modes/marathon.md): spec-driven flow, security, scalability, CI
+
+## Reference
+- [CLI](kit/.uak/docs/CLI.md): every uak command
+- [Protocol](kit/.uak/docs/PROTOCOL.md): claims branch, leases, reviews, merges
+- [Loop engineering](kit/.uak/docs/LOOPS.md): trigger, verifier, budget, stop, escalation; `uak loop`
+- [Graph engineering](kit/.uak/docs/GRAPH.md): members, mandates, message paths, task DAG; `uak graph`
+- [Security](kit/.uak/docs/SECURITY.md): guards, the secret scanner, the mawk trap
+- [Why each rule exists](kit/.uak/docs/WHY.md): incident-backed rules
+
+## Evidence
+- [Hack-Nation 2026 retro](docs/RETRO-hacknation-2026.md): 5 agents, 4 humans, 76 PRs, with data
+- [Inspirations](docs/INSPIRATIONS.md): AGENTS.md, Spec Kit, BMAD, Kiro, Task Master, superpowers

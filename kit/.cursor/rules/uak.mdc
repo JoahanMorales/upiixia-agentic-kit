@@ -1,0 +1,9 @@
+---
+description: UPIIXIA Agentic Kit — multi-agent coordination (AGENTS.md + mode)
+alwaysApply: true
+---
+Read and apply `AGENTS.md` once per session, then `.uak/modes/<mode>.md` (the mode is in `.uak/PROJECT.md`).
+- Start: `bash .uak/bin/uak next`. Take a task: `bash .uak/bin/wt new ID --agent NAME`, then work ONLY inside that worktree.
+- No hooks here. Every ~10 min and after each criterion, run `bash .uak/bin/uak heartbeat ID` and `bash .uak/bin/uak inbox`. Reply with `uak msg`.
+- Before any destructive or publishing git/shell command: `bash .uak/bin/guard check "<command>"`. If it exits 2, do not run it.
+- Phase scripts live in `.claude/commands/uak-*.md`. Read the one for your phase (start, loop, ship, review, handoff).

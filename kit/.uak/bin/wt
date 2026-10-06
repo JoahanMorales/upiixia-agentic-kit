@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# One-command task start: branch + worktree + identity (.uak-env) + port + claim. Bash 3.2+.
+# Why: the manual ritual (4 commands with flags) is the most common session-start error.
+set -u
+set -o pipefail
+LC_ALL=C; export LC_ALL
+REMOTE=${UAK_REMOTE:-origin}
+BASE=${UAK_BASE:-main}
+say() { printf '%s\n' "$*"; }
+die() { say "WT_ERROR: $*" >&2; exit 2; }
+usage() {
+  cat <<'USAGE'
+wt new ID [--agent NAME] [--human NAME] [--next TEXT]   create branch/worktree, write .uak-env, claim
+wt session                                                          rotate UAK_SESSION of this worktree (new session)
+wt rm ID                                                      remove your worktree (no --force; keeps the branch)
+wt ls                                                               list worktrees
+USAGE
+}
+clean_id() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9_.-]+$'; }
+main_root() { git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'; }
+wt_path() { printf '%s/%s-wt/%s' "$(dirname "$1")" "$(basename "$1")" "$(printf '%s' "$2" | tr 'A-Z' 'a-z')"; }
+write_env() {
+  # $1 dir, $2 agent, $3 human, $4 task
+  local session
+  session="$2-$(date +%s)"
+  # Own port per worktree: agents on one machine run their apps without clashing.
+  # API on UAK_PORT, web on UAK_PORT+1. Why: on the Jetson port 8000 was taken.
+  num=$(printf '%s' "$4" | sed 's/.*-0*//'); case "$num" in ''|*[!0-9]*) num=0;; esac
+  port=$(( ${UAK_PORT_BASE:-8100} + (num % 90) * 10 ))
+  printf 'UAK_AGENT=%s\nUAK_HUMAN=%s\nUAK_SESSION=%s\nUAK_TASK=%s\nUAK_PORT=%s\n' "$2" "$3" "$session" "$4" "$port" > "$1/.uak-env"
+  # Claude Code applies this env to every agent Bash command in this worktree.
+  mkdir -p "$1/.claude"
+  printf '{\n  "env": {\n    "UAK_AGENT": "%s",\n    "UAK_HUMAN": "%s",\n    "UAK_SESSION": "%s",\n    "UAK_TASK": "%s",\n    "UAK_PORT": "%s"\n  }\n}\n' \
+    "$2" "$3" "$session" "$4" "$port" > "$1/.claude/settings.local.json"
+}
+cmd=${1:-help}; [ "$#" -eq 0 ] || shift
+case "$cmd" in
+  help|-h|--help) usage; exit 0;;
+  ls) git worktree list; exit $?;;
+  session)
+    top=$(git rev-parse --show-toplevel 2>/dev/null) || die "Run inside a worktree."
+    [ -f "$top/.uak-env" ] || die "This worktree has no .uak-env; use wt new."
+    agent=$(sed -n 's/^UAK_AGENT=//p' "$top/.uak-env"); human=$(sed -n 's/^UAK_HUMAN=//p' "$top/.uak-env")
+    task=$(sed -n 's/^UAK_TASK=//p' "$top/.uak-env")
+    write_env "$top" "$agent" "$human" "$task"
+    say "SESSION: $(sed -n 's/^UAK_SESSION=//p' "$top/.uak-env")"; exit 0;;
+  rm)
+    id=${1:-}; printf '%s' "$id" | grep -Eq '^[A-Z][A-Z0-9]*-[0-9]{3,}$' || die "Usage: wt rm ID"
+    root=$(main_root); [ -n "$root" ] || die "Not a Git repository."
+    path=$(wt_path "$root" "$id")
+    git -C "$root" worktree remove "$path" || die "Did not remove $path (uncommitted changes). Check it; never --force someone else's work."
+    say "WT_REMOVED: $path (branch kept)"; exit 0;;
+  new) ;;
+  *) usage >&2; exit 2;;
+esac
+
+id=${1:-}; [ "$#" -eq 0 ] || shift
+printf '%s' "$id" | grep -Eq '^[A-Z][A-Z0-9]*-[0-9]{3,}$' || die "Usage: wt new ID [--agent NAME] [--human NAME] [--next TEXT]"
+agent=${UAK_AGENT:-} human=${UAK_HUMAN:-} next_text=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --agent) [ "$#" -gt 1 ] || die "--agent needs a value"; agent=$2; shift 2;;
+    --human) [ "$#" -gt 1 ] || die "--human needs a value"; human=$2; shift 2;;
+    --next) [ "$#" -gt 1 ] || die "--next needs a value"; next_text=$2; shift 2;;
+    *) die "Unknown option: $1";;
+  esac
+done
+[ -n "$agent" ] || die "Set --agent NAME or UAK_AGENT (unique and stable per agent, e.g. ana-1)."
+[ -n "$human" ] || human=$(git config user.name 2>/dev/null | tr -c 'A-Za-z0-9_.\n-' '-' | tr -s '-' | tr -d '\n')
+clean_id "$agent" || die "--agent: letters, digits, dot, dash or underscore only."
+clean_id "$human" || die "--human: letters, digits, dot, dash or underscore only."
+
+root=$(main_root); [ -n "$root" ] || die "Not a Git repository."
+lower=$(printf '%s' "$id" | tr 'A-Z' 'a-z')
+branch="feat/$lower"
+path=$(wt_path "$root" "$id")
+[ ! -e "$path" ] || die "$path exists. If yours: cd \"$path\". If not: leave it."
+git -C "$root" show-ref --verify --quiet "refs/heads/$branch" && die "Branch $branch already exists locally; check uak status --task $id --summary."
+
+# Writes .git/config only if needed: several agents on one machine start at once.
+[ "$(git -C "$root" config --get core.hooksPath)" = .githooks ] || git -C "$root" config core.hooksPath .githooks
+git -C "$root" fetch -q "$REMOTE" "$BASE" || die "Could not fetch $REMOTE/$BASE."
+mkdir -p "$(dirname "$path")"
+# --no-track: no upstream means no .git/config write (avoids lock contention).
+added=no
+for attempt in 1 2 3 4 5; do
+  if git -C "$root" worktree add -q --no-track -b "$branch" "$path" "$REMOTE/$BASE" 2> "${TMPDIR:-/tmp}/wt-add.$$"; then added=yes; break; fi
+  # A failed attempt may leave the branch without a worktree: reuse it only if still at base.
+  if [ ! -e "$path" ] && git -C "$root" show-ref --verify --quiet "refs/heads/$branch" &&
+     [ -z "$(git -C "$root" rev-list "$REMOTE/$BASE..$branch" 2>/dev/null)" ]; then
+    git -C "$root" worktree add -q "$path" "$branch" 2>> "${TMPDIR:-/tmp}/wt-add.$$" && { added=yes; break; }
+  fi
+  sleep "$attempt"
+done
+[ "$added" = yes ] || { cat "${TMPDIR:-/tmp}/wt-add.$$" >&2; rm -f "${TMPDIR:-/tmp}/wt-add.$$"; die "Could not create the worktree."; }
+rm -f "${TMPDIR:-/tmp}/wt-add.$$"
+write_env "$path" "$agent" "$human" "$id"
+
+set -- claim "$id" --branch "$branch" --worktree "$path"
+[ -z "$next_text" ] || set -- "$@" --next "$next_text"
+code=0
+(cd "$path" && bash .uak/bin/uak "$@") || code=$?
+if [ "$code" -ne 0 ]; then
+  # Undo only what this command created and that has no own commits yet.
+  if [ -z "$(git -C "$root" rev-list "$REMOTE/$BASE..$branch" 2>/dev/null)" ]; then
+    rm -f "$path/.uak-env" "$path/.claude/settings.local.json"
+    git -C "$root" worktree remove "$path" >/dev/null 2>&1 && git -C "$root" branch -D "$branch" >/dev/null 2>&1
+  fi
+  say "WT_CLAIM_FAILED ($code): pick another task with bash .uak/bin/uak next." >&2
+  exit "$code"
+fi
+(cd "$path" && bash .uak/bin/uak inbox --task "$id" 2>/dev/null | tail -n 20)
+say "WT_READY: $id · branch $branch · worktree $path"
+say "Next: cd \"$path\" and open your agent there (claude / codex / cursor)."

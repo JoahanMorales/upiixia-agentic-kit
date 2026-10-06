@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# uak loop: bounded autonomous verify → fix loop (loop engineering). Bash 3.2+.
+#   loop --verify CMD [--agent CMD] [--prompt FILE] [--max N] [--minutes M] [--tail L] [--task ID]
+# Each iteration runs --verify; pass → exit 0. On failure, the agent gets a short prompt on stdin
+# (also in $UAK_PROMPT_FILE) with the command, exit code and the last L lines of output.
+# Stops on: pass (0) · budget exhausted (3) · same failure twice in a row = stuck (3) · usage (2).
+# Agent output goes to .git/uak-loop.log, never to your context. With --task: heartbeat each
+# iteration and BLOCKED with the exact error on exhaustion.
+set -u
+LC_ALL=C; export LC_ALL
+verify= agent=${UAK_LOOP_AGENT:-} prompt_file= max=5 minutes=0 tail_n=40 task=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --verify) verify=${2:-}; shift 2;;
+    --agent) agent=${2:-}; shift 2;;
+    --prompt) prompt_file=${2:-}; shift 2;;
+    --max) max=${2:-}; shift 2;;
+    --minutes) minutes=${2:-}; shift 2;;
+    --tail) tail_n=${2:-}; shift 2;;
+    --task) task=${2:-}; shift 2;;
+    -h|--help) sed -n '2,9p' "$0"; exit 0;;
+    *) printf 'loop: unknown option %s\n' "$1" >&2; exit 2;;
+  esac
+done
+[ -n "$verify" ] || { printf 'loop: --verify CMD is required (a machine check; no verifier, no loop)\n' >&2; exit 2; }
+for n in "$max" "$minutes" "$tail_n"; do case "$n" in ''|*[!0-9]*) printf 'loop: numeric options need integers\n' >&2; exit 2;; esac; done
+[ -z "$prompt_file" ] || [ -f "$prompt_file" ] || { printf 'loop: --prompt %s not found\n' "$prompt_file" >&2; exit 2; }
+gd=$(git rev-parse --git-dir 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")
+here=$(cd "$(dirname "$0")" && pwd)
+log="$gd/uak-loop.log" out="$gd/uak-loop.verify" pf="$gd/uak-loop.prompt"
+start=$(date +%s) last_sig= same=0 i=0
+: > "$log"
+uak() { [ -z "$task" ] || bash "$here/uak" "$@" >/dev/null 2>&1 || true; }
+while :; do
+  i=$((i + 1))
+  bash -c "$verify" > "$out" 2>&1; code=$?
+  if [ "$code" -eq 0 ]; then
+    printf 'LOOP_PASS iteration=%s · %s\n' "$i" "$(grep -v '^[[:space:]]*$' "$out" | tail -n 1 | cut -c 1-120)"
+    uak log "$task" "loop pass after $i iteration(s): $verify"
+    exit 0
+  fi
+  sig=$(tail -n "$tail_n" "$out" | sed 's/[0-9][0-9.]*m*s//g; s/0x[0-9a-f]*//g' | cksum | awk '{print $1}')
+  if [ "$sig" = "$last_sig" ]; then same=$((same + 1)); else same=0; fi
+  last_sig=$sig
+  printf 'LOOP_FAIL iteration=%s exit=%s · %s\n' "$i" "$code" "$(grep -v '^[[:space:]]*$' "$out" | tail -n 1 | cut -c 1-120)"
+  reason=
+  [ "$same" -lt 1 ] || reason="stuck: same failure twice"
+  [ "$i" -lt "$max" ] || reason=${reason:-"budget: $max iterations"}
+  if [ "$minutes" -gt 0 ] && [ $(( $(date +%s) - start )) -ge $((minutes * 60)) ]; then reason=${reason:-"budget: $minutes min"}; fi
+  [ -n "$agent" ] || reason=${reason:-"no --agent: verify-only run"}
+  if [ -n "$reason" ]; then
+    printf 'LOOP_STOP %s · last error: %s\n' "$reason" "$(grep -v '^[[:space:]]*$' "$out" | tail -n 1 | cut -c 1-160)"
+    uak log "$task" --state BLOCKED "loop stopped ($reason) on: $verify · $(grep -v '^[[:space:]]*$' "$out" | tail -n 1 | cut -c 1-160)"
+    exit 3
+  fi
+  {
+    printf 'You are fixing a failing check in this repository (iteration %s of %s).\n' "$i" "$max"
+    [ -z "$prompt_file" ] || { printf '\nTask context:\n'; cat "$prompt_file"; printf '\n'; }
+    printf '\nCheck: %s\nExit code: %s\nLast %s lines of output:\n' "$verify" "$code" "$tail_n"
+    tail -n "$tail_n" "$out"
+    printf '\nRules: find the root cause and make the smallest correct change. Do not weaken, skip or delete tests or the check to make it pass. Do not touch files outside the task. Do not commit, push or deploy. When the change is done, stop.\n'
+  } > "$pf"
+  printf '\n===== iteration %s =====\n' "$i" >> "$log"
+  UAK_PROMPT_FILE="$pf" bash -c "$agent" < "$pf" >> "$log" 2>&1 || printf 'agent exit %s\n' "$?" >> "$log"
+  uak heartbeat "$task"
+done

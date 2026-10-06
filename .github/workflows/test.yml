@@ -1,0 +1,24 @@
+name: test
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  suite:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: mawk too (Debian/Ubuntu default awk)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y mawk && awk -W version | head -1
+      - name: Git identity for fixtures
+        run: git config --global user.name ci && git config --global user.email ci@example.invalid
+      - name: Protocol suite (real Git, local bare remotes)
+        working-directory: kit
+        run: bash .uak/bin/smoke --package-only
+      - name: Installer
+        run: |
+          t=$(mktemp -d) && git -C "$t" init -q -b main && bash install.sh --mode marathon "$t" && test -f "$t/.uak/PROJECT.md"

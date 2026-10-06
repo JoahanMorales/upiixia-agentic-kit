@@ -1,0 +1,26 @@
+# uak gates for your project. marathon: make this check required in main's branch protection.
+name: uak
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: uak-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secrets in tracked files
+        run: bash .uak/bin/secret-scan --tracked
+      - name: Kit syntax
+        run: for f in .uak/bin/* .uak/bin/lib/*.sh; do [ -f "$f" ] && bash -n "$f"; done
+      - name: Backlog graph (no cycles, no unknown deps)
+        run: if [ -f .uak/TASKS.md ]; then bash .uak/bin/graph --file .uak/TASKS.md; fi
+      - name: Product smoke
+        run: |
+          if [ -f .uak/bin/smoke-project ]; then bash .uak/bin/smoke-project
+          else echo "PRODUCT_UNVERIFIED: run uak init-smoke --command '<your real check>'"; fi

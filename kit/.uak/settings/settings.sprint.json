@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "BASH_MAX_OUTPUT_LENGTH": "12000"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(bash .uak/bin/uak:*)",
+      "Bash(bash .uak/bin/wt:*)",
+      "Bash(bash .uak/bin/q:*)",
+      "Bash(bash .uak/bin/smoke:*)",
+      "Bash(bash .uak/bin/smoke-project:*)",
+      "Bash(bash .uak/bin/secret-scan:*)",
+      "Bash(bash .uak/bin/policy:*)",
+      "Bash(bash .uak/bin/doctor:*)",
+      "Bash(bash .uak/bin/guard check:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git fetch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push origin feat/*)",
+      "Bash(git push -u origin feat/*)",
+      "Bash(git push -u origin HEAD)",
+      "Bash(git merge origin/main)",
+      "Bash(git rebase origin/main)",
+      "Bash(git switch:*)",
+      "Bash(git branch:*)",
+      "Bash(git worktree list:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr review:*)",
+      "Bash(gh pr list:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv run:*)",
+      "Bash(pytest:*)",
+      "Bash(ruff:*)",
+      "Bash(curl -s http://localhost:*)",
+      "Bash(curl -s http://127.0.0.1:*)",
+      "Bash(rg:*)",
+      "Bash(ls:*)",
+      "Bash(npm --prefix web run:*)",
+      "Bash(npm --prefix web ci:*)",
+      "Bash(npm run:*)",
+      "Bash(uv add:*)",
+      "Bash(npm --prefix web install:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(uv run python .claude/skills/webapp-testing/scripts/with_server.py:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git push origin --delete:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -f:*)",
+      "Bash(git worktree remove --force:*)",
+      "Bash(git branch -D:*)",
+      "Bash(sudo:*)",
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)",
+      "Bash(rm -rf ..:*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/.env)",
+      "Read(./secrets/**)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.uak/bin/hook\" session-start",
+            "timeout": 45
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.uak/bin/guard\" prompt",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.uak/bin/guard\" bash",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.uak/bin/hook\" tick",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.uak/bin/hook\" stop",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

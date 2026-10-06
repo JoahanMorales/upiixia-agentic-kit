@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Scans exactly the index; authorizes and publishes nothing.
+set -u
+root=$(git rev-parse --show-toplevel) || exit 2
+bash "$root/.uak/bin/secret-scan" --staged

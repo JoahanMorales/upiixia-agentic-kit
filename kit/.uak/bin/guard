@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# uak guards for Claude Code hooks (also callable by any agent). Bash 3.2+, no jq.
+#   guard bash     (PreToolUse, matcher Bash): blocks destructive or publishing commands
+#                  even when chained (`cd x && git push --force`).
+#   guard prompt   (UserPromptSubmit): blocks human messages that contain secrets.
+#   guard check "COMANDO"   manual test of the bash rule (exit 2 = blocked).
+# Why: at Hack-Nation 2026 the settings.json deny list (prefix match) missed a chained force-push
+# and `worktree remove --force`, and a human pasted an API key and a sudo password into the chat.
+# Exit: 0 = allowed; 2 = blocked (Claude Code shows stderr to the agent or human).
+set -u
+LC_ALL=C; export LC_ALL
+
+mode() {
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || { printf 'sprint'; return; }
+  m=$(sed -n 's/^[-* ]*Mode:[* ]*//p' "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `')
+  case "$m" in marathon) printf 'marathon';; *) printf 'sprint';; esac
+}
+
+block() { printf 'UAK_GUARD: blocked · %s\n' "$*" >&2; exit 2; }
+
+# Split into segments on ; && || | and newlines (including JSON-escaped \n).
+segments() {
+  # awk, not sed: BSD sed (macOS) does not turn \n into a newline in replacements.
+  printf '%s\n' "$1" | awk '{ gsub(/\\n|&&|\|\||;|\|/, "\n"); print }'
+}
+
+check_bash() {
+  cmd=$1 m=$(mode)
+  while IFS= read -r seg; do
+    s=" $seg "
+    case "$s" in *git*push*)
+      if printf '%s' "$s" | grep -Eq -- '(^|[[:space:]])(--force|--force-with-lease|-f|--mirror)([[:space:]=]|$)|[[:space:]]\+[A-Za-z0-9_./-]+'; then
+        block "forced push rewrites shared history. Use git merge origin/main and a normal push."
+      fi
+      if printf '%s' "$s" | grep -Eq -- '(^|[[:space:]])(--delete|-d)([[:space:]]|$)|[[:space:]]:[A-Za-z0-9_./-]+'; then
+        block "deleting remote branches is for the branch's human owner."
+      fi;;
+    esac
+    printf '%s' "$s" | grep -Eq 'git[[:space:]].*reset[[:space:]].*--hard' &&
+      block "git reset --hard destroys uncommitted work. Use git stash or a wip: commit."
+    printf '%s' "$s" | grep -Eq 'git[[:space:]].*clean[[:space:]]+-[A-Za-z]*f' &&
+      block "git clean -f deletes untracked files (including .env). Delete your files one by one."
+    printf '%s' "$s" | grep -Eq 'git[[:space:]].*worktree[[:space:]]+remove.*(--force|[[:space:]]-f([[:space:]]|$))' &&
+      block "worktree remove --force loses uncommitted changes. Use bash .uak/bin/wt rm ID."
+    printf '%s' "$s" | grep -Eq 'git[[:space:]].*branch[[:space:]].*(-D|--delete[[:space:]]+--force)' &&
+      block "git branch -D: delete only your merged branches, with -d."
+    printf '%s' "$s" | grep -Eq '(^|[[:space:]])--no-verify([[:space:]]|$)' &&
+      block "--no-verify skips the pre-commit secret scanner."
+    printf '%s' "$s" | grep -Eq '(^|[[:space:]])sudo([[:space:]]|$)' &&
+      block "sudo needs the human: ask them to run it themselves. Never ask for or use their password."
+    printf '%s' "$s" | grep -Eq 'rm[[:space:]]+-[A-Za-z]*[rR][A-Za-z]*[[:space:]]+(-[A-Za-z]+[[:space:]]+)*("|'"'"')?(/|~|\$HOME|\.\.|\.git([[:space:]/]|$)|\*)' &&
+      block "rm -r outside your worktree or on .git. Delete concrete relative paths of your task."
+    printf '%s' "$s" | grep -Eq '(curl|wget)[[:space:]].*' && printf '%s\n' "$cmd" | grep -Eq '(curl|wget)[^|]*\|[[:space:]]*(ba|z)?sh' &&
+      block "curl | sh runs unreviewed remote code. Download, read, then run."
+    printf '%s' "$s" | grep -Eq '(cat|less|more|head|tail|bat|grep|rg|sed|awk|cp|scp|base64|xxd|strings|source|\.)[[:space:]]([^#]*[[:space:]/])?\.env(\.(local|production|prod|dev|development|staging))?([[:space:]]|$)' &&
+      block ".env holds secrets and never enters context. Read .env.example or ask which variable exists."
+    printf '%s' "$s" | grep -Eq '(npm|pnpm|yarn)[[:space:]]+publish|(uv|poetry)[[:space:]]+publish|twine[[:space:]]+upload|gh[[:space:]]+(repo[[:space:]]+(create|delete|edit)|release[[:space:]]+create)|docker[[:space:]]+push' &&
+      block "publishing outside the repo is a human action."
+    if [ "$m" = marathon ]; then
+      printf '%s' "$s" | grep -Eq 'gh[[:space:]]+pr[[:space:]]+merge|git[[:space:]].*push[[:space:]].*[[:space:]](main|master|release[^[:space:]]*)([[:space:]]|$)' &&
+        block "marathon mode: main changes only via PR with green CI and human CODEOWNERS approval."
+      printf '%s' "$s" | grep -Eq '(npm|pnpm|yarn)[[:space:]]+(install|add|i)[[:space:]]+[^-]|uv[[:space:]]+add[[:space:]]|pip[[:space:]]+install[[:space:]]+[^-]' &&
+        block "marathon mode: a new dependency needs uak decision (license, maintenance, audit) and approval."
+    fi
+  done <<EOF
+$(segments "$cmd")
+EOF
+  return 0
+}
+
+check_prompt() {
+  text=$1
+  hit=
+  printf '%s' "$text" | grep -Eq 'sk-(proj-|ant-|live_|test_)?[A-Za-z0-9_-]{20,}' && hit='API key (sk-…)'
+  printf '%s' "$text" | grep -Eq 'gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}' && hit='GitHub token'
+  printf '%s' "$text" | grep -Eq 'AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}' && hit='AWS key'
+  printf '%s' "$text" | grep -Eq 'AIza[0-9A-Za-z_-]{35}' && hit='Google API key'
+  printf '%s' "$text" | grep -Eq 'xox[abprs]-[A-Za-z0-9-]{10,}' && hit='Slack token'
+  printf '%s' "$text" | grep -Eq -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' && hit='private key'
+  printf '%s' "$text" | grep -Eiq '(contrase(n|ñ|\\u00f1)a|password|passwd|clave)[^.]{0,30}(sudo|root|admin|es|is|:|=)[[:space:]]*[^[:space:]]{6,}' && hit='password'
+  [ -z "$hit" ] && return 0
+  printf 'UAK_GUARD: your message looks like it contains a secret (%s); it was NOT sent to the agent.\n' "$hit" >&2
+  printf '%s\n' '- Put it in .env (git-ignored) from your editor; the agent only needs the variable name.' \
+    '- If you already pasted it elsewhere, rotate it.' \
+    '- Run sudo commands yourself; the agent never needs your password.' >&2
+  exit 2
+}
+
+# Extract a string field from flat JSON (enough for hook payloads).
+json_field() {
+  awk -v key="$1" 'BEGIN {RS="\001"} {
+    k="\"" key "\""; i=index($0,k); if(!i) exit
+    s=substr($0,i+length(k)); sub(/^[[:space:]]*:[[:space:]]*"/,"",s)
+    out=""; n=length(s)
+    for(j=1;j<=n;j++){c=substr(s,j,1); if(c=="\\"){out=out c substr(s,j+1,1); j++; continue} if(c=="\"") break; out=out c}
+    gsub(/\\"/,"\"",out); gsub(/\\\\/,"\\",out); print out}'
+}
+
+case "${1:-}" in
+  bash)
+    input=$(cat 2>/dev/null || true)
+    case "$input" in *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*) ;; *) exit 0;; esac
+    check_bash "$(printf '%s' "$input" | json_field command)";;
+  prompt)
+    input=$(cat 2>/dev/null || true)
+    check_prompt "$(printf '%s' "$input" | json_field prompt)";;
+  check) check_bash "${2:-}"; printf 'UAK_GUARD: allowed\n';;
+  check-prompt) check_prompt "${2:-}"; printf 'UAK_GUARD: allowed\n';;
+  *) printf '%s\n' 'Usage: guard bash|prompt (hook JSON on stdin) · guard check "CMD" · guard check-prompt "TEXT"' >&2; exit 2;;
+esac
+exit 0

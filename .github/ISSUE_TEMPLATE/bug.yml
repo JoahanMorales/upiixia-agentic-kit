@@ -1,0 +1,18 @@
+name: Bug report
+description: Something in the kit doesn't work
+labels: [bug]
+body:
+  - type: input
+    id: command
+    attributes: { label: Command, placeholder: "bash .uak/bin/uak claim HACK-003 ..." }
+    validations: { required: true }
+  - type: textarea
+    id: output
+    attributes: { label: Output (exact, no secrets), render: text }
+    validations: { required: true }
+  - type: input
+    id: env
+    attributes: { label: Environment, placeholder: "macOS 15 / Ubuntu 24.04 · bash --version · git --version · awk -W version" }
+  - type: dropdown
+    id: mode
+    attributes: { label: Mode, options: [sprint, marathon] }

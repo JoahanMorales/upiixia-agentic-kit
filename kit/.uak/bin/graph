@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# uak graph: the backlog as an execution DAG. Waves, critical path, cycles, missing deps, Mermaid.
+#   graph [--mermaid] [--min-wave1 N] [--file TASKS.md]
+# Reads .uak/TASKS.md plus claims:backlog/TASKS.md (uak plan), and task states from origin/claims when available.
+# Exit: 0 ok · 1 cycle, missing dependency or wave 1 below --min-wave1 · 2 usage.
+# Portable awk (mawk-safe: no {n} intervals, no gensub, no arrays of arrays).
+set -u
+LC_ALL=C; export LC_ALL
+mermaid=no min1=0 file=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --mermaid) mermaid=yes; shift;;
+    --min-wave1) min1=${2:-}; shift 2;;
+    --file) file=${2:-}; shift 2;;
+    *) printf 'Usage: graph [--mermaid] [--min-wave1 N] [--file TASKS.md]\n' >&2; exit 2;;
+  esac
+done
+case "$min1" in ''|*[!0-9]*) printf 'graph: --min-wave1 needs an integer\n' >&2; exit 2;; esac
+root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-graph.XXXXXX") || exit 2
+trap 'rm -rf "$tmp"' EXIT
+remote=${UAK_REMOTE:-origin}
+if [ -z "$file" ]; then
+  file="$tmp/backlog.md"
+  cat "$root/.uak/TASKS.md" > "$file" 2>/dev/null || : > "$file"
+  if git -C "$root" fetch -q "$remote" claims 2>/dev/null; then
+    { printf '\n'; git -C "$root" show FETCH_HEAD:backlog/TASKS.md 2>/dev/null; } >> "$file"
+    git -C "$root" ls-tree --name-only FETCH_HEAD tasks/ 2>/dev/null | while IFS= read -r t; do
+      printf '%s %s\n' "$(basename "$t" .md)" "$(git -C "$root" show "FETCH_HEAD:$t" 2>/dev/null | sed -n 's/^State: //p' | head -n 1)"
+    done > "$tmp/states"
+  fi
+fi
+[ -f "$file" ] || { printf 'graph: %s not found\n' "$file" >&2; exit 2; }
+touch "$tmp/states"
+awk -v mermaid="$mermaid" -v min1="$min1" -v sf="$tmp/states" '
+  BEGIN { while ((getline line < sf) > 0) { split(line, sa, " "); state[sa[1]] = sa[2] } }
+  function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+  function ids(s, kind,   t) {
+    gsub(/\([^)]*\)/, "", s)
+    while (match(s, /[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+/)) {
+      t = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
+      ne++; esrc[ne] = cur; edst[ne] = t; ekind[ne] = kind
+    }
+  }
+  function minutes(s,   n, u) {
+    s = tolower(s); if (!match(s, /[0-9]+(\.[0-9]+)?/)) return 30
+    n = substr(s, RSTART, RLENGTH) + 0; u = substr(s, RSTART + RLENGTH)
+    if (u ~ /^[[:space:]]*(h|hour|hora)/) return int(n * 60)
+    if (u ~ /^[[:space:]]*(d|day|dia|día)/) return int(n * 480)
+    return int(n)
+  }
+  /^## [A-Z][A-Z0-9]*-[0-9]/ {
+    cur = $2
+    if (!(cur in seen)) { seen[cur] = 1; order[++n] = cur; est[cur] = 30; title[cur] = $0
+      sub(/^## [^ ]+[[:space:]]*[·—:-]*[[:space:]]*/, "", title[cur]) }
+    else dup[cur] = 1
+    next
+  }
+  /^## / || /^# / { cur = ""; next }
+  cur != "" {
+    s = $0; gsub(/\*\*/, "", s); sub(/^[[:space:]]*-[[:space:]]*/, "", s)
+    if (s ~ /^Depends on[[:space:]]*:/) { sub(/^[^:]*:/, "", s); ids(s, "hard") }
+    else if (s ~ /^Uses contract[[:space:]]*:/) { sub(/^[^:]*:/, "", s); ids(s, "soft") }
+    else if (s ~ /^Estimate[[:space:]]*:/) { sub(/^[^:]*:/, "", s); est[cur] = minutes(s) }
+    else if (s ~ /^Priority[[:space:]]*:/) { sub(/^[^:]*:/, "", s); prio[cur] = trim(s) }
+  }
+  END {
+    bad = 0
+    for (d in dup) { print "DUPLICATE: " d; bad = 1 }
+    for (i = 1; i <= ne; i++) {
+      if (!(edst[i] in seen)) { print "MISSING: " esrc[i] " depends on unknown " edst[i]; bad = 1; continue }
+      if (esrc[i] == edst[i]) { print "CYCLE: " esrc[i] " depends on itself"; bad = 1; continue }
+      if (ekind[i] == "hard") { indeg[esrc[i]]++ }
+    }
+    # Kahn by levels: wave(t) = 1 + max wave(hard deps). Longest weighted path for the critical path.
+    done = 0; wave = 0
+    while (done < n) {
+      wave++; cnt = 0; list = ""
+      for (k = 1; k <= n; k++) { t = order[k]; if (!(t in lvl) && indeg[t] + 0 == 0) { pick[++cnt] = t } }
+      if (cnt == 0) break
+      for (j = 1; j <= cnt; j++) {
+        t = pick[j]; lvl[t] = wave; done++; list = list " " t
+        best = 0; via = ""
+        for (i = 1; i <= ne; i++) if (ekind[i] == "hard" && esrc[i] == t && (edst[i] in cost) && cost[edst[i]] > best) { best = cost[edst[i]]; via = edst[i] }
+        cost[t] = best + est[t]; prev[t] = via
+      }
+      for (j = 1; j <= cnt; j++) for (i = 1; i <= ne; i++) if (ekind[i] == "hard" && edst[i] == pick[j] && (edst[i] in seen)) indeg[esrc[i]]--
+      wl[wave] = cnt; wtxt[wave] = list
+    }
+    waves = wave; if (done < n) waves = wave - 1
+    if (done < n) {
+      c = ""; for (k = 1; k <= n; k++) if (!(order[k] in lvl)) c = c " " order[k]
+      print "CYCLE:" c; bad = 1
+    }
+    end = ""; top = -1
+    for (k = 1; k <= n; k++) { t = order[k]; if ((t in cost) && cost[t] > top) { top = cost[t]; end = t } }
+    path = end; t = end; while (t != "" && prev[t] != "") { t = prev[t]; path = t " → " path }
+    if (mermaid == "yes") {
+      print "```mermaid"; print "flowchart LR"
+      for (k = 1; k <= n; k++) {
+        t = order[k]; lab = title[t]; gsub(/["\[\]]/, "", lab); if (length(lab) > 40) lab = substr(lab, 1, 37) "..."
+        id = t; gsub(/-/, "_", id)
+        print "  " id "[\"" t " · " lab "\"]" (state[t] != "" ? ":::" tolower(state[t]) : "")
+      }
+      for (i = 1; i <= ne; i++) if (edst[i] in seen) {
+        a = edst[i]; b = esrc[i]; gsub(/-/, "_", a); gsub(/-/, "_", b)
+        print "  " a (ekind[i] == "hard" ? " --> " : " -.-> ") b
+      }
+      print "  classDef integrated fill:#d1fadf,stroke:#16a34a"; print "  classDef claimed fill:#dbeafe,stroke:#2563eb"
+      print "  classDef review fill:#fef9c3,stroke:#ca8a04"; print "  classDef blocked fill:#fee2e2,stroke:#dc2626"
+      print "```"
+    } else {
+      printf "GRAPH %d tasks · %d waves · critical path %d min: %s\n", n, waves, (top < 0 ? 0 : top), path
+      for (w = 1; w <= waves; w++) printf "wave %d (%d):%s\n", w, wl[w], wtxt[w]
+      if (n > 0 && wl[1] + 0 < min1) { printf "WAVE1_TOO_NARROW: %d task(s) can start now; need %d (one per agent)\n", wl[1] + 0, min1; bad = 1 }
+    }
+    exit bad
+  }' "$file"

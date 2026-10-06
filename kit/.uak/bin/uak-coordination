@@ -1,0 +1,407 @@
+#!/usr/bin/env bash
+# CLI module; Bash 3.2+, Git and POSIX tools, no jq/Python.
+# Why: the remote publishes decisions and deadlines with CAS evidence.
+
+coord_read() {
+  local coord_line coord_prefix="$2: "
+  [ -f "$1" ] || return 0
+  while IFS= read -r coord_line; do
+    case "$coord_line" in "$coord_prefix"*) printf '%s\n' "${coord_line#"$coord_prefix"}"; return 0;; esac
+  done < "$1"
+}
+coord_put() {
+  local coord_line coord_seen=no coord_prefix="$2: "
+  {
+    while IFS= read -r coord_line; do
+      case "$coord_line" in "$coord_prefix"*) printf '%s\n' "$2: $3"; coord_seen=yes;; *) printf '%s\n' "$coord_line";; esac
+    done < "$1"
+    [ "$coord_seen" = yes ] || printf '%s\n' "$2: $3"
+  } > "$TXROOT/coord-edit"
+  mv "$TXROOT/coord-edit" "$1"
+}
+coord_config() {
+  coord_v=
+  [ ! -f "$TX/meta/config.md" ] || coord_v=$(coord_read "$TX/meta/config.md" "$1")
+  [ -n "$coord_v" ] || coord_v=${2:-}
+  printf '%s\n' "$coord_v"
+}
+coord_uint() {
+  case "$2" in ''|*[!0-9]*) die "$1 must be an integer >= 0.";; esac
+}
+coord_yesno() { case "$2" in yes|no) ;; *) die "$1 must be yes or no.";; esac; }
+coord_source_field() {
+  coord_v=$(sed -n "s/^$1: //p" "$TXROOT/coord-source" | head -n 1 | tr -d '\r')
+  [ -n "$coord_v" ] || coord_v=$2
+  printf '%s\n' "$coord_v"
+}
+coord_init() {
+  [ "${COORD_INITIALIZED_TX:-}" != "$TX" ] || return 0
+  mkdir -p "$TX/meta/agents" "$TX/meta/sessions" "$TX/meta/task-sessions" "$TX/meta/decisions" "$TX/deadlines" "$TX/queue"
+  git check-ref-format "refs/heads/$BASE" >/dev/null 2>&1 || die "Invalid UAK_BASE."
+  # Config comes from the remote base, never from a stale worktree.
+  git -C "$TX" fetch -q origin "refs/heads/$BASE:refs/uak/config" || gitfail "Could not read PROJECT.md on remote $BASE."
+  git -C "$TX" show refs/uak/config:.uak/TASKS.md > "$TXROOT/canonical-TASKS.md" 2>/dev/null || : > "$TXROOT/canonical-TASKS.md"
+  git -C "$TX" show refs/uak/config:.uak/OWNERS.md > "$TXROOT/canonical-OWNERS.md" 2>/dev/null || : > "$TXROOT/canonical-OWNERS.md"
+  # Backlog published with `uak plan` on claims is appended to main's, no PR.
+  # Why: at Hack-Nation 8 PRs only added tasks and 3 merges fell to the human queue over TASKS.md.
+  [ ! -f "$TX/backlog/TASKS.md" ] || { printf '\n'; cat "$TX/backlog/TASKS.md"; } >> "$TXROOT/canonical-TASKS.md"
+  [ ! -f "$TX/backlog/OWNERS.md" ] || { printf '\n'; cat "$TX/backlog/OWNERS.md"; } >> "$TXROOT/canonical-OWNERS.md"
+  BACKLOG="$TXROOT/canonical-TASKS.md"; OWNERS="$TXROOT/canonical-OWNERS.md"
+  coord_source=$(git -C "$TX" rev-parse --verify 'refs/uak/config:.uak/PROJECT.md' 2>/dev/null || printf '%s' '-')
+  git -C "$TX" show refs/uak/config:.uak/PROJECT.md > "$TXROOT/coord-source" 2>/dev/null || : > "$TXROOT/coord-source"
+  COORD_INITIALIZED_TX=$TX
+  # Lease per mode (sprint 45 min, marathon 4 h); UAK_LEASE_SECONDS wins if set. REVIEW waits longer:
+  # reviewers and humans are slow; an expired REVIEW lease forced pointless recovery.
+  if [ -z "${UAK_LEASE_SECONDS:-}" ]; then LEASE=$(coord_source_field Lease-Seconds "$LEASE"); fi
+  REVIEW_LEASE=$(coord_source_field Review-Lease-Seconds $((LEASE * 4)))
+  case "$LEASE$REVIEW_LEASE" in *[!0-9]*) die "Lease-Seconds and Review-Lease-Seconds must be integers.";; esac
+  coord_old_source=$(coord_config Config-Source UNINITIALIZED)
+  [ "$coord_old_source" != "$coord_source" ] || return 0
+  coord_proposed=$(coord_source_field Backlog-Proposed-Epoch 0)
+  coord_uint Backlog-Proposed-Epoch "$coord_proposed"
+  if [ "$coord_proposed" -eq 0 ]; then
+    coord_proposed=$(coord_config Backlog-Proposed-Epoch "$NOW")
+  fi
+  coord_approved=$(coord_source_field Backlog-Approved no)
+  coord_autonomy=$(coord_source_field Autonomy no)
+  coord_auto_merge=$(coord_source_field Auto-Merge no)
+  coord_freeze=$(coord_source_field Freeze-Epoch 0)
+  coord_budget=$(coord_source_field Events-Per-Session 100)
+  coord_percent=$(coord_source_field Checkpoint-Percent 60)
+  coord_review_mode=$(coord_source_field Review-Mode auto)
+  coord_merge_lease=$(coord_source_field Merge-Lease-Seconds 1800)
+  coord_merge_wait=$(coord_source_field Merge-Wait-Seconds 180)
+  coord_yesno Backlog-Approved "$coord_approved"; coord_yesno Autonomy "$coord_autonomy"
+  coord_yesno Auto-Merge "$coord_auto_merge"
+  coord_uint Freeze-Epoch "$coord_freeze"; coord_uint Events-Per-Session "$coord_budget"
+  coord_uint Checkpoint-Percent "$coord_percent"; coord_uint Merge-Lease-Seconds "$coord_merge_lease"
+  coord_uint Merge-Wait-Seconds "$coord_merge_wait"
+  [ "$coord_budget" -gt 0 ] && [ "$coord_percent" -gt 0 ] && [ "$coord_percent" -le 100 ] && [ "$coord_merge_lease" -gt 0 ] || die "Invalid budget, percent or merge lease."
+  case "$coord_review_mode" in auto|claims|gh) ;; *) die "Review-Mode must be auto, claims or gh.";; esac
+  {
+    printf '# Verifiable config\n'
+    printf '%s\n' "Config-Source: $coord_source" "Backlog-Proposed-Epoch: $coord_proposed" \
+      "Backlog-Approved: $coord_approved" "Autonomy: $coord_autonomy" "Auto-Merge: $coord_auto_merge" \
+      "Freeze-Epoch: $coord_freeze" "Events-Per-Session: $coord_budget" "Checkpoint-Percent: $coord_percent" \
+      "Review-Mode: $coord_review_mode" "Merge-Lease-Seconds: $coord_merge_lease" "Merge-Wait-Seconds: $coord_merge_wait"
+  } > "$TX/meta/config.md"
+}
+coord_receipt() {
+  coord_kind=$1 coord_key=$2 coord_deadline=$3 coord_effect=$4 coord_detail=$5
+  case "$coord_kind:$coord_key" in *[!A-Za-z0-9_.:-]*) die "Invalid deadline key.";; esac
+  coord_uint Deadline "$coord_deadline"
+  coord_receipt_file="$TX/deadlines/$coord_kind-$coord_key-$coord_deadline.md"
+  [ ! -f "$coord_receipt_file" ] || return 1
+  mkdir -p "$TX/deadlines"
+  {
+    printf '# Evaluated deadline\n'
+    printf '%s\n' "Kind: $coord_kind" "Key: $coord_key" "Deadline: $coord_deadline" \
+      "Evaluated: $NOW" "Effect: $coord_effect" "Detail: $(one_line "$coord_detail")"
+  } > "$coord_receipt_file"
+  [ -f "$TX/DECISIONS.md" ] || printf '# DECISIONS\n' > "$TX/DECISIONS.md"
+  printf '%s\n' "- $NOW | deadline $coord_kind/$coord_key/$coord_deadline | $coord_effect | $(one_line "$coord_detail")" >> "$TX/DECISIONS.md"
+  return 0
+}
+coord_apply_decision() {
+  # CLI globals stay intact when tick processes another task.
+  local ID RECORD CLAIM WL STATE coord_dfile=$1 coord_doption=$2 coord_dwhy=$3 coord_duntil coord_dnext coord_dstats
+  ID=$(coord_read "$coord_dfile" Task); RECORD=$(task_file); CLAIM=$(claim_file)
+  [ -f "$RECORD" ] && [ -f "$CLAIM" ] || return 0
+  [ "$(coord_read "$RECORD" Owner)" = "$(coord_read "$coord_dfile" Owner)" ] || return 0
+  WL=$(coord_read "$RECORD" Worklog); valid_worklog "$WL" && [ -f "$TX/$WL" ] || return 0
+  STATE=$(coord_read "$RECORD" State); coord_duntil=$(coord_read "$CLAIM" Lease-Until)
+  coord_dnext="Apply option: $coord_doption"
+  if [ "$NOW" -ge "$coord_duntil" ]; then
+    coord_dnext="Recover lease with token; then apply option: $coord_doption"
+  elif [ "$STATE" = BLOCKED ]; then
+    STATE=CLAIMED; coord_put "$RECORD" State "$STATE"; coord_put "$CLAIM" State "$STATE"
+  fi
+  coord_put "$RECORD" Next "$coord_dnext"; coord_put "$CLAIM" Next "$coord_dnext"
+  update_summary_field Decision "$coord_doption"; update_summary_field Why "$coord_dwhy"
+  update_summary_field Next "$coord_dnext"
+  # Scheduler event: does not consume the budget of the agent that called tick.
+  printf '%s\n' "- $NOW | $STATE | scheduler | deadline decision $(basename "$coord_dfile" .md); option: $(one_line "$coord_doption"); Why: $(one_line "$coord_dwhy")" >> "$TX/$WL"
+  mkdir -p "$TX/meta/tasks"
+  coord_dstats="$TX/meta/tasks/$ID.md"
+  if [ ! -f "$coord_dstats" ]; then
+    printf '%s\n' "Task: $ID" "Events: 0" "Checkpoints: 0" "Sessions: 0" "Last-Checkpoint: 0" > "$coord_dstats"
+  fi
+  coord_counter_inc "$coord_dstats" Events
+  coord_put "$RECORD" Events "$(coord_read "$coord_dstats" Events)"
+}
+coord_tick_mutate() {
+  coord_init
+  coord_proposed=$(coord_config Backlog-Proposed-Epoch "$NOW")
+  coord_deadline=$((coord_proposed + 600))
+  if [ "$(coord_config Backlog-Approved no)" = no ] && [ "$NOW" -ge "$coord_deadline" ]; then
+    coord_effect=WAIT_AUTHORIZATION
+    [ "$(coord_config Autonomy no)" != yes ] || coord_effect=ALLOW_P0
+    coord_receipt backlog proposed "$coord_deadline" "$coord_effect" "Only P0 with active autonomy; a timeout grants no permissions." || true
+  fi
+  coord_freeze=$(coord_config Freeze-Epoch 0)
+  if [ "$coord_freeze" -gt 0 ] && [ "$NOW" -ge "$coord_freeze" ]; then
+    coord_receipt freeze event "$coord_freeze" FREEZE_DEMO_FIXES_ONLY "New claims only with Freeze-Allowed: yes; respect authorization." || true
+  fi
+  for coord_claim in "$TX"/claims/*.md; do
+    [ -f "$coord_claim" ] || continue
+    coord_until=$(coord_read "$coord_claim" Lease-Until); coord_uint Lease-Until "$coord_until"
+    if [ "$coord_until" -gt 0 ] && [ "$NOW" -ge "$coord_until" ]; then
+      coord_id=$(coord_read "$coord_claim" ID)
+      coord_receipt lease "$coord_id" "$coord_until" REQUIRES_RECOVERY "Claim kept; read the summary and use release --expired --read-summary. No work is deleted." || true
+    fi
+  done
+  for coord_decision in "$TX"/meta/decisions/*.md; do
+    [ -f "$coord_decision" ] || continue
+    [ "$(coord_read "$coord_decision" Status)" = PENDING ] || continue
+    coord_opened=$(coord_read "$coord_decision" Opened); coord_uint Opened "$coord_opened"
+    coord_deadline=$((coord_opened + 900))
+    [ "$NOW" -ge "$coord_deadline" ] || continue
+    coord_effect=BLOCKED_OTHER_TASK
+    if [ "$(coord_read "$coord_decision" Class)" = routine ] &&
+       [ "$(coord_read "$coord_decision" Authorized)" = yes ] &&
+       [ "$(coord_read "$coord_decision" Reversible)" = yes ] && [ "$(coord_config Autonomy no)" = yes ]; then
+      coord_effect=REVERSIBLE_AND_LOG
+    fi
+    coord_key=$(basename "$coord_decision" .md)
+    coord_option=$(coord_read "$coord_decision" Option); coord_why=$(coord_read "$coord_decision" Why)
+    if coord_receipt decision "$coord_key" "$coord_deadline" "$coord_effect" "Option: $coord_option; Why: $coord_why; no money, accounts, publishing or scope expansion."; then
+      [ "$coord_effect" != REVERSIBLE_AND_LOG ] || coord_apply_decision "$coord_decision" "$coord_option" "$coord_why"
+    fi
+    coord_put "$coord_decision" Status "$coord_effect"; coord_put "$coord_decision" Evaluated "$NOW"
+  done
+  # Reconciling the queue keeps human reasons and task states.
+  for coord_task in "$TX"/tasks/*.md; do
+    [ -f "$coord_task" ] || continue
+    coord_id=$(coord_read "$coord_task" ID); coord_state=$(coord_read "$coord_task" State)
+    coord_q="$TX/queue/$coord_id.md"
+    if [ "$coord_state" = REVIEW ] && [ ! -f "$coord_q" ]; then
+      printf '%s\n' "# Integration queue" "Task: $coord_id" "State: PENDING" \
+        "Owner: $(coord_read "$coord_task" Owner)" "Task-Tip: $(coord_read "$coord_task" Task-Tip)" \
+        "PR: $(coord_read "$coord_task" PR)" "Updated: $NOW" > "$coord_q"
+    elif [ "$coord_state" = INTEGRATED ] && [ -f "$coord_q" ] && [ "$(coord_read "$coord_q" State)" != INTEGRATED ]; then
+      coord_put "$coord_q" State INTEGRATED; coord_put "$coord_q" Updated "$NOW"
+    fi
+  done
+  if typeset -f merge_tick_lock >/dev/null 2>&1; then merge_tick_lock; fi
+}
+coord_threshold() {
+  coord_budget=$(coord_config Events-Per-Session 100)
+  coord_percent=$(coord_config Checkpoint-Percent 60)
+  printf '%s\n' "$(((coord_budget * coord_percent + 99) / 100))"
+}
+coord_agent_file() { printf '%s/meta/agents/%s.md\n' "$TX" "$AGENT"; }
+coord_remote_task_field() {
+  [ -f "$BACKLOG" ] || return 1
+  awk -v id="$ID" -v key="$1" '
+    /^## / { on=($2==id) }
+    on {
+      s=$0; gsub(/\*\*/, "", s); sub(/^[[:space:]]*-[[:space:]]*/, "", s); sub(/^[[:space:]]*/, "", s);
+      if (index(s,key ":")==1) { sub(/^[^:]*:[[:space:]]*/, "", s); print s; exit }
+    }' "$BACKLOG"
+}
+coord_claim_gate() {
+  [ "$(coord_config Autonomy no)" = yes ] || conflict "Missing explicit Autonomy: yes in remote .uak/PROJECT.md; a timeout does not authorize."
+  if [ "$(coord_config Backlog-Approved no)" != yes ]; then
+    coord_proposed=$(coord_config Backlog-Proposed-Epoch "$NOW")
+    [ "$NOW" -ge "$((coord_proposed + 600))" ] && [ "$(coord_remote_task_field Priority)" = P0 ] || conflict "Backlog pending approval: only P0 after 600 s, with autonomy."
+  fi
+  coord_freeze=$(coord_config Freeze-Epoch 0)
+  if [ "$coord_freeze" -gt 0 ] && [ "$NOW" -ge "$coord_freeze" ]; then
+    [ "$(coord_remote_task_field Freeze-Allowed)" = yes ] || conflict "FREEZE: task lacks Freeze-Allowed: yes in remote TASKS; pick authorized demo fixes."
+  fi
+  coord_af=$(coord_agent_file); coord_since=0
+  [ ! -f "$coord_af" ] || coord_since=$(coord_read "$coord_af" Events-Since-Checkpoint)
+  [ "$coord_since" -lt "$(coord_threshold)" ] || conflict "CHECKPOINT NOW: a recent checkpoint is required before claiming new tasks."
+}
+coord_session() {
+  coord_sid=${UAK_SESSION:-stable}
+  printf '%s\n' "$coord_sid" | grep -Eq '^[A-Za-z0-9_.-]{1,64}$' || die "UAK_SESSION must be 1-64 letters, digits, dot or dash."
+}
+coord_counter_inc() {
+  coord_counter_file=$1 coord_counter_key=$2
+  coord_n=$(coord_read "$coord_counter_file" "$coord_counter_key")
+  [ -n "$coord_n" ] || coord_n=0
+  coord_uint "$coord_counter_key" "$coord_n"
+  coord_put "$coord_counter_file" "$coord_counter_key" "$((coord_n + 1))"
+}
+coord_event() {
+  [ -n "$AGENT" ] && [ -n "$ID" ] || return 0
+  coord_session
+  mkdir -p "$TX/meta/agents" "$TX/meta/sessions/agent-$AGENT" "$TX/meta/tasks" "$TX/meta/task-sessions/$ID/agent-$AGENT"
+  coord_af=$(coord_agent_file)
+  if [ ! -f "$coord_af" ]; then
+    printf '%s\n' "# $AGENT" "Agent: $AGENT" "Started: $NOW" "Events: 0" "Events-Since-Checkpoint: 0" "Checkpoints: 0" "Sessions: 0" "Last-Checkpoint: 0" > "$coord_af"
+  fi
+  coord_sf="$TX/meta/sessions/agent-$AGENT/session-$coord_sid.md"
+  if [ ! -f "$coord_sf" ]; then
+    printf '%s\n' "# Observed session" "Agent: $AGENT" "Session: $coord_sid" "Started: $NOW" "Events: 0" "Checkpoints: 0" > "$coord_sf"
+    coord_counter_inc "$coord_af" Sessions
+  fi
+  coord_tf="$TX/meta/task-sessions/$ID/agent-$AGENT/session-$coord_sid.md"
+  coord_taskstats="$TX/meta/tasks/$ID.md"
+  if [ ! -f "$coord_taskstats" ]; then
+    printf '%s\n' "Task: $ID" "Events: 0" "Checkpoints: 0" "Sessions: 0" "Last-Checkpoint: 0" > "$coord_taskstats"
+  fi
+  if [ ! -f "$coord_tf" ]; then
+    printf '%s\n' "Agent: $AGENT" "Session: $coord_sid" "Started: $NOW" > "$coord_tf"
+    coord_counter_inc "$coord_taskstats" Sessions
+  fi
+  coord_counter_inc "$coord_af" Events; coord_counter_inc "$coord_sf" Events
+  coord_counter_inc "$coord_taskstats" Events
+  if [ "$CMD" = checkpoint ]; then
+    coord_put "$coord_af" Events-Since-Checkpoint 0; coord_put "$coord_af" Last-Checkpoint "$NOW"
+    coord_counter_inc "$coord_af" Checkpoints; coord_counter_inc "$coord_sf" Checkpoints
+    coord_counter_inc "$coord_taskstats" Checkpoints; coord_put "$coord_taskstats" Last-Checkpoint "$NOW"
+  else coord_counter_inc "$coord_af" Events-Since-Checkpoint; fi
+  coord_put "$coord_af" Last-Session "$coord_sid"; coord_put "$coord_af" Updated "$NOW"
+  coord_put "$coord_sf" Updated "$NOW"
+  for coord_stats_key in Events Checkpoints Sessions Last-Checkpoint; do
+    coord_put "$RECORD" "$coord_stats_key" "$(coord_read "$coord_taskstats" "$coord_stats_key")"
+  done
+}
+coord_status_budget() {
+  if [ -z "$AGENT" ]; then say "Budget: set UAK_AGENT to see events/checkpoint."; return; fi
+  coord_af=$(coord_agent_file); coord_since=0 coord_total=0
+  if [ -f "$coord_af" ]; then coord_since=$(coord_read "$coord_af" Events-Since-Checkpoint); coord_total=$(coord_read "$coord_af" Events); fi
+  coord_alert=$(coord_threshold); coord_left=$((coord_alert - coord_since)); coord_suffix=
+  if [ "$coord_left" -le 0 ]; then coord_left=0; coord_suffix=' | CHECKPOINT NOW'; fi
+  say "Events: $coord_since/$coord_alert alert (total $coord_total); checkpoint required in $coord_left events$coord_suffix"
+}
+coord_handoff() {
+  coord_sessions=$(coord_read "$RECORD" Sessions); [ -n "$coord_sessions" ] || coord_sessions=0
+  say "Observed sessions: $coord_sessions | Pending: $(coord_read "$RECORD" Next)"
+}
+coord_checkpoint_session() {
+  # Writes only its own profile; touches no tasks and creates no claims.
+  coord_session
+  mkdir -p "$TX/meta/agents" "$TX/meta/profiles" "$TX/meta/sessions/agent-$AGENT"
+  coord_af=$(coord_agent_file)
+  if [ ! -f "$coord_af" ]; then
+    printf '%s\n' "# $AGENT" "Agent: $AGENT" "Started: $NOW" "Events: 0" "Events-Since-Checkpoint: 0" "Checkpoints: 0" "Sessions: 0" "Last-Checkpoint: 0" > "$coord_af"
+  fi
+  coord_sf="$TX/meta/sessions/agent-$AGENT/session-$coord_sid.md"
+  if [ ! -f "$coord_sf" ]; then
+    printf '%s\n' "# Observed session" "Agent: $AGENT" "Session: $coord_sid" "Started: $NOW" "Events: 0" "Checkpoints: 0" > "$coord_sf"
+    coord_counter_inc "$coord_af" Sessions
+  fi
+  coord_pf="$TX/meta/profiles/agent-$AGENT.md"
+  {
+    printf '# Session checkpoint · %s\n\n' "$AGENT"
+    printf '%s\n' "Agent: $AGENT" "Session: $coord_sid" "Checkpoint: $NOW"
+    printf '\n## Live summary\n'
+    printf '%s\n' "- Done: $(one_line "$DONE_TEXT")" "- Decision: $(one_line "$DECISION_TEXT")" \
+      "- Why: $(one_line "$WHY_TEXT")" "- Failing: $(one_line "$FAILS_TEXT")" \
+      "- Commands: $(one_line "$COMMANDS_TEXT")" "- Next: $(one_line "$NEXT_TEXT")"
+    printf '\n## History\n'
+    [ ! -f "$coord_pf" ] || awk 'on {print} /^## History$/ {on=1}' "$coord_pf"
+    printf '%s\n' "- $NOW | checkpoint | $AGENT | session $coord_sid; next: $(one_line "$NEXT_TEXT")"
+  } > "$TXROOT/coord-profile"
+  mv "$TXROOT/coord-profile" "$coord_pf"
+  coord_counter_inc "$coord_af" Events; coord_counter_inc "$coord_sf" Events
+  coord_counter_inc "$coord_af" Checkpoints; coord_counter_inc "$coord_sf" Checkpoints
+  coord_put "$coord_af" Events-Since-Checkpoint 0; coord_put "$coord_af" Last-Checkpoint "$NOW"
+  coord_put "$coord_af" Last-Session "$coord_sid"; coord_put "$coord_af" Updated "$NOW"
+  coord_put "$coord_sf" Last-Checkpoint "$NOW"; coord_put "$coord_sf" Updated "$NOW"
+}
+coord_decision_mutate() {
+  require_owner
+  coord_yesno Reversible "$DECISION_REVERSIBLE"; coord_yesno Authorized "$DECISION_AUTHORIZED"
+  case "$DECISION_CLASS" in routine|money|accounts|publish|scope) ;; *) die "Invalid decision class.";; esac
+  [ -n "$DECISION_OPTION" ] && [ -n "$WHY_TEXT" ] || die "decision needs --option and --why."
+  mkdir -p "$TX/meta/decisions"
+  coord_df="$TX/meta/decisions/$ID-$NOW.md"
+  [ ! -f "$coord_df" ] || conflict "A decision for $ID already exists at epoch $NOW."
+  printf '%s\n' "# Pending decision" "Task: $ID" "Owner: $AGENT" "Opened: $NOW" "Status: PENDING" \
+    "Class: $DECISION_CLASS" "Authorized: $DECISION_AUTHORIZED" "Reversible: $DECISION_REVERSIBLE" \
+    "Option: $(one_line "$DECISION_OPTION")" "Why: $(one_line "$WHY_TEXT")" > "$coord_df"
+  WL=$(coord_read "$RECORD" Worklog); STATE=$(coord_read "$RECORD" State)
+  event "pending decision $ID-$NOW; option: $DECISION_OPTION; Why: $WHY_TEXT"
+  msg_append human human "$ID" "Pending decision ($DECISION_CLASS): $DECISION_OPTION. Why: $WHY_TEXT. Applied after 15 min without answer if routine and authorized"
+}
+coord_clock() {
+  CLOCK_NOTE=
+  coord_remote_now=${UAK_REMOTE_NOW:-}
+  if [ -n "$coord_remote_now" ]; then coord_uint UAK_REMOTE_NOW "$coord_remote_now"
+  elif [ -n "${UAK_NOW:-}" ]; then
+    CLOCK_NOTE='Clock: simulated; remote comparison not checked.'; return
+  elif command -v gh >/dev/null 2>&1 && printf '%s\n' "$REMOTE_URL" | grep -Eq '(^|[/:@])github\.com[:/]'; then
+    coord_date=$(gh api --include /rate_limit 2>/dev/null | sed -n 's/^[Dd][Aa][Tt][Ee]:[[:space:]]*//p' | head -n 1 | tr -d '\r')
+    if [ -n "$coord_date" ]; then
+      coord_remote_now=$(date -d "$coord_date" +%s 2>/dev/null || date -j -f '%a, %d %b %Y %T %Z' "$coord_date" +%s 2>/dev/null || true)
+    fi
+  fi
+  if [ -z "$coord_remote_now" ]; then CLOCK_NOTE='Remote clock not checked: needs the GitHub API Date header.'; return; fi
+  coord_uint Remote-Date "$coord_remote_now"
+  coord_delta=$((NOW - coord_remote_now)); [ "$coord_delta" -ge 0 ] || coord_delta=$((-coord_delta))
+  if [ "$coord_delta" -gt 60 ]; then CLOCK_NOTE="CLOCK_SKEW: drift $coord_delta s > 60 s; sync clocks before relying on leases."
+  else CLOCK_NOTE="Reloj: diferencia remota $coord_delta s (<=60 s)."; fi
+}
+coord_degraded_status() {
+  say "NO REMOTE: local tests, rehearsal and local review only"
+  say "No offline claims. When the remote returns, status reads claims and reconciles via tick."
+  say "Remote clock not checked. Keep a local checkpoint for your next session."
+}
+coord_candidate() {
+  load_task
+  coord_claim_gate >/dev/null 2>&1 || return 1
+  [ ! -f "$TX/claims/$ID.md" ] || return 1
+  if [ -f "$TX/tasks/$ID.md" ]; then
+    case "$(coord_read "$TX/tasks/$ID.md" State)" in INTEGRATED|CANCELLED) return 1;; esac
+  fi
+  (check_owners; check_dependencies) >/dev/null 2>&1 || return 1
+  for coord_other in "$TX"/claims/*.md; do
+    [ -f "$coord_other" ] || continue
+    normalize_paths "$(coord_read "$coord_other" Paths)" > "$TXROOT/coord-paths" || return 1
+    overlaps "$TXROOT/paths-request" "$TXROOT/coord-paths" && return 1
+  done
+  return 0
+}
+coord_next() {
+  identity
+  coord_found=
+  for coord_state in CLAIMED BLOCKED REVIEW; do
+    for coord_f in "$TX"/claims/*.md; do
+      [ -f "$coord_f" ] || continue
+      if [ "$(coord_read "$coord_f" Owner)" = "$AGENT" ] && [ "$(coord_read "$coord_f" State)" = "$coord_state" ]; then coord_found=$(coord_read "$coord_f" ID); break; fi
+    done
+    [ -z "$coord_found" ] || break
+  done
+  if [ -n "$coord_found" ]; then
+    ID=$coord_found; RECORD=$(task_file); WL=$(coord_read "$RECORD" Worklog)
+    say "$ID | $(coord_read "$RECORD" State) | $AGENT"
+    say "Branch: $(coord_read "$RECORD" Branch)"; say "Worktree: $(coord_read "$RECORD" Worktree)"
+    say "Next: $(coord_read "$RECORD" Next)"
+    say "Live summary:"; summary_text | head -n 6
+    coord_until=$(coord_read "$RECORD" Lease-Until)
+    if [ "$NOW" -ge "$coord_until" ]; then say "LEASE EXPIRED: read status --task $ID --summary; recover with its token before editing."; fi
+    coord_status_budget
+    [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"
+    return 0
+  fi
+  if [ -f "$BACKLOG" ]; then
+    for coord_p in P0 P1 P2; do
+      for coord_id in $(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG"); do
+        ID=$coord_id
+        # A gate may exit with conflict; the subshell lets us try another candidate.
+        if (load_task; [ "$PRIORITY" = "$coord_p" ] && coord_candidate) >/dev/null 2>&1; then
+          load_task
+          say "$ID | AVAILABLE | $PRIORITY"
+          say "Next: $DEFAULT_NEXT"; say "Verify: $VERIFY"; say "Paths: $PATHS"
+          say "Before editing: bash .uak/bin/wt new $ID --agent NAME (branch + worktree + claim)."
+          coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"
+          return 0
+        fi
+      done
+    done
+  fi
+  say 'No eligible candidate (priority, dependencies, claims or authorization).'
+  for coord_f in "$TX"/claims/*.md; do
+    [ -f "$coord_f" ] || continue
+    if [ "$(coord_read "$coord_f" State)" = REVIEW ]; then
+      say "Idle: review PR $(coord_read "$coord_f" PR) of $(coord_read "$coord_f" ID) (you are not its owner)."
+      coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"; return 0
+    fi
+  done
+  say 'Idle: improve tests → polish demo → rehearse; after freeze only authorized fixes and submission.'
+  coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"
+}

@@ -1,0 +1,5 @@
+# marathon: copy to .github/CODEOWNERS and require code-owner review in main's branch protection.
+*                 @<responsible-human>
+.uak/             @<responsible-human>
+.github/          @<responsible-human>
+**/migrations/    @<data-owner>

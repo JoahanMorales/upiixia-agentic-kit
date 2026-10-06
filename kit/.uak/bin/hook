@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Claude Code hooks (.claude/settings.json). Never break the session: on error exit 0 silently.
+# session-start: injects identity + `uak next` + inbox as initial context.
+# tick (PostToolUse): heartbeat every 8 min and inbox poll every ~2 min, both in background;
+#   new actionable messages are injected as additional context on the next tool call.
+# stop (Stop): blocks ending the turn once per batch of unhandled messages.
+# Why: agents forget heartbeats and miss mid-session requests from other tasks.
+set -u
+input=''
+[ -t 0 ] || input=$(cat 2>/dev/null || true)
+top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$top" || exit 0
+gd=$(git rev-parse --git-dir 2>/dev/null) || exit 0
+env_value() { [ -f .uak-env ] && sed -n "s/^$1=//p" .uak-env | head -n 1; }
+task=$(env_value UAK_TASK); agent=${UAK_AGENT:-$(env_value UAK_AGENT)}
+fresh() { [ -f "$1" ] && [ -n "$(find "$1" -mmin "-$2" 2>/dev/null)" ]; }
+json_text() { awk 'BEGIN {ORS=""} {gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, " "); gsub(/\r/, ""); if (NR > 1) print "\\n"; print}'; }
+sum() { cksum < "$1" 2>/dev/null | awk '{print $1}'; }
+case "${1:-}" in
+  session-start)
+    if [ -z "$agent" ]; then
+      printf '%s\n' "UAK: checkout without .uak-env (planning/human). To implement: bash .uak/bin/uak next, then bash .uak/bin/wt new ID --agent NAME."
+      # The human sees their queue (merges, decisions, messages) unasked.
+      git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 && bash .uak/bin/uak digest 2>/dev/null | head -n 25
+      exit 0
+    fi
+    printf 'UAK: agent=%s task=%s worktree=%s\n' "$agent" "${task:--}" "$top"
+    git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 || exit 0
+    bash .uak/bin/uak next 2>&1 | head -n 15
+    bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.txt" 2>/dev/null
+    if [ -s "$gd/uak-inbox.txt" ]; then
+      head -n 21 "$gd/uak-inbox.txt"
+      sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' "$gd/uak-inbox.txt" | sort -n | tail -n 1 > "$gd/uak-inbox.shown-n"
+    fi
+    ;;
+  tick)
+    [ -n "$agent" ] || exit 0
+    if [ -n "$task" ] && ! fresh "$gd/uak-heartbeat" 8; then
+      touch "$gd/uak-heartbeat" 2>/dev/null
+      # Also renews your REVIEW tasks in other worktrees: uak merge needs a live lease.
+      nohup bash -c 'bash .uak/bin/uak heartbeat "$1"
+        bash .uak/bin/uak status 2>/dev/null | awk -F" [|] " -v a="$2" -v t="$1" "\$2==\"REVIEW\" && \$3==a && \$1!=t {print \$1}" |
+          while read -r id; do bash .uak/bin/uak heartbeat "$id"; done' _ "$task" "$agent" > "$gd/uak-heartbeat.log" 2>&1 &
+    fi
+    # Poll: refresh the cache every ~2 min in background; never blocks the agent.
+    if ! fresh "$gd/uak-inbox.poll" 2; then
+      touch "$gd/uak-inbox.poll" 2>/dev/null
+      ( bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.tmp" 2>/dev/null && mv "$gd/uak-inbox.tmp" "$gd/uak-inbox.txt" ) > /dev/null 2>&1 &
+    fi
+    if [ -s "$gd/uak-inbox.txt" ]; then
+      # Only messages newer than the last injected one: never resend what was seen.
+      last=$(cat "$gd/uak-inbox.shown-n" 2>/dev/null); case "$last" in ''|*[!0-9]*) last=0;; esac
+      delta=$(awk -v last="$last" '/^#[0-9]/ {n=substr($1, 2) + 0; keep=(n > last)} /^#[0-9]/ || /^  / {if (keep) print}' "$gd/uak-inbox.txt")
+      [ -n "$delta" ] || exit 0
+      printf '%s' "$delta" | sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' | sort -n | tail -n 1 > "$gd/uak-inbox.shown-n"
+      # Only actionable kinds enter context in full; info/integrated become one line.
+      # Why: every injected message is re-sent on every later turn (tokens).
+      act=$(printf '%s\n' "$delta" | awk '/^#[0-9]/ {k=$0; keep=(k ~ / · (request|contract|reject|approve|review|reply|blocker|human) · /)} keep {print}' | head -n 24)
+      quiet=$(printf '%s\n' "$delta" | awk '/^#[0-9]/ && !/ · (request|contract|reject|approve|review|reply|blocker|human) · / {n++} END {print n+0}')
+      [ -n "$act" ] || [ "$quiet" -gt 0 ] || exit 0
+      [ "$quiet" -eq 0 ] || act="${act}${act:+
+}(${quiet} info/integrated notice(s): read with uak inbox after the current criterion)"
+      printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' \
+        "$(printf 'UAK new inbox (handle per AGENTS.md §5; then uak inbox --ack):\n%s' "$act" | json_text)"
+    fi
+    ;;
+  stop)
+    [ -n "$agent" ] || exit 0
+    case "$input" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) exit 0;; esac
+    bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.tmp" 2>/dev/null && mv "$gd/uak-inbox.tmp" "$gd/uak-inbox.txt"
+    [ -s "$gd/uak-inbox.txt" ] || exit 0
+    now_sum=$(sum "$gd/uak-inbox.txt")
+    [ "$now_sum" != "$(cat "$gd/uak-inbox.stopped" 2>/dev/null)" ] || exit 0
+    printf '%s' "$now_sum" > "$gd/uak-inbox.stopped"
+    sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' "$gd/uak-inbox.txt" | sort -n | tail -n 1 > "$gd/uak-inbox.shown-n"
+    printf '{"decision":"block","reason":"%s"}\n' \
+      "$(printf 'Unhandled messages: handle them (AGENTS.md §5), reply with uak msg and run uak inbox --ack before stopping.\n%s' "$(grep -E '^#[0-9]|^  ' "$gd/uak-inbox.txt" | head -n 20)" | json_text)"
+    ;;
+  heartbeat) exec bash "$0" tick;;
+esac
+exit 0
