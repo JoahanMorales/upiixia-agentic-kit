@@ -77,7 +77,10 @@ if command -v ss >/dev/null 2>&1; then used=$(ss -ltn 2>/dev/null | awk 'NR>1 {s
 elif command -v lsof >/dev/null 2>&1; then used=$(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {sub(/.*:/,"",$9); print $9}' | sort -un | tr '\n' ' ')
 else used=; fi
 if [ -n "$used" ]; then
-  busy=$(for p in 3000 5173 8000 8080 $base; do case " $used " in *" $p "*) printf '%s ' "$p";; esac; done)
+  busy=
+  for p in 3000 5173 8000 8080 $base; do
+    case " $used " in *" $p "*) busy="$busy$p ";; esac
+  done
   [ -z "$busy" ] && ok "common ports free" || warn "busy ports: $busy— wt assigns UAK_PORT per worktree (base $base)"
 fi
 
