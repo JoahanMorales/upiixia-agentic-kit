@@ -3,6 +3,7 @@
 > Multi-agent coordination for AI coding agents (Claude Code, Codex, Cursor, Gemini CLI). Several humans and agents work in parallel on one repo with no server: claims, leases, live summaries, typed messages, bounded verify-fix loops (loop engineering), a task DAG (graph engineering), reviewer rotation and a gated merge queue, all stored on a Git branch. Two modes: sprint (hackathons, fast AI prototypes) and marathon (secure, scalable products). Bash 3.2 + Git only. MIT.
 
 Install into a repo: `git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit && bash ~/.uak-kit/install.sh --mode sprint .`
+Try it with no setup (30 s, no keys): `git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit && bash upiixia-agentic-kit/kit/.uak/bin/uak demo`
 Claude Code plugin: `/plugin marketplace add JoahanMorales/upiixia-agentic-kit`, then `/plugin install uak@upiixia-agentic-kit`, then `/uak:setup`.
 
 ## Core
@@ -20,5 +21,6 @@ Claude Code plugin: `/plugin marketplace add JoahanMorales/upiixia-agentic-kit`,
 - [Why each rule exists](kit/.uak/docs/WHY.md): incident-backed rules
 
 ## Evidence
+- [Example AI hackathon backlog](examples/ai-hackathon/TASKS.md): 10 tasks, 7 in wave 1
 - [Hack-Nation 2026 retro](docs/RETRO-hacknation-2026.md): 5 agents, 4 humans, 76 PRs, with data
 - [Inspirations](docs/INSPIRATIONS.md): AGENTS.md, Spec Kit, BMAD, Kiro, Task Master, superpowers

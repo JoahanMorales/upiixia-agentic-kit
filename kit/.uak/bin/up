@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# uak up: start a team in one command. Claims the N best eligible tasks into their own worktrees.
+#   up N [--prefix NAME] [--tool "claude"] [--tmux]
+# Agents are named PREFIX-1..N (default: the human's name). With --tmux and tmux installed, opens one
+# window per worktree running --tool; otherwise prints the command to run in each terminal.
+set -u
+LC_ALL=C; export LC_ALL
+n=${1:-}; [ "$#" -eq 0 ] || shift
+prefix= tool=claude tmux=no
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --prefix) prefix=${2:-}; shift 2;;
+    --tool) tool=${2:-}; shift 2;;
+    --tmux) tmux=yes; shift;;
+    *) printf 'Usage: up N [--prefix NAME] [--tool CMD] [--tmux]\n' >&2; exit 2;;
+  esac
+done
+case "$n" in ''|*[!0-9]*|0) printf 'Usage: up N [--prefix NAME] [--tool CMD] [--tmux]  (N = agents to start)\n' >&2; exit 2;; esac
+here=$(cd "$(dirname "$0")" && pwd)
+[ -n "$prefix" ] || prefix=$(printf '%s' "${UAK_HUMAN:-$(git config user.name 2>/dev/null)}" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9\n' '-' | cut -d- -f1)
+[ -n "$prefix" ] || prefix=agent
+started=0 lines=
+i=0
+while [ "$started" -lt "$n" ] && [ "$i" -lt $((n + 5)) ]; do
+  i=$((i + 1)); agent="$prefix-$i"
+  id=$(UAK_AGENT=$agent bash "$here/uak" next 2>/dev/null | awk -F' [|] ' 'NR==1 && $2=="AVAILABLE" {print $1}')
+  [ -n "$id" ] || { [ "$started" -gt 0 ] || printf 'UP: no eligible task (uak next explains why)\n' >&2; break; }
+  out=$(UAK_AGENT=$agent bash "$here/wt" new "$id" --agent "$agent" 2>&1) || { printf 'UP: %s could not claim %s: %s\n' "$agent" "$id" "$(printf '%s' "$out" | tail -n 1)" >&2; continue; }
+  path=$(printf '%s\n' "$out" | sed -n 's/^WT_READY: .* · worktree //p')
+  started=$((started + 1)); lines="$lines$agent $id $path
+"
+  printf 'UP: %-10s → %-9s %s\n' "$agent" "$id" "$path"
+done
+[ "$started" -gt 0 ] || exit 3
+if [ "$tmux" = yes ] && command -v tmux >/dev/null 2>&1; then
+  s="uak-$(basename "$(git rev-parse --show-toplevel)")"
+  printf '%s' "$lines" | while read -r agent id path; do
+    [ -n "$path" ] || continue
+    if tmux has-session -t "$s" 2>/dev/null; then tmux new-window -t "$s" -n "$id" -c "$path" "$tool"
+    else tmux new-session -d -s "$s" -n "$id" -c "$path" "$tool"; fi
+  done
+  printf 'UP: %s agent(s) running in tmux · attach: tmux attach -t %s\n' "$started" "$s"
+else
+  printf 'UP: %s agent(s) ready. In one terminal each:\n' "$started"
+  printf '%s' "$lines" | while read -r agent id path; do [ -n "$path" ] && printf '  cd "%s" && %s\n' "$path" "$tool"; done
+fi

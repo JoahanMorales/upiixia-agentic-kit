@@ -36,7 +36,7 @@ wave 3 (1): HACK-009
 ```
 
 ## Anti-patterns we measured (Hack-Nation 2026)
-- **A serial bottleneck.** Every task depended on setup. Fix: skeleton and contracts in wave 1; everything else uses mocks.
+- **A serial bottleneck** (avoided by design). If every task depends on setup, nobody starts. Fix: skeleton and contracts in wave 1; everything else uses mocks.
 - **A broadcast storm.** One `integrated` notice per related task gave 194 duplicates. Fix: one notice per owner, only for claimed tasks.
-- **A hub reviewer.** One agent did most reviews and ran out of tokens. Fix: rotate reviewers by load.
+- **A hub reviewer.** 2 agents gave 51 of 70 verdicts while the busiest agent ran out of tokens. Fix: rotate reviewers by load.
 - **Parentheses as edges.** `Depends on: None (uses mock of HACK-021)` created a fake hard edge. Fix: text in parentheses is ignored.

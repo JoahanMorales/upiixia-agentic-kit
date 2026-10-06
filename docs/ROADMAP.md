@@ -1,8 +1,8 @@
 # Roadmap
 
 ## v3.1
-- [ ] `uak stats`: retro numbers (messages by kind, lease recoveries, review load, PR timeline) in one command.
-- [ ] A 60-second demo GIF: 3 agents claiming, looping, reviewing and merging.
+- [x] `uak stats` (v3.1) · [x] `uak board` (v3.1) · [x] `uak up` (v3.1) · [x] `uak demo` (v3.1)
+- [ ] A 60-second GIF of `uak demo` and `uak board --watch` for the README.
 - [ ] `uak handover ID --to AGENT`: explicit transfer without going through AVAILABLE.
 - [ ] A GitHub Action that runs `uak tick` every 5 min, so leases and deadlines advance with nobody online.
 

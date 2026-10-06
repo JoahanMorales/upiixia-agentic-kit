@@ -160,8 +160,32 @@ def loop_bounded(r):
     return {"converged": 3, "stuck_exit": 3}
 
 
+def board_stats_up(r):
+    f = r.fixture("v3-board", count=1)
+    config(f)
+    w = f.worktrees[0]
+    up = r.run([r.bash, ".uak/bin/uak", "up", "2", "--prefix", "zed", "--tool", "true"], cwd=f.clones[0],
+               env={"UAK_HUMAN": "human-fixture", "UAK_REMOTE": "origin"})
+    expect(up.stdout.count("UP: zed-") == 2 and "agent(s) ready" in up.stdout, "up claims 2 tasks: " + up.stdout + up.stderr)
+    board = r.run([r.bash, ".uak/bin/uak", "board"], cwd=w)
+    expect("UAK BOARD" in board.stdout and board.stdout.count("CLAIMED ") >= 2 and "zed-1" in board.stdout, "board: " + board.stdout)
+    md = r.run([r.bash, ".uak/bin/uak", "board", "--md"], cwd=w)
+    expect("| State | Task |" in md.stdout, "board --md")
+    stats = r.run([r.bash, ".uak/bin/uak", "stats"], cwd=w)
+    expect("UAK STATS" in stats.stdout and "CLAIMED 2" in stats.stdout, "stats: " + stats.stdout)
+    return {"up": 2}
+
+
+def demo_runs(r):
+    f = r.fixture("v3-demo", count=1)
+    out = r.run([r.bash, ".uak/bin/uak", "demo", "--fast"], cwd=f.worktrees[0], timeout=300)
+    for marker in ("CONFLICT", "LOOP_PASS iteration=3", "OK merge HACK-001 | INTEGRATED", "HACK-003 | AVAILABLE", "Done: 3 agents"):
+        expect(marker in out.stdout, "demo missing " + marker + ":\n" + out.stdout[-2500:])
+    return {"demo": "pass"}
+
+
 TESTS = [plan_publishes_without_pr, plan_requires_channel, dependency_parentheses_ignored,
-         lease_from_project, guard_commands, guard_prompt_secrets, graph_waves_and_cycles, loop_bounded]
+         lease_from_project, guard_commands, guard_prompt_secrets, graph_waves_and_cycles, loop_bounded, board_stats_up, demo_runs]
 
 
 def main():

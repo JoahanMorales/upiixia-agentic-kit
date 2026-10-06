@@ -19,6 +19,18 @@
 
 ---
 
+## Try it in 30 seconds (no setup, no API key)
+
+```bash
+git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit && bash upiixia-agentic-kit/kit/.uak/bin/uak demo
+```
+It runs a real 3-agent session in a temp repo with a local Git remote:
+- parallel claims, and an overlapping claim rejected;
+- a bounded fix loop (`LOOP_FAIL → LOOP_FAIL → LOOP_PASS`);
+- a review of the exact SHA by another agent, then a gated merge;
+- a dependent task unlocking by itself;
+- the team board.
+
 ## Quick start
 
 **1. Install into any Git repo** (30 s; needs Bash 3.2+ and Git):
@@ -41,11 +53,13 @@ bash .uak/bin/doctor                                 # minute-0 preflight: remot
 
 **2. Plan:** open your agent in the repo and run `/uak-setup`, then `/uak-plan`. Codex, Cursor and Gemini read `AGENTS.md` natively.
 
-**3. Each agent, in its own terminal:**
+**3. Start the team:**
 
 ```bash
+bash .uak/bin/uak up 4 --tmux                 # claim the 4 best tasks, one worktree + agent each (tmux)
+# or one agent at a time:
 bash .uak/bin/wt new HACK-003 --agent ana-1   # branch + worktree + identity + port + claim
-cd ../<repo>-wt/hack-003 && claude             # /uak-loop → /uak-ship → /uak-handoff
+bash .uak/bin/uak board --watch 10            # live team kanban for the humans
 ```
 
 That's it. `uak next` always tells every agent what to do next.
@@ -140,7 +154,7 @@ Tokens are the scarcest resource of an agent team. Every default is tuned to spe
 - `AGENTS.md` is **60 lines**, lint-capped at 100. Detail loads on demand from a trigger table.
 - `q` turns a 2,000-line test log into **one line** on success, or a 40-line tail on failure.
 - Noisy work runs in **subagents** (a Haiku runner, a Sonnet reviewer); only a summary comes back.
-- Only **actionable messages** are injected. Duplicate broadcasts are gone: 194 of 720 messages in our event were noise.
+- Only **actionable messages** are injected. Duplicate broadcasts are gone: 194 of 717 messages in our event were noise.
 - Skills are installed **per mode**: each installed skill's description costs tokens in every session.
 - One task = one session, a 6-line handoff, and `/clear`. Compaction keeps only ID, next step, failures and commands.
 
@@ -153,10 +167,10 @@ Tokens are the scarcest resource of an agent team. Every default is tuned to spe
 | The secret scanner silently detected **nothing** all event: Ubuntu's `mawk` ignores regex `{n}` | `grep -E` rules, a regression test, a `doctor` check |
 | A force-push slipped past the deny list when chained with `&&` | `guard` parses every command segment |
 | A teammate pasted an API key and a sudo password into chat | `guard prompt` blocks it before the model sees it |
-| 194 of 720 messages were duplicate notices | one notice per owner; non-actionable kinds summarized |
+| 194 of 717 messages were duplicate notices | one notice per owner; non-actionable kinds summarized |
 | 38 lease recoveries, mostly tasks just waiting for review | mode-aware leases; REVIEW waits 4× longer |
 | 8 PRs only added tasks to the backlog | `uak plan` publishes to the claims branch |
-| One agent did most reviews and ran out of tokens | reviewer rotation by load |
+| 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
 **70+ integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
@@ -174,17 +188,22 @@ Mix them freely: coordination lives in Git, not in any tool.
 ## Commands
 | Command | What |
 |---|---|
+| `uak demo` | see everything in 30 s |
 | `uak next` | what you should do now |
 | `wt new ID --agent NAME` | start a task (branch, worktree, port, claim) |
 | `uak loop --verify CMD` | bounded autonomous fix loop |
 | `uak graph [--mermaid]` | backlog DAG: waves, critical path, cycles |
 | `uak done` / `review` / `merge` | ship → review by rotation → gated merge queue |
+| `uak up N [--tmux]` | claim the N best tasks and launch one agent per worktree |
+| `uak board [--watch] [--md]` | team kanban: state, owner, lease, PR, wave |
+| `uak stats` | retro numbers: messages, reviews, recoveries, merge queue |
+| `uak demo` | the 30-second real 3-agent run |
 | `uak msg` / `inbox` / `digest` | agent messages · the human's single summary |
 | `uak plan FILE` | publish new tasks instantly (sprint) |
 | `uak doctor` | preflight everything at minute 0 |
 | `q CMD` | quiet runner (one line on success) |
 
-Full reference: [CLI.md](kit/.uak/docs/CLI.md). Slash commands: `/uak-setup`, `/uak-plan`, `/uak-start`, `/uak-loop`, `/uak-ship`, `/uak-review`, `/uak-handoff`, `/uak-retro`, plus `/uak-design-lock` and `/uak-demo` (sprint) and `/uak-spec` (marathon).
+Full reference: [CLI.md](kit/.uak/docs/CLI.md). Example backlog: [examples/ai-hackathon](examples/ai-hackathon/). Slash commands: `/uak-setup`, `/uak-plan`, `/uak-start`, `/uak-loop`, `/uak-ship`, `/uak-review`, `/uak-handoff`, `/uak-retro`, plus `/uak-design-lock` and `/uak-demo` (sprint) and `/uak-spec` (marathon).
 
 ## What's inside
 ```
@@ -197,6 +216,21 @@ AGENTS.md · CLAUDE.md        60-line core every agent reads · Claude Code extr
 .uak/stacks/fastapi-react/   optional stack preset
 .claude/                     slash commands, subagents, hooks (settings per mode)
 ```
+
+## How it compares
+
+They are complementary: use them for planning or UI, and this kit for coordinating many agents and humans.
+
+| | This kit | Spec Kit / BMAD / Task Master | claude-squad / vibe-kanban | Swarm frameworks |
+|---|---|---|---|---|
+| Many humans × many agents × many machines | **yes, via Git** | one human | one machine | one machine / runtime |
+| Server, daemon or app to install | **none** (Bash + Git) | CLI or npm | app or tmux | runtime |
+| Claims with path overlap rejection and leases | **yes** | — | worktree isolation | varies |
+| Independent review of the exact SHA + gated merge | **yes** | — | manual | varies |
+| Bounded loops (budget, stuck detection, escalation) | **yes** (`uak loop`) | — | — | varies |
+| Task DAG checks (waves, critical path, cycles) | **yes** (`uak graph`) | Task Master: deps | — | varies |
+| Hackathon vs product modes | **yes** | — | — | — |
+| Guards against force-push and pasted secrets | **yes** | — | — | — |
 
 ## FAQ
 **Do I need a server, a database or an API key?** No. Bash, Git and a remote (GitHub, GitLab, or even a bare repo on a USB drive). `gh` is optional.

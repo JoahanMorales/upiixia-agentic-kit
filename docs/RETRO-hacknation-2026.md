@@ -2,7 +2,7 @@
 
 **Team:** 4 humans and 5 agents (Claude Code and Codex) on 3 machines, one of them a Jetson Orin Nano.
 **Window:** 2026-10-03 21:30 UTC → 2026-10-04 11:50 UTC, about 14 h of active coordination.
-**Sources:** the `claims` branch (774 commits), `inbox/log.md` (720 messages), `DECISIONS.md` (116 entries) and 76 GitHub PRs. Agents are named by role, not by person.
+**Sources:** the `claims` branch (774 commits), `inbox/log.md` (717 messages), `DECISIONS.md` (116 entries) and 76 GitHub PRs. Agents are named by role, not by person.
 
 ## Outcome
 - 75 PRs merged and 1 left open (the submission task). The backlog had 34 tasks, in 3 waves.
@@ -26,7 +26,7 @@
 | 1 | The secret scanner detected nothing | The kit's security suite was red (4/8) and nobody noticed | Rules used awk `{n}`, which mawk (Ubuntu, Jetson) ignores | `grep -E` rules, a regression test, a `doctor` check |
 | 2 | Destructive ops despite the deny list | 1 force-push, 2 `worktree remove --force` | The settings deny list matches prefixes; `cd x && git push --force` doesn't start with `git push` | `guard` PreToolUse hook that checks every segment |
 | 3 | Secrets in chat | 1 API key and 1 sudo password pasted by a human | No barrier on prompts | `guard prompt` UserPromptSubmit hook |
-| 4 | Message noise | 720 messages; 194 were duplicate `integrated` notices; one agent sent 247 | One notice per related task, even for the same owner or already-merged tasks | One notice per owner, only for claimed tasks; the hook injects only actionable kinds |
+| 4 | Message noise | 717 messages; 194 were duplicate `integrated` notices; one agent sent 247 | One notice per related task, even for the same owner or already-merged tasks | One notice per owner, only for claimed tasks; the hook injects only actionable kinds |
 | 5 | Expired leases | 38 `REQUIRES_RECOVERY` | A fixed 30-min lease, even while waiting for review | `Lease-Seconds` per mode; `Review-Lease-Seconds` (4×) |
 | 6 | Backlog changes by PR | 8 `planning/*` PRs; 3 merges to the human queue over TASKS.md | The backlog lived only on `main` | `uak plan` publishes to `claims` (sprint) |
 | 7 | Dependency parser | 2 PRs to reword `Depends on` | It read any ID, including inside parentheses | Parentheses ignored; `Uses contract:` soft edges; `uak graph` |

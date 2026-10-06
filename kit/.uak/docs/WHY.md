@@ -20,10 +20,10 @@ Load only the row you need. Every rule cites the incident behind it. Data comes 
 | §4.3 `&&`, never `;` | Two contract messages carried a stale SHA because a failed commit (ruff) didn't stop the chain. |
 | §4.6 Reduced motion in UI checks | With software WebGL, animations took 3–6 s, and "failures" were unfinished animations. |
 | §4.7 Reviewer ≠ author, and runs Verify | A review caught a benchmark using a different `clip()` than production, which inflated the reported top-1. |
-| Reviewer rotation | One agent did most reviews (247 of 720 messages were theirs) and ran out of tokens. |
+| Reviewer rotation | 2 agents gave 51 of 70 review verdicts, and the busiest agent (247 of 717 messages) ran out of tokens. |
 | Scanner uses `grep -E` | mawk ignores awk `{n}` intervals: the secret scanner detected nothing for the whole event, and its suite was red unnoticed. |
 | `uak doctor` at minute 0 | Humans merged all 75 PRs by hand, and one gh token couldn't create PRs at all. |
-| §5 Only actionable messages injected | 720 messages in 14 h, 194 of them duplicate `integrated` notices. Now there is one per owner, and only for claimed tasks. |
+| §5 Only actionable messages injected | 717 messages in 14 h, 194 of them duplicate `integrated` notices. Now there is one per owner, and only for claimed tasks. |
 | §5.3 Messages of 3 lines or fewer | Every injected message is paid for on every later turn of the receiver. |
 | sprint: freeze required | `Freeze-Epoch` was 0: 8 PRs, including a product rename, in the last 6 h. |
 | sprint: design lock | 4 global visual directions in 8 h. |

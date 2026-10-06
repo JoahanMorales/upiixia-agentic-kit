@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# uak board: terminal kanban of the whole team, read from the remote claims branch. Zero install.
+#   board [--md] [--watch SECONDS]
+# One line per task: state · ID · owner/priority · lease or PR · wave · title. --md prints a GitHub table.
+set -u
+LC_ALL=C; export LC_ALL
+md=no watch=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --md) md=yes; shift;;
+    --watch) watch=${2:-5}; shift 2;;
+    *) printf 'Usage: board [--md] [--watch SECONDS]\n' >&2; exit 2;;
+  esac
+done
+case "$watch" in ''|*[!0-9]*) printf 'board: --watch needs seconds\n' >&2; exit 2;; esac
+root=$(git rev-parse --show-toplevel 2>/dev/null) || { printf 'board: not a Git repository\n' >&2; exit 2; }
+here=$(cd "$(dirname "$0")" && pwd)
+remote=${UAK_REMOTE:-origin}
+render() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-board.XXXXXX") || return 2
+  mkdir -p "$tmp/c"
+  if git -C "$root" fetch -q "$remote" claims 2>/dev/null; then
+    git -C "$root" archive FETCH_HEAD 2>/dev/null | tar -x -C "$tmp/c" 2>/dev/null
+  fi
+  base=$(git -C "$root" ls-remote "$remote" "refs/heads/${UAK_BASE:-main}" 2>/dev/null | cut -c 1-7)
+  { git -C "$root" show "$remote/${UAK_BASE:-main}:.uak/TASKS.md" 2>/dev/null || cat "$root/.uak/TASKS.md" 2>/dev/null
+    printf '\n'; cat "$tmp/c/backlog/TASKS.md" 2>/dev/null; } > "$tmp/backlog"
+  bash "$here/graph" --file "$tmp/backlog" 2>/dev/null | sed -n 's/^wave \([0-9]*\) ([0-9]*):/\1/p' > "$tmp/waves"
+  for f in "$tmp"/c/tasks/*.md; do [ -f "$f" ] && cat "$f" && printf '\n@@\n'; done > "$tmp/records"
+  freeze=$(sed -n 's/^Freeze-Epoch: //p' "$tmp/c/meta/config.md" 2>/dev/null | head -n 1)
+  unread=$(grep -c '| human |' "$tmp/c/inbox/log.md" 2>/dev/null || true)
+  awk -v md="$md" -v now="${UAK_NOW:-$(date +%s)}" -v base="${base:--}" -v freeze="${freeze:-0}" -v hum="${unread:-0}" \
+      -v wf="$tmp/waves" -v rf="$tmp/records" '
+    BEGIN {
+      while ((getline l < wf) > 0) { n = split(l, a, " "); for (i = 2; i <= n; i++) wave[a[i]] = a[1] }
+      while ((getline l < rf) > 0) {
+        if (l == "@@") { if (id != "") { st[id] = s; ow[id] = o; lu[id] = u; pr[id] = p }; id = s = o = u = p = ""; continue }
+        if (l ~ /^ID: /) id = substr(l, 5); else if (l ~ /^State: /) s = substr(l, 8)
+        else if (l ~ /^Owner: /) o = substr(l, 8); else if (l ~ /^Lease-Until: /) u = substr(l, 14)
+        else if (l ~ /^PR: /) p = substr(l, 5)
+      }
+    }
+    /^## [A-Z][A-Z0-9]*-[0-9]/ { cur = $2; if (!(cur in title)) { order[++nt] = cur; t = $0; sub(/^## [^ ]+[[:space:]]*[^[:alnum:]]*[[:space:]]*/, "", t); title[cur] = t; prio[cur] = "P?" } ; next }
+    /^#/ { cur = ""; next }
+    cur != "" && /Priority[*]*:/ { if (match($0, /P[0-2]/)) prio[cur] = substr($0, RSTART, RLENGTH) }
+    function left(u,   m) { if (u == "" || u == 0) return "-"; m = int((u - now) / 60); return (m < 0) ? "EXPIRED" : m "m" }
+    function prn(p) { if (p == "" || p == "-") return "-"; if (match(p, /[0-9]+$/)) return "PR#" substr(p, RSTART); return "PR" }
+    END {
+      split("CLAIMED REVIEW BLOCKED AVAILABLE INTEGRATED CANCELLED", S, " ")
+      for (k = 1; k <= nt; k++) { id = order[k]; s = (id in st) ? st[id] : "AVAILABLE"; cnt[s]++ }
+      hdr = sprintf("UAK BOARD · %s@%s · %d tasks", "main", base, nt)
+      for (i = 1; i <= 6; i++) if (cnt[S[i]] > 0) hdr = hdr sprintf(" · %s %d", S[i], cnt[S[i]])
+      if (freeze > 0) { m = int((freeze - now) / 60); hdr = hdr (m > 0 ? sprintf(" · freeze in %dh%02dm", int(m / 60), m % 60) : " · FREEZE") }
+      if (md == "yes") { print "**" hdr "**"; print ""; print "| State | Task | Owner / Prio | Lease / PR | Wave | Title |"; print "|---|---|---|---|---|---|" }
+      else print hdr
+      for (i = 1; i <= 5; i++) for (k = 1; k <= nt; k++) {
+        id = order[k]; s = (id in st) ? st[id] : "AVAILABLE"; if (s != S[i]) continue
+        if (s == "INTEGRATED") { done = done " " id; continue }
+        who = (s == "AVAILABLE") ? prio[id] : ow[id]
+        info = (s == "REVIEW") ? prn(pr[id]) : (s == "CLAIMED" || s == "BLOCKED") ? "lease " left(lu[id]) : "-"
+        w = (id in wave) ? "w" wave[id] : "-"; tt = title[id]; if (length(tt) > 44) tt = substr(tt, 1, 41) "..."
+        if (md == "yes") printf "| %s | %s | %s | %s | %s | %s |\n", s, id, who, info, w, tt
+        else printf "%-10s %-9s %-10s %-12s %-3s %s\n", s, id, who, info, w, tt
+      }
+      if (done != "") { if (md == "yes") printf "| INTEGRATED | %s | | | | |\n", substr(done, 2); else printf "%-10s%s\n", "INTEGRATED", done }
+      if (hum > 0) printf "%s%d message(s) to humans · run: uak digest\n", (md == "yes" ? "\n" : ""), hum
+    }' "$tmp/backlog"
+  rm -rf "$tmp"
+}
+if [ "$watch" -gt 0 ]; then
+  while :; do out=$(render); printf '\033[H\033[2J%s\n' "$out"; sleep "$watch"; done
+else
+  render
+fi

@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.1.0 · 2026-10-06
+- **`uak demo`:** a real 3-agent session in a temp repo in about 15 s, with no setup, network or keys. It covers claims, a rejected overlap, a bounded loop, an independent review, a gated merge and a dependency unlocking.
+- **`uak board`:** a team kanban read from the claims branch (state, owner, lease left, PR, wave). `--watch` refreshes it live and `--md` prints a GitHub table.
+- **`uak up N`:** claims the N best eligible tasks into worktrees, one command for the whole team. `--tmux` launches one agent per window.
+- **`uak stats`:** retro numbers (messages by kind and agent, review load, lease recoveries, human-queue reasons). Run on the real Hack-Nation data, it corrected two numbers in the docs: 717 messages (not 720), and 2 agents giving 51 of 70 review verdicts.
+- `examples/ai-hackathon`: a 10-task AI backlog with 7 tasks in wave 1, plus its Mermaid graph.
+- README: "Try it in 30 seconds" and a comparison table.
+- Repo: CODE_OF_CONDUCT and issue template config.
+
 ## v3.0.0 · 2026-10-06 · UPIIXIA Agentic Kit
 A rewrite after the Hack-Nation 2026 post-mortem of the `hack` v2.1 protocol (5 agents, 4 humans, 76 PRs).
 

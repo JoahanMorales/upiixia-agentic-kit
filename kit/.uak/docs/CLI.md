@@ -42,6 +42,10 @@ Every command runs as `bash .uak/bin/uak CMD`. It needs Bash 3.2+, Git with work
 | `plan FILE` | Publishes `## ID` sections (and `\| pattern \| ID \|` owner rows) to `claims:backlog/` without a PR. Needs `Plan-Channel: claims` and `UAK_HUMAN`. |
 | `graph [--mermaid] [--min-wave1 N]` | Backlog DAG: waves, cycles, missing deps, critical path. See GRAPH.md. |
 | `loop --verify CMD [--agent CMD] [--max N]` | Autonomous verify → fix loop with a budget and stuck detection. See LOOPS.md. |
+| `board [--md] [--watch S]` | Team kanban from the claims branch: state, owner, lease left, PR, wave, title. `--md` prints a GitHub table. |
+| `stats` | Retro numbers: tasks by state, messages by kind and agent, review verdicts per reviewer, lease recoveries, human-queue reasons. |
+| `up N [--prefix P] [--tool CMD] [--tmux]` | Claims the N best eligible tasks for agents `P-1..N`, one worktree each. With `--tmux`, opens a window per worktree running CMD. |
+| `demo [--keep] [--fast]` | A real 3-agent run in a temp repo (claims, a conflict, a loop, a review, a merge, an unlock). No network or keys. |
 | `doctor [--fix]` | Minute-0 preflight: remote, push, gh permissions, hooks, `.gitignore`, mode, freeze, ports. |
 | `msg TO TEXT [--kind K] [--task ID]` | Sends an append-only message. Targets: `NAME`, `ID`, `related:ID`, `all`, `human`. Kinds: `info`, `request`, `contract`, `blocker`, `reply`, `review`, `approve`, `reject`, `integrated`, `human`. |
 | `inbox [--ack] [--all] [--peek] [--task ID] [--human]` | Shows unread messages; `--ack` marks them read. |

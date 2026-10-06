@@ -37,7 +37,7 @@ msg_append() {
 msg_notify_related() {
   # $1 source task, $2 kind, $3 text.
   # integrated: one message per owner of currently claimed related tasks; free tasks start from main.
-  # Why: at Hack-Nation 2026, 194 of 720 messages were duplicate per-task integrated notices.
+  # Why: at Hack-Nation 2026, 194 of 717 messages were duplicate per-task integrated notices.
   local r owner owners='' tasks
   if [ "$2" != integrated ]; then
     for r in $(msg_related "$1"); do msg_append "task:$r" "$2" "$1" "$3"; done
@@ -56,7 +56,7 @@ msg_notify_related() {
   done
 }
 # Suggested reviewer: active agent (messages in the last 3 h), not the owner, with the fewest reviews.
-# Why: at Hack-Nation one agent did most reviews and ran out of tokens.
+# Why: at Hack-Nation 2 agents gave 51 of 70 review verdicts.
 msg_pick_reviewer() {
   [ -f "$TX/$MSG_LOG" ] || return 0
   awk -F' [|] ' -v owner="$1" -v now="$NOW" '

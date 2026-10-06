@@ -80,6 +80,10 @@ lint [--secrets]
 doctor [--fix]   preflight: remote, gh permissions, hooks, freeze, ports
 graph [--mermaid] [--min-wave1 N]   backlog DAG: waves, critical path, cycles
 loop --verify CMD [--agent CMD] [--max N] [--task ID]   bounded verify → fix loop
+board [--md] [--watch S]   team kanban from the claims branch
+stats   retro numbers: messages, reviews, recoveries, queue
+up N [--tool CMD] [--tmux]   claim the N best tasks into worktrees and launch agents
+demo [--keep]   30-second real 3-agent run in a temp repo
 plan FILE   publish new tasks to claims without a PR (Plan-Channel: claims; needs UAK_HUMAN)
 msg DESTINO TEXTO [--kind TIPO] [--task HACK-NNN]   DESTINO: NOMBRE|HACK-NNN|related:HACK-NNN|all|human
 inbox [--ack] [--all] [--peek] [--task HACK-NNN] [--human]
@@ -88,7 +92,7 @@ Why: the remote serializes claims; every session keeps an exact next step.
 USAGE
 }
 case "$CMD" in help|-h|--help) usage; exit 0;; esac
-case "$CMD" in doctor|graph|loop) exec bash "$(dirname "$0")/$CMD" "$@";; esac
+case "$CMD" in doctor|graph|loop|board|stats|up|demo) exec bash "$(dirname "$0")/$CMD" "$@";; esac
 case "$CMD" in status|claim|heartbeat|release|log|checkpoint|handoff|done|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan) ;; *) die "Unknown command: $CMD";; esac
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac

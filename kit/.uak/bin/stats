@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# uak stats: retro numbers from the claims branch (feeds /uak-retro). Read-only.
+#   stats [--dir CLAIMS_CHECKOUT]
+# Messages by kind and agent, review load, lease recoveries, human-queue reasons, throughput.
+set -u
+LC_ALL=C; export LC_ALL
+dir=
+[ "${1:-}" != --dir ] || dir=${2:-}
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-stats.XXXXXX") || exit 2
+trap 'rm -rf "$tmp"' EXIT
+if [ -z "$dir" ]; then
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || { printf 'stats: not a Git repository\n' >&2; exit 2; }
+  git -C "$root" fetch -q "${UAK_REMOTE:-origin}" claims 2>/dev/null || { printf 'stats: no remote claims branch yet\n' >&2; exit 2; }
+  commits=$(git -C "$root" rev-list --count FETCH_HEAD)
+  git -C "$root" archive FETCH_HEAD | tar -x -C "$tmp"; dir=$tmp
+else
+  commits=$(git -C "$dir" rev-list --count HEAD 2>/dev/null || printf '?')
+fi
+log="$dir/inbox/log.md"
+printf 'UAK STATS · claims commits %s\n' "$commits"
+states=$(for f in "$dir"/tasks/*.md; do [ -f "$f" ] && sed -n 's/^State: //p' "$f" | head -n 1; done | sort | uniq -c | awk '{printf "%s %s · ", $2, $1}')
+printf 'tasks: %s\n' "${states% · }"
+if [ -f "$log" ]; then
+  awk -F' [|] ' '/^- [0-9]/ {
+      n++; kind[$5]++; from[$3]++; if (first == "" || $2 < first) first = $2; if ($2 > last) last = $2
+      if ($5 == "approve" || $5 == "reject") { rv[$3]++; verdict[$5]++ }
+    }
+    function top(arr, label,   k, s, i, best, bk, used) {
+      s = ""; for (i = 1; i <= 6; i++) { best = -1; bk = ""
+        for (k in arr) if (!(k in used) && arr[k] > best) { best = arr[k]; bk = k }
+        if (bk == "") break; used[bk] = 1; s = s sprintf("%s %d · ", bk, best) }
+      printf "%s %s\n", label, substr(s, 1, length(s) - 3)
+    }
+    END {
+      if (n == 0) { print "messages: 0"; exit }
+      h = (last - first) / 3600
+      if (h >= 0.1) printf "messages: %d in %.1f h (%.0f/h)\n", n, h, n / h; else printf "messages: %d\n", n
+      top(kind, "  by kind:"); top(from, "  by agent:")
+      if (verdict["approve"] + verdict["reject"] > 0) { printf "reviews: approve %d · reject %d\n", verdict["approve"], verdict["reject"]; top(rv, "  by reviewer:") }
+      if (kind["integrated"] > 0 && n > 0) printf "noise: %d%% of messages were integrated notices\n", 100 * kind["integrated"] / n
+    }' "$log"
+fi
+rec=$(grep -c 'REQUIRES_RECOVERY' "$dir/DECISIONS.md" 2>/dev/null || true)
+printf 'lease recoveries: %s\n' "${rec:-0}"
+if ls "$dir"/queue/*.md >/dev/null 2>&1; then
+  q=$(cat "$dir"/queue/*.md | sed -n 's/^Reason: //p' | sed 's/: .*//' | sort | uniq -c | sort -rn | head -n 3 | awk '{c=$1; $1=""; printf "%s ×%d ·", substr($0,2), c}')
+  printf 'human-queue reasons: %s\n' "${q:-none}"
+fi

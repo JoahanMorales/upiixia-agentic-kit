@@ -12,7 +12,7 @@ case "${1:-}" in
   *) printf '%s\n' 'Usage: .uak/bin/smoke [--package-only|--full]' >&2; exit 2 ;;
 esac
 [ "$#" -eq 0 ] || { printf '%s\n' 'Extra arguments not allowed.' >&2; exit 2; }
-for script in .uak/bin/uak .uak/bin/uak-coordination .uak/bin/guard .uak/bin/doctor .uak/bin/graph .uak/bin/loop .uak/bin/policy .uak/bin/secret-scan .uak/bin/wt .uak/bin/q .uak/bin/hook .uak/bin/lib/*.sh .githooks/pre-commit; do
+for script in .uak/bin/uak .uak/bin/uak-coordination .uak/bin/guard .uak/bin/doctor .uak/bin/graph .uak/bin/loop .uak/bin/board .uak/bin/stats .uak/bin/up .uak/bin/demo .uak/bin/policy .uak/bin/secret-scan .uak/bin/wt .uak/bin/q .uak/bin/hook .uak/bin/lib/*.sh .githooks/pre-commit; do
   [ ! -f "$script" ] || bash -n "$script"
 done
 if git rev-parse --show-toplevel >/dev/null 2>&1; then

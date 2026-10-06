@@ -22,6 +22,7 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 3. Wave 1 is wide: one task with no hard dependency per agent. Consumers use `Uses contract:` plus mocks.
 4. At most 2 agents per human. More agents produce more messages than code.
 5. Wave 2 onward: `UAK_HUMAN=<human> uak plan file.md` publishes tasks instantly, with no PR.
+6. Start the team with `uak up <agents> --tmux`. Humans watch `uak board --watch 10` instead of asking agents for status.
 
 ## Speed
 1. Mock first; switch to the real thing after its spike. Every mock shows `demo_data: true` in the UI.
