@@ -35,6 +35,10 @@ Goal: software that survives real users. It is secure, scalable and maintainable
 5. Risky changes go behind a feature flag, with the rollback written in `docs/runbook.md`.
 6. Performance budgets run in CI: p95 of the critical endpoint and bundle KB.
 
+## Orchestration
+- The Sonnet lead runs on `effortLevel: high`. Every multi-file plan and every risky diff passes the Opus advisor checkpoint (or `/uak-advise`). `security-reviewer` (Opus) covers sensitive areas. Caps: 3 parallel subagents, 4 Opus subagents per session.
+- Run `/uak-secure` (the launch checklist) before the first real user, and again on every auth or payment change.
+
 ## Tests and loops
 1. Unit tests for the domain, integration tests against a real DB (container), e2e for critical journeys. The coverage threshold lives in PROJECT.md.
 2. Bug → a failing test first (skill `systematic-debugging`), then the fix.

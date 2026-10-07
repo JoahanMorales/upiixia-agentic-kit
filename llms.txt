@@ -15,9 +15,10 @@ Claude Code plugin: `/plugin marketplace add JoahanMorales/upiixia-agentic-kit`,
 ## Reference
 - [CLI](kit/.uak/docs/CLI.md): every uak command
 - [Protocol](kit/.uak/docs/PROTOCOL.md): claims branch, leases, reviews, merges
+- [Subagent orchestration](kit/.uak/docs/ORCHESTRATION.md): Haiku scouts, Sonnet lead, Opus advisor at 3 checkpoints; parallel and Opus budgets enforced by a hook
 - [Loop engineering](kit/.uak/docs/LOOPS.md): trigger, verifier, budget, stop, escalation; `uak loop`
 - [Graph engineering](kit/.uak/docs/GRAPH.md): members, mandates, message paths, task DAG; `uak graph`
-- [Security](kit/.uak/docs/SECURITY.md): guards, the secret scanner, the mawk trap
+- [Security](kit/.uak/docs/SECURITY.md): guards, the secret scanner, the mawk trap, a 22-item launch checklist
 - [Why each rule exists](kit/.uak/docs/WHY.md): incident-backed rules
 
 ## Evidence

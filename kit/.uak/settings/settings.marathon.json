@@ -1,7 +1,13 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "sonnet",
+  "advisorModel": "opus",
+  "effortLevel": "high",
   "env": {
-    "BASH_MAX_OUTPUT_LENGTH": "12000"
+    "BASH_MAX_OUTPUT_LENGTH": "12000",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "3",
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1"
   },
   "permissions": {
     "allow": [
@@ -118,6 +124,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.uak/bin/guard\" agent",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -139,6 +155,17 @@
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.uak/bin/hook\" stop",
             "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.uak/bin/guard\" agent-stop",
+            "timeout": 5
           }
         ]
       }

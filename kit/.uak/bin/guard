@@ -96,7 +96,57 @@ json_field() {
     gsub(/\\"/,"\"",out); gsub(/\\\\/,"\\",out); print out}'
 }
 
+# Subagent resource manager (PreToolUse matcher Agent|Task, and SubagentStop).
+# Why: ultracode is exempt from Claude Code's concurrency cap, and one prompt can fan out dozens of
+# Opus subagents. Budgets come from .uak/PROJECT.md: Max-Parallel-Subagents, Opus-Subagents-Per-Session.
+cfg() { top=$(git rev-parse --show-toplevel 2>/dev/null) || { printf '%s' "$2"; return; }
+  v=$(sed -n "s/^[-* ]*$1:[* ]*//p" "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `')
+  case "$v" in ''|*[!0-9]*) printf '%s' "$2";; *) printf '%s' "$v";; esac; }
+tier_of() { # $1 model param, $2 subagent_type → opus|sonnet|haiku|inherit
+  m=$1
+  if [ -z "$m" ]; then
+    top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+    f="$top/.claude/agents/$2.md"
+    [ -f "$f" ] && m=$(sed -n 's/^model:[[:space:]]*//p' "$f" | head -n 1 | tr -d '\r"')
+    case "$2" in general-purpose|Explore|Plan) [ -n "$m" ] || m=${CLAUDE_CODE_SUBAGENT_MODEL:-inherit};; esac
+  fi
+  case "$m" in *opus*|*fable*|best) printf opus;; *sonnet*) printf sonnet;; *haiku*) printf haiku;; *) printf inherit;; esac
+}
+check_agent() {
+  input=$1 gd=$(git rev-parse --git-dir 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")
+  now=${UAK_NOW:-$(date +%s)}
+  type=$(printf '%s' "$input" | json_field subagent_type); model=$(printf '%s' "$input" | json_field model)
+  sid=$(printf '%s' "$input" | json_field session_id); sid=${sid:-default}
+  tier=$(tier_of "$model" "$type")
+  max=$(cfg Max-Parallel-Subagents 4); opus_max=$(cfg Opus-Subagents-Per-Session 2)
+  act="$gd/uak-agents.active" log="$gd/uak-agents.log"
+  touch "$act" "$log"
+  # Reservations older than 20 min are stale (a crashed subagent never sent SubagentStop).
+  awk -v now="$now" '$1 + 1200 > now' "$act" > "$act.tmp" && mv "$act.tmp" "$act"
+  running=$(awk 'END {print NR+0}' "$act")
+  [ "$running" -lt "$max" ] ||
+    block "$running subagents already running (Max-Parallel-Subagents: $max). Wait for one to finish, or do the step yourself; a swarm costs more than it saves."
+  if [ "$tier" = opus ] && [ "${UAK_ALLOW_OPUS:-}" != 1 ]; then
+    used=$(awk -v s="$sid" '$2 == s && $3 == "opus"' "$log" | awk 'END {print NR+0}')
+    [ "$used" -lt "$opus_max" ] ||
+      block "Opus subagent budget for this session is spent ($used/$opus_max). Use the advisor tool at a checkpoint, uak-scout (haiku) to read, or uak-reviewer (sonnet). A human can raise Opus-Subagents-Per-Session."
+  fi
+  printf '%s %s %s %s\n' "$now" "$sid" "$tier" "${type:-unknown}" >> "$log"
+  printf '%s %s %s\n' "$now" "$tier" "${type:-unknown}" >> "$act"
+  return 0
+}
+agent_stop() {
+  gd=$(git rev-parse --git-dir 2>/dev/null) || return 0
+  act="$gd/uak-agents.active"; [ -s "$act" ] || return 0
+  sed '1d' "$act" > "$act.tmp" && mv "$act.tmp" "$act"
+}
+
 case "${1:-}" in
+  agent)
+    input=$(cat 2>/dev/null || true)
+    case "$input" in *'"tool_name":"Agent"'*|*'"tool_name": "Agent"'*|*'"tool_name":"Task"'*|*'"tool_name": "Task"'*) ;; *) exit 0;; esac
+    check_agent "$input";;
+  agent-stop) cat >/dev/null 2>&1 || true; agent_stop;;
   bash)
     input=$(cat 2>/dev/null || true)
     case "$input" in *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*) ;; *) exit 0;; esac
@@ -106,6 +156,6 @@ case "${1:-}" in
     check_prompt "$(printf '%s' "$input" | json_field prompt)";;
   check) check_bash "${2:-}"; printf 'UAK_GUARD: allowed\n';;
   check-prompt) check_prompt "${2:-}"; printf 'UAK_GUARD: allowed\n';;
-  *) printf '%s\n' 'Usage: guard bash|prompt (hook JSON on stdin) · guard check "CMD" · guard check-prompt "TEXT"' >&2; exit 2;;
+  *) printf '%s\n' 'Usage: guard bash|prompt|agent|agent-stop (hook JSON on stdin) · guard check "CMD" · guard check-prompt "TEXT"' >&2; exit 2;;
 esac
 exit 0

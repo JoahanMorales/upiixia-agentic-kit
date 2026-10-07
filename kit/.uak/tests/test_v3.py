@@ -184,8 +184,36 @@ def demo_runs(r):
     return {"demo": "pass"}
 
 
+def guard_subagent_budget(r):
+    f = r.fixture("v3-agents", count=1)
+    w = f.worktrees[0]
+    (w / ".uak/PROJECT.md").write_text("Mode: sprint\nMax-Parallel-Subagents: 2\nOpus-Subagents-Per-Session: 1\n", encoding="utf-8")
+    (w / ".claude/agents").mkdir(parents=True, exist_ok=True)
+    (w / ".claude/agents/uak-scout.md").write_text("---\nname: uak-scout\nmodel: haiku\n---\n", encoding="utf-8")
+    def spawn(kind, model=None, extra=None):
+        ti = {"subagent_type": kind, "prompt": 'quote \"model\": opus inside text'}
+        if model: ti["model"] = model
+        payload = json.dumps({"session_id": "s1", "tool_name": "Agent", "tool_input": ti})
+        return r.run([r.bash, "-c", "printf '%s' \"$1\" | bash .uak/bin/guard agent", "_", payload], cwd=w, allowed=None,
+                     env=extra or {})
+    stop = lambda: r.run([r.bash, "-c", "printf '{}' | bash .uak/bin/guard agent-stop"], cwd=w)
+    expect(spawn("uak-scout").returncode == 0, "first haiku scout allowed")
+    expect(spawn("general-purpose", "opus").returncode == 0, "first opus allowed")
+    full = spawn("uak-scout")
+    expect(full.returncode == 2 and "Max-Parallel-Subagents" in full.stderr, "parallel cap enforced (ultracode-proof)")
+    stop()
+    over = spawn("general-purpose", "claude-opus-5-5")
+    expect(over.returncode == 2 and "Opus subagent budget" in over.stderr, "opus budget enforced: " + over.stderr)
+    stop()
+    human = spawn("general-purpose", "opus", {"UAK_ALLOW_OPUS": "1"})
+    expect(human.returncode == 0, "human override UAK_ALLOW_OPUS=1")
+    other = r.run([r.bash, "-c", "printf '%s' '{\"tool_name\":\"Bash\"}' | bash .uak/bin/guard agent"], cwd=w, allowed=None)
+    expect(other.returncode == 0, "non-Agent tools pass through")
+    return {"parallel_cap": 2, "opus_budget": 1}
+
+
 TESTS = [plan_publishes_without_pr, plan_requires_channel, dependency_parentheses_ignored,
-         lease_from_project, guard_commands, guard_prompt_secrets, graph_waves_and_cycles, loop_bounded, board_stats_up, demo_runs]
+         lease_from_project, guard_commands, guard_prompt_secrets, graph_waves_and_cycles, loop_bounded, board_stats_up, demo_runs, guard_subagent_budget]
 
 
 def main():

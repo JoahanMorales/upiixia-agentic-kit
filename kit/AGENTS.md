@@ -45,7 +45,7 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 
 ## 6. Context and tokens
 1. Read by ranges: `rg`, `sed -n`, `git diff --stat`. Never `cat` big files, logs or lockfiles.
-2. Delegate noisy commands to a runner subagent. Only a summary comes back.
+2. Route work by cost. The cheapest capable model reads and searches, the lead builds, and the strongest model reviews only at plan lock, a repeated failure or done (`.uak/docs/ORCHESTRATION.md`). Only summaries come back from subagents.
 3. One task = one session: `/uak-handoff`, then `/clear`.
 4. Checkpoint after each criterion and on `CHECKPOINT NOW`.
 5. When compacting, keep only: ID, branch, worktree, exact next step, pending criteria, failures with exact errors, commands, decisions and unanswered inbox.
@@ -55,6 +55,8 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 |---|---|
 | Planning or prioritizing | `.uak/modes/<mode>.md` §Plan and `.uak/docs/GRAPH.md` |
 | Loops or autonomy | `.uak/docs/LOOPS.md` |
+| Subagents or model choice | `.uak/docs/ORCHESTRATION.md` |
+| Pre-launch security | `.uak/docs/SECURITY.md` §Launch checklist |
 | CLI error or first use | `.uak/docs/CLI.md`, the section for the command |
 | Leases, recovery or merges | `.uak/docs/PROTOCOL.md` |
 | Secrets, access or dependencies | `.uak/docs/SECURITY.md` |

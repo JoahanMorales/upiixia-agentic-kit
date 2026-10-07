@@ -25,6 +25,7 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 6. Start the team with `uak up <agents> --tmux`. Humans watch `uak board --watch 10` instead of asking agents for status.
 
 ## Speed
+0. Orchestrate by cost (`.uak/docs/ORCHESTRATION.md`): Haiku scouts read, the Sonnet lead builds, and Opus is consulted only at plan lock, a repeated failure and done. The guard caps parallel subagents (4) and Opus subagents (2 per session).
 1. Mock first; switch to the real thing after its spike. Every mock shows `demo_data: true` in the UI.
 2. Merge as soon as there is an `approve` and the gates are green (`Auto-Merge: yes`). The human gets a `digest`, not pings.
 3. Stuck for 20 min, or the loop is stuck → `uak decision` with a reversible fallback, and move on.

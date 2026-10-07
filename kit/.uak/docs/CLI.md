@@ -16,7 +16,7 @@ Every command runs as `bash .uak/bin/uak CMD`. It needs Bash 3.2+, Git with work
 `.uak/PROJECT.md`, `.uak/TASKS.md` and `.uak/OWNERS.md` are read from the **remote base branch**, never from a stale worktree.
 
 ## PROJECT.md config fields
-`Mode` (sprint|marathon) · `Autonomy` · `Auto-Merge` · `Backlog-Approved` · `Backlog-Proposed-Epoch` · `Review-Mode` (claims|gh|auto) · `Plan-Channel` (claims|main) · `Freeze-Epoch` · `Lease-Seconds` · `Review-Lease-Seconds` · `Events-Per-Session` · `Checkpoint-Percent` · `Merge-Lease-Seconds` · `Merge-Wait-Seconds`. A missing yes/no field means `no`.
+`Mode` (sprint|marathon) · `Autonomy` · `Auto-Merge` · `Backlog-Approved` · `Backlog-Proposed-Epoch` · `Review-Mode` (claims|gh|auto) · `Plan-Channel` (claims|main) · `Freeze-Epoch` · `Lease-Seconds` · `Review-Lease-Seconds` · `Events-Per-Session` · `Checkpoint-Percent` · `Merge-Lease-Seconds` · `Merge-Wait-Seconds` · `Max-Parallel-Subagents` · `Opus-Subagents-Per-Session`. A missing yes/no field means `no`.
 
 ## TASKS.md fields
 `## ID · title` (ID = `PREFIX-NNN`) · `Priority: P0|P1|P2` · `Paths:` (comma-separated, dirs end in `/`) · `Depends on:` (IDs or `None`; parentheses are ignored) · `Uses contract:` (soft, notify-only) · `Related:` · `Verify:` (an exact command) · `Next step:` · `Estimate:` · `Freeze-Allowed: yes`.
@@ -61,6 +61,7 @@ Every command runs as `bash .uak/bin/uak CMD`. It needs Bash 3.2+, Git with work
 | `bash .uak/bin/wt new ID --agent NAME` | branch `feat/<id>` + worktree `../<repo>-wt/<id>` + `.uak-env` + port + claim |
 | `bash .uak/bin/wt session` · `wt rm ID` · `wt ls` | rotate the session · remove your worktree (never `--force`) · list worktrees |
 | `bash .uak/bin/q CMD` | quiet runner: one line on success, the tail on failure, full log in `.git/uak-q.log` |
+| `guard agent` / `guard agent-stop` | Claude Code hooks: subagent parallel cap, Opus budget per session, spawn log (`.git/uak-agents.log`). Human override: `UAK_ALLOW_OPUS=1`. |
 | `bash .uak/bin/guard check "CMD"` | ask the guard before running (Codex, Cursor and others without hooks) |
 | `bash .uak/bin/smoke [--package-only]` | product smoke, or the kit's own 70+ integration tests |
 

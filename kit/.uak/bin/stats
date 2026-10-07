@@ -46,3 +46,11 @@ if ls "$dir"/queue/*.md >/dev/null 2>&1; then
   q=$(cat "$dir"/queue/*.md | sed -n 's/^Reason: //p' | sed 's/: .*//' | sort | uniq -c | sort -rn | head -n 3 | awk '{c=$1; $1=""; printf "%s ×%d ·", substr($0,2), c}')
   printf 'human-queue reasons: %s\n' "${q:-none}"
 fi
+# Local subagent usage (written by guard agent): tiers decide the bill.
+gd=$(git rev-parse --git-dir 2>/dev/null || true)
+if [ -n "$gd" ] && [ -s "$gd/uak-agents.log" ]; then
+  awk '{t[$3]++; a[$4]++; n++} END {
+    s = ""; for (k in t) s = s sprintf("%s %d · ", k, t[k]); printf "subagents (this clone): %d · %s\n", n, substr(s, 1, length(s) - 3)
+    s = ""; for (k in a) s = s sprintf("%s %d · ", k, a[k]); printf "  by type: %s\n", substr(s, 1, length(s) - 3)
+  }' "$gd/uak-agents.log"
+fi

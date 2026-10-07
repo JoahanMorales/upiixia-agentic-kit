@@ -10,6 +10,7 @@ Task: ${ARGUMENTS:-$UAK_TASK}. Run these in order and stop at the first red; fix
 3. `bash .uak/bin/q <Verify> && bash .uak/bin/q bash .uak/bin/smoke`. Use `uak-runner` for long output or when the app must run.
    - sprint + UI: screenshots at 1280×720 and 390×844 → `design-critic`; fix its P1s.
    - marathon + sensitive area: `security-reviewer`; a HIGH finding blocks.
+3b. Risky diff (auth, data, money, migrations, or more than 300 lines): consult the advisor (or `/uak-advise done`) before pushing, and apply its CHANGE items.
 4. `git push -u origin HEAD && gh pr create --title "ID · <visible result>" --body "<.github/pull_request_template.md filled in>"`. If gh cannot create PRs, do NOT stop: print the `.../pull/new/<branch>` URL and use it below.
 5. `bash .uak/bin/uak done ID --pr URL --evidence "<cmd> exit 0; <criteria>"`. This asks a reviewer by rotation. If others consume your change: `uak msg related:ID --kind contract "<what · what to do>"`.
 6. `bash .uak/bin/uak checkpoint ID --done ... --decision ... --why ... --fails ... --commands ... --next "Wait for review of SHA <sha>"`.

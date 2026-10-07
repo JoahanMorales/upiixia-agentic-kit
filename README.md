@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/media/banner.png" alt="UPIIXIA Agentic Kit: Haiku swarms, Sonnet builds, Opus advises" width="860">
+
 # UPIIXIA Agentic Kit
 
 ### Ship with a team of AI coding agents, in parallel, without chaos.
@@ -13,13 +15,15 @@
 ![deps](https://img.shields.io/badge/runtime_deps-bash_%2B_git-success)
 ![agents](https://img.shields.io/badge/agents-Claude_Code_·_Codex_·_Cursor_·_Gemini-8A2BE2)
 
-[Quick start](#quick-start) · [Why](#why) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Token economy](#token-economy) · [Results](#battle-tested-hack-nation-2026) · [Contributing](CONTRIBUTING.md)
+[Quick start](#quick-start) · [Why](#why) · [Orchestration](#subagent-orchestration-haiku-swarms-sonnet-builds-opus-advises) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Token economy](#token-economy) · [Results](#battle-tested-hack-nation-2026) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
 ---
 
 ## Try it in 30 seconds (no setup, no API key)
+
+<img src="docs/media/demo.gif" alt="uak demo: 3 agents claim, loop, review and merge through one Git branch" width="860">
 
 ```bash
 git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit && bash upiixia-agentic-kit/kit/.uak/bin/uak demo
@@ -117,6 +121,25 @@ flowchart LR
 - **Typed async inbox.** `contract`, `request`, `review`, `approve`, `reject`. Hooks inject only the actionable messages into the agent's context.
 - **Guards.** A `PreToolUse` hook blocks destructive Git, `sudo`, `.env` reads and publishing. A `UserPromptSubmit` hook blocks pasted secrets.
 
+## Subagent orchestration: Haiku swarms, Sonnet builds, Opus advises
+
+The best result per token: the strongest model wakes up only where judgment changes the outcome ([ORCHESTRATION.md](kit/.uak/docs/ORCHESTRATION.md)).
+
+| Tier | Model | Job |
+|---|---|---|
+| Scouts | **Haiku 5.5** (`uak-scout`, `uak-runner`) | find files, symbols, docs; run noisy commands; return ≤15-line summaries, up to 3 in parallel |
+| Lead | **Sonnet 5.5** (main session) | plans, edits, runs Verify, decides |
+| Advisor / architect | **Opus 5.5** (`advisorModel: opus`, `uak-architect`) | consulted only at **plan lock**, **the same failure twice**, and **done** on risky diffs |
+
+- **Configured for you:** `install.sh` writes:
+  - `model: sonnet`, `advisorModel: opus`, `effortLevel` per mode;
+  - `CLAUDE_CODE_SUBAGENT_MODEL=haiku`, so any unpinned subagent is cheap;
+  - spawn depth 1, so there are no nested swarms;
+  - per-subagent `model`, `effort` and `maxTurns`.
+- **Enforced, not just suggested:** the `guard agent` hook caps parallel subagents (4 in sprint, 3 in marathon) and **Opus subagents per session** (2 / 4), even under ultracode, which bypasses Claude Code's own limit. `UAK_ALLOW_OPUS=1` is the human override.
+- **No advisor tool** (Bedrock, Vertex) **or a long session:** `/uak-advise plan|stuck|done` sends Opus a ≤40-line packet instead of replaying the whole transcript.
+- We checked the viral claims against the docs. `/advisor` is real; `--subagents`, "dispatcher pools" and "JEV 16 ms" are not ([details](kit/.uak/docs/ORCHESTRATION.md#what-we-did-not-adopt-claims-that-circulate-online)).
+
 ## Loop engineering
 
 Every loop declares a **trigger, a verifier, a budget, a stop condition and an escalation**, or it isn't allowed ([LOOPS.md](kit/.uak/docs/LOOPS.md)).
@@ -198,6 +221,8 @@ Mix them freely: coordination lives in Git, not in any tool.
 | `uak board [--watch] [--md]` | team kanban: state, owner, lease, PR, wave |
 | `uak stats` | retro numbers: messages, reviews, recoveries, merge queue |
 | `uak demo` | the 30-second real 3-agent run |
+| `/uak-advise plan\|stuck\|done` | an Opus checkpoint from a compact packet |
+| `/uak-secure` | the pre-launch security audit (22 checks + human-only items) |
 | `uak msg` / `inbox` / `digest` | agent messages · the human's single summary |
 | `uak plan FILE` | publish new tasks instantly (sprint) |
 | `uak doctor` | preflight everything at minute 0 |
@@ -240,6 +265,10 @@ They are complementary: use them for planning or UI, and this kit for coordinati
 **And from agent orchestrators or swarms?** They spawn agents on one machine. This kit has no daemon: any agent, anywhere, coordinates through `git push`.
 
 **Windows?** Yes, with Git Bash. macOS ships Bash 3.2, which is supported.
+
+**Will it burn my Opus budget?** No. Opus is pinned to checkpoints, and the guard blocks Opus fan-out beyond the per-session budget. Run `uak stats` to see subagent use by tier.
+
+**Is my vibe-coded backend safe to launch?** Run `/uak-secure`. It checks IDOR, enumeration, rate limits, idempotent payments, transactions, CORS, log redaction, backups and 15 more items, each with how to verify it. It leaves the human-only items (key rotation, 2FA, the restore drill, watching the logs) to you.
 
 **Is the guard a sandbox?** No. It is defense in depth against accidents. For untrusted agents, use your tool's sandbox as well.
 

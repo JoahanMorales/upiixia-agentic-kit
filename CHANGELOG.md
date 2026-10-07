@@ -1,5 +1,14 @@
 # Changelog
 
+## v4.0.0 · 2026-10-07 · Orchestration
+- **Model routing:** Haiku 5.5 scouts, a Sonnet 5.5 lead and an Opus 5.5 advisor/architect, consulted only at plan lock, the same failure twice and done. Installed settings: `model: sonnet`, `advisorModel: opus`, `effortLevel` per mode, `CLAUDE_CODE_SUBAGENT_MODEL=haiku`, `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1`, and concurrency per mode.
+- **`guard agent`** (PreToolUse `Agent|Task` + SubagentStop) caps parallel subagents and Opus subagents per session, also under ultracode (which bypasses Claude Code's own cap). It logs every spawn by tier; `uak stats` reports it.
+- **New subagents:** `uak-scout` (Haiku, read-only, ≤15-line structured answers) and `uak-architect` (Opus, checkpoint packets). Every subagent now pins `model`, `effort` and `maxTurns`, and cannot spawn subagents.
+- **New commands:** `/uak-advise plan|stuck|done` (a ≤40-line packet when the advisor tool is unavailable or the session is long) and `/uak-secure` (the pre-launch audit). `/uak-start`, `/uak-loop` and `/uak-ship` call the checkpoints.
+- **Launch checklist** in SECURITY.md: 22 verifiable items plus human-only ones. `security-reviewer` checks the relevant items.
+- **Media:** `docs/media/demo.gif`, rendered from a real `uak demo` run, and `docs/media/banner.png` (`scripts/make_media.py` regenerates both).
+- Viral orchestration claims were checked against the Claude Code docs; the unsupported ones are listed in ORCHESTRATION.md.
+
 ## v3.1.0 · 2026-10-06
 - **`uak demo`:** a real 3-agent session in a temp repo in about 15 s, with no setup, network or keys. It covers claims, a rejected overlap, a bounded loop, an independent review, a gated merge and a dependency unlocking.
 - **`uak board`:** a team kanban read from the claims branch (state, owner, lease left, PR, wave). `--watch` refreshes it live and `--md` prints a GitHub table.

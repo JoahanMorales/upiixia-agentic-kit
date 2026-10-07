@@ -34,3 +34,8 @@ Load only the row you need. Every rule cites the incident behind it. Data comes 
 | marathon: spec → plan → tasks | Without a clock the risk shifts from "not shipping" to "shipping wrong". Specs keep the why traceable. |
 | marathon: human merge + CI | Sprint's auto-merge buys time. In production, a bad main costs more than waiting for a review. |
 | marathon: dependency decisions | We used a CC-BY-NC library. In a product, that would have been a legal blocker. |
+| §6.2 Route by cost | Most turns are routine. Running the strongest model on every turn pays its price for file discovery and grep. The documented advisor strategy (fast main + strong advisor at decision points) typically costs less than running the strong model throughout. |
+| `guard agent` caps | Claude Code's concurrency cap (default 20) does not apply under ultracode, so one prompt can fan out many Opus subagents. Our hook enforces `Max-Parallel-Subagents` and `Opus-Subagents-Per-Session` regardless. |
+| Spawn depth 1 | Nested subagents multiply context and cost without a reviewer in the loop. |
+| `/uak-advise` packets | The advisor tool re-reads the whole transcript, uncached, on every call. In a long session, a ≤40-line packet to `uak-architect` is cheaper. Some providers have no advisor tool at all. |
+| Launch checklist | Vibe-coded backends look finished but routinely miss IDOR, rate limits, idempotency, transactions and restore drills. Each item now has a verifiable check, and the human-only items stay with humans. |
