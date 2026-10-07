@@ -138,6 +138,7 @@ The best result per token: the strongest model wakes up only where judgment chan
   - per-subagent `model`, `effort` and `maxTurns`.
 - **Enforced, not just suggested:** the `guard agent` hook caps parallel subagents (4 in sprint, 3 in marathon) and **Opus subagents per session** (2 / 4), even under ultracode, which bypasses Claude Code's own limit. `UAK_ALLOW_OPUS=1` is the human override.
 - **No advisor tool** (Bedrock, Vertex) **or a long session:** `/uak-advise plan|stuck|done` sends Opus a ≤40-line packet instead of replaying the whole transcript.
+- **Verified live:** a real headless run used `claude-sonnet-5-5` as lead and `claude-haiku-5-5` as scout, for 0.085 USD in total.
 - We checked the viral claims against the docs. `/advisor` is real; `--subagents`, "dispatcher pools" and "JEV 16 ms" are not ([details](kit/.uak/docs/ORCHESTRATION.md#what-we-did-not-adopt-claims-that-circulate-online)).
 
 ## Loop engineering

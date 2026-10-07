@@ -45,6 +45,13 @@ These need Claude Code v2.1.293 or later for Haiku 5.5. On Bedrock, Vertex or Fo
 
 To check what was spent: `uak stats` reads `.git/uak-agents.log` (subagents by tier and type) and the session's `/usage`.
 
+## Verified end to end (2026-10-07, Claude Code 2.1.293)
+In a fresh repo with the kit installed, one headless run of `claude -p "Use the uak-scout subagent to answer: which file tests the search function…"` gave:
+- the lead ran on `claude-sonnet-5-5` and the scout on `claude-haiku-5-5`, from the installed settings and agent frontmatter;
+- `guard agent` logged `haiku uak-scout`;
+- the total cost was **0.085 USD**;
+- the scout flagged an unrelated instruction that an account-level connector had injected into its context, and ignored it (AGENTS.md §1.4).
+
 ## What we did NOT adopt (claims that circulate online)
 | Claim | Status |
 |---|---|
