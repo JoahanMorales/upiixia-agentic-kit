@@ -1,5 +1,8 @@
 # Changelog
 
+## v4.0.1 · 2026-10-07
+- New banner and demo GIF. Both are rendered from HTML/CSS in headless Chromium (Inter + JetBrains Mono) instead of PIL drawing. The GIF is 6 curated scenes with typed commands, every line taken from a real `uak demo` run, plus a closing card whose commands work as written. `scripts/make_media.py` regenerates both (`uv run --with playwright --with pillow python scripts/make_media.py`).
+
 ## v4.0.0 · 2026-10-07 · Orchestration
 - **Model routing:** Haiku 5.5 scouts, a Sonnet 5.5 lead and an Opus 5.5 advisor/architect, consulted only at plan lock, the same failure twice and done. Installed settings: `model: sonnet`, `advisorModel: opus`, `effortLevel` per mode, `CLAUDE_CODE_SUBAGENT_MODEL=haiku`, `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1`, and concurrency per mode.
 - **`guard agent`** (PreToolUse `Agent|Task` + SubagentStop) caps parallel subagents and Opus subagents per session, also under ultracode (which bypasses Claude Code's own cap). It logs every spawn by tier; `uak stats` reports it.
