@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# uak guards for Claude Code hooks (also callable by any agent). Bash 3.2+, no jq.
-#   guard bash     (PreToolUse, matcher Bash): blocks destructive or publishing commands
+# uak guards for agent hooks: Claude Code, Codex, Cursor and Gemini CLI (also callable by hand). Bash 3.2+, no jq.
+#   guard bash     (PreToolUse/BeforeTool on the shell tool): blocks destructive or publishing commands
 #                  even when chained (`cd x && git push --force`).
+#   guard shell    (Cursor beforeShellExecution): the same rule on a top-level "command".
+#   guard agent / agent-stop   subagent parallel cap + strong-model budget, scaled by `uak pace`.
 #   guard prompt   (UserPromptSubmit): blocks human messages that contain secrets.
 #   guard check "COMANDO"   manual test of the bash rule (exit 2 = blocked).
 # Why: at Hack-Nation 2026 the settings.json deny list (prefix match) missed a chained force-push
@@ -16,7 +18,9 @@ mode() {
   case "$m" in marathon) printf 'marathon';; *) printf 'sprint';; esac
 }
 
-block() { printf 'UAK_GUARD: blocked · %s\n' "$*" >&2; exit 2; }
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# Every block also goes to the black box: a rule that fires often is friction worth fixing.
+block() { printf 'UAK_GUARD: blocked · %s\n' "$*" >&2; bash "$here/bb" auto guard guard "$*" >/dev/null 2>&1 || true; exit 2; }
 
 # Split into segments on ; && || | and newlines (including JSON-escaped \n).
 segments() {
@@ -46,6 +50,8 @@ check_bash() {
       block "git branch -D: delete only your merged branches, with -d."
     printf '%s' "$s" | grep -Eq '(^|[[:space:]])--no-verify([[:space:]]|$)' &&
       block "--no-verify skips the pre-commit secret scanner."
+    printf '%s' "$s" | grep -Eq '(^|[[:space:]])(pkill[[:space:]]+(-[A-Za-z0-9]+[[:space:]]+)*-[A-Za-z]*f|killall)([[:space:]]|$)' &&
+      block "pkill -f/killall match by pattern and can kill your own shell or other agents' servers (UpiixSol). Kill exact PIDs: bash .uak/bin/wt stop, or kill \$(lsof -ti tcp:\$UAK_PORT)."
     printf '%s' "$s" | grep -Eq '(^|[[:space:]])sudo([[:space:]]|$)' &&
       block "sudo needs the human: ask them to run it themselves. Never ask for or use their password."
     printf '%s' "$s" | grep -Eq 'rm[[:space:]]+-[A-Za-z]*[rR][A-Za-z]*[[:space:]]+(-[A-Za-z]+[[:space:]]+)*("|'"'"')?(/|~|\$HOME|\.\.|\.git([[:space:]/]|$)|\*)' &&
@@ -102,34 +108,62 @@ json_field() {
 cfg() { top=$(git rev-parse --show-toplevel 2>/dev/null) || { printf '%s' "$2"; return; }
   v=$(sed -n "s/^[-* ]*$1:[* ]*//p" "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `')
   case "$v" in ''|*[!0-9]*) printf '%s' "$2";; *) printf '%s' "$v";; esac; }
-tier_of() { # $1 model param, $2 subagent_type → opus|sonnet|haiku|inherit
+model_of_agent() { # $1 agent type → model declared by its definition in any harness
+  top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+  for f in "$top/.cursor/agents/$1.md" "$top/.claude/agents/$1.md" "$top/.gemini/agents/$1.md"; do
+    [ -f "$f" ] && { sed -n 's/^model:[[:space:]]*//p' "$f" | head -n 1 | tr -d '\r"'"'"; return; }
+  done
+  f="$top/.codex/agents/$1.toml"
+  [ -f "$f" ] && sed -n 's/^model[[:space:]]*=[[:space:]]*//p' "$f" | head -n 1 | tr -d '\r"'"'"
+}
+# Tiers are harness-neutral. Order matters: gpt-5.6-sol is the strong model of its family, gpt-6.1-sol the balanced one.
+tier_class() {
+  case "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" in
+    ''|inherit) printf inherit;;
+    *opus*|*fable*|*mythos*|*astra*|*gpt-5.6-sol*|*gpt-5-6-sol*|best) printf strong;;
+    *haiku*|*luna*|*composer*|*flash*|*-mini*|*-nano*) printf fast;;
+    *sonnet*|*sol*|*terra*|*gemini*pro*|*gpt-*) printf balanced;;
+    *) printf inherit;;
+  esac
+}
+tier_of() { # $1 model param, $2 subagent type → strong|balanced|fast|inherit
   m=$1
+  [ -n "$m" ] || m=$(model_of_agent "$2")
   if [ -z "$m" ]; then
-    top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-    f="$top/.claude/agents/$2.md"
-    [ -f "$f" ] && m=$(sed -n 's/^model:[[:space:]]*//p' "$f" | head -n 1 | tr -d '\r"')
-    case "$2" in general-purpose|Explore|Plan) [ -n "$m" ] || m=${CLAUDE_CODE_SUBAGENT_MODEL:-inherit};; esac
+    case "$2" in
+      general-purpose|Explore|Plan) m=${CLAUDE_CODE_SUBAGENT_MODEL:-};;
+      default|worker|explorer)
+        top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+        m=$(sed -n 's/^default_subagent_model[[:space:]]*=[[:space:]]*//p' "$top/.codex/config.toml" 2>/dev/null | head -n 1 | tr -d '\r"');;
+    esac
   fi
-  case "$m" in *opus*|*fable*|best) printf opus;; *sonnet*) printf sonnet;; *haiku*) printf haiku;; *) printf inherit;; esac
+  tier_class "$m"
 }
 check_agent() {
   input=$1 gd=$(git rev-parse --git-dir 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")
   now=${UAK_NOW:-$(date +%s)}
-  type=$(printf '%s' "$input" | json_field subagent_type); model=$(printf '%s' "$input" | json_field model)
+  type=$(printf '%s' "$input" | json_field subagent_type); [ -n "$type" ] || type=$(printf '%s' "$input" | json_field agent_type)
+  # Claude Code puts the chosen model in tool_input; Codex/Cursor start events carry the PARENT's model, so ignore it.
+  case "$input" in *'"tool_name"'*) model=$(printf '%s' "$input" | json_field model);; *) model=;; esac
   sid=$(printf '%s' "$input" | json_field session_id); sid=${sid:-default}
   tier=$(tier_of "$model" "$type")
-  max=$(cfg Max-Parallel-Subagents 4); opus_max=$(cfg Opus-Subagents-Per-Session 2)
+  # `uak pace` scales both caps with plan usage: surge 2x, conserve 1/2, critical 1 and no strong model.
+  set -- $(bash "$here/pace" --caps 2>/dev/null)
+  level=${1:-unknown} max=${2:-} opus_max=${3:-}
+  case "$max" in ''|*[!0-9]*) max=$(cfg Max-Parallel-Subagents 4);; esac
+  case "$opus_max" in ''|*[!0-9]*) opus_max=$(cfg Opus-Subagents-Per-Session 2);; esac
+  why=; case "$level" in surge|conserve|critical) why=" (pace $level: uak pace)";; esac
   act="$gd/uak-agents.active" log="$gd/uak-agents.log"
   touch "$act" "$log"
   # Reservations older than 20 min are stale (a crashed subagent never sent SubagentStop).
   awk -v now="$now" '$1 + 1200 > now' "$act" > "$act.tmp" && mv "$act.tmp" "$act"
   running=$(awk 'END {print NR+0}' "$act")
   [ "$running" -lt "$max" ] ||
-    block "$running subagents already running (Max-Parallel-Subagents: $max). Wait for one to finish, or do the step yourself; a swarm costs more than it saves."
-  if [ "$tier" = opus ] && [ "${UAK_ALLOW_OPUS:-}" != 1 ]; then
-    used=$(awk -v s="$sid" '$2 == s && $3 == "opus"' "$log" | awk 'END {print NR+0}')
+    block "$running subagents already running (Max-Parallel-Subagents: $max$why). Wait for one to finish, or do the step yourself; a swarm costs more than it saves."
+  if [ "$tier" = strong ] && [ "${UAK_ALLOW_OPUS:-}" != 1 ]; then
+    used=$(awk -v s="$sid" '$2 == s && ($3 == "strong" || $3 == "opus")' "$log" | awk 'END {print NR+0}')
     [ "$used" -lt "$opus_max" ] ||
-      block "Opus subagent budget for this session is spent ($used/$opus_max). Use the advisor tool at a checkpoint, uak-scout (haiku) to read, or uak-reviewer (sonnet). A human can raise Opus-Subagents-Per-Session."
+      block "Opus subagent budget (strong tier: Opus, Astra, GPT-5.6 Sol) for this session is spent ($used/$opus_max$why). Use the advisor at a checkpoint, a fast scout to read, or a balanced reviewer. A human can raise Opus-Subagents-Per-Session or set UAK_ALLOW_OPUS=1."
   fi
   printf '%s %s %s %s\n' "$now" "$sid" "$tier" "${type:-unknown}" >> "$log"
   printf '%s %s %s\n' "$now" "$tier" "${type:-unknown}" >> "$act"
@@ -141,21 +175,35 @@ agent_stop() {
   sed '1d' "$act" > "$act.tmp" && mv "$act.tmp" "$act"
 }
 
+shell_tool() { # tool names of the shell in each harness' PreToolUse/BeforeTool payload
+  case "$1" in *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*|*'"tool_name":"Shell"'*|*'"tool_name": "Shell"'*|\
+    *'"tool_name":"shell"'*|*'"tool_name": "shell"'*|*'"tool_name":"exec_command"'*|*'"tool_name": "exec_command"'*|\
+    *'"tool_name":"local_shell"'*|*'"tool_name": "local_shell"'*|*'"tool_name":"run_shell_command"'*|*'"tool_name": "run_shell_command"'*) return 0;; esac
+  return 1
+}
 case "${1:-}" in
   agent)
     input=$(cat 2>/dev/null || true)
-    case "$input" in *'"tool_name":"Agent"'*|*'"tool_name": "Agent"'*|*'"tool_name":"Task"'*|*'"tool_name": "Task"'*) ;; *) exit 0;; esac
+    case "$input" in
+      *'"tool_name":"Agent"'*|*'"tool_name": "Agent"'*|*'"tool_name":"Task"'*|*'"tool_name": "Task"'*) ;;   # Claude Code, Cursor preToolUse
+      *'"hook_event_name":"SubagentStart"'*|*'"hook_event_name": "SubagentStart"'*|*'"hook_event_name":"subagentStart"'*|*'"hook_event_name": "subagentStart"'*) ;;  # Codex, Cursor
+      *) exit 0;;
+    esac
     check_agent "$input";;
   agent-stop) cat >/dev/null 2>&1 || true; agent_stop;;
   bash)
     input=$(cat 2>/dev/null || true)
-    case "$input" in *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*) ;; *) exit 0;; esac
+    shell_tool "$input" || exit 0
+    check_bash "$(printf '%s' "$input" | json_field command)";;
+  shell)
+    input=$(cat 2>/dev/null || true)
     check_bash "$(printf '%s' "$input" | json_field command)";;
   prompt)
     input=$(cat 2>/dev/null || true)
     check_prompt "$(printf '%s' "$input" | json_field prompt)";;
   check) check_bash "${2:-}"; printf 'UAK_GUARD: allowed\n';;
   check-prompt) check_prompt "${2:-}"; printf 'UAK_GUARD: allowed\n';;
-  *) printf '%s\n' 'Usage: guard bash|prompt|agent|agent-stop (hook JSON on stdin) · guard check "CMD" · guard check-prompt "TEXT"' >&2; exit 2;;
+  tier) printf '%s\n' "$(tier_class "${2:-}")";;
+  *) printf '%s\n' 'Usage: guard bash|shell|prompt|agent|agent-stop (hook JSON on stdin) · guard check "CMD" · guard check-prompt "TEXT" · guard tier MODEL' >&2; exit 2;;
 esac
 exit 0

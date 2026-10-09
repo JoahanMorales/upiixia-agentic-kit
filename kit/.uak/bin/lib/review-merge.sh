@@ -29,6 +29,18 @@ review_identity_eligible() {
     case "$state" in CLAIMED|BLOCKED|REVIEW) ;; *) continue;; esac
     if [ "$NOW" -lt "$until" ]; then RM_ELIGIBLE_VIA="claim:$(field "$c" ID):$until"; return 0; fi
   done
+  # An agent whose last task was integrated recently is still a real, working agent.
+  # Why (UpiixSol): reviewers lost eligibility the moment their own task merged, and only a human could
+  # re-register them, so reviews stalled overnight. Window: 24 h or Review-Lease-Seconds if longer.
+  local window updated r
+  window=${REVIEW_LEASE:-86400}; case "$window" in ''|*[!0-9]*) window=86400;; esac; [ "$window" -ge 86400 ] || window=86400
+  for r in "$TX"/tasks/*.md; do
+    [ -f "$r" ] || continue
+    [ "$(field "$r" Owner)" = "$who" ] || continue
+    [ "$(field "$r" State)" = INTEGRATED ] || continue
+    updated=$(field "$r" Updated); case "$updated" in ''|*[!0-9]*) continue;; esac
+    if [ $((NOW - updated)) -le "$window" ]; then RM_ELIGIBLE_VIA="recent:$(field "$r" ID):$updated"; return 0; fi
+  done
   return 1
 }
 register_reviewer_mutate() {
@@ -308,6 +320,14 @@ rm_gate_scope() {
   local path allowed reserve
   normalize_paths "$(field "$RECORD" Paths)" > "$TXROOT/merge-allowed" || { RM_REASON='Invalid claim Paths'; return 1; }
   git -C "$RM_BUILD" diff --no-renames --name-only -z "$(field "$RECORD" Task-Base)" "$RM_REVIEWED_TIP" > "$TXROOT/merge-files" || return 1
+  # Additive-Paths (PROJECT.md, e.g. `e2e/, tests/`): NEW files there need no reservation; edits still do.
+  # Why (UpiixSol): 4 of 11 decisions were "this task adds a new test file outside its Paths", 15 min each.
+  : > "$TXROOT/merge-additive"
+  additive=-; [ ! -f "$TXROOT/coord-source" ] || additive=$(coord_source_field Additive-Paths -)
+  if [ -n "$additive" ] && [ "$additive" != - ]; then
+    normalize_paths "$additive" > "$TXROOT/merge-additive" 2>/dev/null || : > "$TXROOT/merge-additive"
+    git -C "$RM_BUILD" diff --no-renames --diff-filter=A --name-only "$(field "$RECORD" Task-Base)" "$RM_REVIEWED_TIP" > "$TXROOT/merge-added" || return 1
+  fi
   while IFS= read -r -d '' path; do
     case "$path" in *$'\n'*|*$'\r'*) RM_REASON='Path with newline not supported'; return 1;; esac
     normalize_paths "$path" > "$TXROOT/merge-path" || { RM_REASON='Invalid diff path'; return 1; }
@@ -316,7 +336,9 @@ rm_gate_scope() {
       printf '%s\n' "$reserve" > "$TXROOT/merge-reserve"
       overlaps "$TXROOT/merge-path" "$TXROOT/merge-reserve" && allowed=yes
     done < "$TXROOT/merge-allowed"
-    [ "$allowed" = yes ] || { RM_REASON="Diff outside Paths: $path"; return 1; }
+    if [ "$allowed" = no ] && [ -s "$TXROOT/merge-additive" ] && grep -qxF -- "$path" "$TXROOT/merge-added" 2>/dev/null &&
+       overlaps "$TXROOT/merge-path" "$TXROOT/merge-additive"; then allowed=yes; fi
+    [ "$allowed" = yes ] || { RM_REASON="Diff outside Paths: $path (new test files: add the dir to Additive-Paths in PROJECT.md)"; return 1; }
     case "/$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')/" in
       */contracts/*|*/types/*|*/shared-types/*|*/migrations/*|*/.github/workflows/*|*/.gitlab-ci.yml/*|*/azure-pipelines.yml/*|*/package-lock.json/*|*/pnpm-lock.yaml/*|*/*.lock/*|*/*.lockb/*|*/go.sum/*|*/.uak/bin/smoke/*|*/.uak/bin/smoke-project/*|*/.uak/bin/secret-scan/*|*/.uak/bin/uak/*|*/.uak/bin/lib/*|*/.uak/bin/uak-coordination/*|*/.githooks/*|*/hackathon.md/*)
         RM_REASON="Shared resource/CI needs a human: $path"; return 1;;

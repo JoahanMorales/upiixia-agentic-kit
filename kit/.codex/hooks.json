@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/hook\" session-start", "timeout": 45 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/guard\" prompt", "timeout": 5 }] }],
+    "PreToolUse": [{ "matcher": "Bash|shell|exec_command|local_shell", "hooks": [{ "type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/guard\" bash", "timeout": 5, "statusMessage": "uak guard" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/hook\" tick", "timeout": 10 }] }],
+    "SubagentStart": [{ "hooks": [{ "type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/guard\" agent", "timeout": 5 }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/guard\" agent-stop", "timeout": 5 }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/hook\" stop", "timeout": 30 }] }]
+  }
+}

@@ -1,4 +1,4 @@
-# Agent rules · UPIIXIA Agentic Kit (uak v3)
+# Agent rules · UPIIXIA Agentic Kit (uak v4.1)
 
 Core for every agent (Claude Code, Codex, Cursor, Gemini CLI, Aider…). Read once per session.
 Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); also read `.uak/modes/<mode>.md`.
@@ -26,13 +26,14 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 4. Claude Code sends heartbeats automatically. In other tools, run `uak heartbeat ID` every 10 min.
 5. Low on tokens or context: run `/uak-handoff`, then `uak release ID`. The next claim inherits your summary. Never leave a claim without a summary.
 6. Someone else's lease expired: read `uak status --task ID --summary`, then release it with its read token.
-7. Use your worktree port: `$UAK_PORT` for the API, `$UAK_PORT+1` for the web. Never hard-code ports.
+7. Use your worktree port: `$UAK_PORT` for the API, `$UAK_PORT+1` for the web. Never hard-code ports. Stop your servers with `bash .uak/bin/wt stop`, never `pkill -f`.
+8. A PR merged by a human while its owner is away: any agent records it with `uak integrate ID`. No PR permission: `bash .uak/bin/wt pr` prints the URL for the human.
 
 ## 4. Quality loop
 1. Every task is vertical, with testable criteria, `Paths` and an exact `Verify` command.
 2. Inner loop: implement → `bash .uak/bin/q <Verify>` → fix. Stop after 5 failed attempts or 2 identical failures. Then mark BLOCKED with the exact error, or run `uak decision` (see `.uak/docs/LOOPS.md`).
 3. Chain dependent steps with `&&`, never `;` (commit → SHA → push → message).
-4. Evidence = a command you ran + its real output. "Should pass" is not evidence.
+4. Evidence = a command you ran + its real output. "Should pass" is not evidence. Build fresh: output older than your diff (`dist/`, caches) proves nothing.
 5. Commit and push on every green criterion. Open a small PR as soon as smoke passes (`/uak-ship`).
 6. Test UI in a real browser (Playwright) with reduced motion, and wait for the final state.
 7. The reviewer is never the author. Review the SHA, criteria, scope, and run Verify. A reject gives `file:line`, what fails and how to reproduce it.
@@ -45,10 +46,11 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 
 ## 6. Context and tokens
 1. Read by ranges: `rg`, `sed -n`, `git diff --stat`. Never `cat` big files, logs or lockfiles.
-2. Route work by cost. The cheapest capable model reads and searches, the lead builds, and the strongest model reviews only at plan lock, a repeated failure or done (`.uak/docs/ORCHESTRATION.md`). Only summaries come back from subagents.
-3. One task = one session: `/uak-handoff`, then `/clear`.
-4. Checkpoint after each criterion and on `CHECKPOINT NOW`.
-5. When compacting, keep only: ID, branch, worktree, exact next step, pending criteria, failures with exact errors, commands, decisions and unanswered inbox.
+2. Route work by cost. The fast tier reads and searches, the balanced lead builds, and the strong tier reviews only at plan lock, a repeated failure or done (`.uak/docs/ORCHESTRATION.md`). Only summaries come back from subagents.
+3. Follow `uak pace` (plan usage vs time left): `surge` = spend more (more scouts, `uak up`), `conserve` = fast tier only, `critical` = finish the criterion, checkpoint, hand off. The guard enforces its caps.
+4. One task = one session: `/uak-handoff`, then `/clear`.
+5. Checkpoint after each criterion and on `CHECKPOINT NOW`.
+6. When compacting, keep only: ID, branch, worktree, exact next step, pending criteria, failures with exact errors, commands, decisions and unanswered inbox.
 
 ## 7. Load on demand
 | Trigger | Read only |
@@ -56,7 +58,12 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 | Planning or prioritizing | `.uak/modes/<mode>.md` §Plan and `.uak/docs/GRAPH.md` |
 | Loops or autonomy | `.uak/docs/LOOPS.md` |
 | Subagents or model choice | `.uak/docs/ORCHESTRATION.md` |
+| Plan limits, costs, pacing | `.uak/docs/COSTS.md` |
+| The kit itself failed you | `.uak/docs/BLACKBOX.md` |
 | Pre-launch security | `.uak/docs/SECURITY.md` §Launch checklist |
 | CLI error or first use | `.uak/docs/CLI.md`, the section for the command |
 | Leases, recovery or merges | `.uak/docs/PROTOCOL.md` |
 | Secrets, access or dependencies | `.uak/docs/SECURITY.md` |
+
+## 8. Black box (on unless `Blackbox: off`)
+When the kit or protocol (not your code) makes you retry, wait, guess or work around it, record one line: `uak bb add bug|friction|need|idea|praise "what happened" --fix "what would prevent it"`. No names, paths or secrets. uak records its own errors automatically.

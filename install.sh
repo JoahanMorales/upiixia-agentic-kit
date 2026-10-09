@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 # UPIIXIA Agentic Kit installer.
-#   bash install.sh --mode sprint|marathon [--stack fastapi-react|none] [--skills ai,tdd] [--update] TARGET
+#   bash install.sh --mode sprint|marathon [--stack fastapi-react|none] [--skills ai,tdd] [--no-blackbox] [--update] TARGET
 # Never overwrites your files: if AGENTS.md, CLAUDE.md, settings.json… already exist and differ,
 # the kit's version is written as <file>.uak-new for you to merge.
 # --update replaces only the engine (.uak/bin, docs, modes, templates, tests, settings, stacks, skills)
 # and keeps PROJECT.md, TASKS.md and OWNERS.md.
+# Harnesses: Claude Code (.claude), Codex (.codex), Cursor (.cursor), Gemini CLI (.gemini) all get
+# tiered subagents (fast / balanced / strong) and, where the harness has hooks, the same guard.
 set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 kit="$here/kit"
-mode= stack=none extra= update=no target=
+mode= stack=none extra= update=no target= blackbox=on
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode) mode=${2:-}; shift 2;;
     --stack) stack=${2:-}; shift 2;;
     --skills) extra=${2:-}; shift 2;;
     --update) update=yes; shift;;
-    -h|--help) sed -n '2,8p' "$0"; exit 0;;
+    --no-blackbox) blackbox=off; shift;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0;;
     -*) printf 'Unknown option: %s\n' "$1" >&2; exit 2;;
     *) target=$1; shift;;
   esac
@@ -44,10 +47,14 @@ for part in bin docs modes templates tests settings stacks skills; do
   rm -rf "$target/.uak/$part"
   cp -R "$kit/.uak/$part" "$target/.uak/$part"
 done
+cp "$kit/.uak/VERSION" "$target/.uak/VERSION"
 chmod +x "$target"/.uak/bin/* 2>/dev/null || true
 say "  + .uak/ (engine, modes, templates, docs, tests, skill library)"
 [ -f "$target/.uak/PROJECT.md" ] || { cp "$kit/.uak/templates/PROJECT.$mode.md" "$target/.uak/PROJECT.md"; say "  + .uak/PROJECT.md"; }
 [ -f "$target/.uak/OWNERS.md" ] || { cp "$kit/.uak/templates/OWNERS.template.md" "$target/.uak/OWNERS.md"; say "  + .uak/OWNERS.md"; }
+if [ "$blackbox" = off ] && grep -q '^Blackbox: on' "$target/.uak/PROJECT.md"; then
+  sed 's/^Blackbox: on$/Blackbox: off/' "$target/.uak/PROJECT.md" > "$target/.uak/PROJECT.md.tmp" && mv "$target/.uak/PROJECT.md.tmp" "$target/.uak/PROJECT.md"
+fi
 grep -Eq "^Mode: $mode\$" "$target/.uak/PROJECT.md" || say "  ! .uak/PROJECT.md does not declare 'Mode: $mode' (left unchanged)"
 
 put "$kit/AGENTS.md" "$target/AGENTS.md"
@@ -70,6 +77,17 @@ if [ "$stack" != none ]; then
   [ ! -f "$kit/.uak/stacks/$stack/smoke-project.example" ] || put "$kit/.uak/stacks/$stack/smoke-project.example" "$target/.uak/bin/smoke-project.example"
 fi
 put "$kit/.cursor/rules/uak.mdc" "$target/.cursor/rules/uak.mdc"
+put "$kit/.cursor/hooks.json" "$target/.cursor/hooks.json"
+put "$kit/.uak/settings/codex.$mode.toml" "$target/.codex/config.toml"
+put "$kit/.codex/hooks.json" "$target/.codex/hooks.json"
+put "$kit/.gemini/settings.json" "$target/.gemini/settings.json"
+case "$mode" in sprint) skip_agent=security-reviewer;; *) skip_agent=design-critic;; esac
+for h in .codex .cursor .gemini; do # the same subagents as .claude/agents, minus the other mode's
+  for f in "$kit/$h/agents/"*; do
+    case "$(basename "$f")" in "$skip_agent".*) continue;; esac
+    put "$f" "$target/$h/agents/$(basename "$f")"
+  done
+done
 for link in .agents/skills .cursor/skills; do # Codex, Cursor and others read the same skills
   mkdir -p "$target/$(dirname "$link")"
   [ -e "$target/$link" ] || { ln -s ../.claude/skills "$target/$link"; say "  + $link → .claude/skills"; }
@@ -93,4 +111,7 @@ Done. Next:
   2. Open Claude Code (or Codex / Cursor / Gemini CLI) there and run /uak-setup
   3. /uak-plan → each agent: bash .uak/bin/wt new ID --agent NAME
 Files ending in .uak-new: merge them by hand; the kit never overwrites yours.
+Codex: trust the project once so .codex/config.toml and .codex/hooks.json load (/hooks to review them).
+Black box: $blackbox. Agents record kit problems in claims:blackbox/ so the kit can be fixed
+(no code, paths or identities). Turn off any time: 'Blackbox: off' in .uak/PROJECT.md.
 EOF

@@ -1,0 +1,10 @@
+# UPIIXIA Agentic Kit · Codex (marathon mode). Installed as .codex/config.toml (project layer; trust the project).
+# Sol leads, Luna swarms, Astra advises at the 3 checkpoints: .uak/docs/ORCHESTRATION.md
+# Older accounts or the GPT-5.6 rollout: lead gpt-5.6-terra, swarm gpt-5.6-luna, strong gpt-5.6-sol.
+model = "gpt-6.1-sol"
+model_reasoning_effort = "high"
+
+[agents]
+max_concurrent_threads_per_session = 3
+default_subagent_model = "gpt-6-luna"
+default_subagent_reasoning_effort = "low"

@@ -1,5 +1,33 @@
 # Changelog
 
+## v4.1.0 · 2026-10-09 · Black box, pacing, every harness
+From the first post-mortem of a real kit user (UpiixSol: 3 days, 2 humans, 6 agent identities, 38 tasks). Every fix cites its incident in WHY.md.
+- **Black box (`uak bb`), on by default.** Every `uak` error and guard block is recorded as one anonymous line, and agents add notes with `uak bb add bug|friction|need|idea|praise`. Lines carry no identities, paths, SHAs, code or secrets. They are published to `claims:blackbox/` (one file per machine and day, so pushes never conflict). `uak bb export` writes `.uak/BLACKBOX.md` and `scripts/blackbox_harvest.py` ranks issues across public repos. Off with `Blackbox: off` or `install.sh --no-blackbox`.
+- **Plan pacing (`uak pace`).** Budget left vs time left per usage window gives surge, normal, conserve or critical. The levels scale the guard's caps: surge doubles parallel subagents and adds 2 strong ones; critical allows 1 subagent and no strong model. Sources: the Claude Code status line `rate_limits` (new `.uak/bin/statusline`), Codex session logs, and `uak pace set` for Cursor and any dashboard. The hook tells the agent once whenever the level changes.
+- **Every harness gets the tiers.** Fast, balanced and strong tiers:
+  - Claude: Haiku/Sonnet/Opus 5.5.
+  - Codex: GPT-6 Luna, GPT-6.1 Sol, GPT-6 Astra (or GPT-5.6 Luna/Terra/Sol).
+  - Cursor: Composer 2.5, your model, Opus 5.5.
+  - Gemini: Flash, your model, Pro.
+  - New: `.codex/config.toml`, `.codex/agents/*.toml`, `.codex/hooks.json`, `.cursor/agents/*.md`, `.cursor/hooks.json`, `.gemini/agents/*.md` and `.gemini/settings.json`. They are generated from `.claude/agents` by `scripts/gen_harness.py`, which CI checks.
+  - `guard` reads every harness's payloads (Claude/Codex `PreToolUse`, Gemini `BeforeTool`, Cursor `beforeShellExecution`, Codex/Cursor subagent start).
+- **COSTS.md:** API price tables, the Claude Pro/Max, Codex Plus/Pro and Cursor Pro/Ultra limits, and starting caps per plan.
+- **UpiixSol fixes:**
+  - `uak integrate ID`: any agent records a PR a human merged while its owner was away.
+  - The claim base is now the fork point, so a late claim is no longer "nothing implemented".
+  - Agents integrated in the last 24 h can still review.
+  - `Additive-Paths` lets new test files pass the scope gate.
+  - `.uak-env` beats an exported `UAK_AGENT`.
+  - Unquoted `--evidence` words are accepted.
+  - A clearer missing-identity error, with a `git config uak.agent` fallback.
+  - `STATE.md` lists show counts instead of a silent cut.
+  - The guard blocks `pkill -f`/`killall`; `wt stop` kills exact PIDs.
+  - `wt new` skips busy ports and `wt rm` stops the worktree's servers.
+  - `wt pr` prints the PR URL when the token can't create PRs.
+  - LOOPS.md: Verify builds fresh.
+- 6 new tests (`test_v41.py`); 82 in total.
+
+
 ## v4.0.1 · 2026-10-07
 - New banner and demo GIF. Both are rendered from HTML/CSS in headless Chromium (Inter + JetBrains Mono) instead of PIL drawing. The GIF is 6 curated scenes with typed commands, every line taken from a real `uak demo` run, plus a closing card whose commands work as written. `scripts/make_media.py` regenerates both (`uv run --with playwright --with pillow python scripts/make_media.py`).
 

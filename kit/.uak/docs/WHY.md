@@ -38,4 +38,12 @@ Load only the row you need. Every rule cites the incident behind it. Data comes 
 | `guard agent` caps | Claude Code's concurrency cap (default 20) does not apply under ultracode, so one prompt can fan out many Opus subagents. Our hook enforces `Max-Parallel-Subagents` and `Opus-Subagents-Per-Session` regardless. |
 | Spawn depth 1 | Nested subagents multiply context and cost without a reviewer in the loop. |
 | `/uak-advise` packets | The advisor tool re-reads the whole transcript, uncached, on every call. In a long session, a ≤40-line packet to `uak-architect` is cheaper. Some providers have no advisor tool at all. |
+| Black box (`uak bb`) | UpiixSol (Oct 2026): the same uak errors repeated across 3 sessions and 2 humans, and the only record was 30 MB of transcripts. One anonymous line per event makes kit failures countable across every repo that uses it. |
+| `uak pace` | UpiixSol: the 5-hour limit hit overnight with tasks open, while other windows expired with most of the budget unused. Budget left ÷ time left is one number the guard can enforce. |
+| `uak integrate` | UpiixSol: PRs merged on GitHub stayed REVIEW for hours because only their offline owner could record them, blocking dependents. The merge proof is verifiable, so anyone may record it. |
+| Fork-point claim base | UpiixSol UPS-030: a claim taken after the code was written stored the finished tip as its base, so the task "had no changes". |
+| Recent reviewers stay eligible | UpiixSol: reviewers lost the role when their own task merged; only a human could re-register them, so reviews stalled overnight. |
+| `Additive-Paths` | UpiixSol: 4 of 11 decisions were "a new test file outside Paths", each waiting 15 min. |
+| `.uak-env` beats exports | UpiixSol: a lead's exported `UAK_AGENT` put a subagent's claim under the lead's name. |
+| No `pkill -f` | UpiixSol: a pattern kill matched the agent's own shell twice (exit 144). |
 | Launch checklist | Vibe-coded backends look finished but routinely miss IDOR, rate limits, idempotency, transactions and restore drills. Each item now has a verifiable check, and the human-only items stay with humans. |

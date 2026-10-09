@@ -43,5 +43,10 @@ Deadlines run when any agent calls `next` or `status` (or cron or a GitHub Actio
 4. Human merges: `done ID --integrated COMMIT`, verified by ancestry or a rebuilt tree hash, so squash and rebase merges work.
 5. In marathon, agents only pre-review. Humans merge through branch protection and CI.
 
+## Merged outside uak
+- A human merged the PR on GitHub and the owner agent is offline: any agent runs `uak integrate ID`. It needs a valid approval for the merged SHA and proof that the SHA is in the remote base. For a squash merge, pass `--integrated COMMIT`.
+- Generated files that every task touches (permission matrices, OpenAPI dumps, snapshots) get one owner in `OWNERS.md`. Other tasks regenerate them after `git merge origin/main` instead of hand-merging.
+- New test files outside a task's `Paths`: list the test dirs in `Additive-Paths` (PROJECT.md). New files there pass the scope gate; edits to existing files still need a reservation.
+
 ## Offline
 If the remote is unreachable, `status` and `next` print `NO REMOTE`. No claim is created offline. Keep a local checkpoint and reconcile when the remote returns. Clock drift over 60 s (from the GitHub Date header) prints `CLOCK_SKEW`.

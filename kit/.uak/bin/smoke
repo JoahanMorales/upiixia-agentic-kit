@@ -35,6 +35,7 @@ if [ "$mode" != product ]; then
   "$python_runtime" .uak/tests/test_review_merge.py --package "$root"
   "$python_runtime" .uak/tests/test_v21_security.py --package "$root"
   "$python_runtime" .uak/tests/test_v3.py --package "$root"
+  "$python_runtime" .uak/tests/test_v41.py --package "$root"
   printf '%s\n' 'PACKAGE_PASS: coordination verified with real Git processes and a local bare remote.'
 fi
 if [ "$mode" = package ]; then

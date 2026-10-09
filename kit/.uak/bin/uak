@@ -13,7 +13,14 @@ if [ -f "$hack_env_file" ]; then
     case "$hack_key" in
       UAK_AGENT|UAK_HUMAN|UAK_SESSION|UAK_TASK)
         case "$hack_value" in ''|*[!A-Za-z0-9_.-]*) continue;; esac
-        [ -n "$(eval "printf '%s' \"\${$hack_key:-}\"")" ] || export "$hack_key=$hack_value";;
+        hack_current=$(eval "printf '%s' \"\${$hack_key:-}\"")
+        # Identity and task of a worktree win over an inherited shell export (UpiixSol: a lead's exported
+        # UAK_AGENT made a subagent's claim land under the lead's name). UAK_ENV_OVERRIDE=1 keeps the export.
+        if [ -z "$hack_current" ] || { [ "$hack_current" != "$hack_value" ] && [ "${UAK_ENV_OVERRIDE:-}" != 1 ] &&
+             case "$hack_key" in UAK_AGENT|UAK_TASK|UAK_SESSION) true;; *) false;; esac; }; then
+          [ -z "$hack_current" ] || printf 'uak: using %s=%s from .uak-env (the shell had %s)\n' "$hack_key" "$hack_value" "$hack_current" >&2
+          export "$hack_key=$hack_value"
+        fi;;
     esac
   done < "$hack_env_file"
 fi
@@ -26,9 +33,12 @@ ROOT= TX= TXROOT= NOW=
 CMD=${1:-help}
 [ "$#" -eq 0 ] || shift
 say() { printf '%s\n' "$*"; }
-die() { say "ERROR: $*" >&2; exit 2; }
-conflict() { say "CONFLICT: $*" >&2; exit 3; }
-gitfail() { say "GIT_ERROR: $*" >&2; exit 1; }
+UAK_BIN=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# Black box (.uak/docs/BLACKBOX.md): every error is also recorded locally; flushed later in one push.
+bb_auto() { bash "$UAK_BIN/bb" auto "$1" "$CMD" "$2" >/dev/null 2>&1 || true; }
+die() { say "ERROR: $*" >&2; bb_auto 2 "ERROR: $*"; exit 2; }
+conflict() { say "CONFLICT: $*" >&2; bb_auto 3 "CONFLICT: $*"; exit 3; }
+gitfail() { say "GIT_ERROR: $*" >&2; bb_auto 1 "GIT_ERROR: $*"; exit 1; }
 valid_id() { printf '%s\n' "$1" | grep -Eq '^[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+$'; }
 one_line() { local text=$1; text=${text//$'\r'/ }; text=${text//$'\n'/ }; printf '%s' "$text"; }
 field() {
@@ -44,8 +54,9 @@ clock_now() {
   case "$LEASE" in ''|*[!0-9]*|0) die "UAK_LEASE_SECONDS must be positive.";; esac
 }
 identity() {
+  [ -n "$AGENT" ] || AGENT=$(git config --get uak.agent 2>/dev/null || true)
   [ -n "$AGENT" ] || AGENT=$HUMAN
-  [ -n "$AGENT" ] || die "Set UAK_AGENT or UAK_HUMAN."
+  [ -n "$AGENT" ] || die "No identity. Inside a task worktree .uak-env sets it (wt new). Elsewhere: export UAK_AGENT=NAME, or once per checkout: git config uak.agent NAME."
   case "$AGENT" in *[!A-Za-z0-9_.-]*) die "Identity: use letters, digits, dot, dash or underscore.";; esac
 }
 cleanup() {
@@ -58,7 +69,7 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 usage() {
   cat <<'USAGE'
-uak v3.0 — multi-agent coordination on the remote claims branch
+uak v4.1 — multi-agent coordination on the remote claims branch
 status [--task HACK-NNN --summary]
 claim ID --branch RAMA --worktree RUTA [--next TEXTO]
 heartbeat ID
@@ -84,6 +95,9 @@ board [--md] [--watch S]   team kanban from the claims branch
 stats   retro numbers: messages, reviews, recoveries, queue
 up N [--tool CMD] [--tmux]   claim the N best tasks into worktrees and launch agents
 demo [--keep]   30-second real 3-agent run in a temp repo
+integrate ID   any agent records a task whose approved SHA is already in main (owner offline)
+pace [--caps|--json|set USED --resets +3h [--window 5h]]   plan-usage pacing: surge, normal, conserve, critical
+bb add bug|friction|idea|need|praise TEXT [--fix IDEA] · bb flush · bb show · bb export   black box for kit fixes
 plan FILE   publish new tasks to claims without a PR (Plan-Channel: claims; needs UAK_HUMAN)
 msg DESTINO TEXTO [--kind TIPO] [--task HACK-NNN]   DESTINO: NOMBRE|HACK-NNN|related:HACK-NNN|all|human
 inbox [--ack] [--all] [--peek] [--task HACK-NNN] [--human]
@@ -92,8 +106,13 @@ Why: the remote serializes claims; every session keeps an exact next step.
 USAGE
 }
 case "$CMD" in help|-h|--help) usage; exit 0;; esac
-case "$CMD" in doctor|graph|loop|board|stats|up|demo) exec bash "$(dirname "$0")/$CMD" "$@";; esac
-case "$CMD" in status|claim|heartbeat|release|log|checkpoint|handoff|done|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan) ;; *) die "Unknown command: $CMD";; esac
+case "$CMD" in version|--version) cat "$UAK_BIN/../VERSION" 2>/dev/null || say unknown; exit 0;; esac
+# Call counts give the black box a denominator (error rate per command). Local file, flushed by bb.
+case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
+  bb_common=$(git rev-parse --git-common-dir 2>/dev/null) && printf '%s\n' "$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
+esac
+case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace) exec bash "$UAK_BIN/$CMD" "$@";; esac
+case "$CMD" in status|claim|heartbeat|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac
   ROOT=$(pwd -P)
@@ -288,8 +307,10 @@ check_dependencies() {
       print substr(s,RSTART,RLENGTH); s=substr(s,RSTART+RLENGTH)
     }}')
   for dep in $deps; do
-    [ -f "$TX/tasks/$dep.md" ] && [ "$(field "$TX/tasks/$dep.md" State)" = INTEGRATED ] ||
-      conflict "$ID depends on $dep; claim it after INTEGRATED."
+    dep_state=$(field "$TX/tasks/$dep.md" State)
+    [ "$dep_state" = INTEGRATED ] && continue
+    [ "$dep_state" != REVIEW ] || conflict "$ID depends on $dep (REVIEW). If its PR is already merged, any agent can run: uak integrate $dep"
+    conflict "$ID depends on $dep; claim it after INTEGRATED."
   done
 }
 check_collisions() {
@@ -323,13 +344,15 @@ snapshot() {
       ids=$(for record in "$TX"/tasks/*.md; do
         [ -f "$record" ] || continue
         [ "$(field "$record" State)" != "$state" ] || field "$record" ID
-      done | tr '\n' ' ' | cut -c 1-120)
+      done | tr '\n' ' ')
       if [ "$state" = AVAILABLE ] && [ -f "$BACKLOG" ]; then
         ids=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG" | while IFS= read -r id; do
           [ -f "$TX/tasks/$id.md" ] || printf '%s ' "$id"
         done; printf '%s' "$ids")
-        ids=$(printf '%s' "$ids" | cut -c 1-120)
       fi
+      # Why (UpiixSol): a silent cut at 120 chars made INTEGRATED look stuck at UPS-015 with 26 done.
+      n_ids=$(printf '%s' "$ids" | wc -w | tr -d ' ')
+      [ "${#ids}" -le 120 ] || ids="($n_ids; last 12) ... $(printf '%s' "$ids" | awk '{for(i=(NF>12?NF-11:1);i<=NF;i++) printf "%s ", $i}')"
       printf '%s: %s\n' "$state" "${ids:--}"
     done
     printf '\nClaims (first 24; status --task ID shows detail):\n'
@@ -448,6 +471,34 @@ mutate() {
     decision) coord_decision_mutate;;
     plan) plan_mutate;;
     secret-exception) secret_exception_action;;
+    integrate)
+      # Why (UpiixSol): a human merged on GitHub while the owner agent was offline; the task sat in REVIEW and
+      # blocked its dependents for hours. The proof is verifiable, so any identity may record it.
+      [ -f "$RECORD" ] && [ "$(field "$RECORD" State)" = REVIEW ] ||
+        conflict "$ID is not in REVIEW; integrate records the merged PR of a task under review."
+      WL=$(field "$RECORD" Worklog); valid_worklog "$WL" || die "Invalid worklog path."
+      [ -f "$TX/$WL" ] || die "Missing worklog $WL."
+      PR_URL=$(field "$RECORD" PR)
+      git check-ref-format "refs/heads/$BASE" >/dev/null 2>&1 || die "Invalid UAK_BASE."
+      git -C "$TX" fetch -q origin "refs/heads/$BASE:refs/uak/base" || gitfail "Could not verify remote base branch $BASE."
+      resolve_task_tip || conflict "$RM_REASON"
+      tip=$RM_TIP
+      approval_check "$tip" "$PR_URL" || conflict "$RM_REASON. Approve the merged SHA first: uak review $ID --sha ${tip:-SHA} --verdict approve"
+      if [ -n "$MERGE_COMMIT" ]; then
+        merged=$(git -C "$TX" rev-parse --verify "$MERGE_COMMIT^{commit}" 2>/dev/null) || conflict "COMMIT not in the remote history of $BASE."
+      elif [ "$RM_REVIEW_MODE" = gh ] && [ -n "$RM_GH_MERGE" ]; then merged=$RM_GH_MERGE
+      else merged=$(git -C "$TX" rev-parse refs/uak/base); fi
+      integrated_check "$tip" "$merged" || conflict "$RM_REASON (squash merge: pass --integrated COMMIT)"
+      STATE=INTEGRATED
+      put "$RECORD" Integration-Proof "$RM_PROOF"; put "$RECORD" Merge-Commit "$merged"
+      put "$RECORD" Reviewer "$APPROVED_BY"; put "$RECORD" Task-Tip "$tip"; put "$RECORD" State INTEGRATED
+      put "$RECORD" Next "Integrated in $BASE: $merged; claim next P0"
+      put "$RECORD" Lease-Until 0; put "$RECORD" Updated "$NOW"
+      update_summary_field Next "Integrated in $BASE: $merged (recorded by $AGENT)"
+      rm -f "$CLAIM"
+      event "integrate; recorded by $AGENT; PR $PR_URL; merged $merged; proof $RM_PROOF"
+      msg_notify_related "$ID" integrated "$ID integrated in $BASE ($merged), recorded by $AGENT. If you depend on it: git fetch origin && git merge origin/$BASE"
+      ;;
     done)
       require_owner; STATE=REVIEW
       task_branch=$(field "$RECORD" Branch)
@@ -771,7 +822,7 @@ while [ "$#" -gt 0 ]; do
         --commands) [ "$CMD" = checkpoint ] || die "Invalid option."; COMMANDS_TEXT=$value;;
         --pr) [ "$CMD" = done ] || die "Invalid option."; PR_URL=$value;;
         --evidence) [ "$CMD" = done ] || die "Invalid option."; EVIDENCE=$value;;
-        --integrated) [ "$CMD" = done ] || die "Invalid option."; MERGE_COMMIT=$value;;
+        --integrated) case "$CMD" in done|integrate) MERGE_COMMIT=$value;; *) die "Invalid option.";; esac;;
         --reviewer) [ "$CMD" = done ] || die "Invalid option."; REVIEWER=$value;;
         --sha) [ "$CMD" = review ] || die "Invalid option."; REVIEW_SHA=$value;;
         --verdict) [ "$CMD" = review ] || die "Invalid option."; REVIEW_VERDICT=$value;;
@@ -789,7 +840,11 @@ while [ "$#" -gt 0 ]; do
     *) case "$CMD" in
          log) LOG_TEXT="$LOG_TEXT${LOG_TEXT:+ }$opt";;
          msg) MSG_TEXT="$MSG_TEXT${MSG_TEXT:+ }$opt";;
-         *) die "Unexpected argument: $opt";;
+         # Unquoted evidence was the most common uak error at UpiixSol (3 times): accept the words.
+         done) [ -n "$EVIDENCE" ] || die "Unexpected argument: $opt. Usage: done ID --pr URL --evidence \"TEXT\""
+               EVIDENCE="$EVIDENCE $opt";;
+         checkpoint) die "checkpoint takes flags, not free text: checkpoint ID --done T --decision T --why T --fails T --commands T --next T (use - for none).";;
+         *) die "Unexpected argument: $opt (quote multi-word values: --flag \"two words\").";;
        esac;;
   esac
 done
@@ -810,6 +865,9 @@ if [ "$CMD" = claim ]; then
   actual=$(git -C "$WORKTREE" symbolic-ref --short HEAD 2>/dev/null) || die "Worktree detached or invalid."
   [ "$actual" = "$BRANCH" ] || die "Worktree is not on $BRANCH."
   CLAIM_BASE=$(git -C "$WORKTREE" rev-parse HEAD) || die "Missing initial commit in worktree."
+  # Why (UpiixSol UPS-030): a claim taken after the code was written stored the finished tip as its base,
+  # so done/merge saw "nothing implemented". The fork point with the remote base is the real start.
+  fork=$(git -C "$WORKTREE" merge-base HEAD "refs/remotes/$REMOTE/$BASE" 2>/dev/null) && [ -n "$fork" ] && CLAIM_BASE=$fork
   common_main=$(git -C "$ROOT" rev-parse --git-common-dir)
   common_work=$(git -C "$WORKTREE" rev-parse --git-common-dir)
   common_main=$(cd "$ROOT" && cd "$common_main" && pwd -P) || die "Invalid Git common dir."

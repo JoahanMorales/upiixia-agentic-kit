@@ -15,7 +15,7 @@
 ![deps](https://img.shields.io/badge/runtime_deps-bash_%2B_git-success)
 ![agents](https://img.shields.io/badge/agents-Claude_Code_·_Codex_·_Cursor_·_Gemini-8A2BE2)
 
-[Quick start](#quick-start) · [Why](#why) · [Orchestration](#subagent-orchestration-haiku-swarms-sonnet-builds-opus-advises) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Token economy](#token-economy) · [Results](#battle-tested-hack-nation-2026) · [Contributing](CONTRIBUTING.md)
+[Quick start](#quick-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Token economy](#token-economy) · [Results](#battle-tested-hack-nation-2026) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -121,25 +121,54 @@ flowchart LR
 - **Typed async inbox.** `contract`, `request`, `review`, `approve`, `reject`. Hooks inject only the actionable messages into the agent's context.
 - **Guards.** A `PreToolUse` hook blocks destructive Git, `sudo`, `.env` reads and publishing. A `UserPromptSubmit` hook blocks pasted secrets.
 
-## Subagent orchestration: Haiku swarms, Sonnet builds, Opus advises
+## Subagent orchestration: fast swarms, a balanced lead, a strong advisor
 
-The best result per token: the strongest model wakes up only where judgment changes the outcome ([ORCHESTRATION.md](kit/.uak/docs/ORCHESTRATION.md)).
+The best result per token, in **every** harness. The strongest model wakes up only where judgment changes the outcome ([ORCHESTRATION.md](kit/.uak/docs/ORCHESTRATION.md)).
 
-| Tier | Model | Job |
-|---|---|---|
-| Scouts | **Haiku 5.5** (`uak-scout`, `uak-runner`) | find files, symbols, docs; run noisy commands; return ≤15-line summaries, up to 3 in parallel |
-| Lead | **Sonnet 5.5** (main session) | plans, edits, runs Verify, decides |
-| Advisor / architect | **Opus 5.5** (`advisorModel: opus`, `uak-architect`) | consulted only at **plan lock**, **the same failure twice**, and **done** on risky diffs |
+| Tier | Claude Code | Codex | Cursor | Gemini CLI | Job |
+|---|---|---|---|---|---|
+| **fast** swarm | Haiku 5.5 | GPT-6 Luna | Composer 2.5 | Gemini 3 Flash | scouts and runners: find, read, run noisy commands, return ≤15 lines, up to 3 in parallel |
+| **balanced** lead | Sonnet 5.5 | GPT-6.1 Sol | your model | your model | plans, edits, runs Verify, decides; reviews |
+| **strong** advisor | Opus 5.5 | GPT-6 Astra | Opus 5.5 | Gemini 3 Pro | only at **plan lock**, **the same failure twice**, and **done** on risky diffs |
 
-- **Configured for you:** `install.sh` writes:
-  - `model: sonnet`, `advisorModel: opus`, `effortLevel` per mode;
-  - `CLAUDE_CODE_SUBAGENT_MODEL=haiku`, so any unpinned subagent is cheap;
-  - spawn depth 1, so there are no nested swarms;
-  - per-subagent `model`, `effort` and `maxTurns`.
-- **Enforced, not just suggested:** the `guard agent` hook caps parallel subagents (4 in sprint, 3 in marathon) and **Opus subagents per session** (2 / 4), even under ultracode, which bypasses Claude Code's own limit. `UAK_ALLOW_OPUS=1` is the human override.
-- **No advisor tool** (Bedrock, Vertex) **or a long session:** `/uak-advise plan|stuck|done` sends Opus a ≤40-line packet instead of replaying the whole transcript.
+On the GPT-5.6 family, Sol is strong, Terra balanced and Luna fast. The guard knows both families.
+
+- **The same 6 subagents everywhere.** `.claude/agents`, `.codex/agents`, `.cursor/agents` and `.gemini/agents` are generated from one source (`scripts/gen_harness.py`) and checked in CI.
+- **Configured for you:**
+  - Claude: `model: sonnet`, `advisorModel: opus`, `CLAUDE_CODE_SUBAGENT_MODEL=haiku`, spawn depth 1.
+  - Codex: `model = "gpt-6.1-sol"`, `default_subagent_model = "gpt-6-luna"`, `max_concurrent_threads_per_session`.
+- **Enforced, not just suggested:** `guard agent` (Claude Code, Codex and Cursor hooks) caps parallel subagents and **strong subagents per session**, even under ultracode. `UAK_ALLOW_OPUS=1` is the human override.
+- **No advisor tool or a long session:** `/uak-advise plan|stuck|done` sends a ≤40-line packet instead of replaying the transcript.
 - **Verified live:** a real headless run used `claude-sonnet-5-5` as lead and `claude-haiku-5-5` as scout, for 0.085 USD in total.
 - We checked the viral claims against the docs. `/advisor` is real; `--subagents`, "dispatcher pools" and "JEV 16 ms" are not ([details](kit/.uak/docs/ORCHESTRATION.md#what-we-did-not-adopt-claims-that-circulate-online)).
+
+## Plan pacing: spend the 5-hour window, don't hit the wall
+
+`uak pace` compares **budget left** with **time left** in each usage window and turns it into a level the guard enforces ([COSTS.md](kit/.uak/docs/COSTS.md)).
+
+```bash
+bash .uak/bin/uak pace
+# PACE surge | claude-5h 30% used, resets in 1h0m, ratio 3.50 | caps: parallel 8, strong 4 | spend: budget will expire unused…
+```
+
+| Situation | Ratio | Level | What changes |
+|---|---|---|---|
+| 1 h left of 5 h, 70% of the plan left | 3.5 | **surge** | 2× parallel subagents, +2 strong, `uak up 2` |
+| on track | 1.0–1.6 | normal | default routing |
+| 3 h left, 50% left | 0.83 | **conserve** | ½ parallel, 1 strong, fast tier for every read |
+| ≥ 90% used, or ratio < 0.6 | — | **critical** | 1 subagent, no strong model, checkpoint and hand off before the limit |
+
+- **Where the numbers come from:**
+  - Claude Code: the status line's `rate_limits` (Pro/Max).
+  - Codex: `rate_limits` in `~/.codex/sessions`.
+  - Cursor or any dashboard: `uak pace set 60 --resets +12d --window 30d`.
+- **COSTS.md** also has the price tables (Haiku is 1×, Sonnet 20×, Opus 40× per token; Luna 1×, Sol 20×, Astra 100×) and the Pro, Max, Plus and Ultra limits. It suggests starting caps per plan.
+
+## Black box: the kit learns from every team that uses it
+
+Like a flight recorder: **every `uak` error and guard block is recorded automatically**, and agents add one line when the kit slows them down (`uak bb add friction "…" --fix "…"`). Lines are anonymous: no identities, paths, SHAs or code, and anything that looks like a secret is dropped. They go to `claims:blackbox/`. `uak bb export` writes `.uak/BLACKBOX.md`, so public repos are discoverable, and `scripts/blackbox_harvest.py` ranks what to fix next across them.
+
+**On by default; off with `Blackbox: off`** in `.uak/PROJECT.md`, or `install.sh --no-blackbox` ([BLACKBOX.md](kit/.uak/docs/BLACKBOX.md)). The [first harvest](docs/blackbox/upiixsol-2026-10.md) came from a 3-day, 2-human marathon project. Every row became a v4.1 fix.
 
 ## Loop engineering
 
@@ -202,10 +231,11 @@ Tokens are the scarcest resource of an agent team. Every default is tuned to spe
 ## Works with
 | Tool | How |
 |---|---|
-| **Claude Code** | full support: hooks (guard, prompt guard, heartbeat, inbox), slash commands, subagents, skills, plugin |
-| **Codex CLI** | reads `AGENTS.md`; skills via `.agents/skills`; `uak loop --agent "codex exec -"` |
-| **Cursor** | `.cursor/rules/uak.mdc` + `.cursor/skills`; manual heartbeat and `guard check` |
-| **Gemini CLI, Aider, any agent** | `AGENTS.md` + the `uak` CLI; `uak loop --agent '<cli reading stdin>'` |
+| **Claude Code** | full support: hooks (guard, prompt guard, heartbeat, inbox, spawn caps, pace), status line, slash commands, subagents, skills, plugin |
+| **Codex CLI** | `AGENTS.md`, `.codex/config.toml` (Sol lead, Luna swarm), `.codex/agents/*.toml`, `.codex/hooks.json` (guard, spawn caps, inbox, black box), pace from session logs |
+| **Cursor** | `.cursor/rules/uak.mdc`, `.cursor/agents/*.md` (Composer swarm, Opus strong), `.cursor/hooks.json` (shell guard, spawn caps, black box), `.cursor/skills` |
+| **Gemini CLI** | `.gemini/settings.json` (reads `AGENTS.md`), `.gemini/agents/*.md` (Flash swarm, Pro strong); `guard check` by hand |
+| **Aider, any agent** | `AGENTS.md` + the `uak` CLI; `uak loop --agent '<cli reading stdin>'` |
 
 Mix them freely: coordination lives in Git, not in any tool.
 
@@ -222,7 +252,11 @@ Mix them freely: coordination lives in Git, not in any tool.
 | `uak board [--watch] [--md]` | team kanban: state, owner, lease, PR, wave |
 | `uak stats` | retro numbers: messages, reviews, recoveries, merge queue |
 | `uak demo` | the 30-second real 3-agent run |
-| `/uak-advise plan\|stuck\|done` | an Opus checkpoint from a compact packet |
+| `uak pace` | plan usage vs time left → surge / normal / conserve / critical |
+| `uak bb add KIND "…"` · `bb export` | the black box: kit problems, anonymous, on by default |
+| `uak integrate ID` | record a PR a human merged while its owner was away |
+| `wt stop` · `wt pr` | stop this worktree's servers · the PR URL when `gh` lacks permission |
+| `/uak-advise plan\|stuck\|done` | a strong-model checkpoint from a compact packet |
 | `/uak-secure` | the pre-launch security audit (22 checks + human-only items) |
 | `uak msg` / `inbox` / `digest` | agent messages · the human's single summary |
 | `uak plan FILE` | publish new tasks instantly (sprint) |
@@ -234,13 +268,14 @@ Full reference: [CLI.md](kit/.uak/docs/CLI.md). Example backlog: [examples/ai-ha
 ## What's inside
 ```
 AGENTS.md · CLAUDE.md        60-line core every agent reads · Claude Code extras
-.uak/bin/                    uak CLI, wt, loop, graph, guard, doctor, q, secret-scan (Bash 3.2, no jq)
+.uak/bin/                    uak CLI, wt, loop, graph, guard, pace, bb, statusline, doctor, q, secret-scan (Bash 3.2, no jq)
 .uak/modes/                  sprint.md · marathon.md
-.uak/docs/                   CLI · PROTOCOL · LOOPS · GRAPH · SECURITY · WHY
+.uak/docs/                   CLI · PROTOCOL · LOOPS · GRAPH · ORCHESTRATION · COSTS · BLACKBOX · SECURITY · WHY
 .uak/templates/              PROJECT, TASKS, OWNERS, IDEA, spec, plan, ADR
 .uak/skills/                 curated skills (superpowers, Anthropic, Vercel, taste-skill), pinned, licensed
 .uak/stacks/fastapi-react/   optional stack preset
-.claude/                     slash commands, subagents, hooks (settings per mode)
+.claude/                     slash commands, subagents, hooks, status line (settings per mode)
+.codex/ · .cursor/ · .gemini/  the same subagents per harness + hooks (Codex, Cursor) + Codex config
 ```
 
 ## How it compares
@@ -267,7 +302,9 @@ They are complementary: use them for planning or UI, and this kit for coordinati
 
 **Windows?** Yes, with Git Bash. macOS ships Bash 3.2, which is supported.
 
-**Will it burn my Opus budget?** No. Opus is pinned to checkpoints, and the guard blocks Opus fan-out beyond the per-session budget. Run `uak stats` to see subagent use by tier.
+**Will it burn my Opus (or Astra) budget?** No. The strong tier is pinned to checkpoints, the guard blocks fan-out beyond the per-session budget, and `uak pace` tightens it when your 5-hour or weekly window runs low. Run `uak stats` to see subagent use by tier.
+
+**What does the black box send, and where?** Only anonymous one-line events about the kit (error text without paths or names, plus your agents' notes) to your own repo's `claims` branch. If your repo is public, its claims branch is public too, which is how kit maintainers read it; private repos stay private. Turn it off with `Blackbox: off`.
 
 **Is my vibe-coded backend safe to launch?** Run `/uak-secure`. It checks IDOR, enumeration, rate limits, idempotent payments, transactions, CORS, log redaction, backups and 15 more items, each with how to verify it. It leaves the human-only items (key rotation, 2FA, the restore drill, watching the logs) to you.
 

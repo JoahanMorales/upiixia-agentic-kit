@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# uak pace: spend the plan at the right speed. Compares budget left with time left in each usage window.
+#   pace                 one line: level, windows, caps, advice
+#   pace --caps          "LEVEL PARALLEL STRONG" for guard (machine-readable)
+#   pace --json          the same data as JSON
+#   pace set USED --resets +3h|+45m|+2d|EPOCH [--window 5h|7d|30d|SECONDS] [--source NAME]
+#   pace clear
+# Sources, newest first: Claude Code statusline (rate_limits, written by `.uak/bin/statusline`), Codex
+# session logs (~/.codex/sessions, token_count.rate_limits), and `pace set` (Cursor, Gemini, any plan).
+# ratio = (budget left) / (time left in the window). The tightest window decides:
+#   >= 1.6 surge (spend more: 2x parallel, +2 strong)   1.0-1.6 normal   0.6-1.0 conserve   < 0.6 critical
+# Example: 1 h left of 5 h with 70% left → ratio 3.5 → surge. 3 h left with 50% left → 0.83 → conserve.
+# Why: at UpiixSol the 5-hour limit hit at 3 a.m. with tasks open, and in other windows 60% of the
+# plan expired unused. Pacing turns both into a number the guard enforces.
+set -u
+LC_ALL=C; export LC_ALL
+common=$(git rev-parse --git-common-dir 2>/dev/null) && common=$(cd "$common" 2>/dev/null && pwd -P) || common=${TMPDIR:-/tmp}
+top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
+NOW=${UAK_NOW:-$(date +%s)}
+say() { printf '%s\n' "$*"; }
+die() { say "PACE_ERROR: $*" >&2; exit 2; }
+cfg() { v=$(sed -n "s/^[-* ]*$1:[* ]*//p" "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `')
+  case "$v" in ''|*[!0-9A-Za-z]*) printf '%s' "$2";; *) printf '%s' "$v";; esac; }
+secs() { # +3h +45m +2d +90s or epoch → epoch
+  case "$1" in
+    +*[0-9]h) printf '%s' $((NOW + ${1//[^0-9]/} * 3600));;
+    +*[0-9]m) printf '%s' $((NOW + ${1//[^0-9]/} * 60));;
+    +*[0-9]d) printf '%s' $((NOW + ${1//[^0-9]/} * 86400));;
+    +*[0-9]s|+*[0-9]) printf '%s' $((NOW + ${1//[^0-9]/}));;
+    *[!0-9]*|'') return 1;;
+    *) printf '%s' "$1";;
+  esac
+}
+window_secs() { case "$1" in 5h) echo 18000;; 7d|1w) echo 604800;; 30d|1mo|month) echo 2592000;; 1d|24h) echo 86400;;
+  ''|*[!0-9]*) return 1;; *) echo "$1";; esac; }
+
+# Each source prints lines: "name used_percent resets_at window_seconds observed_at"
+from_claude() {
+  f="$common/uak-usage.claude"; [ -s "$f" ] || return 0
+  awk -v now="$NOW" 'NF >= 3 && $3 > now {print}' "$f"
+}
+from_manual() {
+  f="$common/uak-usage.manual"; [ -s "$f" ] || return 0
+  awk -v now="$NOW" 'NF >= 5 && $3 > now {print}' "$f"
+}
+from_codex() {
+  [ "${UAK_PACE_CODEX:-1}" != 0 ] || return 0
+  d=${CODEX_HOME:-$HOME/.codex}/sessions; [ -d "$d" ] || return 0
+  recent=$(find "$d" -type f -name '*.jsonl' -mmin -360 2>/dev/null)
+  [ -n "$recent" ] || return 0
+  latest=$(ls -t $recent 2>/dev/null | head -n 1)
+  [ -n "$latest" ] || return 0
+  obs=$(date -r "$latest" +%s 2>/dev/null || stat -c %Y "$latest" 2>/dev/null || echo "$NOW")
+  # Rollout files can reach hundreds of MB: read only the tail.
+  tail -c 400000 "$latest" | grep '"rate_limits"' | tail -n 1 | awk -v now="$NOW" -v obs="$obs" '
+    function num(s, key,   i, r) { i = index(s, "\"" key "\""); if (!i) return ""; r = substr(s, i + length(key) + 2)
+      sub(/^[[:space:]]*:[[:space:]]*/, "", r); if (match(r, /^-?[0-9.]+/)) return substr(r, 1, RLENGTH); return "" }
+    function win(name,   i, s, used, mins, at, left) { i = index($0, "\"" name "\""); if (!i) return
+      s = substr($0, i, 400); used = num(s, "used_percent"); mins = num(s, "window_minutes")
+      at = num(s, "resets_at"); if (at == "") { left = num(s, "resets_in_seconds"); if (left != "") at = obs + left }
+      if (used == "" || mins == "" || at == "" || at + 0 <= now) return
+      printf "codex-%s %s %d %d %d\n", (mins + 0 <= 600 ? "5h" : "7d"), used, at, mins * 60, obs }
+    { win("primary"); win("secondary") }'
+}
+
+collect() { { from_claude; from_codex; from_manual; } | awk '!seen[$1]++'; }
+
+evaluate() { # stdin: windows → stdout: "LEVEL RATIO" and one detail line per window
+  awk -v now="$NOW" '
+    { used=$2+0; at=$3+0; w=$4+0; if (w <= 0) next
+      left=100-used; if (left < 0) left=0; t=(at-now)/w; if (t > 1) t=1; if (t < 0.02) t=0.02
+      r=(left/100)/t
+      if (used >= 90) r = (r < 0.5 ? r : 0.5)
+      if (min == "" || r < min) min = r
+      h=int((at-now)/3600); m=int(((at-now)%3600)/60)
+      d=d sprintf("%s %d%% used, resets in %s%dm, ratio %.2f; ", $1, used, (h > 0 ? h "h" : ""), m, r) }
+    END {
+      if (min == "") { print "unknown 0"; exit }
+      lvl = (min >= 1.6 ? "surge" : (min >= 1.0 ? "normal" : (min >= 0.6 ? "conserve" : "critical")))
+      printf "%s %.2f\n%s\n", lvl, min, d }'
+}
+
+caps() { # level → "PARALLEL STRONG"
+  base=$(cfg Max-Parallel-Subagents 4); strong=$(cfg Strong-Subagents-Per-Session "$(cfg Opus-Subagents-Per-Session 2)")
+  case "$base" in *[!0-9]*) base=4;; esac; case "$strong" in *[!0-9]*) strong=2;; esac
+  case "$1" in
+    surge) p=$((base * 2)); [ "$p" -le 8 ] || p=8; s=$((strong + 2));;
+    conserve) p=$((base / 2)); [ "$p" -ge 1 ] || p=1; s=$([ "$strong" -ge 1 ] && echo 1 || echo 0);;
+    critical) p=1; s=0;;
+    *) p=$base; s=$strong;;
+  esac
+  printf '%s %s\n' "$p" "$s"
+}
+
+advice() {
+  case "$1" in
+    surge) say "spend: budget will expire unused. Add workers (uak up 2), run more scouts in parallel, use the strong model at every checkpoint.";;
+    normal) say "on pace: keep the default routing (fast reads, balanced builds, strong at checkpoints).";;
+    conserve) say "save: halve parallel subagents, fast model for all reads, strong model only when stuck twice.";;
+    critical) say "stop spending: 1 subagent, no strong model, finish the current criterion, then uak checkpoint and /uak-handoff before the limit hits.";;
+    *) say "no usage data yet: Claude Code fills it after the first reply (statusline); Codex from its session logs; others: uak pace set USED --resets +3h";;
+  esac
+}
+
+pace_off() { [ "$(cfg Pace auto | tr 'A-Z' 'a-z')" = off ] || [ "${UAK_PACE:-}" = off ]; }
+
+cmd=${1:-show}; [ "$#" -eq 0 ] || shift
+case "$cmd" in
+  set)
+    used=${1:-}; [ "$#" -eq 0 ] || shift
+    case "$used" in ''|*[!0-9.]*) die "Usage: pace set USED_PERCENT --resets +3h|EPOCH [--window 5h|7d|30d|SECONDS] [--source NAME]";; esac
+    resets= window=5h source=manual
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --resets) resets=$(secs "${2:-}") || die "--resets: +3h, +45m, +2d or epoch seconds"; shift 2;;
+        --window) window=${2:-}; shift 2;;
+        --source) source=$(printf '%s' "${2:-manual}" | tr -c 'A-Za-z0-9_.-' '-'); shift 2;;
+        *) die "Unknown option: $1";;
+      esac
+    done
+    [ -n "$resets" ] || die "pace set needs --resets"
+    w=$(window_secs "$window") || die "--window: 5h, 7d, 30d or seconds"
+    f="$common/uak-usage.manual"; touch "$f"
+    awk -v s="$source" '$1 != s' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+    printf '%s %s %s %s %s\n' "$source" "$used" "$resets" "$w" "$NOW" >> "$f"
+    exec bash "$0";;
+  clear) rm -f "$common/uak-usage.manual" "$common/uak-usage.claude"; say "PACE: cleared"; exit 0;;
+  show|--caps|--json) ;;
+  *) die "Usage: pace [--caps|--json] · pace set USED --resets +3h [--window 5h] · pace clear";;
+esac
+
+if pace_off; then level=off ratio=0 detail='pacing off (Pace: off)'
+else
+  out=$(collect | evaluate)
+  level=$(printf '%s\n' "$out" | sed -n '1p' | awk '{print $1}'); ratio=$(printf '%s\n' "$out" | sed -n '1p' | awk '{print $2}')
+  detail=$(printf '%s\n' "$out" | sed -n '2p' | sed 's/; $//')
+fi
+set -- $(caps "$level")
+case "$cmd" in
+  --caps) printf '%s %s %s\n' "$level" "$1" "$2";;
+  --json) printf '{"level":"%s","ratio":%s,"parallel":%s,"strong":%s,"windows":"%s"}\n' "$level" "${ratio:-0}" "$1" "$2" "$detail";;
+  *) say "PACE $level | ${detail:-no windows} | caps: parallel $1, strong $2 | $(advice "$level")";;
+esac
+exit 0

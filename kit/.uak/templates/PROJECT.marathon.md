@@ -47,4 +47,7 @@ Merge-Lease-Seconds: 1800
 Merge-Wait-Seconds: 180
 Max-Parallel-Subagents: 3
 Opus-Subagents-Per-Session: 4
+Pace: auto
+Blackbox: on
+Additive-Paths: -
 ```

@@ -35,6 +35,7 @@ Each iteration runs Verify and exits 0 on a pass. On failure it pipes the agent 
 - Safety: the agent runs with ITS OWN permissions. Keep the uak guard hooks on, and never loop on a command that deploys or publishes.
 
 ## Rules
+- Verify from a clean build. An e2e suite that passes against a stale `dist/` or cache proves nothing (UpiixSol: 12/12 green, 3 failures after a fresh build).
 1. No loop without a machine verifier. "Looks good" is not a verifier.
 2. Feed back failures, not history: the error tail and the diff stat, never full logs.
 3. Detect lack of progress (the same error, or the same diff) and stop early.

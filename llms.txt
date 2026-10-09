@@ -15,7 +15,9 @@ Claude Code plugin: `/plugin marketplace add JoahanMorales/upiixia-agentic-kit`,
 ## Reference
 - [CLI](kit/.uak/docs/CLI.md): every uak command
 - [Protocol](kit/.uak/docs/PROTOCOL.md): claims branch, leases, reviews, merges
-- [Subagent orchestration](kit/.uak/docs/ORCHESTRATION.md): Haiku scouts, Sonnet lead, Opus advisor at 3 checkpoints; parallel and Opus budgets enforced by a hook
+- [Subagent orchestration](kit/.uak/docs/ORCHESTRATION.md): fast/balanced/strong tiers for Claude Code (Haiku/Sonnet/Opus 5.5), Codex (GPT-6 Luna/6.1 Sol/6 Astra; GPT-5.6 Luna/Terra/Sol), Cursor (Composer 2.5) and Gemini CLI; strong model only at 3 checkpoints; parallel and strong budgets enforced by hooks
+- [Costs and pacing](kit/.uak/docs/COSTS.md): API prices, Claude Pro/Max, Codex Plus/Pro, Cursor Pro/Ultra limits; `uak pace` spends the 5-hour and weekly windows at the right speed (surge, conserve, critical)
+- [Black box](kit/.uak/docs/BLACKBOX.md): `uak bb`, an anonymous flight recorder of kit failures, on by default, harvested across public repos to improve the kit
 - [Loop engineering](kit/.uak/docs/LOOPS.md): trigger, verifier, budget, stop, escalation; `uak loop`
 - [Graph engineering](kit/.uak/docs/GRAPH.md): members, mandates, message paths, task DAG; `uak graph`
 - [Security](kit/.uak/docs/SECURITY.md): guards, the secret scanner, the mawk trap, a 22-item launch checklist
@@ -24,4 +26,5 @@ Claude Code plugin: `/plugin marketplace add JoahanMorales/upiixia-agentic-kit`,
 ## Evidence
 - [Example AI hackathon backlog](examples/ai-hackathon/TASKS.md): 10 tasks, 7 in wave 1
 - [Hack-Nation 2026 retro](docs/RETRO-hacknation-2026.md): 5 agents, 4 humans, 76 PRs, with data
+- [First black box harvest](docs/blackbox/upiixsol-2026-10.md): 16 kit issues from a 3-day marathon project, each mapped to a v4.1 fix
 - [Inspirations](docs/INSPIRATIONS.md): AGENTS.md, Spec Kit, BMAD, Kiro, Task Master, superpowers

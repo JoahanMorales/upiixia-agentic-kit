@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# uak black box: a flight recorder of what went wrong with the kit, so the kit itself can improve.
+#   bb add KIND TEXT... [--fix IDEA] [--cmd CMD]   KIND: bug|friction|idea|need|praise (agents and humans)
+#   bb auto CODE CMD TEXT                           internal: uak/guard call this on every error (local, ~1 ms)
+#   bb flush [--quiet]                              publish pending lines to claims:blackbox/ (one push)
+#   bb show [N] · bb export [FILE] · bb status
+# Storage: pending lines in <git-common-dir>/uak-blackbox.pending; published lines on the claims branch,
+# one file per day and machine (blackbox/YYYY-MM-DD-<host>.md), so pushes never conflict.
+# `bb export` writes .uak/BLACKBOX.md to commit by PR: public repos become crawlable (path:.uak/BLACKBOX.md).
+# Privacy: no identities, no paths, no code. Lines with anything that looks like a secret are dropped.
+# Off: `Blackbox: off` in .uak/PROJECT.md (team) or UAK_BLACKBOX=off (one person).
+# Why: at UpiixSol (Oct 2026) the same kit errors repeated across 3 sessions and 2 humans, and the only
+# record was buried in 30 MB of transcripts nobody would read.
+set -u
+LC_ALL=C; export LC_ALL
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REMOTE=${UAK_REMOTE:-origin}
+top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
+common=$(git rev-parse --git-common-dir 2>/dev/null) && common=$(cd "$common" 2>/dev/null && pwd -P) || common=
+pending="${common:-${TMPDIR:-/tmp}}/uak-blackbox.pending"
+calls="${common:-${TMPDIR:-/tmp}}/uak-blackbox.calls"
+say() { printf '%s\n' "$*"; }
+die() { say "BB_ERROR: $*" >&2; exit 2; }
+
+enabled() {
+  case "${UAK_BLACKBOX:-}" in off|0|no|false) return 1;; esac
+  [ -n "$top" ] || return 1
+  v=$(sed -n 's/^[-* ]*Blackbox:[* ]*//p' "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `' | tr 'A-Z' 'a-z')
+  case "$v" in off|no|false|0) return 1;; esac
+  return 0
+}
+version() { cat "$here/../VERSION" 2>/dev/null | head -n 1 | tr -d '\r\n ' || true; }
+mode() { m=$(sed -n 's/^[-* ]*Mode:[* ]*//p' "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `'); printf '%s' "${m:-sprint}"; }
+harness() {
+  [ -z "${UAK_HARNESS:-}" ] || { printf '%s' "$UAK_HARNESS"; return; }
+  if [ -n "${CLAUDECODE:-}" ]; then printf claude-code
+  elif [ -n "${CODEX_SANDBOX:-}${CODEX_THREAD_ID:-}${CODEX_HOME:-}" ]; then printf codex
+  elif [ -n "${CURSOR_TRACE_ID:-}${CURSOR_AGENT:-}" ]; then printf cursor
+  elif [ -n "${GEMINI_CLI:-}" ]; then printf gemini-cli
+  else printf other; fi
+}
+# One line, no pipes, no identities or paths; empty output = drop the line.
+SECRET_RE='sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|xox[abprs]-|PRIVATE KEY|postgres(ql)?://[^ ]*:[^ ]*@|mongodb(\+srv)?://[^ ]*:[^ ]*@|[Pp]assword[=:] *[^ ]{6,}|\$argon2|\$2[aby]\$'
+clean() {
+  # The secret check runs on the raw text, before redaction can hide the pattern.
+  if printf '%s' "$1" | grep -Eq -- "$SECRET_RE"; then return 0; fi
+  printf '%s' "$1" | tr '\r\n\t|' '   /' | awk -v home="${HOME:-/nonexistent}" -v top="${top:-/nonexistent}" '
+  {
+    s=$0
+    while ((i=index(s,top))>0) s=substr(s,1,i-1) "<repo>" substr(s,i+length(top))
+    while ((i=index(s,home))>0) s=substr(s,1,i-1) "~" substr(s,i+length(home))
+    gsub(/\/tmp\/[^ ]*/,"<tmp>",s); gsub(/\/private\/var\/[^ ]*/,"<tmp>",s)
+    gsub(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z]+/,"<email>",s)
+    gsub(/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]+/,"<sha>",s)
+    gsub(/  +/," ",s); sub(/^ /,"",s); sub(/ $/,"",s)
+    print substr(s,1,220)
+  }'
+}
+line() { # kind src cmd text fix
+  t=$(clean "$4"); [ -n "$t" ] || return 0
+  f=$(clean "${5:--}"); c=$(clean "${3:--}")
+  printf -- '- %s | v%s | %s | %s | %s | %s | %s | %s | fix: %s\n' "$(date -u +%Y-%m-%dT%H:%MZ)" "$(version)" "$(harness)" \
+    "$(mode)" "$2" "$1" "${c:--}" "$t" "${f:--}"
+}
+
+publish() { # $1 file with lines
+  url=$(git config --get "remote.$REMOTE.url" 2>/dev/null) || return 1
+  case "$url" in /*|[A-Za-z]:*|*://*|*@*:*) ;; *) url="$top/$url";; esac
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-bb.XXXXXX") || return 1
+  host=$( (hostname 2>/dev/null || uname -n) | cksum | awk '{print $1 % 100000}')
+  rel="blackbox/$(date -u +%Y-%m-%d)-$host.md"
+  ok=1
+  git -C "$tmp" init -q && git -C "$tmp" remote add origin "$url" &&
+    git -C "$tmp" config user.name "${UAK_AGENT:-uak}" && git -C "$tmp" config user.email uak@localhost || { rm -rf "$tmp"; return 1; }
+  for attempt in 1 2 3 4; do
+    if git -C "$tmp" ls-remote --exit-code --heads origin claims >/dev/null 2>&1; then
+      git -C "$tmp" fetch -q --depth 1 origin refs/heads/claims && git -C "$tmp" checkout -q -B claims FETCH_HEAD || break
+    else
+      git -C "$tmp" checkout -q --orphan claims 2>/dev/null || git -C "$tmp" checkout -q claims || break
+    fi
+    mkdir -p "$tmp/blackbox"
+    [ -f "$tmp/$rel" ] || printf '# Black box · %s\n\nOne line per event: time | kit | harness | mode | source | kind | command | what | fix\n\n' "$rel" > "$tmp/$rel"
+    cat "$1" >> "$tmp/$rel"
+    git -C "$tmp" add "$rel" && git -C "$tmp" commit -q -m "uak: blackbox +$(awk 'END{print NR}' "$1")" || break
+    if git -C "$tmp" push -q origin HEAD:refs/heads/claims 2>/dev/null; then ok=0; break; fi
+    sleep "$attempt"
+  done
+  rm -rf "$tmp"
+  return "$ok"
+}
+
+flush() {
+  quiet=${1:-}
+  [ -s "$calls" ] && {
+    summary=$(sort "$calls" | uniq -c | awk '{printf "%s%s:%s", (NR>1?" ":""), $2, $1}')
+    line usage auto calls "$summary" - >> "$pending"; : > "$calls"; }
+  [ -s "$pending" ] || { [ -n "$quiet" ] || say "BB: nothing pending"; return 0; }
+  snap="$pending.$$"; mv "$pending" "$snap" || return 0
+  if publish "$snap"; then
+    [ -n "$quiet" ] || say "BB: published $(awk 'END{print NR}' "$snap") line(s) to claims:blackbox/"
+    rm -f "$snap"; touch "${common:-${TMPDIR:-/tmp}}/uak-blackbox.flushed" 2>/dev/null
+  else
+    cat "$snap" >> "$pending"; rm -f "$snap"
+    [ -n "$quiet" ] || say "BB: could not push (offline?); lines stay pending" >&2
+  fi
+  return 0
+}
+
+all_lines() { # published (from remote claims) + pending
+  url=$(git config --get "remote.$REMOTE.url" 2>/dev/null) && git fetch -q "$REMOTE" claims 2>/dev/null &&
+    git ls-tree -r --name-only FETCH_HEAD blackbox/ 2>/dev/null | while IFS= read -r f; do git show "FETCH_HEAD:$f"; done | grep '^- '
+  [ ! -s "$pending" ] || cat "$pending"
+}
+
+cmd=${1:-status}; [ "$#" -eq 0 ] || shift
+case "$cmd" in
+  auto)
+    enabled || exit 0
+    code=${1:-?} c=${2:-?}; shift 2 2>/dev/null || true
+    line "exit$code" auto "uak $c" "$*" - >> "$pending" 2>/dev/null; exit 0;;
+  call) enabled || exit 0; printf '%s\n' "${1:-?}" >> "$calls" 2>/dev/null; exit 0;;
+  add)
+    enabled || { say "BB: off (Blackbox: off in PROJECT.md or UAK_BLACKBOX=off); nothing recorded"; exit 0; }
+    kind=${1:-}; [ "$#" -eq 0 ] || shift
+    case "$kind" in bug|friction|idea|need|praise) ;; *) die "Usage: bb add bug|friction|idea|need|praise TEXT [--fix IDEA] [--cmd CMD]";; esac
+    text= fix=- c=-
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --fix) fix=${2:-}; shift 2 || shift;;
+        --cmd) c=${2:-}; shift 2 || shift;;
+        *) text="$text${text:+ }$1"; shift;;
+      esac
+    done
+    [ -n "$text" ] || die "bb add needs a text: what happened, in one line."
+    l=$(line "$kind" agent "$c" "$text" "$fix")
+    [ -n "$l" ] || die "dropped: the text looks like it contains a secret, a credential URL or is empty."
+    printf '%s\n' "$l" >> "$pending"
+    say "BB: recorded ($kind)"; flush --quiet;;
+  flush) enabled || exit 0; flush "${1:-}";;
+  show)
+    n=${1:-20}; case "$n" in ''|*[!0-9]*) n=20;; esac
+    all_lines | tail -n "$n";;
+  export)
+    out=${1:-${top:-.}/.uak/BLACKBOX.md}
+    tmp="${TMPDIR:-/tmp}/uak-bb-export.$$"; all_lines | sort -u > "$tmp"
+    {
+      printf '%s\n' '# BLACKBOX' '' \
+        '> What went wrong with the uak kit in this repo, recorded by agents and by uak itself.' \
+        '> Kit maintainers read this file from public repos to fix the kit. Off: `Blackbox: off` in .uak/PROJECT.md.' \
+        '> Format: time | kit | harness | mode | source | kind | command | what | fix' ''
+      printf '## Top recurring (count · kind · command · what)\n\n'
+      awk -F' [|] ' '$6 != "usage" {k=$6 " · " $7 " · " $8; n[k]++} END {for (k in n) printf "%d · %s\n", n[k], k}' "$tmp" |
+        sort -rn | head -n 15 | sed 's/^/- /'
+      printf '\n## Agent notes (bugs, friction, ideas, needs)\n\n'
+      awk -F' [|] ' '$5 == "agent"' "$tmp" | tail -n 60
+      printf '\n## Last automatic errors\n\n'
+      awk -F' [|] ' '$5 == "auto" && $6 != "usage"' "$tmp" | tail -n 40
+      printf '\n## Usage (command calls, for error rates)\n\n'
+      awk -F' [|] ' '$6 == "usage"' "$tmp" | tail -n 10
+    } > "$out"
+    rm -f "$tmp"; say "BB: wrote ${out#$top/} (commit it in a PR to share it)";;
+  status)
+    if enabled; then st=on; else st=off; fi
+    say "BB: $st · pending $(awk 'END{print NR+0}' "$pending" 2>/dev/null || echo 0) line(s) · harness $(harness) · kit v$(version)";;
+  *) die "Usage: bb add KIND TEXT [--fix IDEA] · bb flush · bb show [N] · bb export [FILE] · bb status";;
+esac
+exit 0

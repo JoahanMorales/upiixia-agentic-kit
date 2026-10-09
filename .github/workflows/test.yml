@@ -16,6 +16,8 @@ jobs:
         run: sudo apt-get install -y mawk && awk -W version | head -1
       - name: Git identity for fixtures
         run: git config --global user.name ci && git config --global user.email ci@example.invalid
+      - name: Codex/Cursor/Gemini subagents are generated from .claude/agents
+        run: python3 scripts/gen_harness.py --check
       - name: Protocol suite (real Git, local bare remotes)
         working-directory: kit
         run: bash .uak/bin/smoke --package-only

@@ -9,9 +9,18 @@
     "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "3",
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1"
   },
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/statusline\"",
+    "refreshInterval": 60
+  },
   "permissions": {
     "allow": [
       "Bash(bash .uak/bin/uak:*)",
+      "Bash(bash .uak/bin/wt pr:*)",
+      "Bash(bash .uak/bin/wt stop:*)",
+      "Bash(bash .uak/bin/uak bb:*)",
+      "Bash(bash .uak/bin/uak pace:*)",
       "Bash(bash .uak/bin/wt:*)",
       "Bash(bash .uak/bin/q:*)",
       "Bash(bash .uak/bin/smoke:*)",

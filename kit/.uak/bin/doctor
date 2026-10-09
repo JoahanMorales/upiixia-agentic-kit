@@ -91,5 +91,14 @@ if [ -n "$used" ]; then
   [ -z "$busy" ] && ok "common ports free" || warn "busy ports: $busy— wt assigns UAK_PORT per worktree (base $base)"
 fi
 
+# Harnesses, pacing and black box (v4.1)
+here_d=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+top_d=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+hs=; for h in .claude/settings.json .codex/config.toml .cursor/hooks.json .gemini/agents; do [ -e "$top_d/$h" ] && hs="$hs${hs:+ · }${h%%/*}"; done
+[ -n "$hs" ] && ok "harness configs: $hs" || warn "no harness config found (run install.sh)"
+[ ! -e "$top_d/.codex/config.toml" ] || ok "Codex: trust this project once so .codex/config.toml and hooks load (/hooks to review)"
+ok "$(bash "$here_d/pace" 2>/dev/null | cut -c 1-160)"
+ok "$(bash "$here_d/bb" status 2>/dev/null)"
+
 printf '\nDOCTOR %s · fails=%s warnings=%s\n' "$([ "$fails" -eq 0 ] && printf PASS || printf FAIL)" "$fails" "$warns"
 [ "$fails" -eq 0 ]

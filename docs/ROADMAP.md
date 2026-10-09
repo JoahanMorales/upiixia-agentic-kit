@@ -1,5 +1,13 @@
 # Roadmap
 
+## v4.2 (from the black box)
+- [ ] A live paid run of the Codex and Cursor configs (hooks + tiered subagents); record any schema drift with `uak bb`.
+- [ ] Gemini CLI hooks (`BeforeTool` → `guard bash`) once hooks leave experimental.
+- [ ] A weekly GitHub Action in this repo that runs `scripts/blackbox_harvest.py` and opens an issue with the top 10.
+- [ ] `uak pace` from the Cursor usage API, if one is published.
+- [ ] `uak handover ID --to AGENT`: explicit transfer without going through AVAILABLE.
+
+
 ## v3.1
 - [x] `uak stats` (v3.1) · [x] `uak board` (v3.1) · [x] `uak up` (v3.1) · [x] `uak demo` (v3.1)
 - [ ] A 60-second GIF of `uak demo` and `uak board --watch` for the README.

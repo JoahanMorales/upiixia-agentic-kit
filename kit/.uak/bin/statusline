@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Claude Code status line: task, plan usage and pace in one row. It also caches rate_limits for `uak pace`.
+# Claude Code sends JSON on stdin; rate_limits appears for Pro/Max after the first reply (v2.1.80+).
+# Prints e.g.: ana-1 · UPS-012 · 5h 34% ↺1h12m · 7d 41% · ctx 23% · pace normal
+set -u
+LC_ALL=C; export LC_ALL
+input=$(cat 2>/dev/null || true)
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+common=$(git rev-parse --git-common-dir 2>/dev/null) && common=$(cd "$common" 2>/dev/null && pwd -P) || common=
+now=$(date +%s)
+num() { # num OBJECT KEY: first number after "OBJECT" then "KEY"
+  printf '%s' "$input" | awk -v o="\"$1\"" -v k="\"$2\"" 'BEGIN {RS="\001"} {
+    i = index($0, o); if (!i) exit; s = substr($0, i, 600); j = index(s, k); if (!j) exit
+    r = substr(s, j + length(k)); sub(/^[[:space:]]*:[[:space:]]*/, "", r)
+    if (match(r, /^-?[0-9.]+/)) print substr(r, 1, RLENGTH) }'
+}
+f5=$(num five_hour used_percentage); r5=$(num five_hour resets_at)
+f7=$(num seven_day used_percentage); r7=$(num seven_day resets_at)
+ctx=$(num context_window used_percentage)
+if [ -n "$common" ] && { [ -n "$f5" ] || [ -n "$f7" ]; }; then
+  {
+    [ -z "$f5" ] || [ -z "$r5" ] || printf 'claude-5h %s %s 18000 %s\n' "$f5" "${r5%.*}" "$now"
+    [ -z "$f7" ] || [ -z "$r7" ] || printf 'claude-7d %s %s 604800 %s\n' "$f7" "${r7%.*}" "$now"
+  } > "$common/uak-usage.claude.tmp" 2>/dev/null && mv "$common/uak-usage.claude.tmp" "$common/uak-usage.claude" 2>/dev/null
+fi
+top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
+agent= task=
+[ -z "$top" ] || [ ! -f "$top/.uak-env" ] || { agent=$(sed -n 's/^UAK_AGENT=//p' "$top/.uak-env"); task=$(sed -n 's/^UAK_TASK=//p' "$top/.uak-env"); }
+left() { s=$(( ${1%.*} - now )); [ "$s" -gt 0 ] || { printf 'now'; return; }; h=$((s / 3600)); m=$(((s % 3600) / 60)); [ "$h" -eq 0 ] && printf '%dm' "$m" || printf '%dh%02dm' "$h" "$m"; }
+out=
+[ -z "$agent" ] || out="$agent"
+[ -z "$task" ] || out="$out${out:+ · }$task"
+[ -z "$f5" ] || out="$out${out:+ · }5h ${f5%.*}%${r5:+ ↺$(left "$r5")}"
+[ -z "$f7" ] || out="$out${out:+ · }7d ${f7%.*}%"
+[ -z "$ctx" ] || out="$out${out:+ · }ctx ${ctx%.*}%"
+lvl=$(bash "$here/pace" --caps 2>/dev/null | awk '{print $1}')
+[ -z "$lvl" ] || [ "$lvl" = unknown ] || out="$out${out:+ · }pace $lvl"
+printf '%s\n' "${out:-uak}"
