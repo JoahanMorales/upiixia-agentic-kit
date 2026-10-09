@@ -1,5 +1,22 @@
 # Changelog
 
+## v4.1.1 · 2026-10-09 · Hackathon-ready safety
+- **Hard limits above pacing.** These are fixed numbers that `uak pace` can lower but never raise (sprint / marathon):
+  - `Subagent-Hard-Cap` 6/4 and `Strong-Hard-Cap` 3/4;
+  - `Subagents-Per-Session` 40/30 and `Subagents-Per-Machine` 8/6, counting every worktree;
+  - `Subagent-Burst-Per-Minute` 6;
+  - `Max-Worktree-Agents` 6/4, for `uak up`.
+
+  A wrong usage reading can no longer empty a plan in minutes.
+- **Surge needs fresh data.** Status line or Codex readings must be under 30 min old, manual ones under 12 h. Impossible readings are ignored.
+- **The mode is the human's choice.** `install.sh` has no default and explains both modes. `/uak-setup` and the plugin skill never infer or switch it. A task diff that touches `.uak/PROJECT.md` goes to the human queue.
+- `docs/HACKATHON.md`: the one-page plan for a team on its way to an event.
+- Fixes:
+  - A relative remote URL now resolves from the main checkout, not the worktree.
+  - `/uak-ship` uses `wt pr` and `uak integrate`.
+- Codex, Cursor and Gemini files were checked against public repos that use the same formats (Khan/perseus, dlt-hub/dlt and telepresence for `.codex/hooks.json`; LibreQoS for `.codex/agents`; TablePro for `[agents]`; photon-hq for `.cursor/hooks.json`; rancher and streamlit-echarts for `.gemini/agents`).
+- 2 new tests (84 in total).
+
 ## v4.1.0 · 2026-10-09 · Black box, pacing, every harness
 From the first post-mortem of a real kit user (UpiixSol: 3 days, 2 humans, 6 agent identities, 38 tasks). Every fix cites its incident in WHY.md.
 - **Black box (`uak bb`), on by default.** Every `uak` error and guard block is recorded as one anonymous line, and agents add notes with `uak bb add bug|friction|need|idea|praise`. Lines carry no identities, paths, SHAs, code or secrets. They are published to `claims:blackbox/` (one file per machine and day, so pushes never conflict). `uak bb export` writes `.uak/BLACKBOX.md` and `scripts/blackbox_harvest.py` ranks issues across public repos. Off with `Blackbox: off` or `install.sh --no-blackbox`.

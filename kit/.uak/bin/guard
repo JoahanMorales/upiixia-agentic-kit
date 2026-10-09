@@ -153,10 +153,32 @@ check_agent() {
   case "$max" in ''|*[!0-9]*) max=$(cfg Max-Parallel-Subagents 4);; esac
   case "$opus_max" in ''|*[!0-9]*) opus_max=$(cfg Opus-Subagents-Per-Session 2);; esac
   why=; case "$level" in surge|conserve|critical) why=" (pace $level: uak pace)";; esac
+  # Hard limits: fixed numbers that pacing can lower but never raise. Why: if a usage reading is wrong
+  # (stale cache, a bad manual entry, a vendor format change), a surge must not empty the plan in minutes.
+  case "$(mode)" in marathon) d_hard=4 d_strong=4 d_total=30 d_machine=6;; *) d_hard=6 d_strong=3 d_total=40 d_machine=8;; esac
+  hard=$(cfg Subagent-Hard-Cap "$d_hard"); strong_hard=$(cfg Strong-Hard-Cap "$d_strong")
+  total_max=$(cfg Subagents-Per-Session "$d_total"); machine_max=$(cfg Subagents-Per-Machine "$d_machine")
+  burst_max=$(cfg Subagent-Burst-Per-Minute 6)
+  [ "$max" -le "$hard" ] || max=$hard
+  [ "$opus_max" -le "$strong_hard" ] || opus_max=$strong_hard
   act="$gd/uak-agents.active" log="$gd/uak-agents.log"
   touch "$act" "$log"
   # Reservations older than 20 min are stale (a crashed subagent never sent SubagentStop).
   awk -v now="$now" '$1 + 1200 > now' "$act" > "$act.tmp" && mv "$act.tmp" "$act"
+  spawned=$(awk -v s="$sid" '$2 == s' "$log" | awk 'END {print NR+0}')
+  [ "$spawned" -lt "$total_max" ] ||
+    block "this session already spawned $spawned subagents (Subagents-Per-Session: $total_max). Hand off (/uak-handoff) and start a fresh session, or a human raises the limit in .uak/PROJECT.md."
+  burst=$(awk -v s="$sid" -v now="$now" '$2 == s && $1 + 60 > now' "$log" | awk 'END {print NR+0}')
+  [ "$burst" -lt "$burst_max" ] ||
+    block "$burst subagents spawned in the last minute (Subagent-Burst-Per-Minute: $burst_max). A loop that spawns agents is a bug: stop and check the plan."
+  # Machine-wide: every worktree of this repo shares one plan, so count all of their running subagents.
+  cd_common=$(git rev-parse --git-common-dir 2>/dev/null) && cd_common=$(cd "$cd_common" 2>/dev/null && pwd -P) || cd_common=
+  if [ -n "$cd_common" ]; then
+    machine=$(for f in "$cd_common/uak-agents.active" "$cd_common"/worktrees/*/uak-agents.active; do
+      [ -f "$f" ] && awk -v now="$now" '$1 + 1200 > now' "$f"; done | awk 'END {print NR+0}')
+    [ "$machine" -lt "$machine_max" ] ||
+      block "$machine subagents are running across all worktrees on this machine (Subagents-Per-Machine: $machine_max). Wait for one, or do the step yourself."
+  fi
   running=$(awk 'END {print NR+0}' "$act")
   [ "$running" -lt "$max" ] ||
     block "$running subagents already running (Max-Parallel-Subagents: $max$why). Wait for one to finish, or do the step yourself; a swarm costs more than it saves."

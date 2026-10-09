@@ -67,7 +67,11 @@ collect() { { from_claude; from_codex; from_manual; } | awk '!seen[$1]++'; }
 
 evaluate() { # stdin: windows → stdout: "LEVEL RATIO" and one detail line per window
   awk -v now="$NOW" '
-    { used=$2+0; at=$3+0; w=$4+0; if (w <= 0) next
+    { used=$2+0; at=$3+0; w=$4+0; obs=($5 == "" ? now : $5+0)
+      # Sanity: an impossible reading is ignored, never trusted.
+      if (w <= 0 || $2 !~ /^[0-9.]+$/ || used > 100 || at - now > w) next
+      # Surge needs fresh numbers: statusline/Codex older than 30 min, manual older than 12 h.
+      maxage = ($1 ~ /^(claude|codex)-/ ? 1800 : 43200); if (now - obs > maxage) stale = 1
       left=100-used; if (left < 0) left=0; t=(at-now)/w; if (t > 1) t=1; if (t < 0.02) t=0.02
       r=(left/100)/t
       if (used >= 90) r = (r < 0.5 ? r : 0.5)
@@ -77,6 +81,7 @@ evaluate() { # stdin: windows → stdout: "LEVEL RATIO" and one detail line per 
     END {
       if (min == "") { print "unknown 0"; exit }
       lvl = (min >= 1.6 ? "surge" : (min >= 1.0 ? "normal" : (min >= 0.6 ? "conserve" : "critical")))
+      if (lvl == "surge" && stale) { lvl = "normal"; d = d "stale reading, no surge; " }
       printf "%s %.2f\n%s\n", lvl, min, d }'
 }
 
@@ -84,7 +89,7 @@ caps() { # level → "PARALLEL STRONG"
   base=$(cfg Max-Parallel-Subagents 4); strong=$(cfg Strong-Subagents-Per-Session "$(cfg Opus-Subagents-Per-Session 2)")
   case "$base" in *[!0-9]*) base=4;; esac; case "$strong" in *[!0-9]*) strong=2;; esac
   case "$1" in
-    surge) p=$((base * 2)); [ "$p" -le 8 ] || p=8; s=$((strong + 2));;
+    surge) p=$((base * 2)); [ "$p" -le 8 ] || p=8; s=$((strong + 2));;   # guard still applies its hard caps
     conserve) p=$((base / 2)); [ "$p" -ge 1 ] || p=1; s=$([ "$strong" -ge 1 ] && echo 1 || echo 0);;
     critical) p=1; s=0;;
     *) p=$base; s=$strong;;

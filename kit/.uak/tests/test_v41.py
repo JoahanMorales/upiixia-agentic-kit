@@ -211,7 +211,84 @@ def additive_paths_and_recent_reviewer(r):
     return {"additive_merge": True, "recent_reviewer": True}
 
 
-TESTS = [blackbox_records_and_publishes, pace_levels_and_guard, guard_every_harness, integrate_when_owner_offline,
+def hard_caps_beat_pacing(r):
+    f = r.fixture("v41-hard", count=2, shared_repo=True)
+    w = f.worktrees[0]
+    (w / ".uak/PROJECT.md").write_text("Mode: sprint\nMax-Parallel-Subagents: 4\nOpus-Subagents-Per-Session: 2\n"
+                                       "Subagent-Hard-Cap: 5\nStrong-Hard-Cap: 3\nSubagents-Per-Session: 9\n"
+                                       "Subagent-Burst-Per-Minute: 100\nSubagents-Per-Machine: 7\nMax-Worktree-Agents: 3\n", encoding="utf-8")
+    now = 2000000000
+    env = {"UAK_PACE_CODEX": "0"}
+    pace = lambda *a, t=now: r.run([r.bash, ".uak/bin/pace", *a], cwd=w, env={**env, "UAK_NOW": str(t)})
+    pace("set", "10", "--resets", "+30m")  # 90% left with 10% of the window: a big surge (8 parallel, 4 strong)
+    expect(pace("--caps").stdout.split()[0] == "surge", "fresh data gives surge")
+    pace("set", "10", "--resets", "+2d", "--window", "30d", "--source", "cursor")
+    stale = pace(t=now + 13 * 3600).stdout
+    expect("PACE normal" in stale and "stale reading" in stale, "a 13-hour-old reading never gives surge: " + stale)
+    pace("set", "10", "--resets", "+30m")
+    def spawn(kind, model, t, sid="s1", wt=w, extra=None):
+        payload = json.dumps({"session_id": sid, "tool_name": "Agent", "tool_input": {"subagent_type": kind, "model": model}})
+        return r.run([r.bash, "-c", "printf '%s' \"$1\" | bash .uak/bin/guard agent", "_", payload], cwd=wt,
+                     env={**env, "UAK_NOW": str(t), **(extra or {})}, allowed=None)
+    stop = lambda wt=w: r.run([r.bash, "-c", "printf '{}' | bash .uak/bin/guard agent-stop"], cwd=wt)
+    for i in range(5):
+        expect(spawn("general-purpose", "haiku", now + i).returncode == 0, "surge allows up to the hard cap")
+    over = spawn("general-purpose", "haiku", now + 5)
+    expect(over.returncode == 2 and "Max-Parallel-Subagents: 5" in over.stderr, "surge (8) is clipped to Subagent-Hard-Cap 5: " + over.stderr)
+    for _ in range(5):
+        stop()
+    for i in range(3):
+        expect(spawn("uak-architect", "opus", now + 10 + i).returncode == 0, "strong up to Strong-Hard-Cap")
+        stop()
+    strong = spawn("uak-architect", "opus", now + 20)
+    expect(strong.returncode == 2 and "3/3" in strong.stderr, "surge strong (4) is clipped to Strong-Hard-Cap 3: " + strong.stderr)
+    expect(spawn("general-purpose", "haiku", now + 21).returncode == 0, "9th spawn of the session is allowed")
+    stop()
+    total = spawn("general-purpose", "haiku", now + 22)
+    expect(total.returncode == 2 and "Subagents-Per-Session: 9" in total.stderr, "total spawns per session are capped: " + total.stderr)
+    # Burst: a fresh session, 3 spawns per minute max.
+    (w / ".uak/PROJECT.md").write_text("Mode: sprint\nSubagent-Burst-Per-Minute: 3\nSubagents-Per-Machine: 3\n", encoding="utf-8")
+    for i in range(3):
+        spawn("general-purpose", "haiku", now + 100 + i, sid="b1"); stop()
+    burst = spawn("general-purpose", "haiku", now + 104, sid="b1")
+    expect(burst.returncode == 2 and "last minute" in burst.stderr, "a spawn burst is blocked: " + burst.stderr)
+    # Machine-wide: subagents running in another worktree of the same repo count too.
+    w2 = f.worktrees[1]
+    (w2 / ".uak/PROJECT.md").write_text("Mode: sprint\nSubagents-Per-Machine: 3\n", encoding="utf-8")
+    spawn("general-purpose", "haiku", now + 200, sid="m1"); spawn("general-purpose", "haiku", now + 201, sid="m1")
+    other = spawn("general-purpose", "haiku", now + 202, sid="m2", wt=w2)
+    third = spawn("general-purpose", "haiku", now + 203, sid="m3", wt=w2)
+    expect(other.returncode == 0 and third.returncode == 2 and "across all worktrees" in third.stderr,
+           "Subagents-Per-Machine counts every worktree: " + third.stderr)
+    (w / ".uak/PROJECT.md").write_text("Mode: sprint\nMax-Worktree-Agents: 3\n", encoding="utf-8")
+    up = r.run([r.bash, ".uak/bin/uak", "up", "4"], cwd=w, env={"UAK_HUMAN": "ana"}, allowed=None)
+    expect(up.returncode == 2 and "Max-Worktree-Agents (3)" in up.stderr, "uak up is capped: " + up.stderr)
+    return {"hard_parallel": 5, "hard_strong": 3, "per_session": 9, "burst": 3, "machine": 3, "up": 3}
+
+
+def mode_is_human_only(r):
+    f = rm.fixture(r, "v41-mode", count=1)
+    tasks = (f.seed / ".uak/TASKS.md").read_text(encoding="utf-8").replace("- **Paths:** src/value-1.txt", "- **Paths:** src/value-1.txt, .uak/PROJECT.md")
+    (f.seed / ".uak/TASKS.md").write_text(tasks, encoding="utf-8")
+    r.g(f.seed, "add", ".uak/TASKS.md"); r.g(f.seed, "commit", "-m", "task may touch PROJECT"); r.g(f.seed, "push", "origin", "main")
+    r.g(f.clones[0], "fetch", "origin", "main"); r.g(f.worktrees[0], "merge", "--ff-only", "origin/main")
+    f.claim(0, "HACK-001")
+    project = f.worktrees[0] / ".uak/PROJECT.md"
+    project.write_text(project.read_text(encoding="utf-8").replace("Review-Mode: claims", "Mode: marathon\nReview-Mode: claims"), encoding="utf-8")
+    r.g(f.worktrees[0], "add", ".uak/PROJECT.md")
+    tip = rm.publish(f, 0, "HACK-001")
+    f.hack(0, "done", "HACK-001", "--pr", "https://example.test/pull/1", "--evidence", "ok", now=1000010)
+    rm.judge(f); rm.approve(f, "HACK-001", tip)
+    merged = f.hack(0, "merge", "HACK-001", now=1000033, allowed=None)
+    expect(merged.returncode == 3 and "needs a human" in (merged.stdout + merged.stderr),
+           "an agent's change to PROJECT.md (the mode) goes to the human queue: " + merged.stdout + merged.stderr)
+    inst = r.run([r.bash, str(r.package.parent / "install.sh"), str(f.seed)], allowed=None) if (r.package.parent / "install.sh").exists() else None
+    if inst is not None:
+        expect(inst.returncode == 2 and "the human chooses" in inst.stderr, "install.sh has no default mode")
+    return {"project_md_protected": True}
+
+
+TESTS = [hard_caps_beat_pacing, mode_is_human_only, blackbox_records_and_publishes, pace_levels_and_guard, guard_every_harness, integrate_when_owner_offline,
          wt_identity_and_ports, additive_paths_and_recent_reviewer]
 
 

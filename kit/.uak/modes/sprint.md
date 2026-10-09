@@ -5,7 +5,7 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 ## Clock (T = official deadline)
 | When | What | Who |
 |---|---|---|
-| T0 | `/uak-setup`: PROJECT.md (rubric, times) and `uak doctor` PASS on every machine, including "gh can create PRs". | human + agent |
+| T0 | The human chose `sprint` at install. `/uak-setup`: PROJECT.md (rubric, times, `Freeze-Epoch`) and `uak doctor` PASS on every machine, including "gh can create PRs". | human + agent |
 | T0 | Product name and brand fixed in `IDEA.md`. Renaming after T-50% needs a human `uak decision`. | human |
 | T0+30m | `/uak-plan` wave 1: contracts and mocks, walking skeleton, spikes. `uak graph --min-wave1 <agents>` passes. | planner |
 | T0+1h | `/uak-design-lock`: 3 visual directions with screenshots; the human picks one; `web/DESIGN.md` and tokens frozen. | design agent + human |
@@ -25,7 +25,7 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 6. Start the team with `uak up <agents> --tmux`. Humans watch `uak board --watch 10` instead of asking agents for status.
 
 ## Speed
-0. Orchestrate by cost (`.uak/docs/ORCHESTRATION.md`): Haiku scouts read, the Sonnet lead builds, and Opus is consulted only at plan lock, a repeated failure and done. The guard caps parallel subagents (4) and Opus subagents (2 per session).
+0. Orchestrate by cost (`.uak/docs/ORCHESTRATION.md`): Haiku scouts read, the Sonnet lead builds, and Opus is consulted only at plan lock, a repeated failure and done. The guard caps parallel subagents (4) and Opus subagents (2 per session). `uak pace` scales those with your 5-hour window, and fixed hard limits stop any runaway: 6 parallel, 3 Opus, 40 spawns per session, 8 per machine, 6 per minute, and 6 agents per `uak up`.
 1. Mock first; switch to the real thing after its spike. Every mock shows `demo_data: true` in the UI.
 2. Merge as soon as there is an `approve` and the gates are green (`Auto-Merge: yes`). The human gets a `digest`, not pings.
 3. Stuck for 20 min, or the loop is stuck → `uak decision` with a reversible fallback, and move on.

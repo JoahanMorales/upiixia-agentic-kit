@@ -65,7 +65,7 @@ line() { # kind src cmd text fix
 
 publish() { # $1 file with lines
   url=$(git config --get "remote.$REMOTE.url" 2>/dev/null) || return 1
-  case "$url" in /*|[A-Za-z]:*|*://*|*@*:*) ;; *) url="$top/$url";; esac
+  case "$url" in /*|[A-Za-z]:*|*://*|*@*:*) ;; *) url="${common:-$top/.git}/../$url";; esac
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-bb.XXXXXX") || return 1
   host=$( (hostname 2>/dev/null || uname -n) | cksum | awk '{print $1 % 100000}')
   rel="blackbox/$(date -u +%Y-%m-%d)-$host.md"

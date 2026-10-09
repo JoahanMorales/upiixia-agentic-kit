@@ -224,7 +224,10 @@ init_temp() {
 remote_setup() {
   REMOTE_URL=$(git -C "$ROOT" config --get "remote.$REMOTE.url") ||
     gitfail "Missing remote $REMOTE. Offline claims are not allowed."
-  case "$REMOTE_URL" in /*|[A-Za-z]:*|*://*|*@*:*) ;; *) REMOTE_URL="$ROOT/$REMOTE_URL";; esac
+  # A relative remote is relative to the main checkout, not to this worktree.
+  case "$REMOTE_URL" in /*|[A-Za-z]:*|*://*|*@*:*) ;; *)
+    main_dir=$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)/.." 2>/dev/null && pwd -P) || main_dir=$ROOT
+    REMOTE_URL="$main_dir/$REMOTE_URL";; esac
   USER_NAME=$(git -C "$ROOT" config user.name 2>/dev/null || true)
   USER_EMAIL=$(git -C "$ROOT" config user.email 2>/dev/null || true)
   [ -n "$USER_NAME" ] || USER_NAME=${AGENT:-uak}

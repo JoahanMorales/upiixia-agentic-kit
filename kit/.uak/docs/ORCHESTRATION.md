@@ -55,8 +55,9 @@ How to consult:
 ## Pacing (`uak pace`)
 The caps follow plan usage. With 1 h left of the 5 h window and 70% of the budget left, `surge` doubles parallel
 subagents and adds 2 strong ones. With 3 h left and 50% left, `conserve` halves them and allows 1 strong one.
-`critical` (ratio < 0.6 or ≥ 90% used) allows 1 subagent and no strong ones. The full table and examples are in
-`COSTS.md`.
+`critical` (ratio < 0.6 or ≥ 90% used) allows 1 subagent and no strong ones. Fixed hard limits sit above pacing
+(6 parallel, 3 strong, 40 spawns per session, 8 per machine, 6 per minute in sprint), so a bad reading cannot
+burn the plan. The full table and examples are in `COSTS.md`.
 
 ## Enforcement per harness
 | | Claude Code | Codex | Cursor | Gemini CLI |

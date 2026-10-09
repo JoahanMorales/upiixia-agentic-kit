@@ -1,7 +1,7 @@
 # Agent rules · UPIIXIA Agentic Kit (uak v4.1)
 
 Core for every agent (Claude Code, Codex, Cursor, Gemini CLI, Aider…). Read once per session.
-Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); also read `.uak/modes/<mode>.md`.
+Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); also read `.uak/modes/<mode>.md`. The human picks the mode at install; never choose, infer or change it.
 `uak X` means `bash .uak/bin/uak X`. Every rule's reason: `.uak/docs/WHY.md`.
 
 ## 1. Authority and limits

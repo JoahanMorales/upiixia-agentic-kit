@@ -55,7 +55,19 @@ Examples:
 - 1 h left of 5 h with 70% left: 0.7/0.2 = 3.5, so **surge**.
 - 3 h left with 50% left: 0.5/0.6 = 0.83, so **conserve**.
 
-`guard agent` applies the caps on every subagent spawn. `hook tick` tells the agent once whenever the level changes.
+`guard agent` applies the caps on every subagent spawn. Pacing can only move them **inside fixed hard limits**,
+so a wrong reading (stale cache, a typo in `pace set`, a vendor format change) can never empty the plan:
+
+| Hard limit (PROJECT.md) | sprint | marathon | Stops |
+|---|---|---|---|
+| `Subagent-Hard-Cap` | 6 | 4 | parallel subagents per session, even in surge |
+| `Strong-Hard-Cap` | 3 | 4 | strong subagents per session, even in surge |
+| `Subagents-Per-Session` | 40 | 30 | total spawns in one session (then hand off and start fresh) |
+| `Subagents-Per-Machine` | 8 | 6 | running subagents across every worktree of the repo on this machine |
+| `Subagent-Burst-Per-Minute` | 6 | 6 | a loop that keeps spawning agents |
+| `Max-Worktree-Agents` | 6 | 4 | agents started by one `uak up N` |
+
+Surge also needs a fresh reading: status line or Codex data under 30 min old, a manual entry under 12 h. Otherwise it stays `normal`. Impossible readings (over 100%, a reset beyond the window) are ignored. `hook tick` tells the agent once whenever the level changes.
 To turn it off, set `Pace: off` in PROJECT.md or `UAK_PACE=off`.
 
 ## Starting points per plan (our recommendation, not a vendor number)

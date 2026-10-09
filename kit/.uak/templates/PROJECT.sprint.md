@@ -52,6 +52,12 @@ Merge-Wait-Seconds: 180
 Max-Parallel-Subagents: 4
 Opus-Subagents-Per-Session: 2
 Pace: auto
+Subagent-Hard-Cap: 6
+Strong-Hard-Cap: 3
+Subagents-Per-Session: 40
+Subagents-Per-Machine: 8
+Subagent-Burst-Per-Minute: 6
+Max-Worktree-Agents: 6
 Blackbox: on
 Additive-Paths: -
 ```

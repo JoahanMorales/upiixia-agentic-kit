@@ -11,11 +11,11 @@ Task: ${ARGUMENTS:-$UAK_TASK}. Run these in order and stop at the first red; fix
    - sprint + UI: screenshots at 1280×720 and 390×844 → `design-critic`; fix its P1s.
    - marathon + sensitive area: `security-reviewer`; a HIGH finding blocks.
 3b. Risky diff (auth, data, money, migrations, or more than 300 lines): consult the advisor (or `/uak-advise done`) before pushing, and apply its CHANGE items.
-4. `git push -u origin HEAD && gh pr create --title "ID · <visible result>" --body "<.github/pull_request_template.md filled in>"`. If gh cannot create PRs, do NOT stop: print the `.../pull/new/<branch>` URL and use it below.
+4. `git push -u origin HEAD && gh pr create --title "ID · <visible result>" --body "<.github/pull_request_template.md filled in>"`. If gh cannot create PRs (403), do NOT stop: `bash .uak/bin/wt pr` prints the URL; give it to the human and use it below.
 5. `bash .uak/bin/uak done ID --pr URL --evidence "<cmd> exit 0; <criteria>"`. This asks a reviewer by rotation. If others consume your change: `uak msg related:ID --kind contract "<what · what to do>"`.
 6. `bash .uak/bin/uak checkpoint ID --done ... --decision ... --why ... --fails ... --commands ... --next "Wait for review of SHA <sha>"`.
 7. Don't idle. Run `/uak-start` from the main checkout, or review others' PRs.
 8. When `approve` arrives:
    - sprint: `bash .uak/bin/uak heartbeat ID && bash .uak/bin/uak merge ID`. Exit 3 means it went to the human queue and shows up in `digest`.
    - marathon: a CODEOWNERS human merges on GitHub.
-9. After a human merge: `uak done ID --pr URL --evidence "human merge" --integrated "$(gh pr view URL --json mergeCommit -q .mergeCommit.oid)"`.
+9. After a human merge: `uak done ID --pr URL --evidence "human merge" --integrated "$(gh pr view URL --json mergeCommit -q .mergeCommit.oid)"`. If you are not the owner (it went offline), `bash .uak/bin/uak integrate ID`.

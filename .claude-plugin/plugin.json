@@ -1,7 +1,7 @@
 {
   "name": "uak",
   "description": "UPIIXIA Agentic Kit: multi-agent coordination for Claude Code, Codex, Cursor and Gemini CLI. Claims, leases, bounded verify-fix loops, reviews and merges over a Git branch. Sprint mode for hackathons, marathon mode for real products.",
-  "version": "4.1.0",
+  "version": "4.1.1",
   "author": {
     "name": "Joahan Morales"
   },

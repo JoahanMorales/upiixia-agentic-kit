@@ -23,7 +23,9 @@ while [ "$#" -gt 0 ]; do
     *) target=$1; shift;;
   esac
 done
-case "$mode" in sprint|marathon) ;; *) printf '%s\n' 'Missing --mode sprint|marathon' >&2; exit 2;; esac
+case "$mode" in sprint|marathon) ;; *) printf '%s\n' 'Missing --mode sprint|marathon (the human chooses; there is no default):' \
+  '  sprint   = hackathon, demo day or prototype with a deadline: speed, auto-merge after review, a stunning frontend' \
+  '  marathon = real product with users after launch: specs, security reviews, human merges, CI' >&2; exit 2;; esac
 [ -n "$target" ] || { printf '%s\n' 'Missing TARGET (root of a Git repository)' >&2; exit 2; }
 target=$(cd "$target" && pwd)
 git -C "$target" rev-parse --show-toplevel >/dev/null 2>&1 || { printf '%s\n' "$target is not a Git repository (git init first)" >&2; exit 2; }

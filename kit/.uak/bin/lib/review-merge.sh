@@ -340,7 +340,7 @@ rm_gate_scope() {
        overlaps "$TXROOT/merge-path" "$TXROOT/merge-additive"; then allowed=yes; fi
     [ "$allowed" = yes ] || { RM_REASON="Diff outside Paths: $path (new test files: add the dir to Additive-Paths in PROJECT.md)"; return 1; }
     case "/$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')/" in
-      */contracts/*|*/types/*|*/shared-types/*|*/migrations/*|*/.github/workflows/*|*/.gitlab-ci.yml/*|*/azure-pipelines.yml/*|*/package-lock.json/*|*/pnpm-lock.yaml/*|*/*.lock/*|*/*.lockb/*|*/go.sum/*|*/.uak/bin/smoke/*|*/.uak/bin/smoke-project/*|*/.uak/bin/secret-scan/*|*/.uak/bin/uak/*|*/.uak/bin/lib/*|*/.uak/bin/uak-coordination/*|*/.githooks/*|*/hackathon.md/*)
+      */contracts/*|*/types/*|*/shared-types/*|*/migrations/*|*/.github/workflows/*|*/.gitlab-ci.yml/*|*/azure-pipelines.yml/*|*/package-lock.json/*|*/pnpm-lock.yaml/*|*/*.lock/*|*/*.lockb/*|*/go.sum/*|*/.uak/bin/smoke/*|*/.uak/bin/smoke-project/*|*/.uak/bin/secret-scan/*|*/.uak/bin/uak/*|*/.uak/bin/lib/*|*/.uak/bin/uak-coordination/*|*/.githooks/*|*/hackathon.md/*|*/.uak/project.md/*)
         RM_REASON="Shared resource/CI needs a human: $path"; return 1;;
     esac
   done < "$TXROOT/merge-files"

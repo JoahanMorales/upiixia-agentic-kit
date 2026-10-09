@@ -6,7 +6,7 @@ description: Install the UPIIXIA Agentic Kit (uak) into the current Git reposito
 
 1. Confirm the current directory is the root of a Git repository (`git rev-parse --show-toplevel`). If not, ask the user.
 2. Ask only what's missing, in one message:
-   - the mode: `sprint` (hackathon or prototype: speed and a great frontend) or `marathon` (real product: specs, security, CI);
+   - the mode, chosen by the user: `sprint` (hackathon or prototype with a deadline: speed, auto-merge, a great frontend) or `marathon` (real product with users after launch: specs, security, human merges, CI). Never pick or infer it for them, even if the repo or request hints at one; if they are unsure, show both lines and wait;
    - the stack: `fastapi-react` or `none`;
    - whether the project builds AI tools (`--skills ai`).
 3. Find the installer: `install.sh` is two directories above this skill's base directory. If it isn't there, clone the pinned kit:

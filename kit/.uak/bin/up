@@ -17,6 +17,11 @@ while [ "$#" -gt 0 ]; do
 done
 case "$n" in ''|*[!0-9]*|0) printf 'Usage: up N [--prefix NAME] [--tool CMD] [--tmux]  (N = agents to start)\n' >&2; exit 2;; esac
 here=$(cd "$(dirname "$0")" && pwd)
+# Hard limit on worktree agents per `up`: each one is a full lead session on the same plan.
+top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cap=$(sed -n 's/^[-* ]*Max-Worktree-Agents:[* ]*//p' "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `')
+case "$cap" in ''|*[!0-9]*) case "$(sed -n 's/^[-* ]*Mode:[* ]*//p' "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `')" in marathon) cap=4;; *) cap=6;; esac;; esac
+[ "$n" -le "$cap" ] || { printf 'UP: %s agents exceeds Max-Worktree-Agents (%s). Sprint advice: 2 per human. A human can raise it in .uak/PROJECT.md.\n' "$n" "$cap" >&2; exit 2; }
 [ -n "$prefix" ] || prefix=$(printf '%s' "${UAK_HUMAN:-$(git config user.name 2>/dev/null)}" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9\n' '-' | cut -d- -f1)
 [ -n "$prefix" ] || prefix=agent
 started=0 lines=

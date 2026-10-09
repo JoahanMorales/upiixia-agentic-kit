@@ -37,6 +37,9 @@ It runs a real 3-agent session in a temp repo with a local Git remote:
 
 ## Quick start
 
+Going to a hackathon? The one-page plan is in **[docs/HACKATHON.md](docs/HACKATHON.md)**. You pick the mode yourself at install. There is no default: `sprint` for a deadline with judges, `marathon` for a product with users after launch.
+
+
 **1. Install into any Git repo** (30 s; needs Bash 3.2+ and Git):
 
 ```bash
@@ -158,6 +161,7 @@ bash .uak/bin/uak pace
 | 3 h left, 50% left | 0.83 | **conserve** | ½ parallel, 1 strong, fast tier for every read |
 | ≥ 90% used, or ratio < 0.6 | — | **critical** | 1 subagent, no strong model, checkpoint and hand off before the limit |
 
+- **Hard limits above pacing.** Fixed numbers that pacing can lower but never raise: in sprint, 6 parallel, 3 strong, 40 spawns per session, 8 per machine, 6 per minute, and 6 agents per `uak up`. A wrong reading can't burn your plan in minutes. Surge also needs fresh data.
 - **Where the numbers come from:**
   - Claude Code: the status line's `rate_limits` (Pro/Max).
   - Codex: `rate_limits` in `~/.codex/sessions`.

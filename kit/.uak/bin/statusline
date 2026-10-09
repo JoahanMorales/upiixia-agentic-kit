@@ -7,7 +7,7 @@ LC_ALL=C; export LC_ALL
 input=$(cat 2>/dev/null || true)
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 common=$(git rev-parse --git-common-dir 2>/dev/null) && common=$(cd "$common" 2>/dev/null && pwd -P) || common=
-now=$(date +%s)
+now=${UAK_NOW:-$(date +%s)}
 num() { # num OBJECT KEY: first number after "OBJECT" then "KEY"
   printf '%s' "$input" | awk -v o="\"$1\"" -v k="\"$2\"" 'BEGIN {RS="\001"} {
     i = index($0, o); if (!i) exit; s = substr($0, i, 600); j = index(s, k); if (!j) exit
