@@ -18,7 +18,8 @@ done
 [ -n "$start" ] && [ -n "$deadline" ] || {
   printf '%s\n' 'Usage: clock "YYYY-MM-DD HH:MM" "YYYY-MM-DD HH:MM" [IANA_ZONE] [--write]' >&2; exit 2; }
 zone=${zone:-${TZ:-UTC}}
-epoch() { TZ=$zone date -d "$1" +%s 2>/dev/null || TZ=$zone date -j -f '%Y-%m-%d %H:%M' "$1" +%s 2>/dev/null; }
+# BSD date (macOS) fills unspecified fields from the current time, seconds included: pass :00 explicitly.
+epoch() { TZ=$zone date -d "$1" +%s 2>/dev/null || TZ=$zone date -j -f '%Y-%m-%d %H:%M:%S' "$1:00" +%s 2>/dev/null; }
 show() { TZ=$zone date -d "@$1" '+%a %H:%M' 2>/dev/null || TZ=$zone date -r "$1" '+%a %H:%M'; }
 s=$(epoch "$start") && d=$(epoch "$deadline") || { printf 'clock: dates must be "YYYY-MM-DD HH:MM"\n' >&2; exit 2; }
 dur=$((d - s))
