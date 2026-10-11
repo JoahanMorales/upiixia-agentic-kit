@@ -19,7 +19,7 @@ Every command runs as `bash .uak/bin/uak CMD`. It needs Bash 3.2+, Git with work
 `.uak/PROJECT.md`, `.uak/TASKS.md` and `.uak/OWNERS.md` are read from the **remote base branch**, never from a stale worktree.
 
 ## PROJECT.md config fields
-`Mode` (sprint|marathon) · `Pace` (auto|off) · `Blackbox` (on|off) · `Additive-Paths` (dirs where NEW files skip the scope gate, e.g. `e2e/, tests/`) · `Autonomy` · `Auto-Merge` · `Backlog-Approved` · `Backlog-Proposed-Epoch` · `Review-Mode` (claims|gh|auto) · `Plan-Channel` (claims|main) · `Freeze-Epoch` · `Lease-Seconds` · `Review-Lease-Seconds` · `Events-Per-Session` · `Checkpoint-Percent` · `Merge-Lease-Seconds` · `Merge-Wait-Seconds` · `Max-Parallel-Subagents` · `Opus-Subagents-Per-Session` · hard limits that pacing never raises: `Subagent-Hard-Cap` · `Strong-Hard-Cap` · `Subagents-Per-Session` · `Subagents-Per-Machine` · `Subagent-Burst-Per-Minute` · `Max-Worktree-Agents` (COSTS.md) · `Output-Cap-Chars` (default 12000, `off`: Claude Code cuts bigger Bash outputs to head + tail + log path). A missing yes/no field means `no`.
+`Mode` (sprint|marathon) · `Pace` (auto|off) · `Blackbox` (on|off) · `Additive-Paths` (dirs where NEW files skip the scope gate, e.g. `e2e/, tests/`) · `Autonomy` · `Auto-Merge` · `Backlog-Approved` · `Backlog-Proposed-Epoch` · `Review-Mode` (claims|gh|auto) · `Plan-Channel` (claims|main) · `Freeze-Epoch` · `Lease-Seconds` · `Review-Lease-Seconds` · `Events-Per-Session` · `Checkpoint-Percent` · `Merge-Lease-Seconds` · `Merge-Wait-Seconds` · `Max-Parallel-Subagents` · `Opus-Subagents-Per-Session` · hard limits that pacing never raises: `Subagent-Hard-Cap` · `Strong-Hard-Cap` · `Subagents-Per-Session` · `Subagents-Per-Machine` · `Subagent-Burst-Per-Minute` · `Max-Worktree-Agents` (COSTS.md) · `Output-Cap-Chars` (default 12000, `off`: shell outputs bigger than this reach Claude Code, Codex and Cursor agents as head + tail + log path). A missing yes/no field means `no`.
 
 ## TASKS.md fields
 `## ID · title` (ID = `PREFIX-NNN`) · `Priority: P0|P1|P2` · `Paths:` (comma-separated, dirs end in `/`) · `Depends on:` (IDs or `None`; parentheses are ignored) · `Uses contract:` (soft, notify-only) · `Related:` · `Verify:` (an exact command) · `Next step:` · `Estimate:` · `Freeze-Allowed: yes`.
@@ -76,6 +76,7 @@ Every command runs as `bash .uak/bin/uak CMD`. It needs Bash 3.2+, Git with work
 | `bash .uak/bin/statusline` | Claude Code status line: task, 5 h/7 d usage, context, pace. Caches `rate_limits` for `pace`. |
 | `bash .uak/bin/guard check "CMD"` | ask the guard before running (Codex, Cursor and others without hooks) |
 | `bash .uak/bin/smoke [--package-only]` | product smoke, or the kit's own 90+ integration tests |
+| `bash .uak/bin/hook output codex` · `hook wrap` · `bash .uak/bin/cap LOG RC` | Codex PostToolUse(Bash) replaces a huge result with head + tail + log path · Cursor preToolUse(Shell) wraps noisy low-risk commands so `cap` prints them whole or cut · the printer used by the wrap. |
 | `bash .uak/bin/hook output` | Claude Code PostToolUse(Bash): outputs over `Output-Cap-Chars` become head 30 + tail 50 lines + the path of the full log (`.git/uak-out/`). `UAK_RAW=1 cmd` opts out. |
 
 ## Exit codes

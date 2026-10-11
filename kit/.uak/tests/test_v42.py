@@ -206,8 +206,44 @@ def blackbox_dedupe_and_harness(r):
     return {"dedupe": "x3", "harness": h}
 
 
+def output_cap_cursor_and_codex(r):
+    """A teammate on Cursor: "tool calling hogs the whole context". Cursor and Codex get the cap too."""
+    f = r.fixture("v42-cap", count=1)
+    w = f.worktrees[0]
+    (w / "src").mkdir(exist_ok=True)
+    def hook(mode, payload, *extra):
+        (w / ".git-payload.json").write_text(json.dumps(payload), encoding="utf-8")
+        return r.run([r.bash, "-c", "bash .uak/bin/hook " + mode + " " + " ".join(extra) + " < .git-payload.json"], cwd=w).stdout
+    shell = lambda cmd: {"hook_event_name": "preToolUse", "conversation_id": "c1", "tool_name": "Shell",
+                         "tool_input": {"command": cmd, "working_directory": str(w)}}
+    noisy = "find . -name nothing; seq 1 20000 1>&2; cd src && export UAKT=5; false"
+    out = json.loads(hook("wrap", shell(noisy)))
+    expect(out["permission"] == "allow" and out["updated_input"]["working_directory"] == str(w), "Cursor gets updated_input: " + str(out))
+    ran = r.run([r.bash, "-c", out["updated_input"]["command"] + '\necho "rc=$? dir=$(basename "$PWD") v=$UAKT"'], cwd=w, allowed=None).stdout
+    lines = ran.splitlines()
+    expect("[uak: " in ran and "20000" in ran and len(lines) < 120, "the output is head + tail + log path: %d lines" % len(lines))
+    expect(lines[-1] == "rc=1 dir=src v=5", "exit code, cd and export survive the wrap: " + lines[-1])
+    small = json.loads(hook("wrap", shell("git status --short")))["updated_input"]["command"]
+    expect(r.run([r.bash, "-c", small], cwd=w).stdout == r.run([r.bash, "-c", "git status --short"], cwd=w).stdout,
+           "a small output prints unchanged")
+    for skip in ["npm run dev", "pytest &", "echo hi", "cat .env && pytest", "UAK_RAW=1 pytest"]:
+        expect(hook("wrap", shell(skip)) == "", "not wrapped: " + skip)
+    big = "\n".join("test %d passed" % i for i in range(5000))
+    for resp in (big, {"stdout": big, "stderr": "", "exit_code": 0}):
+        codex = {"session_id": "s", "turn_id": "t", "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                 "tool_input": {"command": "pytest"}, "tool_response": resp}
+        d = json.loads(hook("output", codex, "codex"))
+        expect(d["decision"] == "block" and "test 0 passed" in d["reason"] and "test 4999 passed" in d["reason"]
+               and len(d["reason"]) < 12000, "Codex: the result is replaced by head + tail + log path")
+    tiny = {"session_id": "s", "turn_id": "t", "hook_event_name": "PostToolUse", "tool_name": "Bash",
+            "tool_input": {"command": "pytest"}, "tool_response": "1 passed"}
+    expect(hook("output", tiny, "codex") == "", "Codex: small results pass untouched")
+    return {"cursor_lines": len(lines)}
+
+
 TESTS = [scope_uses_current_base, freeze_next_and_allow, one_identity_one_task, messages_without_noise, reviews_once,
-         repeated_reads_and_loops, huge_output_is_capped, guard_prose_and_clock, blackbox_dedupe_and_harness]
+         repeated_reads_and_loops, huge_output_is_capped, guard_prose_and_clock, blackbox_dedupe_and_harness,
+         output_cap_cursor_and_codex]
 
 
 def main():

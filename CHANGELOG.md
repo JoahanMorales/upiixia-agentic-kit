@@ -6,7 +6,7 @@ From the first full team event on the kit (Reap x AI Builders buildathon: 4 h, 5
 - **`uak clock START DEADLINE ZONE --write`.** The sprint schedule scales with the event (freeze = 15% of it, 30 min to 6 h) and prints "first claim by". A fixed −6 h froze a 4 h event one hour after its first claim.
 - **`uak allow ID… --reason` / `--in-flight`.** An audited human freeze exception for claims and merges (no more PRs to flip `Freeze-Allowed`).
 - **Context hygiene, the real answer to "tool calling hogs the context":**
-  - Claude Code `PostToolUse` cuts Bash outputs over `Output-Cap-Chars` (12000) to head + tail + the saved log (`updatedToolOutput`).
+  - Shell outputs over `Output-Cap-Chars` (12000) reach the model as head + tail + the saved log: Claude Code `PostToolUse` `updatedToolOutput`; Codex `PostToolUse` `decision: "block"` (replaces the result; the command already ran); Cursor `preToolUse` `updated_input`, which wraps tests, builds, linters and read-only git/search commands in `{ cmd; } > log` + `.uak/bin/cap` (exit code, `cd` and `export` kept). Cursor also gets a `sessionStart` hook.
   - The same `status`/`next`/`digest` twice in one session prints `= unchanged`; unread messages are shown once per session (`--full` reprints).
   - `LOOP:` after the same error 3 times in 10 min.
   - One message line for many targets; `review --note` (one message per verdict); a second approval of an approved SHA records nothing; ack-only replies are refused.
@@ -16,7 +16,7 @@ From the first full team event on the kit (Reap x AI Builders buildathon: 4 h, 5
 - **Black box.** `next` probes are not errors (153 of 290 lines were); identical lines publish once with `(xN)`; the harness is remembered per worktree; leftovers flush at session start.
 - `uak next` works without an identity (Reap's top error: 24 "No identity").
 - Fixes: `msg Ana-1` (uppercase agent names), `status ID`, `register-reviewer A B C`, a guard that ignores safety rules inside quoted prompts and now catches `cat ".env"`, Git Bash `ref:path` arguments (`MSYS2_ARG_CONV_EXCL`), a board that no longer shows everything AVAILABLE when the fetch fails, a one-time `gh` preflight, portable JSON escaping in hooks (mawk).
-- 9 new tests (`test_v42.py`, 93 in total).
+- 10 new tests (`test_v42.py`, 94 in total).
 
 ## v4.1.1 · 2026-10-09 · Hackathon-ready safety
 - **Hard limits above pacing.** These are fixed numbers that `uak pace` can lower but never raise (sprint / marathon):

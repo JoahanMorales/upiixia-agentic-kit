@@ -51,7 +51,7 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 3. Follow `uak pace` (plan usage vs time left): `surge` = spend more (more scouts, `uak up`), `conserve` = fast tier only, `critical` = finish the criterion, checkpoint, hand off. The guard enforces its caps.
 4. One task = one session: `/uak-handoff`, then `/clear`.
 5. Checkpoint after each criterion and on `CHECKPOINT NOW`.
-6. `= unchanged` (status, next, digest, inbox) means nothing new: do not poll; after compaction use `--full`. `LOOP:` means stop retrying that command. Claude Code cuts outputs over 12k chars to head + tail and saves the full log: read it by ranges.
+6. `= unchanged` (status, next, digest, inbox) means nothing new: do not poll; after compaction use `--full`. `LOOP:` means stop retrying that command. Claude Code, Codex and Cursor hooks cut outputs over 12k chars to head + tail and save the full log: read it by ranges.
 7. When compacting, keep only: ID, branch, worktree, exact next step, pending criteria, failures with exact errors, commands, decisions and unanswered inbox.
 
 ## 7. Load on demand

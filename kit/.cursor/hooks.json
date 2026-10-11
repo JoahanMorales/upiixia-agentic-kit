@@ -1,10 +1,48 @@
 {
   "version": 1,
   "hooks": {
-    "beforeShellExecution": [{ "command": "bash .uak/bin/guard shell", "timeout": 5 }],
-    "beforeSubmitPrompt": [{ "command": "bash .uak/bin/guard prompt", "timeout": 5 }],
-    "subagentStart": [{ "command": "bash .uak/bin/guard agent", "timeout": 5 }],
-    "subagentStop": [{ "command": "bash .uak/bin/guard agent-stop", "timeout": 5 }],
-    "stop": [{ "command": "bash .uak/bin/bb flush --quiet", "timeout": 30 }]
+    "sessionStart": [
+      {
+        "command": "bash .uak/bin/hook session-start cursor",
+        "timeout": 30
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "bash .uak/bin/hook wrap",
+        "matcher": "Shell",
+        "timeout": 5
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "bash .uak/bin/guard shell",
+        "timeout": 5
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "bash .uak/bin/guard prompt",
+        "timeout": 5
+      }
+    ],
+    "subagentStart": [
+      {
+        "command": "bash .uak/bin/guard agent",
+        "timeout": 5
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": "bash .uak/bin/guard agent-stop",
+        "timeout": 5
+      }
+    ],
+    "stop": [
+      {
+        "command": "bash .uak/bin/bb flush --quiet",
+        "timeout": 30
+      }
+    ]
   }
 }

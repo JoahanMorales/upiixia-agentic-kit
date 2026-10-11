@@ -210,7 +210,7 @@ Tokens are the scarcest resource of an agent team. Every default is tuned to spe
 
 - `AGENTS.md` is **60 lines**, lint-capped at 100. Detail loads on demand from a trigger table.
 - `q` turns a 2,000-line test log into **one line** on success, or a 40-line tail on failure.
-- **Huge outputs never flood the context** (Claude Code): a Bash output over 12k chars reaches the model as head + tail + the path of the full log (`PostToolUse` `updatedToolOutput`).
+- **Huge outputs never flood the context**, in Claude Code, Codex and Cursor: a shell output over 12k chars reaches the model as head + tail + the path of the full log (Claude `updatedToolOutput`, Codex PostToolUse `block`, Cursor `preToolUse` wrap of tests, builds and searches).
 - **No rereads**: the same `status`/`next`/`inbox` twice in one session prints `= unchanged`; `LOOP:` stops a retry loop; acks are refused and one message reaches many tasks in one line.
 - Noisy work runs in **subagents** (a Haiku runner, a Sonnet reviewer); only a summary comes back.
 - Only **actionable messages** are injected. Duplicate broadcasts are gone: 194 of 717 messages in our event were noise.

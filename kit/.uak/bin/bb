@@ -36,7 +36,7 @@ harness() {
   [ -z "${UAK_HARNESS:-}" ] || { printf '%s' "$UAK_HARNESS"; return; }
   if [ -n "${CLAUDECODE:-}" ]; then printf claude-code
   elif [ -n "${CODEX_SANDBOX:-}${CODEX_THREAD_ID:-}${CODEX_HOME:-}" ]; then printf codex
-  elif [ -n "${CURSOR_TRACE_ID:-}${CURSOR_AGENT:-}" ]; then printf cursor
+  elif [ -n "${CURSOR_TRACE_ID:-}${CURSOR_AGENT:-}${CURSOR_VERSION:-}" ]; then printf cursor
   elif [ -n "${GEMINI_CLI:-}" ]; then printf gemini-cli
   # The session-start hook records the harness of this worktree; background flushes and plain shells reuse it.
   # Why (Reap buildathon): 41 of 290 lines said "other".

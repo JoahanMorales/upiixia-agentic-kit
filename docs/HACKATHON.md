@@ -40,7 +40,7 @@ Never tell an agent "the human authorizes everything" through another agent: run
 ## Budget and tokens (already on)
 - The lead runs on the balanced model, scouts on the fast one, the strong model only at 3 checkpoints.
 - `uak pace` raises or lowers subagent caps with your 5-hour window. Hard limits it never raises: 6 parallel subagents, 3 strong per session, 40 spawns per session, 8 per laptop, 6 per minute, 6 agents per `uak up`.
-- Context: huge outputs are cut to head + tail (Claude Code), repeated `status`/`inbox` print `= unchanged`, acks are refused, one message reaches many tasks in one line, and `LOOP:` stops retry loops.
+- Context: huge outputs are cut to head + tail (Claude Code, Codex and Cursor), repeated `status`/`inbox` print `= unchanged`, acks are refused, one message reaches many tasks in one line, and `LOOP:` stops retry loops.
 
 ## If something breaks
 | Message | Fix |

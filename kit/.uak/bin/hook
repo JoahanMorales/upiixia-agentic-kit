@@ -4,7 +4,7 @@
 # tick (PostToolUse): heartbeat every 8 min and inbox poll every ~2 min, both in background;
 #   new actionable messages are injected as additional context on the next tool call.
 # stop (Stop): blocks ending the turn once per batch of unhandled messages; flushes the black box.
-# output (PostToolUse Bash): caps huge outputs to head + tail + log path (Output-Cap-Chars).
+# output [codex] (PostToolUse Bash) · wrap (Cursor preToolUse Shell): huge outputs become head + tail + log path.
 # Pace: when plan usage changes level (surge/conserve/critical), one line is injected (uak pace).
 # Why: agents forget heartbeats and miss mid-session requests from other tasks.
 set -u
@@ -19,12 +19,42 @@ fresh() { [ -f "$1" ] && [ -n "$(find "$1" -mmin "-$2" 2>/dev/null)" ]; }
 # JSON string body: sed escapes (awk gsub of a backslash differs between mawk, gawk and BSD awk); control
 # characters such as ANSI colors from test runners are invalid in JSON and are dropped.
 json_text() { tr -d '\r' | tr '\t' ' ' | tr -d '\000-\010\013\014\016-\037' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'BEGIN {ORS=""} {if (NR > 1) print "\\n"; print}'; }
+# JSON string body that keeps tabs and newlines (commands, paths).
+json_cmd() { tab=$(printf '\t'); sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e "s/$tab/\\\\t/g" | tr -d '\r' | awk 'BEGIN {ORS=""} {if (NR > 1) print "\\n"; print}'; }
+# Decode the JSON string at PARENT.KEY of the hook payload (or PARENT itself when it is a string).
+# Handles \n \t \" \\ \/; \uXXXX is kept as is. No jq (Bash 3.2 + POSIX awk).
+jdecode() {
+  printf '%s' "$input" | awk -v p="\"$1\"" -v key="${2:-}" 'BEGIN {RS="\001"} {
+    i = index($0, p); if (!i) exit; s = substr($0, i + length(p))
+    if (key != "") { k = "\"" key "\""; j = index(s, k); if (!j) exit; s = substr(s, j + length(k)) }
+    sub(/^[[:space:]]*:[[:space:]]*/, "", s); if (substr(s, 1, 1) != "\"") exit; s = substr(s, 2)
+    n = length(s); out = ""
+    for (c_i = 1; c_i <= n; c_i++) {
+      c = substr(s, c_i, 1)
+      if (c == "\\") { d = substr(s, c_i + 1, 1); c_i++
+        if (d == "n") out = out "\n"; else if (d == "t") out = out "\t"; else if (d == "r") ; else if (d == "u") out = out "\\u"; else out = out d
+        continue }
+      if (c == "\"") break
+      out = out c
+    }
+    printf "%s", out }'
+}
+cap_chars() {
+  c=$(sed -n 's/^[-* ]*Output-Cap-Chars:[* ]*//p' .uak/PROJECT.md 2>/dev/null | head -n 1 | tr -d '\r `')
+  case "$c" in off|0) printf 0;; ''|*[!0-9]*) printf 12000;; *) printf '%s' "$c";; esac
+}
 sum() { cksum < "$1" 2>/dev/null | awk '{print $1}'; }
 # Session id: Claude Code and Codex send session_id, Cursor conversation_id (BSD sed has no \| alternation).
 sid=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9_.-]*\)".*/\1/p' | head -n 1)
 [ -n "$sid" ] || sid=$(printf '%s' "$input" | sed -n 's/.*"conversation_id"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9_.-]*\)".*/\1/p' | head -n 1)
 case "${1:-}" in
   session-start)
+    # Cursor's sessionStart hook takes JSON: {"additional_context": "..."}.
+    if [ "${2:-}" = cursor ]; then
+      out=$(printf '%s' "$input" | bash "$0" session-start 2>/dev/null)
+      [ -z "$out" ] || printf '{"additional_context":"%s"}\n' "$(printf '%s' "$out" | json_text)"
+      exit 0
+    fi
     # Remember the harness of this worktree for black box lines written by background jobs.
     h=$(bash .uak/bin/bb harness 2>/dev/null)
     if [ "$h" = other ] || [ -z "$h" ]; then
@@ -127,48 +157,69 @@ $act"
       "$(printf 'Unhandled messages: handle them (AGENTS.md §5), reply with uak msg and run uak inbox --ack before stopping.\n%s' "$(grep -E '^#[0-9]|^  ' "$gd/uak-inbox.txt" | head -n 20)" | json_text)"
     ;;
   output)
-    # Claude Code PostToolUse(Bash): a huge output is replaced, before the model sees it, by its head and tail
-    # plus the path of the full log (updatedToolOutput). The command already ran; only the context shrinks.
-    # Why: one test run or `git log -p` can add 30k+ tokens that are re-sent on every later turn; agents
-    # then reread "the same stuff over and over". Cap: Output-Cap-Chars in PROJECT.md (default 12000, off).
-    cap=$(sed -n 's/^[-* ]*Output-Cap-Chars:[* ]*//p' .uak/PROJECT.md 2>/dev/null | head -n 1 | tr -d '\r `')
-    case "$cap" in off|0) exit 0;; ''|*[!0-9]*) cap=12000;; esac
+    # Huge shell output never reaches the model whole: head 30 + tail 50 + the path of the full log.
+    # Why: one test run or `git log -p` can add 30k+ tokens that are re-sent on every later turn; a teammate on
+    # Cursor put it as "tool calling hogs the whole context". Cap: Output-Cap-Chars (default 12000, off).
+    #   output         Claude Code PostToolUse(Bash): updatedToolOutput replaces what the model sees.
+    #   output codex   Codex PostToolUse(Bash): decision "block" replaces the tool result with the reason
+    #                  (the command already ran; no permission or sandbox decision is involved).
+    # Cursor cannot replace a shell result after it runs: see `wrap` (preToolUse).
+    harness=${2:-claude}
+    cap=$(cap_chars); [ "$cap" -gt 0 ] || exit 0
     [ "${#input}" -gt "$cap" ] || exit 0
     case "$input" in *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*) ;; *) exit 0;; esac
-    case "$input" in *UAK_RAW=1*) exit 0;; esac
+    case "$(jdecode tool_input command)" in *UAK_RAW=1*) exit 0;; esac
     out_dir="$gd/uak-out"; mkdir -p "$out_dir" 2>/dev/null || exit 0
-    id="$(date +%s)-$$"
-    # Decode one JSON string field of tool_response (\n \t \" \\ \/; \uXXXX kept as is).
-    decode() {
-      printf '%s' "$input" | awk -v key="\"$1\"" 'BEGIN {RS="\001"} {
-        i = index($0, "\"tool_response\""); if (!i) exit; s = substr($0, i)
-        j = index(s, key); if (!j) exit; s = substr(s, j + length(key)); sub(/^[[:space:]]*:[[:space:]]*"/, "", s)
-        n = length(s); out = ""
-        for (k = 1; k <= n; k++) {
-          c = substr(s, k, 1)
-          if (c == "\\") { d = substr(s, k + 1, 1); k++
-            if (d == "n") out = out "\n"; else if (d == "t") out = out "\t"; else if (d == "r") ; else if (d == "u") out = out "\\u"; else out = out d
-            continue }
-          if (c == "\"") break
-          out = out c
-        }
-        printf "%s", out }'
-    }
-    decode stdout > "$out_dir/$id.log" 2>/dev/null
-    size=$(wc -c < "$out_dir/$id.log" | tr -d ' ')
-    [ "$size" -gt "$cap" ] || { rm -f "$out_dir/$id.log"; exit 0; }
-    decode stderr > "$out_dir/$id.err" 2>/dev/null
-    lines=$(awk 'END {print NR+0}' "$out_dir/$id.log")
-    rel="$gd/uak-out/$id.log"
-    short=$( { head -n 30 "$out_dir/$id.log" | cut -c 1-400
-      printf '\n[uak: %s lines / %s chars cut to head 30 + tail 50. Full output: %s. Read ranges: sed -n 200,260p FILE or grep -n PATTERN FILE. Rerun with UAK_RAW=1 to see it all.]\n\n' "$lines" "$size" "$rel"
-      tail -n 50 "$out_dir/$id.log" | cut -c 1-400; } )
-    err=$(head -c 4000 "$out_dir/$id.err" 2>/dev/null); rm -f "$out_dir/$id.err"
-    intr=false; case "$input" in *'"interrupted":true'*|*'"interrupted": true'*) intr=true;; esac
-    # Keep the last 20 logs only.
+    id="$(date +%s)-$$"; log="$out_dir/$id.log"
+    if [ "$harness" = codex ]; then
+      # tool_response is the model-facing output: a string, or an object with stdout/output.
+      jdecode tool_response > "$log" 2>/dev/null
+      [ -s "$log" ] || jdecode tool_response stdout > "$log" 2>/dev/null
+      [ -s "$log" ] || jdecode tool_response output > "$log" 2>/dev/null
+    else
+      jdecode tool_response stdout > "$log" 2>/dev/null
+    fi
+    size=$(wc -c < "$log" | tr -d ' ')
+    [ "$size" -gt "$cap" ] || { rm -f "$log"; exit 0; }
+    lines=$(awk 'END {print NR+0}' "$log")
+    short=$( { head -n 30 "$log" | cut -c 1-400
+      printf '\n[uak: %s lines / %s chars cut to head 30 + tail 50. Full output: %s. Read ranges: sed -n 200,260p FILE or grep -n PATTERN FILE. Rerun with UAK_RAW=1 to see it all.]\n\n' "$lines" "$size" "$log"
+      tail -n 50 "$log" | cut -c 1-400; } )
     ls -t "$out_dir"/*.log 2>/dev/null | tail -n +21 | while IFS= read -r old; do rm -f "$old"; done
+    if [ "$harness" = codex ]; then
+      printf '{"decision":"block","reason":"%s"}\n' \
+        "$(printf '[uak output cap: the command ran normally; this is its output, shortened]\n%s' "$short" | json_text)"
+      exit 0
+    fi
+    jdecode tool_response stderr | head -c 4000 > "$log.err" 2>/dev/null; err=$(cat "$log.err" 2>/dev/null); rm -f "$log.err"
+    intr=false; case "$input" in *'"interrupted":true'*|*'"interrupted": true'*) intr=true;; esac
     printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":{"stdout":"%s","stderr":"%s","interrupted":%s,"isImage":false}}}\n' \
       "$(printf '%s' "$short" | json_text)" "$(printf '%s' "$err" | json_text)" "$intr"
+    ;;
+  wrap)
+    # Cursor preToolUse(Shell): rewrite a NOISY, LOW-RISK command so its output goes to a log and `cap` prints it
+    # whole when small, or head + tail when huge. Exit code and shell state (cd, export) are kept: the command
+    # runs in a { } group of the same shell. Only tests, builds, linters, type checks and read-only git/search
+    # commands are wrapped, after the guard allows them, because "allow" is the only way to pass updated_input.
+    # Skipped: servers, watchers, background jobs, interactive tools, exit/exec, Windows shells and fish.
+    cap=$(cap_chars); [ "$cap" -gt 0 ] || exit 0
+    case "$input" in *'"tool_name":"Shell"'*|*'"tool_name": "Shell"'*) ;; *) exit 0;; esac
+    case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) exit 0;; esac
+    case "${SHELL:-}" in *fish) exit 0;; esac
+    cmd=$(jdecode tool_input command); [ -n "$cmd" ] || exit 0
+    wd=$(jdecode tool_input working_directory)
+    case "$cmd" in *UAK_RAW=1*|*.uak/bin/q*|*.uak/bin/cap*) exit 0;; esac
+    printf '%s\n' "$cmd" | grep -Eq '(^|[^&>])&([^&>]|$)|(^|[;&|[:space:]])(exit|exec|read|vim|vi|nano|less|more|top|htop|watch|ssh)([[:space:]]|$)|tail[[:space:]]+-[a-zA-Z]*f|--watch|--follow|(npm|pnpm|yarn|bun)[[:space:]]+(run[[:space:]]+)?(dev|start|serve)|uvicorn|gunicorn|flask[[:space:]]+run|http\.server|nodemon|next[[:space:]]+(dev|start)|docker(-|[[:space:]])compose[[:space:]]+up|rails[[:space:]]+s' && exit 0
+    printf '%s\n' "$cmd" | grep -Eq '(^|[;&|([:space:]])(pytest|py\.test|tox|nox|jest|vitest|mocha|tsc|eslint|ruff|mypy|pyright|flake8|pylint|rg|tree|du|make)([[:space:]]|$)|python3?[[:space:]]+-m[[:space:]]+(pytest|unittest)|playwright[[:space:]]+test|cypress[[:space:]]+run|go[[:space:]]+(test|build|vet)|cargo[[:space:]]+(test|build|check|clippy)|(mvn|gradle|gradlew)[[:space:]]|(npm|pnpm|yarn|bun)[[:space:]]+(run[[:space:]]+)?(test|build|lint|typecheck|check|format:check)|(uv|poetry)[[:space:]]+run[[:space:]]+(pytest|python|mypy|ruff)|git[[:space:]]+(log|diff|show|blame|status)|grep[[:space:]]+-[a-zA-Z]*r|find[[:space:]]|ls[[:space:]]+-[a-zA-Z]*R|\.uak/bin/(smoke|uak[[:space:]]+(status|board|digest|stats|graph))' || exit 0
+    # The guard decides first; a blocked command is left untouched so beforeShellExecution denies it.
+    bash .uak/bin/guard check "$cmd" >/dev/null 2>&1 || exit 0
+    out_dir="$(cd "$gd" && pwd -P)/uak-out"; mkdir -p "$out_dir" 2>/dev/null || exit 0
+    log="$out_dir/$(date +%s)-$$.log"; capbin="$(pwd -P)/.uak/bin/cap"
+    case "$log$capbin" in *"'"*) exit 0;; esac
+    wrapped="{ $cmd
+} > '$log' 2>&1; __uak_rc=\$?; bash '$capbin' '$log' \"\$__uak_rc\"; (exit \$__uak_rc)"
+    extra=; [ -z "$wd" ] || extra=",\"working_directory\":\"$(printf '%s' "$wd" | json_cmd)\""
+    printf '{"permission":"allow","updated_input":{"command":"%s"%s}}\n' "$(printf '%s' "$wrapped" | json_cmd)" "$extra"
     ;;
   heartbeat) exec bash "$0" tick;;
 esac
