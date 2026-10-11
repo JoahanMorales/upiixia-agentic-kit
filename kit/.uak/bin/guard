@@ -11,6 +11,7 @@
 # Exit: 0 = allowed; 2 = blocked (Claude Code shows stderr to the agent or human).
 set -u
 LC_ALL=C; export LC_ALL
+MSYS2_ARG_CONV_EXCL="refs/;origin/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXCL
 
 mode() {
   top=$(git rev-parse --show-toplevel 2>/dev/null) || { printf 'sprint'; return; }
@@ -58,8 +59,6 @@ check_bash() {
       block "rm -r outside your worktree or on .git. Delete concrete relative paths of your task."
     printf '%s' "$s" | grep -Eq '(curl|wget)[[:space:]].*' && printf '%s\n' "$cmd" | grep -Eq '(curl|wget)[^|]*\|[[:space:]]*(ba|z)?sh' &&
       block "curl | sh runs unreviewed remote code. Download, read, then run."
-    printf '%s' "$s" | grep -Eq '(cat|less|more|head|tail|bat|grep|rg|sed|awk|cp|scp|base64|xxd|strings|source|\.)[[:space:]]([^#]*[[:space:]/])?\.env(\.(local|production|prod|dev|development|staging))?([[:space:]]|$)' &&
-      block ".env holds secrets and never enters context. Read .env.example or ask which variable exists."
     printf '%s' "$s" | grep -Eq '(npm|pnpm|yarn)[[:space:]]+publish|(uv|poetry)[[:space:]]+publish|twine[[:space:]]+upload|gh[[:space:]]+(repo[[:space:]]+(create|delete|edit)|release[[:space:]]+create)|docker[[:space:]]+push' &&
       block "publishing outside the repo is a human action."
     if [ "$m" = marathon ]; then
@@ -71,7 +70,28 @@ check_bash() {
   done <<EOF
 $(segments "$cmd")
 EOF
+  # .env reads, checked on the command with prose removed: a quoted text of 3+ words is a prompt or a message,
+  # not a file operation, unless the command runs it as code (sh -c, eval, ssh).
+  # Why (Reap buildathon): `codex exec "... never cat .env ..."` was blocked as a .env read.
+  envcmd=$cmd
+  printf '%s' "$cmd" | grep -Eq '(^|[[:space:]])((ba|z|da)?sh[[:space:]]+-[a-z]*c|eval|ssh|xargs)([[:space:]]|$)' || envcmd=$(strip_prose "$cmd")
+  while IFS= read -r seg; do
+    printf '%s' " $seg " | grep -Eq '(cat|less|more|head|tail|bat|grep|rg|sed|awk|cp|scp|base64|xxd|strings|source|\.)[[:space:]]([^#]*[[:space:]/"'"'"'])?["'"'"']?\.env(\.(local|production|prod|dev|development|staging))?["'"'"']?([[:space:]]|$)' &&
+      block ".env holds secrets and never enters context. Read .env.example or ask which variable exists."
+  done <<EOF
+$(segments "$envcmd")
+EOF
   return 0
+}
+strip_prose() {
+  printf '%s\n' "$1" | awk 'BEGIN { q = sprintf("%c", 39); re = "\"[^\"]*\"|" q "[^" q "]*" q }
+  {
+    s = $0; out = ""
+    while (match(s, re)) {
+      t = substr(s, RSTART, RLENGTH); n = split(t, w, /[[:space:]]+/)
+      out = out substr(s, 1, RSTART - 1) (n >= 3 ? "\"\"" : t); s = substr(s, RSTART + RLENGTH)
+    }
+    print out s }'
 }
 
 check_prompt() {

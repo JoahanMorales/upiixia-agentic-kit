@@ -4,6 +4,7 @@
 # One line per task: state · ID · owner/priority · lease or PR · wave · title. --md prints a GitHub table.
 set -u
 LC_ALL=C; export LC_ALL
+MSYS2_ARG_CONV_EXCL="refs/;origin/;${UAK_REMOTE:-origin}/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXCL
 md=no watch=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -19,8 +20,14 @@ remote=${UAK_REMOTE:-origin}
 render() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-board.XXXXXX") || return 2
   mkdir -p "$tmp/c"
-  if git -C "$root" fetch -q "$remote" claims 2>/dev/null; then
-    git -C "$root" archive FETCH_HEAD 2>/dev/null | tar -x -C "$tmp/c" 2>/dev/null
+  # Why (Reap buildathon): when this fetch failed (Wi-Fi, Git Bash) the board showed every task AVAILABLE.
+  # An explicit ref, and an error instead of a wrong board.
+  if ! git -C "$root" fetch -q "$remote" "+refs/heads/claims:refs/uak/board-claims" 2>/dev/null ||
+     ! git -C "$root" archive refs/uak/board-claims 2>/dev/null | tar -x -C "$tmp/c" 2>/dev/null; then
+    if git -C "$root" ls-remote --exit-code --heads "$remote" claims >/dev/null 2>&1; then
+      printf 'board: could not read the claims branch; check the network and retry (uak status works too)\n' >&2
+      rm -rf "$tmp"; return 1
+    fi
   fi
   base=$(git -C "$root" ls-remote "$remote" "refs/heads/${UAK_BASE:-main}" 2>/dev/null | cut -c 1-7)
   { git -C "$root" show "$remote/${UAK_BASE:-main}:.uak/TASKS.md" 2>/dev/null || cat "$root/.uak/TASKS.md" 2>/dev/null

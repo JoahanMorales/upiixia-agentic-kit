@@ -13,10 +13,10 @@ Then ask ONLY for what is missing, all in one message:
 - **sprint**: event, official URL, start and deadline (with IANA zone), submission platforms, video limits, rubric with weights, AI and prior-code rules, humans and agents (2 per human max), the human who owns submission, product name and brand.
 - **marathon**: purpose, principles, measurable NFRs, environments, CODEOWNERS, coverage threshold.
 
-1. Fill in `.uak/PROJECT.md`. In sprint, `Freeze-Epoch` = deadline − 6 h: `date -d "YYYY-MM-DD HH:MM TZ" +%s` (macOS: `date -j -f "%Y-%m-%d %H:%M" "..." +%s`).
+1. Fill in `.uak/PROJECT.md`. In sprint, run `bash .uak/bin/uak clock "START" "DEADLINE" ZONE --write`: it sets `Freeze-Epoch` scaled to the event (a fixed −6 h froze a 4 h event one hour after the first claim) and prints the schedule; copy it into the Event table. Timebox setup + plan to the "first claim by" time it prints.
 2. sprint: copy `.uak/templates/IDEA.template.md` to `IDEA.md` and fill §0–4 with the human.
 3. Run `bash .uak/bin/doctor --fix` on every machine until `DOCTOR PASS`. If gh cannot create PRs, tell the human NOW: get a token with *Pull requests: write*, or they will open every PR by hand.
-4. Each human registers reviewers: `UAK_HUMAN=<human> bash .uak/bin/uak register-reviewer <agent>`.
+4. One human registers every agent as reviewer in one call, from the main checkout: `UAK_HUMAN=<human> UAK_AGENT= bash .uak/bin/uak register-reviewer ana-1 ana-2 luis-1 luis-2`.
 5. The human confirms `Autonomy` and `Auto-Merge`. Commit `setup: project` and push to `main`. Next: `/uak-plan`.
 
 Never ask for or write keys. The human puts them in `.env` from their editor.

@@ -7,7 +7,7 @@ Load `.uak/docs/` only when `AGENTS.md` §7 or your mode says so. Minimal contex
 ## Claude Code only
 - Hooks:
   - `SessionStart` already ran `uak next` and showed your inbox.
-  - `PostToolUse` sends heartbeats and injects only actionable messages.
+  - `PostToolUse` sends heartbeats and injects only actionable messages. On Bash, an output over 12k chars reaches you as head + tail + the path of the full log: read it by ranges (`sed -n`, `grep -n`), or rerun with `UAK_RAW=1` only if you need everything.
   - `Stop` won't let you finish with unhandled messages.
   - `PreToolUse` (`guard`) blocks destructive or publishing commands, even when chained.
   - `UserPromptSubmit` blocks pasted secrets.

@@ -1,6 +1,6 @@
 ---
 name: uak-reviewer
-description: Reviews another task's PR (diff, criteria, scope, real verification) and records approve/reject with uak review + uak msg. Use for /uak-review or when a `review` message arrives.
+description: Reviews another task's PR (diff, criteria, scope, real verification) and records approve/reject with one uak review --note. Use for /uak-review or when a `review` message arrives.
 model: inherit
 readonly: true
 ---
@@ -19,7 +19,8 @@ You review someone else's task. Your context is disposable, so read the full dif
 5. By mode:
    - sprint + UI: walk the screen at 1280×720; the wow and the notices must be visible without scrolling.
    - marathon: look for N+1 queries, missing pagination, per-resource authz, edge validation, PII in logs and irreversible migrations.
-6. Verdict:
-   - OK → `bash .uak/bin/uak review ID --sha SHA --verdict approve`.
-   - Not OK → `--verdict reject`, plus `bash .uak/bin/uak msg ID --kind reject "<file:line · what fails · how to reproduce>; ..."` (max 5 points).
+6. Verdict, ONE command (the note travels in the same message; never send a second one):
+   - OK → `bash .uak/bin/uak review ID --sha SHA --verdict approve --note "Verify N passed; smoke PASS; <1 risk if any>"`.
+   - Not OK → `bash .uak/bin/uak review ID --sha SHA --verdict reject --note "<file:line · what fails · how to reproduce>; ..."` (max 5 points).
+   - `already approved by X` → stop: the SHA needs a merge, not you.
 7. Return 5 lines or fewer: verdict, SHA, key points.

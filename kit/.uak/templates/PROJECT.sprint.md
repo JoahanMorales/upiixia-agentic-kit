@@ -9,7 +9,7 @@
 | Event / challenge | `<name, number, official URL>` |
 | Start | `<YYYY-MM-DD HH:MM IANA zone>` |
 | Official deadline | `<YYYY-MM-DD HH:MM IANA zone>` · platforms: `<platform, form, repo>` |
-| Freeze | `<deadline − 6 h>` → `Freeze-Epoch` |
+| Freeze | `uak clock START DEADLINE ZONE --write` (15% of the event, 30 min to 6 h) → `Freeze-Epoch` |
 | Clean rehearsal / plan B | `<deadline − 2 h>` |
 | Internal submission | `<deadline − 1 h>` |
 | Humans | `<name: role>` · submission owner: `<name>` (starts at T−8 h) |

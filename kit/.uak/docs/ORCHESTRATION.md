@@ -96,6 +96,18 @@ Re-run on 2026-10-09 with v4.1 and pacing set to `critical` (`uak pace set 95 --
 The Codex, Cursor and Gemini files follow their official schemas (validated as TOML/JSON in CI). Their guard
 payloads are covered by `test_v41.py`. They have not yet had a paid live run: report results with `uak bb add`.
 
+## Context hygiene (the cheapest tokens are the ones never re-sent)
+Every tool output stays in the context and is re-sent on every later turn. At Reap (Oct 2026) agents ran `inbox`
+295 times and `status` 258 times, mostly with identical output. What the kit does, per harness:
+| Mechanism | Claude Code | Codex · Cursor · Gemini |
+|---|---|---|
+| Huge Bash output → head 30 + tail 50 + saved log (`Output-Cap-Chars`, default 12000) | PostToolUse `updatedToolOutput` (`hook output`) | no documented equivalent in their hooks yet: use `bash .uak/bin/q CMD` |
+| Same `status`/`next`/`digest` twice in one session → `= unchanged` (one line) | yes | yes (session = the harness process) |
+| Unread messages shown once per session, not on every `inbox` | yes | yes |
+| `LOOP:` after the same error 3 times in 10 min | yes | yes |
+| Noisy tests/builds → `bash .uak/bin/q` (1 line on success, tail on failure) | rule + output cap | rule |
+| Inbox injected only when actionable; info becomes one line | PostToolUse `additionalContext` | `uak inbox` |
+
 ## What we did NOT adopt (claims that circulate online)
 | Claim | Status |
 |---|---|
@@ -103,4 +115,4 @@ payloads are covered by `test_v41.py`. They have not yet had a paid live run: re
 | `--subagents haiku` flag | **does not exist**; use subagent `model:` or `CLAUDE_CODE_SUBAGENT_MODEL` |
 | "parallel dispatcher pool (3x workers)" setting | **does not exist**; the real knob is `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (default 20, ultracode exempt), so we add our own guard |
 | "auto-summon the advisor when a test fails twice" | **cannot be enforced**; it's an instruction in the loop rules |
-| "JEV micro-fork layer resolves 1,500 branches in 16 ms", "340 tok/s" | **no evidence**; ignored |
+| "JEV micro-fork layer resolves 1,500 branches in 16 ms", "340 tok/s" | **no evidence**; ignored. The real problem behind it (tool output and rereads filling the context) is handled by the measures in "Context hygiene" |

@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# uak clock: the sprint schedule scaled to the event's length, with the exact epochs.
+#   clock "YYYY-MM-DD HH:MM" "YYYY-MM-DD HH:MM" [IANA_ZONE] [--write]
+# Prints first claim, design lock, walking skeleton, plan-B video, freeze, rehearsal and submission.
+# --write sets Freeze-Epoch in .uak/PROJECT.md.
+# Why (Reap x AI Builders buildathon, Oct 2026): a fixed "deadline − 6 h" freeze does not fit a 4-hour event.
+# The team hand-compressed it, then setup and planning took 2 h, so the freeze landed 1 h after the first
+# claim: 153 refused claims, 3 PRs only to authorize tasks, and a moved deadline.
+set -u
+LC_ALL=C; export LC_ALL
+start= deadline= zone= write=no
+for a in "$@"; do
+  case "$a" in
+    --write) write=yes;;
+    *) if [ -z "$start" ]; then start=$a; elif [ -z "$deadline" ]; then deadline=$a; else zone=$a; fi;;
+  esac
+done
+[ -n "$start" ] && [ -n "$deadline" ] || {
+  printf '%s\n' 'Usage: clock "YYYY-MM-DD HH:MM" "YYYY-MM-DD HH:MM" [IANA_ZONE] [--write]' >&2; exit 2; }
+zone=${zone:-${TZ:-UTC}}
+epoch() { TZ=$zone date -d "$1" +%s 2>/dev/null || TZ=$zone date -j -f '%Y-%m-%d %H:%M' "$1" +%s 2>/dev/null; }
+show() { TZ=$zone date -d "@$1" '+%a %H:%M' 2>/dev/null || TZ=$zone date -r "$1" '+%a %H:%M'; }
+s=$(epoch "$start") && d=$(epoch "$deadline") || { printf 'clock: dates must be "YYYY-MM-DD HH:MM"\n' >&2; exit 2; }
+dur=$((d - s))
+[ "$dur" -gt 0 ] || { printf 'clock: the deadline must be after the start\n' >&2; exit 2; }
+clamp() { v=$1; [ "$v" -ge "$2" ] || v=$2; [ "$v" -le "$3" ] || v=$3; printf '%s' "$v"; }
+pct() { printf '%s' $((dur * $1 / 100)); }
+first=$((s + $(clamp "$(pct 8)" 1200 7200)))
+lock=$((s + $(clamp "$(pct 5)" 900 3600)))
+skeleton=$((s + $(clamp "$(pct 10)" 1800 7200)))
+planb=$((s + dur / 2))
+freeze=$((d - $(clamp "$(pct 15)" 1800 21600)))
+rehearsal=$((d - $(clamp "$(pct 8)" 1200 7200)))
+submit=$((d - $(clamp "$(pct 4)" 900 3600)))
+h=$((dur / 3600)); m=$(((dur % 3600) / 60))
+printf 'CLOCK %dh%02dm event · zone %s\n' "$h" "$m" "$zone"
+printf '%-22s %s\n' "start" "$(show "$s")" \
+  "first claim by" "$(show "$first")  (setup + plan are timeboxed; claim wave 1 by now)" \
+  "design lock" "$(show "$lock")" \
+  "walking skeleton" "$(show "$skeleton")" \
+  "plan-B video" "$(show "$planb")" \
+  "freeze" "$(show "$freeze")  Freeze-Epoch: $freeze" \
+  "clean rehearsal" "$(show "$rehearsal")" \
+  "submit (internal)" "$(show "$submit")" \
+  "official deadline" "$(show "$d")"
+[ "$dur" -ge 21600 ] || printf '%s\n' "SHORT EVENT (<6 h): plan at most 2 tasks per agent, a wide wave 1, no task over 45 min."
+if [ "$write" = yes ]; then
+  top=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f "$top/.uak/PROJECT.md" ] || { printf 'clock: no .uak/PROJECT.md\n' >&2; exit 2; }
+  f="$top/.uak/PROJECT.md"
+  if grep -Eq '^[-* ]*Freeze-Epoch:' "$f"; then
+    awk -v e="$freeze" '/^[-* ]*Freeze-Epoch:/ {sub(/Freeze-Epoch:.*/, "Freeze-Epoch: " e)} {print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+  else printf 'Freeze-Epoch: %s\n' "$freeze" >> "$f"; fi
+  printf 'CLOCK wrote Freeze-Epoch: %s to .uak/PROJECT.md (commit it with the setup)\n' "$freeze"
+fi

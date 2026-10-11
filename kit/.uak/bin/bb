@@ -13,6 +13,7 @@
 # record was buried in 30 MB of transcripts nobody would read.
 set -u
 LC_ALL=C; export LC_ALL
+MSYS2_ARG_CONV_EXCL="refs/;origin/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXCL
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REMOTE=${UAK_REMOTE:-origin}
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
@@ -37,6 +38,9 @@ harness() {
   elif [ -n "${CODEX_SANDBOX:-}${CODEX_THREAD_ID:-}${CODEX_HOME:-}" ]; then printf codex
   elif [ -n "${CURSOR_TRACE_ID:-}${CURSOR_AGENT:-}" ]; then printf cursor
   elif [ -n "${GEMINI_CLI:-}" ]; then printf gemini-cli
+  # The session-start hook records the harness of this worktree; background flushes and plain shells reuse it.
+  # Why (Reap buildathon): 41 of 290 lines said "other".
+  elif gd=$(git rev-parse --absolute-git-dir 2>/dev/null) && [ -s "$gd/uak-harness" ]; then head -n 1 "$gd/uak-harness" | tr -cd 'a-z-'
   else printf other; fi
 }
 # One line, no pipes, no identities or paths; empty output = drop the line.
@@ -96,6 +100,16 @@ flush() {
     line usage auto calls "$summary" - >> "$pending"; : > "$calls"; }
   [ -s "$pending" ] || { [ -n "$quiet" ] || say "BB: nothing pending"; return 0; }
   snap="$pending.$$"; mv "$pending" "$snap" || return 0
+  # Identical lines (same everything but the minute) become one line with (xN).
+  # Why (Reap buildathon): one FREEZE refusal was published 153 times.
+  awk -F' [|] ' '{
+      key = ""; for (i = 2; i <= NF; i++) key = key " | " $i
+      if (!(key in n)) { order[++m] = key; first[key] = $1 }
+      n[key]++
+    }
+    END { for (i = 1; i <= m; i++) { k = order[i]; line = first[k] k
+        if (n[k] > 1) { c = split(line, f, / [|] /); f[8] = f[8] " (x" n[k] ")"; line = f[1]; for (j = 2; j <= c; j++) line = line " | " f[j] }
+        print line } }' "$snap" > "$snap.d" && mv "$snap.d" "$snap"
   if publish "$snap"; then
     [ -n "$quiet" ] || say "BB: published $(awk 'END{print NR}' "$snap") line(s) to claims:blackbox/"
     rm -f "$snap"; touch "${common:-${TMPDIR:-/tmp}}/uak-blackbox.flushed" 2>/dev/null
@@ -119,6 +133,7 @@ case "$cmd" in
     code=${1:-?} c=${2:-?}; shift 2 2>/dev/null || true
     line "exit$code" auto "uak $c" "$*" - >> "$pending" 2>/dev/null; exit 0;;
   call) enabled || exit 0; printf '%s\n' "${1:-?}" >> "$calls" 2>/dev/null; exit 0;;
+  harness) harness; printf '\n'; exit 0;;
   add)
     enabled || { say "BB: off (Blackbox: off in PROJECT.md or UAK_BLACKBOX=off); nothing recorded"; exit 0; }
     kind=${1:-}; [ "$#" -eq 0 ] || shift

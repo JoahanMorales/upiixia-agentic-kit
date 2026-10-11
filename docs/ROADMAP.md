@@ -1,6 +1,12 @@
 # Roadmap
 
-## v4.2 (from the black box)
+## v4.2 (Reap autopsy) — shipped
+- [x] Scope gate on the current base · [x] `uak clock` · [x] `uak allow` · [x] quiet probes and `(xN)` · [x] backoff + shallow fetch
+- [x] One identity = one task · [x] one-line multi-target messages, `review --note`, no acks · [x] `= unchanged`, `LOOP:`, output cap
+
+## v4.3 (from the black box)
+- [ ] Run the Windows fixes on a real Git Bash machine.
+- [ ] An output cap for Codex/Cursor if their hooks gain an output-replacement field.
 - [ ] A live paid run of the Codex and Cursor configs (hooks + tiered subagents); record any schema drift with `uak bb`.
 - [ ] Gemini CLI hooks (`BeforeTool` → `guard bash`) once hooks leave experimental.
 - [ ] A weekly GitHub Action in this repo that runs `scripts/blackbox_harvest.py` and opens an issue with the top 10.

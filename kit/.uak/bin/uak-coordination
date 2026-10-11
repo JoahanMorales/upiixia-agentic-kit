@@ -39,7 +39,10 @@ coord_init() {
   mkdir -p "$TX/meta/agents" "$TX/meta/sessions" "$TX/meta/task-sessions" "$TX/meta/decisions" "$TX/deadlines" "$TX/queue"
   git check-ref-format "refs/heads/$BASE" >/dev/null 2>&1 || die "Invalid UAK_BASE."
   # Config comes from the remote base, never from a stale worktree.
-  git -C "$TX" fetch -q origin "refs/heads/$BASE:refs/uak/config" || gitfail "Could not read PROJECT.md on remote $BASE."
+  # Depth 1 unless the command proves ancestry on the base (done/integrate/merge): a full fetch of main on
+  # every status/next was a clone of the product repo per call.
+  case "$CMD" in done|integrate|merge) coord_depth=;; *) coord_depth=--depth=1;; esac
+  git -C "$TX" fetch -q $coord_depth origin "refs/heads/$BASE:refs/uak/config" || gitfail "Could not read PROJECT.md on remote $BASE."
   git -C "$TX" show refs/uak/config:.uak/TASKS.md > "$TXROOT/canonical-TASKS.md" 2>/dev/null || : > "$TXROOT/canonical-TASKS.md"
   git -C "$TX" show refs/uak/config:.uak/OWNERS.md > "$TXROOT/canonical-OWNERS.md" 2>/dev/null || : > "$TXROOT/canonical-OWNERS.md"
   # Backlog published with `uak plan` on claims is appended to main's, no PR.
@@ -207,11 +210,41 @@ coord_claim_gate() {
   fi
   coord_freeze=$(coord_config Freeze-Epoch 0)
   if [ "$coord_freeze" -gt 0 ] && [ "$NOW" -ge "$coord_freeze" ]; then
-    [ "$(coord_remote_task_field Freeze-Allowed)" = yes ] || conflict "FREEZE: task lacks Freeze-Allowed: yes in remote TASKS; pick authorized demo fixes."
+    coord_freeze_allowed || conflict "FREEZE: $ID is not allowed after the freeze. A human can allow it: UAK_HUMAN=NAME bash .uak/bin/uak allow $ID --reason TEXT"
   fi
   coord_af=$(coord_agent_file); coord_since=0
   [ ! -f "$coord_af" ] || coord_since=$(coord_read "$coord_af" Events-Since-Checkpoint)
   [ "$coord_since" -lt "$(coord_threshold)" ] || conflict "CHECKPOINT NOW: a recent checkpoint is required before claiming new tasks."
+}
+# Freeze exception: `Freeze-Allowed: yes` in the remote TASKS, or a human's `uak allow` on claims.
+# Why (Reap buildathon): with no command, humans opened 3 PRs (#10, #11, #14) just to flip Freeze-Allowed,
+# and agents relayed "the human authorizes everything", which the rules rightly refuse.
+coord_freeze_allowed() {
+  [ "$(coord_remote_task_field Freeze-Allowed)" = yes ] && return 0
+  [ -f "$TX/backlog/ALLOW.md" ] && grep -q "^- $ID |" "$TX/backlog/ALLOW.md"
+}
+coord_allow_mutate() {
+  local coord_ids= coord_a coord_c
+  [ -n "$HUMAN" ] || conflict "allow is a human decision: UAK_HUMAN=NAME bash .uak/bin/uak allow ID --reason TEXT."
+  [ -n "$WHY_TEXT" ] || die "allow needs --reason TEXT (recorded in DECISIONS.md)."
+  if [ "$ALLOW_INFLIGHT" = yes ]; then
+    for coord_c in "$TX"/claims/*.md; do [ -f "$coord_c" ] && coord_ids="$coord_ids $(coord_read "$coord_c" ID)"; done
+    [ -n "$coord_ids" ] || conflict "No in-flight task (CLAIMED, BLOCKED or REVIEW) to allow."
+  else coord_ids=$ALLOW_IDS; fi
+  mkdir -p "$TX/backlog"
+  [ -f "$TX/backlog/ALLOW.md" ] || printf '%s\n' '# Freeze exceptions (uak allow)' '' \
+    'Append-only. Format: - ID | epoch | human | reason. Why: a freeze exception is a human decision with a name.' '' > "$TX/backlog/ALLOW.md"
+  ALLOW_DONE=
+  for coord_a in $coord_ids; do
+    awk -v id="$coord_a" '/^## / && $2==id {f=1} END {exit !f}' "$BACKLOG" || die "$coord_a is not in TASKS.md."
+    ! grep -q "^- $coord_a |" "$TX/backlog/ALLOW.md" || continue
+    printf -- '- %s | %s | %s | %s\n' "$coord_a" "$NOW" "$HUMAN" "$(one_line "$WHY_TEXT" | tr '|' '/')" >> "$TX/backlog/ALLOW.md"
+    ALLOW_DONE="$ALLOW_DONE $coord_a"
+  done
+  [ -n "$ALLOW_DONE" ] || return 0
+  [ -f "$TX/DECISIONS.md" ] || printf '# DECISIONS\n' > "$TX/DECISIONS.md"
+  printf '%s\n' "- $NOW | allow | $HUMAN | freeze exception:$ALLOW_DONE | Why: $(one_line "$WHY_TEXT")" >> "$TX/DECISIONS.md"
+  ID=; msg_append all info - "Freeze exception by $HUMAN:$ALLOW_DONE (claim and merge allowed). Why: $WHY_TEXT"
 }
 coord_session() {
   coord_sid=${UAK_SESSION:-stable}
@@ -357,7 +390,7 @@ coord_candidate() {
   return 0
 }
 coord_next() {
-  identity
+  [ -z "$AGENT" ] || identity
   coord_found=
   for coord_state in CLAIMED BLOCKED REVIEW; do
     for coord_f in "$TX"/claims/*.md; do
@@ -382,26 +415,39 @@ coord_next() {
     for coord_p in P0 P1 P2; do
       for coord_id in $(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG"); do
         ID=$coord_id
-        # A gate may exit with conflict; the subshell lets us try another candidate.
-        if (load_task; [ "$PRIORITY" = "$coord_p" ] && coord_candidate) >/dev/null 2>&1; then
+        # A gate may exit with conflict; the subshell lets us try another candidate (quietly: not an error).
+        if (UAK_PROBE=1; load_task; [ "$PRIORITY" = "$coord_p" ] && coord_candidate) >/dev/null 2>&1; then
           load_task
           say "$ID | AVAILABLE | $PRIORITY"
           say "Next: $DEFAULT_NEXT"; say "Verify: $VERIFY"; say "Paths: $PATHS"
-          say "Before editing: bash .uak/bin/wt new $ID --agent NAME (branch + worktree + claim)."
+          say "Before editing: bash .uak/bin/wt new $ID --agent ${AGENT:-NAME} (branch + worktree + claim)."
           coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"
           return 0
         fi
       done
     done
   fi
-  say 'No eligible candidate (priority, dependencies, claims or authorization).'
+  coord_freeze=$(coord_config Freeze-Epoch 0)
+  if [ "$coord_freeze" -gt 0 ] && [ "$NOW" -ge "$coord_freeze" ]; then
+    # Why (Reap buildathon): agents kept calling next after the freeze; say once what to do instead.
+    say "FREEZE since $(( (NOW - coord_freeze) / 60 )) min: no new tasks unless a human runs: UAK_HUMAN=NAME bash .uak/bin/uak allow ID --reason TEXT"
+  else
+    say 'No eligible candidate (priority, dependencies, claims or authorization).'
+  fi
   for coord_f in "$TX"/claims/*.md; do
     [ -f "$coord_f" ] || continue
-    if [ "$(coord_read "$coord_f" State)" = REVIEW ]; then
-      say "Idle: review PR $(coord_read "$coord_f" PR) of $(coord_read "$coord_f" ID) (you are not its owner)."
-      coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"; return 0
-    fi
+    [ "$(coord_read "$coord_f" State)" = REVIEW ] && [ "$(coord_read "$coord_f" Owner)" != "$AGENT" ] || continue
+    coord_rid=$(coord_read "$coord_f" ID); coord_rv="$TX/reviews/$coord_rid.md"
+    # A SHA that already has an approval needs a merge, not a second reviewer (Reap: HACK-005 approved 7 times).
+    if [ -f "$coord_rv" ] && [ "$(coord_read "$coord_rv" Verdict)" = approve ] &&
+       [ "$(coord_read "$coord_rv" SHA)" = "$(coord_read "$TX/tasks/$coord_rid.md" Task-Tip)" ]; then continue; fi
+    say "Idle: review PR $(coord_read "$coord_f" PR) of $coord_rid (not yours; no approval on its SHA yet): /uak-review $coord_rid"
+    coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"; return 0
   done
-  say 'Idle: improve tests → polish demo → rehearse; after freeze only authorized fixes and submission.'
+  if [ "$coord_freeze" -gt 0 ] && [ "$NOW" -ge "$coord_freeze" ]; then
+    say 'Idle after freeze: rehearse the demo (/uak-demo), check the submission, then stop. Do not poll uak next; a message will reach you.'
+  else
+    say 'Idle: improve tests → polish demo → rehearse. Do not poll uak next in a loop; wait for a message or a new task.'
+  fi
   coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"
 }

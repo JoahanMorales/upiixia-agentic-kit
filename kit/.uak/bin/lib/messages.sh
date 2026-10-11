@@ -1,8 +1,10 @@
 # Async agent messaging on the claims branch; Bash 3.2+.
 # Why: related tasks must notify each other without a human relay,
 # and Git is the only channel shared by Claude Code, Cursor and Codex across machines.
-# inbox/log.md es append-only: "- N | epoch | from | to | kind | task | text".
+# inbox/log.md is append-only: "- N | epoch | from | to | kind | task | text".
 # Targets: agent:NAME, task:ID (reaches whoever holds it, now or later), all, human.
+# One message to several targets is ONE line with a comma list (task:A,task:B).
+# Why (Reap buildathon): 63 of 365 lines were the same contract copied once per related task.
 MSG_LOG=inbox/log.md
 MSG_TO= MSG_KIND=info MSG_TASK= MSG_TEXT= MSG_SENT= MSG_ACK=no MSG_MODE=unread MSG_ACK_UPTO=0
 msg_valid_kind() {
@@ -40,11 +42,13 @@ msg_notify_related() {
   # Why: at Hack-Nation 2026, 194 of 717 messages were duplicate per-task integrated notices.
   local r owner owners='' tasks
   if [ "$2" != integrated ]; then
-    for r in $(msg_related "$1"); do msg_append "task:$r" "$2" "$1" "$3"; done
+    tasks=$(msg_related "$1" | sed 's/^/task:/' | tr '\n' ',' | sed 's/,$//')
+    [ -z "$tasks" ] || msg_append "$tasks" "$2" "$1" "$3"
     return 0
   fi
   for r in $(msg_related "$1"); do
     [ -f "$TX/claims/$r.md" ] || continue
+    [ "$(field "$TX/claims/$r.md" Owner)" != "$AGENT" ] || continue
     owner=$(field "$TX/claims/$r.md" Owner)
     case " $owners " in *" $owner "*) ;; *) owners="$owners $owner";; esac
   done
@@ -57,16 +61,28 @@ msg_notify_related() {
 }
 # Suggested reviewer: active agent (messages in the last 3 h), not the owner, with the fewest reviews.
 # Why: at Hack-Nation 2 agents gave 51 of 70 review verdicts.
+# Idle agents (no CLAIMED/BLOCKED task) come first. Why (Reap): the rotation picked agents busy on their own
+# task ("I can't review right now"), and each review cycle took 10-15 min.
 msg_pick_reviewer() {
+  local c busy=' '
   [ -f "$TX/$MSG_LOG" ] || return 0
-  awk -F' [|] ' -v owner="$1" -v now="$NOW" '
+  for c in "$TX"/claims/*.md; do
+    [ -f "$c" ] || continue
+    case "$(field "$c" State)" in CLAIMED|BLOCKED) busy="$busy$(field "$c" Owner) ";; esac
+  done
+  awk -F' [|] ' -v owner="$1" -v now="$NOW" -v busy="$busy" '
     /^- [0-9]/ {
       from=$3
       if (from == owner || from == "scheduler" || from == "" ) next
       if (now - $2 <= 10800) active[from]=1
       if ($5 == "approve" || $5 == "reject") load[from]++
     }
-    END { best=""; for (a in active) if (best == "" || load[a]+0 < load[best]+0 || (load[a]+0 == load[best]+0 && a < best)) best=a; print best }' "$TX/$MSG_LOG"
+    function better(a, b) {
+      ia = index(busy, " " a " ") == 0; ib = index(busy, " " b " ") == 0
+      if (ia != ib) return ia
+      return load[a]+0 < load[b]+0 || (load[a]+0 == load[b]+0 && a < b)
+    }
+    END { best=""; for (a in active) if (best == "" || better(a, best)) best=a; print best }' "$TX/$MSG_LOG"
 }
 msg_owned() {
   local c
@@ -87,10 +103,12 @@ msg_select() {
   awk -F' [|] ' -v me="$AGENT" -v owned=" $(msg_owned) " -v last="$(msg_last_read)" -v mode="$1" -v now="$NOW" '
     /^- [0-9]/ {
       n=substr($1, 3) + 0; from=$3; to=$4
-      if (mode ~ /^task:/) { if (to != mode) next }
-      else if (mode == "human") { if (to != "human") next }
+      nt=split(to, t, ",")
+      if (mode ~ /^task:/) { hit=0; for (i=1; i<=nt; i++) if (t[i] == mode) hit=1; if (!hit) next }
+      else if (mode == "human") { hit=0; for (i=1; i<=nt; i++) if (t[i] == "human") hit=1; if (!hit) next }
       else {
-        mine=(to == "agent:" me) || (to == "all" && from != me) || (to ~ /^task:/ && index(owned, " " substr(to, 6) " "))
+        mine=0
+        for (i=1; i<=nt; i++) mine = mine || (t[i] == "agent:" me) || (t[i] == "all" && from != me) || (t[i] ~ /^task:/ && index(owned, " " substr(t[i], 6) " "))
         if (!mine || (mode == "unread" && n <= last)) next
       }
       age=int((now - $2) / 60)
@@ -104,9 +122,9 @@ msg_resolve_targets() {
     related:*)
       valid_id "${MSG_TO#related:}" || die "Invalid target: $MSG_TO"
       msg_related "${MSG_TO#related:}" | sed 's/^/task:/';;
-    [A-Z]*-[0-9]*) valid_id "$MSG_TO" || die "Invalid ID: $MSG_TO"; printf 'task:%s\n' "$MSG_TO";;
     task:*) valid_id "${MSG_TO#task:}" || die "Invalid ID: $MSG_TO"; printf '%s\n' "$MSG_TO";;
-    agent:*|*)
+    # A task ID only if it is one; "Ana-1" is an agent (Reap: 4 messages to Ana-N refused as "Invalid ID").
+    *) if valid_id "$MSG_TO"; then printf 'task:%s\n' "$MSG_TO"; return 0; fi
       local name=${MSG_TO#agent:}
       case "$name" in ''|*[!A-Za-z0-9_.-]*) die "Invalid target: use NAME, ID, related:ID, all or human.";; esac
       [ "$name" != "$AGENT" ] || die "Do not message yourself."
@@ -114,11 +132,19 @@ msg_resolve_targets() {
   esac
 }
 msg_mutate() {
-  local targets t
+  local targets words
+  # An acknowledgment is `uak inbox --ack`, not a message every reader must load (Reap: 11 "Recibido" replies).
+  words=$(printf '%s\n' "$MSG_TEXT" | wc -w | tr -d ' ')
+  # Refused: a reply that starts like an ack, is short, and carries no SHA, number or path.
+  if [ "$MSG_KIND" = reply ] && [ "$words" -le 12 ] && ! printf '%s\n' "$MSG_TEXT" | grep -q '[0-9/]' &&
+     printf '%s\n' "$MSG_TEXT" | tr '[:upper:]' '[:lower:]' | grep -Eq '^[[:space:]]*(recibido|recibida|received|ok|okay|entendido|understood|gracias|thanks|thank you|ack|noted|copy|confirmado|confirmed|de acuerdo)([[:space:][:punct:]]|$)'; then
+    die "An acknowledgment is not a message: run uak inbox --ack. Reply only with new information (SHA, file, decision)."
+  fi
+  [ "${#MSG_TEXT}" -le 1200 ] || die "Message over 1200 characters: keep 3 lines; put detail in the PR or a file and send its path."
   targets=$(msg_resolve_targets) || exit $?
   [ -n "$targets" ] || die "$MSG_TO has no related tasks in TASKS.md (Depends on / Uses contract / Related)."
   MSG_SENT=
-  for t in $targets; do msg_append "$t" "$MSG_KIND" "$MSG_TASK" "$MSG_TEXT"; done
+  msg_append "$(printf '%s\n' "$targets" | tr '\n' ',' | sed 's/,$//')" "$MSG_KIND" "$MSG_TASK" "$MSG_TEXT"
 }
 msg_ack_mutate() {
   local current
@@ -141,6 +167,20 @@ msg_inbox_run() {
     [ "$count" -gt 0 ] || return 0
   fi
   if [ "$count" -eq 0 ]; then say "INBOX $AGENT: no new messages"; return 0; fi
+  # Unread but already shown to this session: one line, not the same messages again (Reap: 295 inbox calls).
+  if [ "$MSG_MODE" = unread ] && [ "$MSG_ACK" = no ] && [ "${FULL:-no}" != yes ] && [ "${UAK_DEDUPE:-on}" != off ]; then
+    local gp gd ids
+    gp=$(session_key); gd=$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null) || gd=
+    ids=$(printf '%s\n' "$out" | sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' | tr '\n' ' ')
+    case "$gp" in ''|*[!0-9]*) gp=;; esac
+    if [ -n "$gp" ] && [ -n "$gd" ]; then
+      if [ "$(cat "$gd/uak-seen.inbox" 2>/dev/null)" = "$gp $ids" ]; then
+        say "INBOX $AGENT: $count unread already shown this session (#${ids%% *}..). Handle them, then uak inbox --ack. --full reprints."
+        return 0
+      fi
+      printf '%s %s\n' "$gp" "$ids" > "$gd/uak-seen.inbox" 2>/dev/null || true
+    fi
+  fi
   say "INBOX $AGENT: $count message(s)$([ "$MSG_MODE" = all ] || printf ' unread')"
   say "$out"
   if [ "$MSG_MODE" = peek ] || [ "$MSG_ACK" = no ]; then

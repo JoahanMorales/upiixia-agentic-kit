@@ -47,3 +47,17 @@ Load only the row you need. Every rule cites the incident behind it. Data comes 
 | `.uak-env` beats exports | UpiixSol: a lead's exported `UAK_AGENT` put a subagent's claim under the lead's name. |
 | No `pkill -f` | UpiixSol: a pattern kill matched the agent's own shell twice (exit 144). |
 | Launch checklist | Vibe-coded backends look finished but routinely miss IDOR, rate limits, idempotency, transactions and restore drills. Each item now has a verifiable check, and the human-only items stay with humans. |
+| Scope = what the merge changes in the current base | Reap buildathon (Oct 2026): 6 of 13 integrated tasks went to the human queue as "Diff outside Paths" for files the branch inherited from main (`.env.example`, a workflow, PROJECT.md, another task's router). Diffing Task-Base..tip counted other tasks' work. |
+| `uak clock` (freeze scaled to the event) | Reap: a 4 h event. A fixed "deadline − 6 h" does not fit; the hand-compressed freeze fell 1 h after the first claim: 153 refused claims, 3 PRs only to flip `Freeze-Allowed`, and a moved deadline. |
+| `uak allow` (human freeze exception) | Reap: with no command, humans edited TASKS by PR, and agents relayed "the human authorizes all merges" in messages, which the rules (rightly) do not accept as authorization. |
+| Quiet `next` probes · `(xN)` lines | Reap: 153 of 290 black box lines were one FREEZE refusal per candidate tested by `uak next`. |
+| One identity = one live task | Reap: two sessions shared `agent-2` on two tasks; two Codex terminals edited one worktree. |
+| Jittered backoff · shallow claims fetch | Reap: 12 agents retried in lockstep; one approval took 14 attempts and a checkpoint 8. Each attempt cloned the full claims history (600+ commits). |
+| One line per message · no acks · `review --note` | Reap: 365 messages; 63 were the same contract copied per task, 46 approvals for 15 merges (each with a second detail message), 11 replies were only "Recibido". |
+| `= unchanged` on repeated reads | Reap: `inbox` was called 295 times and `status` 258; unacked messages were reprinted on every call and stayed in context. |
+| Output cap (PostToolUse) | Teams reported tool output "hogging the context": one test run or log can add 30k+ tokens that are re-sent every turn. Head + tail + a saved log keeps the signal. |
+| `next` without identity | Reap: "No identity" from `uak next` was the top error (24): agents in other harnesses run it in the main checkout before `wt new`. |
+| `LOOP:` hint | Reap: the same refusal retried within minutes (20 identical errors in one minute from one machine). |
+| `MSYS2_ARG_CONV_EXCL` | Reap: Git Bash on Windows turned `refs/uak/config:.uak/TASKS.md` into a path list, so tasks were "not in TASKS.md" and the board showed everything AVAILABLE. |
+| Prose is not a command (guard) | Reap: `codex exec "… never cat .env …"` was blocked as a `.env` read. |
+| Idle reviewers first | Reap: rotation picked agents busy on their own task ("can't review now"); a review cycle took 10–15 min. |

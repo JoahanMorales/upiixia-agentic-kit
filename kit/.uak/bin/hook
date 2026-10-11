@@ -4,6 +4,7 @@
 # tick (PostToolUse): heartbeat every 8 min and inbox poll every ~2 min, both in background;
 #   new actionable messages are injected as additional context on the next tool call.
 # stop (Stop): blocks ending the turn once per batch of unhandled messages; flushes the black box.
+# output (PostToolUse Bash): caps huge outputs to head + tail + log path (Output-Cap-Chars).
 # Pace: when plan usage changes level (surge/conserve/critical), one line is injected (uak pace).
 # Why: agents forget heartbeats and miss mid-session requests from other tasks.
 set -u
@@ -15,20 +16,44 @@ gd=$(git rev-parse --git-dir 2>/dev/null) || exit 0
 env_value() { [ -f .uak-env ] && sed -n "s/^$1=//p" .uak-env | head -n 1; }
 task=$(env_value UAK_TASK); agent=${UAK_AGENT:-$(env_value UAK_AGENT)}
 fresh() { [ -f "$1" ] && [ -n "$(find "$1" -mmin "-$2" 2>/dev/null)" ]; }
-json_text() { awk 'BEGIN {ORS=""} {gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, " "); gsub(/\r/, ""); if (NR > 1) print "\\n"; print}'; }
+# JSON string body: sed escapes (awk gsub of a backslash differs between mawk, gawk and BSD awk); control
+# characters such as ANSI colors from test runners are invalid in JSON and are dropped.
+json_text() { tr -d '\r' | tr '\t' ' ' | tr -d '\000-\010\013\014\016-\037' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'BEGIN {ORS=""} {if (NR > 1) print "\\n"; print}'; }
 sum() { cksum < "$1" 2>/dev/null | awk '{print $1}'; }
+# Session id: Claude Code and Codex send session_id, Cursor conversation_id (BSD sed has no \| alternation).
+sid=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9_.-]*\)".*/\1/p' | head -n 1)
+[ -n "$sid" ] || sid=$(printf '%s' "$input" | sed -n 's/.*"conversation_id"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9_.-]*\)".*/\1/p' | head -n 1)
 case "${1:-}" in
   session-start)
+    # Remember the harness of this worktree for black box lines written by background jobs.
+    h=$(bash .uak/bin/bb harness 2>/dev/null)
+    if [ "$h" = other ] || [ -z "$h" ]; then
+      case "$input" in *'"model":"gpt'*|*'"model": "gpt'*) h=codex;; *'"model":"claude'*|*'"model": "claude'*) h=claude-code;; *) h=;; esac
+    fi
+    [ -z "$h" ] || printf '%s\n' "$h" > "$gd/uak-harness" 2>/dev/null
+    # Lines left pending by a crashed or offline session are published now, in background.
+    common=$(git rev-parse --git-common-dir 2>/dev/null)
+    [ -z "$common" ] || [ ! -s "$common/uak-blackbox.pending" ] || nohup bash .uak/bin/bb flush --quiet > /dev/null 2>&1 &
+    # Two live sessions in one worktree overwrite each other (Reap buildathon: two Codex terminals on HACK-006).
+    case "$input" in *'"source":"clear"'*|*'"source":"compact"'*|*'"source":"resume"'*|*'"source": "clear"'*|*'"source": "compact"'*|*'"source": "resume"'*) same_agent=yes;; *) same_agent=no;; esac
+    if [ "$same_agent" = no ] && [ -n "$sid" ] && [ -s "$gd/uak-live" ] && fresh "$gd/uak-live" 3; then
+      other=$(awk '{print $1}' "$gd/uak-live" 2>/dev/null)
+      [ -z "$other" ] || [ "$other" = "$sid" ] ||
+        printf '%s\n' "UAK WARNING: another agent session used this worktree less than 3 min ago. Two writers in one worktree overwrite each other: stop one of them, or start a new task with bash .uak/bin/wt new ID --agent NAME."
+    fi
+    [ -z "$sid" ] || printf '%s %s\n' "$sid" "$(date +%s)" > "$gd/uak-live" 2>/dev/null
     if [ -z "$agent" ]; then
       printf '%s\n' "UAK: checkout without .uak-env (planning/human). To implement: bash .uak/bin/uak next, then bash .uak/bin/wt new ID --agent NAME."
       # The human sees their queue (merges, decisions, messages) unasked.
       git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 && bash .uak/bin/uak digest 2>/dev/null | head -n 25
       exit 0
     fi
+    # A new (or compacted) session has seen nothing: forget what earlier sessions were shown.
+    rm -f "$gd"/uak-seen.* 2>/dev/null
     printf 'UAK: agent=%s task=%s worktree=%s\n' "$agent" "${task:--}" "$top"
     p=$(bash .uak/bin/pace 2>/dev/null); case "$p" in "PACE surge"*|"PACE conserve"*|"PACE critical"*) printf '%s\n' "$p";; esac
     git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 || exit 0
-    bash .uak/bin/uak next 2>&1 | head -n 15
+    bash .uak/bin/uak next --full 2>&1 | head -n 15
     bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.txt" 2>/dev/null
     if [ -s "$gd/uak-inbox.txt" ]; then
       head -n 21 "$gd/uak-inbox.txt"
@@ -37,11 +62,12 @@ case "${1:-}" in
     ;;
   tick)
     [ -n "$agent" ] || exit 0
+    [ -z "$sid" ] || printf '%s %s\n' "$sid" "$(date +%s)" > "$gd/uak-live" 2>/dev/null
     if [ -n "$task" ] && ! fresh "$gd/uak-heartbeat" 8; then
       touch "$gd/uak-heartbeat" 2>/dev/null
       # Also renews your REVIEW tasks in other worktrees: uak merge needs a live lease.
       nohup bash -c 'bash .uak/bin/uak heartbeat "$1"
-        bash .uak/bin/uak status 2>/dev/null | awk -F" [|] " -v a="$2" -v t="$1" "\$2==\"REVIEW\" && \$3==a && \$1!=t {print \$1}" |
+        bash .uak/bin/uak status --full 2>/dev/null | awk -F" [|] " -v a="$2" -v t="$1" "\$2==\"REVIEW\" && \$3==a && \$1!=t {print \$1}" |
           while read -r id; do bash .uak/bin/uak heartbeat "$id"; done' _ "$task" "$agent" > "$gd/uak-heartbeat.log" 2>&1 &
     fi
     # Poll: refresh the cache every ~2 min in background; never blocks the agent.
@@ -99,6 +125,50 @@ $act"
     sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' "$gd/uak-inbox.txt" | sort -n | tail -n 1 > "$gd/uak-inbox.shown-n"
     printf '{"decision":"block","reason":"%s"}\n' \
       "$(printf 'Unhandled messages: handle them (AGENTS.md §5), reply with uak msg and run uak inbox --ack before stopping.\n%s' "$(grep -E '^#[0-9]|^  ' "$gd/uak-inbox.txt" | head -n 20)" | json_text)"
+    ;;
+  output)
+    # Claude Code PostToolUse(Bash): a huge output is replaced, before the model sees it, by its head and tail
+    # plus the path of the full log (updatedToolOutput). The command already ran; only the context shrinks.
+    # Why: one test run or `git log -p` can add 30k+ tokens that are re-sent on every later turn; agents
+    # then reread "the same stuff over and over". Cap: Output-Cap-Chars in PROJECT.md (default 12000, off).
+    cap=$(sed -n 's/^[-* ]*Output-Cap-Chars:[* ]*//p' .uak/PROJECT.md 2>/dev/null | head -n 1 | tr -d '\r `')
+    case "$cap" in off|0) exit 0;; ''|*[!0-9]*) cap=12000;; esac
+    [ "${#input}" -gt "$cap" ] || exit 0
+    case "$input" in *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*) ;; *) exit 0;; esac
+    case "$input" in *UAK_RAW=1*) exit 0;; esac
+    out_dir="$gd/uak-out"; mkdir -p "$out_dir" 2>/dev/null || exit 0
+    id="$(date +%s)-$$"
+    # Decode one JSON string field of tool_response (\n \t \" \\ \/; \uXXXX kept as is).
+    decode() {
+      printf '%s' "$input" | awk -v key="\"$1\"" 'BEGIN {RS="\001"} {
+        i = index($0, "\"tool_response\""); if (!i) exit; s = substr($0, i)
+        j = index(s, key); if (!j) exit; s = substr(s, j + length(key)); sub(/^[[:space:]]*:[[:space:]]*"/, "", s)
+        n = length(s); out = ""
+        for (k = 1; k <= n; k++) {
+          c = substr(s, k, 1)
+          if (c == "\\") { d = substr(s, k + 1, 1); k++
+            if (d == "n") out = out "\n"; else if (d == "t") out = out "\t"; else if (d == "r") ; else if (d == "u") out = out "\\u"; else out = out d
+            continue }
+          if (c == "\"") break
+          out = out c
+        }
+        printf "%s", out }'
+    }
+    decode stdout > "$out_dir/$id.log" 2>/dev/null
+    size=$(wc -c < "$out_dir/$id.log" | tr -d ' ')
+    [ "$size" -gt "$cap" ] || { rm -f "$out_dir/$id.log"; exit 0; }
+    decode stderr > "$out_dir/$id.err" 2>/dev/null
+    lines=$(awk 'END {print NR+0}' "$out_dir/$id.log")
+    rel="$gd/uak-out/$id.log"
+    short=$( { head -n 30 "$out_dir/$id.log" | cut -c 1-400
+      printf '\n[uak: %s lines / %s chars cut to head 30 + tail 50. Full output: %s. Read ranges: sed -n 200,260p FILE or grep -n PATTERN FILE. Rerun with UAK_RAW=1 to see it all.]\n\n' "$lines" "$size" "$rel"
+      tail -n 50 "$out_dir/$id.log" | cut -c 1-400; } )
+    err=$(head -c 4000 "$out_dir/$id.err" 2>/dev/null); rm -f "$out_dir/$id.err"
+    intr=false; case "$input" in *'"interrupted":true'*|*'"interrupted": true'*) intr=true;; esac
+    # Keep the last 20 logs only.
+    ls -t "$out_dir"/*.log 2>/dev/null | tail -n +21 | while IFS= read -r old; do rm -f "$old"; done
+    printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":{"stdout":"%s","stderr":"%s","interrupted":%s,"isImage":false}}}\n' \
+      "$(printf '%s' "$short" | json_text)" "$(printf '%s' "$err" | json_text)" "$intr"
     ;;
   heartbeat) exec bash "$0" tick;;
 esac

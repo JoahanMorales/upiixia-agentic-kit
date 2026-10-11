@@ -161,7 +161,8 @@ def budget_checkpoint(r):
     blocked = hack(f, 0, *args, now=1000003, allowed=None)
     expect(blocked.returncode == 3 and "CHECKPOINT NOW" in blocked.stderr, "New task blocked without checkpoint")
     cp(f, now=1000004)
-    hack(f, 0, *args, now=1000005)
+    # A second live task for one identity needs the explicit override since v4.2 (one identity = one task).
+    hack(f, 0, *args, now=1000005, UAK_MULTI_CLAIM="1")
     expect("Owner: agent-1" in f.show("claims/HACK-002.md"), "Checkpoint permite retomar claims")
     expect("Events-Since-Checkpoint: 1" in f.show("meta/agents/agent-1.md"), "Counter resets only on checkpoint")
     hack(f, 0, "release", "HACK-001", now=1000006)
@@ -176,8 +177,9 @@ def budget_checkpoint(r):
     config(role, Events_Per_Session="5", Checkpoint_Percent="60")
     role.claim(0, "HACK-001")
     role.hack(0, "register-reviewer", "agent-2", human=True, now=1000010)
-    for stamp in (1000011, 1000012, 1000013):
-        hack(role, 1, "review", "HACK-001", "--sha", role.main_head, "--verdict", "approve", now=stamp)
+    # Alternating verdicts: since v4.2 a repeated approval of the same SHA records nothing (no event).
+    for stamp, verdict in ((1000011, "approve"), (1000012, "reject"), (1000013, "approve")):
+        hack(role, 1, "review", "HACK-001", "--sha", role.main_head, "--verdict", verdict, now=stamp)
     denied = role.claim(1, "HACK-002", now=1000014, allowed=None)
     expect(denied.returncode == 3 and "CHECKPOINT NOW" in denied.stderr, "A role-only reviewer also hits the budget")
     task_before = role.show("tasks/HACK-001.md")

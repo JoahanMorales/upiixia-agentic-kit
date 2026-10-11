@@ -1,5 +1,23 @@
 # Changelog
 
+## v4.2.0 · 2026-10-10 · The Reap autopsy: less process, fewer tokens
+From the first full team event on the kit (Reap x AI Builders buildathon: 4 h, 5 humans, 11 agents on Codex, Cursor and Claude Code). Every number is in `docs/blackbox/reap-2026-10.md`; every rule cites it in WHY.md.
+- **Scope gate on the current base.** `uak merge` checks what the merge changes in the current base, not Task-Base..tip. 6 of 13 integrated tasks had gone to the human queue for files their branch inherited from main.
+- **`uak clock START DEADLINE ZONE --write`.** The sprint schedule scales with the event (freeze = 15% of it, 30 min to 6 h) and prints "first claim by". A fixed −6 h froze a 4 h event one hour after its first claim.
+- **`uak allow ID… --reason` / `--in-flight`.** An audited human freeze exception for claims and merges (no more PRs to flip `Freeze-Allowed`).
+- **Context hygiene, the real answer to "tool calling hogs the context":**
+  - Claude Code `PostToolUse` cuts Bash outputs over `Output-Cap-Chars` (12000) to head + tail + the saved log (`updatedToolOutput`).
+  - The same `status`/`next`/`digest` twice in one session prints `= unchanged`; unread messages are shown once per session (`--full` reprints).
+  - `LOOP:` after the same error 3 times in 10 min.
+  - One message line for many targets; `review --note` (one message per verdict); a second approval of an approved SHA records nothing; ack-only replies are refused.
+- **Less contention.** Jittered exponential backoff (max 30 attempts), `--depth 2` claims fetch and depth-1 config fetch, network retried 3 times.
+- **Identity.** One identity holds one CLAIMED/BLOCKED task (`UAK_MULTI_CLAIM=1`); a warning when two sessions share a worktree.
+- **Reviews move faster.** Idle agents are picked first; `next` suggests only SHAs without an approval; every human-queue entry prints the fast path (merge on GitHub, then `uak integrate`).
+- **Black box.** `next` probes are not errors (153 of 290 lines were); identical lines publish once with `(xN)`; the harness is remembered per worktree; leftovers flush at session start.
+- `uak next` works without an identity (Reap's top error: 24 "No identity").
+- Fixes: `msg Ana-1` (uppercase agent names), `status ID`, `register-reviewer A B C`, a guard that ignores safety rules inside quoted prompts and now catches `cat ".env"`, Git Bash `ref:path` arguments (`MSYS2_ARG_CONV_EXCL`), a board that no longer shows everything AVAILABLE when the fetch fails, a one-time `gh` preflight, portable JSON escaping in hooks (mawk).
+- 9 new tests (`test_v42.py`, 93 in total).
+
 ## v4.1.1 · 2026-10-09 · Hackathon-ready safety
 - **Hard limits above pacing.** These are fixed numbers that `uak pace` can lower but never raise (sprint / marathon):
   - `Subagent-Hard-Cap` 6/4 and `Strong-Hard-Cap` 3/4;

@@ -5,14 +5,14 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 ## Clock (T = official deadline)
 | When | What | Who |
 |---|---|---|
-| T0 | The human chose `sprint` at install. `/uak-setup`: PROJECT.md (rubric, times, `Freeze-Epoch`) and `uak doctor` PASS on every machine, including "gh can create PRs". | human + agent |
+| T0 | The human chose `sprint` at install. `/uak-setup`: PROJECT.md (rubric, times) and `uak clock START DEADLINE ZONE --write` (every time below, scaled to the event length), `uak doctor` PASS on every machine, including "gh can create PRs". | human + agent |
 | T0 | Product name and brand fixed in `IDEA.md`. Renaming after T-50% needs a human `uak decision`. | human |
-| T0+30m | `/uak-plan` wave 1: contracts and mocks, walking skeleton, spikes. `uak graph --min-wave1 <agents>` passes. | planner |
+| first claim (`clock`; 20 min in a 4 h event) | `/uak-plan` wave 1: contracts and mocks, walking skeleton, spikes. `uak graph --min-wave1 <agents>` passes. | planner |
 | T0+1h | `/uak-design-lock`: 3 visual directions with screenshots; the human picks one; `web/DESIGN.md` and tokens frozen. | design agent + human |
 | T0+2h | End-to-end walking skeleton up to the wow moment, on labeled mocks. | team |
 | T-50% | First plan-B video of the whole flow. Wave 2 via `uak plan` (no PR). | demo |
 | T-8h | A HUMAN owns submission: forms, platforms, videos, team roster. Never an agent low on tokens. | human |
-| T-6h | Freeze (`Freeze-Epoch`): only `Freeze-Allowed: yes` demo fixes. | all |
+| freeze (`clock`: 15% of the event, 30 min to 6 h) | `Freeze-Epoch`: only `Freeze-Allowed: yes` or `uak allow` tasks. `uak next` says FREEZE; agents review, rehearse, then stop. | all + human |
 | T-2h | Timed rehearsal from a clean clone, final plan-B video. | demo |
 | T-1h | Submission sent and receipt saved. | human |
 

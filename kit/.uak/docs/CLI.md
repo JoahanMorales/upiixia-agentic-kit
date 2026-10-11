@@ -19,7 +19,7 @@ Every command runs as `bash .uak/bin/uak CMD`. It needs Bash 3.2+, Git with work
 `.uak/PROJECT.md`, `.uak/TASKS.md` and `.uak/OWNERS.md` are read from the **remote base branch**, never from a stale worktree.
 
 ## PROJECT.md config fields
-`Mode` (sprint|marathon) · `Pace` (auto|off) · `Blackbox` (on|off) · `Additive-Paths` (dirs where NEW files skip the scope gate, e.g. `e2e/, tests/`) · `Autonomy` · `Auto-Merge` · `Backlog-Approved` · `Backlog-Proposed-Epoch` · `Review-Mode` (claims|gh|auto) · `Plan-Channel` (claims|main) · `Freeze-Epoch` · `Lease-Seconds` · `Review-Lease-Seconds` · `Events-Per-Session` · `Checkpoint-Percent` · `Merge-Lease-Seconds` · `Merge-Wait-Seconds` · `Max-Parallel-Subagents` · `Opus-Subagents-Per-Session` · hard limits that pacing never raises: `Subagent-Hard-Cap` · `Strong-Hard-Cap` · `Subagents-Per-Session` · `Subagents-Per-Machine` · `Subagent-Burst-Per-Minute` · `Max-Worktree-Agents` (COSTS.md). A missing yes/no field means `no`.
+`Mode` (sprint|marathon) · `Pace` (auto|off) · `Blackbox` (on|off) · `Additive-Paths` (dirs where NEW files skip the scope gate, e.g. `e2e/, tests/`) · `Autonomy` · `Auto-Merge` · `Backlog-Approved` · `Backlog-Proposed-Epoch` · `Review-Mode` (claims|gh|auto) · `Plan-Channel` (claims|main) · `Freeze-Epoch` · `Lease-Seconds` · `Review-Lease-Seconds` · `Events-Per-Session` · `Checkpoint-Percent` · `Merge-Lease-Seconds` · `Merge-Wait-Seconds` · `Max-Parallel-Subagents` · `Opus-Subagents-Per-Session` · hard limits that pacing never raises: `Subagent-Hard-Cap` · `Strong-Hard-Cap` · `Subagents-Per-Session` · `Subagents-Per-Machine` · `Subagent-Burst-Per-Minute` · `Max-Worktree-Agents` (COSTS.md) · `Output-Cap-Chars` (default 12000, `off`: Claude Code cuts bigger Bash outputs to head + tail + log path). A missing yes/no field means `no`.
 
 ## TASKS.md fields
 `## ID · title` (ID = `PREFIX-NNN`) · `Priority: P0|P1|P2` · `Paths:` (comma-separated, dirs end in `/`) · `Depends on:` (IDs or `None`; parentheses are ignored) · `Uses contract:` (soft, notify-only) · `Related:` · `Verify:` (an exact command) · `Next step:` · `Estimate:` · `Freeze-Allowed: yes`.
@@ -27,9 +27,9 @@ Every command runs as `bash .uak/bin/uak CMD`. It needs Bash 3.2+, Git with work
 ## Commands
 | Command | Effect |
 |---|---|
-| `next` | Your current task, or the best eligible one (priority, deps, path overlap, owners, freeze). When idle, it suggests reviews. Never reserves. |
-| `status [--task ID --summary]` | Remote state. `--summary` prints the live summary and a `Read-token`. |
-| `claim ID --branch B --worktree W [--next T]` | Reserves the task. Use `wt new`, which calls it. |
+| `next [--full]` | Your current task, or the best eligible one (priority, deps, path overlap, owners, freeze). When idle, it suggests a review of a SHA that has no approval yet. After the freeze it says so and how a human allows a task. Never reserves. |
+| `status [ID \| --task ID] [--summary] [--full]` | Remote state. `--summary` prints the live summary and a `Read-token`. The same output twice in one agent session prints `= unchanged …` (`--full` reprints; `UAK_DEDUPE=off` disables). |
+| `claim ID --branch B --worktree W [--next T]` | Reserves the task. Use `wt new`, which calls it. One identity holds one CLAIMED/BLOCKED task (`UAK_MULTI_CLAIM=1` overrides). |
 | `heartbeat ID` | Renews your lease. |
 | `release ID [--cancel REASON]` | Frees your claim (AVAILABLE or CANCELLED). The summary is kept for the next claimer. |
 | `release ID --expired --read-summary TOKEN` | Recovers an expired claim after reading its summary. |
@@ -40,9 +40,11 @@ Every command runs as `bash .uak/bin/uak CMD`. It needs Bash 3.2+, Git with work
 | `done ID --pr URL --evidence TEXT` | Moves the task to REVIEW and asks a reviewer by rotation (least loaded active agent). |
 | `integrate ID [--integrated COMMIT]` | Any agent records a task whose approved SHA is already in the remote base (a human merged on the forge while the owner was away). |
 | `done ID --pr URL --evidence TEXT --integrated COMMIT` | Records a human merge. It needs a current approval and proof of ancestry or tree. |
-| `review ID --sha SHA --verdict approve\|reject` | Reviews the task's current HEAD. The reviewer must not be the owner. |
-| `register-reviewer NAME` | The human (`UAK_HUMAN`) grants another identity the reviewer role. |
-| `merge ID` | Exclusive leased queue. Re-checks the approved SHA, base, scope, secrets, smoke and Verify, then pushes base and claims atomically. On any failure it goes to the human queue (exit 3). |
+| `review ID --sha SHA --verdict approve\|reject [--note TEXT]` | Reviews the task's current HEAD. The reviewer must not be the owner. `--note` goes in the same message. A second approval of an already approved SHA records nothing. |
+| `register-reviewer NAME...` | The human (`UAK_HUMAN`, from the main checkout) grants the reviewer role to one or more identities in one call. |
+| `allow ID... --reason TEXT` · `allow --in-flight --reason TEXT` | Human freeze exception (`UAK_HUMAN`): the tasks may be claimed and merged after `Freeze-Epoch`. Audited in `claims:backlog/ALLOW.md` and DECISIONS.md. `--in-flight` allows every CLAIMED/BLOCKED/REVIEW task. |
+| `clock "START" "DEADLINE" [ZONE] [--write]` | Sprint schedule scaled to the event length: first claim, design lock, skeleton, plan-B, freeze (15% of the event, 30 min to 6 h), rehearsal, submission. `--write` sets `Freeze-Epoch`. |
+| `merge ID` | Exclusive leased queue. Re-checks the approved SHA, base, scope (what the merge changes in the current base), secrets, smoke and Verify, then pushes base and claims atomically. On any failure it goes to the human queue (exit 3) and prints the fast path: merge on the forge, then `uak integrate ID`. |
 | `plan FILE` | Publishes `## ID` sections (and `\| pattern \| ID \|` owner rows) to `claims:backlog/` without a PR. Needs `Plan-Channel: claims` and `UAK_HUMAN`. |
 | `graph [--mermaid] [--min-wave1 N]` | Backlog DAG: waves, cycles, missing deps, critical path. See GRAPH.md. |
 | `loop --verify CMD [--agent CMD] [--max N]` | Autonomous verify → fix loop with a budget and stuck detection. See LOOPS.md. |
@@ -55,8 +57,8 @@ Every command runs as `bash .uak/bin/uak CMD`. It needs Bash 3.2+, Git with work
 | `bb add bug\|friction\|need\|idea\|praise TEXT [--fix IDEA]` | Black box: one anonymous line about the kit. `bb flush` · `bb show [N]` · `bb export` (writes `.uak/BLACKBOX.md`) · `bb status`. See BLACKBOX.md. |
 | `version` | Prints the kit version. |
 | `doctor [--fix]` | Minute-0 preflight: remote, push, gh permissions, hooks, `.gitignore`, mode, freeze, ports. |
-| `msg TO TEXT [--kind K] [--task ID]` | Sends an append-only message. Targets: `NAME`, `ID`, `related:ID`, `all`, `human`. Kinds: `info`, `request`, `contract`, `blocker`, `reply`, `review`, `approve`, `reject`, `integrated`, `human`. |
-| `inbox [--ack] [--all] [--peek] [--task ID] [--human]` | Shows unread messages; `--ack` marks them read. |
+| `msg TO TEXT [--kind K] [--task ID]` | Sends an append-only message (one line, even for many targets). Targets: `NAME`, `ID`, `related:ID`, `all`, `human`. Kinds: `info`, `request`, `contract`, `blocker`, `reply`, `review`, `approve`, `reject`, `integrated`, `human`. A short `reply` that is only an ack is refused (use `inbox --ack`); messages over 1200 chars are refused. |
+| `inbox [--ack] [--all] [--peek] [--task ID] [--human] [--full]` | Shows unread messages; `--ack` marks them read. Unread messages already shown in this session print one line. |
 | `digest` | The human's single summary: reviews, blockers, decisions. |
 | `tick` | Evaluates deadlines (backlog, decisions, leases, freeze, queue). `next` and `status` run it. |
 | `init-smoke --command CMD` | Builds `.uak/bin/smoke-project` from your real product check. |
@@ -73,7 +75,10 @@ Every command runs as `bash .uak/bin/uak CMD`. It needs Bash 3.2+, Git with work
 | `guard shell` · `guard tier MODEL` | Cursor `beforeShellExecution` payloads · prints a model's tier (fast/balanced/strong). |
 | `bash .uak/bin/statusline` | Claude Code status line: task, 5 h/7 d usage, context, pace. Caches `rate_limits` for `pace`. |
 | `bash .uak/bin/guard check "CMD"` | ask the guard before running (Codex, Cursor and others without hooks) |
-| `bash .uak/bin/smoke [--package-only]` | product smoke, or the kit's own 70+ integration tests |
+| `bash .uak/bin/smoke [--package-only]` | product smoke, or the kit's own 90+ integration tests |
+| `bash .uak/bin/hook output` | Claude Code PostToolUse(Bash): outputs over `Output-Cap-Chars` become head 30 + tail 50 lines + the path of the full log (`.git/uak-out/`). `UAK_RAW=1 cmd` opts out. |
 
 ## Exit codes
-`0` ok · `1` Git or remote failure, or lint failed · `2` invalid input, or PRODUCT_UNVERIFIED · `3` conflict or gate denied (including the human merge queue).
+Messages on stderr: `LOOP:` = the same error 3 times in 10 min on this machine; stop retrying. `RETRY` = claims contention, retried with jittered backoff (max 30 attempts).
+
+`0` ok · `1` Git or remote failure (network retried 3 times), or lint failed · `2` invalid input, or PRODUCT_UNVERIFIED · `3` conflict or gate denied (including the human merge queue).

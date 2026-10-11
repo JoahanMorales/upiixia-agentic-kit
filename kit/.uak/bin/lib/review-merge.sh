@@ -44,13 +44,18 @@ review_identity_eligible() {
   return 1
 }
 register_reviewer_mutate() {
-  local who=${REGISTER_REVIEWER:-$ID}
-  [ -n "$HUMAN" ] || conflict "register-reviewer needs UAK_HUMAN."
-  case "$who" in ''|*[!A-Za-z0-9_.-]*) die "Invalid reviewer identity.";; esac
-  [ "$who" != "$AGENT" ] && [ "$who" != "$HUMAN" ] || conflict "The registrar cannot grant a role to themselves."
+  local who
+  [ -n "$HUMAN" ] || conflict "register-reviewer needs UAK_HUMAN (a human registers agents)."
   mkdir -p "$TX/roles/reviewers"
-  RECORD="$TX/roles/reviewers/$who.md"
-  printf '%s\n' "Reviewer: $who" 'State: REGISTERED' "Registered-By: $HUMAN" "Registered: $NOW" > "$RECORD"
+  for who in ${REGISTER_REVIEWER:-$ID}; do
+    case "$who" in ''|*[!A-Za-z0-9_.-]*) die "Invalid reviewer identity.";; esac
+    # Why (Reap): 5 refusals came from agents registering themselves from their own worktree (.uak-env).
+    [ "$who" != "$AGENT" ] && [ "$who" != "$HUMAN" ] ||
+      conflict "The registrar cannot grant a role to themselves (you are $AGENT). The human runs it from the main checkout: cd \"\$(git rev-parse --git-common-dir)/..\" && UAK_HUMAN=$HUMAN UAK_AGENT= bash .uak/bin/uak register-reviewer NAME..."
+    RECORD="$TX/roles/reviewers/$who.md"
+    [ ! -f "$RECORD" ] || [ "$(field "$RECORD" Reviewer)" != "$who" ] || continue
+    printf '%s\n' "Reviewer: $who" 'State: REGISTERED' "Registered-By: $HUMAN" "Registered: $NOW" > "$RECORD"
+  done
 }
 resolve_task_tip() {
   local branch worktree
@@ -83,16 +88,24 @@ review_mutate() {
   resolve_task_tip || conflict "$RM_REASON"
   [ "$REVIEW_SHA" = "$RM_TIP" ] || conflict "The review must match the task's current HEAD."
   case "$REVIEW_VERDICT" in approve|reject) ;; *) die "--verdict must be approve or reject.";; esac
+  # An approval of a SHA that already has one is duplicate work (Reap: HACK-005 got 7 approvals, 3 on one SHA).
+  if [ -f "$TX/reviews/$ID.md" ] && [ "$(field "$TX/reviews/$ID.md" SHA)" = "$RM_TIP" ] &&
+     [ "$(field "$TX/reviews/$ID.md" Verdict)" = approve ] && [ "$REVIEW_VERDICT" = approve ]; then
+    say "OK review $ID | already approved by $(field "$TX/reviews/$ID.md" Reviewer) on this SHA; nothing recorded. Next: the owner runs uak merge $ID"
+    return 0
+  fi
   mkdir -p "$TX/reviews"
   printf '%s\n' "ID: $ID" "SHA: $RM_TIP" "Reviewer: $AGENT" "Owner: $(field "$RECORD" Owner)" \
     "Verdict: $REVIEW_VERDICT" "Reviewed: $NOW" "Eligible-Via: $RM_ELIGIBLE_VIA" 'Command: uak review' > "$TX/reviews/$ID.md"
   put "$RECORD" Task-Tip "$RM_TIP"
   WL=$(field "$RECORD" Worklog); STATE=$(field "$RECORD" State)
   event "review; $REVIEW_VERDICT; SHA $RM_TIP; reviewer $AGENT"
+  # --note goes in the same message: one message per verdict, not a verdict plus a separate detail message.
+  local note=; [ -z "$REVIEW_NOTE" ] || note=" · $REVIEW_NOTE"
   if [ "$REVIEW_VERDICT" = approve ]; then
-    msg_append "task:$ID" approve "$ID" "Approved SHA $RM_TIP by $AGENT. Next: bash .uak/bin/uak heartbeat $ID && bash .uak/bin/uak merge $ID"
+    msg_append "task:$ID" approve "$ID" "Approved SHA ${RM_TIP%"${RM_TIP#???????}"} by $AGENT$note. Next: bash .uak/bin/uak heartbeat $ID && bash .uak/bin/uak merge $ID"
   else
-    msg_append "task:$ID" reject "$ID" "Rejected SHA $RM_TIP by $AGENT. Read uak inbox --task $ID and the PR comments; fix and rerun /uak-ship"
+    msg_append "task:$ID" reject "$ID" "Rejected SHA ${RM_TIP%"${RM_TIP#???????}"} by $AGENT$note. Fix, push, and rerun /uak-ship"
   fi
 }
 approval_check() {
@@ -214,9 +227,8 @@ rm_authority_check() {
   [ "$(rm_config Auto-Merge no)" = yes ] || { RM_REASON='Auto-merge not explicitly authorized'; return 1; }
   freeze=$(rm_config Freeze-Epoch 0)
   if [ "$freeze" -gt 0 ] && [ "$NOW" -ge "$freeze" ]; then
-    typeset -f coord_remote_task_field >/dev/null 2>&1 &&
-      [ "$(coord_remote_task_field Freeze-Allowed)" = yes ] || {
-      RM_REASON='FREEZE: merge only authorized demo fixes from remote TASKS'; return 1;
+    typeset -f coord_freeze_allowed >/dev/null 2>&1 && coord_freeze_allowed || {
+      RM_REASON="FREEZE: $ID is not allowed after the freeze (human: uak allow $ID --reason TEXT)"; return 1;
     }
   fi
   return 0
@@ -319,14 +331,17 @@ rm_exit_cleanup() {
 rm_gate_scope() {
   local path allowed reserve
   normalize_paths "$(field "$RECORD" Paths)" > "$TXROOT/merge-allowed" || { RM_REASON='Invalid claim Paths'; return 1; }
-  git -C "$RM_BUILD" diff --no-renames --name-only -z "$(field "$RECORD" Task-Base)" "$RM_REVIEWED_TIP" > "$TXROOT/merge-files" || return 1
+  # Scope = what this merge changes in the CURRENT base (the staged candidate vs RM_BASE_TIP), not Task-Base..tip.
+  # Why (Reap buildathon, 6 of 13 merged tasks): a branch that merged origin/main inherited other tasks' files
+  # (.env.example, workflows, PROJECT.md) and every one of them was sent to the human queue as "outside Paths".
+  git -C "$RM_BUILD" diff --cached --no-renames --name-only -z "$RM_BASE_TIP" > "$TXROOT/merge-files" || return 1
   # Additive-Paths (PROJECT.md, e.g. `e2e/, tests/`): NEW files there need no reservation; edits still do.
   # Why (UpiixSol): 4 of 11 decisions were "this task adds a new test file outside its Paths", 15 min each.
   : > "$TXROOT/merge-additive"
   additive=-; [ ! -f "$TXROOT/coord-source" ] || additive=$(coord_source_field Additive-Paths -)
   if [ -n "$additive" ] && [ "$additive" != - ]; then
     normalize_paths "$additive" > "$TXROOT/merge-additive" 2>/dev/null || : > "$TXROOT/merge-additive"
-    git -C "$RM_BUILD" diff --no-renames --diff-filter=A --name-only "$(field "$RECORD" Task-Base)" "$RM_REVIEWED_TIP" > "$TXROOT/merge-added" || return 1
+    git -C "$RM_BUILD" diff --cached --no-renames --diff-filter=A --name-only "$RM_BASE_TIP" > "$TXROOT/merge-added" || return 1
   fi
   while IFS= read -r -d '' path; do
     case "$path" in *$'\n'*|*$'\r'*) RM_REASON='Path with newline not supported'; return 1;; esac
@@ -385,6 +400,11 @@ rm_prepare_candidate() {
   git -C "$RM_BUILD" commit -q -m "Merge $ID reviewed by $APPROVED_BY" || { RM_REASON='Could not create the merge commit'; return 1; }
   RM_CANDIDATE=$(git -C "$RM_BUILD" rev-parse HEAD)
 }
+# Why (Reap): 9 merges went to the human queue; the fast path (merge on the forge + integrate) was not said.
+rm_human_hint() {
+  local pr; pr=$(field "$(task_file)" PR)
+  say "HUMAN: review the reason; if the PR is fine, merge ${pr:-it} on the forge, then any agent runs: bash .uak/bin/uak integrate $ID"
+}
 merge_run() {
   local waited=0 rc wait_started
   RM_TOKEN="$(basename "$TXROOT")-$AGENT-$ID"; RM_HELD=no; RM_FINISHED=no
@@ -399,7 +419,7 @@ merge_run() {
     waited=$(($(date +%s) - wait_started))
     [ "$rc" -eq 4 ] && [ "$waited" -lt "$RM_WAIT" ] || {
       RM_QUEUE_REASON=${RM_REASON:-'Queue wait exhausted'}; rm_coord_update human || true
-      say "MERGE_HUMAN $ID | $RM_QUEUE_REASON"; return 3;
+      say "MERGE_HUMAN $ID | $RM_QUEUE_REASON"; rm_human_hint; return 3;
     }
     sleep 1
   done
@@ -408,13 +428,13 @@ merge_run() {
   if ! rm_prepare_candidate; then
     RM_QUEUE_REASON=${RM_REASON:-'Candidate validation failed'}
     if rm_coord_update human; then RM_HELD=no; fi
-    say "MERGE_HUMAN $ID | $RM_QUEUE_REASON"; return 3
+    say "MERGE_HUMAN $ID | $RM_QUEUE_REASON"; rm_human_hint; return 3
   fi
   clock_now
   if ! rm_coord_update finalize; then
     RM_QUEUE_REASON=${RM_REASON:-'Atomic publish failed'}
     if rm_coord_update human; then RM_HELD=no; fi
-    say "MERGE_HUMAN $ID | $RM_QUEUE_REASON"; return 3
+    say "MERGE_HUMAN $ID | $RM_QUEUE_REASON"; rm_human_hint; return 3
   fi
   RM_FINISHED=yes; RM_HELD=no
   say "OK merge $ID | INTEGRATED | $RM_CANDIDATE | review $APPROVED_BY | atomic claims+$BASE"

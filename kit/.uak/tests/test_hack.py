@@ -50,6 +50,10 @@ class Runner:
         self.bash, self.git = bash, git
         self.env = os.environ.copy()
         self.env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"})
+        # Repeated-read dedupe and harness detection are tested on purpose (test_v42); fixtures see plain output.
+        self.env.update({"UAK_DEDUPE": "off", "UAK_HARNESS": "test"})
+        for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"):
+            self.env.pop(k, None)
         # A user signing default must not make disposable fixture commits interactive.
         self.env["GIT_CONFIG_COUNT"] = "2"
         self.env["GIT_CONFIG_KEY_0"] = "commit.gpgsign"
