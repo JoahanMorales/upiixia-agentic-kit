@@ -241,9 +241,47 @@ def output_cap_cursor_and_codex(r):
     return {"cursor_lines": len(lines)}
 
 
+def review_lock_wait_and_contracts(r):
+    """Parallel reviews of one SHA, merges before any review, superseded contracts, the pre-freeze warning."""
+    f = rm.fixture(r, "v42-lock", count=2)
+    tip = rm.ready(f, 0, "HACK-001")
+    rm.actor(f, "lead-human", "register-reviewer", "judge", "judge-2", human=True)
+    early = f.hack(0, "merge", "HACK-001", now=1000015, allowed=None)
+    expect(early.returncode == 3 and "MERGE_WAIT" in early.stdout and "nothing was queued" in early.stdout,
+           "merge before any review waits instead of going to humans: " + early.stdout + early.stderr)
+    expect("Merge of HACK-001 in human queue" not in f.show("inbox/log.md"), "no human-queue message")
+    one = rm.actor(f, "judge", "review", "HACK-001", "--start", now=1000020)
+    expect("OK review --start HACK-001" in one.stdout, one.stdout + one.stderr)
+    two = rm.actor(f, "judge-2", "review", "HACK-001", "--start", now=1000021, allowed=None)
+    expect(two.returncode == 3 and "judge is already reviewing" in two.stderr, "a second reviewer is turned away: " + two.stderr)
+    rm.approve(f, "HACK-001", tip, now=1000030)
+    expect("reviews/HACK-001.reviewing" not in f.files("reviews/"), "the verdict releases the review lock")
+    three = rm.actor(f, "judge-2", "review", "HACK-001", "--start", now=1000031)
+    expect("SKIP review HACK-001" in three.stdout, "an approved SHA needs no reviewer: " + three.stdout)
+    late = rm.ready(f, 1, "HACK-002")
+    rm.actor(f, "judge", "review", "HACK-002", "--start", now=1000040)
+    expired = rm.actor(f, "judge-2", "review", "HACK-002", "--start", now=1000040 + 1300)
+    expect("OK review --start" in expired.stdout, "an expired review lock can be taken over")
+    integ = f.hack(1, "integrate", "HACK-001", now=1000050, allowed=None)
+    expect(integ.returncode == 3, "integrate refuses a task not in REVIEW")
+
+    g = r.fixture("v42-contract", count=2, dependencies={"HACK-001": "ninguna (contract with HACK-002)"})
+    config(g, Freeze_Epoch="1000600")
+    g.claim(0, "HACK-001"); g.claim(1, "HACK-002")
+    hack(g, 0, "msg", "related:HACK-001", "--kind", "contract", "--task", "HACK-001", "POST /x body {a}", now=1000001)
+    hack(g, 0, "msg", "related:HACK-001", "--kind", "contract", "--task", "HACK-001", "POST /x body {a, b} FINAL", now=1000002)
+    inbox = hack(g, 1, "inbox", now=1000003).stdout
+    expect("FINAL" in inbox and "body {a}" not in inbox, "only the current contract is shown: " + inbox)
+    thread = hack(g, 1, "inbox", "--task", "HACK-002", now=1000004).stdout
+    expect("superseded by #" in thread and "body {a}" in thread, "the thread keeps the old one, marked: " + thread)
+    nxt = hack(g, 1, "next", now=1000000 + 600 - 540).stdout
+    expect("FREEZE in 9 min" in nxt, "30 min before the freeze, next warns: " + nxt)
+    return {"lock": True, "merge_wait": True, "superseded": True}
+
+
 TESTS = [scope_uses_current_base, freeze_next_and_allow, one_identity_one_task, messages_without_noise, reviews_once,
          repeated_reads_and_loops, huge_output_is_capped, guard_prose_and_clock, blackbox_dedupe_and_harness,
-         output_cap_cursor_and_codex]
+         output_cap_cursor_and_codex, review_lock_wait_and_contracts]
 
 
 def main():

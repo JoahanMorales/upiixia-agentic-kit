@@ -1,5 +1,16 @@
 # Changelog
 
+## v4.2.1 · 2026-10-10 · The rest of the Reap autopsy
+- **`uak review ID --start`.** A 20-min "I am reviewing this SHA" lock: a second reviewer gets CONFLICT, `next` stops suggesting it, an approved SHA prints SKIP. The `uak-reviewer` subagent and `/uak-review` start with it. At Reap 2–3 agents reviewed the same SHA at once.
+- **`MERGE_WAIT`.** `uak merge` with no approval on the current SHA waits instead of filling the human queue.
+- **Contracts supersede.** A newer contract from the same sender and task hides the older one in the inbox; the task thread marks it "superseded by #N".
+- **Freeze warning.** 30 min before `Freeze-Epoch`, `next` and `digest` say "finish and `uak done`, or release".
+- **Short events.** `/uak-plan`: at most 2 tasks per agent, 45 min each, done by the "first claim by" time. `/uak-design-lock`: one direction, not three.
+- **Rules.** Plain words in messages (no glued words); agents use their own names, humans `UAK_HUMAN`, and no "coordinator" agent speaks for a human; `review --start` before reviewing.
+- **Fewer claims writes.** The hook heartbeat runs every lease/3 (15 min in sprint) and renews REVIEW tasks at most every 30 min.
+- `integrate` says the task's real state when it is not in REVIEW.
+- 1 new test (`test_v42.py`: 11; 95 in total).
+
 ## v4.2.0 · 2026-10-10 · The Reap autopsy: less process, fewer tokens
 From the first full team event on the kit (Reap x AI Builders buildathon: 4 h, 5 humans, 11 agents on Codex, Cursor and Claude Code). Every number is in `docs/blackbox/reap-2026-10.md`; every rule cites it in WHY.md.
 - **Scope gate on the current base.** `uak merge` checks what the merge changes in the current base, not Task-Base..tip. 6 of 13 integrated tasks had gone to the human queue for files their branch inherited from main.

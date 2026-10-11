@@ -100,9 +100,17 @@ msg_last_read() {
 msg_select() {
   # $1: unread | all | task:ID | human
   [ -f "$TX/$MSG_LOG" ] || return 0
+  # A newer contract from the same sender about the same task supersedes the older one: the inbox shows only
+  # the current one, the task thread marks the old one. Why (Reap buildathon): two contracts for the same
+  # endpoint (#127, #129) arrived minutes apart and a consumer had to ask which shape was final.
   awk -F' [|] ' -v me="$AGENT" -v owned=" $(msg_owned) " -v last="$(msg_last_read)" -v mode="$1" -v now="$NOW" '
+    FNR == NR { if ($0 ~ /^- [0-9]/ && $5 == "contract" && $6 != "-") latest[$3 "|" $6] = substr($1, 3) + 0; next }
     /^- [0-9]/ {
-      n=substr($1, 3) + 0; from=$3; to=$4
+      n=substr($1, 3) + 0; from=$3; to=$4; sup=""
+      if ($5 == "contract" && $6 != "-" && latest[from "|" $6] > n) {
+        if (mode !~ /^task:/) next
+        sup=" · superseded by #" latest[from "|" $6]
+      }
       nt=split(to, t, ",")
       if (mode ~ /^task:/) { hit=0; for (i=1; i<=nt; i++) if (t[i] == mode) hit=1; if (!hit) next }
       else if (mode == "human") { hit=0; for (i=1; i<=nt; i++) if (t[i] == "human") hit=1; if (!hit) next }
@@ -112,8 +120,8 @@ msg_select() {
         if (!mine || (mode == "unread" && n <= last)) next
       }
       age=int((now - $2) / 60)
-      printf "#%d · %dm ago · %s → %s · %s · %s\n  %s\n", n, age, from, to, $5, $6, $7
-    }' "$TX/$MSG_LOG"
+      printf "#%d · %dm ago · %s → %s · %s · %s%s\n  %s\n", n, age, from, to, $5, $6, sup, $7
+    }' "$TX/$MSG_LOG" "$TX/$MSG_LOG"
 }
 msg_resolve_targets() {
   # Expands MSG_TO into canonical targets, one per line.

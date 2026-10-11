@@ -93,12 +93,19 @@ case "${1:-}" in
   tick)
     [ -n "$agent" ] || exit 0
     [ -z "$sid" ] || printf '%s %s\n' "$sid" "$(date +%s)" > "$gd/uak-live" 2>/dev/null
-    if [ -n "$task" ] && ! fresh "$gd/uak-heartbeat" 8; then
+    # Heartbeat every lease/3 (8..20 min), and the REVIEW tasks of other worktrees at most every 30 min.
+    # Why (Reap buildathon): 11 agents heartbeating every 8 min plus a status per beat kept the claims branch
+    # busy; approvals then needed up to 14 attempts. A 45-min sprint lease is safe with a 15-min beat.
+    hb=$(sed -n 's/^[-* ]*Lease-Seconds:[* ]*//p' .uak/PROJECT.md 2>/dev/null | head -n 1 | tr -cd '0-9')
+    hb=$(( ${hb:-2700} / 180 )); [ "$hb" -ge 8 ] || hb=8; [ "$hb" -le 20 ] || hb=20
+    if [ -n "$task" ] && ! fresh "$gd/uak-heartbeat" "$hb"; then
       touch "$gd/uak-heartbeat" 2>/dev/null
-      # Also renews your REVIEW tasks in other worktrees: uak merge needs a live lease.
+      reviews=no; fresh "$gd/uak-heartbeat.reviews" 30 || { reviews=yes; touch "$gd/uak-heartbeat.reviews" 2>/dev/null; }
+      # REVIEW tasks in other worktrees need a live lease for uak merge.
       nohup bash -c 'bash .uak/bin/uak heartbeat "$1"
+        [ "$3" = yes ] || exit 0
         bash .uak/bin/uak status --full 2>/dev/null | awk -F" [|] " -v a="$2" -v t="$1" "\$2==\"REVIEW\" && \$3==a && \$1!=t {print \$1}" |
-          while read -r id; do bash .uak/bin/uak heartbeat "$id"; done' _ "$task" "$agent" > "$gd/uak-heartbeat.log" 2>&1 &
+          while read -r id; do bash .uak/bin/uak heartbeat "$id"; done' _ "$task" "$agent" "$reviews" > "$gd/uak-heartbeat.log" 2>&1 &
     fi
     # Poll: refresh the cache every ~2 min in background; never blocks the agent.
     if ! fresh "$gd/uak-inbox.poll" 2; then

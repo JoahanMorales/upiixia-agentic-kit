@@ -86,8 +86,33 @@ review_mutate() {
   [ "$AGENT" != "$(field "$RECORD" Owner)" ] || conflict "The owner cannot approve their own task."
   review_identity_eligible "$AGENT" || conflict "The reviewer needs an active own claim or a registered role."
   resolve_task_tip || conflict "$RM_REASON"
+  # --start: "I am reviewing this SHA" for a short lease, so a second agent does not review it in parallel.
+  # Why (Reap buildathon): 2-3 agents reviewed the same SHA at the same time; each review is a full diff,
+  # a fresh Verify and a smoke run, so the duplicates cost the most tokens of the whole event.
+  if [ "$REVIEW_START" = yes ]; then
+    [ -n "$REVIEW_SHA" ] || REVIEW_SHA=$RM_TIP
+    [ "$REVIEW_SHA" = "$RM_TIP" ] || conflict "The task's current HEAD is ${RM_TIP%"${RM_TIP#???????}"}; review that SHA."
+    if [ -f "$TX/reviews/$ID.md" ] && [ "$(field "$TX/reviews/$ID.md" SHA)" = "$RM_TIP" ] &&
+       [ "$(field "$TX/reviews/$ID.md" Verdict)" = approve ]; then
+      say "SKIP review $ID | already approved by $(field "$TX/reviews/$ID.md" Reviewer) on this SHA; it needs a merge, not a reviewer."
+      return 0
+    fi
+    local lock="$TX/reviews/$ID.reviewing" until who
+    if [ -f "$lock" ]; then
+      who=$(field "$lock" Reviewer); until=$(field "$lock" Until)
+      case "$until" in ''|*[!0-9]*) until=0;; esac
+      if [ "$who" != "$AGENT" ] && [ "$(field "$lock" SHA)" = "$RM_TIP" ] && [ "$NOW" -lt "$until" ]; then
+        conflict "$who is already reviewing $ID at this SHA ($(((until - NOW + 59) / 60)) min left). Pick another task or review."
+      fi
+    fi
+    mkdir -p "$TX/reviews"
+    printf '%s\n' "Reviewer: $AGENT" "SHA: $RM_TIP" "Started: $NOW" "Until: $((NOW + ${UAK_REVIEW_LOCK_SECONDS:-1200}))" > "$lock"
+    REVIEW_STARTED=yes
+    return 0
+  fi
   [ "$REVIEW_SHA" = "$RM_TIP" ] || conflict "The review must match the task's current HEAD."
   case "$REVIEW_VERDICT" in approve|reject) ;; *) die "--verdict must be approve or reject.";; esac
+  rm -f "$TX/reviews/$ID.reviewing"
   # An approval of a SHA that already has one is duplicate work (Reap: HACK-005 got 7 approvals, 3 on one SHA).
   if [ -f "$TX/reviews/$ID.md" ] && [ "$(field "$TX/reviews/$ID.md" SHA)" = "$RM_TIP" ] &&
      [ "$(field "$TX/reviews/$ID.md" Verdict)" = approve ] && [ "$REVIEW_VERDICT" = approve ]; then
@@ -407,6 +432,19 @@ rm_human_hint() {
 }
 merge_run() {
   local waited=0 rc wait_started
+  # No approval on the current SHA yet is a "wait", not a human-queue entry.
+  # Why (Reap buildathon): HACK-008 and HACK-010 ran merge before any review; both landed in the human queue
+  # ("Missing verifiable approval") and a human had to read them.
+  ATTEMPT=precheck; fresh_state; RECORD=$(task_file)
+  if [ -f "$RECORD" ] && [ "$(field "$RECORD" State)" = REVIEW ] && resolve_task_tip &&
+     ! approval_check "$RM_TIP" "$(field "$RECORD" PR)"; then
+    case "$RM_REASON" in 'Missing verifiable approval on claims'|'Approval missing, rejected, self-made or stale for the current SHA'|'GitHub shows no current independent approval on this SHA')
+      local rv="$TX/reviews/$ID.md" last=
+      [ ! -f "$rv" ] || last=" Last review: $(field "$rv" Verdict) by $(field "$rv" Reviewer) on ${RM_TIP:+$(field "$rv" SHA | cut -c 1-7)}."
+      say "MERGE_WAIT $ID | $RM_REASON (current SHA $(printf '%s' "$RM_TIP" | cut -c 1-7)).$last Wait for an approve message on this SHA (or fix a reject and push); nothing was queued."
+      return 3;;
+    esac
+  fi
   RM_TOKEN="$(basename "$TXROOT")-$AGENT-$ID"; RM_HELD=no; RM_FINISHED=no
   rm_coord_update enqueue || { say "MERGE_HUMAN $ID | $RM_REASON"; return 3; }
   RM_LOCK_LEASE=$(rm_config Merge-Lease-Seconds 1800); RM_WAIT=$(rm_config Merge-Wait-Seconds 180)

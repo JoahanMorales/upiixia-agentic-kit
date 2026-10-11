@@ -40,11 +40,12 @@ Every command runs as `bash .uak/bin/uak CMD`. It needs Bash 3.2+, Git with work
 | `done ID --pr URL --evidence TEXT` | Moves the task to REVIEW and asks a reviewer by rotation (least loaded active agent). |
 | `integrate ID [--integrated COMMIT]` | Any agent records a task whose approved SHA is already in the remote base (a human merged on the forge while the owner was away). |
 | `done ID --pr URL --evidence TEXT --integrated COMMIT` | Records a human merge. It needs a current approval and proof of ancestry or tree. |
+| `review ID --start` | "I am reviewing this SHA" for 20 min (`UAK_REVIEW_LOCK_SECONDS`): another agent gets CONFLICT, `next` stops suggesting it, an approved SHA prints SKIP. The verdict releases it. |
 | `review ID --sha SHA --verdict approve\|reject [--note TEXT]` | Reviews the task's current HEAD. The reviewer must not be the owner. `--note` goes in the same message. A second approval of an already approved SHA records nothing. |
 | `register-reviewer NAME...` | The human (`UAK_HUMAN`, from the main checkout) grants the reviewer role to one or more identities in one call. |
 | `allow ID... --reason TEXT` · `allow --in-flight --reason TEXT` | Human freeze exception (`UAK_HUMAN`): the tasks may be claimed and merged after `Freeze-Epoch`. Audited in `claims:backlog/ALLOW.md` and DECISIONS.md. `--in-flight` allows every CLAIMED/BLOCKED/REVIEW task. |
 | `clock "START" "DEADLINE" [ZONE] [--write]` | Sprint schedule scaled to the event length: first claim, design lock, skeleton, plan-B, freeze (15% of the event, 30 min to 6 h), rehearsal, submission. `--write` sets `Freeze-Epoch`. |
-| `merge ID` | Exclusive leased queue. Re-checks the approved SHA, base, scope (what the merge changes in the current base), secrets, smoke and Verify, then pushes base and claims atomically. On any failure it goes to the human queue (exit 3) and prints the fast path: merge on the forge, then `uak integrate ID`. |
+| `merge ID` | Exclusive leased queue. Re-checks the approved SHA, base, scope (what the merge changes in the current base), secrets, smoke and Verify, then pushes base and claims atomically. On any failure it goes to the human queue (exit 3) and prints the fast path: merge on the forge, then `uak integrate ID`. With no approval on the current SHA yet it prints `MERGE_WAIT` and queues nothing. |
 | `plan FILE` | Publishes `## ID` sections (and `\| pattern \| ID \|` owner rows) to `claims:backlog/` without a PR. Needs `Plan-Channel: claims` and `UAK_HUMAN`. |
 | `graph [--mermaid] [--min-wave1 N]` | Backlog DAG: waves, cycles, missing deps, critical path. See GRAPH.md. |
 | `loop --verify CMD [--agent CMD] [--max N]` | Autonomous verify → fix loop with a budget and stuck detection. See LOOPS.md. |
@@ -57,9 +58,9 @@ Every command runs as `bash .uak/bin/uak CMD`. It needs Bash 3.2+, Git with work
 | `bb add bug\|friction\|need\|idea\|praise TEXT [--fix IDEA]` | Black box: one anonymous line about the kit. `bb flush` · `bb show [N]` · `bb export` (writes `.uak/BLACKBOX.md`) · `bb status`. See BLACKBOX.md. |
 | `version` | Prints the kit version. |
 | `doctor [--fix]` | Minute-0 preflight: remote, push, gh permissions, hooks, `.gitignore`, mode, freeze, ports. |
-| `msg TO TEXT [--kind K] [--task ID]` | Sends an append-only message (one line, even for many targets). Targets: `NAME`, `ID`, `related:ID`, `all`, `human`. Kinds: `info`, `request`, `contract`, `blocker`, `reply`, `review`, `approve`, `reject`, `integrated`, `human`. A short `reply` that is only an ack is refused (use `inbox --ack`); messages over 1200 chars are refused. |
+| `msg TO TEXT [--kind K] [--task ID]` | Sends an append-only message (one line, even for many targets). Targets: `NAME`, `ID`, `related:ID`, `all`, `human`. Kinds: `info`, `request`, `contract`, `blocker`, `reply`, `review`, `approve`, `reject`, `integrated`, `human`. A short `reply` that is only an ack is refused (use `inbox --ack`); messages over 1200 chars are refused. A newer `contract` from the same sender and `--task` supersedes the older one: the inbox shows only the current one, `inbox --task` marks the old one. |
 | `inbox [--ack] [--all] [--peek] [--task ID] [--human] [--full]` | Shows unread messages; `--ack` marks them read. Unread messages already shown in this session print one line. |
-| `digest` | The human's single summary: reviews, blockers, decisions. |
+| `digest` | The human's single summary: reviews, blockers, decisions. 30 min before `Freeze-Epoch`, `digest` and `next` warn once. |
 | `tick` | Evaluates deadlines (backlog, decisions, leases, freeze, queue). `next` and `status` run it. |
 | `init-smoke --command CMD` | Builds `.uak/bin/smoke-project` from your real product check. |
 | `secret-exception ID --path P --rule R --reason T` | A non-owner reviewer approves one exact index blob. |

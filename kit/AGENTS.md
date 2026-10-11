@@ -42,8 +42,10 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 ## 5. Messages
 1. If you change something another task consumes, tell them BEFORE pushing: `uak msg related:ID --kind contract "what changed · what to do"`.
 2. Handle `reject`, `request`, `contract`, `approve` and `review` first. Answer with `--kind reply`, then `uak inbox --ack`.
-3. Keep messages to 3 lines or fewer, with SHA, file or command. No greetings, no recaps, no acks ("received", "ok"): `uak inbox --ack` is the ack.
+3. Keep messages to 3 lines or fewer, with SHA, file or command. No greetings, no recaps, no acks ("received", "ok"): `uak inbox --ack` is the ack. Plain words: save tokens by saying less, never by gluing words together.
 4. Targets are `ID`, `related:ID`, `NAME`, `all` and `human`. Humans get one `uak digest`, not a message per PR.
+5. Identities: agents use their own name (`ana-1`); humans use `UAK_HUMAN`. No "coordinator" agent speaks for a human: the human runs `uak allow` or `uak decision` personally.
+6. Reviewing: `uak review ID --start` first; if someone else is already reviewing that SHA, pick other work.
 
 ## 6. Context and tokens
 1. Read by ranges: `rg`, `sed -n`, `git diff --stat`. Never `cat` big files, logs or lockfiles.

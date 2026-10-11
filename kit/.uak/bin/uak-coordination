@@ -405,6 +405,7 @@ coord_next() {
     say "Branch: $(coord_read "$RECORD" Branch)"; say "Worktree: $(coord_read "$RECORD" Worktree)"
     say "Next: $(coord_read "$RECORD" Next)"
     say "Live summary:"; summary_text | head -n 6
+    freeze_warning
     coord_until=$(coord_read "$RECORD" Lease-Until)
     if [ "$NOW" -ge "$coord_until" ]; then say "LEASE EXPIRED: read status --task $ID --summary; recover with its token before editing."; fi
     coord_status_budget
@@ -439,9 +440,16 @@ coord_next() {
     [ "$(coord_read "$coord_f" State)" = REVIEW ] && [ "$(coord_read "$coord_f" Owner)" != "$AGENT" ] || continue
     coord_rid=$(coord_read "$coord_f" ID); coord_rv="$TX/reviews/$coord_rid.md"
     # A SHA that already has an approval needs a merge, not a second reviewer (Reap: HACK-005 approved 7 times).
+    coord_tip=$(coord_read "$TX/tasks/$coord_rid.md" Task-Tip)
     if [ -f "$coord_rv" ] && [ "$(coord_read "$coord_rv" Verdict)" = approve ] &&
-       [ "$(coord_read "$coord_rv" SHA)" = "$(coord_read "$TX/tasks/$coord_rid.md" Task-Tip)" ]; then continue; fi
-    say "Idle: review PR $(coord_read "$coord_f" PR) of $coord_rid (not yours; no approval on its SHA yet): /uak-review $coord_rid"
+       [ "$(coord_read "$coord_rv" SHA)" = "$coord_tip" ]; then continue; fi
+    # Someone else is reviewing it right now (uak review ID --start).
+    coord_lk="$TX/reviews/$coord_rid.reviewing"
+    if [ -f "$coord_lk" ] && [ "$(coord_read "$coord_lk" Reviewer)" != "$AGENT" ]; then
+      coord_lu=$(coord_read "$coord_lk" Until | tr -cd '0-9')
+      [ "$NOW" -ge "${coord_lu:-0}" ] || [ "$(coord_read "$coord_lk" SHA)" != "$coord_tip" ] || continue
+    fi
+    say "Idle: review PR $(coord_read "$coord_f" PR) of $coord_rid (not yours; no approval or reviewer on its SHA yet): /uak-review $coord_rid"
     coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"; return 0
   done
   if [ "$coord_freeze" -gt 0 ] && [ "$NOW" -ge "$coord_freeze" ]; then

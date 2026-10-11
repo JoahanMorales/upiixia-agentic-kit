@@ -2,7 +2,8 @@
 model: opus
 description: (sprint) Three visual directions with screenshots; the human picks; DESIGN.md is frozen
 ---
-Only when `Mode: sprint`, before T0+1h. In any other mode, say so and stop.
+Only when `Mode: sprint`, before the "design lock" time of `uak clock`. In any other mode, say so and stop.
+Short event (under 6 h): ONE direction, not three. Write `web/DESIGN.md` from `IDEA.md` and the brand in 10 minutes, capture the wow screen once, and let the human say yes or adjust. Then go to step 5.
 1. Read `IDEA.md` §0–4 (brand, user, wow) and load the skill `design-taste-frontend`.
 2. Propose 3 clearly different directions. Each has a name, a one-line intent, palette tokens (background, surface, text, accent, states), type, density, motion, and how the wow moment looks.
 3. For each direction, build a static `web/public/design-lock/<n>.html` of the wow screen, and capture it at 1280×720 and 390×844 (skill `webapp-testing`).

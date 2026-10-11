@@ -101,7 +101,7 @@ done ID --pr URL --evidence TEXTO [--integrated COMMIT --reviewer OTRO]
 digest
 tick
 next
-review ID --sha SHA --verdict approve|reject [--note "file:line · what · how to reproduce"]
+review ID --start | review ID --sha SHA --verdict approve|reject [--note "file:line · what · how to reproduce"]
 register-reviewer NAME...  (UAK_HUMAN, from the main checkout)
 merge ID
 decision ID --option TEXTO --why TEXTO --reversible yes|no --authorized yes|no --class routine|money|accounts|publish|scope
@@ -519,7 +519,7 @@ mutate() {
       # Why (UpiixSol): a human merged on GitHub while the owner agent was offline; the task sat in REVIEW and
       # blocked its dependents for hours. The proof is verifiable, so any identity may record it.
       [ -f "$RECORD" ] && [ "$(field "$RECORD" State)" = REVIEW ] ||
-        conflict "$ID is not in REVIEW; integrate records the merged PR of a task under review."
+        conflict "$ID is $(st=$(field "$RECORD" State); printf '%s' "${st:-AVAILABLE}"), not REVIEW; integrate records the merged PR of a task under review (INTEGRATED needs nothing)."
       WL=$(field "$RECORD" Worklog); valid_worklog "$WL" || die "Invalid worklog path."
       [ -f "$TX/$WL" ] || die "Missing worklog $WL."
       PR_URL=$(field "$RECORD" PR)
@@ -642,6 +642,7 @@ transaction() {
         elif [ "$CMD" = plan ]; then say "OK plan | tasks published on claims | attempt $ATTEMPT"
         elif [ "$CMD" = allow ]; then say "OK allow${ALLOW_DONE:- (already allowed)} | claim and merge allowed after the freeze | attempt $ATTEMPT"
         elif [ "$CMD" = register-reviewer ]; then say "OK register-reviewer $REGISTER_REVIEWER | attempt $ATTEMPT"
+        elif [ "$REVIEW_STARTED" = yes ]; then say "OK review --start $ID | yours for $(( ${UAK_REVIEW_LOCK_SECONDS:-1200} / 60 )) min; finish with --verdict"
         else say "OK $CMD $ID | $(field "$RECORD" State) | attempt $ATTEMPT"; fi
       fi
       if [ "$CMD" = handoff ]; then print_task; fi
@@ -725,6 +726,7 @@ print_digest() {
   done
   [ "$found" = yes ] || say "No pending reviews or blockers."
   [ ! -f "$TX/DECISIONS.md" ] || grep '^-' "$TX/DECISIONS.md" | tail -n 5
+  freeze_warning
   human_msgs=$(msg_select human | tail -n 10)
   [ -z "$human_msgs" ] || { say "Agent messages for humans (last 5):"; say "$human_msgs"; }
   say "Rule: no answer in 15 min → recorded reversible decision, take another task."
@@ -776,6 +778,13 @@ preflight_note() {
   elif ! gh auth status >/dev/null 2>&1; then
     say "PREFLIGHT: gh is not logged in (gh auth login); until then bash .uak/bin/wt pr prints the PR URL for the human."
   fi
+}
+# 30 min before the freeze, every next/digest says it once. Why (Reap buildathon): 6 PRs were still open at
+# the extended deadline; nobody had been told that unfinished work would not get in.
+freeze_warning() {
+  local f; f=$(coord_config Freeze-Epoch 0 2>/dev/null); case "$f" in ''|*[!0-9]*) return 0;; esac
+  [ "$f" -gt 0 ] && [ "$NOW" -lt "$f" ] && [ $((f - NOW)) -le 1800 ] || return 0
+  say "FREEZE in $(((f - NOW + 59) / 60)) min: finish the criterion and run uak done, or release; after the freeze a task needs a human uak allow."
 }
 budget() {
   [ -f "$1" ] || { say "LINT: missing $1" >&2; LINT_ERRORS=$((LINT_ERRORS + 1)); return; }
@@ -862,7 +871,7 @@ lint_all() {
 }
 PLAN_FILE= ID= BRANCH= WORKTREE= NEXT_TEXT= REQUEST_NEXT= TOKEN= NEW_STATE= LOG_TEXT= PR_URL= EVIDENCE=
 MERGE_COMMIT= REVIEWER= CANCEL_REASON=
-EXPIRED=no SHOW_SUMMARY=no LINT_SECRETS=no QUIET=no SESSION_ONLY=no ALLOW_INFLIGHT=no ALLOW_IDS= ALLOW_DONE= REVIEW_NOTE= FULL=no
+EXPIRED=no SHOW_SUMMARY=no LINT_SECRETS=no QUIET=no SESSION_ONLY=no ALLOW_INFLIGHT=no ALLOW_IDS= ALLOW_DONE= REVIEW_NOTE= FULL=no REVIEW_START=no REVIEW_STARTED=no
 REVIEW_SHA= REVIEW_VERDICT= REGISTER_REVIEWER= SMOKE_COMMAND= SECRET_PATH= SECRET_RULE= SECRET_REASON=
 DECISION_OPTION= DECISION_REVERSIBLE=no DECISION_AUTHORIZED=no DECISION_CLASS=routine
 DONE_TEXT= DECISION_TEXT= WHY_TEXT= FAILS_TEXT= COMMANDS_TEXT=
@@ -908,6 +917,7 @@ while [ "$#" -gt 0 ]; do
     --expired) [ "$CMD" = release ] || die "Invalid option: $opt"; EXPIRED=yes;;
     --summary) [ "$CMD" = status ] || die "Invalid option: $opt"; SHOW_SUMMARY=yes;;
     --full) case "$CMD" in status|next|digest|inbox) FULL=yes;; *) die "Invalid option: $opt";; esac;;
+    --start) [ "$CMD" = review ] || die "Invalid option: $opt"; REVIEW_START=yes;;
     --ack|--all|--peek|--human)
       [ "$CMD" = inbox ] || die "Invalid option: $opt"
       case "$opt" in --ack) MSG_ACK=yes;; --all) MSG_MODE=all;; --peek) MSG_MODE=peek;; --human) MSG_MODE=human;; esac;;

@@ -60,4 +60,10 @@ Load only the row you need. Every rule cites the incident behind it. Data comes 
 | `LOOP:` hint | Reap: the same refusal retried within minutes (20 identical errors in one minute from one machine). |
 | `MSYS2_ARG_CONV_EXCL` | Reap: Git Bash on Windows turned `refs/uak/config:.uak/TASKS.md` into a path list, so tasks were "not in TASKS.md" and the board showed everything AVAILABLE. |
 | Prose is not a command (guard) | Reap: `codex exec "… never cat .env …"` was blocked as a `.env` read. |
+| `review --start` lock | Reap: 2–3 agents reviewed the same SHA at once (full diff + fresh Verify + smoke each), the most expensive duplicate of the event. |
+| `MERGE_WAIT` | Reap: HACK-008 and HACK-010 ran merge before any review and landed in the human queue. |
+| Superseded contracts | Reap: two different contracts for one endpoint (#127, #129) minutes apart; the consumer had to ask which was final. |
+| Freeze warning · short-event plan | Reap: 6 PRs open at the extended deadline; planning a 4 h event took 1.5 h. |
+| No coordinator identities | Reap: a "coordinator" agent and a human working under an agent-like name relayed "the human authorizes all merges". |
+| Heartbeat = lease/3 | Reap: 11 agents beating every 8 min, each beat with a status, kept the claims branch contended. |
 | Idle reviewers first | Reap: rotation picked agents busy on their own task ("can't review now"); a review cycle took 10–15 min. |

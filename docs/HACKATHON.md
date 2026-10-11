@@ -52,6 +52,9 @@ Never tell an agent "the human authorizes everything" through another agent: run
 | `Shared resource/CI needs a human` | a human merges that PR on GitHub, then `uak integrate ID` |
 | `gh pr create` 403 · `PREFLIGHT: gh …` | `bash .uak/bin/wt pr` and open the URL |
 | `address already in use` | `bash .uak/bin/wt stop`; ports come from `$UAK_PORT` |
+| `MERGE_WAIT` | no approval on that SHA yet: wait for the approve message |
+| `… is already reviewing` | another agent has that review; take other work |
+| `FREEZE in N min` | finish the criterion and `uak done`, or release |
 | `RETRY … contention` | normal with many agents; it backs off and retries by itself |
 | `LOOP:` | stop retrying that command; read the error |
 

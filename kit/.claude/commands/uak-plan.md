@@ -4,6 +4,8 @@ description: Planner. IDEA or spec → verifiable backlog graph, OWNERS and wave
 ---
 Read `.uak/PROJECT.md`, your mode's §Plan, `.uak/docs/GRAPH.md`, and then `IDEA.md` (sprint) or `docs/specs/*/plan.md` (marathon).
 
+**Short event (`uak clock` printed SHORT EVENT, under 6 h):** you have until its "first claim by" time (20 min in a 4 h event). At Reap, planning a 4 h event took 1.5 h and the freeze arrived 1 h after the first claim. So: at most 2 tasks per agent, each 45 min or less; no spikes unless an external API is the product; Setup + Contract may be one task; skip the mermaid graph and show the table only; later work goes in wave 2 with `uak plan`.
+
 Produce in ONE pass, in the format of `.uak/templates/TASKS.template.md`:
 1. `.uak/TASKS.md`:
    - **Setup P0.** It owns lockfiles, the app entry and config. Add every foreseeable dependency at once.
