@@ -28,5 +28,6 @@ Claude Code plugin: `/plugin marketplace add JoahanMorales/upiixia-agentic-kit`,
 - [Hack-Nation 2026 retro](docs/RETRO-hacknation-2026.md): 5 agents, 4 humans, 76 PRs, with data
 - [First black box harvest](docs/blackbox/upiixsol-2026-10.md): 16 kit issues from a 3-day marathon project, each mapped to a v4.1 fix
 - [Reap buildathon autopsy](docs/blackbox/reap-2026-10.md): a 4 h event, 11 agents on Codex/Cursor/Claude Code, 13 findings each mapped to a v4.2 fix (scope gate, scaled freeze, `uak allow`, context hygiene)
+- [MLB hackathon autopsy](docs/blackbox/mlb-2026-10.md): 10 days, 4 Windows laptops, 13 identities on Claude Code/Codex/Cursor; 15 findings mapped to v4.3 (merge by any agent after approval, approvals that survive merges of main, gate venv, retire, followup, output cap on Windows and Codex)
 - [Hackathon in one page](docs/HACKATHON.md): minute-0 commands, `uak clock`, freeze exceptions, fixes per error
 - [Inspirations](docs/INSPIRATIONS.md): AGENTS.md, Spec Kit, BMAD, Kiro, Task Master, superpowers

@@ -52,6 +52,20 @@ fi
 [ "$(git config --get core.hooksPath)" = .githooks ] && ok "pre-commit secret scanner active" || {
   if [ "$fix" = yes ]; then git config core.hooksPath .githooks && ok "core.hooksPath=.githooks (fixed)"
   else bad "core.hooksPath is not .githooks: commits skip the scanner (doctor --fix)"; fi; }
+# Hooks must be executable where git checks the bit (macOS/Linux). Why (MLB hackathon, Codex): the pre-commit
+# scanner was silently skipped because .githooks/pre-commit lost its executable bit.
+for h in .githooks/*; do
+  [ -f "$h" ] || continue
+  case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) break;; esac
+  if [ ! -x "$h" ]; then
+    if [ "$fix" = yes ]; then chmod +x "$h" && git update-index --chmod=+x "$h" 2>/dev/null; ok "$h made executable (fixed; commit it)"
+    else bad "$h is not executable: git skips it (doctor --fix)"; fi
+  fi
+done
+# Synced folders lock files while git writes them. Why (MLB hackathon): the repo and worktrees lived in
+# OneDrive\Escritorio and Windows showed sporadic "git init failed" and lock errors.
+case "$root" in *OneDrive*|*Dropbox*|*iCloud*|*"Google Drive"*)
+  warn "the repo is in a synced folder ($root): sync locks files git is writing; move it outside OneDrive/Dropbox/iCloud";; esac
 grep -qx '.env' .gitignore 2>/dev/null && ok ".env is git-ignored" || bad ".gitignore does not ignore .env"
 grep -qx '.uak-env' .gitignore 2>/dev/null || warn ".gitignore does not ignore .uak-env"
 

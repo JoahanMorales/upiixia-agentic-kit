@@ -4,7 +4,8 @@
 # tick (PostToolUse): heartbeat every 8 min and inbox poll every ~2 min, both in background;
 #   new actionable messages are injected as additional context on the next tool call.
 # stop (Stop): blocks ending the turn once per batch of unhandled messages; flushes the black box.
-# output [codex] (PostToolUse Bash) · wrap (Cursor preToolUse Shell): huge outputs become head + tail + log path.
+# output (Claude Code PostToolUse Bash) · wrap [codex] (Cursor preToolUse Shell, Codex PreToolUse Bash): huge outputs
+#   become head + tail (or a per-file diff index) + the log path.
 # Pace: when plan usage changes level (surge/conserve/critical), one line is injected (uak pace).
 # Why: agents forget heartbeats and miss mid-session requests from other tasks.
 set -u
@@ -168,7 +169,7 @@ $act"
     # Why: one test run or `git log -p` can add 30k+ tokens that are re-sent on every later turn; a teammate on
     # Cursor put it as "tool calling hogs the whole context". Cap: Output-Cap-Chars (default 12000, off).
     #   output         Claude Code PostToolUse(Bash): updatedToolOutput replaces what the model sees.
-    #   output codex   Codex PostToolUse(Bash): decision "block" replaces the tool result with the reason
+    #   output codex   legacy (v4.2 installs): Codex PostToolUse "block" replaces the result; v4.3 uses `wrap codex`.
     #                  (the command already ran; no permission or sandbox decision is involved).
     # Cursor cannot replace a shell result after it runs: see `wrap` (preToolUse).
     harness=${2:-claude}
@@ -188,10 +189,7 @@ $act"
     fi
     size=$(wc -c < "$log" | tr -d ' ')
     [ "$size" -gt "$cap" ] || { rm -f "$log"; exit 0; }
-    lines=$(awk 'END {print NR+0}' "$log")
-    short=$( { head -n 30 "$log" | cut -c 1-400
-      printf '\n[uak: %s lines / %s chars cut to head 30 + tail 50. Full output: %s. Read ranges: sed -n 200,260p FILE or grep -n PATTERN FILE. Rerun with UAK_RAW=1 to see it all.]\n\n' "$lines" "$size" "$log"
-      tail -n 50 "$log" | cut -c 1-400; } )
+    short=$(bash .uak/bin/cap --shape "$log")
     ls -t "$out_dir"/*.log 2>/dev/null | tail -n +21 | while IFS= read -r old; do rm -f "$old"; done
     if [ "$harness" = codex ]; then
       printf '{"decision":"block","reason":"%s"}\n' \
@@ -204,27 +202,51 @@ $act"
       "$(printf '%s' "$short" | json_text)" "$(printf '%s' "$err" | json_text)" "$intr"
     ;;
   wrap)
-    # Cursor preToolUse(Shell): rewrite a NOISY, LOW-RISK command so its output goes to a log and `cap` prints it
-    # whole when small, or head + tail when huge. Exit code and shell state (cd, export) are kept: the command
-    # runs in a { } group of the same shell. Only tests, builds, linters, type checks and read-only git/search
-    # commands are wrapped, after the guard allows them, because "allow" is the only way to pass updated_input.
-    # Skipped: servers, watchers, background jobs, interactive tools, exit/exec, Windows shells and fish.
+    # preToolUse rewrite of a NOISY, LOW-RISK command so its output goes to a log and `cap` prints it whole when
+    # small, or cut when huge (a diff becomes a per-file index). Only tests, builds, linters, type checks and
+    # read-only git/search commands, after the guard allows them ("allow" is the only way to pass a rewrite).
+    #   wrap         Cursor (Shell). bash/zsh: the command runs in a { } group of the same shell, so cd/export
+    #                persist. Windows: the agent shell is PowerShell, so the command goes base64 to `cap --b64`,
+    #                which runs it in bash (only commands both shells read the same: no $, \, backticks, cd).
+    #   wrap codex   Codex PreToolUse(Bash): permissionDecision allow + updatedInput.command, always base64.
+    # Why (MLB hackathon): the Windows skip meant the 4 Windows laptops never got a cap in Cursor; Codex's
+    # PostToolUse "block" cut documentation reads and "interrupted the tool batch".
+    harness=${2:-cursor}
     cap=$(cap_chars); [ "$cap" -gt 0 ] || exit 0
-    case "$input" in *'"tool_name":"Shell"'*|*'"tool_name": "Shell"'*) ;; *) exit 0;; esac
-    case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) exit 0;; esac
-    case "${SHELL:-}" in *fish) exit 0;; esac
+    # Codex: hooks.json matches Bash; the payload must carry tool_input.command (a string).
+    case "$harness:$input" in cursor:*'"tool_name":"Shell"'*|cursor:*'"tool_name": "Shell"'*|codex:*) ;; *) exit 0;; esac
+    case "${SHELL:-}" in *fish) [ "$harness" = codex ] || exit 0;; esac
+    windows=no; case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) windows=yes;; esac
+    [ "${UAK_TEST_WINDOWS:-}" != 1 ] || windows=yes
     cmd=$(jdecode tool_input command); [ -n "$cmd" ] || exit 0
     wd=$(jdecode tool_input working_directory)
     case "$cmd" in *UAK_RAW=1*|*.uak/bin/q*|*.uak/bin/cap*) exit 0;; esac
-    printf '%s\n' "$cmd" | grep -Eq '(^|[^&>])&([^&>]|$)|(^|[;&|[:space:]])(exit|exec|read|vim|vi|nano|less|more|top|htop|watch|ssh)([[:space:]]|$)|tail[[:space:]]+-[a-zA-Z]*f|--watch|--follow|(npm|pnpm|yarn|bun)[[:space:]]+(run[[:space:]]+)?(dev|start|serve)|uvicorn|gunicorn|flask[[:space:]]+run|http\.server|nodemon|next[[:space:]]+(dev|start)|docker(-|[[:space:]])compose[[:space:]]+up|rails[[:space:]]+s' && exit 0
+    printf '%s\n' "$cmd" | grep -Eq '(^|[^&>])&([^&>]|$)|(^|[;&|[:space:]])(exit|exec|read|vim|vi|nano|less|more|top|htop|watch|ssh)([[:space:]]|$)|tail[[:space:]]+-[a-zA-Z]*f|--watch|--follow|(npm|pnpm|yarn|bun)[[:space:]]+(run[[:space:]]+)?(dev|start|serve)|uvicorn|gunicorn|flask[[:space:]]+run|http\.server|nodemon|next[[:space:]]+(dev|start)|docker(-|[[:space:]])compose[[:space:]]+up|rails[[:space:]]+s|streamlit[[:space:]]+run' && exit 0
     printf '%s\n' "$cmd" | grep -Eq '(^|[;&|([:space:]])(pytest|py\.test|tox|nox|jest|vitest|mocha|tsc|eslint|ruff|mypy|pyright|flake8|pylint|rg|tree|du|make)([[:space:]]|$)|python3?[[:space:]]+-m[[:space:]]+(pytest|unittest)|playwright[[:space:]]+test|cypress[[:space:]]+run|go[[:space:]]+(test|build|vet)|cargo[[:space:]]+(test|build|check|clippy)|(mvn|gradle|gradlew)[[:space:]]|(npm|pnpm|yarn|bun)[[:space:]]+(run[[:space:]]+)?(test|build|lint|typecheck|check|format:check)|(uv|poetry)[[:space:]]+run[[:space:]]+(pytest|python|mypy|ruff)|git[[:space:]]+(log|diff|show|blame|status)|grep[[:space:]]+-[a-zA-Z]*r|find[[:space:]]|ls[[:space:]]+-[a-zA-Z]*R|\.uak/bin/(smoke|uak[[:space:]]+(status|board|digest|stats|graph))' || exit 0
-    # The guard decides first; a blocked command is left untouched so beforeShellExecution denies it.
+    # The guard decides first; a blocked command is left untouched so the deny hook blocks it.
     bash .uak/bin/guard check "$cmd" >/dev/null 2>&1 || exit 0
-    out_dir="$(cd "$gd" && pwd -P)/uak-out"; mkdir -p "$out_dir" 2>/dev/null || exit 0
-    log="$out_dir/$(date +%s)-$$.log"; capbin="$(pwd -P)/.uak/bin/cap"
-    case "$log$capbin" in *"'"*) exit 0;; esac
-    wrapped="{ $cmd
+    capbin="$(pwd -P)/.uak/bin/cap"
+    if [ "$harness" = codex ] || [ "$windows" = yes ]; then
+      if [ "$harness" = cursor ]; then
+        # PowerShell and bash must read it the same way.
+        case "$cmd" in *'$'*|*'\'*|*'`'*|*'%'*) exit 0;; esac
+        printf '%s\n' "$cmd" | grep -Eq '(^|[;&|[:space:]])(cd|pushd|export|set|source)([[:space:]]|$)|(^|[;&|])[[:space:]]*\.[[:space:]]|[A-Z][a-z]+-[A-Z][a-z]+' && exit 0
+        capbin=$(cygpath -m "$capbin" 2>/dev/null || printf '%s' "$capbin")
+      fi
+      case "$capbin" in *"'"*) exit 0;; esac
+      b64=$(printf '%s' "$cmd" | base64 | tr -d '\n\r')
+      wrapped="bash '$capbin' --b64 $b64"
+    else
+      out_dir="$(cd "$gd" && pwd -P)/uak-out"; mkdir -p "$out_dir" 2>/dev/null || exit 0
+      log="$out_dir/$(date +%s)-$$.log"
+      case "$log$capbin" in *"'"*) exit 0;; esac
+      wrapped="{ $cmd
 } > '$log' 2>&1; __uak_rc=\$?; bash '$capbin' '$log' \"\$__uak_rc\"; (exit \$__uak_rc)"
+    fi
+    if [ "$harness" = codex ]; then
+      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":{"command":"%s"}}}\n' "$(printf '%s' "$wrapped" | json_cmd)"
+      exit 0
+    fi
     extra=; [ -z "$wd" ] || extra=",\"working_directory\":\"$(printf '%s' "$wd" | json_cmd)\""
     printf '{"permission":"allow","updated_input":{"command":"%s"%s}}\n' "$(printf '%s' "$wrapped" | json_cmd)" "$extra"
     ;;

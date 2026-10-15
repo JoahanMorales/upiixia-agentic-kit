@@ -176,7 +176,7 @@ def wt_identity_and_ports(r):
     stop = r.run([r.bash, ".uak/bin/wt", "stop"], cwd=wt)
     expect("WT_STOPPED" in stop.stdout, "wt stop runs without killing anything else")
     ident = r.run([r.bash, ".uak/bin/uak", "heartbeat", "HACK-002"], cwd=root, env={"UAK_AGENT": "", "UAK_HUMAN": ""}, allowed=None)
-    expect(ident.returncode == 2 and "git config uak.agent" in ident.stderr, "a missing identity explains the fix: " + ident.stderr)
+    expect(ident.returncode == 2 and "UAK_AGENT=NAME" in ident.stderr, "a missing identity explains the fix: " + ident.stderr)
     return {"owner": "scout-2", "port": port}
 
 

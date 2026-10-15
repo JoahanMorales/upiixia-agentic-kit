@@ -42,7 +42,9 @@ coord_init() {
   # Depth 1 unless the command proves ancestry on the base (done/integrate/merge): a full fetch of main on
   # every status/next was a clone of the product repo per call.
   case "$CMD" in done|integrate|merge) coord_depth=;; *) coord_depth=--depth=1;; esac
-  git -C "$TX" fetch -q $coord_depth origin "refs/heads/$BASE:refs/uak/config" || gitfail "Could not read PROJECT.md on remote $BASE."
+  # Already fetched in this transaction directory (status/next reuse the tick's clone): no second fetch.
+  git -C "$TX" rev-parse -q --verify refs/uak/config >/dev/null 2>&1 ||
+    git -C "$TX" fetch -q $coord_depth origin "refs/heads/$BASE:refs/uak/config" || gitfail "Could not read PROJECT.md on remote $BASE."
   git -C "$TX" show refs/uak/config:.uak/TASKS.md > "$TXROOT/canonical-TASKS.md" 2>/dev/null || : > "$TXROOT/canonical-TASKS.md"
   git -C "$TX" show refs/uak/config:.uak/OWNERS.md > "$TXROOT/canonical-OWNERS.md" 2>/dev/null || : > "$TXROOT/canonical-OWNERS.md"
   # Backlog published with `uak plan` on claims is appended to main's, no PR.
@@ -148,6 +150,9 @@ coord_tick_mutate() {
   for coord_claim in "$TX"/claims/*.md; do
     [ -f "$coord_claim" ] || continue
     coord_until=$(coord_read "$coord_claim" Lease-Until); coord_uint Lease-Until "$coord_until"
+    # A REVIEW claim waits on others (reviewer, merge): its lease expiry needs no recovery; any agent can merge
+    # it once approved. Why (MLB hackathon): 22 of 62 DECISIONS lines were REQUIRES_RECOVERY, 19 on REVIEW tasks.
+    [ "$(coord_read "$coord_claim" State)" != REVIEW ] || continue
     if [ "$coord_until" -gt 0 ] && [ "$NOW" -ge "$coord_until" ]; then
       coord_id=$(coord_read "$coord_claim" ID)
       coord_receipt lease "$coord_id" "$coord_until" REQUIRES_RECOVERY "Claim kept; read the summary and use release --expired --read-summary. No work is deleted." || true
@@ -435,6 +440,20 @@ coord_next() {
   else
     say 'No eligible candidate (priority, dependencies, claims or authorization).'
   fi
+  # An approval older than Merge-Adopt-Seconds whose owner did not merge: the most valuable idle work.
+  coord_adopt=$(coord_config Merge-Adopt-Seconds 1200); case "$coord_adopt" in ''|*[!0-9]*) coord_adopt=1200;; esac
+  for coord_f in "$TX"/claims/*.md; do
+    [ -f "$coord_f" ] && [ -n "$AGENT" ] || continue
+    [ "$(coord_read "$coord_f" State)" = REVIEW ] && [ "$(coord_read "$coord_f" Owner)" != "$AGENT" ] || continue
+    coord_rid=$(coord_read "$coord_f" ID); coord_rv="$TX/reviews/$coord_rid.md"
+    [ -f "$coord_rv" ] && [ "$(coord_read "$coord_rv" Verdict)" = approve ] || continue
+    [ "$(coord_read "$coord_rv" SHA)" = "$(coord_read "$TX/tasks/$coord_rid.md" Task-Tip)" ] || continue
+    coord_rt=$(coord_read "$coord_rv" Reviewed | tr -cd '0-9')
+    [ $((NOW - ${coord_rt:-$NOW})) -ge "$coord_adopt" ] || continue
+    [ "$(coord_read "$TX/queue/$coord_rid.md" State)" != HUMAN ] || continue
+    say "Idle: $coord_rid is approved ($(( (NOW - coord_rt) / 60 )) min ago) and its owner $(coord_read "$coord_f" Owner) has not merged it: bash .uak/bin/uak merge $coord_rid"
+    coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"; return 0
+  done
   for coord_f in "$TX"/claims/*.md; do
     [ -f "$coord_f" ] || continue
     [ "$(coord_read "$coord_f" State)" = REVIEW ] && [ "$(coord_read "$coord_f" Owner)" != "$AGENT" ] || continue

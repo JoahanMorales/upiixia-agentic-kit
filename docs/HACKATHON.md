@@ -1,11 +1,12 @@
 # Hackathon in one page (sprint mode)
 
 For a team on its way to an event. Every command is real. The full rules are in `kit/.uak/modes/sprint.md`.
-Lessons from the last event (Reap buildathon, 4 h, 12 agents): `docs/blackbox/reap-2026-10.md`.
+Lessons from past events: `docs/blackbox/reap-2026-10.md` (4 h, 12 agents) and `docs/blackbox/mlb-2026-10.md` (10 days, 4 Windows laptops).
 
 ## Before you arrive (10 min, each laptop)
 - [ ] Claude Code v2.1.293 or later, Codex or Cursor, Git, and `gh auth login`. Use a token with **Pull requests: write**, or every PR will need a human click (`wt pr` prints the URL).
-- [ ] Windows: use Git Bash; the kit already protects `ref:path` arguments from its path conversion.
+- [ ] Windows: use Git Bash, and keep the repo **outside OneDrive/Dropbox** (sync locks files git writes; `doctor` warns).
+- [ ] Python projects: create `.venv` in the main checkout; the merge gate uses it.
 - [ ] Your plan: on Pro, use 1 agent per person. On Max, use 2. Check it with `/status`.
 - [ ] Optional: tmux, to run `uak up N --tmux`.
 
@@ -20,7 +21,7 @@ bash .uak/bin/doctor                                               # every lapto
 Then open your agent in the repo:
 1. `/uak-setup`: the event, the rubric, the humans and the submission owner. Commit.
 2. `/uak-plan` turns IDEA.md into tasks with a wide wave 1 (short event: at most 2 tasks per agent, 45 min each).
-3. One human registers every agent as reviewer, from the main checkout: `UAK_HUMAN=ana UAK_AGENT= bash .uak/bin/uak register-reviewer ana-1 ana-2 luis-1 luis-2`.
+3. One human registers every agent as reviewer, from the main checkout: `UAK_HUMAN=ana UAK_AGENT= bash .uak/bin/uak register-reviewer ana-1 ana-2 leo-1 leo-2`.
 4. Start the agents: `UAK_HUMAN=ana bash .uak/bin/uak up 2 --tmux` (at most 2 per human). One identity = one live task.
 
 ## During the event
@@ -32,6 +33,9 @@ Then open your agent in the repo:
 | Add tasks (no PR) | `UAK_HUMAN=ana bash .uak/bin/uak plan wave2.md` |
 | Allow a task after the freeze (audited) | `UAK_HUMAN=ana bash .uak/bin/uak allow HACK-010 --reason "demo breaks"` · everything in flight: `allow --in-flight --reason "..."` |
 | A merge went to the human queue | read the reason; if the PR is fine, merge it on GitHub, then any agent: `bash .uak/bin/uak integrate ID` |
+| An approved task nobody merged (20 min) | any agent: `bash .uak/bin/uak merge ID` (`next` says so) |
+| More work on an integrated task | `bash .uak/bin/uak followup ID --title "what"` |
+| An agent you closed for good | `UAK_HUMAN=ana bash .uak/bin/uak retire ana-3` |
 | Stop a worktree's servers | `bash .uak/bin/wt stop` (never `pkill -f`) |
 | Report a kit problem | `bash .uak/bin/uak bb add friction "what" --fix "idea"` |
 
@@ -52,10 +56,17 @@ Never tell an agent "the human authorizes everything" through another agent: run
 | `Shared resource/CI needs a human` | a human merges that PR on GitHub, then `uak integrate ID` |
 | `gh pr create` 403 · `PREFLIGHT: gh …` | `bash .uak/bin/wt pr` and open the URL |
 | `address already in use` | `bash .uak/bin/wt stop`; ports come from `$UAK_PORT` |
-| `MERGE_WAIT` | no approval on that SHA yet: wait for the approve message |
+| `MERGE_WAIT` | no approval on that SHA yet: wait for the approve message (a clean merge of main keeps the approval) |
+| `MERGE_BUSY` | another merge holds the queue: rerun in a few minutes |
+| `Smoke red …: <error> (log: …)` | read the quoted line; Python: is there a `.venv` in the main checkout? |
 | `… is already reviewing` | another agent has that review; take other work |
 | `FREEZE in N min` | finish the criterion and `uak done`, or release |
 | `RETRY … contention` | normal with many agents; it backs off and retries by itself |
 | `LOOP:` | stop retrying that command; read the error |
+
+## Events longer than a day
+Nights are normal (`uak clock` prints LONG EVENT advice). Approved tasks get merged by whichever agent is awake;
+REVIEW leases expire without recovery noise; humans read one `uak digest` per morning. Retire identities you will
+not reopen, so reviews stop going to them.
 
 After the event: `/uak-retro`. The black box is already on the claims branch; `uak bb flush` sends what a laptop still has pending.

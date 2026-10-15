@@ -3,7 +3,7 @@
 # Why: a declared name never proves an independent approval.
 RM_REASON= APPROVED_BY= RM_TIP= RM_ELIGIBLE_VIA= RM_PROOF=
 RM_COUNTER=0 RM_HELD=no RM_FINISHED=no RM_TOKEN= RM_BUILD= RM_CANDIDATE= RM_BASE_TIP= RM_REVIEWED_TIP=
-RM_ACTION= RM_QUEUE_REASON= RM_TREE= RM_REVIEW_MODE= RM_GH_MERGED= RM_GH_MERGE=
+RM_ACTION= RM_QUEUE_REASON= RM_TREE= RM_REVIEW_MODE= RM_GH_MERGED= RM_GH_MERGE= RM_ADOPTED=no RM_MAIN= RM_GATE_PATH=
 
 rm_config() {
   if typeset -f coord_config >/dev/null 2>&1; then coord_config "$1" "$2";
@@ -13,7 +13,7 @@ rm_config() {
 }
 registered_reviewer() {
   case "$1" in ''|*[!A-Za-z0-9_.-]*) return 1;; esac
-  [ -f "$TX/roles/reviewers/$1.md" ] &&
+  [ ! -f "$TX/meta/retired/$1.md" ] && [ -f "$TX/roles/reviewers/$1.md" ] &&
     [ "$(field "$TX/roles/reviewers/$1.md" Reviewer)" = "$1" ] &&
     [ -n "$(field "$TX/roles/reviewers/$1.md" Registered-By)" ]
 }
@@ -80,9 +80,56 @@ resolve_task_tip() {
       git -C "$TX" fetch -q origin "$RM_TIP" || { RM_REASON='Task-Tip not available'; return 1; }
   fi
 }
+# The approval of SHA $1 still holds for $2 when everything after $1 is a clean merge of the base: each
+# commit is a 2-parent merge whose other parent is already in the base, and its tree is exactly what git
+# computes for that merge (no hand edits, no conflict resolution). Any git (older than 2.38: a stricter 3-way index merge).
+# Why (MLB hackathon): "Update branch" or a merge of main after the approval made the SHA stale; agents asked
+# for re-reviews of pure merges by message (#42, #66) and integrate refused a merged PR (HACK-031).
+# Tree of a clean automatic merge of $1 and $2, or failure. git 2.38+: merge-tree --write-tree. Older git
+# (Ubuntu 22.04 ships 2.34): a 3-way read-tree in a temporary index, which resolves file-level merges only;
+# anything it cannot resolve fails, so the approval is not carried (a re-review, never a false approval).
+rm_clean_merge_tree() {
+  local base idx="$TXROOT/carry-index.$$"
+  if git -C "$TX" merge-tree -h 2>&1 | grep -q -- --write-tree; then
+    git -C "$TX" merge-tree --write-tree "$1" "$2" 2>/dev/null | head -n 1; return "${PIPESTATUS[0]}"
+  fi
+  base=$(git -C "$TX" merge-base "$1" "$2" 2>/dev/null) || return 1
+  [ "$(git -C "$TX" merge-base --all "$1" "$2" | wc -l | tr -d ' ')" -eq 1 ] || return 1
+  rm -f "$idx"
+  GIT_INDEX_FILE=$idx git -C "$TX" read-tree -i -m --aggressive "$base" "$1" "$2" 2>/dev/null || { rm -f "$idx"; return 1; }
+  GIT_INDEX_FILE=$idx git -C "$TX" write-tree 2>/dev/null; local rc=$?; rm -f "$idx"; return "$rc"
+}
+rm_main_merges_only() {
+  local c=$2 p1 p2 t i=0
+  [ "$1" != "$2" ] || return 0
+  git -C "$TX" merge-base --is-ancestor "$1" "$2" 2>/dev/null || return 1
+  git -C "$TX" rev-parse -q --verify refs/uak/base >/dev/null 2>&1 ||
+    git -C "$TX" fetch -q origin "refs/heads/$BASE:refs/uak/base" 2>/dev/null || return 1
+  while [ "$c" != "$1" ]; do
+    i=$((i + 1)); [ "$i" -le 30 ] || return 1
+    p1=$(git -C "$TX" rev-parse -q --verify "$c^1" 2>/dev/null) || return 1
+    p2=$(git -C "$TX" rev-parse -q --verify "$c^2" 2>/dev/null) || return 1
+    ! git -C "$TX" rev-parse -q --verify "$c^3" >/dev/null 2>&1 || return 1
+    # The branch side is the parent that is not in the base (a merge made from main has them swapped).
+    if git -C "$TX" merge-base --is-ancestor "$p1" refs/uak/base && ! git -C "$TX" merge-base --is-ancestor "$p2" refs/uak/base; then
+      t=$p1; p1=$p2; p2=$t
+    fi
+    git -C "$TX" merge-base --is-ancestor "$p2" refs/uak/base || return 1
+    t=$(rm_clean_merge_tree "$p1" "$p2") || return 1
+    [ -n "$t" ] && [ "$t" = "$(git -C "$TX" rev-parse "$c^{tree}")" ] || return 1
+    c=$p1
+  done
+}
 review_mutate() {
   RECORD=$(task_file)
   [ -f "$RECORD" ] || conflict "$ID has no claimed task."
+  # --stop: give the review back (could not finish). Why (MLB): a reviewer that could not read the diff had to
+  # say "my lock expires in 20 min" by message.
+  if [ "$REVIEW_STOP" = yes ]; then
+    [ -f "$TX/reviews/$ID.reviewing" ] && [ "$(field "$TX/reviews/$ID.reviewing" Reviewer)" = "$AGENT" ] ||
+      { say "OK review --stop $ID | you hold no review lock on it"; return 0; }
+    rm -f "$TX/reviews/$ID.reviewing"; return 0
+  fi
   [ "$AGENT" != "$(field "$RECORD" Owner)" ] || conflict "The owner cannot approve their own task."
   review_identity_eligible "$AGENT" || conflict "The reviewer needs an active own claim or a registered role."
   resolve_task_tip || conflict "$RM_REASON"
@@ -110,7 +157,19 @@ review_mutate() {
     REVIEW_STARTED=yes
     return 0
   fi
-  [ "$REVIEW_SHA" = "$RM_TIP" ] || conflict "The review must match the task's current HEAD."
+  # A short SHA of the current HEAD is the HEAD.
+  case "$RM_TIP" in "$REVIEW_SHA"*) [ "${#REVIEW_SHA}" -lt 7 ] || REVIEW_SHA=$RM_TIP;; esac
+  local carried=
+  if [ "$REVIEW_SHA" != "$RM_TIP" ]; then
+    local full; full=$(git -C "$TX" rev-parse -q --verify "$REVIEW_SHA^{commit}" 2>/dev/null) || full=
+    if [ -n "$full" ] && rm_main_merges_only "$full" "$RM_TIP"; then
+      carried=$full
+    elif [ -n "$full" ] && git -C "$TX" merge-base --is-ancestor "$full" "$RM_TIP" 2>/dev/null; then
+      conflict "HEAD moved: ${RM_TIP%"${RM_TIP#???????}"} has $(git -C "$TX" rev-list --count "$full..$RM_TIP") commit(s) after your ${full%"${full#???????}"} ($(git -C "$TX" diff --name-only "$full" "$RM_TIP" | wc -l | tr -d ' ') files). Review the new commits: git diff ${full%"${full#???????}"} ${RM_TIP%"${RM_TIP#???????}"}, then --sha $RM_TIP."
+    else
+      conflict "The review must match the task's current HEAD (${RM_TIP%"${RM_TIP#???????}"}); --sha $REVIEW_SHA is not in its history."
+    fi
+  fi
   case "$REVIEW_VERDICT" in approve|reject) ;; *) die "--verdict must be approve or reject.";; esac
   rm -f "$TX/reviews/$ID.reviewing"
   # An approval of a SHA that already has one is duplicate work (Reap: HACK-005 got 7 approvals, 3 on one SHA).
@@ -122,13 +181,14 @@ review_mutate() {
   mkdir -p "$TX/reviews"
   printf '%s\n' "ID: $ID" "SHA: $RM_TIP" "Reviewer: $AGENT" "Owner: $(field "$RECORD" Owner)" \
     "Verdict: $REVIEW_VERDICT" "Reviewed: $NOW" "Eligible-Via: $RM_ELIGIBLE_VIA" 'Command: uak review' > "$TX/reviews/$ID.md"
+  [ -z "$carried" ] || printf '%s\n' "Carried-From: $carried (later commits are clean merges of $BASE)" >> "$TX/reviews/$ID.md"
   put "$RECORD" Task-Tip "$RM_TIP"
   WL=$(field "$RECORD" Worklog); STATE=$(field "$RECORD" State)
   event "review; $REVIEW_VERDICT; SHA $RM_TIP; reviewer $AGENT"
   # --note goes in the same message: one message per verdict, not a verdict plus a separate detail message.
   local note=; [ -z "$REVIEW_NOTE" ] || note=" · $REVIEW_NOTE"
   if [ "$REVIEW_VERDICT" = approve ]; then
-    msg_append "task:$ID" approve "$ID" "Approved SHA ${RM_TIP%"${RM_TIP#???????}"} by $AGENT$note. Next: bash .uak/bin/uak heartbeat $ID && bash .uak/bin/uak merge $ID"
+    msg_append "task:$ID" approve "$ID" "Approved SHA ${RM_TIP%"${RM_TIP#???????}"} by $AGENT$note. Next: bash .uak/bin/uak merge $ID (the owner; after $(( $(rm_config Merge-Adopt-Seconds 1200) / 60 )) min any agent can)"
   else
     msg_append "task:$ID" reject "$ID" "Rejected SHA ${RM_TIP%"${RM_TIP#???????}"} by $AGENT$note. Fix, push, and rerun /uak-ship"
   fi
@@ -151,7 +211,8 @@ approval_check() {
       [ -f "$review" ] || { RM_REASON='Missing verifiable approval on claims'; return 1; }
       who=$(field "$review" Reviewer)
       case "$who" in ''|*[!A-Za-z0-9_.-]*) RM_REASON='Invalid approval identity'; return 1;; esac
-      [ "$(field "$review" Verdict)" = approve ] && [ "$(field "$review" SHA)" = "$tip" ] &&
+      [ "$(field "$review" Verdict)" = approve ] &&
+        { [ "$(field "$review" SHA)" = "$tip" ] || rm_main_merges_only "$(field "$review" SHA)" "$tip"; } &&
         [ "$(field "$review" Owner)" = "$author" ] && [ "$who" != "$author" ] &&
         [ "$(field "$review" Command)" = 'uak review' ] && [ -n "$(field "$review" Eligible-Via)" ] || {
         RM_REASON='Approval missing, rejected, self-made or stale for the current SHA'; return 1;
@@ -264,11 +325,21 @@ rm_coord_mutate() {
   case "$RM_ACTION" in
     enqueue|lock|finalize)
       [ -f "$RECORD" ] && [ -f "$CLAIM" ] || { RM_REASON='Task without claim; cannot merge'; return 3; }
-      [ "$(field "$RECORD" Owner)" = "$AGENT" ] || { RM_REASON='Only the owner can enqueue its task'; return 3; }
       [ "$(field "$RECORD" State)" = REVIEW ] || { RM_REASON='Run done first to enter REVIEW'; return 3; }
-      until=$(field "$CLAIM" Lease-Until)
-      case "$until" in ''|*[!0-9]*) RM_REASON='Invalid claim lease'; return 3;; esac
-      [ "$NOW" -lt "$until" ] || { RM_REASON='Claim expired; recover before merging'; return 3; };;
+      # An approved task waits for nobody: after Merge-Adopt-Seconds (20 min) any eligible agent may merge it.
+      # The lease does not matter in REVIEW: the approval of the exact SHA is what is verified.
+      # Why (MLB hackathon): approved tasks waited 7-13 h for their owner's `uak merge` (HACK-016 blocked 4
+      # tasks for 10 h) and two agents sent the human "stop and merge" messages.
+      if [ "$(field "$RECORD" Owner)" != "$AGENT" ]; then
+        local rv="$TX/reviews/$ID.md" adopt reviewed
+        adopt=$(rm_config Merge-Adopt-Seconds 1200); case "$adopt" in ''|*[!0-9]*) adopt=1200;; esac
+        reviewed=$(field "$rv" Reviewed); case "$reviewed" in ''|*[!0-9]*) reviewed=$NOW;; esac
+        [ "$(field "$rv" Verdict)" = approve ] || { RM_REASON="Only the owner ($(field "$RECORD" Owner)) merges a task without an approval"; return 3; }
+        [ $((NOW - reviewed)) -ge "$adopt" ] || {
+          RM_REASON="The owner $(field "$RECORD" Owner) has $(( (adopt - NOW + reviewed + 59) / 60 )) min left to merge its approved task; after that any agent can"; return 3; }
+        review_identity_eligible "$AGENT" || { RM_REASON='Merging another agent'"'"'s task needs an active claim or a registered role'; return 3; }
+        RM_ADOPTED=yes
+      fi;;
   esac
   case "$RM_ACTION" in
     enqueue)
@@ -305,6 +376,7 @@ rm_coord_mutate() {
       STATE=INTEGRATED; WL=$(field "$RECORD" Worklog)
       put "$RECORD" State INTEGRATED; put "$RECORD" Merge-Commit "$RM_CANDIDATE"; put "$RECORD" Reviewer "$APPROVED_BY"
       put "$RECORD" Task-Tip "$RM_REVIEWED_TIP"; put "$RECORD" Integration-Proof ancestry
+      [ "${RM_ADOPTED:-no}" != yes ] || put "$RECORD" Merged-By "$AGENT"
       put "$RECORD" Lease-Until 0; put "$RECORD" Updated "$NOW"; put "$RECORD" Next "Integrated in $BASE: $RM_CANDIDATE"
       update_summary_field Next "Integrated in $BASE: $RM_CANDIDATE"; event "merge; smoke and Verify PASS; commit $RM_CANDIDATE; reviewer $APPROVED_BY"
       rm -f "$CLAIM" "$lock"; put "$TX/queue/$ID.md" State INTEGRATED; put "$TX/queue/$ID.md" Commit "$RM_CANDIDATE"
@@ -353,6 +425,16 @@ rm_exit_cleanup() {
   cleanup
   exit "$rc"
 }
+# " (Paths of HACK-029)" when another task reserves that file; empty otherwise.
+rm_path_owner() {
+  local t
+  printf '%s\n' "$1" > "$TXROOT/owner-path"
+  for t in "$TX"/tasks/*.md; do
+    [ -f "$t" ] && [ "$(field "$t" ID)" != "$ID" ] || continue
+    normalize_paths "$(field "$t" Paths)" > "$TXROOT/owner-paths" 2>/dev/null || continue
+    if overlaps "$TXROOT/owner-path" "$TXROOT/owner-paths"; then printf ' (Paths of %s)' "$(field "$t" ID)"; return 0; fi
+  done
+}
 rm_gate_scope() {
   local path allowed reserve
   normalize_paths "$(field "$RECORD" Paths)" > "$TXROOT/merge-allowed" || { RM_REASON='Invalid claim Paths'; return 1; }
@@ -366,24 +448,60 @@ rm_gate_scope() {
   additive=-; [ ! -f "$TXROOT/coord-source" ] || additive=$(coord_source_field Additive-Paths -)
   if [ -n "$additive" ] && [ "$additive" != - ]; then
     normalize_paths "$additive" > "$TXROOT/merge-additive" 2>/dev/null || : > "$TXROOT/merge-additive"
-    git -C "$RM_BUILD" diff --cached --no-renames --diff-filter=A --name-only "$RM_BASE_TIP" > "$TXROOT/merge-added" || return 1
   fi
+  git -C "$RM_BUILD" diff --cached --no-renames --diff-filter=A --name-only "$RM_BASE_TIP" > "$TXROOT/merge-added" || return 1
   while IFS= read -r -d '' path; do
     case "$path" in *$'\n'*|*$'\r'*) RM_REASON='Path with newline not supported'; return 1;; esac
+    # Shared resources first, so the reason says what it really is (MLB: the smoke provenance file, written by
+    # init-smoke, was reported as "outside Paths").
+    case "/$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')/" in
+      */contracts/*|*/types/*|*/shared-types/*|*/migrations/*|*/.github/workflows/*|*/.gitlab-ci.yml/*|*/azure-pipelines.yml/*|*/package-lock.json/*|*/pnpm-lock.yaml/*|*/*.lock/*|*/*.lockb/*|*/go.sum/*|*/.uak/bin/smoke/*|*/.uak/bin/smoke-project/*|*/.uak/bin/.smoke-project.provenance/*|*/.uak/bin/secret-scan/*|*/.uak/bin/uak/*|*/.uak/bin/lib/*|*/.uak/bin/uak-coordination/*|*/.githooks/*|*/hackathon.md/*|*/.uak/project.md/*)
+        RM_REASON="Shared resource/CI needs a human: $path"; return 1;;
+    esac
     normalize_paths "$path" > "$TXROOT/merge-path" || { RM_REASON='Invalid diff path'; return 1; }
     allowed=no
     while IFS= read -r reserve; do
       printf '%s\n' "$reserve" > "$TXROOT/merge-reserve"
       overlaps "$TXROOT/merge-path" "$TXROOT/merge-reserve" && allowed=yes
     done < "$TXROOT/merge-allowed"
-    if [ "$allowed" = no ] && [ -s "$TXROOT/merge-additive" ] && grep -qxF -- "$path" "$TXROOT/merge-added" 2>/dev/null &&
+    added=no; ! grep -qxF -- "$path" "$TXROOT/merge-added" 2>/dev/null || added=yes
+    if [ "$allowed" = no ] && [ "$added" = yes ] && [ -s "$TXROOT/merge-additive" ] &&
        overlaps "$TXROOT/merge-path" "$TXROOT/merge-additive"; then allowed=yes; fi
-    [ "$allowed" = yes ] || { RM_REASON="Diff outside Paths: $path (new test files: add the dir to Additive-Paths in PROJECT.md)"; return 1; }
-    case "/$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')/" in
-      */contracts/*|*/types/*|*/shared-types/*|*/migrations/*|*/.github/workflows/*|*/.gitlab-ci.yml/*|*/azure-pipelines.yml/*|*/package-lock.json/*|*/pnpm-lock.yaml/*|*/*.lock/*|*/*.lockb/*|*/go.sum/*|*/.uak/bin/smoke/*|*/.uak/bin/smoke-project/*|*/.uak/bin/secret-scan/*|*/.uak/bin/uak/*|*/.uak/bin/lib/*|*/.uak/bin/uak-coordination/*|*/.githooks/*|*/hackathon.md/*|*/.uak/project.md/*)
-        RM_REASON="Shared resource/CI needs a human: $path"; return 1;;
-    esac
+    # A new EMPTY file (package marker such as __init__.py, .gitkeep) changes no behavior of other tasks.
+    # Why (MLB hackathon): an empty app/__init__.py and analysis/__init__.py sent two merges to the human.
+    if [ "$allowed" = no ] && [ "$added" = yes ] && [ "$(git -C "$RM_BUILD" cat-file -s ":$path" 2>/dev/null)" = 0 ]; then allowed=yes; fi
+    if [ "$allowed" = no ]; then
+      if [ "$added" = yes ]; then
+        RM_REASON="New file outside Paths: $path. Move it into the task's Paths, or a human adds its dir to Additive-Paths in PROJECT.md (new files there need no reservation)"
+      else
+        RM_REASON="Edits a file outside Paths: $path$(rm_path_owner "$path"). Revert that file on the branch (git checkout origin/$BASE -- $path), or the human merges the PR"
+      fi
+      return 1
+    fi
   done < "$TXROOT/merge-files"
+}
+# The candidate is a fresh clone: no .venv, no node_modules, no git-ignored data. The gate puts the worktree's
+# (or the main checkout's) virtualenv first on PATH and exports UAK_MAIN_CHECKOUT for project scripts.
+# Why (MLB hackathon): 6 of 17 human-queue entries were "Smoke red" because the clone had no Python env;
+# agents worked around it with PATH=<main>/.venv/Scripts:$PATH by hand.
+rm_gate_env() {
+  local v
+  RM_MAIN=$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)/.." 2>/dev/null && pwd -P) || RM_MAIN=$ROOT
+  RM_GATE_PATH=$PATH
+  for v in "$ROOT/.venv" "$RM_MAIN/.venv" "$ROOT/venv" "$RM_MAIN/venv"; do
+    if [ -d "$v/Scripts" ]; then RM_GATE_PATH="$v/Scripts:$PATH"; break; fi
+    if [ -d "$v/bin" ]; then RM_GATE_PATH="$v/bin:$PATH"; break; fi
+  done
+}
+# Keeps a failed gate log (the temp dir is deleted) and returns ": last error line (log: PATH)".
+# Why (MLB, Codex): "merge smoke failed without exposing the diagnostic log".
+rm_gate_log() {
+  local src="$TXROOT/gate-$1.log" dir dst line
+  dir="$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null)/uak-out"; mkdir -p "$dir" 2>/dev/null || return 0
+  dst="$dir/gate-$ID-$1-$NOW.log"; cp "$src" "$dst" 2>/dev/null || return 0
+  line=$(grep -Ev '^[[:space:]]*$' "$dst" | grep -Ei 'error|fail|not found|no module|exit' | tail -n 1 | cut -c 1-140)
+  [ -n "$line" ] || line=$(grep -Ev '^[[:space:]]*$' "$dst" | tail -n 1 | cut -c 1-140)
+  printf ': %s (log: %s)' "$(one_line "$line" | tr '|' '/')" "$dst"
 }
 rm_prepare_candidate() {
   local branch task_base verify
@@ -412,10 +530,13 @@ rm_prepare_candidate() {
   (cd "$RM_BUILD" && bash .uak/bin/secret-scan --tracked --decisions "$TX/DECISIONS.md") > "$TXROOT/gate-secrets.log" 2>&1 || {
     RM_REASON='Secret gate red'; return 1;
   }
-  (cd "$RM_BUILD" && bash .uak/bin/smoke) > "$TXROOT/gate-smoke.log" 2>&1 || { RM_REASON='Smoke red or product unverified'; return 1; }
+  rm_gate_env
+  (cd "$RM_BUILD" && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" bash .uak/bin/smoke) > "$TXROOT/gate-smoke.log" 2>&1 ||
+    { RM_REASON="Smoke red or product unverified$(rm_gate_log smoke)"; return 1; }
   verify=$(field "$RECORD" Verify); verify=$(printf '%s\n' "$verify" | sed 's/^`//;s/`$//')
   [ -n "$verify" ] || { RM_REASON='Missing runnable Verify'; return 1; }
-  (cd "$RM_BUILD" && bash -c "$verify") > "$TXROOT/gate-verify.log" 2>&1 || { RM_REASON='Verify / acceptance red'; return 1; }
+  (cd "$RM_BUILD" && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" bash -c "$verify") > "$TXROOT/gate-verify.log" 2>&1 ||
+    { RM_REASON="Verify / acceptance red$(rm_gate_log verify)"; return 1; }
   git -C "$RM_BUILD" diff --quiet && [ "$(git -C "$RM_BUILD" write-tree)" = "$RM_TREE" ] || {
     RM_REASON='Smoke/Verify modified tracked files of the candidate; needs a new review'; return 1;
   }
@@ -455,7 +576,12 @@ merge_run() {
     rm_coord_update lock; rc=$?
     if [ "$rc" -eq 0 ]; then RM_HELD=yes; break; fi
     waited=$(($(date +%s) - wait_started))
-    [ "$rc" -eq 4 ] && [ "$waited" -lt "$RM_WAIT" ] || {
+    # A busy queue is a wait, not a human problem (MLB: "Queue busy" landed in the human queue).
+    if [ "$rc" -eq 4 ] && [ "$waited" -ge "$RM_WAIT" ]; then
+      say "MERGE_BUSY $ID | $(field "$TX/queue/merge-lock.md" Task) is merging; nothing was lost. Run uak merge $ID again in a few minutes."
+      return 3
+    fi
+    [ "$rc" -eq 4 ] || {
       RM_QUEUE_REASON=${RM_REASON:-'Queue wait exhausted'}; rm_coord_update human || true
       say "MERGE_HUMAN $ID | $RM_QUEUE_REASON"; rm_human_hint; return 3;
     }

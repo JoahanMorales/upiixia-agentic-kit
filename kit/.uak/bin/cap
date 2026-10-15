@@ -1,29 +1,65 @@
 #!/usr/bin/env bash
-# uak cap: print a command's saved output, cut to head + tail when it is huge, and keep its exit code.
-#   cap LOGFILE EXIT_CODE
-# Used by the Cursor preToolUse rewrite (`hook wrap`): the shell command runs as
-#   { CMD
-#   } > LOG 2>&1; rc=$?; bash .uak/bin/cap LOG $rc; (exit $rc)
-# Small outputs print unchanged. Cap: Output-Cap-Chars in .uak/PROJECT.md (default 12000).
-# Why: Cursor hooks cannot replace a shell result after it runs (postToolUse only edits MCP output), so the
-# only documented way to keep a 5,000-line test log out of the context is to shape it before it is printed.
+# uak cap: keep huge command output out of the agent's context, without losing it.
+#   cap LOGFILE EXIT_CODE   print a saved output (cut when huge) and exit with EXIT_CODE
+#   cap --shape LOGFILE     print the cut version of a saved output (Claude Code / Codex hooks)
+#   cap --b64 BASE64        run a bash command (base64, so it survives PowerShell and bash quoting alike),
+#                           save its output, print it (cut when huge) and exit with its exit code
+# Small outputs print unchanged. Huge ones: head 30 + tail 50 + the log path; a diff becomes an index of
+# files with the line range of each one in the log, so a reviewer reads it file by file.
+# Cap: Output-Cap-Chars in .uak/PROJECT.md (default 12000, off). Logs: <git dir>/uak-out (last 20).
+# Why: Cursor cannot replace a shell result after it runs (postToolUse only edits MCP output), and Codex's
+# PostToolUse "block" replaced results and broke tool batches; shaping before printing works everywhere.
+# MLB hackathon: on Windows the bash-only wrapper was skipped, so Cursor never got the cap; a reviewer
+# "could not read the diff" of a large PR.
 set -u
 LC_ALL=C; export LC_ALL
-log=${1:-}; rc=${2:-0}
-case "$rc" in ''|*[!0-9]*) rc=1;; esac
-[ -n "$log" ] && [ -f "$log" ] || exit "$rc"
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=.
 cap=$(sed -n 's/^[-* ]*Output-Cap-Chars:[* ]*//p' "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `')
 case "$cap" in off|0) cap=999999999;; ''|*[!0-9]*) cap=12000;; esac
-size=$(wc -c < "$log" | tr -d ' ')
-if [ "$size" -le "$cap" ]; then
-  cat "$log"; rm -f "$log"
-else
-  lines=$(awk 'END {print NR+0}' "$log")
-  head -n 30 "$log" | cut -c 1-400
-  printf '\n[uak: %s lines / %s chars cut to head 30 + tail 50 (exit %s). Full output: %s. Read ranges: sed -n 200,260p FILE or grep -n PATTERN FILE. Rerun with UAK_RAW=1 to see it all.]\n\n' "$lines" "$size" "$rc" "$log"
-  tail -n 50 "$log" | cut -c 1-400
-  # Keep the last 20 saved logs.
-  ls -t "$(dirname "$log")"/*.log 2>/dev/null | tail -n +21 | while IFS= read -r old; do rm -f "$old"; done
-fi
+out_dir() {
+  local d
+  d="$(git rev-parse --absolute-git-dir 2>/dev/null)/uak-out"
+  { mkdir -p "$d" && [ -w "$d" ]; } 2>/dev/null || { d="${TMPDIR:-/tmp}/uak-out"; { mkdir -p "$d" && [ -w "$d" ]; } 2>/dev/null || return 1; }
+  printf '%s' "$d"
+}
+shape() {
+  local log=$1 rc=${2:-} lines size files
+  lines=$(awk 'END {print NR+0}' "$log"); size=$(wc -c < "$log" | tr -d ' ')
+  files=$(grep -c '^diff --git ' "$log" 2>/dev/null); files=${files:-0}
+  if [ "$files" -ge 2 ]; then
+    printf '[uak: diff of %s files, %s lines / %s chars%s. Full output: %s. Read one file: sed -n A,Bp FILE; small diffs: git diff A B -- PATH.]\n' \
+      "$files" "$lines" "$size" "${rc:+ (exit $rc)}" "$log"
+    awk '/^diff --git / { if (f != "") printf "  L%d-%d  %s  +%d -%d\n", s, NR - 1, f, a, d
+                          f = $NF; sub(/^b\//, "", f); s = NR; a = 0; d = 0; next }
+         f != "" && /^\+/ && !/^\+\+\+ / {a++}
+         f != "" && /^-/ && !/^--- / {d++}
+         END { if (f != "") printf "  L%d-%d  %s  +%d -%d\n", s, NR, f, a, d }' "$log" | head -n 80
+    [ "$files" -le 80 ] || printf '  ... %s more files: grep -n "^diff --git" %s\n' "$((files - 80))" "$log"
+  else
+    head -n 30 "$log" | cut -c 1-400
+    printf '\n[uak: %s lines / %s chars cut to head 30 + tail 50%s. Full output: %s. Read ranges: sed -n 200,260p FILE or grep -n PATTERN FILE. Rerun with UAK_RAW=1 to see it all.]\n\n' \
+      "$lines" "$size" "${rc:+ (exit $rc)}" "$log"
+    tail -n 50 "$log" | cut -c 1-400
+  fi
+}
+prune() { ls -t "$(dirname "$1")"/*.log 2>/dev/null | tail -n +21 | while IFS= read -r old; do rm -f "$old"; done; }
+print_log() {
+  local log=$1 rc=$2
+  if [ "$(wc -c < "$log" | tr -d ' ')" -le "$cap" ]; then cat "$log"; rm -f "$log"
+  else shape "$log" "$rc"; prune "$log"; fi
+}
+case "${1:-}" in
+  --shape) [ -f "${2:-}" ] || exit 0; shape "$2"; exit 0;;
+  --b64)
+    cmd=$(printf '%s' "${2:-}" | base64 -d 2>/dev/null) || cmd=$(printf '%s' "${2:-}" | base64 -D 2>/dev/null) || exit 2
+    [ -n "$cmd" ] || exit 2
+    d=$(out_dir) || exec bash -c "$cmd"
+    log="$d/$(date +%s)-$$.log"
+    bash -c "$cmd" > "$log" 2>&1; rc=$?
+    print_log "$log" "$rc"; exit "$rc";;
+esac
+log=${1:-}; rc=${2:-0}
+case "$rc" in ''|*[!0-9]*) rc=1;; esac
+[ -n "$log" ] && [ -f "$log" ] || exit "$rc"
+print_log "$log" "$rc"
 exit "$rc"

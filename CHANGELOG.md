@@ -1,5 +1,17 @@
 # Changelog
 
+## v4.3.0 · 2026-10-15 · The MLB autopsy: nobody waits, Windows gets the cap
+From 60 h of a 10-day hackathon on **4 Windows laptops** (Git Bash), 4 humans, 13 identities on Claude Code, Codex and Cursor: 32 of 36 tasks integrated. Every number is in `docs/blackbox/mlb-2026-10.md`; every rule cites it in WHY.md.
+- **Approved tasks merge without their owner.** After `Merge-Adopt-Seconds` (20 min) any eligible agent runs `uak merge ID`; `next` points idle agents at it and the task records `Merged-By`. In REVIEW the lease no longer matters. 9 tasks had waited 7–13 h after approval.
+- **Approvals survive clean merges of main.** When every commit after the approved SHA is a clean 2-parent merge of the base (the merge tree is recomputed: `merge-tree`, or a stricter 3-way index merge on git < 2.38), `merge` and `integrate` accept it. A hand edit still needs a review, and `review` says what moved since the reviewer's SHA.
+- **Merge gate.** The candidate runs with the worktree's or main checkout's `.venv` first on PATH and `UAK_MAIN_CHECKOUT` exported; a red gate keeps its log and quotes the error line (6 of 17 human-queue entries were "Smoke red"). Scope reasons say new vs edited, the task that owns the path and the fix; new empty files (`__init__.py`) pass; the smoke provenance file is a shared resource. `MERGE_BUSY` replaces the "Queue busy" human entry.
+- **Identities and reviews.** `uak retire NAME`: rotation, messages and approvals skip it (a claim brings it back). Rotation asks whoever rejected the previous SHA, then another human's agent, then idle agents. `done --to NAME --note TEXT` makes a re-review one message; integrated notices are one line. `review ID --stop` gives a review lock back.
+- **`uak followup ID --title TEXT`:** a new task on an integrated task's Paths (3 follow-up PRs had gone around the kit).
+- **Output cap everywhere.** Codex moved from PostToolUse `block` (it cut documentation reads and broke tool batches) to PreToolUse `allow` + `updatedInput` with the same allowlist as Cursor. On Windows, Cursor gets the cap too: the command goes base64 to `cap --b64`, which PowerShell and bash read alike. A huge diff becomes a per-file index with line ranges.
+- **Windows.** `= unchanged` works without `ps -o` (the hook's session id is the key). `status`/`next` answer even if the deadline reconcile fails; `git init` retries and shows its error. `doctor` warns about OneDrive/Dropbox/iCloud folders and checks `.githooks` executable bits.
+- **Less noise.** REVIEW leases write no recovery receipts (19 of 22 were on REVIEW tasks). Per-command `--help`, case-insensitive IDs and refusals that show the value, a per-command identity prefix in "No identity", OK for `heartbeat`/`integrate` of finished tasks, one `q` log per run, LONG EVENT advice from `uak clock`.
+- 8 new tests (`test_v43.py`; 103 in total).
+
 ## v4.2.1 · 2026-10-10 · The rest of the Reap autopsy
 - **`uak review ID --start`.** A 20-min "I am reviewing this SHA" lock: a second reviewer gets CONFLICT, `next` stops suggesting it, an approved SHA prints SKIP. The `uak-reviewer` subagent and `/uak-review` start with it. At Reap 2–3 agents reviewed the same SHA at once.
 - **`MERGE_WAIT`.** `uak merge` with no approval on the current SHA waits instead of filling the human queue.

@@ -4,10 +4,14 @@
 - [x] Scope gate on the current base · [x] `uak clock` · [x] `uak allow` · [x] quiet probes and `(xN)` · [x] backoff + shallow fetch
 - [x] One identity = one task · [x] one-line multi-target messages, `review --note`, no acks · [x] `= unchanged`, `LOOP:`, output cap
 
-## v4.3 (from the black box)
-- [ ] Run the Windows fixes on a real Git Bash machine.
-- [ ] An output cap for Codex/Cursor if their hooks gain an output-replacement field.
-- [ ] A live paid run of the Codex and Cursor configs (hooks + tiered subagents); record any schema drift with `uak bb`.
+## v4.3 (MLB autopsy) — shipped
+- [x] Approval survives clean merges of main · [x] any agent merges an approved task after 20 min · [x] gate `.venv` + kept logs
+- [x] Scope reasons with owner and fix · [x] `retire`, rotation (rejecter, other human) · [x] `done --to/--note` · [x] `followup`
+- [x] Output cap on Windows Cursor and Codex (base64 pre-rewrite), diff index · [x] dedupe without `ps -o` · [x] status survives a failed tick
+- [x] Windows: 4 Git Bash laptops ran Claude Code, Codex and Cursor for 60 h (the v4.2 MSYS fixes held)
+
+## v4.4 (open)
+- [ ] A live Windows Cursor session with the base64 rewrite, and a live Codex session with `updatedInput`; record drift with `uak bb`.
 - [ ] Gemini CLI hooks (`BeforeTool` → `guard bash`) once hooks leave experimental.
 - [ ] A weekly GitHub Action in this repo that runs `scripts/blackbox_harvest.py` and opens an issue with the top 10.
 - [ ] `uak pace` from the Cursor usage API, if one is published.

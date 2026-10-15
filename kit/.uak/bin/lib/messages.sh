@@ -52,37 +52,64 @@ msg_notify_related() {
     owner=$(field "$TX/claims/$r.md" Owner)
     case " $owners " in *" $owner "*) ;; *) owners="$owners $owner";; esac
   done
-  for owner in $owners; do
-    tasks=$(for r in $(msg_related "$1"); do
-      [ -f "$TX/claims/$r.md" ] && [ "$(field "$TX/claims/$r.md" Owner)" = "$owner" ] && printf '%s ' "$r"
-    done)
-    msg_append "agent:$owner" integrated "$1" "$3 (affects: ${tasks% })"
-  done
+  # One line for every owner: "affects: HACK-003 ana-1, HACK-004 ana-2" (MLB: 3 lines per integration).
+  [ -n "$owners" ] || return 0
+  tasks=$(for r in $(msg_related "$1"); do
+    [ -f "$TX/claims/$r.md" ] || continue; owner=$(field "$TX/claims/$r.md" Owner)
+    [ "$owner" != "$AGENT" ] && printf '%s %s, ' "$r" "$owner"
+  done)
+  msg_append "$(printf 'agent:%s,' $owners | sed 's/,$//')" integrated "$1" "$3 (affects: ${tasks%, })"
 }
-# Suggested reviewer: active agent (messages in the last 3 h), not the owner, with the fewest reviews.
-# Why: at Hack-Nation 2 agents gave 51 of 70 review verdicts.
-# Idle agents (no CLAIMED/BLOCKED task) come first. Why (Reap): the rotation picked agents busy on their own
-# task ("I can't review right now"), and each review cycle took 10-15 min.
+# Suggested reviewer: an active agent (a message or an event in the last 3 h), never the owner nor a retired
+# identity. Order: whoever rejected the previous SHA (they know the diff), then another human's agent, then
+# idle agents (no CLAIMED/BLOCKED task), then the fewest verdicts.
+# Why: Hack-Nation (2 agents gave 51 of 70 verdicts), Reap (busy agents answered "I can't review now"), MLB
+# (15 rotations went to identities without a session; the author's own human got its review twice; every
+# re-review needed an extra message to the rejecter).
+MSG_PICK_REJECTER=
+# Who rejected the current review of task $2 (not owner $1, not retired); empty otherwise.
+msg_last_rejecter() {
+  local rv="$TX/reviews/$2.md" who
+  [ -f "$rv" ] && [ "$(field "$rv" Verdict)" = reject ] || return 0
+  who=$(field "$rv" Reviewer)
+  [ -n "$who" ] && [ "$who" != "$1" ] && [ ! -f "$TX/meta/retired/$who.md" ] && printf '%s' "$who"
+  return 0
+}
+msg_retired() { local f; for f in "$TX"/meta/retired/*.md; do [ -f "$f" ] && basename "$f" .md; done | tr '\n' ' '; }
 msg_pick_reviewer() {
-  local c busy=' '
+  local c f busy=' ' seen=' ' rv="$TX/reviews/${2:-none}.md" retired
+  MSG_PICK_REJECTER=
   [ -f "$TX/$MSG_LOG" ] || return 0
+  retired=" $(msg_retired) "
   for c in "$TX"/claims/*.md; do
     [ -f "$c" ] || continue
     case "$(field "$c" State)" in CLAIMED|BLOCKED) busy="$busy$(field "$c" Owner) ";; esac
   done
-  awk -F' [|] ' -v owner="$1" -v now="$NOW" -v busy="$busy" '
+  for f in "$TX"/meta/agents/*.md; do
+    [ -f "$f" ] || continue
+    u=$(field "$f" Updated); case "$u" in ''|*[!0-9]*) continue;; esac
+    [ $((NOW - u)) -gt 10800 ] || seen="$seen$(basename "$f" .md) "
+  done
+  MSG_PICK_REJECTER=$(msg_last_rejecter "$1" "${2:-none}")
+  awk -F' [|] ' -v owner="$1" -v now="$NOW" -v busy="$busy" -v seen="$seen" -v retired="$retired" -v rej="$MSG_PICK_REJECTER" '
+    function human(n) { if (n ~ /-[A-Za-z0-9]+$/) sub(/-[A-Za-z0-9]+$/, "", n); return n }
     /^- [0-9]/ {
       from=$3
-      if (from == owner || from == "scheduler" || from == "" ) next
+      if (from == owner || from == "scheduler" || from == "" || index(retired, " " from " ")) next
       if (now - $2 <= 10800) active[from]=1
       if ($5 == "approve" || $5 == "reject") load[from]++
     }
     function better(a, b) {
+      if ((a == rej) != (b == rej)) return a == rej
+      oa = human(a) != human(owner); ob = human(b) != human(owner)
+      if (oa != ob) return oa
       ia = index(busy, " " a " ") == 0; ib = index(busy, " " b " ") == 0
       if (ia != ib) return ia
       return load[a]+0 < load[b]+0 || (load[a]+0 == load[b]+0 && a < b)
     }
-    END { best=""; for (a in active) if (best == "" || better(a, best)) best=a; print best }' "$TX/$MSG_LOG"
+    END {
+      n = split(seen, s, " "); for (i = 1; i <= n; i++) if (s[i] != owner && !index(retired, " " s[i] " ")) active[s[i]] = 1
+      best=""; for (a in active) if (best == "" || better(a, best)) best=a; print best }' "$TX/$MSG_LOG"
 }
 msg_owned() {
   local c
@@ -136,6 +163,7 @@ msg_resolve_targets() {
       local name=${MSG_TO#agent:}
       case "$name" in ''|*[!A-Za-z0-9_.-]*) die "Invalid target: use NAME, ID, related:ID, all or human.";; esac
       [ "$name" != "$AGENT" ] || die "Do not message yourself."
+      [ ! -f "$TX/meta/retired/$name.md" ] || die "$name is retired (no session). Message its task (ID), its human (human) or all."
       printf 'agent:%s\n' "$name";;
   esac
 }

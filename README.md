@@ -172,7 +172,7 @@ bash .uak/bin/uak pace
 
 Like a flight recorder: **every `uak` error and guard block is recorded automatically**, and agents add one line when the kit slows them down (`uak bb add friction "…" --fix "…"`). Lines are anonymous: no identities, paths, SHAs or code, and anything that looks like a secret is dropped. They go to `claims:blackbox/`. `scripts/blackbox_harvest.py` finds public repos that use the kit, reads their `claims:blackbox/` and ranks what to fix next (`uak bb export` also writes a readable `.uak/BLACKBOX.md`).
 
-**On by default; off with `Blackbox: off`** in `.uak/PROJECT.md`, or `install.sh --no-blackbox` ([BLACKBOX.md](kit/.uak/docs/BLACKBOX.md)). The [first harvest](docs/blackbox/upiixsol-2026-10.md) came from a 3-day, 2-human marathon project. Every row became a v4.1 fix. The [Reap buildathon autopsy](docs/blackbox/reap-2026-10.md) (4 h, 5 humans, 11 agents on Codex, Cursor and Claude Code) became v4.2.
+**On by default; off with `Blackbox: off`** in `.uak/PROJECT.md`, or `install.sh --no-blackbox` ([BLACKBOX.md](kit/.uak/docs/BLACKBOX.md)). The [first harvest](docs/blackbox/upiixsol-2026-10.md) came from a 3-day, 2-human marathon project. Every row became a v4.1 fix. The [Reap buildathon autopsy](docs/blackbox/reap-2026-10.md) (4 h, 5 humans, 11 agents on Codex, Cursor and Claude Code) became v4.2. The [MLB hackathon autopsy](docs/blackbox/mlb-2026-10.md) (10 days, 4 humans on Windows, 13 identities on Claude Code, Codex and Cursor) became v4.3.
 
 ## Loop engineering
 
@@ -210,7 +210,7 @@ Tokens are the scarcest resource of an agent team. Every default is tuned to spe
 
 - `AGENTS.md` is **60 lines**, lint-capped at 100. Detail loads on demand from a trigger table.
 - `q` turns a 2,000-line test log into **one line** on success, or a 40-line tail on failure.
-- **Huge outputs never flood the context**, in Claude Code, Codex and Cursor: a shell output over 12k chars reaches the model as head + tail + the path of the full log (Claude `updatedToolOutput`, Codex PostToolUse `block`, Cursor `preToolUse` wrap of tests, builds and searches).
+- **Huge outputs never flood the context**, in Claude Code, Codex and Cursor: a shell output over 12k chars reaches the model as head + tail + the path of the full log (Claude `updatedToolOutput`; Codex and Cursor rewrite tests, builds and searches before they run, also on Windows). A huge diff becomes a per-file index with line ranges.
 - **No rereads**: the same `status`/`next`/`inbox` twice in one session prints `= unchanged`; `LOOP:` stops a retry loop; acks are refused and one message reaches many tasks in one line.
 - Noisy work runs in **subagents** (a Haiku runner, a Sonnet reviewer); only a summary comes back.
 - Only **actionable messages** are injected. Duplicate broadcasts are gone: 194 of 717 messages in our event were noise.
@@ -306,7 +306,7 @@ They are complementary: use them for planning or UI, and this kit for coordinati
 
 **And from agent orchestrators or swarms?** They spawn agents on one machine. This kit has no daemon: any agent, anywhere, coordinates through `git push`.
 
-**Windows?** Yes, with Git Bash. macOS ships Bash 3.2, which is supported.
+**Windows?** Yes, with Git Bash: a 10-day team event ran on 4 Windows laptops (Claude Code, Codex, Cursor). macOS ships Bash 3.2, which is supported.
 
 **Will it burn my Opus (or Astra) budget?** No. The strong tier is pinned to checkpoints, the guard blocks fan-out beyond the per-session budget, and `uak pace` tightens it when your 5-hour or weekly window runs low. Run `uak stats` to see subagent use by tier.
 

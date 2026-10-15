@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Quiet runner: bash .uak/bin/q CMD...  → success = 1 line; failure = last Q_LINES lines (40).
-# Full log in .git/uak-q.log for a specific range (rg/sed -n, never cat).
+# Full log: <git dir>/uak-out/q-<time>-<pid>.log, one per run (last 20), path printed on failure.
+# Why (MLB hackathon, Codex): one shared log per worktree let a concurrent Verify and smoke overwrite evidence.
 # Why: test/build output is the biggest token cost and is re-sent every later turn.
 set -u
 [ "$#" -gt 0 ] || { printf '%s\n' 'Usage: bash .uak/bin/q CMD [ARGS...]' >&2; exit 2; }
-gd=$(git rev-parse --git-dir 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")
-log="$gd/uak-q.log"
+gd=$(git rev-parse --absolute-git-dir 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")
+mkdir -p "$gd/uak-out" 2>/dev/null || true
+log="$gd/uak-out/q-$(date +%s)-$$.log"
+ls -t "$gd"/uak-out/q-*.log 2>/dev/null | tail -n +21 | while IFS= read -r old; do rm -f "$old"; done
 start=$(date +%s)
 "$@" > "$log" 2>&1
 code=$?

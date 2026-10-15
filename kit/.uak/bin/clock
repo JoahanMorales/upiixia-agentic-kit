@@ -45,6 +45,8 @@ printf '%-22s %s\n' "start" "$(show "$s")" \
   "submit (internal)" "$(show "$submit")" \
   "official deadline" "$(show "$d")"
 [ "$dur" -ge 21600 ] || printf '%s\n' "SHORT EVENT (<6 h): plan at most 2 tasks per agent, a wide wave 1, no task over 45 min."
+# Why (MLB hackathon, a 10-day sprint): nights left approved tasks waiting for owners and identities abandoned.
+[ "$dur" -lt 86400 ] || printf '%s\n' "LONG EVENT (>=24 h): nights are normal. Approved tasks are merged by any agent after Merge-Adopt-Seconds (20 min); close agents for good with uak retire NAME; humans: one uak digest per morning."
 if [ "$write" = yes ]; then
   top=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f "$top/.uak/PROJECT.md" ] || { printf 'clock: no .uak/PROJECT.md\n' >&2; exit 2; }
   f="$top/.uak/PROJECT.md"
