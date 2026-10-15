@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Claude Code hooks (.claude/settings.json). Never break the session: on error exit 0 silently.
 # session-start: injects identity + `uak next` + inbox as initial context.
-# tick (PostToolUse): heartbeat every 8 min and inbox poll every ~2 min, both in background;
+# tick (PostToolUse): heartbeat every lease/3 and a claims check every 20 s (inbox read when it moved), in background;
 #   new actionable messages are injected as additional context on the next tool call.
 # stop (Stop): blocks ending the turn once per batch of unhandled messages; flushes the black box.
 # output (Claude Code PostToolUse Bash) · wrap [codex] (Cursor preToolUse Shell, Codex PreToolUse Bash): huge outputs
@@ -90,7 +90,10 @@ case "${1:-}" in
     printf 'UAK: agent=%s task=%s worktree=%s\n' "$agent" "${task:--}" "$top"
     p=$(bash .uak/bin/pace 2>/dev/null); case "$p" in "PACE surge"*|"PACE conserve"*|"PACE critical"*) printf '%s\n' "$p";; esac
     git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 || exit 0
-    bash .uak/bin/uak next --full 2>&1 | head -n 15
+    bash .uak/bin/uak next --full 2>&1 | head -n 18
+    # The code map is rebuilt in background (0.2 s for ~120 files) so `uak map` queries answer at once.
+    nohup bash .uak/bin/map build > /dev/null 2>&1 &
+    printf '%s\n' "UAK: explore with the code map before opening files: bash .uak/bin/uak map show · map find NAME · map users FILE"
     bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.txt" 2>/dev/null
     if [ -s "$gd/uak-inbox.txt" ]; then
       head -n 21 "$gd/uak-inbox.txt"
@@ -114,10 +117,18 @@ case "${1:-}" in
         bash .uak/bin/uak status --full 2>/dev/null | awk -F" [|] " -v a="$2" -v t="$1" "\$2==\"REVIEW\" && \$3==a && \$1!=t {print \$1}" |
           while read -r id; do bash .uak/bin/uak heartbeat "$id"; done' _ "$task" "$agent" "$reviews" > "$gd/uak-heartbeat.log" 2>&1 &
     fi
-    # Poll: refresh the cache every ~2 min in background; never blocks the agent.
-    if ! fresh "$gd/uak-inbox.poll" 2; then
-      touch "$gd/uak-inbox.poll" 2>/dev/null
-      ( bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.tmp" 2>/dev/null && mv "$gd/uak-inbox.tmp" "$gd/uak-inbox.txt" ) > /dev/null 2>&1 &
+    # Poll in background, never blocking the agent: a cheap `ls-remote` of claims every 20 s, and the inbox is read
+    # only when the claims tip moved (or every 5 min). Why: the old 2-min full read was the message latency; an
+    # answer to a contract question took up to 2 min to reach the asker, and most reads found nothing new.
+    . .uak/bin/lib/net.sh 2>/dev/null && ssh_mux
+    now_s=$(date +%s); last_s=$(cat "$gd/uak-inbox.poll" 2>/dev/null); case "$last_s" in ''|*[!0-9]*) last_s=0;; esac
+    if [ $((now_s - last_s)) -ge "${UAK_POLL_SECONDS:-20}" ]; then
+      printf '%s' "$now_s" > "$gd/uak-inbox.poll" 2>/dev/null
+      ( tip=$(git ls-remote "${UAK_REMOTE:-origin}" refs/heads/claims 2>/dev/null | awk '{print $1; exit}')
+        if [ -n "$tip" ] && { [ "$tip" != "$(cat "$gd/uak-claims.tip" 2>/dev/null)" ] || ! fresh "$gd/uak-inbox.txt" 5; }; then
+          bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.tmp" 2>/dev/null && mv "$gd/uak-inbox.tmp" "$gd/uak-inbox.txt" &&
+            printf '%s' "$tip" > "$gd/uak-claims.tip"
+        fi ) > /dev/null 2>&1 &
     fi
     # Pace check every ~5 min; speak only when the level changes. Why: the agent can't see /usage.
     pace_note=

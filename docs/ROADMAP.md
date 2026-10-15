@@ -1,6 +1,9 @@
 # Roadmap
 
 ## v5.0 — shipped
+- [x] Speed: one round trip per call, SSH reuse, clock cache, `next` prefilter (next 10–12 s → 1.5–2 s on GitHub)
+- [x] `uak wait` · messages in ~20 s · `uak map` (code graph) · `msg impact:ID` · path-anchored memory (`learn`/`recall`)
+- [x] `karpathy-guidelines` skill
 - [x] `uak tokens`: the real token bill per task, model, harness and lead vs subagent, from Claude Code and Codex
   transcripts; published per machine to claims; in `stats` and `digest`
 - [x] `uak loop`: stops on no progress and on an edited test (the verifier); `--parallel N --each` (one loop per
@@ -18,6 +21,9 @@
 - [ ] Antigravity CLI support (the successor of Gemini CLI) once its hook and config docs settle.
 - [ ] Token budgets: `Token-Budget` per task in PROJECT.md, warned by `next` when `uak tokens` crosses it.
 - [ ] Cursor token spend, if Cursor publishes a usage API or a local log.
+- [ ] `uak map`: optional tree-sitter backend when available, and call edges (not only imports).
+- [ ] Lessons ranked by how often they were recalled; expiry for stale ones.
+- [ ] A harness eval set: 20–50 frozen tasks from black box failures, run per release.
 - [ ] `uak board --watch` in the demo animation.
 
 ## Ideas

@@ -1,7 +1,14 @@
 # Changelog
 
-## v5.0.0 · 2026-10-15 · Measure the bill, guard the loops, every harness and stack
+## v5.0.0 · 2026-10-15 · 5x faster, a code graph, team memory, the real bill
 v5 folds in v4.3 (the MLB autopsy, below; it was never published separately) and closes most of the roadmap.
+- **Speed: one network round trip per call.** One fetch brings claims and the base config together (no `ls-remote` prechecks); OpenSSH connection reuse for ssh remotes (`ControlMaster`, off on Windows and with a custom ssh command; `UAK_SSH_MUX=off`); the GitHub clock check is cached for an hour; `next` drops taken and blocked tasks before its gates. Measured on GitHub against a real 36-task repo: `next` 10.4–12.2 s → 1.5–2.1 s, `status` 7.3–9.2 s → 1.7 s; a round trip 1.2 s → 0.4 s.
+- **`uak wait ID --for approve|integrated|message`:** one call that returns when it happens (a `ls-remote` every 15 s, claims read only when they move), instead of polling `status`/`inbox` (225 and 172 calls at MLB).
+- **Messages in ~20 s:** the hook checks the claims tip every 20 s and reads the inbox only when it moved (was a full read every 2 min). New identities start with the last 6 h of messages, not the whole history.
+- **`uak map`: a code graph, graphify-style but deterministic** (Bash + awk, no LLM, no dependencies): symbols with file:line and resolved imports for Python, JS/TS (`@/`), Go, Rust, shell, Ruby and C includes; `MAP.md` with areas, hubs, entry points, area dependencies and files per task; `find`, `deps`, `users --depth`, `path`, `impact`. On a 123-file repo: source ~187k tokens, `MAP.md` ~1.3k; a "where and who uses" question ~280 tokens vs ~3.1k reading files. Built in background at session start; the scout subagent asks it first.
+- **`msg impact:ID`** routes a contract to every task whose files import ID's files (the code graph); `msg A,B` sends one line to a list.
+- **Team memory anchored to paths:** `uak learn "what bites · where · what to do"` (task paths by default), `uak recall ID|PATH`, `learn --forget N`, `review … --learn`; `uak next` shows the newest lessons for the task to whoever works there.
+- **`karpathy-guidelines` skill** in both modes (pinned, MIT; "ask" maps to `uak decision`/`uak msg`).
 - **`uak tokens`: the real bill.** Reads the transcripts Claude Code (`~/.claude/projects`, subagents included, deduped by message id) and Codex (`~/.codex/sessions`) already write, no API key: input, cache write, cache read and output, share and cache hit, `--by task|harness|model|scope|agent`. Tasks come from the worktree folder, so removed worktrees still count. `--publish` writes this machine to `claims:tokens/` (the Stop hook does it every 30 min); `--team` adds every machine and names the owner; `stats` and the human `digest` show the total and the top task.
 - **Loops with guards.** `uak loop` stops when an iteration changes nothing and when the agent edits or deletes an existing test (`--protect`); the prompt carries the diff stat so far; `LOOP_SUMMARY` at the end; one log per run. `--parallel N --each "CMD {}"`: one sub-loop per failing test file (pytest, jest/vitest, go) in temporary worktrees of the current state, passing fixes applied back, Verify once.
 - **`uak handover ID --to NAME`:** pass a live claim without AVAILABLE (owner, human, or anyone after the lease); the local `.uak-env` follows.
@@ -10,7 +17,7 @@ v5 folds in v4.3 (the MLB autopsy, below; it was never published separately) and
 - **Stack presets:** `--stack nextjs|django|go|expo|python-data|ai-agent`, each with a setup page, a skill with parallel-work rules and its product smoke (fastapi-react kept; its test path fixed).
 - **Gemini CLI hooks:** `BeforeTool` guard and output cap, `SessionStart` context (Gemini CLI was replaced by Antigravity CLI in June 2026; the hooks follow its published docs).
 - **Demo animation:** `docs/media/demo.svg` (15 KB, CSS-animated, rendered from a real `uak demo` by `scripts/render_demo.py`) replaces the 270 KB GIF.
-- 5 new tests (`test_v5.py`; 108 in total).
+- 9 new tests (`test_v5.py`; 112 in total).
 
 ## v4.3.0 · 2026-10-15 · The MLB autopsy: nobody waits, Windows gets the cap (shipped inside v5.0.0)
 From 60 h of a 10-day hackathon on **4 Windows laptops** (Git Bash), 4 humans, 13 identities on Claude Code, Codex and Cursor: 32 of 36 tasks integrated. Every number is in `docs/blackbox/mlb-2026-10.md`; every rule cites it in WHY.md.

@@ -17,7 +17,8 @@ Loop engineering means designing the cycles that run agents, instead of promptin
 | **Autonomous (`uak loop`)** | you run it, or cron or CI | `--verify CMD` | `--max`, `--minutes`, stuck, no progress or an edited test → exit 3, task BLOCKED |
 | **Parallel (`uak loop --parallel N`)** | many test files fail | one `--each` check per failing file | each sub-loop stops on its own; passing fixes are applied, then Verify runs once |
 | **Heartbeat** | every tool call (hook), throttled to 8 min | lease renewed | none; the lease expires if the agent dies |
-| **Inbox (hook loop)** | every tool call, throttled to 2 min | new actionable message | injects at most 24 lines; `Stop` blocks until handled |
+| **Inbox (hook loop)** | every tool call: a claims `ls-remote` every 20 s, the inbox read only when it moved | new actionable message | injects at most 24 lines; `Stop` blocks until handled |
+| **Wait (`uak wait`)** | an agent needs an approval, a dependency or a reply | the event on claims | returns once (exit 0/3) or after `--timeout` (exit 4); never a polling loop of `status` |
 | **Review** | `uak done` | reviewer runs Verify on the SHA | reject → owner fixes and repeats `/uak-ship`; approve → merge |
 | **Deadline (cron loop)** | `next`/`status`, or the opt-in `.github/workflows/uak-tick.yml.example` (every 15 min) | receipts on claims | each deadline fires once (CAS receipt) |
 | **Human** | `uak digest` | the human decides | batched, never one ping per PR |

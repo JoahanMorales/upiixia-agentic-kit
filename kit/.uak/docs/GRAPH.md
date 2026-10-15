@@ -8,11 +8,29 @@ Graph engineering means designing a multi-agent system as an explicit graph, not
 | **Members** | humans, agents (`UAK_AGENT`), subagents (runner, reviewer, design-critic, security-reviewer) | `.uak-env`, `.claude/agents/` |
 | **Mandates** | each task's `Paths` (exclusive) and the shared-file owners | `.uak/TASKS.md`, `.uak/OWNERS.md` |
 | **Execution graph** | a DAG of tasks: `Depends on` (hard edge) and `Uses contract` (soft edge, works on a mock) | `uak graph` |
-| **Message paths** | typed messages: request, contract, review, approve, reject, integrated, human | `claims:inbox/log.md` |
+| **Message paths** | typed messages: request, contract, review, approve, reject, integrated, human; `impact:ID` routes a contract along the code graph | `claims:inbox/log.md` |
 | **State** | a single shared state, compare-and-swap via Git pushes | the `claims` branch |
 | **Routing** | `uak next`: priority → deps INTEGRATED → no path overlap → owners → freeze → budget | `uak next` |
+| **Code graph** | files, symbols and resolved imports; hubs, entry points, the files of each task and who imports them | `uak map` |
+| **Memory graph** | lessons anchored to paths, retrieved by the paths a task touches | `uak learn`, `uak recall`, `uak next` |
 | **Context graph** | what each member loads, and when (AGENTS.md §7) | load-on-demand table |
 | **Traceability** | every claim, event, decision, review and merge is a commit | `worklog/`, `DECISIONS.md`, `reviews/` |
+
+## The code graph: `uak map`
+Agents learn a repository by opening file after file, and every file they open is re-sent on every later turn.
+`uak map` builds the structure once, with no model and no dependency (Bash + awk, 0.2 s for 120 files), and an agent
+reads a ~1.3k-token `MAP.md` instead:
+```bash
+bash .uak/bin/uak map show                 # areas, hubs (most imported), entry points, area dependencies, files per task
+bash .uak/bin/uak map find data_path       # core/config.py:47  def data_path · mentioned in 4 files
+bash .uak/bin/uak map users core/config.py --depth 2    # the blast radius of a change
+bash .uak/bin/uak map path app/pages/card.py core/config.py   # card.py → core/cards.py → core/config.py
+bash .uak/bin/uak map impact HACK-001      # files outside HACK-001 that import it, and the tasks that own them
+bash .uak/bin/uak msg impact:HACK-001 --kind contract "data_path now takes a Path"   # one line to all of them
+```
+Like graphify (tree-sitter + an LLM pass + Leiden communities), but deterministic and offline: it only knows what the
+parser sees (definitions and imports), not "semantic" edges. In exchange it costs 0 tokens to build, rebuilds itself
+when HEAD or the tree changes, and its edges are exact. The scout subagent asks the map before searching.
 
 ## Design the execution graph (planner)
 1. **Wide first wave.** At least 1 task per agent with no hard dependencies. Publish contracts and mocks first, so consumers use `Uses contract:` and never wait.

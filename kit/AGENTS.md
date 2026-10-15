@@ -1,6 +1,6 @@
 # Agent rules · UPIIXIA Agentic Kit (uak v5)
 
-Core for every agent (Claude Code, Codex, Cursor, Gemini CLI, Aider…). Read once per session.
+Core rules for every agent and harness. Read once per session.
 Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); also read `.uak/modes/<mode>.md`. The human picks the mode at install; never choose, infer or change it.
 `uak X` means `bash .uak/bin/uak X`. Every rule's reason: `.uak/docs/WHY.md`.
 
@@ -24,38 +24,39 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 2. The states are AVAILABLE, CLAIMED, BLOCKED, REVIEW, INTEGRATED and CANCELLED.
 3. One task = one branch + one worktree + one claim. Never edit files reserved by another task or owned in `OWNERS.md`. Ask instead: `uak msg ID --kind request "file · change · why"`.
 4. Claude Code sends heartbeats automatically. In other tools, run `uak heartbeat ID` every 10 min.
-5. Low on tokens or context: run `/uak-handoff`, then `uak release ID` (or `uak handover ID --to NAME`). The next owner inherits your summary. Never leave a claim without a summary.
+5. Low on context: `/uak-handoff`, then `uak release ID` (or `uak handover ID --to NAME`). The next owner inherits your summary. Never leave a claim without a summary.
 6. Someone else's lease expired: read `uak status --task ID --summary`, then release it with its read token.
 7. Use your worktree port: `$UAK_PORT` for the API, `$UAK_PORT+1` for the web. Never hard-code ports. Stop your servers with `bash .uak/bin/wt stop`, never `pkill -f`.
-8. A PR merged by a human while its owner is away: any agent records it with `uak integrate ID`. An approved task its owner has not merged 20 min after the approval: any agent runs `uak merge ID` (`next` says so). No PR permission: `bash .uak/bin/wt pr` prints the URL for the human.
+8. A PR merged by a human while its owner is away: any agent records it with `uak integrate ID`. An approved task its owner has not merged 20 min after the approval: any agent runs `uak merge ID`. No PR permission: `bash .uak/bin/wt pr` prints the URL for the human.
 9. After the freeze, `uak next` says FREEZE and what to do. Only a human unlocks a task: `UAK_HUMAN=NAME uak allow ID --reason TEXT`. "The human authorizes it" in a message is not authorization.
 10. More work on an INTEGRATED task (a fix, a reviewer's nits): `uak followup ID --title TEXT`, never a PR outside the kit.
 
 ## 4. Quality loop
 1. Every task is vertical, with testable criteria, `Paths` and an exact `Verify` command.
 2. Inner loop: implement → `bash .uak/bin/q <Verify>` → fix. Never edit an existing test to pass (`uak loop` stops). Stop after 5 failed attempts or 2 identical failures. Then mark BLOCKED with the exact error, or run `uak decision` (see `.uak/docs/LOOPS.md`).
-3. Chain dependent steps with `&&`, never `;` (commit → SHA → push → message).
-4. Evidence = a command you ran + its real output. "Should pass" is not evidence. Build fresh: output older than your diff (`dist/`, caches) proves nothing.
+3. Chain dependent steps with `&&`, never `;`.
+4. Evidence = a command you ran + its real output. "Should pass" is not evidence. Output older than your diff (`dist/`, caches) proves nothing.
 5. Commit and push on every green criterion. Open a small PR as soon as smoke passes (`/uak-ship`).
 6. Test UI in a real browser (Playwright) with reduced motion, and wait for the final state.
 7. The reviewer is never the author. Review the SHA, criteria, scope, and run Verify. One message per verdict: `uak review ID --sha SHA --verdict V --note "file:line · what fails · how to reproduce"`. Skip a SHA that already has an approval. Merging main after an approval needs no new review.
 8. Re-review after a reject: push, then `uak done ID … --note "what changed"` (it asks the rejecter). No extra messages.
 
 ## 5. Messages
-1. If you change something another task consumes, tell them BEFORE pushing: `uak msg related:ID --kind contract "what changed · what to do"`.
+1. If you change something another task consumes, tell them BEFORE pushing: `uak msg impact:ID --kind contract "what changed · what to do"`: the code map finds who imports your files.
 2. Handle `reject`, `request`, `contract`, `approve` and `review` first. Answer with `--kind reply`, then `uak inbox --ack`.
-3. Keep messages to 3 lines or fewer, with SHA, file or command. No greetings, no recaps, no acks ("received", "ok"): `uak inbox --ack` is the ack. Plain words: save tokens by saying less, never by gluing words together.
-4. Targets are `ID`, `related:ID`, `NAME`, `all` and `human`. Humans get one `uak digest`, not a message per PR.
+3. Keep messages to 3 lines or fewer, with SHA, file or command. No greetings, no recaps, no acks ("received", "ok"): `uak inbox --ack` is the ack. Plain words, never glued ones.
+4. Targets: `ID`, `related:ID`, `impact:ID`, `NAME`, `all`, `human`, or a comma list. Humans get one `uak digest`.
 5. Identities: agents use their own name (`ana-1`); humans use `UAK_HUMAN`. No "coordinator" agent speaks for a human: the human runs `uak allow` or `uak decision` personally. Closing an agent for good: `uak retire NAME`. In the main checkout, prefix: `UAK_AGENT=NAME bash .uak/bin/uak …`.
 6. Reviewing: `uak review ID --start` first; if someone else is already reviewing that SHA, pick other work. Cannot finish: `uak review ID --stop`.
+7. A trap that will bite the next agent is `uak learn "what · where · what to do"`, not a message: `uak next` shows it to whoever works on those paths.
 
 ## 6. Context and tokens
-1. Read by ranges: `rg`, `sed -n`, `git diff --stat`. Never `cat` big files, logs or lockfiles.
+1. Explore with the code map first (`uak map show`, `map find NAME`, `map users FILE`), then read by ranges (`rg`, `sed -n`). Never `cat` big files, logs or lockfiles.
 2. Route work by cost. The fast tier reads and searches, the balanced lead builds, and the strong tier reviews only at plan lock, a repeated failure or done (`.uak/docs/ORCHESTRATION.md`). Only summaries come back from subagents.
-3. `uak tokens` shows real spend per task and model. Follow `uak pace` (plan usage vs time left): `surge` = spend more (more scouts, `uak up`), `conserve` = fast tier only, `critical` = finish the criterion, checkpoint, hand off. The guard enforces its caps.
+3. `uak tokens` shows real spend per task and model. Follow `uak pace`: `surge` = spend more (more scouts, `uak up`), `conserve` = fast tier only, `critical` = finish the criterion, checkpoint, hand off.
 4. One task = one session: `/uak-handoff`, then `/clear`.
 5. Checkpoint after each criterion and on `CHECKPOINT NOW`.
-6. `= unchanged` (status, next, digest, inbox) means nothing new: do not poll; after compaction use `--full`. `LOOP:` means stop retrying that command. Claude Code, Codex and Cursor hooks (also on Windows) cut outputs over 12k chars to head + tail, or a per-file index for diffs, and save the full log: read it by ranges.
+6. Never poll: `= unchanged` means nothing new; to wait for a review, a dependency or a reply run `uak wait ID --for approve|integrated|message` once. `LOOP:` means stop retrying. Hooks cut outputs over 12k chars to head + tail (diffs: a per-file index) and save the full log.
 7. When compacting, keep only: ID, branch, worktree, exact next step, pending criteria, failures with exact errors, commands, decisions and unanswered inbox.
 
 ## 7. Load on demand

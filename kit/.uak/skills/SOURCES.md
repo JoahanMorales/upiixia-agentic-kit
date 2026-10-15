@@ -4,6 +4,7 @@ Third-party skills are vendored at a pinned commit after review: no remote instr
 
 | Skill | Origin (pinned commit) | License | Installed by |
 |---|---|---|---|
+| karpathy-guidelines | forrestchang/andrej-karpathy-skills `skills/karpathy-guidelines` @ 2c60614 | MIT (declared in README and SKILL.md; see NOTICE.md) | all modes: think before coding, simplicity, surgical changes, verifiable goals. "Ask" maps to `uak decision`/`uak msg` |
 | verification-before-completion | obra/superpowers `skills/verification-before-completion` @ 8ca22db | MIT | all modes |
 | systematic-debugging | obra/superpowers `skills/systematic-debugging` @ 8ca22db (without its test-pressure fixtures) | MIT | all modes |
 | webapp-testing | anthropics/skills `skills/webapp-testing` @ 8a1541c | Apache-2.0 | all modes |

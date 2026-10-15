@@ -1,0 +1,246 @@
+#!/usr/bin/env bash
+# uak map: a code map an agent reads instead of opening files (graph engineering; like graphify, but deterministic:
+# Bash + awk, no LLM, no dependencies, 0 tokens to build).
+#   map [build]          build or refresh <git dir>/uak-map/ (symbols, import edges, MAP.md) and print a summary
+#   map show             print MAP.md: areas, hubs, entry points, area dependencies, tasks
+#   map find NAME        where NAME is defined (file:line kind) and how many files mention it
+#   map deps FILE        what FILE imports (in-repo, resolved)
+#   map users FILE [--depth N]   who imports FILE (N levels, default 1): the blast radius of a change
+#   map path A B         the shortest import path from file A to file B
+#   map impact ID|FILE…  the files of a task (its Paths) → in-repo files outside them that import those → the tasks
+#                        whose Paths own those users (who to warn with a contract message before pushing)
+# Languages: Python, JS/TS (incl. "@/" aliases), Go (packages), Rust (mod/use crate), shell (source), Ruby, PHP,
+# Java/Kotlin/C#/Swift (definitions only), C/C++ (#include "…"). Generated and vendored folders are skipped.
+# The index rebuilds by itself when HEAD or the tracked working tree changed.
+# Why: at Reap and MLB "it burns tokens reading the same stuff again and again" — agents opened file after file to
+# learn the structure; graphify reported 71.5x fewer tokens per question on a 52-file corpus with a graph instead.
+set -u
+LC_ALL=C; export LC_ALL
+die() { printf 'map: %s\n' "$*" >&2; exit 2; }
+top=$(git rev-parse --show-toplevel 2>/dev/null) || die "not a Git repository"
+cd "$top" || exit 2
+gd=$(git rev-parse --absolute-git-dir) || exit 2
+out="$gd/uak-map"
+mkdir -p "$out" || die "cannot write $out"
+stamp() { printf '%s %s' "$(git rev-parse HEAD 2>/dev/null || echo none)" "$( { git diff HEAD --stat 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | cksum | awk '{print $1}')"; }
+
+build() {
+  git ls-files -co --exclude-standard 2>/dev/null |
+    grep -Ev '(^|/)(node_modules|vendor|dist|build|out|target|\.next|\.venv|venv|__pycache__|\.git|coverage|\.uak|\.claude|\.codex|\.cursor|\.gemini|\.agents)/' |
+    grep -Ei '\.(py|js|jsx|ts|tsx|mjs|cjs|go|rs|sh|bash|rb|php|java|kt|cs|swift|c|h|cc|cpp|hpp)$' > "$out/files.list"
+  gomod=$(sed -n 's/^module[[:space:]]*//p' go.mod 2>/dev/null | head -n 1)
+  awk -v out="$out" -v gomod="$gomod" '
+    function norm(p,   n, a, i, k, r) { n = split(p, a, "/"); k = 0
+      for (i = 1; i <= n; i++) { if (a[i] == "" || a[i] == ".") continue; if (a[i] == "..") { if (k > 0) k--; continue } st[++k] = a[i] }
+      r = ""; for (i = 1; i <= k; i++) r = r (i > 1 ? "/" : "") st[i]; return r }
+    function dir(p) { if (p !~ /\//) return ""; sub(/\/[^\/]*$/, "", p); return p }
+    function edge(a, b) { if (b != "" && b != a && !((a, b) in seen)) { seen[a, b] = 1; print a "\t" b > (out "/edges.tsv") } }
+    function try(c) { return (c in known) ? c : "" }
+    function jsfile(base,   r, e, n, ex) {
+      if ((r = try(base)) != "") return r
+      n = split(".ts .tsx .js .jsx .mjs .cjs /index.ts /index.tsx /index.js /index.jsx", ex, " ")
+      for (e = 1; e <= n; e++) if ((r = try(base ex[e])) != "") return r
+      return "" }
+    function js(from, spec,   r) {
+      if (spec ~ /^\.\.?\//) return jsfile(norm(dir(from) "/" spec))
+      if (spec ~ /^[@~]\//) { r = jsfile(substr(spec, 3)); if (r == "") r = jsfile("src/" substr(spec, 3)); return r }
+      return "" }
+    function py(from, mod,   lead, base, p, r) {
+      if (mod ~ /^\./) { lead = mod; sub(/[^.].*$/, "", lead); mod = substr(mod, length(lead) + 1); base = dir(from)
+        for (p = 2; p <= length(lead); p++) base = dir(base)
+        gsub(/\./, "/", mod); p = norm(base "/" mod) }
+      else { gsub(/\./, "/", mod); p = mod }
+      if ((r = try(p ".py")) != "") return r; if ((r = try(p "/__init__.py")) != "") return r
+      if ((r = try("src/" p ".py")) != "") return r; if ((r = try("src/" p "/__init__.py")) != "") return r
+      return "" }
+    function sym(f, kind, txt, ln,   n) { n = txt; sub(/[^A-Za-z0-9_$]+$/, "", n); sub(/.*[^A-Za-z0-9_$]/, "", n)
+      if (n == "" || n ~ /^[0-9]/) return; print n "\t" kind "\t" f "\t" ln > (out "/symbols.tsv"); nsym[f]++ }
+    BEGIN { lf = out "/files.list"; while ((getline f < lf) > 0) { known[f] = 1; files[++nf] = f; d = dir(f); if (d != "") known[d "/"] = 1 }
+      printf "" > (out "/edges.tsv"); printf "" > (out "/symbols.tsv")
+      for (i = 1; i <= nf; i++) { f = files[i]; ext = f; sub(/.*\./, "", ext); ln = 0; inimport = 0; cls = ""
+        while ((getline L < f) > 0) { ln++
+          if (length(L) > 400) continue
+          if (ext == "py") {
+            if (match(L, /^(async[ \t]+)?def[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) sym(f, "def", substr(L, RSTART, RLENGTH), ln)
+            else if (match(L, /^class[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) sym(f, "class", substr(L, RSTART, RLENGTH), ln)
+            else if (match(L, /^[ \t]+(async[ \t]+)?def[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) sym(f, "method", substr(L, RSTART, RLENGTH), ln)
+            if (match(L, /^[ \t]*from[ \t]+[.A-Za-z_][.A-Za-z0-9_]*[ \t]+import/)) { m = substr(L, RSTART, RLENGTH); sub(/^[ \t]*from[ \t]+/, "", m); sub(/[ \t]+import$/, "", m)
+              r = py(f, m); rest = L; sub(/.*import[ \t]+/, "", rest); gsub(/[()]/, "", rest)
+              # "from pkg import mod": an edge to each imported module; to pkg/__init__.py only when nothing resolved.
+              got = 0
+              if (m ~ /^\.+$/ || r ~ /__init__\.py$/ || r == "") { k = split(rest, it, ","); for (j = 1; j <= k; j++) { x = it[j]; sub(/[ \t]+as[ \t].*/, "", x); gsub(/[ \t]/, "", x); if (x != "") { rr = py(f, m (m ~ /\.$/ ? "" : ".") x); if (rr != "" && rr !~ /__init__\.py$/) { edge(f, rr); got++ } } } }
+              if (r != "" && !(got && r ~ /__init__\.py$/)) edge(f, r) }
+            else if (match(L, /^[ \t]*import[ \t]+[A-Za-z_][.A-Za-z0-9_, \t]*/)) { m = substr(L, RSTART, RLENGTH); sub(/^[ \t]*import[ \t]+/, "", m)
+              k = split(m, it, ","); for (j = 1; j <= k; j++) { x = it[j]; sub(/[ \t]+as[ \t].*/, "", x); gsub(/[ \t]/, "", x); r = py(f, x); if (r != "") edge(f, r) } }
+          } else if (ext ~ /^(js|jsx|ts|tsx|mjs|cjs)$/) {
+            if (match(L, /^export[ \t]+(default[ \t]+)?(async[ \t]+)?(function\*?|class|const|let|var|interface|type|enum)[ \t]+[A-Za-z_$][A-Za-z0-9_$]*/)) sym(f, "export", substr(L, RSTART, RLENGTH), ln)
+            else if (match(L, /^(async[ \t]+)?function\*?[ \t]+[A-Za-z_$][A-Za-z0-9_$]*/)) sym(f, "function", substr(L, RSTART, RLENGTH), ln)
+            else if (match(L, /^(abstract[ \t]+)?class[ \t]+[A-Za-z_$][A-Za-z0-9_$]*/)) sym(f, "class", substr(L, RSTART, RLENGTH), ln)
+            else if (match(L, /^(const|let)[ \t]+[A-Za-z_$][A-Za-z0-9_$]*[ \t]*=[ \t]*(async[ \t]*)?(\(|function)/)) { m = substr(L, RSTART, RLENGTH); sub(/[ \t]*=.*/, "", m); sym(f, "function", m, ln) }
+            s = L
+            while (match(s, /(from|require\(|import\()[ \t]*["\047][^"\047]+["\047]/)) { m = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
+              sub(/^[^"\047]*["\047]/, "", m); sub(/["\047]$/, "", m); r = js(f, m); if (r != "") edge(f, r) }
+            if (match(L, /^import[ \t]+["\047][^"\047]+["\047]/)) { m = substr(L, RSTART, RLENGTH); sub(/^import[ \t]+["\047]/, "", m); sub(/["\047]$/, "", m); r = js(f, m); if (r != "") edge(f, r) }
+          } else if (ext == "go") {
+            if (match(L, /^func[ \t]+(\([^)]*\)[ \t]*)?[A-Za-z_][A-Za-z0-9_]*/)) sym(f, "func", substr(L, RSTART, RLENGTH), ln)
+            else if (match(L, /^type[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) sym(f, "type", substr(L, RSTART, RLENGTH), ln)
+            if (L ~ /^import[ \t]*\(/) inimport = 1
+            else if (inimport && L ~ /^\)/) inimport = 0
+            if ((inimport || L ~ /^import[ \t]/) && gomod != "" && match(L, /"[^"]+"/)) { m = substr(L, RSTART + 1, RLENGTH - 2)
+              if (index(m, gomod "/") == 1) { m = substr(m, length(gomod) + 2); if ((m "/") in known) edge(f, m "/") } }
+          } else if (ext == "rs") {
+            if (match(L, /^[ \t]*(pub(\([a-z]+\))?[ \t]+)?(async[ \t]+)?(fn|struct|enum|trait|type|mod)[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) sym(f, "item", substr(L, RSTART, RLENGTH), ln)
+            if (match(L, /^[ \t]*(pub[ \t]+)?mod[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*;/)) { m = substr(L, RSTART, RLENGTH); sub(/[ \t]*;$/, "", m); sub(/.*[ \t]/, "", m)
+              b = dir(f); if (b != "") b = b "/"; r = try(b m ".rs"); if (r == "") r = try(b m "/mod.rs"); if (r != "") edge(f, r) }
+            if (match(L, /^[ \t]*use[ \t]+crate::[A-Za-z0-9_:]+/)) { m = substr(L, RSTART, RLENGTH); sub(/.*crate::/, "", m); gsub(/::/, "/", m)
+              while (m != "") { r = try("src/" m ".rs"); if (r == "") r = try("src/" m "/mod.rs"); if (r != "") { edge(f, r); break } if (m !~ /\//) break; sub(/\/[^\/]*$/, "", m) } }
+          } else if (ext ~ /^(sh|bash)$/) {
+            if (match(L, /^(function[ \t]+)?[A-Za-z_][A-Za-z0-9_-]*[ \t]*\(\)[ \t]*\{?/)) { m = substr(L, RSTART, RLENGTH); sub(/[ \t]*\(.*/, "", m); sym(f, "function", m, ln) }
+            if (match(L, /^[ \t]*(source|\.)[ \t]+["\047]?[A-Za-z0-9_.\/-]+/)) { m = substr(L, RSTART, RLENGTH); sub(/^[ \t]*(source|\.)[ \t]+["\047]?/, "", m)
+              r = try(norm(m)); if (r == "") r = try(norm(dir(f) "/" m)); if (r != "") edge(f, r) }
+          } else if (ext == "rb") {
+            if (match(L, /^[ \t]*(def|class|module)[ \t]+[A-Za-z_][A-Za-z0-9_?!.]*/)) sym(f, "def", substr(L, RSTART, RLENGTH), ln)
+            if (match(L, /require_relative[ \t(]*["\047][^"\047]+/)) { m = substr(L, RSTART, RLENGTH); sub(/.*["\047]/, "", m); r = try(norm(dir(f) "/" m ".rb")); if (r != "") edge(f, r) }
+          } else if (ext == "php") {
+            if (match(L, /(function|class|interface|trait)[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) sym(f, "def", substr(L, RSTART, RLENGTH), ln)
+          } else if (ext ~ /^(java|kt|cs|swift)$/) {
+            if (match(L, /(class|interface|enum|record|struct|object|protocol)[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) sym(f, "type", substr(L, RSTART, RLENGTH), ln)
+            else if (match(L, /^[ \t]*(public|private|protected|internal|static|override|suspend|fun|func|[ \t])+[ \t]*(fun|func)[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) sym(f, "func", substr(L, RSTART, RLENGTH), ln)
+          } else {
+            if (match(L, /^#include[ \t]+"[^"]+"/)) { m = substr(L, RSTART, RLENGTH); sub(/^#include[ \t]+"/, "", m); sub(/"$/, "", m); r = try(norm(dir(f) "/" m)); if (r == "") r = try(m); if (r != "") edge(f, r) }
+          }
+        }
+        close(f); lines[f] = ln; total += ln
+        print f "\t" ln "\t" (nsym[f] + 0) > (out "/files.tsv")
+      }
+    }' </dev/null
+  report > "$out/MAP.md"
+  stamp > "$out/stamp"
+}
+
+ensure() { [ -s "$out/MAP.md" ] && [ "$(cat "$out/stamp" 2>/dev/null)" = "$(stamp)" ] || build; }
+
+report() {
+  local sha; sha=$(git rev-parse --short HEAD 2>/dev/null || echo none)
+  awk -F'\t' -v out="$out" -v repo="$(basename "$top")" -v sha="$sha" -v tasks="$top/.uak/TASKS.md" '
+    function area(f,   a, n) { n = split(f, a, "/"); if (n == 1) return "(root)"; if (two[a[1]] && n > 2) return a[1] "/" a[2]; return a[1] }
+    function istest(f) { return f ~ /(^|\/)(tests?|__tests__|spec|e2e)\// || f ~ /(^|\/)test_[^\/]*$/ || f ~ /_test\.[a-z]+$/ || f ~ /\.(test|spec)\.[a-z]+$/ }
+    function k(n) { return n >= 1000 ? sprintf("%.1fk", n / 1000) : n "" }
+    BEGIN {
+      while ((getline l < (out "/files.tsv")) > 0) { split(l, a, "\t"); f = a[1]; F[++nf] = f; L[f] = a[2]; S[f] = a[3]; tl += a[2]; ts += a[3]; split(f, p, "/"); top1[p[1]]++ }
+      for (x in top1) if (top1[x] > 0.6 * nf && nf > 20) two[x] = 1
+      while ((getline l < (out "/edges.tsv")) > 0) { split(l, a, "\t"); ne++; fo[a[1]]++
+        t = a[2]; if (t ~ /\/$/) { for (i = 1; i <= nf; i++) if (index(F[i], t) == 1 && F[i] !~ ("^" t ".*/")) { fi[F[i]]++ } } else fi[t]++
+        aa = area(a[1]); ab = area(t); if (aa != ab) { ad[aa " → " ab]++; uses[aa]++; usedby[ab]++ } }
+      while ((getline l < (out "/symbols.tsv")) > 0) { split(l, a, "\t"); if (a[2] != "method" && cnt[a[3]] < 6) { def[a[3]] = def[a[3]] (cnt[a[3]] ? ", " : "") a[1]; cnt[a[3]]++ } }
+      for (i = 1; i <= nf; i++) { f = F[i]; ar = area(f); AF[ar]++; AL[ar] += L[f]; AS[ar] += S[f] }
+      printf "# Code map · %s @ %s\n\n", repo, sha
+      printf "%d files · %s lines · %d symbols · %d in-repo import edges. Built by `uak map` (no LLM). Read this before opening files;\n", nf, k(tl), ts, ne
+      printf "then query instead of grepping: `uak map find NAME` · `deps FILE` · `users FILE` · `path A B` · `impact ID`.\n\n"
+      printf "## Areas\n| area | files | lines | symbols | uses other areas | used by other areas |\n|---|---:|---:|---:|---:|---:|\n"
+      n = 0; for (x in AF) ar_[++n] = x
+      for (i = 1; i <= n; i++) for (j = i + 1; j <= n; j++) if (AL[ar_[j]] > AL[ar_[i]]) { t = ar_[i]; ar_[i] = ar_[j]; ar_[j] = t }
+      for (i = 1; i <= n && i <= 25; i++) { x = ar_[i]; printf "| %s | %d | %s | %d | %d | %d |\n", x, AF[x], k(AL[x]), AS[x], uses[x], usedby[x] }
+      if (n > 25) printf "| … %d more areas | | | | | |\n", n - 25
+      printf "\n## Hubs: most imported (a change here reaches many files; treat as a contract)\n| file | imported by | defines |\n|---|---:|---|\n"
+      m = 0; for (i = 1; i <= nf; i++) if (fi[F[i]] > 0) H[++m] = F[i]
+      for (i = 1; i <= m; i++) for (j = i + 1; j <= m; j++) if (fi[H[j]] > fi[H[i]]) { t = H[i]; H[i] = H[j]; H[j] = t }
+      for (i = 1; i <= m && i <= 12; i++) printf "| %s | %d | %s |\n", H[i], fi[H[i]], def[H[i]]
+      if (m == 0) printf "| (no in-repo imports found) | | |\n"
+      printf "\n## Entry points: import others, imported by none (scripts, pages, mains)\n"
+      m = 0; for (i = 1; i <= nf; i++) if (!fi[F[i]] && fo[F[i]] > 0 && !istest(F[i])) E[++m] = F[i]
+      for (i = 1; i <= m; i++) for (j = i + 1; j <= m; j++) if (fo[E[j]] > fo[E[i]]) { t = E[i]; E[i] = E[j]; E[j] = t }
+      s = ""; for (i = 1; i <= m && i <= 15; i++) s = s (i > 1 ? " · " : "") E[i] " (" fo[E[i]] ")"; print (s == "" ? "-" : s)
+      printf "\n## Area dependencies (imports across areas)\n"
+      m = 0; for (x in ad) D[++m] = x
+      for (i = 1; i <= m; i++) for (j = i + 1; j <= m; j++) if (ad[D[j]] > ad[D[i]]) { t = D[i]; D[i] = D[j]; D[j] = t }
+      s = ""; for (i = 1; i <= m && i <= 20; i++) s = s (i > 1 ? " · " : "") D[i] " " ad[D[i]]; print (s == "" ? "-" : s)
+      printf "\n## Biggest files (read by ranges: `sed -n A,Bp`, or `uak map find NAME` for the line)\n"
+      for (i = 1; i <= nf; i++) B[i] = F[i]
+      for (i = 1; i <= nf && i <= 400; i++) for (j = i + 1; j <= nf; j++) if (L[B[j]] > L[B[i]]) { t = B[i]; B[i] = B[j]; B[j] = t }
+      s = ""; for (i = 1; i <= nf && i <= 8; i++) s = s (i > 1 ? " · " : "") B[i] " " k(L[B[i]]); print (s == "" ? "-" : s)
+      tt = 0
+      while ((getline l < tasks) > 0) {
+        if (l ~ /^## [A-Z][A-Z0-9]*-[0-9]/) { split(l, a, " "); cur = a[2]; continue }
+        x = l; gsub(/\*\*/, "", x); sub(/^[ \t]*-[ \t]*/, "", x)
+        if (cur != "" && x ~ /^Paths:/) { sub(/^Paths:[ \t]*/, "", x); TP[cur] = x; TO[++tt] = cur }
+      }
+      if (tt) {
+        printf "\n## Tasks: files in each task'"'"'s Paths (`uak map impact ID` lists who imports them)\n"
+        for (q = 1; q <= tt; q++) { id = TO[q]; np = split(TP[id], pp, ","); c = 0; lc = 0; hub = ""
+          for (i = 1; i <= nf; i++) for (j = 1; j <= np; j++) { y = pp[j]; gsub(/[` \t*]/, "", y); sub(/\*.*$/, "", y)
+            if (y != "" && (F[i] == y || index(F[i], y) == 1 && (y ~ /\/$/ || substr(F[i], length(y) + 1, 1) == "/"))) { c++; lc += L[F[i]]; if (fi[F[i]] >= 3) hub = hub (hub == "" ? "" : ", ") F[i]; break } }
+          printf "- %s: %d files, %s lines%s\n", id, c, k(lc), (hub != "" ? "; hubs: " hub : "") }
+      }
+    }' /dev/null
+}
+
+resolve_file() { case "$1" in ./*) printf '%s' "${1#./}";; *) printf '%s' "$1";; esac; }
+cmd=${1:-build}; [ "$#" -eq 0 ] || shift
+case "$cmd" in
+  build)
+    build
+    awk 'NR == 3' "$out/MAP.md" >/dev/null
+    printf 'MAP %s\n' "$(sed -n '3p' "$out/MAP.md" | sed 's/ Built by.*//')"
+    printf 'Read: %s (%s chars, ~%s tokens). Query: uak map find NAME · users FILE · impact ID\n' "$out/MAP.md" "$(wc -c < "$out/MAP.md" | tr -d ' ')" "$(( $(wc -c < "$out/MAP.md") / 4 ))";;
+  show) ensure; cat "$out/MAP.md";;
+  find)
+    [ "$#" -gt 0 ] || die "Usage: map find NAME"; ensure
+    awk -F'\t' -v n="$1" '$1 == n {printf "%s:%s  %s %s\n", $3, $4, $2, $1; c++} END {if (!c) exit 1}' "$out/symbols.tsv" ||
+      { awk -F'\t' -v n="$1" 'index(tolower($1), tolower(n)) == 1 {printf "%s:%s  %s %s\n", $3, $4, $2, $1; c++; if (c >= 15) exit}' "$out/symbols.tsv"
+        printf '(no exact definition of %s; prefix matches above)\n' "$1"; }
+    used=$(git grep -lw -- "$1" 2>/dev/null | wc -l | tr -d ' '); printf 'mentioned in %s tracked file(s): git grep -nw -- %s\n' "$used" "$1";;
+  deps)
+    [ "$#" -gt 0 ] || die "Usage: map deps FILE"; ensure; f=$(resolve_file "$1")
+    awk -F'\t' -v f="$f" '$1 == f {print "→ " $2; c++} END {if (!c) print "(no in-repo imports)"}' "$out/edges.tsv";;
+  users)
+    [ "$#" -gt 0 ] || die "Usage: map users FILE [--depth N]"; ensure; f=$(resolve_file "$1"); depth=1
+    [ "${2:-}" != --depth ] || depth=${3:-1}; case "$depth" in ''|*[!0-9]*) depth=1;; esac
+    awk -F'\t' -v f="$f" -v depth="$depth" '
+      { from[NR] = $1; to[NR] = $2; n = NR }
+      END { want[f] = 1; d = f; sub(/\/[^\/]*$/, "/", d); if (d != f) want[d] = 1
+        for (lvl = 1; lvl <= depth; lvl++) { added = 0
+          for (i = 1; i <= n; i++) if ((to[i] in want) && !(from[i] in got) && from[i] != f) { got[from[i]] = lvl; added++; nxt[from[i]] = 1 }
+          for (x in nxt) want[x] = 1; delete nxt; if (!added) break }
+        c = 0; for (x in got) { printf "%s← %s\n", (got[x] > 1 ? "  (level " got[x] ") " : ""), x; c++ }
+        if (!c) print "(no in-repo file imports it)"; else printf "%d file(s) depend on %s\n", c, f }' "$out/edges.tsv";;
+  path)
+    [ "$#" -ge 2 ] || die "Usage: map path A B"; ensure
+    awk -F'\t' -v a="$(resolve_file "$1")" -v b="$(resolve_file "$2")" '
+      { adj[$1] = adj[$1] " " $2 }
+      END { q[1] = a; h = 1; t = 1; prev[a] = "-"
+        while (h <= t) { x = q[h++]; if (x == b) break; n = split(adj[x], nb, " "); for (i = 1; i <= n; i++) if (!(nb[i] in prev)) { prev[nb[i]] = x; q[++t] = nb[i] } }
+        if (!(b in prev)) { print "no import path from " a " to " b; exit 1 }
+        p = b; s = b; while (prev[p] != "-") { p = prev[p]; s = p " → " s }; print s }' "$out/edges.tsv";;
+  impact)
+    only_tasks=no; [ "${1:-}" != --tasks ] || { only_tasks=yes; shift; }
+    [ "$#" -gt 0 ] || die "Usage: map impact [--tasks] ID|FILE..."; ensure
+    : > "$out/impact.prefixes"
+    for x in "$@"; do
+      if printf '%s' "$x" | grep -Eq '^[A-Za-z][A-Za-z0-9]*-[0-9]+$'; then
+        id=$(printf '%s' "$x" | tr '[:lower:]' '[:upper:]')
+        paths=$(awk -v id="$id" '/^## / {on = ($2 == id)} on {s = $0; gsub(/\*\*/, "", s); sub(/^[ \t]*-[ \t]*/, "", s); if (s ~ /^Paths:/) {sub(/^Paths:[ \t]*/, "", s); print s; exit}}' .uak/TASKS.md 2>/dev/null)
+        [ -n "$paths" ] || die "$id has no Paths in .uak/TASKS.md"
+        printf '%s\n' "$paths" | tr ',' '\n' | sed 's/[` *]//g' | grep -v '^$' >> "$out/impact.prefixes"
+      else printf '%s\n' "$(resolve_file "$x")" >> "$out/impact.prefixes"; fi
+    done
+    awk -v pf="$out/impact.prefixes" -F'\t' -v tasks="$top/.uak/TASKS.md" -v only="$only_tasks" -v self="$*" '
+      function inside(f, list,   i, n, a, y) { n = split(list, a, "\n"); for (i = 1; i <= n; i++) { y = a[i]; if (y == "") continue
+          if (f == y || (index(f, y) == 1 && (y ~ /\/$/ || substr(f, length(y) + 1, 1) == "/"))) return 1 } return 0 }
+      BEGIN { while ((getline l < pf) > 0) mine = mine l "\n"
+        while ((getline l < tasks) > 0) { if (l ~ /^## [A-Z][A-Z0-9]*-[0-9]/) { split(l, a, " "); cur = a[2]; continue }
+          x = l; gsub(/\*\*/, "", x); sub(/^[ \t]*-[ \t]*/, "", x)
+          if (cur != "" && x ~ /^Paths:/) { sub(/^Paths:[ \t]*/, "", x); gsub(/[` *]/, "", x); gsub(/,/, "\n", x); TP[cur] = x } } }
+      { d = $2; if (inside($2, mine) && !inside($1, mine)) { hit[$1] = hit[$1] (hit[$1] == "" ? "" : ", ") $2 } }
+      END { c = 0
+        for (u in hit) { owner = ""; for (t in TP) if (inside(u, TP[t]) && index(" " toupper(self) " ", " " t " ") == 0) owner = owner (owner == "" ? "" : ",") t
+          if (only != "yes") printf "%s imports %s%s\n", u, hit[u], (owner != "" ? "  → task " owner : ""); c++
+          if (owner != "") { split(owner, oo, ","); for (z in oo) T[oo[z]] = 1 } }
+        if (only == "yes") { for (t in T) print t; exit }
+        if (!c) { print "IMPACT: nothing outside these paths imports them"; exit }
+        n = 0; for (t in T) n++
+        printf "IMPACT: %d file(s) outside import yours, owned by %d task(s)%s\n", c, n, (n ? ". Warn them in one line before pushing a change: uak msg impact:" toupper(self) " --kind contract \"what changed · what to do\"" : "") }' "$out/edges.tsv"
+    rm -f "$out/impact.prefixes";;
+  -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//';;
+  *) die "unknown command $cmd (map --help)";;
+esac

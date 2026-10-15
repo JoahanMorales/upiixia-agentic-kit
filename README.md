@@ -206,7 +206,35 @@ bash .uak/bin/uak graph --mermaid      # live state colors, paste into any PR or
 bash .uak/bin/uak graph --assign       # ready task → idle agent that already integrated work in those folders
 ```
 
+**The code graph (`uak map`)**: like graphify, but deterministic, offline and free: Bash + awk extract symbols and
+resolved imports, and an agent reads a compact `MAP.md` (areas, hubs, entry points, files per task) instead of
+opening files. Measured on a 123-file analytics repo: the whole source is ~187k tokens, `MAP.md` ~1.3k, and "where is
+`data_path` defined and who uses its module" costs ~280 tokens from the map vs ~3.1k opening the files.
+```bash
+bash .uak/bin/uak map find data_path · map users core/config.py · map path A B · map impact HACK-001
+bash .uak/bin/uak msg impact:HACK-001 --kind contract "data_path takes a Path now"   # every task whose files import it
+```
+
+**Memory anchored to paths**: `uak learn "what bites · where · what to do"` stores a lesson on the task's paths;
+`uak next`, which every session starts with, shows the newest lessons to whoever works there next. A reviewer's
+reject note becomes one with `--learn`.
+
 `uak lint` fails on dependency cycles and unknown IDs. `Uses contract:` edges let consumers work on mocks instead of waiting.
+
+## Speed
+
+Every `uak` call is a Git round trip to the shared branch, so v5 cut the trips, not just the work:
+
+| Measured on GitHub over SSH (reads of a real 36-task team repo) | v4 | v5 |
+|---|---:|---:|
+| `uak next` | 10.4–12.2 s | **1.5–2.1 s** |
+| `uak status` | 7.3–9.2 s | **1.7 s** |
+| one Git round trip (SSH connection reused, `ControlMaster`) | 1.2 s | 0.4 s |
+| a message reaches a working agent's context | up to 2 min | **~20 s** (a cheap `ls-remote` check per tool call) |
+
+One fetch brings claims and the config together, the GitHub clock check is cached for an hour, and `next` skips
+tasks that are taken before running its gates. Agents that wait for something run **`uak wait ID --for approve`**
+once instead of polling `status` in a loop.
 
 ## Token economy
 
@@ -268,6 +296,9 @@ Mix them freely: coordination lives in Git, not in any tool.
 | `uak loop --verify CMD [--parallel N --each CMD]` | bounded autonomous fix loop, one per failing file |
 | `uak graph [--mermaid \| --assign]` | backlog DAG: waves, critical path, cycles · who should take what |
 | `uak tokens [--team] [--by model]` | the real token bill per task, model, harness, lead vs subagent |
+| `uak map [show\|find\|users\|path\|impact]` | the code graph: read the structure instead of files |
+| `uak wait ID --for approve\|integrated\|message` | one call that returns when it happens, no polling |
+| `uak learn "…"` · `uak recall ID` | lessons tied to paths; `next` shows them to the next agent there |
 | `uak handover ID --to NAME` · `retire NAME` · `followup ID` | pass a task on · close an identity · more work on an integrated task |
 | `uak done` / `review` / `merge` | ship → review by rotation → gated merge queue |
 | `uak up N [--tmux]` | claim the N best tasks and launch one agent per worktree |

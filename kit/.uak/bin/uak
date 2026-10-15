@@ -9,6 +9,7 @@ export LC_ALL
 # Why (Reap buildathon): `git show refs/uak/config:.uak/TASKS.md` returned nothing, so claims said "not in TASKS.md".
 MSYS2_ARG_CONV_EXCL="refs/;origin/;${UAK_REMOTE:-origin}/;HEAD;FETCH_HEAD;:"
 export MSYS2_ARG_CONV_EXCL
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/lib/net.sh" 2>/dev/null && ssh_mux
 # Per-worktree identity: .uak-env (written by .uak/bin/wt, git-ignored) only fills empty variables.
 # Why: every terminal or agent in the worktree inherits its identity without manual exports.
 hack_env_file="$(git rev-parse --show-toplevel 2>/dev/null)/.uak-env"
@@ -106,7 +107,7 @@ done ID --pr URL --evidence TEXTO [--to REVIEWER] [--note "what changed since th
 digest
 tick
 next
-review ID --start | --stop | --sha SHA --verdict approve|reject [--note "file:line · what · how to reproduce"]
+review ID --start | --stop | --sha SHA --verdict approve|reject [--note "file:line · what · how to reproduce"] [--learn]
 followup ID --title TEXT   new task on ID's Paths after ID is INTEGRATED (fixes and polish; no human needed)
 handover ID --to NAME   pass your claim (or an expired one, or as UAK_HUMAN) to another agent without AVAILABLE
 retire NAME...   an identity that no longer runs leaves the reviewer rotation (its human or itself)
@@ -128,10 +129,14 @@ allow ID... --reason TEXT | allow --in-flight --reason TEXT   human freeze excep
 clock "START" "DEADLINE" [ZONE] [--write]   sprint schedule scaled to the event length (freeze, rehearsal)
 pace [--caps|--json|set USED --resets +3h [--window 5h]]   plan-usage pacing: surge, normal, conserve, critical
 tokens [--team] [--by task|harness|model|scope|agent] [--since DAYS] [--publish]   real token spend from Claude Code/Codex transcripts
+map [show|find NAME|deps FILE|users FILE|path A B|impact ID]   code map (symbols, imports, hubs) to read instead of files
 bb add bug|friction|idea|need|praise TEXT [--fix IDEA] · bb flush · bb show · bb export   black box for kit fixes
 plan FILE   publish new tasks to claims without a PR (Plan-Channel: claims; needs UAK_HUMAN)
 msg DESTINO TEXTO [--kind TIPO] [--task HACK-NNN]   DESTINO: NOMBRE|HACK-NNN|related:HACK-NNN|all|human
 inbox [--ack] [--all] [--peek] [--task HACK-NNN] [--human]
+wait [ID] --for approve|integrated|message [--timeout S]   one call that returns when it happens (instead of polling)
+learn "TEXT" [--path P,Q] [--task ID] · learn --forget N   a lesson tied to paths; next shows it to the next agent there
+recall [ID|PATH]   the lessons for a task or a path, newest first
 UAK_AGENT / UAK_HUMAN · UAK_REMOTE=origin · UAK_BASE=main · lease=1800s
 Why: the remote serializes claims; every session keeps an exact next step.
 USAGE
@@ -146,8 +151,8 @@ bb_common=$(git rev-parse --git-common-dir 2>/dev/null) || bb_common=
 case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
   [ -z "$bb_common" ] || printf '%s\n' "$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
 esac
-case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens) exec bash "$UAK_BIN/$CMD" "$@";; esac
-case "$CMD" in status|claim|heartbeat|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
+case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map) exec bash "$UAK_BIN/$CMD" "$@";; esac
+case "$CMD" in status|claim|heartbeat|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover|wait|learn|recall) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac
   ROOT=$(pwd -P)
@@ -160,6 +165,7 @@ source "$ROOT/.uak/bin/lib/review-merge.sh"
 source "$ROOT/.uak/bin/lib/security.sh"
 source "$ROOT/.uak/bin/lib/smoke-init.sh"
 source "$ROOT/.uak/bin/lib/messages.sh"
+source "$ROOT/.uak/bin/lib/memory.sh"
 # Reads one section; accepts - **Field:** value, **Field**: value and Field: value.
 task_field() {
   awk -v id="$ID" -v key="$1" '
@@ -282,22 +288,26 @@ fresh_state() {
   git -C "$TX" config user.name "$USER_NAME"
   git -C "$TX" config user.email "$USER_EMAIL"
   git -C "$TX" remote add origin "$REMOTE_URL" || gitfail "Invalid remote."
-  # Wi-Fi at events drops for seconds: retry the network twice before failing (Reap: 8 "Remote unreachable").
-  net_try=0
-  until git -C "$TX" ls-remote --heads origin claims > "$TXROOT/refs" 2> "$TXROOT/git-error"; do
+  # One fetch brings claims and the base's config (PROJECT.md, TASKS.md) together: one network round trip instead
+  # of three (ls-remote, fetch claims, fetch config). done/integrate/merge prove ancestry on the base, so they
+  # fetch it whole later (coord_init). Wi-Fi at events drops for seconds: 3 tries (Reap: 8 "Remote unreachable").
+  local refs="+refs/heads/claims:refs/uak/claims"
+  case "$CMD" in done|integrate|merge) ;; *) refs="$refs +refs/heads/$BASE:refs/uak/config";; esac
+  net_try=0 HAS_REMOTE=yes
+  until git -C "$TX" fetch -q --depth 2 origin $refs 2> "$TXROOT/git-error"; do
+    if grep -qi "couldn't find remote ref refs/heads/claims" "$TXROOT/git-error"; then
+      HAS_REMOTE=no
+      case "$CMD" in done|integrate|merge) break;; esac
+      git -C "$TX" fetch -q --depth 2 origin "+refs/heads/$BASE:refs/uak/config" 2> "$TXROOT/git-error" && break
+    fi
     net_try=$((net_try + 1)); [ "$net_try" -lt 3 ] || gitfail "Remote unreachable (3 tries). $(head -n 1 "$TXROOT/git-error")"
     sleep $((net_try * 2))
   done
-  if [ -s "$TXROOT/refs" ]; then
-    # Depth 2: every transaction starts from a fresh clone, so the full claims history (600+ commits at Reap)
-    # was downloaded on every call and widened the race window. HEAD^ is enough for the append-only lint.
-    git -C "$TX" fetch -q --depth 2 origin refs/heads/claims || { sleep 2; git -C "$TX" fetch -q --depth 2 origin refs/heads/claims; } ||
-      gitfail "fetch claims failed."
-    git -C "$TX" checkout -q -b claims FETCH_HEAD || gitfail "checkout claims failed."
-    HAS_REMOTE=yes
+  if [ "$HAS_REMOTE" = yes ]; then
+    # HEAD^ (depth 2) is enough for the append-only lint; the full claims history (600+ commits at Reap) is not.
+    git -C "$TX" checkout -q -b claims refs/uak/claims || gitfail "checkout claims failed."
   else
     git -C "$TX" checkout -q --orphan claims || gitfail "Cannot initialize claims."
-    HAS_REMOTE=no
   fi
   mkdir -p "$TX/tasks" "$TX/claims" "$TX/worklog"
 }
@@ -448,6 +458,53 @@ retire_mutate() {
     printf '%s\n' "Agent: $who" "Retired-By: ${HUMAN:-$AGENT}" "Retired: $NOW" > "$TX/meta/retired/$who.md"
   done
   ID=
+}
+# One call that blocks until something happens on claims, instead of an agent polling status/inbox.
+# A cheap `git ls-remote` every WAIT_EVERY s (0.4 s with SSH reuse); claims are read only when their tip moves.
+# Why (MLB hackathon): 225 `status` and 172 `inbox` calls, most of them an agent checking whether its review,
+# a dependency or a reply had arrived; every call re-sends its output into the agent's context.
+#   approve     your REVIEW task (or ID): exit 0 on approve or INTEGRATED, 3 on reject
+#   integrated  ID becomes INTEGRATED (a dependency): exit 0
+#   message     a new unread message for you: printed, exit 0
+# Timeout (default 540 s, under a 10-min tool limit): WAIT_TIMEOUT, exit 4. Rerun to keep waiting.
+wait_run() {
+  local deadline last= tip n=0 rv st c
+  deadline=$(( $(date +%s) + WAIT_TIMEOUT ))
+  if [ "$WAIT_FOR" = approve ] && [ -z "$ID" ]; then
+    ATTEMPT=wait-0; fresh_state
+    for c in "$TX"/claims/*.md; do
+      [ -f "$c" ] && [ "$(field "$c" Owner)" = "$AGENT" ] && [ "$(field "$c" State)" = REVIEW ] && { ID=$(field "$c" ID); break; }
+    done
+    [ -n "$ID" ] || die "wait --for approve: you have no task in REVIEW; name one: uak wait ID --for approve"
+  fi
+  [ "$WAIT_FOR" = message ] || [ -n "$ID" ] || die "wait --for $WAIT_FOR needs an ID."
+  say "WAITING ${ID:+$ID }for $WAIT_FOR (up to $WAIT_TIMEOUT s; checks every $WAIT_EVERY s)"
+  while :; do
+    tip=$(git -C "$ROOT" ls-remote "$REMOTE" refs/heads/claims 2>/dev/null | awk '{print $1; exit}')
+    if [ -n "$tip" ] && [ "$tip" != "$last" ]; then
+      last=$tip; n=$((n + 1)); ATTEMPT="wait-$n"; [ -n "${UAK_NOW:-}" ] || NOW=$(date +%s)
+      fresh_state
+      case "$WAIT_FOR" in
+        approve)
+          st=$(field "$TX/tasks/$ID.md" State); rv="$TX/reviews/$ID.md"
+          if [ "$st" = INTEGRATED ]; then say "INTEGRATED $ID ($(field "$TX/tasks/$ID.md" Merge-Commit | cut -c 1-7))"; return 0; fi
+          if [ -f "$rv" ] && [ "$(field "$rv" SHA)" = "$(field "$TX/tasks/$ID.md" Task-Tip)" ]; then
+            case "$(field "$rv" Verdict)" in
+              approve) say "APPROVED $ID by $(field "$rv" Reviewer) on $(field "$rv" SHA | cut -c 1-7). Next: bash .uak/bin/uak merge $ID"; return 0;;
+              reject) say "REJECTED $ID by $(field "$rv" Reviewer) on $(field "$rv" SHA | cut -c 1-7). Read it: bash .uak/bin/uak inbox --task $ID"; return 3;;
+            esac
+          fi;;
+        integrated)
+          st=$(field "$TX/tasks/$ID.md" State)
+          if [ "$st" = INTEGRATED ]; then say "INTEGRATED $ID ($(field "$TX/tasks/$ID.md" Merge-Commit | cut -c 1-7)). git fetch origin && git merge origin/$BASE"; return 0; fi;;
+        message)
+          c=$(msg_select unread)
+          if [ -n "$c" ]; then say "NEW for $AGENT:"; say "$c"; say "Handle them, then uak inbox --ack."; return 0; fi;;
+      esac
+    fi
+    [ "$(date +%s)" -lt "$deadline" ] || { say "WAIT_TIMEOUT ${ID:+$ID }$WAIT_FOR after $WAIT_TIMEOUT s: nothing yet. Do other work, or run the same wait again."; return 4; }
+    sleep "$WAIT_EVERY"
+  done
 }
 # Explicit transfer of a live task: same claim, branch, worktree and summary; only the owner changes.
 # Allowed to the owner, to a human (UAK_HUMAN) and to anyone once the lease has expired.
@@ -608,6 +665,7 @@ mutate() {
       ;;
     tick) coord_tick_mutate;;
     retire) retire_mutate;;
+    learn) learn_mutate;;
     handover) handover_mutate;;
     followup) followup_mutate;;
     allow) coord_allow_mutate;;
@@ -747,6 +805,7 @@ transaction() {
     git -C "$TX" add -A || gitfail "git add failed."
     if git -C "$TX" diff --cached --quiet; then
       [ "$CMD" != allow ] || say "OK allow (already allowed) | nothing to record"
+      [ "$CMD" != learn ] || say "OK learn $MEM_DONE | nothing to record"
       return 0
     fi
     git -C "$TX" commit -q -m "uak: $CMD $ID ($AGENT)" || gitfail "git commit failed."
@@ -758,6 +817,7 @@ transaction() {
         elif [ "$CMD" = allow ]; then say "OK allow${ALLOW_DONE:- (already allowed)} | claim and merge allowed after the freeze | attempt $ATTEMPT"
         elif [ "$CMD" = register-reviewer ]; then say "OK register-reviewer $REGISTER_REVIEWER | attempt $ATTEMPT"
         elif [ "$CMD" = handover ]; then say "OK handover $ID → $DONE_TO | lease renewed; $DONE_TO continues from the live summary"
+        elif [ "$CMD" = learn ]; then say "OK learn $MEM_DONE | uak next shows it to whoever works there"
         elif [ "$CMD" = retire ]; then say "OK retire$RETIRE_NAMES | out of the reviewer rotation; a new claim brings an identity back"
         elif [ "$CMD" = followup ]; then say "OK followup $NEW_ID (after $ID, same Paths) | take it: bash .uak/bin/wt new $NEW_ID --agent ${AGENT}"
         elif [ "$REVIEW_STARTED" = yes ]; then say "OK review --start $ID | yours for $(( ${UAK_REVIEW_LOCK_SECONDS:-1200} / 60 )) min; finish with --verdict"
@@ -1003,6 +1063,7 @@ lint_all() {
 }
 PLAN_FILE= ID= BRANCH= WORKTREE= NEXT_TEXT= REQUEST_NEXT= TOKEN= NEW_STATE= LOG_TEXT= PR_URL= EVIDENCE=
 MERGE_COMMIT= REVIEWER= CANCEL_REASON=
+REVIEW_LEARN=no WAIT_FOR=message WAIT_TIMEOUT=${UAK_WAIT_TIMEOUT:-540} WAIT_EVERY=${UAK_WAIT_EVERY:-15}
 EXPIRED=no SHOW_SUMMARY=no LINT_SECRETS=no QUIET=no SESSION_ONLY=no ALLOW_INFLIGHT=no ALLOW_IDS= ALLOW_DONE= REVIEW_NOTE= FULL=no REVIEW_START=no REVIEW_STARTED=no
 RETIRE_NAMES= DONE_TO= FOLLOWUP_TITLE= REVIEW_STOP=no NEW_ID=
 REVIEW_SHA= REVIEW_VERDICT= REGISTER_REVIEWER= SMOKE_COMMAND= SECRET_PATH= SECRET_RULE= SECRET_REASON=
@@ -1035,6 +1096,13 @@ case "$CMD" in
     [ "$#" -gt 1 ] || die "Usage: msg TO TEXT [--kind KIND] [--task ID]."
     MSG_TO=$1; shift; MSG_TASK=${UAK_TASK:-}; identity;;
   inbox) identity;;
+  wait)
+    if [ "$#" -gt 0 ] && valid_id "$(norm_id "$1")"; then ID=$(norm_id "$1"); shift; fi
+    identity;;
+  learn) [ "$#" -gt 0 ] || die "Usage: learn \"what bites · where · what to do\" [--path P,Q] [--task ID] · learn --forget N"; identity;;
+  recall)
+    if [ "$#" -gt 0 ] && valid_id "$(norm_id "$1")"; then ID=$(norm_id "$1"); shift
+    elif [ "$#" -gt 0 ]; then case "$1" in --*) ;; *) MEM_PATHS=$1; shift;; esac; fi;;
   plan)
     [ "$#" -gt 0 ] && [ -f "$1" ] || die "Usage: plan FILE (## ID sections in TASKS.md format)."
     PLAN_FILE=$(cd "$(dirname "$1")" && pwd -P)/$(basename "$1"); shift
@@ -1056,19 +1124,20 @@ while [ "$#" -gt 0 ]; do
     --full) case "$CMD" in status|next|digest|inbox) FULL=yes;; *) die "Invalid option: $opt";; esac;;
     --start) [ "$CMD" = review ] || die "Invalid option: $opt"; REVIEW_START=yes;;
     --stop) [ "$CMD" = review ] || die "Invalid option: $opt"; REVIEW_STOP=yes;;
+    --learn) [ "$CMD" = review ] || die "Invalid option: $opt"; REVIEW_LEARN=yes;;
     --ack|--all|--peek|--human)
       [ "$CMD" = inbox ] || die "Invalid option: $opt"
       case "$opt" in --ack) MSG_ACK=yes;; --all) MSG_MODE=all;; --peek) MSG_MODE=peek;; --human) MSG_MODE=human;; esac;;
     --kind)
       [ "$CMD" = msg ] && [ "$#" -gt 0 ] || die "Invalid option: $opt"
       MSG_KIND=$1; shift; msg_valid_kind "$MSG_KIND" || die "--kind: info|request|contract|blocker|reply|review|approve|reject|integrated|human";;
-    --task|--branch|--worktree|--next|--read-summary|--state|--done|--decision|--why|--fails|--commands|--pr|--evidence|--integrated|--reviewer|--cancel|--sha|--verdict|--note|--command|--option|--reversible|--authorized|--class|--path|--rule|--reason|--to|--title)
+    --task|--branch|--worktree|--next|--read-summary|--state|--done|--decision|--why|--fails|--commands|--pr|--evidence|--integrated|--reviewer|--cancel|--sha|--verdict|--note|--command|--option|--reversible|--authorized|--class|--path|--rule|--reason|--to|--title|--for|--timeout|--forget)
       [ "$#" -gt 0 ] || die "Missing value for $opt."
       value=$1; shift
       case "$opt" in
         --task)
           value=$(norm_id "$value"); valid_id "$value" || bad_id "$value"
-          case "$CMD" in status) ID=$value;; msg) MSG_TASK=$value;; inbox) MSG_MODE="task:$value";; *) die "Invalid option.";; esac;;
+          case "$CMD" in status|learn) ID=$value;; msg) MSG_TASK=$value;; inbox) MSG_MODE="task:$value";; *) die "Invalid option.";; esac;;
         --branch) [ "$CMD" = claim ] || die "Invalid option."; BRANCH=$value;;
         --worktree) [ "$CMD" = claim ] || die "Invalid option."; WORKTREE=$value;;
         --next) case "$CMD" in claim|checkpoint) NEXT_TEXT=$value;; *) die "Invalid option.";; esac;;
@@ -1086,6 +1155,8 @@ while [ "$#" -gt 0 ]; do
         --sha) [ "$CMD" = review ] || die "Invalid option."; REVIEW_SHA=$value;;
         --verdict) [ "$CMD" = review ] || die "Invalid option."; REVIEW_VERDICT=$value;;
         --note) case "$CMD" in review|done) REVIEW_NOTE=$value;; *) die "Invalid option.";; esac;;
+        --for) [ "$CMD" = wait ] || die "Invalid option."; case "$value" in approve|integrated|message) WAIT_FOR=$value;; *) die "--for approve|integrated|message";; esac;;
+        --timeout) [ "$CMD" = wait ] || die "Invalid option."; case "$value" in ''|*[!0-9]*) die "--timeout takes seconds";; esac; WAIT_TIMEOUT=$value;;
         --to) case "$CMD" in done|handover) ;; *) die "Invalid option.";; esac; case "$value" in *[!A-Za-z0-9_.-]*) die "--to takes an agent name.";; esac; DONE_TO=$value;;
         --title) [ "$CMD" = followup ] || die "Invalid option."; FOLLOWUP_TITLE=$value;;
         --command) [ "$CMD" = init-smoke ] || die "Invalid option."; SMOKE_COMMAND=$value;;
@@ -1093,7 +1164,8 @@ while [ "$#" -gt 0 ]; do
         --reversible) [ "$CMD" = decision ] || die "Invalid option."; DECISION_REVERSIBLE=$value;;
         --authorized) [ "$CMD" = decision ] || die "Invalid option."; DECISION_AUTHORIZED=$value;;
         --class) [ "$CMD" = decision ] || die "Invalid option."; DECISION_CLASS=$value;;
-        --path) [ "$CMD" = secret-exception ] || die "Invalid option."; SECRET_PATH=$value;;
+        --path) case "$CMD" in secret-exception) SECRET_PATH=$value;; learn|recall) MEM_PATHS=$value;; *) die "Invalid option.";; esac;;
+        --forget) [ "$CMD" = learn ] || die "Invalid option."; case "$value" in ''|*[!0-9]*) die "--forget takes a lesson number";; esac; MEM_FORGET=$value;;
         --rule) [ "$CMD" = secret-exception ] || die "Invalid option."; SECRET_RULE=$value;;
         --reason) case "$CMD" in secret-exception) SECRET_REASON=$value;; allow) WHY_TEXT=$value;; *) die "Invalid option.";; esac;;
         --cancel) [ "$CMD" = release ] || die "Invalid option."; CANCEL_REASON=$value;;
@@ -1102,6 +1174,7 @@ while [ "$#" -gt 0 ]; do
     *) case "$CMD" in
          log) LOG_TEXT="$LOG_TEXT${LOG_TEXT:+ }$opt";;
          msg) MSG_TEXT="$MSG_TEXT${MSG_TEXT:+ }$opt";;
+         learn) MEM_TEXT="$MEM_TEXT${MEM_TEXT:+ }$opt";;
          # One call registers the whole team (Reap: 25 register-reviewer calls, 5 refused as self-grants).
          register-reviewer) case "$opt" in *[!A-Za-z0-9_.-]*) die "Invalid reviewer identity: $opt";; esac
                REGISTER_REVIEWER="$REGISTER_REVIEWER $opt";;
@@ -1161,9 +1234,6 @@ if [ "$CMD" = lint ] && ! git -C "$ROOT" config --get "remote.$REMOTE.url" >/dev
   TX="$TXROOT/local"; mkdir -p "$TX/worklog" "$TX/tasks" "$TX/claims"; lint_all; exit "$?"
 fi
 # Losing the remote is an explicit read-only mode; no offline writes.
-case "$CMD" in status|next)
-  if ! git -C "$ROOT" ls-remote --heads "$REMOTE" >/dev/null 2>&1; then coord_degraded_status; exit 0; fi;;
-esac
 remote_setup
 case "$CMD" in
   status|next)
@@ -1173,6 +1243,8 @@ case "$CMD" in
     if ( transaction; printf '%s\n' "$TX" > "$TXROOT/tick-tx" ) 2> "$TXROOT/tick-error"; then
       TX=$(cat "$TXROOT/tick-tx")
     else
+      # No remote at all: an explicit read-only mode (the fetch already proved it, no extra ls-remote).
+      if grep -q 'Remote unreachable' "$TXROOT/tick-error"; then CMD=$saved_cmd; coord_degraded_status; exit 0; fi
       CMD=$saved_cmd; ATTEMPT=read; fresh_state
       say "NOTE: deadline reconcile skipped ($(grep -m 1 -E 'ERROR|CONFLICT' "$TXROOT/tick-error" | cut -c 1-160)); showing the remote state." >&2
     fi
@@ -1184,6 +1256,8 @@ case "$CMD" in
     case "$CMD" in digest) print_digest | seen_print digest;; lint) lint_all; exit "$?";; esac;;
   merge) merge_run; exit "$?";;
   inbox) msg_inbox_run; exit "$?";;
+  wait) wait_run; exit "$?";;
+  recall) recall_run; exit "$?";;
   msg) QUIET=yes; transaction; say "OK msg $MSG_SENT";;
   *) [ "$CMD" != tick ] || AGENT=${AGENT:-scheduler}; transaction;;
 esac

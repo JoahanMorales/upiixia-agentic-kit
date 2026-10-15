@@ -130,7 +130,10 @@ msg_select() {
   # A newer contract from the same sender about the same task supersedes the older one: the inbox shows only
   # the current one, the task thread marks the old one. Why (Reap buildathon): two contracts for the same
   # endpoint (#127, #129) arrived minutes apart and a consumer had to ask which shape was final.
-  awk -F' [|] ' -v me="$AGENT" -v owned=" $(msg_owned) " -v last="$(msg_last_read)" -v mode="$1" -v now="$NOW" '
+  # A new identity (no read pointer yet) starts with the last 6 h, plus anything addressed to it by name.
+  # Why (MLB hackathon): 5 identities joined mid-event and each got up to 22 unread "all" messages, 60 h old.
+  local since=0; [ -f "$TX/inbox/read/$AGENT.md" ] || since=$((NOW - ${UAK_INBOX_FRESH_SECONDS:-21600}))
+  awk -F' [|] ' -v me="$AGENT" -v owned=" $(msg_owned) " -v last="$(msg_last_read)" -v mode="$1" -v now="$NOW" -v since="$since" '
     FNR == NR { if ($0 ~ /^- [0-9]/ && $5 == "contract" && $6 != "-") latest[$3 "|" $6] = substr($1, 3) + 0; next }
     /^- [0-9]/ {
       n=substr($1, 3) + 0; from=$3; to=$4; sup=""
@@ -145,14 +148,25 @@ msg_select() {
         mine=0
         for (i=1; i<=nt; i++) mine = mine || (t[i] == "agent:" me) || (t[i] == "all" && from != me) || (t[i] ~ /^task:/ && index(owned, " " substr(t[i], 6) " "))
         if (!mine || (mode == "unread" && n <= last)) next
+        if (mode == "unread" && $2 < since && to != "agent:" me) next
       }
       age=int((now - $2) / 60)
       printf "#%d · %dm ago · %s → %s · %s · %s%s\n  %s\n", n, age, from, to, $5, $6, sup, $7
     }' "$TX/$MSG_LOG" "$TX/$MSG_LOG"
 }
 msg_resolve_targets() {
-  # Expands MSG_TO into canonical targets, one per line.
+  # Expands MSG_TO into canonical targets, one per line. "A,B" is a list; impact:ID asks the code map which tasks
+  # import the files of ID (uak map impact). Why: related:ID only knows the Depends/Uses edges people wrote; at MLB
+  # 27 tasks imported HACK-001's files and a contract change reached them by hand-picked messages.
   case "$MSG_TO" in
+    *,*)
+      local one all=$MSG_TO
+      for one in $(printf '%s' "$all" | tr ',' ' '); do MSG_TO=$one; msg_resolve_targets; done
+      MSG_TO=$all; return 0;;
+    impact:*)
+      valid_id "${MSG_TO#impact:}" || die "Invalid target: $MSG_TO"
+      bash "$UAK_BIN/map" impact --tasks "${MSG_TO#impact:}" 2>/dev/null | grep -E '^[A-Z][A-Z0-9]*-[0-9]+$' | sed 's/^/task:/'
+      return 0;;
     all|human) printf '%s\n' "$MSG_TO";;
     related:*)
       valid_id "${MSG_TO#related:}" || die "Invalid target: $MSG_TO"
@@ -178,7 +192,8 @@ msg_mutate() {
   fi
   [ "${#MSG_TEXT}" -le 1200 ] || die "Message over 1200 characters: keep 3 lines; put detail in the PR or a file and send its path."
   targets=$(msg_resolve_targets) || exit $?
-  [ -n "$targets" ] || die "$MSG_TO has no related tasks in TASKS.md (Depends on / Uses contract / Related)."
+  [ -n "$targets" ] || die "$MSG_TO has no related tasks (related:ID reads Depends on / Uses contract / Related in TASKS.md; impact:ID reads the code map)."
+  targets=$(printf '%s\n' "$targets" | awk '!seen[$0]++')
   MSG_SENT=
   msg_append "$(printf '%s\n' "$targets" | tr '\n' ',' | sed 's/,$//')" "$MSG_KIND" "$MSG_TASK" "$MSG_TEXT"
 }

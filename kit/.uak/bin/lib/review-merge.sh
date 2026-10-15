@@ -191,6 +191,8 @@ review_mutate() {
     msg_append "task:$ID" approve "$ID" "Approved SHA ${RM_TIP%"${RM_TIP#???????}"} by $AGENT$note. Next: bash .uak/bin/uak merge $ID (the owner; after $(( $(rm_config Merge-Adopt-Seconds 1200) / 60 )) min any agent can)"
   else
     msg_append "task:$ID" reject "$ID" "Rejected SHA ${RM_TIP%"${RM_TIP#???????}"} by $AGENT$note. Fix, push, and rerun /uak-ship"
+    # --learn: the reason becomes a lesson on the task's paths, so the next task there does not repeat it.
+    if [ "$REVIEW_LEARN" = yes ] && [ -n "$REVIEW_NOTE" ]; then MEM_TEXT=$REVIEW_NOTE; MEM_PATHS=; learn_mutate; fi
   fi
 }
 approval_check() {

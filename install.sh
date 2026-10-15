@@ -66,9 +66,9 @@ putdir "$kit/.claude/commands" "$target/.claude/commands"
 putdir "$kit/.claude/agents" "$target/.claude/agents"
 case "$mode" in
   sprint) rm -f "$target/.claude/agents/security-reviewer.md" "$target/.claude/commands/uak-spec.md"
-          skills="verification-before-completion systematic-debugging webapp-testing design-taste-frontend redesign-existing-projects";;
+          skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing design-taste-frontend redesign-existing-projects";;
   marathon) rm -f "$target/.claude/agents/design-critic.md" "$target/.claude/commands/uak-design-lock.md" "$target/.claude/commands/uak-demo.md"
-          skills="verification-before-completion systematic-debugging webapp-testing test-driven-development";;
+          skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing test-driven-development";;
 esac
 case ",$extra," in *,ai,*) skills="$skills mcp-builder";; esac
 case ",$extra," in *,tdd,*) case " $skills " in *" test-driven-development "*) ;; *) skills="$skills test-driven-development";; esac;; esac

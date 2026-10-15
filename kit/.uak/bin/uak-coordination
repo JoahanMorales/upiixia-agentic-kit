@@ -363,9 +363,20 @@ coord_clock() {
   elif [ -n "${UAK_NOW:-}" ]; then
     CLOCK_NOTE='Clock: simulated; remote comparison not checked.'; return
   elif command -v gh >/dev/null 2>&1 && printf '%s\n' "$REMOTE_URL" | grep -Eq '(^|[/:@])github\.com[:/]'; then
-    coord_date=$(gh api --include /rate_limit 2>/dev/null | sed -n 's/^[Dd][Aa][Tt][Ee]:[[:space:]]*//p' | head -n 1 | tr -d '\r')
-    if [ -n "$coord_date" ]; then
-      coord_remote_now=$(date -d "$coord_date" +%s 2>/dev/null || date -j -f '%a, %d %b %Y %T %Z' "$coord_date" +%s 2>/dev/null || true)
+    # The drift of this machine's clock changes slowly: one GitHub call per hour, not one per status/next
+    # (each call was ~1 s of a 12 s `uak next`).
+    local cache skew_at=0 skew=
+    cache="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/uak-clock"
+    [ ! -f "$cache" ] || read -r skew_at skew < "$cache" || skew_at=0
+    case "$skew_at$skew" in *[!0-9-]*|'') skew_at=0;; esac
+    if [ $((NOW - skew_at)) -lt 3600 ] && [ -n "${skew:-}" ]; then
+      coord_remote_now=$((NOW - skew))
+    else
+      coord_date=$(gh api --include /rate_limit 2>/dev/null | sed -n 's/^[Dd][Aa][Tt][Ee]:[[:space:]]*//p' | head -n 1 | tr -d '\r')
+      if [ -n "$coord_date" ]; then
+        coord_remote_now=$(date -d "$coord_date" +%s 2>/dev/null || date -j -f '%a, %d %b %Y %T %Z' "$coord_date" +%s 2>/dev/null || true)
+        [ -z "$coord_remote_now" ] || printf '%s %s\n' "$NOW" "$((NOW - coord_remote_now))" > "$cache" 2>/dev/null
+      fi
     fi
   fi
   if [ -z "$coord_remote_now" ]; then CLOCK_NOTE='Remote clock not checked: needs the GitHub API Date header.'; return; fi
@@ -410,6 +421,7 @@ coord_next() {
     say "Branch: $(coord_read "$RECORD" Branch)"; say "Worktree: $(coord_read "$RECORD" Worktree)"
     say "Next: $(coord_read "$RECORD" Next)"
     say "Live summary:"; summary_text | head -n 6
+    mem_for_task "$ID"
     freeze_warning
     coord_until=$(coord_read "$RECORD" Lease-Until)
     if [ "$NOW" -ge "$coord_until" ]; then say "LEASE EXPIRED: read status --task $ID --summary; recover with its token before editing."; fi
@@ -418,8 +430,19 @@ coord_next() {
     return 0
   fi
   if [ -f "$BACKLOG" ]; then
+    # Cheap prefilter before the full gates: skip tasks that are taken or done, and tasks whose dependencies are
+    # not INTEGRATED. Why: `next` probed every task of the backlog in a subshell (4.5 s of CPU on 36 tasks).
+    for coord_f in "$TX"/tasks/*.md; do [ -f "$coord_f" ] && printf '%s %s\n' "$(basename "$coord_f" .md)" "$(coord_read "$coord_f" State)"; done > "$TXROOT/next-states"
+    awk -v sf="$TXROOT/next-states" '
+      BEGIN { while ((getline l < sf) > 0) { split(l, a, " "); st[a[1]] = a[2] } }
+      /^## [A-Z][A-Z0-9]*-[0-9]/ { id = $2; order[++n] = id; next }
+      id != "" { s = $0; gsub(/\*\*/, "", s); sub(/^[[:space:]]*-[[:space:]]*/, "", s)
+        if (s ~ /^Depends on:/) { gsub(/\([^)]*\)/, "", s); d[id] = s } }
+      END { for (i = 1; i <= n; i++) { t = order[i]; if (t in st && st[t] != "AVAILABLE") continue
+              ok = 1; s = d[t]; while (match(s, /[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+/)) { x = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH); if (st[x] != "INTEGRATED") ok = 0 }
+              if (ok) print t } }' "$BACKLOG" > "$TXROOT/next-candidates"
     for coord_p in P0 P1 P2; do
-      for coord_id in $(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG"); do
+      for coord_id in $(cat "$TXROOT/next-candidates"); do
         ID=$coord_id
         # A gate may exit with conflict; the subshell lets us try another candidate (quietly: not an error).
         if (UAK_PROBE=1; load_task; [ "$PRIORITY" = "$coord_p" ] && coord_candidate) >/dev/null 2>&1; then
@@ -427,6 +450,7 @@ coord_next() {
           say "$ID | AVAILABLE | $PRIORITY"
           say "Next: $DEFAULT_NEXT"; say "Verify: $VERIFY"; say "Paths: $PATHS"
           say "Before editing: bash .uak/bin/wt new $ID --agent ${AGENT:-NAME} (branch + worktree + claim)."
+          mem_for_task "$ID"
           coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"
           return 0
         fi
