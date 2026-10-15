@@ -129,7 +129,7 @@ allow ID... --reason TEXT | allow --in-flight --reason TEXT   human freeze excep
 clock "START" "DEADLINE" [ZONE] [--write]   sprint schedule scaled to the event length (freeze, rehearsal)
 pace [--caps|--json|set USED --resets +3h [--window 5h]]   plan-usage pacing: surge, normal, conserve, critical
 tokens [--team] [--by task|harness|model|scope|agent] [--since DAYS] [--publish]   real token spend from Claude Code/Codex transcripts
-map [show|find NAME|deps FILE|users FILE|path A B|impact ID]   code map (symbols, imports, hubs) to read instead of files
+map [show|find|callers|calls|deps|users|path|related|impact|notes]   code graph: symbols, imports, calls (+ optional semantic notes)
 bb add bug|friction|idea|need|praise TEXT [--fix IDEA] · bb flush · bb show · bb export   black box for kit fixes
 plan FILE   publish new tasks to claims without a PR (Plan-Channel: claims; needs UAK_HUMAN)
 msg DESTINO TEXTO [--kind TIPO] [--task HACK-NNN]   DESTINO: NOMBRE|HACK-NNN|related:HACK-NNN|all|human

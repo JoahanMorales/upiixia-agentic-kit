@@ -218,6 +218,23 @@ def code_map_and_impact(r):
     expect("task:HACK-002" in sent.stdout, "impact:ID reaches the importing task: " + sent.stdout + sent.stderr)
     both = hack(f, 0, "msg", "HACK-002,agent-2", "one line for two targets", now=1000006)
     expect("task:HACK-002,agent:agent-2" in f.show("inbox/log.md"), "comma lists are one line: " + both.stdout)
+    callers = m("callers", "data_path").stdout
+    expect("lib/io.py:5  in load → lib/config.py" in callers, "call edges name the enclosing function: " + callers)
+    expect("→ load (lib/io.py)" in m("calls", "render").stdout, "what a function calls")
+    expect("uses load" in impact or "uses data_path" in m("impact", "lib/config.py").stdout, "impact names the API surface used: " + impact)
+    fake = f.base / "fake-notes.sh"
+    fake.write_text("#!/usr/bin/env bash\nsed -n 's/^=== FILE: //p' | while read -r p; do\n"
+                    "  case $p in lib/*) c='raw data paths, storage config';; app/*) c='page rendering, storage config';; *) c='frontend api';; esac\n"
+                    "  echo \"FILE: $p | PURPOSE: does things for $p | CONCEPTS: $c\"; done\n", encoding="utf-8")
+    notes = m("notes", "--agent", "bash " + str(fake), "--max", "10").stdout
+    expect("with purpose and concepts" in notes, notes)
+    shown = m("show").stdout
+    expect("## Concepts (INFERRED" in shown and "path (3)" in shown and "does things for lib/config.py" in shown,
+           "MAP.md gets purposes and concepts: " + shown)
+    rel = m("related", "lib/io.py").stdout
+    expect("EXTRACTED imports   → lib/config.py" in rel, "related lists extracted neighbors: " + rel)
+    again = m("notes", "--agent", "bash " + str(fake), "--max", "10").stdout
+    expect("already has a note" in again, "notes are cached by content: " + again)
     (w / "lib/new.py").write_text("def fresh():\n    pass\n", encoding="utf-8")
     expect("lib/new.py:1  def fresh" in m("find", "fresh").stdout, "the index rebuilds when the tree changes")
     return {"files": 6}

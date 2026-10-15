@@ -28,9 +28,16 @@ bash .uak/bin/uak map path app/pages/card.py core/config.py   # card.py → core
 bash .uak/bin/uak map impact HACK-001      # files outside HACK-001 that import it, and the tasks that own them
 bash .uak/bin/uak msg impact:HACK-001 --kind contract "data_path now takes a Path"   # one line to all of them
 ```
-Like graphify (tree-sitter + an LLM pass + Leiden communities), but deterministic and offline: it only knows what the
-parser sees (definitions and imports), not "semantic" edges. In exchange it costs 0 tokens to build, rebuilds itself
-when HEAD or the tree changes, and its edges are exact. The scout subagent asks the map before searching.
+Two layers, labeled like graphify's edges:
+- **EXTRACTED** (free, deterministic, always on): definitions, imports and call edges. A call `name(` resolves through
+  the file's own definitions, its imports or its Go package, and the caller is the enclosing definition. No types and
+  no dynamic dispatch: measured against `git grep` on a real repo it found 5/5, 26/28 and 41/44 of the calls of three
+  functions (it counts each calling function once). `uak map callers NAME`, `calls NAME`; `impact` lists the exact
+  functions another task uses.
+- **INFERRED** (optional, `uak map notes`): the fast-tier model reads the most connected files once and returns a
+  purpose and concepts; files sharing 2+ concept keywords without importing each other get an INFERRED edge. Cached
+  by content hash (only changed files are sent again); ~1k input tokens per file on the fast tier.
+The scout subagent asks the map before searching.
 
 ## Design the execution graph (planner)
 1. **Wide first wave.** At least 1 task per agent with no hard dependencies. Publish contracts and mocks first, so consumers use `Uses contract:` and never wait.

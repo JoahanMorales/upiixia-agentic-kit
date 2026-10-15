@@ -206,9 +206,10 @@ bash .uak/bin/uak graph --mermaid      # live state colors, paste into any PR or
 bash .uak/bin/uak graph --assign       # ready task → idle agent that already integrated work in those folders
 ```
 
-**The code graph (`uak map`)**: like graphify, but deterministic, offline and free: Bash + awk extract symbols and
-resolved imports, and an agent reads a compact `MAP.md` (areas, hubs, entry points, files per task) instead of
-opening files. Measured on a 123-file analytics repo: the whole source is ~187k tokens, `MAP.md` ~1.3k, and "where is
+**The code graph (`uak map`)**, graphify-style with two layers: EXTRACTED edges (symbols, resolved imports and call
+edges, by Bash + awk: free, offline, rebuilt on every change) and optional INFERRED ones (`uak map notes`: the fast
+model gives the key files a purpose and concepts once, cached by content hash). An agent reads a compact `MAP.md`
+instead of opening files. Measured on a 123-file analytics repo: the whole source is ~187k tokens, `MAP.md` ~1.3k, and "where is
 `data_path` defined and who uses its module" costs ~280 tokens from the map vs ~3.1k opening the files.
 ```bash
 bash .uak/bin/uak map find data_path · map users core/config.py · map path A B · map impact HACK-001
