@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 # uak loop: bounded autonomous verify → fix loop (loop engineering). Bash 3.2+.
 #   loop --verify CMD [--agent CMD] [--prompt FILE] [--max N] [--minutes M] [--tail L] [--task ID]
+#        [--parallel N --each "CMD {}"] [--protect REGEX]
 # Each iteration runs --verify; pass → exit 0. On failure, the agent gets a short prompt on stdin
 # (also in $UAK_PROMPT_FILE) with the command, exit code and the last L lines of output.
-# Stops on: pass (0) · budget exhausted (3) · same failure twice in a row = stuck (3) · usage (2).
-# Agent output goes to .git/uak-loop.log, never to your context. With --task: heartbeat each
-# iteration and BLOCKED with the exact error on exhaustion.
+# Stops on: pass (0) · budget (3) · same failure twice = stuck (3) · the agent changed nothing (3) ·
+# the agent edited or deleted an existing test, the verifier (3) · usage (2).
+# --parallel N --each "pytest -q {}": one loop per failing test file (pytest, jest/vitest, go list), at most N,
+# each in a temporary worktree of the current state; passing fixes are applied back here, then Verify runs once.
+# Logs: <git dir>/uak-out/loop-*.log, never your context. With --task: heartbeat each iteration and BLOCKED with
+# the exact error on exhaustion.
+# Why: LOOPS.md rule 5 ("a loop never edits its own verifier") and rule 3 ("stop on no progress") were text
+# only; v5 enforces both. Parallel: one failing file per agent keeps each prompt small (roadmap v3.2).
 set -u
 LC_ALL=C; export LC_ALL
-verify= agent=${UAK_LOOP_AGENT:-} prompt_file= max=5 minutes=0 tail_n=40 task=
+verify= agent=${UAK_LOOP_AGENT:-} prompt_file= max=5 minutes=0 tail_n=40 task= parallel=0 each=
+protect='(^|/)(tests?|__tests__|spec|specs|e2e)/|(^|/)test_[^/]*$|_test\.[a-z]+$|\.(test|spec)\.[a-z]+$'
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --verify) verify=${2:-}; shift 2;;
@@ -18,39 +25,105 @@ while [ "$#" -gt 0 ]; do
     --minutes) minutes=${2:-}; shift 2;;
     --tail) tail_n=${2:-}; shift 2;;
     --task) task=${2:-}; shift 2;;
-    -h|--help) sed -n '2,9p' "$0"; exit 0;;
+    --parallel) parallel=${2:-}; shift 2;;
+    --each) each=${2:-}; shift 2;;
+    --protect) protect=${2:-}; shift 2;;
+    -h|--help) sed -n '2,13p' "$0"; exit 0;;
     *) printf 'loop: unknown option %s\n' "$1" >&2; exit 2;;
   esac
 done
 [ -n "$verify" ] || { printf 'loop: --verify CMD is required (a machine check; no verifier, no loop)\n' >&2; exit 2; }
-for n in "$max" "$minutes" "$tail_n"; do case "$n" in ''|*[!0-9]*) printf 'loop: numeric options need integers\n' >&2; exit 2;; esac; done
+for n in "$max" "$minutes" "$tail_n" "$parallel"; do case "$n" in ''|*[!0-9]*) printf 'loop: numeric options need integers\n' >&2; exit 2;; esac; done
 [ -z "$prompt_file" ] || [ -f "$prompt_file" ] || { printf 'loop: --prompt %s not found\n' "$prompt_file" >&2; exit 2; }
-gd=$(git rev-parse --git-dir 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")
+[ "$parallel" -eq 0 ] || { [ -n "$each" ] && [ -n "$agent" ]; } || { printf 'loop: --parallel needs --each "CMD {}" and --agent\n' >&2; exit 2; }
+gd=$(git rev-parse --absolute-git-dir 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")
+mkdir -p "$gd/uak-out" 2>/dev/null || true
 here=$(cd "$(dirname "$0")" && pwd)
-log="$gd/uak-loop.log" out="$gd/uak-loop.verify" pf="$gd/uak-loop.prompt"
+run_id="loop-$(date +%s)-$$"
+log="$gd/uak-out/$run_id.log" out="$gd/uak-out/$run_id.verify" pf="$gd/uak-out/$run_id.prompt"
 start=$(date +%s) last_sig= same=0 i=0
 : > "$log"
 uak() { [ -z "$task" ] || bash "$here/uak" "$@" >/dev/null 2>&1 || true; }
+last_line() { grep -v '^[[:space:]]*$' "$1" | tail -n 1 | cut -c 1-"${2:-120}"; }
+# Hash of the tracked test files: the verifier. New tests are fine; editing or deleting existing ones is not.
+tests_sig() {
+  git ls-files 2>/dev/null | grep -E "$protect" | while IFS= read -r f; do
+    if [ -f "$f" ]; then printf '%s %s\n' "$f" "$(git hash-object -- "$f")"; else printf '%s deleted\n' "$f"; fi
+  done | cksum | awk '{print $1}'
+}
+work_sig() {
+  { git diff HEAD 2>/dev/null
+    git ls-files --others --exclude-standard 2>/dev/null | while IFS= read -r f; do printf '%s %s\n' "$f" "$(git hash-object -- "$f" 2>/dev/null)"; done
+  } | cksum | awk '{print $1}'
+}
+
+# ---- parallel: one sub-loop per failing test file ----
+if [ "$parallel" -gt 0 ]; then
+  bash -c "$verify" > "$out" 2>&1 && { printf 'LOOP_PASS iteration=0 · %s\n' "$(last_line "$out")"; exit 0; }
+  files=$(sed -n -E 's/^(FAILED|ERROR) ([^: ]+)(::| ).*/\2/p; s/^ *FAIL +([^ ]+\.(js|jsx|ts|tsx|mjs|cjs)).*/\1/p; s/^FAIL[[:space:]]+([^[:space:]]+\/[^[:space:]]+)[[:space:]].*/\1/p' "$out" |
+    awk '!seen[$0]++' | head -n "$parallel")
+  [ -n "$files" ] || { printf 'LOOP_STOP no failing test files found in the output (pytest FAILED/ERROR, jest/vitest FAIL, go FAIL): use a plain loop\n'; exit 3; }
+  base=$(git stash create 2>/dev/null); [ -n "$base" ] || base=$(git rev-parse HEAD)
+  n=0 pids=
+  for f in $files; do
+    n=$((n + 1)); d="$gd/uak-out/$run_id-wt$n"
+    git worktree add -q --detach "$d" "$base" 2>> "$log" || { printf 'loop: could not create a worktree for %s\n' "$f" >> "$log"; continue; }
+    sub=$(printf '%s' "$each" | sed "s|{}|$f|g")
+    ( cd "$d" && UAK_LOOP_AGENT= bash "$here/loop" --verify "$sub" --agent "$agent" --max "$max" --minutes "$minutes" --tail "$tail_n" \
+        ${prompt_file:+--prompt "$prompt_file"} --protect "$protect" > "$d.result" 2>&1 ) &
+    pids="$pids $!"
+    printf '%s\n' "$f" > "$d.file"
+  done
+  printf 'LOOP_PARALLEL %s sub-loop(s): %s\n' "$n" "$(printf '%s ' $files)"
+  for p in $pids; do wait "$p"; done
+  applied= failed=
+  for d in "$gd/uak-out/$run_id"-wt*; do
+    [ -d "$d" ] || continue
+    f=$(cat "$d.file" 2>/dev/null)
+    if grep -q '^LOOP_PASS' "$d.result" 2>/dev/null; then
+      git -C "$d" add -A >/dev/null 2>&1
+      git -C "$d" diff --cached --binary "$base" > "$d.patch"
+      if [ ! -s "$d.patch" ] || git apply --3way "$d.patch" 2>> "$log" || git apply "$d.patch" 2>> "$log"; then applied="$applied $f"
+      else failed="$failed $f(patch: $d.patch)"; fi
+    else
+      failed="$failed $f($(grep '^LOOP_STOP' "$d.result" | cut -c 11-90))"
+    fi
+    cat "$d.result" >> "$log"
+    rm -rf "$d"
+  done
+  git worktree prune 2>/dev/null
+  printf 'LOOP_MERGE applied:%s · not fixed:%s\n' "${applied:- none}" "${failed:- none}"
+  bash -c "$verify" > "$out" 2>&1; code=$?
+  if [ "$code" -eq 0 ]; then printf 'LOOP_PASS parallel · %s\n' "$(last_line "$out")"; uak log "$task" "parallel loop pass: $verify"; exit 0; fi
+  printf 'LOOP_STOP parallel: Verify still fails · %s · log %s\n' "$(last_line "$out" 160)" "$log"
+  uak log "$task" --state BLOCKED "parallel loop: Verify still fails: $(last_line "$out" 160)"
+  exit 3
+fi
+
+# ---- sequential ----
+tests0=$(tests_sig)
 while :; do
   i=$((i + 1))
   bash -c "$verify" > "$out" 2>&1; code=$?
   if [ "$code" -eq 0 ]; then
-    printf 'LOOP_PASS iteration=%s · %s\n' "$i" "$(grep -v '^[[:space:]]*$' "$out" | tail -n 1 | cut -c 1-120)"
+    printf 'LOOP_PASS iteration=%s · %s\n' "$i" "$(last_line "$out")"
+    printf 'LOOP_SUMMARY %s iteration(s) · %s s · changed: %s · log %s\n' "$i" "$(( $(date +%s) - start ))" \
+      "$(git diff --shortstat HEAD 2>/dev/null | sed 's/^ //')" "$log"
     uak log "$task" "loop pass after $i iteration(s): $verify"
     exit 0
   fi
   sig=$(tail -n "$tail_n" "$out" | sed 's/[0-9][0-9.]*m*s//g; s/0x[0-9a-f]*//g' | cksum | awk '{print $1}')
   if [ "$sig" = "$last_sig" ]; then same=$((same + 1)); else same=0; fi
   last_sig=$sig
-  printf 'LOOP_FAIL iteration=%s exit=%s · %s\n' "$i" "$code" "$(grep -v '^[[:space:]]*$' "$out" | tail -n 1 | cut -c 1-120)"
+  printf 'LOOP_FAIL iteration=%s exit=%s · %s\n' "$i" "$code" "$(last_line "$out")"
   reason=
   [ "$same" -lt 1 ] || reason="stuck: same failure twice"
   [ "$i" -lt "$max" ] || reason=${reason:-"budget: $max iterations"}
   if [ "$minutes" -gt 0 ] && [ $(( $(date +%s) - start )) -ge $((minutes * 60)) ]; then reason=${reason:-"budget: $minutes min"}; fi
   [ -n "$agent" ] || reason=${reason:-"no --agent: verify-only run"}
   if [ -n "$reason" ]; then
-    printf 'LOOP_STOP %s · last error: %s\n' "$reason" "$(grep -v '^[[:space:]]*$' "$out" | tail -n 1 | cut -c 1-160)"
-    uak log "$task" --state BLOCKED "loop stopped ($reason) on: $verify · $(grep -v '^[[:space:]]*$' "$out" | tail -n 1 | cut -c 1-160)"
+    printf 'LOOP_STOP %s · last error: %s · log %s\n' "$reason" "$(last_line "$out" 160)" "$log"
+    uak log "$task" --state BLOCKED "loop stopped ($reason) on: $verify · $(last_line "$out" 160)"
     exit 3
   fi
   {
@@ -58,9 +131,22 @@ while :; do
     [ -z "$prompt_file" ] || { printf '\nTask context:\n'; cat "$prompt_file"; printf '\n'; }
     printf '\nCheck: %s\nExit code: %s\nLast %s lines of output:\n' "$verify" "$code" "$tail_n"
     tail -n "$tail_n" "$out"
-    printf '\nRules: find the root cause and make the smallest correct change. Do not weaken, skip or delete tests or the check to make it pass. Do not touch files outside the task. Do not commit, push or deploy. When the change is done, stop.\n'
+    [ "$i" -eq 1 ] || { printf '\nYour changes so far (diff stat):\n'; git diff --stat HEAD 2>/dev/null | tail -n 15; }
+    printf '\nRules: find the root cause and make the smallest correct change. Do not weaken, skip, edit or delete existing tests or the check (the loop stops if you do). Do not touch files outside the task. Do not commit, push or deploy. When the change is done, stop.\n'
   } > "$pf"
   printf '\n===== iteration %s =====\n' "$i" >> "$log"
+  before=$(work_sig)
   UAK_PROMPT_FILE="$pf" bash -c "$agent" < "$pf" >> "$log" 2>&1 || printf 'agent exit %s\n' "$?" >> "$log"
+  if [ "$(tests_sig)" != "$tests0" ]; then
+    printf 'LOOP_STOP verifier edited: the agent changed or deleted an existing test (%s). Review it: git diff -- %s · log %s\n' \
+      "$(git diff --name-only HEAD 2>/dev/null | grep -E "$protect" | head -n 3 | tr '\n' ' ')" "$(git diff --name-only HEAD 2>/dev/null | grep -E "$protect" | head -n 1)" "$log"
+    uak log "$task" --state BLOCKED "loop stopped: the agent edited an existing test; a human or reviewer decides"
+    exit 3
+  fi
+  if [ "$(work_sig)" = "$before" ]; then
+    printf 'LOOP_STOP no progress: the agent changed nothing in iteration %s · last error: %s · log %s\n' "$i" "$(last_line "$out" 160)" "$log"
+    uak log "$task" --state BLOCKED "loop stopped (agent made no change) on: $verify · $(last_line "$out" 160)"
+    exit 3
+  fi
   uak heartbeat "$task"
 done

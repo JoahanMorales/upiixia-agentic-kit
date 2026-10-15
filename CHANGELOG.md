@@ -1,6 +1,18 @@
 # Changelog
 
-## v4.3.0 · 2026-10-15 · The MLB autopsy: nobody waits, Windows gets the cap
+## v5.0.0 · 2026-10-15 · Measure the bill, guard the loops, every harness and stack
+v5 folds in v4.3 (the MLB autopsy, below; it was never published separately) and closes most of the roadmap.
+- **`uak tokens`: the real bill.** Reads the transcripts Claude Code (`~/.claude/projects`, subagents included, deduped by message id) and Codex (`~/.codex/sessions`) already write, no API key: input, cache write, cache read and output, share and cache hit, `--by task|harness|model|scope|agent`. Tasks come from the worktree folder, so removed worktrees still count. `--publish` writes this machine to `claims:tokens/` (the Stop hook does it every 30 min); `--team` adds every machine and names the owner; `stats` and the human `digest` show the total and the top task.
+- **Loops with guards.** `uak loop` stops when an iteration changes nothing and when the agent edits or deletes an existing test (`--protect`); the prompt carries the diff stat so far; `LOOP_SUMMARY` at the end; one log per run. `--parallel N --each "CMD {}"`: one sub-loop per failing test file (pytest, jest/vitest, go) in temporary worktrees of the current state, passing fixes applied back, Verify once.
+- **`uak handover ID --to NAME`:** pass a live claim without AVAILABLE (owner, human, or anyone after the lease); the local `.uak-env` follows.
+- **`uak graph --assign`:** one idle agent per ready task, by who integrated work in the same folders, then speed.
+- **Actions.** Opt-in `.github/workflows/uak-tick.yml.example` (deadlines advance at night); a weekly black box harvest in this repo that opens an issue (`HARVEST_TOKEN` secret).
+- **Stack presets:** `--stack nextjs|django|go|expo|python-data|ai-agent`, each with a setup page, a skill with parallel-work rules and its product smoke (fastapi-react kept; its test path fixed).
+- **Gemini CLI hooks:** `BeforeTool` guard and output cap, `SessionStart` context (Gemini CLI was replaced by Antigravity CLI in June 2026; the hooks follow its published docs).
+- **Demo animation:** `docs/media/demo.svg` (15 KB, CSS-animated, rendered from a real `uak demo` by `scripts/render_demo.py`) replaces the 270 KB GIF.
+- 5 new tests (`test_v5.py`; 108 in total).
+
+## v4.3.0 · 2026-10-15 · The MLB autopsy: nobody waits, Windows gets the cap (shipped inside v5.0.0)
 From 60 h of a 10-day hackathon on **4 Windows laptops** (Git Bash), 4 humans, 13 identities on Claude Code, Codex and Cursor: 32 of 36 tasks integrated. Every number is in `docs/blackbox/mlb-2026-10.md`; every rule cites it in WHY.md.
 - **Approved tasks merge without their owner.** After `Merge-Adopt-Seconds` (20 min) any eligible agent runs `uak merge ID`; `next` points idle agents at it and the task records `Merged-By`. In REVIEW the lease no longer matters. 9 tasks had waited 7–13 h after approval.
 - **Approvals survive clean merges of main.** When every commit after the approved SHA is a clean 2-parent merge of the base (the merge tree is recomputed: `merge-tree`, or a stricter 3-way index merge on git < 2.38), `merge` and `integrate` accept it. A hand edit still needs a review, and `review` says what moved since the reviewer's SHA.

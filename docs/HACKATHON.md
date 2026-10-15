@@ -14,7 +14,7 @@ Lessons from past events: `docs/blackbox/reap-2026-10.md` (4 h, 12 agents) and `
 At Reap, setup and planning took 2 of the 4 hours. Timebox them.
 ```bash
 git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit
-cd your-team-repo && bash ~/.uak-kit/install.sh --mode sprint .   # YOU choose the mode; there is no default
+cd your-team-repo && bash ~/.uak-kit/install.sh --mode sprint --stack python-data .   # YOU choose the mode; stacks: fastapi-react nextjs django go expo python-data ai-agent
 bash .uak/bin/uak clock "2026-10-09 17:00" "2026-10-09 21:00" America/Mexico_City --write   # schedule + Freeze-Epoch
 bash .uak/bin/doctor                                               # every laptop, until DOCTOR PASS
 ```
@@ -30,6 +30,9 @@ Then open your agent in the repo:
 | See the team | `bash .uak/bin/uak board --watch 10` |
 | Your queue (reviews, blockers, decisions) | `bash .uak/bin/uak digest` |
 | Plan usage vs time left | `bash .uak/bin/uak pace` (also in the Claude Code status line) |
+| Tokens spent, per task and model | `bash .uak/bin/uak tokens --team --by model` |
+| Who should take the next tasks | `bash .uak/bin/uak graph --assign` |
+| Pass a task to another agent | `bash .uak/bin/uak handover ID --to ana-2` |
 | Add tasks (no PR) | `UAK_HUMAN=ana bash .uak/bin/uak plan wave2.md` |
 | Allow a task after the freeze (audited) | `UAK_HUMAN=ana bash .uak/bin/uak allow HACK-010 --reason "demo breaks"` · everything in flight: `allow --in-flight --reason "..."` |
 | A merge went to the human queue | read the reason; if the PR is fine, merge it on GitHub, then any agent: `bash .uak/bin/uak integrate ID` |
@@ -65,7 +68,8 @@ Never tell an agent "the human authorizes everything" through another agent: run
 | `LOOP:` | stop retrying that command; read the error |
 
 ## Events longer than a day
-Nights are normal (`uak clock` prints LONG EVENT advice). Approved tasks get merged by whichever agent is awake;
+Nights are normal (`uak clock` prints LONG EVENT advice). To let deadlines advance with nobody online, rename
+`.github/workflows/uak-tick.yml.example` to `uak-tick.yml` for the event (it bills ~96 Actions minutes a day). Approved tasks get merged by whichever agent is awake;
 REVIEW leases expire without recovery noise; humans read one `uak digest` per morning. Retire identities you will
 not reopen, so reviews stop going to them.
 

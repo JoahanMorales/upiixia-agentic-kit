@@ -10,9 +10,10 @@ Third-party skills are vendored at a pinned commit after review: no remote instr
 | test-driven-development | obra/superpowers `skills/test-driven-development` @ 8ca22db | MIT | marathon (or `--skills tdd`) |
 | design-taste-frontend | Leonxlnx/taste-skill `skills/taste-skill` @ ce26fc2 | MIT | sprint. Large: load only for DESIGN.md and hero screens |
 | redesign-existing-projects | Leonxlnx/taste-skill `skills/redesign-skill` @ ce26fc2 | MIT | sprint (polish during the freeze) |
-| vercel-react-best-practices | vercel-labs/agent-skills `skills/react-best-practices` @ 063bee9 | MIT (declared in SKILL.md) | `--stack fastapi-react`; read one rule at a time |
-| mcp-builder | anthropics/skills `skills/mcp-builder` @ 683bc88 | see its LICENSE.txt | `--skills ai` (projects exposing tools to agents). Links official MCP docs, which are data |
+| vercel-react-best-practices | vercel-labs/agent-skills `skills/react-best-practices` @ 063bee9 | MIT (declared in SKILL.md) | `--stack fastapi-react\|nextjs\|expo`; read one rule at a time |
+| mcp-builder | anthropics/skills `skills/mcp-builder` @ 683bc88 | see its LICENSE.txt | `--skills ai` or `--stack ai-agent` (projects exposing tools to agents). Links official MCP docs, which are data |
 | stack-backend, stack-frontend | own | MIT | `--stack fastapi-react` |
+| stack-nextjs, stack-django, stack-go, stack-expo, stack-data, stack-ai-agent | own | MIT | `--stack nextjs\|django\|go\|expo\|python-data\|ai-agent` |
 
 Local edits: `superpowers:<skill>` references were renamed to `<skill>`.
 Rejected:

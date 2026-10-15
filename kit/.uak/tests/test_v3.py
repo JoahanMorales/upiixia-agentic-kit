@@ -154,7 +154,11 @@ def loop_bounded(r):
     ok = r.run([r.bash, ".uak/bin/uak", "loop", "--verify", check, "--agent", fixer], cwd=w)
     expect("LOOP_PASS iteration=3" in ok.stdout, "loop converges: " + ok.stdout)
     stuck = r.run([r.bash, ".uak/bin/uak", "loop", "--verify", "echo broken; exit 1", "--agent", "true"], cwd=w, allowed=None)
-    expect(stuck.returncode == 3 and "stuck" in stuck.stdout and stuck.stdout.count("LOOP_FAIL") == 2, "stuck stop: " + stuck.stdout)
+    expect(stuck.returncode == 3 and "no progress" in stuck.stdout and stuck.stdout.count("LOOP_FAIL") == 1,
+           "an agent that changes nothing stops the loop at once (v5): " + stuck.stdout)
+    toggler = 'if [ -f t.txt ]; then rm t.txt; else echo x > t.txt; fi'
+    same = r.run([r.bash, ".uak/bin/uak", "loop", "--verify", "echo broken; exit 1", "--agent", toggler], cwd=w, allowed=None)
+    expect(same.returncode == 3 and "stuck" in same.stdout and same.stdout.count("LOOP_FAIL") == 2, "stuck stop: " + same.stdout)
     none = r.run([r.bash, ".uak/bin/uak", "loop", "--agent", "true"], cwd=w, allowed=None)
     expect(none.returncode == 2 and "verifier" in none.stderr, "no verifier, no loop")
     return {"converged": 3, "stuck_exit": 3}

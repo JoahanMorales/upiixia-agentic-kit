@@ -24,6 +24,24 @@ more (`claude-opus-5-5-fast`: 8/40).
 **Rule of thumb.** One strong subagent costs as much as 40 to 100 fast ones. Haiku 5.5 is cheap only under 100k
 prompt tokens: a scout that reads 30 files crosses it and costs 5×. That is why scouts return 15 lines or fewer.
 
+## Measure it: `uak tokens`
+The table says what a token costs; `uak tokens` says how many your team spent, from the transcripts Claude Code and
+Codex already write (no API key):
+```bash
+bash .uak/bin/uak tokens                 # this machine: per task (main checkout = "main")
+bash .uak/bin/uak tokens --by model      # did the scouts really run on the fast tier?
+bash .uak/bin/uak tokens --by scope      # lead vs subagents
+bash .uak/bin/uak tokens --team --by agent   # every machine (the Stop hook publishes every 30 min)
+```
+How to read it:
+- **cache hit %** = cache read / all tokens. Reading the same files again and again shows up as a high cache share
+  on a long session: cheap per token (cache read ≈ 1/10–1/20 of input) but it fills the context. When one task is
+  far above the others, split it, `/clear` after a handoff, or let the output cap and `= unchanged` do their job.
+- **output** is the expensive column per token; a strong-tier model with high output is where the bill goes.
+- **share** by `--by model` checks the tiers: if the strong model holds most of the total, subagents are not routed.
+- Multiply by the table above only after checking today's prices. `uak tokens` reports tokens, not dollars, on purpose.
+- Cursor keeps no local token log: use its dashboard (and `uak pace set` for pacing).
+
 ## Subscription plans and their windows
 | Product | Plan | Price/mo | Window | What we know |
 |---|---|---|---|---|

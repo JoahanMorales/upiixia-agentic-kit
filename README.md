@@ -23,7 +23,7 @@
 
 ## Try it in 30 seconds (no setup, no API key)
 
-<img src="docs/media/demo.gif" alt="uak demo: 3 agents claim, loop, review and merge through one Git branch" width="860">
+<img src="docs/media/demo.svg" alt="uak demo: 3 agents claim, loop, review and merge through one Git branch" width="860">
 
 ```bash
 git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit && bash upiixia-agentic-kit/kit/.uak/bin/uak demo
@@ -46,7 +46,7 @@ Going to a hackathon? The one-page plan is in **[docs/HACKATHON.md](docs/HACKATH
 git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit
 bash ~/.uak-kit/install.sh --mode sprint .          # hackathon / AI prototype
 # or: --mode marathon                               # real product: specs, CODEOWNERS, security reviews
-# options: --stack fastapi-react   --skills ai,tdd   --update (refresh the engine later)
+# options: --stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent   --skills ai,tdd   --update (refresh the engine later)
 bash .uak/bin/doctor                                 # minute-0 preflight: remote, gh perms, hooks, freeze, ports
 ```
 
@@ -172,7 +172,7 @@ bash .uak/bin/uak pace
 
 Like a flight recorder: **every `uak` error and guard block is recorded automatically**, and agents add one line when the kit slows them down (`uak bb add friction "…" --fix "…"`). Lines are anonymous: no identities, paths, SHAs or code, and anything that looks like a secret is dropped. They go to `claims:blackbox/`. `scripts/blackbox_harvest.py` finds public repos that use the kit, reads their `claims:blackbox/` and ranks what to fix next (`uak bb export` also writes a readable `.uak/BLACKBOX.md`).
 
-**On by default; off with `Blackbox: off`** in `.uak/PROJECT.md`, or `install.sh --no-blackbox` ([BLACKBOX.md](kit/.uak/docs/BLACKBOX.md)). The [first harvest](docs/blackbox/upiixsol-2026-10.md) came from a 3-day, 2-human marathon project. Every row became a v4.1 fix. The [Reap buildathon autopsy](docs/blackbox/reap-2026-10.md) (4 h, 5 humans, 11 agents on Codex, Cursor and Claude Code) became v4.2. The [MLB hackathon autopsy](docs/blackbox/mlb-2026-10.md) (10 days, 4 humans on Windows, 13 identities on Claude Code, Codex and Cursor) became v4.3.
+**On by default; off with `Blackbox: off`** in `.uak/PROJECT.md`, or `install.sh --no-blackbox` ([BLACKBOX.md](kit/.uak/docs/BLACKBOX.md)). The [first harvest](docs/blackbox/upiixsol-2026-10.md) came from a 3-day, 2-human marathon project. Every row became a v4.1 fix. The [Reap buildathon autopsy](docs/blackbox/reap-2026-10.md) (4 h, 5 humans, 11 agents on Codex, Cursor and Claude Code) became v4.2. The [MLB hackathon autopsy](docs/blackbox/mlb-2026-10.md) (10 days, 4 humans on Windows, 13 identities on Claude Code, Codex and Cursor) became v4.3, shipped in v5.
 
 ## Loop engineering
 
@@ -183,7 +183,10 @@ Every loop declares a **trigger, a verifier, a budget, a stop condition and an e
 bash .uak/bin/uak loop --verify "uv run pytest -q" --agent "claude -p --permission-mode acceptEdits" --max 5 --task HACK-007
 # LOOP_FAIL iteration=1 exit=1 · test_api.py::test_search FAILED
 # LOOP_PASS iteration=2 · 12 passed in 1.9s
+# Many failing files: one small loop per file, in parallel worktrees, fixes applied back
+bash .uak/bin/uak loop --verify "uv run pytest -q" --parallel 3 --each "uv run pytest -q {}" --agent "codex exec -"
 ```
+- **Guards, not promises:** the loop stops when the agent changes nothing, or when it edits an existing test (the verifier).
 
 - **Inner loop** (`/uak-loop`): implement → `q verify` → fix; 5 tries; the same error twice → BLOCKED with that error.
 - **Hook loops:** a heartbeat every 8 min and an inbox poll every 2 min, both throttled and in the background.
@@ -200,15 +203,26 @@ bash .uak/bin/uak graph --min-wave1 4
 # GRAPH 9 tasks · 3 waves · critical path 135 min: HACK-002 → HACK-006 → HACK-009
 # wave 1 (5): HACK-001 HACK-002 HACK-003 HACK-004 HACK-005
 bash .uak/bin/uak graph --mermaid      # live state colors, paste into any PR or issue
+bash .uak/bin/uak graph --assign       # ready task → idle agent that already integrated work in those folders
 ```
 
 `uak lint` fails on dependency cycles and unknown IDs. `Uses contract:` edges let consumers work on mocks instead of waiting.
 
 ## Token economy
 
-Tokens are the scarcest resource of an agent team. Every default is tuned to spend fewer of them:
+Tokens are the scarcest resource of an agent team. Every default is tuned to spend fewer of them, and **v5 measures it**:
 
-- `AGENTS.md` is **60 lines**, lint-capped at 100. Detail loads on demand from a trigger table.
+```text
+$ bash .uak/bin/uak tokens --team --by model
+TOKENS total 157.9M · output 625k · cache hit 97% · 2 transcript(s)
+                          input  cache-w  cache-r   output    total  share   hit%
+claude-opus-5-5             462     2.1M   132.9M     474k   135.4M    85%    98%
+```
+`uak tokens` reads the transcripts Claude Code and Codex already write (no API key) and splits the real spend by task,
+model, harness and lead vs subagent; every machine publishes to the claims branch, so `stats` and the human's
+`digest` show the team's bill.
+
+- `AGENTS.md` is **75 lines**, lint-capped at 100. Detail loads on demand from a trigger table.
 - `q` turns a 2,000-line test log into **one line** on success, or a 40-line tail on failure.
 - **Huge outputs never flood the context**, in Claude Code, Codex and Cursor: a shell output over 12k chars reaches the model as head + tail + the path of the full log (Claude `updatedToolOutput`; Codex and Cursor rewrite tests, builds and searches before they run, also on Windows). A huge diff becomes a per-file index with line ranges.
 - **No rereads**: the same `status`/`next`/`inbox` twice in one session prints `= unchanged`; `LOOP:` stops a retry loop; acks are refused and one message reaches many tasks in one line.
@@ -251,8 +265,10 @@ Mix them freely: coordination lives in Git, not in any tool.
 | `uak demo` | see everything in 30 s |
 | `uak next` | what you should do now |
 | `wt new ID --agent NAME` | start a task (branch, worktree, port, claim) |
-| `uak loop --verify CMD` | bounded autonomous fix loop |
-| `uak graph [--mermaid]` | backlog DAG: waves, critical path, cycles |
+| `uak loop --verify CMD [--parallel N --each CMD]` | bounded autonomous fix loop, one per failing file |
+| `uak graph [--mermaid \| --assign]` | backlog DAG: waves, critical path, cycles · who should take what |
+| `uak tokens [--team] [--by model]` | the real token bill per task, model, harness, lead vs subagent |
+| `uak handover ID --to NAME` · `retire NAME` · `followup ID` | pass a task on · close an identity · more work on an integrated task |
 | `uak done` / `review` / `merge` | ship → review by rotation → gated merge queue |
 | `uak up N [--tmux]` | claim the N best tasks and launch one agent per worktree |
 | `uak board [--watch] [--md]` | team kanban: state, owner, lease, PR, wave |
@@ -279,9 +295,9 @@ AGENTS.md · CLAUDE.md        60-line core every agent reads · Claude Code extr
 .uak/docs/                   CLI · PROTOCOL · LOOPS · GRAPH · ORCHESTRATION · COSTS · BLACKBOX · SECURITY · WHY
 .uak/templates/              PROJECT, TASKS, OWNERS, IDEA, spec, plan, ADR
 .uak/skills/                 curated skills (superpowers, Anthropic, Vercel, taste-skill), pinned, licensed
-.uak/stacks/fastapi-react/   optional stack preset
+.uak/stacks/                 stack presets: fastapi-react, nextjs, django, go, expo, python-data, ai-agent
 .claude/                     slash commands, subagents, hooks, status line (settings per mode)
-.codex/ · .cursor/ · .gemini/  the same subagents per harness + hooks (Codex, Cursor) + Codex config
+.codex/ · .cursor/ · .gemini/  the same subagents per harness + hooks (Codex, Cursor, Gemini) + Codex config
 ```
 
 ## How it compares

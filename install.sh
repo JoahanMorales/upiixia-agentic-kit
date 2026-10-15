@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # UPIIXIA Agentic Kit installer.
-#   bash install.sh --mode sprint|marathon [--stack fastapi-react|none] [--skills ai,tdd] [--no-blackbox] [--update] TARGET
+#   bash install.sh --mode sprint|marathon [--stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|none] [--skills ai,tdd] [--no-blackbox] [--update] TARGET
 # Never overwrites your files: if AGENTS.md, CLAUDE.md, settings.json… already exist and differ,
 # the kit's version is written as <file>.uak-new for you to merge.
 # --update replaces only the engine (.uak/bin, docs, modes, templates, tests, settings, stacks, skills)
@@ -72,7 +72,8 @@ case "$mode" in
 esac
 case ",$extra," in *,ai,*) skills="$skills mcp-builder";; esac
 case ",$extra," in *,tdd,*) case " $skills " in *" test-driven-development "*) ;; *) skills="$skills test-driven-development";; esac;; esac
-[ "$stack" != fastapi-react ] || skills="$skills vercel-react-best-practices"
+case "$stack" in fastapi-react|nextjs|expo) skills="$skills vercel-react-best-practices";; esac
+[ "$stack" != ai-agent ] || case " $skills " in *" mcp-builder "*) ;; *) skills="$skills mcp-builder";; esac
 for s in $skills; do putdir "$kit/.uak/skills/$s" "$target/.claude/skills/$s"; done
 if [ "$stack" != none ]; then
   putdir "$kit/.uak/stacks/$stack/skills" "$target/.claude/skills"
@@ -98,6 +99,7 @@ put "$kit/.githooks/pre-commit" "$target/.githooks/pre-commit"
 chmod +x "$target/.githooks/pre-commit" 2>/dev/null || true
 put "$kit/.github/pull_request_template.md" "$target/.github/pull_request_template.md"
 put "$kit/.github/workflows/uak.yml" "$target/.github/workflows/uak.yml"
+put "$kit/.github/workflows/uak-tick.yml.example" "$target/.github/workflows/uak-tick.yml.example"
 [ "$mode" != marathon ] || put "$kit/.github/CODEOWNERS.example" "$target/.github/CODEOWNERS.example"
 
 touch "$target/.gitignore"

@@ -83,3 +83,11 @@ Load only the row you need. Every rule cites the incident behind it. Data comes 
 | `--help` per command · case-insensitive IDs · identity prefix | MLB: `uak status --help` was an error; 4 bare "Invalid ID."; 16 "No identity" from the main checkout, where several agents share one git config. |
 | Heartbeat/integrate on finished tasks are OK | MLB: Cursor heartbeated integrated tasks ("no active claim") and agents re-ran `integrate` on INTEGRATED tasks (2 conflicts). |
 | OneDrive warning · hook executable bit · one `q` log per run | MLB: the worktrees lived in OneDrive; Codex found `.githooks/pre-commit` skipped for a missing executable bit and concurrent Verify/smoke overwriting one `q` log. |
+| `uak tokens` (real spend, per task/model/scope) | Reap and MLB: "it burns tokens reading the same stuff again and again"; the kit only counted calls (status 225, inbox 172 at MLB), so tiers, the output cap and dedupe could not be checked against the bill. |
+| Loop stops when the agent changes nothing | LOOPS.md rule 3 ("detect lack of progress") was text only: an idle agent burned one more full iteration before "stuck". |
+| Loop stops when an existing test is edited | LOOPS.md rule 5 ("a loop never edits its own verifier") was text only; reviewers at MLB rejected weakened claims, and a loop is unattended. |
+| `loop --parallel` per failing file | Roadmap v3.2: one prompt per failing file keeps each agent's context small; a full-suite tail mixes unrelated failures. |
+| `handover ID --to NAME` | MLB: the tasks of three abandoned identities were redistributed by messages (#135, #137), then each needed `release --expired` with a read token and a new claim. |
+| `graph --assign` | MLB: after three identities were abandoned, an agent proposed the redistribution by message (#137: "you take 023 and 020, I take 035, 018 and 033") although claims already knew who had integrated what in each folder. |
+| Scheduled `uak tick` (opt-in Action) | MLB (10 days): deadlines and expired leases waited every night until the first `uak status` of the morning. Opt-in because a 15-min schedule bills ~96 Actions minutes a day. |
+| Stack presets (Next.js, Django, Go, Expo, data/ML, AI agent) | Only FastAPI + React existed; MLB's Python data stack rediscovered the venv, data-path and "numbers from the CSV" rules by review. |

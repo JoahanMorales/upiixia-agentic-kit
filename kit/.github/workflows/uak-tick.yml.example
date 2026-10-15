@@ -1,0 +1,26 @@
+# uak tick on a schedule: leases, deadline decisions and the merge queue advance while nobody is online.
+# Opt-in: rename to uak-tick.yml for the event, delete it after. Why (MLB hackathon, 10 days): nights left
+# deadline decisions and expired leases waiting until the first agent of the morning ran `uak status`.
+# Cost: every run bills at least 1 Actions minute. Every 15 min = ~96 min/day (private repos have a monthly quota).
+name: uak tick
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: uak-tick
+  cancel-in-progress: false
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Reconcile deadlines on claims
+        run: |
+          git config user.name uak-tick && git config user.email uak-tick@users.noreply.github.com
+          if git ls-remote --exit-code --heads origin claims >/dev/null; then UAK_AGENT=scheduler bash .uak/bin/uak tick; else echo "no claims branch yet"; fi

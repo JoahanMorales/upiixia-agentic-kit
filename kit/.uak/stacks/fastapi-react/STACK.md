@@ -32,7 +32,7 @@ testpaths = ["app/tests"]
 pythonpath = ["."]
 addopts = "-q --tb=short"
 TOML
-cat > app/.uak/tests/test_health.py <<'PY'
+cat > app/tests/test_health.py <<'PY'
 from fastapi.testclient import TestClient
 
 from app.main import app

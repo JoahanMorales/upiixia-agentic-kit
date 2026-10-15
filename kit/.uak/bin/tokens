@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# uak tokens: what the agents of this project really spent, per task, harness, model and lead vs subagent.
+#   tokens [--team] [--by task|harness|model|scope|agent] [--since DAYS] [--publish] [--quiet] [--json]
+# Reads the local transcripts that Claude Code and Codex already write. No API key, no network for the local view:
+#   Claude Code  ~/.claude/projects/<encoded cwd>/*.jsonl (+ <session>/subagents/*.jsonl): message.usage, deduped by id
+#   Codex        ~/.codex/sessions/**/rollout-*.jsonl: the last token_count (total_token_usage) of each session
+#   Cursor       no local token log: read the Cursor dashboard (uak pace set covers plan pacing)
+# A transcript belongs to this project when its cwd is the main checkout or a worktree under <repo>-wt/ (where
+# `wt new` puts them), so a removed worktree still counts. The task is the worktree name (hack-016 → HACK-016).
+# --publish writes this machine's totals to claims:tokens/<machine>.md (one file per machine, replaced);
+# --team adds every machine's file, and the agent column comes from the task owner on claims.
+# Why: "it burns tokens reading the same stuff again and again" was the top complaint at Reap and MLB, and the
+# kit could only count calls; tiers, the output cap and dedupe are only real if the bill shows it.
+set -u
+MSYS2_ARG_CONV_EXCL="refs/;origin/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXCL
+LC_ALL=C; export LC_ALL
+say() { printf '%s\n' "$*"; }
+die() { printf 'tokens: %s\n' "$*" >&2; exit 2; }
+team=no by=task since=30 publish=no quiet=no json=no
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --team) team=yes;;
+    --by) by=${2:-}; shift; case "$by" in task|harness|model|scope|agent) ;; *) die "--by task|harness|model|scope|agent";; esac;;
+    --since) since=${2:-}; shift; case "$since" in ''|*[!0-9]*) die "--since takes days";; esac;;
+    --publish) publish=yes;;
+    --quiet) quiet=yes;;
+    --json) json=yes;;
+    -h|--help) sed -n '2,3p' "$0" | sed 's/^# *//'; exit 0;;
+    *) die "unknown option $1 (tokens --help)";;
+  esac; shift
+done
+top=$(git rev-parse --show-toplevel 2>/dev/null) || die "not a Git repository"
+common=$(git -C "$top" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common="$top/.git"
+main=$(cd "$common/.." && pwd -P)
+REMOTE=${UAK_REMOTE:-origin}
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-tokens.XXXXXX") || exit 2
+trap 'rm -rf "$tmp"' EXIT
+# The transcript directory name is the cwd with every non-alphanumeric character turned into "-".
+enc() { printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g'; }
+prefixes() {
+  local m=$main w
+  printf '%s\n' "$(enc "$m")"
+  w=$(cygpath -m "$m" 2>/dev/null) && [ -n "$w" ] && printf '%s\n' "$(enc "$w")"
+}
+# Rows: task|harness|model|scope|sessions|input|cache_write|cache_read|output
+scan_local() {
+  local claude=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects codex=${CODEX_HOME:-$HOME/.codex}/sessions p d name task f
+  : > "$tmp/rows"
+  if [ -d "$claude" ]; then
+    for p in $(prefixes | sort -u); do
+      for d in "$claude/$p" "$claude/$p"-wt-*; do
+        [ -d "$d" ] || continue
+        name=${d##*/}
+        # A session started in a subfolder of the worktree (hack-016-app) still belongs to HACK-016.
+        case "$name" in "$p") task=main;; *) task=$(printf '%s' "${name#"$p"-wt-}" | sed -E 's/^([A-Za-z][A-Za-z0-9]*-[0-9]+).*/\1/' | tr '[:lower:]' '[:upper:]');; esac
+        find "$d" -maxdepth 3 -name '*.jsonl' -mtime "-$since" 2>/dev/null | while IFS= read -r f; do
+          case "$f" in */subagents/*) scope=subagent;; *) scope=lead;; esac
+          awk -v task="$task" -v scope="$scope" '
+            /"type": ?"assistant"/ && /"usage"/ {
+              id = str("id"); if (id !~ /^msg_/) next
+              model = str("model"); if (model == "") model = "?"
+              m[id] = model
+              in_[id] = num("input_tokens"); cw[id] = num("cache_creation_input_tokens")
+              cr[id] = num("cache_read_input_tokens"); out[id] = num("output_tokens")
+            }
+            # First "key": value on the line (the message comes before its nested usage details; a key inside
+            # message text is escaped as \"key\" and never matches).
+            function str(key,   v) { if (!match($0, "\"" key "\": ?\"[^\"]+\"")) return ""; v = substr($0, RSTART, RLENGTH); sub(/^"[^"]*": ?"/, "", v); sub(/"$/, "", v); return v }
+            function num(key,   v) { if (!match($0, "\"" key "\": ?[0-9]+")) return 0; v = substr($0, RSTART, RLENGTH); sub(/^"[^"]*": ?/, "", v); return v + 0 }
+            END { for (id in m) { k = m[id]; I[k] += in_[id]; W[k] += cw[id]; R[k] += cr[id]; O[k] += out[id] }
+                  for (k in I) if (I[k] + W[k] + R[k] + O[k] > 0)
+                    printf "%s|claude-code|%s|%s|1|%d|%d|%d|%d\n", task, k, scope, I[k], W[k], R[k], O[k] }' "$f"
+        done >> "$tmp/rows"
+      done
+    done
+  fi
+  if [ -d "$codex" ]; then
+    find "$codex" -name 'rollout-*.jsonl' -mtime "-$since" 2>/dev/null | while IFS= read -r f; do
+      awk -v main="$main" -v wmain="$(cygpath -m "$main" 2>/dev/null)" '
+        function norm(s) { gsub(/\\\\/, "/", s); return s }
+        function sval(s, key,   v) { if (!match(s, "\"" key "\": ?\"[^\"]+\"")) return ""; v = substr(s, RSTART, RLENGTH); sub(/^"[^"]*": ?"/, "", v); sub(/"$/, "", v); return v }
+        function val(s, key,   v) { if (!match(s, "\"" key "\": ?[0-9]+")) return 0; v = substr(s, RSTART, RLENGTH); sub(/^"[^"]*": ?/, "", v); return v + 0 }
+        cwd == "" && /"cwd"/ { cwd = norm(sval($0, "cwd")) }
+        /"model"/ { v = sval($0, "model"); if (v != "") model = v }
+        /"total_token_usage"/ {
+          s = substr($0, index($0, "\"total_token_usage\""))
+          I = val(s, "input_tokens"); C = val(s, "cached_input_tokens"); O = val(s, "output_tokens") }
+        END {
+          if (cwd == "" || I + O == 0) exit
+          task = ""
+          for (i = 1; i <= 2; i++) { r = (i == 1) ? main : wmain; if (r == "") continue
+            if (cwd == r) task = "main"
+            else if (index(cwd, r "-wt/") == 1) { t = substr(cwd, length(r) + 5); sub(/\/.*/, "", t); task = toupper(t) } }
+          if (task == "") exit
+          printf "%s|codex|%s|lead|1|%d|0|%d|%d\n", task, (model == "" ? "?" : model), I - C, C, O }' "$f"
+    done >> "$tmp/rows"
+  fi
+}
+# Sums rows by key columns 1-4 (sessions added too).
+fold() { awk -F'|' '{k = $1 "|" $2 "|" $3 "|" $4; s[k] += $5; i[k] += $6; w[k] += $7; r[k] += $8; o[k] += $9}
+  END {for (k in s) printf "%s|%d|%d|%d|%d|%d\n", k, s[k], i[k], w[k], r[k], o[k]}' | sort; }
+machine() { (hostname 2>/dev/null || uname -n) | cksum | awk '{print $1 % 100000}'; }
+publish_rows() {
+  local url ok=1 rel attempt
+  url=$(git -C "$top" config --get "remote.$REMOTE.url") || return 1
+  case "$url" in /*|[A-Za-z]:*|*://*|*@*:*) ;; *) url="$main/$url";; esac
+  rel="tokens/$(machine).md"
+  git -C "$tmp" init -q repo && git -C "$tmp/repo" remote add origin "$url" &&
+    git -C "$tmp/repo" config user.name "${UAK_AGENT:-uak}" && git -C "$tmp/repo" config user.email uak@localhost || return 1
+  for attempt in 1 2 3 4; do
+    if git -C "$tmp/repo" ls-remote --exit-code --heads origin claims >/dev/null 2>&1; then
+      git -C "$tmp/repo" fetch -q --depth 1 origin refs/heads/claims && git -C "$tmp/repo" checkout -q -B claims FETCH_HEAD || return 1
+    else
+      git -C "$tmp/repo" checkout -q --orphan claims 2>/dev/null || return 1
+    fi
+    mkdir -p "$tmp/repo/tokens"
+    { printf '# Tokens · machine %s · updated %s · last %s days\n\n' "$(machine)" "$(date -u +%Y-%m-%dT%H:%MZ)" "$since"
+      printf 'task | harness | model | scope | sessions | input | cache_write | cache_read | output\n\n'
+      sed 's/|/ | /g; s/^/- /' "$1"; } > "$tmp/repo/$rel"
+    git -C "$tmp/repo" add "$rel"
+    git -C "$tmp/repo" diff --cached --quiet && { ok=0; break; }
+    git -C "$tmp/repo" commit -q -m "uak: tokens $(machine)" || return 1
+    if git -C "$tmp/repo" push -q origin HEAD:refs/heads/claims 2>/dev/null; then ok=0; break; fi
+    sleep "$attempt"
+  done
+  return "$ok"
+}
+team_rows() {
+  git -C "$top" fetch -q "$REMOTE" claims 2>/dev/null || die "no remote claims branch"
+  git -C "$top" archive FETCH_HEAD tokens tasks 2>/dev/null | tar -x -C "$tmp" 2>/dev/null
+  [ -d "$tmp/tokens" ] || die "no machine has published yet: bash .uak/bin/tokens --publish (the Stop hook does it every 30 min)"
+  cat "$tmp"/tokens/*.md | sed -n 's/^- //p' | sed 's/ | /|/g' | fold
+  for f in "$tmp"/tasks/*.md; do [ -f "$f" ] && printf '%s %s\n' "$(sed -n 's/^ID: //p' "$f" | head -n 1)" "$(sed -n 's/^Owner: //p' "$f" | head -n 1)"; done > "$tmp/owners"
+}
+report() {
+  local col
+  case "$by" in task) col=1;; harness) col=2;; model) col=3;; scope) col=4;; agent) col=0;; esac
+  awk -F'|' -v col="$col" -v owners="$tmp/owners" -v json="$json" '
+    BEGIN { while ((getline l < owners) > 0) { split(l, a, " "); own[a[1]] = a[2] } }
+    { key = (col == 0) ? (($1 == "main") ? "main" : (($1 in own) ? own[$1] : "?")) : $col
+      s[key] += $5; i[key] += $6; w[key] += $7; r[key] += $8; o[key] += $9
+      T += $6 + $7 + $8 + $9; TR += $8; TO += $9; TS += $5 }
+    function h(n) { if (n >= 1e9) return sprintf("%.1fB", n / 1e9); if (n >= 1e6) return sprintf("%.1fM", n / 1e6); if (n >= 1e3) return sprintf("%.0fk", n / 1e3); return n "" }
+    END {
+      if (json == "yes") { printf "["; c = 0; for (k in s) { printf "%s{\"key\":\"%s\",\"sessions\":%d,\"input\":%d,\"cache_write\":%d,\"cache_read\":%d,\"output\":%d}", (c++ ? "," : ""), k, s[k], i[k], w[k], r[k], o[k] } print "]"; exit }
+      if (T == 0) { print "TOKENS: no transcripts of this project found (Claude Code or Codex) in the window"; exit }
+      printf "TOKENS total %s · output %s · cache hit %d%% · %d transcript(s)\n", h(T), h(TO), 100 * TR / T, TS
+      printf "%-22s %8s %8s %8s %8s %8s %6s %6s\n", "", "input", "cache-w", "cache-r", "output", "total", "share", "hit%"
+      n = 0; for (k in s) keys[++n] = k
+      for (x = 1; x <= n; x++) for (y = x + 1; y <= n; y++) {
+        tx = i[keys[x]] + w[keys[x]] + r[keys[x]] + o[keys[x]]; ty = i[keys[y]] + w[keys[y]] + r[keys[y]] + o[keys[y]]
+        if (ty > tx) { t = keys[x]; keys[x] = keys[y]; keys[y] = t } }
+      for (x = 1; x <= n && x <= 25; x++) { k = keys[x]; t = i[k] + w[k] + r[k] + o[k]
+        printf "%-22s %8s %8s %8s %8s %8s %5d%% %5d%%\n", substr(k, 1, 22), h(i[k]), h(w[k]), h(r[k]), h(o[k]), h(t), 100 * t / T, (t ? 100 * r[k] / t : 0) }
+      if (n > 25) printf "... %d more\n", n - 25
+    }' "$1"
+}
+: > "$tmp/owners"
+if [ "$team" = yes ]; then
+  team_rows > "$tmp/view"
+else
+  scan_local; fold < "$tmp/rows" > "$tmp/view"
+  if [ "$publish" = yes ]; then
+    if publish_rows "$tmp/view"; then [ "$quiet" = yes ] || say "TOKENS: published to claims:tokens/$(machine).md"
+    else [ "$quiet" = yes ] || say "TOKENS: could not publish (offline?)" >&2; fi
+    [ "$quiet" = no ] || exit 0
+  fi
+fi
+[ "$quiet" = yes ] && exit 0
+report "$tmp/view"
+[ "$team" = yes ] || [ "$json" = yes ] || say "(this machine; --team adds every machine; Cursor keeps no local token log)"

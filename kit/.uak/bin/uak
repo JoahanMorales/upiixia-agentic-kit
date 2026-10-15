@@ -94,7 +94,7 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 usage() {
   cat <<'USAGE'
-uak v4.3 — multi-agent coordination on the remote claims branch
+uak v5 — multi-agent coordination on the remote claims branch
 status [ID | --task ID] [--summary] [--full]
 claim ID --branch RAMA --worktree RUTA [--next TEXTO]
 heartbeat ID
@@ -108,6 +108,7 @@ tick
 next
 review ID --start | --stop | --sha SHA --verdict approve|reject [--note "file:line · what · how to reproduce"]
 followup ID --title TEXT   new task on ID's Paths after ID is INTEGRATED (fixes and polish; no human needed)
+handover ID --to NAME   pass your claim (or an expired one, or as UAK_HUMAN) to another agent without AVAILABLE
 retire NAME...   an identity that no longer runs leaves the reviewer rotation (its human or itself)
 register-reviewer NAME...  (UAK_HUMAN, from the main checkout)
 merge ID
@@ -116,7 +117,7 @@ secret-exception ID --path RUTA --rule REGLA --reason TEXTO
 init-smoke --command COMANDO
 lint [--secrets]
 doctor [--fix]   preflight: remote, gh permissions, hooks, freeze, ports
-graph [--mermaid] [--min-wave1 N]   backlog DAG: waves, critical path, cycles
+graph [--mermaid] [--min-wave1 N] | graph --assign   backlog DAG: waves, critical path, cycles; --assign suggests an idle agent per ready task
 loop --verify CMD [--agent CMD] [--max N] [--task ID]   bounded verify → fix loop
 board [--md] [--watch S]   team kanban from the claims branch
 stats   retro numbers: messages, reviews, recoveries, queue
@@ -126,6 +127,7 @@ integrate ID   any agent records a task whose approved SHA is already in main (o
 allow ID... --reason TEXT | allow --in-flight --reason TEXT   human freeze exception (UAK_HUMAN), audited
 clock "START" "DEADLINE" [ZONE] [--write]   sprint schedule scaled to the event length (freeze, rehearsal)
 pace [--caps|--json|set USED --resets +3h [--window 5h]]   plan-usage pacing: surge, normal, conserve, critical
+tokens [--team] [--by task|harness|model|scope|agent] [--since DAYS] [--publish]   real token spend from Claude Code/Codex transcripts
 bb add bug|friction|idea|need|praise TEXT [--fix IDEA] · bb flush · bb show · bb export   black box for kit fixes
 plan FILE   publish new tasks to claims without a PR (Plan-Channel: claims; needs UAK_HUMAN)
 msg DESTINO TEXTO [--kind TIPO] [--task HACK-NNN]   DESTINO: NOMBRE|HACK-NNN|related:HACK-NNN|all|human
@@ -144,8 +146,8 @@ bb_common=$(git rev-parse --git-common-dir 2>/dev/null) || bb_common=
 case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
   [ -z "$bb_common" ] || printf '%s\n' "$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
 esac
-case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock) exec bash "$UAK_BIN/$CMD" "$@";; esac
-case "$CMD" in status|claim|heartbeat|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
+case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens) exec bash "$UAK_BIN/$CMD" "$@";; esac
+case "$CMD" in status|claim|heartbeat|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac
   ROOT=$(pwd -P)
@@ -447,6 +449,35 @@ retire_mutate() {
   done
   ID=
 }
+# Explicit transfer of a live task: same claim, branch, worktree and summary; only the owner changes.
+# Allowed to the owner, to a human (UAK_HUMAN) and to anyone once the lease has expired.
+# Why (MLB hackathon): the tasks of three abandoned identities were redistributed by messages ("you take 033, I
+# take 020"), then each one needed release --expired with a read token and a new claim.
+handover_mutate() {
+  local owner until c wt
+  [ -f "$CLAIM" ] && [ -f "$RECORD" ] || conflict "$ID has no claim to hand over."
+  owner=$(field "$CLAIM" Owner); until=$(field "$CLAIM" Lease-Until); case "$until" in ''|*[!0-9]*) until=0;; esac
+  [ "$DONE_TO" != "$owner" ] || conflict "$ID already belongs to $DONE_TO."
+  [ "$owner" = "$AGENT" ] || [ -n "$HUMAN" ] || [ "$NOW" -ge "$until" ] ||
+    conflict "$ID belongs to $owner with a live lease: only $owner or a human (UAK_HUMAN) can hand it over."
+  [ ! -f "$TX/meta/retired/$DONE_TO.md" ] || conflict "$DONE_TO is retired; a claim by $DONE_TO brings it back, a handover does not."
+  if [ "${UAK_MULTI_CLAIM:-}" != 1 ]; then
+    for c in "$TX"/claims/*.md; do
+      [ -f "$c" ] && [ "$c" != "$CLAIM" ] && [ "$(field "$c" Owner)" = "$DONE_TO" ] || continue
+      case "$(field "$c" State)" in CLAIMED|BLOCKED) conflict "$DONE_TO already holds $(field "$c" ID): one identity = one live task.";; esac
+    done
+  fi
+  put "$RECORD" Owner "$DONE_TO"; put "$CLAIM" Owner "$DONE_TO"
+  WL=$(field "$RECORD" Worklog); STATE=$(field "$RECORD" State)
+  local saved=$AGENT; refresh_lease
+  event "handover; $owner → $DONE_TO by ${HUMAN:-$saved}"
+  # The worktree's .uak-env wins over the shell, so it must name the new owner when the worktree is here.
+  wt=$(field "$RECORD" Worktree)
+  if [ -f "$wt/.uak-env" ]; then
+    sed "s/^UAK_AGENT=.*/UAK_AGENT=$DONE_TO/" "$wt/.uak-env" > "$wt/.uak-env.tmp" && mv "$wt/.uak-env.tmp" "$wt/.uak-env"
+  fi
+  msg_append "agent:$DONE_TO" request "$ID" "$ID is yours now (from $owner): branch $(field "$RECORD" Branch), worktree $wt. Read uak status --task $ID --summary and continue its Next. Another machine: git fetch origin && git worktree add <dir> $(field "$RECORD" Branch), then write UAK_AGENT=$DONE_TO and UAK_TASK=$ID in <dir>/.uak-env."
+}
 # A follow-up of an INTEGRATED task (fix, polish, a reviewer's non-blocking notes) is a new task on the same
 # Paths, so it gets a claim, a review and a merge. Why (MLB hackathon): 3 follow-up PRs of integrated tasks
 # went around the kit; `uak review` refused them ("already INTEGRATED") and one was approved only by message.
@@ -577,6 +608,7 @@ mutate() {
       ;;
     tick) coord_tick_mutate;;
     retire) retire_mutate;;
+    handover) handover_mutate;;
     followup) followup_mutate;;
     allow) coord_allow_mutate;;
     msg) msg_mutate;;
@@ -725,6 +757,7 @@ transaction() {
         elif [ "$CMD" = plan ]; then say "OK plan | tasks published on claims | attempt $ATTEMPT"
         elif [ "$CMD" = allow ]; then say "OK allow${ALLOW_DONE:- (already allowed)} | claim and merge allowed after the freeze | attempt $ATTEMPT"
         elif [ "$CMD" = register-reviewer ]; then say "OK register-reviewer $REGISTER_REVIEWER | attempt $ATTEMPT"
+        elif [ "$CMD" = handover ]; then say "OK handover $ID → $DONE_TO | lease renewed; $DONE_TO continues from the live summary"
         elif [ "$CMD" = retire ]; then say "OK retire$RETIRE_NAMES | out of the reviewer rotation; a new claim brings an identity back"
         elif [ "$CMD" = followup ]; then say "OK followup $NEW_ID (after $ID, same Paths) | take it: bash .uak/bin/wt new $NEW_ID --agent ${AGENT}"
         elif [ "$REVIEW_STARTED" = yes ]; then say "OK review --start $ID | yours for $(( ${UAK_REVIEW_LOCK_SECONDS:-1200} / 60 )) min; finish with --verdict"
@@ -814,6 +847,13 @@ print_digest() {
   freeze_warning
   human_msgs=$(msg_select human | tail -n 10)
   [ -z "$human_msgs" ] || { say "Agent messages for humans (last 5):"; say "$human_msgs"; }
+  # The bill, from what every machine published (uak tokens --publish; the Stop hook does it every 30 min).
+  if ls "$TX"/tokens/*.md >/dev/null 2>&1; then
+    sed -n 's/^- //p' "$TX"/tokens/*.md | awk -F' [|] ' '{t = $6 + $7 + $8 + $9; T += t; R += $8; k[$1] += t}
+      function M(n) { return n >= 1e6 ? sprintf("%.1fM", n / 1e6) : sprintf("%.0fk", n / 1e3) }
+      END { if (!T) exit; b = ""; for (x in k) if (x != "main" && (b == "" || k[x] > k[b])) b = x
+            printf "Tokens: %s, cache hit %d%%%s · detail: uak tokens --team\n", M(T), 100 * R / T, (b != "" ? sprintf(", top task %s %s", b, M(k[b])) : "") }'
+  fi
   say "Rule: no answer in 15 min → recorded reversible decision, take another task."
 }
 # Repeated reads: the same `status`/`next`/`digest` output in the same agent session prints one line.
@@ -1046,7 +1086,7 @@ while [ "$#" -gt 0 ]; do
         --sha) [ "$CMD" = review ] || die "Invalid option."; REVIEW_SHA=$value;;
         --verdict) [ "$CMD" = review ] || die "Invalid option."; REVIEW_VERDICT=$value;;
         --note) case "$CMD" in review|done) REVIEW_NOTE=$value;; *) die "Invalid option.";; esac;;
-        --to) [ "$CMD" = done ] || die "Invalid option."; case "$value" in *[!A-Za-z0-9_.-]*) die "--to takes an agent name.";; esac; DONE_TO=$value;;
+        --to) case "$CMD" in done|handover) ;; *) die "Invalid option.";; esac; case "$value" in *[!A-Za-z0-9_.-]*) die "--to takes an agent name.";; esac; DONE_TO=$value;;
         --title) [ "$CMD" = followup ] || die "Invalid option."; FOLLOWUP_TITLE=$value;;
         --command) [ "$CMD" = init-smoke ] || die "Invalid option."; SMOKE_COMMAND=$value;;
         --option) [ "$CMD" = decision ] || die "Invalid option."; DECISION_OPTION=$value;;
@@ -1113,6 +1153,7 @@ if [ "$CMD" = done ]; then
   fi
 fi
 [ "$CMD" != log ] || [ -n "$LOG_TEXT" ] || die "log needs an entry."
+[ "$CMD" != handover ] || [ -n "$DONE_TO" ] || die "Usage: handover ID --to NAME (the claim, branch and worktree pass to NAME as they are)."
 [ "$CMD" != followup ] || [ -n "$FOLLOWUP_TITLE" ] || die "Usage: followup ID --title TEXT (a new task with ID's Paths, after ID)."
 [ "$CMD" != msg ] || [ -n "$MSG_TEXT" ] || die "msg needs a text."
 [ "$CMD" != msg ] || [ -z "$MSG_TASK" ] || valid_id "$MSG_TASK" || MSG_TASK=

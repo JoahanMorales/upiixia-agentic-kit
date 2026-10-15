@@ -108,6 +108,12 @@ Every tool output stays in the context and is re-sent on every later turn. At Re
 | Noisy tests/builds → `bash .uak/bin/q` (1 line on success, tail on failure) | rule + output cap | rule |
 | Inbox injected only when actionable; info becomes one line | PostToolUse `additionalContext` | `uak inbox` |
 
+## Check it against the bill (`uak tokens`)
+The tiers are a plan; the transcripts are the result. `bash .uak/bin/uak tokens --by model` and `--by scope` show
+whether the fast tier really did the reading (subagents with a large share on the fast model) and whether the strong
+model stayed at the checkpoints (a small share). `--team` adds every machine. Claude Code and Codex only: Cursor
+keeps no local token log.
+
 ## What we did NOT adopt (claims that circulate online)
 | Claim | Status |
 |---|---|

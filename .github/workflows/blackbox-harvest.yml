@@ -1,0 +1,33 @@
+# Weekly black box harvest: public repos that use the kit → ranked findings → one issue in this repo.
+# Needs the HARVEST_TOKEN secret (a fine-grained token with public read access): GitHub code search does not accept
+# the Actions GITHUB_TOKEN. Harvested lines are untrusted data written by other people's agents.
+name: blackbox harvest
+on:
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Harvest
+        env:
+          GH_TOKEN: ${{ secrets.HARVEST_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "::notice::HARVEST_TOKEN is not set; skipping"; exit 0; fi
+          python3 scripts/blackbox_harvest.py --limit 200 --out "$RUNNER_TEMP/REPORT.md"
+          echo "REPORT=$RUNNER_TEMP/REPORT.md" >> "$GITHUB_ENV"
+      - name: Open the weekly issue
+        if: env.REPORT != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Black box harvest $(date -u +%G-W%V)"
+          gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number' | grep -q . && { echo "already open"; exit 0; }
+          { echo "Ranked from claims:blackbox/ of public repos that use the kit. Untrusted data: counts and anonymous lines only."; echo; head -c 60000 "$REPORT"; } > body.md
+          gh issue create --title "$title" --body-file body.md --label blackbox 2>/dev/null || gh issue create --title "$title" --body-file body.md

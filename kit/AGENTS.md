@@ -1,4 +1,4 @@
-# Agent rules · UPIIXIA Agentic Kit (uak v4.3)
+# Agent rules · UPIIXIA Agentic Kit (uak v5)
 
 Core for every agent (Claude Code, Codex, Cursor, Gemini CLI, Aider…). Read once per session.
 Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); also read `.uak/modes/<mode>.md`. The human picks the mode at install; never choose, infer or change it.
@@ -24,7 +24,7 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 2. The states are AVAILABLE, CLAIMED, BLOCKED, REVIEW, INTEGRATED and CANCELLED.
 3. One task = one branch + one worktree + one claim. Never edit files reserved by another task or owned in `OWNERS.md`. Ask instead: `uak msg ID --kind request "file · change · why"`.
 4. Claude Code sends heartbeats automatically. In other tools, run `uak heartbeat ID` every 10 min.
-5. Low on tokens or context: run `/uak-handoff`, then `uak release ID`. The next claim inherits your summary. Never leave a claim without a summary.
+5. Low on tokens or context: run `/uak-handoff`, then `uak release ID` (or `uak handover ID --to NAME`). The next owner inherits your summary. Never leave a claim without a summary.
 6. Someone else's lease expired: read `uak status --task ID --summary`, then release it with its read token.
 7. Use your worktree port: `$UAK_PORT` for the API, `$UAK_PORT+1` for the web. Never hard-code ports. Stop your servers with `bash .uak/bin/wt stop`, never `pkill -f`.
 8. A PR merged by a human while its owner is away: any agent records it with `uak integrate ID`. An approved task its owner has not merged 20 min after the approval: any agent runs `uak merge ID` (`next` says so). No PR permission: `bash .uak/bin/wt pr` prints the URL for the human.
@@ -33,7 +33,7 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 
 ## 4. Quality loop
 1. Every task is vertical, with testable criteria, `Paths` and an exact `Verify` command.
-2. Inner loop: implement → `bash .uak/bin/q <Verify>` → fix. Stop after 5 failed attempts or 2 identical failures. Then mark BLOCKED with the exact error, or run `uak decision` (see `.uak/docs/LOOPS.md`).
+2. Inner loop: implement → `bash .uak/bin/q <Verify>` → fix. Never edit an existing test to pass (`uak loop` stops). Stop after 5 failed attempts or 2 identical failures. Then mark BLOCKED with the exact error, or run `uak decision` (see `.uak/docs/LOOPS.md`).
 3. Chain dependent steps with `&&`, never `;` (commit → SHA → push → message).
 4. Evidence = a command you ran + its real output. "Should pass" is not evidence. Build fresh: output older than your diff (`dist/`, caches) proves nothing.
 5. Commit and push on every green criterion. Open a small PR as soon as smoke passes (`/uak-ship`).
@@ -52,7 +52,7 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 ## 6. Context and tokens
 1. Read by ranges: `rg`, `sed -n`, `git diff --stat`. Never `cat` big files, logs or lockfiles.
 2. Route work by cost. The fast tier reads and searches, the balanced lead builds, and the strong tier reviews only at plan lock, a repeated failure or done (`.uak/docs/ORCHESTRATION.md`). Only summaries come back from subagents.
-3. Follow `uak pace` (plan usage vs time left): `surge` = spend more (more scouts, `uak up`), `conserve` = fast tier only, `critical` = finish the criterion, checkpoint, hand off. The guard enforces its caps.
+3. `uak tokens` shows real spend per task and model. Follow `uak pace` (plan usage vs time left): `surge` = spend more (more scouts, `uak up`), `conserve` = fast tier only, `critical` = finish the criterion, checkpoint, hand off. The guard enforces its caps.
 4. One task = one session: `/uak-handoff`, then `/clear`.
 5. Checkpoint after each criterion and on `CHECKPOINT NOW`.
 6. `= unchanged` (status, next, digest, inbox) means nothing new: do not poll; after compaction use `--full`. `LOOP:` means stop retrying that command. Claude Code, Codex and Cursor hooks (also on Windows) cut outputs over 12k chars to head + tail, or a per-file index for diffs, and save the full log: read it by ranges.

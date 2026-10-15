@@ -47,6 +47,15 @@ if ls "$dir"/queue/*.md >/dev/null 2>&1; then
   q=$(cat "$dir"/queue/*.md | sed -n 's/^Reason: //p' | sed 's/: .*//' | sort | uniq -c | sort -rn | head -n 3 | awk '{c=$1; $1=""; printf "%s ×%d ·", substr($0,2), c}')
   printf 'human-queue reasons: %s\n' "${q:-none}"
 fi
+# Token spend published by every machine (uak tokens): the real bill, by harness and lead vs subagent.
+if ls "$dir"/tokens/*.md >/dev/null 2>&1; then
+  sed -n 's/^- //p' "$dir"/tokens/*.md | awk -F' [|] ' '{t = $6 + $7 + $8 + $9; T += t; R += $8; h[$2] += t; s[$4] += t; k[$1] += t}
+    function M(n) { return n >= 1e6 ? sprintf("%.1fM", n / 1e6) : sprintf("%.0fk", n / 1e3) }
+    END { if (!T) exit; printf "tokens: %s · cache hit %d%%", M(T), 100 * R / T
+      printf " · by harness:"; for (x in h) printf " %s %s", x, M(h[x]); printf " · by scope:"; for (x in s) printf " %s %s", x, M(s[x])
+      best = ""; for (x in k) if (x != "main" && (best == "" || k[x] > k[best])) best = x
+      if (best != "") printf " · top task %s %s", best, M(k[best]); printf "\n" }'
+fi
 # Local subagent usage (written by guard agent): tiers decide the bill.
 gd=$(git rev-parse --git-dir 2>/dev/null || true)
 if [ -n "$gd" ] && [ -s "$gd/uak-agents.log" ]; then

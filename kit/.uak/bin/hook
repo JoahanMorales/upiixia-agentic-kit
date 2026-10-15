@@ -56,6 +56,12 @@ case "${1:-}" in
       [ -z "$out" ] || printf '{"additional_context":"%s"}\n' "$(printf '%s' "$out" | json_text)"
       exit 0
     fi
+    # Gemini CLI's SessionStart takes {"hookSpecificOutput":{"additionalContext": "..."}}.
+    if [ "${2:-}" = gemini ]; then
+      out=$(printf '%s' "$input" | UAK_HARNESS=gemini-cli bash "$0" session-start 2>/dev/null)
+      [ -z "$out" ] || printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$(printf '%s' "$out" | json_text)"
+      exit 0
+    fi
     # Remember the harness of this worktree for black box lines written by background jobs.
     h=$(bash .uak/bin/bb harness 2>/dev/null)
     if [ "$h" = other ] || [ -z "$h" ]; then
@@ -153,6 +159,11 @@ $act"
       touch "$common/uak-blackbox.flushed" 2>/dev/null
       nohup bash .uak/bin/bb flush --quiet > /dev/null 2>&1 &
     fi
+    # Token spend of this machine (Claude Code and Codex transcripts) to claims:tokens/, at most every 30 min.
+    if [ -n "$common" ] && ! fresh "$common/uak-tokens.published" 30; then
+      touch "$common/uak-tokens.published" 2>/dev/null
+      nohup bash .uak/bin/tokens --publish --quiet > /dev/null 2>&1 &
+    fi
     [ -n "$agent" ] || exit 0
     case "$input" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) exit 0;; esac
     bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.tmp" 2>/dev/null && mv "$gd/uak-inbox.tmp" "$gd/uak-inbox.txt"
@@ -209,12 +220,14 @@ $act"
     #                persist. Windows: the agent shell is PowerShell, so the command goes base64 to `cap --b64`,
     #                which runs it in bash (only commands both shells read the same: no $, \, backticks, cd).
     #   wrap codex   Codex PreToolUse(Bash): permissionDecision allow + updatedInput.command, always base64.
+    #   wrap gemini  Gemini CLI BeforeTool(run_shell_command): hookSpecificOutput.tool_input.command, base64.
+    #   On Windows every harness runs PowerShell, so only commands both shells read alike are wrapped.
     # Why (MLB hackathon): the Windows skip meant the 4 Windows laptops never got a cap in Cursor; Codex's
     # PostToolUse "block" cut documentation reads and "interrupted the tool batch".
     harness=${2:-cursor}
     cap=$(cap_chars); [ "$cap" -gt 0 ] || exit 0
     # Codex: hooks.json matches Bash; the payload must carry tool_input.command (a string).
-    case "$harness:$input" in cursor:*'"tool_name":"Shell"'*|cursor:*'"tool_name": "Shell"'*|codex:*) ;; *) exit 0;; esac
+    case "$harness:$input" in cursor:*'"tool_name":"Shell"'*|cursor:*'"tool_name": "Shell"'*|codex:*|gemini:*'"tool_name":"run_shell_command"'*|gemini:*'"tool_name": "run_shell_command"'*) ;; *) exit 0;; esac
     case "${SHELL:-}" in *fish) [ "$harness" = codex ] || exit 0;; esac
     windows=no; case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) windows=yes;; esac
     [ "${UAK_TEST_WINDOWS:-}" != 1 ] || windows=yes
@@ -226,8 +239,8 @@ $act"
     # The guard decides first; a blocked command is left untouched so the deny hook blocks it.
     bash .uak/bin/guard check "$cmd" >/dev/null 2>&1 || exit 0
     capbin="$(pwd -P)/.uak/bin/cap"
-    if [ "$harness" = codex ] || [ "$windows" = yes ]; then
-      if [ "$harness" = cursor ]; then
+    if [ "$harness" != cursor ] || [ "$windows" = yes ]; then
+      if [ "$windows" = yes ]; then
         # PowerShell and bash must read it the same way.
         case "$cmd" in *'$'*|*'\'*|*'`'*|*'%'*) exit 0;; esac
         printf '%s\n' "$cmd" | grep -Eq '(^|[;&|[:space:]])(cd|pushd|export|set|source)([[:space:]]|$)|(^|[;&|])[[:space:]]*\.[[:space:]]|[A-Z][a-z]+-[A-Z][a-z]+' && exit 0
@@ -245,6 +258,11 @@ $act"
     fi
     if [ "$harness" = codex ]; then
       printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":{"command":"%s"}}}\n' "$(printf '%s' "$wrapped" | json_cmd)"
+      exit 0
+    fi
+    # Gemini CLI BeforeTool: hookSpecificOutput.tool_input merges over the model's arguments.
+    if [ "$harness" = gemini ]; then
+      printf '{"decision":"allow","hookSpecificOutput":{"hookEventName":"BeforeTool","tool_input":{"command":"%s"}}}\n' "$(printf '%s' "$wrapped" | json_cmd)"
       exit 0
     fi
     extra=; [ -z "$wd" ] || extra=",\"working_directory\":\"$(printf '%s' "$wd" | json_cmd)\""

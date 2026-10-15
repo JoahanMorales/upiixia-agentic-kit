@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
 # uak graph: the backlog as an execution DAG. Waves, critical path, cycles, missing deps, Mermaid.
-#   graph [--mermaid] [--min-wave1 N] [--file TASKS.md]
+#   graph [--mermaid] [--min-wave1 N] [--file TASKS.md] | graph --assign
+# --assign: suggest one idle agent per ready task (deps INTEGRATED), by what each agent already integrated in the
+# same folders, then by speed; one task per agent. A suggestion: each agent still claims with wt new.
 # Reads .uak/TASKS.md plus claims:backlog/TASKS.md (uak plan), and task states from origin/claims when available.
 # Exit: 0 ok · 1 cycle, missing dependency or wave 1 below --min-wave1 · 2 usage.
 # Portable awk (mawk-safe: no {n} intervals, no gensub, no arrays of arrays).
 set -u
 MSYS2_ARG_CONV_EXCL="refs/;origin/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXCL  # Git Bash: keep ref:path arguments
 LC_ALL=C; export LC_ALL
-mermaid=no min1=0 file=
+mermaid=no min1=0 file= assign=no
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mermaid) mermaid=yes; shift;;
     --min-wave1) min1=${2:-}; shift 2;;
     --file) file=${2:-}; shift 2;;
-    *) printf 'Usage: graph [--mermaid] [--min-wave1 N] [--file TASKS.md]\n' >&2; exit 2;;
+    --assign) assign=yes; shift;;
+    *) printf 'Usage: graph [--mermaid] [--min-wave1 N] [--file TASKS.md] | graph --assign\n' >&2; exit 2;;
   esac
 done
 case "$min1" in ''|*[!0-9]*) printf 'graph: --min-wave1 needs an integer\n' >&2; exit 2;; esac
@@ -29,7 +32,59 @@ if [ -z "$file" ]; then
     git -C "$root" ls-tree --name-only FETCH_HEAD tasks/ 2>/dev/null | while IFS= read -r t; do
       printf '%s %s\n' "$(basename "$t" .md)" "$(git -C "$root" show "FETCH_HEAD:$t" 2>/dev/null | sed -n 's/^State: //p' | head -n 1)"
     done > "$tmp/states"
+    if [ "$assign" = yes ]; then
+      git -C "$root" archive FETCH_HEAD tasks meta 2>/dev/null | tar -x -C "$tmp" 2>/dev/null
+      for t in "$tmp"/tasks/*.md; do
+        [ -f "$t" ] || continue
+        wl=$(sed -n 's/^Worklog: worklog\/WL-\([0-9]*\)-.*/\1/p' "$t" | head -n 1)
+        printf '%s|%s|%s|%s|%s|%s\n' "$(sed -n 's/^ID: //p' "$t" | head -n 1)" "$(sed -n 's/^Owner: //p' "$t" | head -n 1)" \
+          "$(sed -n 's/^State: //p' "$t" | head -n 1)" "$(sed -n 's/^Paths: //p' "$t" | head -n 1)" "${wl:-0}" "$(sed -n 's/^Updated: //p' "$t" | head -n 1)"
+      done > "$tmp/records"
+      for t in "$tmp"/meta/retired/*.md; do [ -f "$t" ] && basename "$t" .md; done > "$tmp/retired"
+    fi
   fi
+fi
+if [ "$assign" = yes ]; then
+  # Why (MLB hackathon): a human redistributed tasks by hand in messages ("you take 033, I take 020").
+  [ -s "$tmp/records" ] || { printf 'ASSIGN: no task history on claims yet; take wave 1 with uak next\n'; exit 0; }
+  touch "$tmp/retired"
+  awk -F'|' -v recf="$tmp/records" -v retf="$tmp/retired" '
+    function dirs(s, out,   n, a, i, d) { n = split(s, a, ","); for (i = 1; i <= n; i++) { d = a[i]; gsub(/[` *]/, "", d); sub(/\/[^\/]*$/, "/", d); if (d != "") out[d] = 1 } }
+    BEGIN {
+      while ((getline l < retf) > 0) retired[l] = 1
+      while ((getline l < recf) > 0) { split(l, r, "|"); id = r[1]; who = r[2]; st[id] = r[3]
+        if (who == "" || (who in retired)) continue
+        agent[who] = 1
+        if (r[3] == "CLAIMED" || r[3] == "BLOCKED") busy[who] = 1
+        if (r[3] == "INTEGRATED") { done_n[who]++; if (r[5] > 0 && r[6] > r[5]) { dur[who] += r[6] - r[5]; durn[who]++ }
+          delete tmpd; dirs(r[4], tmpd); for (d in tmpd) know[who, d] = 1 } }
+    }
+    /^## [A-Z][A-Z0-9]*-[0-9]/ { cur = $0; sub(/^## /, "", cur); sub(/[[:space:]].*/, "", cur); order[++n] = cur; next }
+    cur != "" { s = $0; gsub(/\*\*/, "", s); sub(/^[[:space:]]*-[[:space:]]*/, "", s)
+      if (s ~ /^Priority:/) { sub(/^Priority:[[:space:]]*/, "", s); pri[cur] = substr(s, 1, 2) }
+      else if (s ~ /^Paths:/) { sub(/^Paths:[[:space:]]*/, "", s); paths[cur] = s }
+      else if (s ~ /^Depends on:/) { sub(/^Depends on:[[:space:]]*/, "", s); gsub(/\([^)]*\)/, "", s); deps[cur] = s } }
+    END {
+      printf "ASSIGN suggestion (each agent still claims: bash .uak/bin/wt new ID --agent NAME)\n"
+      for (p = 0; p <= 2; p++) for (i = 1; i <= n; i++) { t = order[i]; if (pri[t] != "P" p) continue
+        if (st[t] != "" && st[t] != "AVAILABLE") continue
+        ok = 1; s = deps[t]; while (match(s, /[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+/)) { d = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH); if (st[d] != "INTEGRATED") ok = 0 }
+        if (!ok) continue
+        delete want; dirs(paths[t], want)
+        best = ""; bs = -1
+        for (a in agent) { if ((a in busy) || (a in taken)) continue
+          sc = 0; for (d in want) if ((a, d) in know) sc += 10
+          sc += (done_n[a] > 0 ? 1 : 0)
+          if (sc > bs || (sc == bs && durn[a] && (!durn[best] || dur[a] / durn[a] < dur[best] / durn[best]))) { bs = sc; best = a } }
+        if (best == "") { printf "%s (%s) → - · no idle agent left\n", t, pri[t]; shown++; continue }
+        taken[best] = 1
+        why = (bs >= 10) ? "knows " : "idle"; if (bs >= 10) for (d in want) if ((best, d) in know) why = why d " "
+        shown++
+        printf "%s (%s) → %s · %s · %d integrated%s\n", t, pri[t], best, why, done_n[best], (durn[best] ? sprintf(", avg %.1f h per task", dur[best] / durn[best] / 3600) : "")
+      }
+      if (!shown) printf "no ready task: every AVAILABLE task waits for a dependency that is not INTEGRATED yet\n"
+    }' "$file"
+  exit 0
 fi
 [ -f "$file" ] || { printf 'graph: %s not found\n' "$file" >&2; exit 2; }
 touch "$tmp/states"

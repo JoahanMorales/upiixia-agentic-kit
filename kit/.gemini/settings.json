@@ -1,3 +1,42 @@
 {
-  "context": { "fileName": ["AGENTS.md", "GEMINI.md"] }
+  "context": {
+    "fileName": [
+      "AGENTS.md",
+      "GEMINI.md"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "uak-start",
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/hook\" session-start gemini",
+            "timeout": 45000
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {
+            "name": "uak-guard",
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/guard\" bash",
+            "timeout": 5000
+          },
+          {
+            "name": "uak-output-cap",
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/hook\" wrap gemini",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
 }

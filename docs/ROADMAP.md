@@ -1,35 +1,30 @@
 # Roadmap
 
-## v4.2 (Reap autopsy) — shipped
-- [x] Scope gate on the current base · [x] `uak clock` · [x] `uak allow` · [x] quiet probes and `(xN)` · [x] backoff + shallow fetch
-- [x] One identity = one task · [x] one-line multi-target messages, `review --note`, no acks · [x] `= unchanged`, `LOOP:`, output cap
+## v5.0 — shipped
+- [x] `uak tokens`: the real token bill per task, model, harness and lead vs subagent, from Claude Code and Codex
+  transcripts; published per machine to claims; in `stats` and `digest`
+- [x] `uak loop`: stops on no progress and on an edited test (the verifier); `--parallel N --each` (one loop per
+  failing test file, in temporary worktrees, fixes applied back)
+- [x] `uak handover ID --to NAME` · [x] `uak graph --assign` · [x] opt-in scheduled `uak tick` (GitHub Action)
+- [x] Weekly black box harvest Action in this repo (needs the `HARVEST_TOKEN` secret)
+- [x] Stack presets: Next.js, Django, Go, Expo, Python data/ML, AI agent (MCP server + evals)
+- [x] Gemini CLI hooks: guard, session context, output cap (Gemini CLI was replaced by Antigravity CLI in June 2026)
+- [x] An animated demo (`docs/media/demo.svg`, regenerated from a real run by `scripts/render_demo.py`)
+- [x] Everything from the MLB autopsy (v4.3, folded into this release): approvals that survive clean merges of main,
+  merge by any agent after 20 min, gate `.venv`, `retire`, `followup`, output cap on Windows and Codex
 
-## v4.3 (MLB autopsy) — shipped
-- [x] Approval survives clean merges of main · [x] any agent merges an approved task after 20 min · [x] gate `.venv` + kept logs
-- [x] Scope reasons with owner and fix · [x] `retire`, rotation (rejecter, other human) · [x] `done --to/--note` · [x] `followup`
-- [x] Output cap on Windows Cursor and Codex (base64 pre-rewrite), diff index · [x] dedupe without `ps -o` · [x] status survives a failed tick
-- [x] Windows: 4 Git Bash laptops ran Claude Code, Codex and Cursor for 60 h (the v4.2 MSYS fixes held)
-
-## v4.4 (open)
+## v5.1 (open)
 - [ ] A live Windows Cursor session with the base64 rewrite, and a live Codex session with `updatedInput`; record drift with `uak bb`.
-- [ ] Gemini CLI hooks (`BeforeTool` → `guard bash`) once hooks leave experimental.
-- [ ] A weekly GitHub Action in this repo that runs `scripts/blackbox_harvest.py` and opens an issue with the top 10.
-- [ ] `uak pace` from the Cursor usage API, if one is published.
-- [ ] `uak handover ID --to AGENT`: explicit transfer without going through AVAILABLE.
-
-
-## v3.1
-- [x] `uak stats` (v3.1) · [x] `uak board` (v3.1) · [x] `uak up` (v3.1) · [x] `uak demo` (v3.1)
-- [ ] A 60-second GIF of `uak demo` and `uak board --watch` for the README.
-- [ ] `uak handover ID --to AGENT`: explicit transfer without going through AVAILABLE.
-- [ ] A GitHub Action that runs `uak tick` every 5 min, so leases and deadlines advance with nobody online.
-
-## v3.2
-- [ ] Stack presets: Next.js, Django, Go, Expo, and an AI-agent preset (MCP server + evals).
-- [ ] `uak loop --parallel`: one loop per failing test file, in separate worktrees.
-- [ ] `uak graph --assign`: suggest an agent per wave-1 task by past throughput.
+- [ ] Antigravity CLI support (the successor of Gemini CLI) once its hook and config docs settle.
+- [ ] Token budgets: `Token-Budget` per task in PROJECT.md, warned by `next` when `uak tokens` crosses it.
+- [ ] Cursor token spend, if Cursor publishes a usage API or a local log.
+- [ ] `uak board --watch` in the demo animation.
 
 ## Ideas
-- Token budgets from each tool's usage API instead of event counts.
 - Linear and Jira ID prefixes with two-way AVAILABLE/INTEGRATED sync.
 - Localized agent-facing texts (`UAK_LANG`).
+- `uak loop --parallel` for test runners beyond pytest, jest/vitest and go.
+
+## Earlier releases
+- v4.3 (MLB autopsy) and v4.2 (Reap autopsy): see CHANGELOG.md and `docs/blackbox/`.
+- v3.1: `uak stats`, `uak board`, `uak up`, `uak demo`.
