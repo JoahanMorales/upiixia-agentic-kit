@@ -1,6 +1,6 @@
 ---
 model: sonnet
-description: Review another task's PR and record approve/reject for its SHA
+description: Use when a review is assigned to you or uak next says Idle: review: review another task's PR at its exact SHA and record approve or reject.
 argument-hint: "ID"
 ---
 Delegate the whole review of $ARGUMENTS to the `uak-reviewer` subagent (isolated context; the diff never enters yours). Pass it the ID and the mode.

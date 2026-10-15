@@ -1,6 +1,6 @@
 ---
 model: opus
-description: Planner. IDEA or spec → verifiable backlog graph, OWNERS and wave-1 contracts.
+description: Use when turning IDEA.md or a spec into tasks: a verifiable backlog graph with Paths, Verify, owners and wave-1 contracts.
 ---
 Read `.uak/PROJECT.md`, your mode's §Plan, `.uak/docs/GRAPH.md`, and then `IDEA.md` (sprint) or `docs/specs/*/plan.md` (marathon).
 

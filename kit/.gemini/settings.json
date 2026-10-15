@@ -37,6 +37,19 @@
           }
         ]
       }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "uak-tick",
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/hook\" tick gemini",
+            "timeout": 10000
+          }
+        ]
+      }
     ]
   }
 }

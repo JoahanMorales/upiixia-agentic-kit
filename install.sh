@@ -50,6 +50,8 @@ for part in bin docs modes templates tests settings stacks skills; do
   cp -R "$kit/.uak/$part" "$target/.uak/$part"
 done
 cp "$kit/.uak/VERSION" "$target/.uak/VERSION"
+# Coach templates: copied on install; on --update they are refreshed too (they are engine text, not project data).
+cp "$kit/.uak/reminders.md" "$target/.uak/reminders.md"
 chmod +x "$target"/.uak/bin/* 2>/dev/null || true
 say "  + .uak/ (engine, modes, templates, docs, tests, skill library)"
 [ -f "$target/.uak/PROJECT.md" ] || { cp "$kit/.uak/templates/PROJECT.$mode.md" "$target/.uak/PROJECT.md"; say "  + .uak/PROJECT.md"; }
@@ -103,7 +105,10 @@ put "$kit/.github/workflows/uak-tick.yml.example" "$target/.github/workflows/uak
 [ "$mode" != marathon ] || put "$kit/.github/CODEOWNERS.example" "$target/.github/CODEOWNERS.example"
 
 touch "$target/.gitignore"
-for line in .env '.env.*' '!.env.example' .uak-env .claude/settings.local.json; do
+# Generated files too: an agent's `git add -A` after running tests committed __pycache__ and the merge gate stopped
+# on it (adoption eval, 2026-10). Common build/cache output of the supported stacks.
+for line in .env '.env.*' '!.env.example' .uak-env .claude/settings.local.json __pycache__/ '*.pyc' .pytest_cache/ \
+    .venv/ node_modules/ .next/ dist/ .DS_Store; do
   grep -qxF -- "$line" "$target/.gitignore" || { printf '%s\n' "$line" >> "$target/.gitignore"; say "  + .gitignore: $line"; }
 done
 git -C "$target" config core.hooksPath .githooks

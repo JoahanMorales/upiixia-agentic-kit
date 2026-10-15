@@ -1,6 +1,6 @@
 ---
 model: opus
-description: Data-driven retro from the claims branch; proposes concrete kit and project changes
+description: Use after an event or milestone: a data-driven retro from the claims branch that proposes concrete kit and project changes.
 ---
 1. Data: `bash .uak/bin/uak stats` (messages by kind and agent, review load, lease recoveries, queue reasons), `bash .uak/bin/uak board`, `bash .uak/bin/uak graph`, and `gh pr list --state all --limit 200 --json number,state,additions,deletions,createdAt,mergedAt`.
    Also `bash .uak/bin/uak bb show 100` (the black box: kit errors with counts and agents' notes), and `bash .uak/bin/uak pace`.

@@ -1,6 +1,6 @@
 ---
 model: sonnet
-description: Pre-launch security audit of a backend against the kit's launch checklist; delegates the sensitive review to security-reviewer
+description: Use before launching a backend: the security audit against the kit's launch checklist; delegates the sensitive review to security-reviewer.
 ---
 Read `.uak/docs/SECURITY.md` §Launch checklist.
 1. Send up to 3 `uak-scout` subagents in parallel to locate evidence: auth and session code; input validation and DB access; config, CORS, rate limits, logging and health. Each returns file:line per checklist item.

@@ -1,5 +1,5 @@
 ---
-description: Opus checkpoint from a compact packet (plan | stuck | done). Use when the advisor tool is unavailable or the session is long.
+description: Use when you need a strong-model opinion and the advisor tool is unavailable or the session is long: at plan lock (plan), after the same failure twice (stuck), or before shipping a risky diff (done).
 argument-hint: "plan|stuck|done"
 ---
 Checkpoint: $ARGUMENTS. Build a packet of 40 lines or fewer. Never paste whole files or logs:

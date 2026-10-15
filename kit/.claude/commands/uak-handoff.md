@@ -1,6 +1,6 @@
 ---
 model: sonnet
-description: Checkpoint + handoff before closing, compacting or running out of tokens
+description: Use before closing a session, before compacting, or when context or tokens run low: checkpoint the task and write the handoff the next session resumes from.
 argument-hint: "[ID]"
 ---
 Task: ${ARGUMENTS:-$UAK_TASK}.

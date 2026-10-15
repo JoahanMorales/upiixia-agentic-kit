@@ -1,6 +1,6 @@
 ---
 model: sonnet
-description: Minute 0 with the human. Publishable PROJECT.md, doctor PASS, reviewers registered.
+description: Use at minute 0 with the human: PROJECT.md, doctor PASS, reviewers registered, schedule from uak clock.
 ---
 Read `.uak/PROJECT.md` and its `Mode:`. The mode is the human's decision, already made with `install.sh --mode`. Never pick, infer or switch it. If `Mode:` is missing or the human hesitates, show this and let them choose:
 | sprint | marathon |

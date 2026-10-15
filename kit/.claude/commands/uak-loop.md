@@ -1,5 +1,5 @@
 ---
-description: Inner loop on the current criterion — implement, verify, fix — with a budget and stuck detection
+description: Use while implementing a criterion: implement, run Verify, fix, with a budget and stuck detection; for long mechanical fixes it can run unattended with uak loop.
 argument-hint: "[Verify command]"
 ---
 Verifier: ${ARGUMENTS:-the task's `Verify`}. Loop rules (`.uak/docs/LOOPS.md`):

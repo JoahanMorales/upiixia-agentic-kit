@@ -741,6 +741,18 @@ mutate() {
       put "$CLAIM" Next "Another agent reviews $PR_URL; run .uak/bin/smoke"
       update_summary_field Done "$EVIDENCE"
       update_summary_field Next "Another agent reviews $PR_URL; run .uak/bin/smoke"
+      # Contract check at the moment of shipping: does this diff touch files that other live tasks import, with no
+      # contract message from you on this task? Why (adoption eval): with the rule in context (AGENTS.md §5.1) a
+      # Sonnet agent changed a function another claimed task imported, pushed and shipped without telling it.
+      if [ "$STATE" = REVIEW ] && [ -d "$task_worktree" ] && [ -f "$task_worktree/.uak/bin/map" ]; then
+        local cfiles ctasks
+        cfiles=$(git -C "$task_worktree" diff --name-only "$(field "$RECORD" Task-Base)" "$tip" 2>/dev/null | head -n 30)
+        ctasks=$( [ -z "$cfiles" ] || (cd "$task_worktree" && bash .uak/bin/map impact --tasks $cfiles 2>/dev/null) | grep -v "^$ID\$" |
+          while IFS= read -r t; do [ -f "$TX/claims/$t.md" ] && printf '%s ' "$t"; done)
+        if [ -n "$ctasks" ] && ! awk -F' [|] ' -v me="$AGENT" -v id="$ID" '$3 == me && $5 == "contract" && ($6 == id || index($4, "impact:" id)) {f = 1} END {exit !f}' "$TX/$MSG_LOG" 2>/dev/null; then
+          DONE_HINT="CONTRACT? Your diff changes files that live tasks import (${ctasks% }) and you sent them no contract. If the shape changed: bash .uak/bin/uak msg impact:$ID --kind contract --task $ID \"what changed · what to do\""
+        fi
+      fi
       if [ "$STATE" = INTEGRATED ]; then
         put "$RECORD" Next "Integrated in $BASE: $merged; claim next P0"
         put "$RECORD" Lease-Until 0; put "$RECORD" Updated "$NOW"
@@ -821,9 +833,18 @@ transaction() {
         elif [ "$CMD" = retire ]; then say "OK retire$RETIRE_NAMES | out of the reviewer rotation; a new claim brings an identity back"
         elif [ "$CMD" = followup ]; then say "OK followup $NEW_ID (after $ID, same Paths) | take it: bash .uak/bin/wt new $NEW_ID --agent ${AGENT}"
         elif [ "$REVIEW_STARTED" = yes ]; then say "OK review --start $ID | yours for $(( ${UAK_REVIEW_LOCK_SECONDS:-1200} / 60 )) min; finish with --verdict"
-        else say "OK $CMD $ID | $(field "$RECORD" State) | attempt $ATTEMPT"; fi
+        else say "OK $CMD $ID | $(field "$RECORD" State) | attempt $ATTEMPT"
+          # The next step in the output itself: it reaches every harness, Cursor included (no post-tool hook there).
+          case "$CMD" in
+            done) [ "$(field "$RECORD" State)" != REVIEW ] ||
+                    say "Next: bash .uak/bin/uak wait $ID --for approve (one call; returns on approve or reject). Meanwhile: uak next for other work; do not poll status.";;
+            claim) say "Before reading files: bash .uak/bin/uak map show (structure) · bash .uak/bin/uak recall $ID (lessons for these paths).";;
+          esac
+        fi
       fi
       if [ "$CMD" = handoff ]; then print_task; fi
+      [ -z "$REVIEW_HINT" ] || say "$REVIEW_HINT"
+      [ -z "$DONE_HINT" ] || say "$DONE_HINT"
       return 0
     fi
     if grep -Eqi 'pre-receive hook declined|hook declined|protected branch|permission denied|authentication failed|remote rejected.*(policy|prohibited)' "$TXROOT/push" ||
@@ -953,7 +974,7 @@ seen_print() {
   prev=$(cat "$gd/uak-seen.$key" 2>/dev/null) || prev=
   set -- $prev
   if [ "${1:-}" = "$gp" ] && [ "${3:-}" = "$sum" ] && [ "$((NOW - ${2:-0}))" -lt 1800 ]; then
-    say "= unchanged since $(((NOW - $2) / 60)) min ago (uak $key). Nothing new: do not poll; --full reprints."
+    say "= unchanged since $(((NOW - $2) / 60)) min ago (uak $key). Nothing new. Waiting for something? bash .uak/bin/uak wait ID --for approve|integrated|message (one call). --full reprints."
     return 0
   fi
   printf '%s\n' "$out"
@@ -1065,7 +1086,7 @@ PLAN_FILE= ID= BRANCH= WORKTREE= NEXT_TEXT= REQUEST_NEXT= TOKEN= NEW_STATE= LOG_
 MERGE_COMMIT= REVIEWER= CANCEL_REASON=
 REVIEW_LEARN=no WAIT_FOR=message WAIT_TIMEOUT=${UAK_WAIT_TIMEOUT:-540} WAIT_EVERY=${UAK_WAIT_EVERY:-15}
 EXPIRED=no SHOW_SUMMARY=no LINT_SECRETS=no QUIET=no SESSION_ONLY=no ALLOW_INFLIGHT=no ALLOW_IDS= ALLOW_DONE= REVIEW_NOTE= FULL=no REVIEW_START=no REVIEW_STARTED=no
-RETIRE_NAMES= DONE_TO= FOLLOWUP_TITLE= REVIEW_STOP=no NEW_ID=
+RETIRE_NAMES= DONE_TO= FOLLOWUP_TITLE= REVIEW_STOP=no NEW_ID= REVIEW_HINT= DONE_HINT=
 REVIEW_SHA= REVIEW_VERDICT= REGISTER_REVIEWER= SMOKE_COMMAND= SECRET_PATH= SECRET_RULE= SECRET_REASON=
 DECISION_OPTION= DECISION_REVERSIBLE=no DECISION_AUTHORIZED=no DECISION_CLASS=routine
 DONE_TEXT= DECISION_TEXT= WHY_TEXT= FAILS_TEXT= COMMANDS_TEXT=

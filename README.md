@@ -222,6 +222,16 @@ reject note becomes one with `--learn`.
 
 `uak lint` fails on dependency cycles and unknown IDs. `Uses contract:` edges let consumers work on mocks instead of waiting.
 
+## The harness is used when it matters
+
+Good tools are useless if the agent does not know when to reach for them. Rules in `AGENTS.md` are in context, but
+attention fades over a session. v5 puts the right command at the moment of decision: a quick card at session start
+(when X → run Y), capped reminders after tool calls (5 reads in a row → the code map; polling → `uak wait`; a push
+that touches files another task imports → `msg impact:`), and the next step printed by every command.
+
+Measured, not assumed ([adoption eval](docs/evals/README.md), real headless Claude Code sessions): with the rule in
+context, the agent warned the task that imports its change in **0 of 3** runs; with the adoption layer, **3 of 3**.
+
 ## Speed
 
 Every `uak` call is a Git round trip to the shared branch, so v5 cut the trips, not just the work:
@@ -283,7 +293,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**112 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
+**113 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
 
 ## Works with
 | Tool | How |

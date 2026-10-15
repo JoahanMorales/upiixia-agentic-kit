@@ -192,7 +192,8 @@ review_mutate() {
   else
     msg_append "task:$ID" reject "$ID" "Rejected SHA ${RM_TIP%"${RM_TIP#???????}"} by $AGENT$note. Fix, push, and rerun /uak-ship"
     # --learn: the reason becomes a lesson on the task's paths, so the next task there does not repeat it.
-    if [ "$REVIEW_LEARN" = yes ] && [ -n "$REVIEW_NOTE" ]; then MEM_TEXT=$REVIEW_NOTE; MEM_PATHS=; learn_mutate; fi
+    if [ "$REVIEW_LEARN" = yes ] && [ -n "$REVIEW_NOTE" ]; then MEM_TEXT=$REVIEW_NOTE; MEM_PATHS=; learn_mutate
+    else REVIEW_HINT="If this mistake can happen in other tasks too, keep it for them: bash .uak/bin/uak learn \"what bites · where · what to do\" --task $ID"; fi
   fi
 }
 approval_check() {
@@ -473,7 +474,9 @@ rm_gate_scope() {
     # Why (MLB hackathon): an empty app/__init__.py and analysis/__init__.py sent two merges to the human.
     if [ "$allowed" = no ] && [ "$added" = yes ] && [ "$(git -C "$RM_BUILD" cat-file -s ":$path" 2>/dev/null)" = 0 ]; then allowed=yes; fi
     if [ "$allowed" = no ]; then
-      if [ "$added" = yes ]; then
+      if printf '%s' "$path" | grep -Eq '(^|/)(__pycache__|node_modules|\.pytest_cache|\.next|dist|build)/|\.pyc$|(^|/)\.DS_Store$'; then
+        RM_REASON="Generated file committed: $path. Remove it from the branch (git rm -r --cached $path), add the pattern to .gitignore, push, and ask for review again"
+      elif [ "$added" = yes ]; then
         RM_REASON="New file outside Paths: $path. Move it into the task's Paths, or a human adds its dir to Additive-Paths in PROJECT.md (new files there need no reservation)"
       else
         RM_REASON="Edits a file outside Paths: $path$(rm_path_owner "$path"). Revert that file on the branch (git checkout origin/$BASE -- $path), or the human merges the PR"

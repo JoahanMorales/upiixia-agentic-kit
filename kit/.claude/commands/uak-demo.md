@@ -1,6 +1,6 @@
 ---
 model: sonnet
-description: (sprint) Freeze, clean rehearsal, plan B and the submission checklist
+description: (sprint) Use in the last hours of an event: freeze, clean rehearsal, plan-B video and the submission checklist.
 ---
 Only when `Mode: sprint`. Read `.uak/modes/sprint.md` §Submission and the §Plan B section of `.uak/PROJECT.md`.
 1. `bash .uak/bin/uak digest`: list what is pending in REVIEW or BLOCKED, and propose to the human what to merge and what to cut (P0 first).

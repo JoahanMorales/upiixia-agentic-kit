@@ -1,6 +1,6 @@
 ---
 model: opus
-description: (marathon) Spec → plan with threat model → tasks, before any code
+description: (marathon) Use before writing code for a product feature: spec, plan with threat model, then tasks.
 argument-hint: "<feature-name>"
 ---
 Only when `Mode: marathon`. In any other mode, say so and stop. Feature: $ARGUMENTS

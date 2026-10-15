@@ -48,6 +48,58 @@ sum() { cksum < "$1" 2>/dev/null | awk '{print $1}'; }
 # Session id: Claude Code and Codex send session_id, Cursor conversation_id (BSD sed has no \| alternation).
 sid=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9_.-]*\)".*/\1/p' | head -n 1)
 [ -n "$sid" ] || sid=$(printf '%s' "$input" | sed -n 's/.*"conversation_id"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9_.-]*\)".*/\1/p' | head -n 1)
+# Reminder templates (.uak/reminders.md, "key: text"); {n} {m} {id} {files} {tasks} are filled by `remind`.
+tmpl() { sed -n "s/^$1: //p" .uak/reminders.md 2>/dev/null; }
+# coach: event-driven reminders at the moment of decision, each capped per session (OpenDev-style). Prints one
+# reminder or nothing. State per session in <git dir>/uak-coach-<sid>/. Why: see .uak/reminders.md.
+coach() {
+  local d tool cmd n now key t f first
+  [ "${UAK_COACH:-on}" != off ] || return 0
+  d="$gd/uak-coach-$(printf '%s' "${sid:-nosid}" | tr -cd 'A-Za-z0-9_.-' | cut -c 1-60)"; mkdir -p "$d" 2>/dev/null || return 0
+  tool=$(printf '%s' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([A-Za-z_]*\)".*/\1/p' | head -n 1)
+  cmd=; case "$tool" in Bash|run_shell_command|shell) cmd=$(jdecode tool_input command);; esac
+  fired() { [ "$(cat "$d/fired.$1" 2>/dev/null || echo 0)" -ge "$2" ]; }
+  fire() { echo $(( $(cat "$d/fired.$1" 2>/dev/null || echo 0) + 1 )) > "$d/fired.$1"; }
+  fill() { tmpl "$1" | head -n 1 | sed "s|{n}|${2:-}|g; s|{m}|${3:-}|g; s|{id}|${4:-}|g; s|{files}|${5:-}|g; s|{tasks}|${6:-}|g"; }
+  # Calls since the last checkpoint (any tool).
+  n=$(( $(cat "$d/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$d/calls"
+  case "$cmd" in *"uak checkpoint"*|*"uak handoff"*|*"/uak-handoff"*) echo 0 > "$d/calls";; esac
+  case "$cmd" in *"uak map"*|*".uak/bin/map"*) touch "$d/mapused";; esac
+  case "$cmd" in *"uak msg"*) case "$cmd" in *contract*|*impact:*|*related:*) touch "$d/contract";; esac;; esac
+  # 1. The kit kept failing the same way: invite one black box line, once.
+  case "$input" in *'LOOP: the same error'*) fired friction 1 || { fire friction; fill friction; return 0; };; esac
+  # 2. Shipped: wait, do not poll (once per task).
+  if [ -n "$task" ] && printf '%s' "$cmd" | grep -Eq 'uak[" ]+done ' && printf '%s' "$input" | grep -q "OK done $task"; then
+    fired "done.$task" 1 || { fire "done.$task"; fill done "" "" "$task"; return 0; }
+  fi
+  # 3. Pushed changes that other tasks import, with no contract message in this session (once per pushed HEAD).
+  if [ -n "$task" ] && printf '%s' "$cmd" | grep -Eq '(^|[;&| ])git[[:space:]]+push' && [ ! -f "$d/contract" ]; then
+    local head files tasks
+    head=$(git rev-parse --short HEAD 2>/dev/null)
+    if [ -n "$head" ] && ! fired "contract.$head" 1; then
+      files=$(git diff --name-only "origin/${UAK_BASE:-main}...HEAD" 2>/dev/null | head -n 20)
+      tasks=$( [ -z "$files" ] || bash .uak/bin/map impact --tasks $files 2>/dev/null | grep -v "^$task\$" | tr '\n' ' ')
+      if [ -n "$tasks" ]; then fire "contract.$head"; fill contract "" "" "$task" "$(printf '%s' "$files" | head -n 3 | tr '\n' ' ')" "${tasks% }"; return 0; fi
+    fi
+  fi
+  # 4. Polling status/inbox: the third look in 10 min suggests `uak wait` (twice per session at most).
+  if printf '%s' "$cmd" | grep -Eq 'uak[" ]+(status|inbox|board|digest|next)([" ]|$)'; then
+    now=$(date +%s); echo "$now" >> "$d/polls"
+    n=$(awk -v now="$now" '$1 >= now - 600' "$d/polls" | wc -l | tr -d ' ')
+    if [ "$n" -ge 3 ] && ! fired poll 2; then fire poll; : > "$d/polls"; fill poll "$n" 10 "${task:+$task }"; return 0; fi
+  fi
+  # 5. An exploration spiral without the code map: 5 reads in a row (twice per session at most).
+  first=$(printf '%s' "$cmd" | sed 's/^[[:space:]]*//' | awk '{print $1}')
+  case "$tool:$first" in
+    Read:*|Grep:*|Glob:*|read_file:*|read_many_files:*|grep_search:*|glob:*|list_directory:*|*:cat|*:rg|*:grep|*:find|*:head|*:tail|*:ls|*:sed|*:wc)
+      n=$(( $(cat "$d/explore" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$d/explore"
+      if [ "$n" -ge 5 ] && [ ! -f "$d/mapused" ] && ! fired explore 2; then fire explore; echo 0 > "$d/explore"; fill explore "$n"; return 0; fi;;
+    *) echo 0 > "$d/explore";;
+  esac
+  # 6. Long stretch on a claimed task without a checkpoint (twice per session at most).
+  n=$(cat "$d/calls" 2>/dev/null || echo 0)
+  if [ -n "$task" ] && [ "$n" -ge "${UAK_COACH_CHECKPOINT:-40}" ] && ! fired checkpoint 2; then fire checkpoint; echo 0 > "$d/calls"; fill checkpoint "$n" "" "$task"; return 0; fi
+}
 case "${1:-}" in
   session-start)
     # Cursor's sessionStart hook takes JSON: {"additional_context": "..."}.
@@ -83,6 +135,7 @@ case "${1:-}" in
       printf '%s\n' "UAK: checkout without .uak-env (planning/human). To implement: bash .uak/bin/uak next, then bash .uak/bin/wt new ID --agent NAME."
       # The human sees their queue (merges, decisions, messages) unasked.
       git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 && bash .uak/bin/uak digest 2>/dev/null | head -n 25
+      tmpl card
       exit 0
     fi
     # A new (or compacted) session has seen nothing: forget what earlier sessions were shown.
@@ -93,7 +146,8 @@ case "${1:-}" in
     bash .uak/bin/uak next --full 2>&1 | head -n 18
     # The code map is rebuilt in background (0.2 s for ~120 files) so `uak map` queries answer at once.
     nohup bash .uak/bin/map build > /dev/null 2>&1 &
-    printf '%s\n' "UAK: explore with the code map before opening files: bash .uak/bin/uak map show · map find NAME · map users FILE"
+    # The quick card (Superpowers-style bootstrap): WHEN to use which part of the harness, at session start.
+    tmpl card
     bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.txt" 2>/dev/null
     if [ -s "$gd/uak-inbox.txt" ]; then
       head -n 21 "$gd/uak-inbox.txt"
@@ -101,7 +155,13 @@ case "${1:-}" in
     fi
     ;;
   tick)
-    [ -n "$agent" ] || exit 0
+    # Gemini's AfterTool takes the same additionalContext under its own event name.
+    evname=PostToolUse; [ "${2:-}" != gemini ] || evname=AfterTool
+    coach_note=$(coach 2>/dev/null)
+    if [ -z "$agent" ]; then
+      [ -z "$coach_note" ] || printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$evname" "$(printf '%s' "$coach_note" | json_text)"
+      exit 0
+    fi
     [ -z "$sid" ] || printf '%s %s\n' "$sid" "$(date +%s)" > "$gd/uak-live" 2>/dev/null
     # Heartbeat every lease/3 (8..20 min), and the REVIEW tasks of other worktrees at most every 30 min.
     # Why (Reap buildathon): 11 agents heartbeating every 8 min plus a status per beat kept the claims branch
@@ -140,15 +200,20 @@ case "${1:-}" in
         case "$lvl" in surge|conserve|critical) pace_note=$(bash .uak/bin/pace 2>/dev/null);; esac
       fi
     fi
+    [ -z "$coach_note" ] || pace_note="${pace_note}${pace_note:+
+}$coach_note"
     if [ -n "$pace_note" ] && [ ! -s "$gd/uak-inbox.txt" ]; then
-      printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$(printf '%s' "$pace_note" | json_text)"
+      printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$evname" "$(printf '%s' "$pace_note" | json_text)"
       exit 0
     fi
     if [ -s "$gd/uak-inbox.txt" ]; then
       # Only messages newer than the last injected one: never resend what was seen.
       last=$(cat "$gd/uak-inbox.shown-n" 2>/dev/null); case "$last" in ''|*[!0-9]*) last=0;; esac
       delta=$(awk -v last="$last" '/^#[0-9]/ {n=substr($1, 2) + 0; keep=(n > last)} /^#[0-9]/ || /^  / {if (keep) print}' "$gd/uak-inbox.txt")
-      [ -n "$delta" ] || exit 0
+      if [ -z "$delta" ]; then
+        [ -z "$pace_note" ] || printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$evname" "$(printf '%s' "$pace_note" | json_text)"
+        exit 0
+      fi
       printf '%s' "$delta" | sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' | sort -n | tail -n 1 > "$gd/uak-inbox.shown-n"
       # Only actionable kinds enter context in full; info/integrated become one line.
       # Why: every injected message is re-sent on every later turn (tokens).
@@ -156,10 +221,13 @@ case "${1:-}" in
       quiet=$(printf '%s\n' "$delta" | awk '/^#[0-9]/ && !/ · (request|contract|reject|approve|review|reply|blocker|human) · / {n++} END {print n+0}')
       [ -z "$pace_note" ] || act="$pace_note
 $act"
-      [ -n "$act" ] || [ "$quiet" -gt 0 ] || exit 0
+      if [ -z "$act" ] && [ "$quiet" -eq 0 ]; then
+        [ -z "$pace_note" ] || printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$evname" "$(printf '%s' "$pace_note" | json_text)"
+        exit 0
+      fi
       [ "$quiet" -eq 0 ] || act="${act}${act:+
 }(${quiet} info/integrated notice(s): read with uak inbox after the current criterion)"
-      printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' \
+      printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$evname" \
         "$(printf 'UAK new inbox (handle per AGENTS.md §5; then uak inbox --ack):\n%s' "$act" | json_text)"
     fi
     ;;

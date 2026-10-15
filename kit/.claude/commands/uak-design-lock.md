@@ -1,6 +1,6 @@
 ---
 model: opus
-description: (sprint) Three visual directions with screenshots; the human picks; DESIGN.md is frozen
+description: (sprint) Use before building UI screens: three visual directions with screenshots; the human picks one and DESIGN.md is frozen.
 ---
 Only when `Mode: sprint`, before the "design lock" time of `uak clock`. In any other mode, say so and stop.
 Short event (under 6 h): ONE direction, not three. Write `web/DESIGN.md` from `IDEA.md` and the brand in 10 minutes, capture the wow screen once, and let the human say yes or adjust. Then go to step 5.

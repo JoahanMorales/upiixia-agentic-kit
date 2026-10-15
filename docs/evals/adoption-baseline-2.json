@@ -1,0 +1,38 @@
+{
+  "tool_calls": 14,
+  "explore_calls": 2,
+  "explore_before_map": 2,
+  "used_map": false,
+  "contract_before_done": false,
+  "done": true,
+  "polls_after_done": 0,
+  "sleeps_after_done": 0,
+  "used_wait": true,
+  "verdict_reported": true,
+  "final": "Aprobado: judge (SHA 5ce6b1b, tras reenviar sin los `__pycache__` que hab\u00eda subido por error). El merge queda pendiente de un humano: `uak merge` se detuvo con \"PRODUCT_UNVERIFIED: missing .uak/bin/smoke-project\".",
+  "input_tokens": 30,
+  "output_tokens": 2560,
+  "cache_read": 494459,
+  "cost_usd": 0.17736590000000002,
+  "uak_commands": [
+    "done",
+    "inbox",
+    "merge",
+    "wait"
+  ],
+  "label": "baseline-2",
+  "seconds": 170,
+  "reviewer": [
+    {
+      "t": 1792105838.6338964,
+      "sha": "86a3641",
+      "review": "OK review HACK-001 | REVIEW | attempt 1"
+    },
+    {
+      "t": 1792105904.1771638,
+      "sha": "5ce6b1b",
+      "review": "OK review HACK-001 | REVIEW | attempt 1"
+    }
+  ],
+  "agent": "claude -p --model sonnet"
+}

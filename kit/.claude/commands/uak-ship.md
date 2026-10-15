@@ -1,6 +1,6 @@
 ---
 model: sonnet
-description: Verify, open the PR and move the task to REVIEW (then merge if approved and the mode allows it)
+description: Use when your task's criteria pass: run Verify, push, open the PR and move the task to REVIEW with uak done (then wait for the verdict with uak wait).
 argument-hint: "[ID]"
 ---
 Task: ${ARGUMENTS:-$UAK_TASK}. Run these in order and stop at the first red; fix it before continuing.

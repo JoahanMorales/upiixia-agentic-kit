@@ -1,5 +1,5 @@
 ---
-description: Take the next task and get its worktree ready (claim included)
+description: Use at the start of a session with no task in hand: take the next task (uak next) and get its worktree ready, claim included.
 argument-hint: "[ID] [agent-name]"
 ---
 Goal: from zero to editing code in under 2 min. Arguments: $ARGUMENTS

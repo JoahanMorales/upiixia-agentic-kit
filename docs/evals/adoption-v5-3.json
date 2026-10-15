@@ -1,0 +1,34 @@
+{
+  "tool_calls": 7,
+  "explore_calls": 2,
+  "explore_before_map": 2,
+  "used_map": false,
+  "contract_before_done": true,
+  "done": true,
+  "polls_after_done": 0,
+  "sleeps_after_done": 0,
+  "used_wait": true,
+  "verdict_reported": true,
+  "final": "Aprobado por judge (SHA 90ab9e4). El merge autom\u00e1tico qued\u00f3 pendiente de un humano, porque falta `.uak/bin/smoke-project`.",
+  "input_tokens": 18,
+  "output_tokens": 1263,
+  "cache_read": 283758,
+  "cost_usd": 0.13499780000000003,
+  "uak_commands": [
+    "done",
+    "inbox",
+    "merge",
+    "msg",
+    "wait"
+  ],
+  "label": "v5-3",
+  "seconds": 104,
+  "reviewer": [
+    {
+      "t": 1792106222.854646,
+      "sha": "90ab9e4",
+      "review": "OK review HACK-001 | REVIEW | attempt 1"
+    }
+  ],
+  "agent": "claude -p --model sonnet"
+}

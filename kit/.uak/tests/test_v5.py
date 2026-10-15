@@ -313,8 +313,45 @@ def latency_paths(r):
     return {"one_round_trip": True}
 
 
+def adoption_layer(r):
+    """Rules in context were not enough: an agent with AGENTS.md loaded shipped a change another live task imports
+    without a contract; at MLB agents made 486 status/inbox/board/digest calls and wrote 4 black box notes."""
+    f = r.fixture("v5-adopt", count=2, paths={"HACK-001": "lib/", "HACK-002": "app/"})
+    config(f)
+    w = f.worktrees[0]
+    seed = f.seed
+    (seed / "lib").mkdir(); (seed / "app").mkdir()
+    (seed / "lib/__init__.py").write_text("", encoding="utf-8"); (seed / "app/__init__.py").write_text("", encoding="utf-8")
+    (seed / "lib/pricing.py").write_text("def price(a):\n    return a\n", encoding="utf-8")
+    (seed / "app/checkout.py").write_text("from lib.pricing import price\n\ndef total(x):\n    return price(x)\n", encoding="utf-8")
+    r.g(seed, "add", "-A"); r.g(seed, "commit", "-qm", "code"); r.g(seed, "push", "-q", "origin", "main")
+    for wt in f.worktrees:
+        r.g(wt, "fetch", "-q", "origin"); r.g(wt, "merge", "-q", "--ff-only", "origin/main")
+    f.claim(0, "HACK-001"); f.claim(1, "HACK-002")
+    (w / "lib/pricing.py").write_text("def price(a, region=None):\n    return a\n", encoding="utf-8")
+    r.g(w, "commit", "-qam", "region"); r.g(w, "push", "-q", "origin", f.branches[0])
+    done = hack(f, 0, "done", "HACK-001", "--pr", "https://example.test/pull/1", "--evidence", "ok", now=1000002).stdout
+    expect("uak wait HACK-001 --for approve" in done, "done says how to wait: " + done)
+    expect("CONTRACT? Your diff changes files that live tasks import (HACK-002)" in done and "msg impact:HACK-001" in done,
+           "done notices the missing contract: " + done)
+    unchanged = [hack(f, 1, "status", now=1000010 + i, UAK_DEDUPE="on").stdout for i in range(2)][1]
+    expect("uak wait ID --for" in unchanged, "= unchanged points at uak wait: " + unchanged)
+    def tick(payload):
+        (w / ".git-payload.json").write_text(json.dumps(payload), encoding="utf-8")
+        return r.run([r.bash, "-c", "bash .uak/bin/hook tick < .git-payload.json"], cwd=w).stdout
+    reads = [tick({"session_id": "s9", "tool_name": "Read", "tool_input": {"file_path": "x"}}) for _ in range(5)]
+    expect(reads[3] == "" and "map show" in reads[4], "5 reads in a row bring the code map: " + str(reads))
+    polls = [tick({"session_id": "s9", "tool_name": "Bash", "tool_input": {"command": "bash .uak/bin/uak inbox"}, "tool_response": {"stdout": ""}}) for _ in range(3)]
+    expect("uak wait" in polls[2] and polls[1] == "", "the third look in 10 min brings uak wait: " + str(polls))
+    loop = {"session_id": "s9", "tool_name": "Bash", "tool_input": {"command": "bash .uak/bin/uak claim X"}, "tool_response": {"stdout": "LOOP: the same error 3 times"}}
+    expect("bb add friction" in tick(loop) and tick(loop) == "", "a repeated kit error invites one black box line, once")
+    card = r.run([r.bash, "-c", "bash .uak/bin/hook session-start < /dev/null"], cwd=f.clones[0]).stdout
+    expect("UAK quick card" in card and "msg impact:ID" in card and "wait ID --for" in card, "the session starts with the card: " + card[-400:])
+    return {"coach": True}
+
+
 TESTS = [tokens_per_task_and_team, loop_guards_and_parallel, handover_and_assign, gemini_hooks, stacks_install,
-         code_map_and_impact, lessons_follow_the_paths, wait_instead_of_polling, latency_paths]
+         code_map_and_impact, lessons_follow_the_paths, wait_instead_of_polling, latency_paths, adoption_layer]
 
 
 def main():
