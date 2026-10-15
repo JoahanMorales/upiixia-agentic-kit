@@ -15,7 +15,7 @@
 ![deps](https://img.shields.io/badge/runtime_deps-bash_%2B_git-success)
 ![agents](https://img.shields.io/badge/agents-Claude_Code_·_Codex_·_Cursor_·_Gemini-8A2BE2)
 
-[Quick start](#quick-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-hack-nation-2026) · [Contributing](CONTRIBUTING.md)
+[Quick start](#quick-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-three-team-events) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -251,18 +251,26 @@ claude-opus-5-5             462     2.1M   132.9M     474k   135.4M    85%    98
 model, harness and lead vs subagent; every machine publishes to the claims branch, so `stats` and the human's
 `digest` show the team's bill.
 
-- `AGENTS.md` is **75 lines**, lint-capped at 100. Detail loads on demand from a trigger table.
+- `AGENTS.md` is **76 lines**, lint-capped at 100. Detail loads on demand from a trigger table.
 - `q` turns a 2,000-line test log into **one line** on success, or a 40-line tail on failure.
-- **Huge outputs never flood the context**, in Claude Code, Codex and Cursor: a shell output over 12k chars reaches the model as head + tail + the path of the full log (Claude `updatedToolOutput`; Codex and Cursor rewrite tests, builds and searches before they run, also on Windows). A huge diff becomes a per-file index with line ranges.
+- **Huge outputs never flood the context**, in Claude Code, Codex, Cursor and Gemini CLI: a shell output over 12k chars reaches the model as head + tail + the path of the full log (Claude `updatedToolOutput`; Codex, Cursor and Gemini rewrite tests, builds and searches before they run, also on Windows). A huge diff becomes a per-file index with line ranges.
 - **No rereads**: the same `status`/`next`/`inbox` twice in one session prints `= unchanged`; `LOOP:` stops a retry loop; acks are refused and one message reaches many tasks in one line.
 - Noisy work runs in **subagents** (a Haiku runner, a Sonnet reviewer); only a summary comes back.
 - Only **actionable messages** are injected. Duplicate broadcasts are gone: 194 of 717 messages in our event were noise.
 - Skills are installed **per mode**: each installed skill's description costs tokens in every session.
 - One task = one session, a 6-line handoff, and `/clear`. Compaction keeps only ID, next step, failures and commands.
 
-## Battle-tested: Hack-Nation 2026
+## Battle-tested: three team events
 
-5 agents, 4 humans, 3 machines (one a Jetson Orin Nano), 76 PRs in ~14 h. Every v3 rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)).
+Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and each event's data became a release:
+
+| Event | Team | What it changed |
+|---|---|---|
+| Hack-Nation 2026 ([retro](docs/RETRO-hacknation-2026.md)) | 5 agents, 4 humans, 3 machines, 76 PRs in ~14 h | v3: guards, rotation, `uak plan`, mandatory freeze |
+| Reap buildathon ([autopsy](docs/blackbox/reap-2026-10.md)) | 4 h, 5 humans, 11 agents on Codex, Cursor and Claude Code | v4.2: scope on the current base, `uak clock`, `uak allow`, output cap, `= unchanged` |
+| MLB hackathon ([autopsy](docs/blackbox/mlb-2026-10.md)) | 10 days, 4 Windows laptops, 13 identities, 32 tasks integrated | v4.3/v5: merge by any agent, approvals that survive merges of main, Windows cap, `retire`, `followup` |
+
+Hack-Nation 2026 in detail:
 
 | What happened | Fix |
 |---|---|
@@ -297,7 +305,7 @@ Mix them freely: coordination lives in Git, not in any tool.
 | `uak loop --verify CMD [--parallel N --each CMD]` | bounded autonomous fix loop, one per failing file |
 | `uak graph [--mermaid \| --assign]` | backlog DAG: waves, critical path, cycles · who should take what |
 | `uak tokens [--team] [--by model]` | the real token bill per task, model, harness, lead vs subagent |
-| `uak map [show\|find\|users\|path\|impact]` | the code graph: read the structure instead of files |
+| `uak map [show\|find\|callers\|users\|path\|related\|impact\|notes]` | the code graph: read the structure instead of files |
 | `uak wait ID --for approve\|integrated\|message` | one call that returns when it happens, no polling |
 | `uak learn "…"` · `uak recall ID` | lessons tied to paths; `next` shows them to the next agent there |
 | `uak handover ID --to NAME` · `retire NAME` · `followup ID` | pass a task on · close an identity · more work on an integrated task |
@@ -326,7 +334,7 @@ AGENTS.md · CLAUDE.md        76-line core every agent reads · Claude Code extr
 .uak/modes/                  sprint.md · marathon.md
 .uak/docs/                   CLI · PROTOCOL · LOOPS · GRAPH · ORCHESTRATION · COSTS · BLACKBOX · SECURITY · WHY
 .uak/templates/              PROJECT, TASKS, OWNERS, IDEA, spec, plan, ADR
-.uak/skills/                 curated skills (superpowers, Anthropic, Vercel, taste-skill), pinned, licensed
+.uak/skills/                 curated skills (superpowers, Anthropic, Vercel, taste-skill, Karpathy guidelines), pinned, licensed
 .uak/stacks/                 stack presets: fastapi-react, nextjs, django, go, expo, python-data, ai-agent
 .claude/                     slash commands, subagents, hooks, status line (settings per mode)
 .codex/ · .cursor/ · .gemini/  the same subagents per harness + hooks (Codex, Cursor, Gemini) + Codex config
