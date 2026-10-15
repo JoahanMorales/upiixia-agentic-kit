@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Regenerate docs/media/banner.png (1280x640) and docs/media/demo.gif from a REAL `uak demo` run.
+"""Regenerate docs/media/banner.png (1280x640); with --gif also the legacy docs/media/demo.gif from a REAL `uak demo` run.
+The README animation is docs/media/demo.svg, made by scripts/render_demo.py (no browser needed).
 
     uv run --with playwright --with pillow python scripts/make_media.py
 
@@ -99,7 +100,7 @@ def banner_html():
 <div class='glow' style='width:380px;height:380px;right:260px;bottom:-240px;background:#15803d;opacity:.35'></div>
 <div class='grid'></div>
 <div class='left'>
-  <div class='eyebrow mono'><i></i> v4 · multi-agent orchestration</div>
+  <div class='eyebrow mono'><i></i> v5 · multi-agent orchestration</div>
   <h1>UPIIXIA<br>Agentic Kit</h1>
   <p class='sub'>Run a team of AI coding agents in parallel.<br><span>One Git branch. No server. No chaos.</span></p>
   <div class='chips'>{chips}</div>
@@ -119,8 +120,8 @@ def banner_html():
       </div>
     </div>
   </div>
-  <div class='stats'><div><b>76</b><span>PRs shipped at<br>Hack-Nation 2026</span></div>
-  <div><b>5 × 4</b><span>agents × humans<br>on 3 machines</span></div><div><b>0</b><span>servers · daemons<br>just Bash + Git</span></div></div>
+  <div class='stats'><div><b>~2 s</b><span>uak next on GitHub<br>(v4: 12 s)</span></div>
+  <div><b>144×</b><span>smaller: code map<br>vs reading the source</span></div><div><b>0</b><span>servers · daemons<br>just Bash + Git</span></div></div>
 </div>"""
     css = """
 .left{position:absolute;left:72px;top:64px;width:600px}
@@ -292,18 +293,23 @@ def build_gif(page, out):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    out = demo_output()
+    if "--html" in sys.argv:   # no Playwright browser: render the HTML with any Chromium, e.g.
+        # chromium --headless --screenshot=banner.png --window-size=1280,640 --virtual-time-budget=3000 file://…/banner.html
+        dest = Path(sys.argv[sys.argv.index("--html") + 1])
+        dest.write_text(page_html(banner_html(), 1280, 640), encoding="utf-8"); print(dest); return
+    gif = "--gif" in sys.argv
+    out = demo_output() if gif else None
     with sync_playwright() as p:
         b = p.chromium.launch()
         page = b.new_page(viewport={"width": 1280, "height": 640})
         page.set_content(banner_html(), wait_until="load"); page.evaluate("document.fonts.ready")
         page.screenshot(path=str(OUT / "banner.png"))
-        page.set_viewport_size({"width": W, "height": H})
-        n = build_gif(page, out)
+        if gif:
+            page.set_viewport_size({"width": W, "height": H})
+            print("frames", build_gif(page, out))
         b.close()
-    for f in ("banner.png", "demo.gif"):
+    for f in ("banner.png", "demo.gif") if gif else ("banner.png",):
         print(f, (OUT / f).stat().st_size // 1024, "KB")
-    print("frames", n)
 
 
 if __name__ == "__main__":

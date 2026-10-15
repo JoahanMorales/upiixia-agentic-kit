@@ -15,7 +15,7 @@
 ![deps](https://img.shields.io/badge/runtime_deps-bash_%2B_git-success)
 ![agents](https://img.shields.io/badge/agents-Claude_Code_·_Codex_·_Cursor_·_Gemini-8A2BE2)
 
-[Quick start](#quick-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Token economy](#token-economy) · [Results](#battle-tested-hack-nation-2026) · [Contributing](CONTRIBUTING.md)
+[Quick start](#quick-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-hack-nation-2026) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -101,7 +101,7 @@ This kit is the protocol we used to ship **76 PRs in ~14 hours with 5 agents and
 | Backlog changes | `uak plan` publishes instantly (no PR) | reviewed PR |
 | Merge | auto-merge after review and green gates | human CODEOWNERS + required CI; agents pre-review |
 | Frontend | design lock at T+1h, `design-critic` on 1280×720 screenshots | perf budgets, accessibility in CI |
-| Safety net | mandatory freeze at T−6h, plan-B video, human owns submission | `security-reviewer`, dependency decisions, ADRs, TDD |
+| Safety net | mandatory freeze scaled to the event (`uak clock`), plan-B video, human owns submission | `security-reviewer`, dependency decisions, ADRs, TDD |
 | Lease / review wait | 45 min / 4 h | 4 h / 24 h |
 
 The mode is one line, `Mode:` in `.uak/PROJECT.md`. Rules: [`AGENTS.md`](kit/AGENTS.md) · [sprint](kit/.uak/modes/sprint.md) · [marathon](kit/.uak/modes/marathon.md).
@@ -189,7 +189,7 @@ bash .uak/bin/uak loop --verify "uv run pytest -q" --parallel 3 --each "uv run p
 - **Guards, not promises:** the loop stops when the agent changes nothing, or when it edits an existing test (the verifier).
 
 - **Inner loop** (`/uak-loop`): implement → `q verify` → fix; 5 tries; the same error twice → BLOCKED with that error.
-- **Hook loops:** a heartbeat every 8 min and an inbox poll every 2 min, both throttled and in the background.
+- **Hook loops:** a heartbeat every lease/3 and a claims check every 20 s (inbox read only when it moved), in the background; `uak wait` instead of polling.
 - **Review loop:** `done` → reviewer by rotation → approve or reject → merge queue.
 - **Deadline loop:** decisions resolve after 15 min (routine only), backlog P0s after 10 min, freeze on schedule.
 - Failures are fed back as a 40-line tail, never full logs. Agent output goes to a log file, never into your context.
@@ -275,7 +275,7 @@ model, harness and lead vs subagent; every machine publishes to the claims branc
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**70+ integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
+**112 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
 
 ## Works with
 | Tool | How |
@@ -283,7 +283,7 @@ model, harness and lead vs subagent; every machine publishes to the claims branc
 | **Claude Code** | full support: hooks (guard, prompt guard, heartbeat, inbox, spawn caps, pace), status line, slash commands, subagents, skills, plugin |
 | **Codex CLI** | `AGENTS.md`, `.codex/config.toml` (Sol lead, Luna swarm), `.codex/agents/*.toml`, `.codex/hooks.json` (guard, spawn caps, inbox, black box), pace from session logs |
 | **Cursor** | `.cursor/rules/uak.mdc`, `.cursor/agents/*.md` (Composer swarm, Opus strong), `.cursor/hooks.json` (shell guard, spawn caps, black box), `.cursor/skills` |
-| **Gemini CLI** | `.gemini/settings.json` (reads `AGENTS.md`), `.gemini/agents/*.md` (Flash swarm, Pro strong); `guard check` by hand |
+| **Gemini CLI** | `.gemini/settings.json` (reads `AGENTS.md`; hooks: guard, session context, output cap), `.gemini/agents/*.md` (Flash swarm, Pro strong) |
 | **Aider, any agent** | `AGENTS.md` + the `uak` CLI; `uak loop --agent '<cli reading stdin>'` |
 
 Mix them freely: coordination lives in Git, not in any tool.
@@ -321,8 +321,8 @@ Full reference: [CLI.md](kit/.uak/docs/CLI.md). Example backlog: [examples/ai-ha
 
 ## What's inside
 ```
-AGENTS.md · CLAUDE.md        60-line core every agent reads · Claude Code extras
-.uak/bin/                    uak CLI, wt, loop, graph, guard, pace, bb, statusline, doctor, q, secret-scan (Bash 3.2, no jq)
+AGENTS.md · CLAUDE.md        76-line core every agent reads · Claude Code extras
+.uak/bin/                    uak CLI, wt, loop, graph, map, tokens, guard, pace, bb, cap, clock, statusline, doctor, q, secret-scan (Bash 3.2, no jq)
 .uak/modes/                  sprint.md · marathon.md
 .uak/docs/                   CLI · PROTOCOL · LOOPS · GRAPH · ORCHESTRATION · COSTS · BLACKBOX · SECURITY · WHY
 .uak/templates/              PROJECT, TASKS, OWNERS, IDEA, spec, plan, ADR
@@ -344,6 +344,7 @@ They are complementary: use them for planning or UI, and this kit for coordinati
 | Independent review of the exact SHA + gated merge | **yes** | — | manual | varies |
 | Bounded loops (budget, stuck detection, escalation) | **yes** (`uak loop`) | — | — | varies |
 | Task DAG checks (waves, critical path, cycles) | **yes** (`uak graph`) | Task Master: deps | — | varies |
+| Code graph + token bill + team memory | **yes** (`uak map`, `uak tokens`, `uak learn`) | — | — | — |
 | Hackathon vs product modes | **yes** | — | — | — |
 | Guards against force-push and pasted secrets | **yes** | — | — | — |
 
@@ -356,7 +357,7 @@ They are complementary: use them for planning or UI, and this kit for coordinati
 
 **Windows?** Yes, with Git Bash: a 10-day team event ran on 4 Windows laptops (Claude Code, Codex, Cursor). macOS ships Bash 3.2, which is supported.
 
-**Will it burn my Opus (or Astra) budget?** No. The strong tier is pinned to checkpoints, the guard blocks fan-out beyond the per-session budget, and `uak pace` tightens it when your 5-hour or weekly window runs low. Run `uak stats` to see subagent use by tier.
+**Will it burn my Opus (or Astra) budget?** No. The strong tier is pinned to checkpoints, the guard blocks fan-out beyond the per-session budget, and `uak pace` tightens it when your 5-hour or weekly window runs low. Run `uak tokens --by model` to see the real spend per tier.
 
 **What does the black box send, and where?** Only anonymous one-line events about the kit (error text without paths or names, plus your agents' notes) to your own repo's `claims` branch. If your repo is public, its claims branch is public too, which is how kit maintainers read it; private repos stay private. Turn it off with `Blackbox: off`.
 
