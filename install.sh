@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # UPIIXIA Agentic Kit installer.
-#   bash install.sh --mode sprint|marathon [--stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|none] [--skills ai,tdd] [--no-blackbox] [--update] TARGET
+#   bash install.sh --mode sprint|marathon [--stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|none] [--skills ai,tdd] [--no-blackbox] [--no-mcp] [--update] TARGET
 # Never overwrites your files: if AGENTS.md, CLAUDE.md, settings.json… already exist and differ,
 # the kit's version is written as <file>.uak-new for you to merge.
 # --update replaces only the engine (.uak/bin, docs, modes, templates, tests, settings, stacks, skills)
 # and keeps PROJECT.md, TASKS.md and OWNERS.md.
 # Harnesses: Claude Code (.claude), Codex (.codex), Cursor (.cursor), Gemini CLI (.gemini) all get
 # tiered subagents (fast / balanced / strong) and, where the harness has hooks, the same guard.
+# --no-mcp leaves out the optional MCP server config (.mcp.json, .cursor/mcp.json and the uak blocks of
+# .codex/config.toml and .gemini/settings.json): agents use the uak CLI through Bash, which works the same.
 set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 kit="$here/kit"
-mode= stack=none extra= update=no target= blackbox=on
+mode= stack=none extra= update=no target= blackbox=on mcp=on
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode) mode=${2:-}; shift 2;;
@@ -18,7 +20,8 @@ while [ "$#" -gt 0 ]; do
     --skills) extra=${2:-}; shift 2;;
     --update) update=yes; shift;;
     --no-blackbox) blackbox=off; shift;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0;;
+    --no-mcp) mcp=off; shift;;
+    -h|--help) sed -n '2,11p' "$0"; exit 0;;
     -*) printf 'Unknown option: %s\n' "$1" >&2; exit 2;;
     *) target=$1; shift;;
   esac
@@ -37,6 +40,16 @@ put() { # put SRC DEST: copy if missing; if it exists and differs, write DEST.ua
   if [ ! -e "$2" ]; then cp "$1" "$2"; say "  + ${2#$target/}"
   elif ! cmp -s "$1" "$2"; then cp "$1" "$2.uak-new"; say "  ~ ${2#$target/} exists: merge ${2#$target/}.uak-new"
   fi
+}
+nomcp() { # nomcp SRC: SRC without its uak MCP server block (both blocks are last in their file)
+  case "$1" in
+    *.toml) awk '/^# The harness as native tools/{exit} {print}' "$1" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}';;
+    *.json) awk '/^  "mcpServers": \{/{sub(/,$/, "", prev); print prev; print "}"; done=1; exit} NR>1{print prev} {prev=$0} END{if(!done)print prev}' "$1";;
+  esac
+}
+putmcp() { # putmcp SRC DEST: put, minus the MCP server block with --no-mcp
+  if [ "$mcp" = on ]; then put "$1" "$2"; return; fi
+  t=$(mktemp); nomcp "$1" > "$t"; put "$t" "$2"; rm -f "$t"
 }
 putdir() { (cd "$1" && find . -type f) | while IFS= read -r f; do put "$1/${f#./}" "$2/${f#./}"; done; }
 
@@ -83,11 +96,13 @@ if [ "$stack" != none ]; then
 fi
 put "$kit/.cursor/rules/uak.mdc" "$target/.cursor/rules/uak.mdc"
 put "$kit/.cursor/hooks.json" "$target/.cursor/hooks.json"
-put "$kit/.cursor/mcp.json" "$target/.cursor/mcp.json"
-put "$kit/.mcp.json" "$target/.mcp.json"
-put "$kit/.uak/settings/codex.$mode.toml" "$target/.codex/config.toml"
+if [ "$mcp" = on ]; then
+  put "$kit/.cursor/mcp.json" "$target/.cursor/mcp.json"
+  put "$kit/.mcp.json" "$target/.mcp.json"
+fi
+putmcp "$kit/.uak/settings/codex.$mode.toml" "$target/.codex/config.toml"
 put "$kit/.codex/hooks.json" "$target/.codex/hooks.json"
-put "$kit/.gemini/settings.json" "$target/.gemini/settings.json"
+putmcp "$kit/.gemini/settings.json" "$target/.gemini/settings.json"
 case "$mode" in sprint) skip_agent=security-reviewer;; *) skip_agent=design-critic;; esac
 for h in .codex .cursor .gemini; do # the same subagents as .claude/agents, minus the other mode's
   for f in "$kit/$h/agents/"*; do
@@ -123,6 +138,7 @@ Done. Next:
   3. /uak-plan → each agent: bash .uak/bin/wt new ID --agent NAME
 Files ending in .uak-new: merge them by hand; the kit never overwrites yours.
 Codex: trust the project once so .codex/config.toml and .codex/hooks.json load (/hooks to review them).
+MCP server: $mcp. $( [ "$mcp" = on ] && echo "Claude Code asks once to approve 'uak'; declining it is fine: the CLI does the same." || echo "Agents use the uak CLI; reinstall without --no-mcp to add the native tools.")
 Black box: $blackbox. Agents record kit problems in claims:blackbox/ so the kit can be fixed
 (no code, paths or identities). Turn off any time: 'Blackbox: off' in .uak/PROJECT.md.
 EOF

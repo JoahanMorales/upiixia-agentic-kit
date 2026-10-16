@@ -236,6 +236,10 @@ context, the agent warned the task that imports its change in **0 of 3** runs; w
 (`uak_next`, `uak_claim`, `uak_ship`, `uak_wait`, `uak_map`, `uak_memory`, …), resources (the code map, team status,
 lessons) and the `/uak-*` workflows as prompts, for Claude Code, Codex, Cursor and Gemini CLI. It speaks both MCP
 2026-07-28 (stateless) and 2025-11-25 (handshake), and every tool runs the same CLI and gates.
+**MCP or Bash: your choice, per team or per agent.** Both stay available and share the same state: an agent can
+claim through `uak_claim` and ship through `bash .uak/bin/uak done`. Don't want the server? Decline it when Claude
+Code asks, or install with `--no-mcp` (no `.mcp.json`, `.cursor/mcp.json`, nor the uak blocks in Codex and Gemini
+configs). In the eval, agents with both chose Bash and did as well; MCP matters most in clients without a shell.
 
 ## Speed
 

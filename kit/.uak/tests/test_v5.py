@@ -172,12 +172,20 @@ def stacks_install(r):
         t = r.scratch / ("v5-stack-" + stack)
         t.mkdir()
         r.g(t, "init", "-q", "-b", "main")
-        res = r.run([r.bash, str(r.package.parent / "install.sh"), "--mode", "sprint", "--stack", stack, str(t)], cwd=t)
+        no_mcp = ["--no-mcp"] if stack == "go" else []   # MCP is optional: the CLI through Bash does the same
+        res = r.run([r.bash, str(r.package.parent / "install.sh"), "--mode", "sprint", "--stack", stack] + no_mcp + [str(t)], cwd=t)
         expect((t / ".claude/skills" / skill / "SKILL.md").exists(), stack + ": skill installed: " + res.stdout[-400:])
         expect((t / ".uak/stacks" / stack / "STACK.md").exists() and (t / ".uak/bin/smoke-project.example").exists(), stack)
         expect((t / ".github/workflows/uak-tick.yml.example").exists(), "the scheduled tick ships as an opt-in example")
         out[stack] = True
     expect((r.scratch / "v5-stack-ai-agent/.claude/skills/mcp-builder").exists(), "ai-agent brings mcp-builder")
+    on, off = r.scratch / "v5-stack-nextjs", r.scratch / "v5-stack-go"
+    expect((on / ".mcp.json").exists() and (on / ".cursor/mcp.json").exists(), "MCP server configured by default")
+    expect("[mcp_servers.uak]" in (on / ".codex/config.toml").read_text(), "Codex gets the MCP server by default")
+    expect(not (off / ".mcp.json").exists() and not (off / ".cursor/mcp.json").exists(), "--no-mcp: no MCP config")
+    expect("mcp_servers" not in (off / ".codex/config.toml").read_text(), "--no-mcp: Codex config without the server")
+    gem = json.loads((off / ".gemini/settings.json").read_text())
+    expect("mcpServers" not in gem and "hooks" in gem, "--no-mcp: Gemini settings valid, hooks kept, no server")
     expect((r.scratch / "v5-stack-nextjs/.claude/skills/vercel-react-best-practices").exists(), "nextjs brings the React rules")
     return out
 

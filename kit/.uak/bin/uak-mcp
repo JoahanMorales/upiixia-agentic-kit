@@ -38,7 +38,7 @@ def repo_root():
 
 ROOT = repo_root()
 BIN = ROOT / ".uak" / "bin"
-VERSION = (ROOT / ".uak" / "VERSION").read_text().strip() if (ROOT / ".uak" / "VERSION").exists() else "dev"
+VERSION = (ROOT / ".uak" / "VERSION").read_text(encoding="utf-8").strip() if (ROOT / ".uak" / "VERSION").exists() else "dev"
 SERVER_INFO = {"name": "uak", "title": "UPIIXIA Agentic Kit", "version": VERSION}
 _out = threading.Lock()
 _procs = {}  # request id → Popen, for cancellation
@@ -53,7 +53,7 @@ def send(msg):
 
 def cap_chars():
     try:
-        m = re.search(r"^[-* ]*Output-Cap-Chars:[* ]*(\S+)", (ROOT / ".uak/PROJECT.md").read_text(), re.M)
+        m = re.search(r"^[-* ]*Output-Cap-Chars:[* ]*(\S+)", (ROOT / ".uak/PROJECT.md").read_text(encoding="utf-8"), re.M)
         if m:
             v = m.group(1).strip("`")
             return 10 ** 9 if v in ("off", "0") else int(v)
@@ -65,7 +65,7 @@ def cap_chars():
 def instructions():
     card = []
     try:
-        card = [l.split(": ", 1)[1] for l in (ROOT / ".uak/reminders.md").read_text().splitlines() if l.startswith("card: ")]
+        card = [l.split(": ", 1)[1] for l in (ROOT / ".uak/reminders.md").read_text(encoding="utf-8").splitlines() if l.startswith("card: ")]
     except Exception:  # noqa: BLE001
         pass
     return ("uak coordinates several agents and humans on one repo through a Git branch (claims): tasks, leases, "
@@ -188,7 +188,7 @@ def run(argv, args, timeout, rid=None, progress=None):
     if args.get("agent"):
         env["UAK_AGENT"] = args["agent"]
     env.setdefault("UAK_DEDUPE", "off")  # an MCP client shows every result; "= unchanged" helps shells, not tools
-    p = subprocess.Popen(cmd, cwd=str(ROOT), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    p = subprocess.Popen(cmd, cwd=str(ROOT), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace",
                          start_new_session=(os.name != "nt"))
     if rid is not None:
         _procs[rid] = p
@@ -376,6 +376,13 @@ def handle(msg):
 
 
 def main():
+    # MCP stdio is UTF-8 with \n-delimited messages; Windows defaults to the locale code page and \r\n, and the card
+    # and the uak output carry → and ·.
+    for stream, kw in ((sys.stdin, {}), (sys.stdout, {"newline": "\n"})):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace", **kw)
+        except (AttributeError, ValueError):
+            pass
     if "--version" in sys.argv:
         print(f"uak-mcp {VERSION} · protocols {', '.join(MODERN + LEGACY)}")
         return 0

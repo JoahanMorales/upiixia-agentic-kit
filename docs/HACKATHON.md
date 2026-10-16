@@ -7,7 +7,7 @@ Lessons from past events: `docs/blackbox/reap-2026-10.md` (4 h, 12 agents) and `
 - [ ] Claude Code v2.1.293 or later, Codex or Cursor, Git, and `gh auth login`. Use a token with **Pull requests: write**, or every PR will need a human click (`wt pr` prints the URL).
 - [ ] Windows: use Git Bash, and keep the repo **outside OneDrive/Dropbox** (sync locks files git writes; `doctor` warns).
 - [ ] Python projects: create `.venv` in the main checkout; the merge gate uses it.
-- [ ] The first time you open Claude Code in the repo, approve the `uak` MCP server (native uak tools; Python 3.8+ needed). The CLI works without it.
+- [ ] The first time you open Claude Code in the repo, approve the `uak` MCP server (native uak tools; Python 3.8+ needed). The CLI works without it: declining is fine, or install with `--no-mcp`.
 - [ ] Your plan: on Pro, use 1 agent per person. On Max, use 2. Check it with `/status`.
 - [ ] Optional: tmux, to run `uak up N --tmux`.
 
