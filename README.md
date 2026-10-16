@@ -47,6 +47,7 @@ git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-
 bash ~/.uak-kit/install.sh --mode sprint .          # hackathon / AI prototype
 # or: --mode marathon                               # real product: specs, CODEOWNERS, security reviews
 # options: --stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent   --skills ai,tdd   --update (refresh the engine later)
+#          --no-mcp (CLI only, no MCP server config)   --no-blackbox
 bash .uak/bin/doctor                                 # minute-0 preflight: remote, gh perms, hooks, freeze, ports
 ```
 
@@ -307,11 +308,11 @@ Hack-Nation 2026 in detail:
 ## Works with
 | Tool | How |
 |---|---|
-| **Claude Code** | full support: hooks (guard, prompt guard, heartbeat, inbox, spawn caps, pace), status line, slash commands, subagents, skills, plugin |
-| **Codex CLI** | `AGENTS.md`, `.codex/config.toml` (Sol lead, Luna swarm), `.codex/agents/*.toml`, `.codex/hooks.json` (guard, spawn caps, inbox, black box), pace from session logs |
-| **Cursor** | `.cursor/rules/uak.mdc`, `.cursor/agents/*.md` (Composer swarm, Opus strong), `.cursor/hooks.json` (shell guard, spawn caps, black box), `.cursor/skills` |
-| **Gemini CLI** | `.gemini/settings.json` (reads `AGENTS.md`; hooks: guard, session context, output cap), `.gemini/agents/*.md` (Flash swarm, Pro strong) |
-| **Aider, any agent** | `AGENTS.md` + the `uak` CLI; `uak loop --agent '<cli reading stdin>'` |
+| **Claude Code** | full support: hooks (guard, prompt guard, heartbeat, inbox, spawn caps, pace), status line, slash commands, subagents, skills, plugin, MCP server (`.mcp.json`, approve once) |
+| **Codex CLI** | `AGENTS.md`, `.codex/config.toml` (Sol lead, Luna swarm), `.codex/agents/*.toml`, `.codex/hooks.json` (guard, spawn caps, inbox, black box), pace from session logs, MCP server (`[mcp_servers.uak]`) |
+| **Cursor** | `.cursor/rules/uak.mdc`, `.cursor/agents/*.md` (Composer swarm, Opus strong), `.cursor/hooks.json` (shell guard, spawn caps, black box), `.cursor/skills`, MCP server (`.cursor/mcp.json`; on Windows the rule sends messages and waits through it) |
+| **Gemini CLI** | `.gemini/settings.json` (reads `AGENTS.md`; hooks: guard, session context, output cap), `.gemini/agents/*.md` (Flash swarm, Pro strong), MCP server (`mcpServers`) |
+| **Aider, any agent** | `AGENTS.md` + the `uak` CLI; `uak loop --agent '<cli reading stdin>'`; any MCP client: `python3 .uak/bin/uak-mcp` |
 
 Mix them freely: coordination lives in Git, not in any tool.
 
@@ -350,6 +351,7 @@ Full reference: [CLI.md](kit/.uak/docs/CLI.md). Example backlog: [examples/ai-ha
 ```
 AGENTS.md · CLAUDE.md        76-line core every agent reads · Claude Code extras
 .uak/bin/                    uak CLI, wt, loop, graph, map, tokens, guard, pace, bb, cap, clock, statusline, doctor, q, secret-scan (Bash 3.2, no jq)
+.uak/bin/uak-mcp             the MCP server (Python 3.8+ stdlib), optional; configs: .mcp.json, .cursor/mcp.json, Codex, Gemini
 .uak/modes/                  sprint.md · marathon.md
 .uak/docs/                   CLI · PROTOCOL · LOOPS · GRAPH · ORCHESTRATION · COSTS · BLACKBOX · SECURITY · WHY
 .uak/templates/              PROJECT, TASKS, OWNERS, IDEA, spec, plan, ADR
@@ -385,7 +387,7 @@ They combine well: plan with Spec Kit or BMAD, watch agents in a GUI if you like
 
 **And from agent orchestrators or swarms?** They spawn agents on one machine. This kit has no daemon: any agent, anywhere, coordinates through `git push`.
 
-**Windows?** Yes, with Git Bash: a 10-day team event ran on 4 Windows laptops (Claude Code, Codex, Cursor). macOS ships Bash 3.2, which is supported.
+**Windows?** Yes, with Git Bash: a 10-day team event ran on 4 Windows laptops (Claude Code, Codex, Cursor). macOS ships Bash 3.2, which is supported. In PowerShell terminals, the MCP tools avoid shell quoting for message text (`$`, quotes, accents); the server finds a real Python (`python3`, `python` or `py`, skipping the Store alias).
 
 **Will it burn my Opus (or Astra) budget?** No. The strong tier is pinned to checkpoints, the guard blocks fan-out beyond the per-session budget, and `uak pace` tightens it when your 5-hour or weekly window runs low. Run `uak tokens --by model` to see the real spend per tier.
 
