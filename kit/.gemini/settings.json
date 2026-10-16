@@ -57,7 +57,7 @@
       "command": "bash",
       "args": [
         "-c",
-        "p=$(command -v python3 || command -v python) && exec \"$p\" \"$(git rev-parse --show-toplevel)/.uak/bin/uak-mcp\""
+        "for p in python3 python py; do \"$p\" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null && exec \"$p\" \"$(git rev-parse --show-toplevel)/.uak/bin/uak-mcp\"; done; echo 'uak-mcp needs Python 3.8+ (the uak CLI works without it)' >&2; exit 1"
       ],
       "timeout": 600000,
       "trust": false

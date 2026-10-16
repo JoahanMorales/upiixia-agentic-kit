@@ -12,6 +12,6 @@ default_subagent_reasoning_effort = "low"
 # The harness as native tools (uak_next, uak_wait, uak_map, …): .uak/bin/uak-mcp, Python 3.8+ standard library.
 [mcp_servers.uak]
 command = "bash"
-args = ["-c", "p=$(command -v python3 || command -v python) && exec \"$p\" \"$(git rev-parse --show-toplevel)/.uak/bin/uak-mcp\""]
+args = ["-c", "for p in python3 python py; do \"$p\" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null && exec \"$p\" \"$(git rev-parse --show-toplevel)/.uak/bin/uak-mcp\"; done; echo 'uak-mcp needs Python 3.8+ (the uak CLI works without it)' >&2; exit 1"]
 startup_timeout_sec = 20
 tool_timeout_sec = 600
