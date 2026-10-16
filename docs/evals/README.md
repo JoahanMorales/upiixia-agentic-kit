@@ -43,5 +43,10 @@ The rule ("tell them BEFORE pushing", AGENTS.md §5.1) was in context in every r
 the quick card at session start (when X → run Y): in all three runs the contract went out before `uak done`, so the
 `done` check on the code graph (which warns when the contract is missing) was a backstop that never had to fire. One
 baseline run also lost a review cycle to a committed `__pycache__` file; the installer now ignores it.
+With the MCP server installed (3 runs) the agent still chose the Bash forms the card shows: 3/3 contract, 3/3
+`uak wait`, 2/3 opened the code map. With the CLI blocked (MCP only) the whole flow ran through `uak_ship`,
+`uak_message`, `uak_wait`: contract, verdict reported. That run found a server bug: Claude Code gives the model a
+tool's `structuredContent` instead of its text, so the agent saw `{"ok": true}` and polled; the server now returns
+text only (polls 3 → 1). Claude Code also defers MCP tool schemas behind tool search, one reason agents start with Bash.
 Limits: one scenario, one model, a small repo (the code map is not needed for 11 files, so map adoption is not
 measured here); Codex and Cursor were not run. Raw results: `adoption-*.json`.

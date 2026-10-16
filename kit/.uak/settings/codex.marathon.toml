@@ -8,3 +8,10 @@ model_reasoning_effort = "high"
 max_concurrent_threads_per_session = 3
 default_subagent_model = "gpt-6-luna"
 default_subagent_reasoning_effort = "low"
+
+# The harness as native tools (uak_next, uak_wait, uak_map, …): .uak/bin/uak-mcp, Python 3.8+ standard library.
+[mcp_servers.uak]
+command = "bash"
+args = ["-c", "p=$(command -v python3 || command -v python) && exec \"$p\" \"$(git rev-parse --show-toplevel)/.uak/bin/uak-mcp\""]
+startup_timeout_sec = 20
+tool_timeout_sec = 600

@@ -105,6 +105,11 @@ if [ -n "$used" ]; then
   [ -z "$busy" ] && ok "common ports free" || warn "busy ports: $busy— wt assigns UAK_PORT per worktree (base $base)"
 fi
 
+# MCP server (optional): the harness as native tools. Needs Python 3.8+ (standard library only).
+if [ -f .mcp.json ] || [ -f .cursor/mcp.json ]; then
+  if py=$(command -v python3 || command -v python) && "$py" .uak/bin/uak-mcp --version >/dev/null 2>&1; then ok "MCP server: $("$py" .uak/bin/uak-mcp --version) (Claude Code asks once to approve the project server)"
+  else warn "MCP server configured but no Python 3.8+ to run it: the uak CLI still works; install Python or remove .mcp.json"; fi
+fi
 # Harnesses, pacing and black box (v4.1)
 here_d=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 top_d=$(git rev-parse --show-toplevel 2>/dev/null || pwd)

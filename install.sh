@@ -83,6 +83,8 @@ if [ "$stack" != none ]; then
 fi
 put "$kit/.cursor/rules/uak.mdc" "$target/.cursor/rules/uak.mdc"
 put "$kit/.cursor/hooks.json" "$target/.cursor/hooks.json"
+put "$kit/.cursor/mcp.json" "$target/.cursor/mcp.json"
+put "$kit/.mcp.json" "$target/.mcp.json"
 put "$kit/.uak/settings/codex.$mode.toml" "$target/.codex/config.toml"
 put "$kit/.codex/hooks.json" "$target/.codex/hooks.json"
 put "$kit/.gemini/settings.json" "$target/.gemini/settings.json"

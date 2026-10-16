@@ -232,6 +232,11 @@ that touches files another task imports → `msg impact:`), and the next step pr
 Measured, not assumed ([adoption eval](docs/evals/README.md), real headless Claude Code sessions): with the rule in
 context, the agent warned the task that imports its change in **0 of 3** runs; with the adoption layer, **3 of 3**.
 
+**MCP server.** The same harness is also a native MCP server (`.uak/bin/uak-mcp`, Python standard library): 14 tools
+(`uak_next`, `uak_claim`, `uak_ship`, `uak_wait`, `uak_map`, `uak_memory`, …), resources (the code map, team status,
+lessons) and the `/uak-*` workflows as prompts, for Claude Code, Codex, Cursor and Gemini CLI. It speaks both MCP
+2026-07-28 (stateless) and 2025-11-25 (handshake), and every tool runs the same CLI and gates.
+
 ## Speed
 
 Every `uak` call is a Git round trip to the shared branch, so v5 cut the trips, not just the work:
@@ -293,7 +298,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**113 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
+**114 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
 
 ## Works with
 | Tool | How |
@@ -352,19 +357,22 @@ AGENTS.md · CLAUDE.md        76-line core every agent reads · Claude Code extr
 
 ## How it compares
 
-They are complementary: use them for planning or UI, and this kit for coordinating many agents and humans.
+Most tools solve one slice: running agents side by side, giving them a mailbox, or planning one person's work. This
+kit is the protocol for a **team** of humans and agents on several machines and harnesses at once.
 
-| | This kit | Spec Kit / BMAD / Task Master | claude-squad / vibe-kanban | Swarm frameworks |
-|---|---|---|---|---|
-| Many humans × many agents × many machines | **yes, via Git** | one human | one machine | one machine / runtime |
-| Server, daemon or app to install | **none** (Bash + Git) | CLI or npm | app or tmux | runtime |
-| Claims with path overlap rejection and leases | **yes** | — | worktree isolation | varies |
-| Independent review of the exact SHA + gated merge | **yes** | — | manual | varies |
-| Bounded loops (budget, stuck detection, escalation) | **yes** (`uak loop`) | — | — | varies |
-| Task DAG checks (waves, critical path, cycles) | **yes** (`uak graph`) | Task Master: deps | — | varies |
-| Code graph + token bill + team memory | **yes** (`uak map`, `uak tokens`, `uak learn`) | — | — | — |
-| Hackathon vs product modes | **yes** | — | — | — |
-| Guards against force-push and pasted secrets | **yes** | — | — | — |
+| | **This kit** | MCP Agent Mail + Beads | Claude Code agent teams | Claude Squad · Conductor · Vibe Kanban | Spec Kit · BMAD · Task Master |
+|---|---|---|---|---|---|
+| Humans × machines × harnesses | **many × many × mixed**, through one Git branch | many agents, mixed harnesses, one MCP server per project | one machine, Claude Code only (experimental) | one machine, one human | one human |
+| What you install | Bash + Git (MCP server optional, Python stdlib) | an MCP server (Python or Rust) + Beads CLI | built in | an app or tmux | a CLI or npm package |
+| Who works on what | exclusive claims, overlapping paths rejected, leases, handover | advisory file leases; Beads tracks tasks and dependencies | shared task list with dependencies | one worktree per agent | task lists with dependencies |
+| Messages | typed inbox; `impact:ID` routes a contract along the code graph | inboxes, threads, search | mailbox between teammates | — | — |
+| Review and merge | independent review of the exact SHA + gated, atomic merge queue | — | — | you review and merge | — |
+| Event modes, freeze, black box | **yes** (`sprint`/`marathon`, `uak clock`, autopsies of real events) | — | — | — | — |
+| Code graph, token bill, path memory | **yes** (`uak map`, `uak tokens`, `uak learn`) | — | — | — | — |
+| Native tools for the agent | **MCP server (14 tools, MCP 2026-07-28 and 2025-11-25) + CLI + hooks** in Claude Code, Codex, Cursor, Gemini | MCP tools | built-in tools | — | slash commands |
+| Adoption measured with real agents | **yes** ([eval](docs/evals/README.md)) | — | — | — | — |
+
+They combine well: plan with Spec Kit or BMAD, watch agents in a GUI if you like one, and coordinate the team here.
 
 ## FAQ
 **Do I need a server, a database or an API key?** No. Bash, Git and a remote (GitHub, GitLab, or even a bare repo on a USB drive). `gh` is optional.

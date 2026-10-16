@@ -1,0 +1,34 @@
+{
+  "tool_calls": 16,
+  "mcp_calls": 4,
+  "explore_calls": 2,
+  "explore_before_map": 2,
+  "used_map": false,
+  "contract_before_done": true,
+  "done": true,
+  "polls_after_done": 1,
+  "sleeps_after_done": 0,
+  "used_wait": true,
+  "verdict_reported": true,
+  "final": "Aprobado por judge (commit ae0d867). No hice el merge, porque no me lo pidieron.",
+  "input_tokens": 32,
+  "output_tokens": 2573,
+  "cache_read": 554827,
+  "cost_usd": 0.1919327,
+  "uak_commands": [
+    "done",
+    "inbox",
+    "msg",
+    "wait"
+  ],
+  "label": "mcp-only",
+  "seconds": 86,
+  "reviewer": [
+    {
+      "t": 1792110808.786543,
+      "sha": "ae0d867",
+      "review": "OK review HACK-001 | REVIEW | attempt 1"
+    }
+  ],
+  "agent": "claude -p --model sonnet --disallowedTools 'Bash(bash .uak/bin/uak:*)' 'Bash(bash .uak/bin/wt:*)'"
+}

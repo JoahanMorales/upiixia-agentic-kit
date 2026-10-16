@@ -1,0 +1,36 @@
+{
+  "tool_calls": 8,
+  "mcp_calls": 0,
+  "explore_calls": 2,
+  "explore_before_map": 1,
+  "used_map": true,
+  "contract_before_done": true,
+  "done": true,
+  "polls_after_done": 0,
+  "sleeps_after_done": 0,
+  "used_wait": true,
+  "verdict_reported": true,
+  "final": "Veredicto: aprobado, por judge (SHA eed926e).\n\nEl merge no se hizo. `uak merge` se detuvo porque falta `.uak/bin/smoke-project`, as\u00ed que el producto queda sin verificar. Un humano debe fusionar https://example.test/pull/1 y luego ejecutar `uak integrate HACK-001`.",
+  "input_tokens": 20,
+  "output_tokens": 1546,
+  "cache_read": 326228,
+  "cost_usd": 0.14598680000000003,
+  "uak_commands": [
+    "done",
+    "inbox",
+    "map",
+    "merge",
+    "msg",
+    "wait"
+  ],
+  "label": "v5-mcp-3",
+  "seconds": 91,
+  "reviewer": [
+    {
+      "t": 1792110361.0268707,
+      "sha": "eed926e",
+      "review": "OK review HACK-001 | REVIEW | attempt 1"
+    }
+  ],
+  "agent": "claude -p --model sonnet"
+}

@@ -350,8 +350,113 @@ def adoption_layer(r):
     return {"coach": True}
 
 
+class Mcp:
+    """A JSON-RPC client over the server's stdio."""
+    def __init__(self, r, cwd, env=None):
+        import subprocess, queue
+        self.q = queue.Queue()
+        self.p = subprocess.Popen(["python3", ".uak/bin/uak-mcp"], cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL, text=True, env=dict(os.environ, **(env or {})))
+        import threading
+        threading.Thread(target=self._read, daemon=True).start()
+        self.n = 0
+    def _read(self):
+        for line in self.p.stdout:
+            self.q.put(json.loads(line))
+    def send(self, method, params=None, notify=False):
+        msg = {"jsonrpc": "2.0", "method": method, "params": params or {}}
+        if not notify:
+            self.n += 1; msg["id"] = self.n
+        self.p.stdin.write(json.dumps(msg) + "\n"); self.p.stdin.flush()
+        return msg.get("id")
+    def wait(self, rid, timeout=120, notes=None):
+        end = time.time() + timeout
+        while time.time() < end:
+            try:
+                m = self.q.get(timeout=1)
+            except Exception:  # noqa: BLE001
+                continue
+            if m.get("id") == rid:
+                return m
+            if notes is not None:
+                notes.append(m)
+        raise AssertionError("no answer to %s" % rid)
+    def call(self, method, params=None, timeout=120):
+        return self.wait(self.send(method, params), timeout)
+    def close(self):
+        self.p.stdin.close(); self.p.wait(timeout=10)
+
+
+def mcp_server(r):
+    """The harness as native MCP tools, dual-era (2026-07-28 stateless and the 2025-11-25 handshake)."""
+    f = r.fixture("v5-mcp", count=2, paths={"HACK-001": "lib/", "HACK-002": "app/"})
+    config(f)
+    root = f.clones[0]
+    (f.seed / "lib").mkdir(); (f.seed / "lib/core.py").write_text("def helper():\n    return 1\n", encoding="utf-8")
+    r.g(f.seed, "add", "-A"); r.g(f.seed, "commit", "-qm", "code"); r.g(f.seed, "push", "-q", "origin", "main")
+    r.g(root, "pull", "-q", "--ff-only", "origin", "main")
+    import shutil
+    shutil.copytree(r.package / ".claude" / "commands", root / ".claude" / "commands")   # installed by install.sh
+    c = Mcp(r, root)
+    init = c.call("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}})["result"]
+    expect(init["protocolVersion"] == "2025-06-18" and "uak_wait" in init["instructions"] and "tools" in init["capabilities"], str(init)[:300])
+    c.send("notifications/initialized", notify=True)
+    tools = c.call("tools/list")["result"]["tools"]
+    names = [t["name"] for t in tools]
+    expect(names[0] == "uak_next" and "uak_wait" in names and "uak_map" in names and len(names) == 14, str(names))
+    expect(all(t["inputSchema"]["additionalProperties"] is False and "annotations" in t for t in tools), "strict schemas and annotations")
+    expect(next(t for t in tools if t["name"] == "uak_map")["annotations"]["readOnlyHint"] is True, "map is read-only")
+    expect("resultType" not in c.call("ping")["result"], "legacy results stay legacy")
+    nxt = c.call("tools/call", {"name": "uak_next", "arguments": {"agent": "agent-1"}})["result"]
+    expect(nxt["isError"] is False and "HACK-001 | AVAILABLE" in nxt["content"][0]["text"] and "structuredContent" not in nxt,
+           "the model gets the uak text itself (clients show structuredContent instead of text): " + str(nxt)[:300])
+    bad = c.call("tools/call", {"name": "uak_claim", "arguments": {"task": "HACK-001", "colour": "red"}})["result"]
+    expect(bad["isError"] and "missing agent" in bad["content"][0]["text"] and "unknown colour" in bad["content"][0]["text"], str(bad))
+    claim = c.call("tools/call", {"name": "uak_claim", "arguments": {"task": "HACK-001", "agent": "agent-1"}})["result"]
+    expect(claim["isError"] is False and "WT_READY: HACK-001" in claim["content"][0]["text"], str(claim)[:400])
+    found = c.call("tools/call", {"name": "uak_map", "arguments": {"action": "find", "query": "helper"}})["result"]["content"][0]["text"]
+    expect("lib/core.py:1  def helper" in found, found)
+    learned = c.call("tools/call", {"name": "uak_memory", "arguments": {"action": "learn", "agent": "agent-1", "task": "HACK-001",
+                                                                          "text": "helper() must stay pure: the cache relies on it"}})["result"]
+    expect("OK learn #1" in learned["content"][0]["text"], str(learned))
+    refused = c.call("tools/call", {"name": "uak_status", "arguments": {"task": "nope"}})["result"]
+    expect(refused["isError"] and "Invalid ID" in refused["content"][0]["text"], "uak errors come back as actionable tool errors")
+    res = [x["uri"] for x in c.call("resources/list")["result"]["resources"]]
+    expect("uak://map" in res and "uak://card" in res, str(res))
+    expect("| lib |" in c.call("resources/read", {"uri": "uak://map"})["result"]["contents"][0]["text"], "the map as a resource")
+    expect("cache relies on it" in c.call("resources/read", {"uri": "uak://recall/HACK-001"})["result"]["contents"][0]["text"], "lessons by template")
+    expect(c.call("resources/read", {"uri": "uak://nope"})["error"]["code"] == -32002, "legacy not-found code")
+    pr = c.call("prompts/list")["result"]["prompts"]
+    expect(any(p["name"] == "uak-ship" and p["description"].startswith("Use when") for p in pr), str(pr)[:300])
+    got = c.call("prompts/get", {"name": "uak-review", "arguments": {"args": "HACK-001"}})["result"]["messages"][0]["content"]["text"]
+    expect("review" in got.lower(), "slash workflows as MCP prompts")
+    notes = []
+    rid = c.send("tools/call", {"name": "uak_wait", "arguments": {"agent": "agent-1", "for": "message", "timeout": 60},
+                                "_meta": {"progressToken": "w1"}})
+    time.sleep(12)
+    c.send("notifications/cancelled", {"requestId": rid}, notify=True)
+    cancelled = c.wait(rid, 30, notes)
+    expect(any(n.get("method") == "notifications/progress" and n["params"]["progressToken"] == "w1" for n in notes),
+           "a long wait reports progress: " + str(notes)[:300])
+    expect("result" in cancelled, "a cancelled call still answers: " + str(cancelled)[:200])
+    c.close()
+    m = Mcp(r, root)
+    meta = {"io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {},
+            "io.modelcontextprotocol/clientInfo": {"name": "t", "version": "1"}}
+    disc = m.call("server/discover", {"_meta": meta})["result"]
+    expect(disc["resultType"] == "complete" and "2026-07-28" in disc["supportedVersions"] and "2025-11-25" in disc["supportedVersions"]
+           and disc["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "uak" and disc["instructions"], str(disc)[:300])
+    lst = m.call("tools/list", {"_meta": meta})["result"]
+    expect(lst["resultType"] == "complete" and lst["ttlMs"] > 0 and lst["cacheScope"] == "private", "modern list results are cacheable")
+    old = m.call("tools/list", {"_meta": dict(meta, **{"io.modelcontextprotocol/protocolVersion": "1900-01-01"})})["error"]
+    expect(old["code"] == -32022 and "2026-07-28" in old["data"]["supported"], str(old))
+    expect(m.call("resources/read", {"uri": "uak://nope", "_meta": meta})["error"]["code"] == -32602, "modern not-found code")
+    m.close()
+    return {"tools": len(names)}
+
+
 TESTS = [tokens_per_task_and_team, loop_guards_and_parallel, handover_and_assign, gemini_hooks, stacks_install,
-         code_map_and_impact, lessons_follow_the_paths, wait_instead_of_polling, latency_paths, adoption_layer]
+         code_map_and_impact, lessons_follow_the_paths, wait_instead_of_polling, latency_paths, adoption_layer, mcp_server]
 
 
 def main():

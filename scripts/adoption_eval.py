@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -166,6 +167,20 @@ def analyze(stream):
                     calls.append((b.get("name"), json.dumps(b.get("input", {}))))
         if ev.get("type") == "result":
             final, usage, cost = ev.get("result", ""), ev.get("usage", {}), ev.get("total_cost_usd")
+    # MCP tools (mcp__uak__uak_wait …) count as the same uak commands as their Bash forms.
+    MCP = {"uak_map": "uak map", "uak_ship": "uak done HACK-001", "uak_wait": "uak wait", "uak_status": "uak status",
+           "uak_inbox": "uak inbox", "uak_next": "uak next", "uak_message": "uak msg", "uak_memory": "uak learn"}
+    norm = []
+    for name, inp in calls:
+        short = name.split("__")[-1] if name.startswith("mcp__uak__") else None
+        if short:
+            a = json.loads(inp)
+            extra = " --ack" if a.get("ack") else ""
+            norm.append(("Bash", json.dumps({"command": MCP.get(short, "uak " + short) + " " + json.dumps(a) + extra, "mcp": True})))
+        else:
+            norm.append((name, inp))
+    mcp_calls = sum(1 for n, _ in calls if n.startswith("mcp__uak__"))
+    calls = norm
     def bash(c):
         return c[0] == "Bash"
     def has(c, pat):
@@ -182,6 +197,7 @@ def analyze(stream):
     sleeps = [i for i, c in enumerate(calls[first_done:]) if bash(c) and has(c, r"sleep [0-9]")]
     return {
         "tool_calls": len(calls),
+        "mcp_calls": mcp_calls,
         "explore_calls": len(explore),
         "explore_before_map": len([i for i in explore if not map_i or i < map_i[0]]),
         "used_map": bool(map_i),
@@ -218,8 +234,8 @@ def main():
         stop, log = threading.Event(), []
         t = threading.Thread(target=reviewer, args=(seed, stop, log), daemon=True)
         t.start()
-        cmd = a.agent.split() + ["--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits",
-                                 "--allowedTools", "Bash", "Read", "Edit", "Write", "Grep", "Glob", "--", PROMPT]
+        cmd = shlex.split(a.agent) + ["--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits",
+                                 "--allowedTools", "Bash", "Read", "Edit", "Write", "Grep", "Glob", "mcp__uak", "--", PROMPT]
         started = time.time()
         r = subprocess.run(cmd, cwd=wt, capture_output=True, text=True, timeout=a.timeout,
                            env=dict(os.environ, UAK_AGENT="ana-1"))

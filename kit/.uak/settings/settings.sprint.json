@@ -7,7 +7,8 @@
     "BASH_MAX_OUTPUT_LENGTH": "12000",
     "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
     "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "4",
-    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1"
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",
+    "MCP_TOOL_TIMEOUT": "600000"
   },
   "statusLine": {
     "type": "command",
@@ -65,7 +66,8 @@
       "Bash(uv add:*)",
       "Bash(npm --prefix web install:*)",
       "Bash(gh pr merge:*)",
-      "Bash(uv run python .claude/skills/webapp-testing/scripts/with_server.py:*)"
+      "Bash(uv run python .claude/skills/webapp-testing/scripts/with_server.py:*)",
+      "mcp__uak"
     ],
     "deny": [
       "Bash(git push --force:*)",
@@ -177,5 +179,8 @@
         ]
       }
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "uak"
+  ]
 }

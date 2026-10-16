@@ -1,0 +1,412 @@
+#!/usr/bin/env python3
+"""uak MCP server: the harness as native tools for any MCP client (Claude Code, Codex, Cursor, Gemini CLI).
+
+    python3 .uak/bin/uak-mcp            # stdio; started by the client from .mcp.json / config.toml / mcp.json
+
+Dual-era (MCP 2026-07-28 and the handshake-based 2025-11-25, 2025-06-18, 2025-03-26):
+  modern  every request carries io.modelcontextprotocol/protocolVersion in params._meta; server/discover; results
+          carry resultType, and list results ttlMs/cacheScope; an unsupported version gets error -32022
+  legacy  initialize (with instructions) → notifications/initialized → requests; ping
+Tools wrap the uak CLI (same rules, same errors, same claims branch); nothing here bypasses a gate. Python 3.8+
+standard library only. Long calls (wait, merge, map notes) send notifications/progress when the client gave a
+progressToken, and notifications/cancelled stops them.
+Why: the adoption eval showed agents use the harness when it is in front of them at the moment of decision; MCP
+tools are listed with a "when to use" description in every harness, unlike Bash commands the agent must remember.
+"""
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+MODERN = ["2026-07-28"]
+LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26"]
+CAP = 12000  # characters of tool output returned to the model (Output-Cap-Chars in PROJECT.md wins)
+
+
+def repo_root():
+    try:
+        return Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+                                   check=True).stdout.strip())
+    except Exception:  # noqa: BLE001
+        return Path.cwd()
+
+
+ROOT = repo_root()
+BIN = ROOT / ".uak" / "bin"
+VERSION = (ROOT / ".uak" / "VERSION").read_text().strip() if (ROOT / ".uak" / "VERSION").exists() else "dev"
+SERVER_INFO = {"name": "uak", "title": "UPIIXIA Agentic Kit", "version": VERSION}
+_out = threading.Lock()
+_procs = {}  # request id → Popen, for cancellation
+
+
+def send(msg):
+    data = json.dumps(msg, ensure_ascii=False, separators=(",", ":"))
+    with _out:
+        sys.stdout.write(data + "\n")
+        sys.stdout.flush()
+
+
+def cap_chars():
+    try:
+        m = re.search(r"^[-* ]*Output-Cap-Chars:[* ]*(\S+)", (ROOT / ".uak/PROJECT.md").read_text(), re.M)
+        if m:
+            v = m.group(1).strip("`")
+            return 10 ** 9 if v in ("off", "0") else int(v)
+    except Exception:  # noqa: BLE001
+        pass
+    return CAP
+
+
+def instructions():
+    card = []
+    try:
+        card = [l.split(": ", 1)[1] for l in (ROOT / ".uak/reminders.md").read_text().splitlines() if l.startswith("card: ")]
+    except Exception:  # noqa: BLE001
+        pass
+    return ("uak coordinates several agents and humans on one repo through a Git branch (claims): tasks, leases, "
+            "messages, reviews and a gated merge. The rules are in AGENTS.md; these tools are the same uak CLI.\n"
+            + "\n".join(card).replace("bash .uak/bin/uak ", "uak_")
+            + "\nTools map to commands: uak_next/uak_status (what to do, state), uak_claim (take a task: worktree + "
+              "claim), uak_ship (done → review), uak_wait (block until approve/integrated/message, never poll), "
+              "uak_review, uak_merge, uak_message/uak_inbox, uak_map (code graph), uak_memory (lessons), "
+              "uak_checkpoint, uak_tokens, uak_cli (any other uak command). In the main checkout pass agent=YOUR_NAME.")
+
+
+S = {"type": "string"}
+AGENT = {"type": "string", "description": "Your agent name (ana-1). Needed only outside a task worktree (whose .uak-env sets it)."}
+TASK = {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$", "description": "Task ID as in TASKS.md, e.g. HACK-012"}
+
+
+def obj(props, required=()):
+    return {"type": "object", "properties": props, "required": list(required), "additionalProperties": False}
+
+
+def ann(title, ro, idem, destructive=False):
+    return {"title": title, "readOnlyHint": ro, "destructiveHint": destructive, "idempotentHint": idem, "openWorldHint": False}
+
+
+# name: (description, inputSchema, annotations, argv builder, timeout seconds, long-running)
+TOOLS = [
+    ("uak_next", "What you should do now: your current task with its next step and lessons, or the best task to take, "
+     "or the review/merge waiting for an idle agent. Use at the start of a session and whenever you finish something.",
+     obj({"agent": AGENT}), ann("Next step", True, True), lambda a: ["uak", "next", "--full"], 60, False),
+    ("uak_status", "Team state from the claims branch (tasks, leases, decisions), or one task's detail and live summary. "
+     "Use to look something up once; to wait for a change use uak_wait instead of calling this again.",
+     obj({"agent": AGENT, "task": TASK, "summary": {"type": "boolean", "description": "Include the task's live summary and read token"}}),
+     ann("Team status", True, True),
+     lambda a: ["uak", "status"] + (["--task", a["task"]] if a.get("task") else []) + (["--summary"] if a.get("summary") else []) + ["--full"], 60, False),
+    ("uak_claim", "Take a task: creates its branch and worktree, writes the worktree identity and claims it. Use before "
+     "editing any file of a task; then work only inside the worktree path it prints (cd there in your shell). "
+     "One identity holds one live task.",
+     obj({"task": TASK, "agent": AGENT}, ["task", "agent"]), ann("Claim a task", False, False),
+     lambda a: ["wt", "new", a["task"], "--agent", a["agent"]], 120, False),
+    ("uak_ship", "Ship a task for review after its Verify passes and the branch is pushed: records the PR and the evidence "
+     "and asks one reviewer (the rejecter of the last SHA first). Then call uak_wait for the verdict. It warns when your "
+     "diff changes files that other live tasks import and you sent no contract.",
+     obj({"agent": AGENT, "task": TASK, "pr": {"type": "string", "description": "https PR URL (or the compare URL)"},
+          "evidence": {"type": "string", "description": "The command you ran and its real result"},
+          "to": {"type": "string", "description": "A specific reviewer (agent name)"},
+          "note": {"type": "string", "description": "What changed since the last review"}}, ["task", "pr", "evidence"]),
+     ann("Ship for review", False, False),
+     lambda a: ["uak", "done", a["task"], "--pr", a["pr"], "--evidence", a["evidence"]] + (["--to", a["to"]] if a.get("to") else []) + (["--note", a["note"]] if a.get("note") else []), 120, False),
+    ("uak_wait", "Block until something happens on the claims branch instead of polling: an approve or reject of your task "
+     "in review (for=approve), a dependency INTEGRATED (for=integrated), or a new message for you (for=message). "
+     "Returns at once when it already happened; on timeout says so and you can call it again.",
+     obj({"agent": AGENT, "task": TASK, "for": {"type": "string", "enum": ["approve", "integrated", "message"]},
+          "timeout": {"type": "integer", "minimum": 10, "maximum": 540, "description": "Seconds to wait (default 240)"}}, ["for"]),
+     ann("Wait for an event", True, True),
+     lambda a: ["uak", "wait"] + ([a["task"]] if a.get("task") else []) + ["--for", a["for"], "--timeout", str(a.get("timeout", 240))], 600, True),
+    ("uak_review", "Review another agent's task at its exact SHA. action=start first (a 20-min lock so nobody reviews the "
+     "same SHA twice), then approve or reject with a note 'file:line · what fails · how to reproduce'. learn=true keeps "
+     "a reject note as a lesson for the next task on those paths. action=stop gives the lock back.",
+     obj({"agent": AGENT, "task": TASK, "action": {"type": "string", "enum": ["start", "stop", "approve", "reject"]},
+          "sha": {"type": "string", "description": "The full SHA you reviewed (approve/reject)"},
+          "note": S, "learn": {"type": "boolean"}}, ["task", "action"]),
+     ann("Review a task", False, False),
+     lambda a: ["uak", "review", a["task"]] + ({"start": ["--start"], "stop": ["--stop"]}.get(a["action"]) or
+               (["--sha", a.get("sha", ""), "--verdict", a["action"]] + (["--note", a["note"]] if a.get("note") else []) + (["--learn"] if a.get("learn") else []))), 120, False),
+    ("uak_merge", "Merge an approved task through the gated queue (scope, secrets, smoke, Verify, atomic claims+main). "
+     "The owner merges; 20 min after the approval any eligible agent can. A missing approval answers MERGE_WAIT.",
+     obj({"agent": AGENT, "task": TASK}, ["task"]), ann("Merge an approved task", False, False),
+     lambda a: ["uak", "merge", a["task"]], 900, True),
+    ("uak_message", "Send one message (3 lines max, with SHA, file or command). Use kind=contract BEFORE pushing a change "
+     "another task consumes (to=impact:YOUR-ID reaches every task whose files import yours); request to ask an owner; "
+     "reply to answer. Never send acknowledgements: uak_inbox ack is the ack.",
+     obj({"agent": AGENT, "to": {"type": "string", "description": "NAME, ID, related:ID, impact:ID, all, human, or a comma list"},
+          "text": S, "kind": {"type": "string", "enum": ["info", "request", "contract", "blocker", "reply", "review", "human"]},
+          "task": TASK}, ["to", "text"]), ann("Send a message", False, False),
+     lambda a: ["uak", "msg", a["to"], a["text"]] + (["--kind", a["kind"]] if a.get("kind") else []) + (["--task", a["task"]] if a.get("task") else []), 120, False),
+    ("uak_inbox", "Your unread messages (requests, contracts, reviews, verdicts). Handle reject/request/contract first; "
+     "ack=true marks them read after you handled them. task=ID shows that task's whole thread.",
+     obj({"agent": AGENT, "ack": {"type": "boolean"}, "task": TASK}), ann("Read the inbox", False, True),
+     lambda a: ["uak", "inbox"] + (["--task", a["task"]] if a.get("task") else []) + (["--ack"] if a.get("ack") else ["--full"]), 60, False),
+    ("uak_map", "The code graph, instead of opening files: show (areas, hubs, most-called, entry points, files per task), "
+     "find NAME (definition file:line), callers NAME, calls NAME, deps FILE, users FILE (who imports it), path A B, "
+     "related FILE, impact ID|FILE (who imports a task's files: whom to warn). Free and offline; rebuilt on change.",
+     obj({"action": {"type": "string", "enum": ["show", "find", "callers", "calls", "deps", "users", "path", "related", "impact"]},
+          "query": {"type": "string", "description": "NAME, FILE or ID depending on the action"},
+          "target": {"type": "string", "description": "Second file for action=path"},
+          "depth": {"type": "integer", "minimum": 1, "maximum": 5, "description": "Levels for action=users"}}, ["action"]),
+     ann("Code map", True, True),
+     lambda a: ["uak", "map", a["action"]] + ([a["query"]] if a.get("query") else []) + ([a["target"]] if a.get("target") else []) + (["--depth", str(a["depth"])] if a.get("depth") else []), 120, False),
+    ("uak_memory", "Team lessons anchored to paths. learn: a trap the next agent will hit ('what bites · where · what to do', "
+     "on your task's paths by default). recall: the lessons for a task or a path. forget: drop lesson N.",
+     obj({"agent": AGENT, "action": {"type": "string", "enum": ["learn", "recall", "forget"]}, "text": S, "task": TASK,
+          "paths": {"type": "string", "description": "Comma-separated paths; * for everyone"},
+          "number": {"type": "integer", "minimum": 1}}, ["action"]), ann("Team memory", False, False),
+     lambda a: (["uak", "learn", a.get("text", "")] + (["--task", a["task"]] if a.get("task") else []) + (["--path", a["paths"]] if a.get("paths") else [])) if a["action"] == "learn"
+     else (["uak", "learn", "--forget", str(a.get("number", 0))] if a["action"] == "forget"
+           else ["uak", "recall"] + ([a["task"]] if a.get("task") else ([a["paths"]] if a.get("paths") else []))), 60, False),
+    ("uak_checkpoint", "Save the six-field live summary of your task (after each green criterion, before closing or when "
+     "context runs low). The next session or the next owner resumes from it. Use '-' for an empty field.",
+     obj({"agent": AGENT, "task": TASK, "done": S, "decision": S, "why": S, "fails": S, "commands": S, "next": S},
+         ["task", "done", "decision", "why", "fails", "commands", "next"]), ann("Checkpoint", False, False),
+     lambda a: ["uak", "checkpoint", a["task"], "--done", a["done"], "--decision", a["decision"], "--why", a["why"],
+                "--fails", a["fails"], "--commands", a["commands"], "--next", a["next"]], 60, False),
+    ("uak_tokens", "The real token spend from Claude Code and Codex transcripts, by task, harness, model, scope (lead vs "
+     "subagent) or agent; team=true adds every machine. Use to check whether tiers and the context rules pay off.",
+     obj({"by": {"type": "string", "enum": ["task", "harness", "model", "scope", "agent"]}, "team": {"type": "boolean"}}),
+     ann("Token bill", True, True),
+     lambda a: ["uak", "tokens", "--by", a.get("by", "task")] + (["--team"] if a.get("team") else []), 120, False),
+    ("uak_cli", "Any other uak command, as arguments: handover ID --to NAME, release ID, followup ID --title T, retire NAME, "
+     "decision ID --option … , log ID TEXT, integrate ID, allow ID --reason T (humans), board, digest, graph --assign, "
+     "loop …, pace, clock …, bb add friction TEXT --fix IDEA. Same rules and errors as the shell.",
+     obj({"agent": AGENT, "args": {"type": "array", "items": {"type": "string"}, "minItems": 1}}, ["args"]),
+     ann("uak command", False, False), lambda a: ["uak"] + list(a["args"]), 600, True),
+]
+TOOL_BY_NAME = {t[0]: t for t in TOOLS}
+
+
+def run(argv, args, timeout, rid=None, progress=None):
+    cmd = ["bash", str(BIN / argv[0])] + [str(x) for x in argv[1:]]
+    env = dict(os.environ)
+    if args.get("agent"):
+        env["UAK_AGENT"] = args["agent"]
+    env.setdefault("UAK_DEDUPE", "off")  # an MCP client shows every result; "= unchanged" helps shells, not tools
+    p = subprocess.Popen(cmd, cwd=str(ROOT), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                         start_new_session=(os.name != "nt"))
+    if rid is not None:
+        _procs[rid] = p
+    started, n, out = time.time(), 0, ""
+    try:
+        while True:
+            try:
+                out, _ = p.communicate(timeout=10)
+                break
+            except subprocess.TimeoutExpired:
+                n += 1
+                if progress is not None:
+                    send({"jsonrpc": "2.0", "method": "notifications/progress",
+                          "params": {"progressToken": progress, "progress": n, "message": f"{argv[0]} {argv[1] if len(argv) > 1 else ''}: {int(time.time() - started)} s"}})
+                if time.time() - started > timeout:
+                    kill(p)
+                    out, _ = p.communicate()
+                    out += f"\n[uak-mcp: stopped after {timeout} s]"
+                    break
+    finally:
+        _procs.pop(rid, None)
+    return p.returncode, out
+
+
+def kill(p):
+    try:
+        if os.name != "nt":
+            os.killpg(p.pid, signal.SIGTERM)
+        else:
+            p.terminate()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def shape(text):
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text).strip()
+    limit = cap_chars()
+    if len(text) <= limit:
+        return text or "(no output)"
+    lines = text.splitlines()
+    return "\n".join(lines[:40]) + f"\n[uak-mcp: {len(lines)} lines / {len(text)} chars cut to head 40 + tail 60]\n" + "\n".join(lines[-60:])
+
+
+def call_tool(params, rid, meta):
+    name, args = params.get("name"), params.get("arguments") or {}
+    tool = TOOL_BY_NAME.get(name)
+    if not tool:
+        return None, (-32602, f"Unknown tool: {name}. tools/list names them (uak_next, uak_wait, uak_map, …).")
+    missing = [k for k in tool[2]["required"] if args.get(k) in (None, "", [])]
+    bad = [k for k in args if k not in tool[2]["properties"]]
+    if missing or bad:
+        return {"content": [{"type": "text", "text": f"{name}: missing {', '.join(missing) or '-'}; unknown {', '.join(bad) or '-'}. "
+                             f"Arguments: {', '.join(tool[2]['properties'])}."}], "isError": True}, None
+    try:
+        argv = tool[4](args)
+    except Exception as exc:  # noqa: BLE001
+        return {"content": [{"type": "text", "text": f"{name}: invalid arguments ({exc})."}], "isError": True}, None
+    progress = (meta or {}).get("progressToken") if tool[6] else None
+    code, out = run(argv, args, tool[5], rid, progress)
+    # Text only, no structuredContent: Claude Code hands the model structuredContent INSTEAD of the text when both are
+    # present, so an agent saw {"ok": true} and not "APPROVED HACK-001 by judge", then polled status and inbox to
+    # find out (adoption eval, MCP-only run). The uak output already says the result and the next step.
+    text = shape(out) + ("" if code == 0 else f"\n[exit {code}]")
+    return {"content": [{"type": "text", "text": text}], "isError": code != 0}, None
+
+
+def resources():
+    gd = ROOT / ".git"
+    return [
+        {"uri": "uak://card", "name": "quick-card", "title": "When to use which part of the harness", "mimeType": "text/plain"},
+        {"uri": "uak://map", "name": "code-map", "title": "Code map (MAP.md): areas, hubs, entry points", "mimeType": "text/markdown"},
+        {"uri": "uak://status", "name": "status", "title": "Team status from the claims branch", "mimeType": "text/plain"},
+        {"uri": "uak://lessons", "name": "lessons", "title": "Team lessons (all paths)", "mimeType": "text/plain"},
+        {"uri": "uak://agents", "name": "agents-md", "title": "AGENTS.md: the rules", "mimeType": "text/markdown"},
+    ]
+
+
+TEMPLATES = [
+    {"uriTemplate": "uak://task/{id}", "name": "task", "title": "One task: state, next step, live summary", "mimeType": "text/plain"},
+    {"uriTemplate": "uak://recall/{id}", "name": "task-lessons", "title": "Lessons for a task's paths", "mimeType": "text/plain"},
+]
+
+
+def read_resource(uri):
+    m = re.match(r"^uak://(task|recall)/([A-Za-z][A-Za-z0-9]*-[0-9]+)$", uri or "")
+    if uri == "uak://card":
+        return instructions()
+    if uri == "uak://map":
+        return run(["uak", "map", "show"], {}, 120)[1]
+    if uri == "uak://status":
+        return run(["uak", "status", "--full"], {}, 60)[1]
+    if uri == "uak://lessons":
+        return run(["uak", "recall", "*"], {}, 60)[1]
+    if uri == "uak://agents":
+        return (ROOT / "AGENTS.md").read_text(encoding="utf-8") if (ROOT / "AGENTS.md").exists() else ""
+    if m and m.group(1) == "task":
+        return run(["uak", "status", "--task", m.group(2), "--summary", "--full"], {}, 60)[1]
+    if m:
+        return run(["uak", "recall", m.group(2)], {}, 60)[1]
+    return None
+
+
+def prompts():
+    out = []
+    for f in sorted((ROOT / ".claude" / "commands").glob("uak-*.md")):
+        text = f.read_text(encoding="utf-8")
+        desc = re.search(r"^description:\s*(.+)$", text, re.M)
+        out.append({"name": f.stem, "title": "/" + f.stem, "description": desc.group(1).strip() if desc else f.stem,
+                    "arguments": [{"name": "args", "description": "What the workflow should act on (task ID, mode…)", "required": False}]})
+    return out
+
+
+def get_prompt(name, args):
+    f = ROOT / ".claude" / "commands" / f"{name}.md"
+    if not re.match(r"^uak-[a-z-]+$", name or "") or not f.exists():
+        return None
+    body = re.sub(r"^---\n.*?\n---\n", "", f.read_text(encoding="utf-8"), flags=re.S)
+    body = body.replace("$ARGUMENTS", (args or {}).get("args", ""))
+    return {"description": next((p["description"] for p in prompts() if p["name"] == name), name),
+            "messages": [{"role": "user", "content": {"type": "text", "text": body}}]}
+
+
+CAPS = {"tools": {"listChanged": False}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}}
+
+
+def handle(msg):
+    rid, method, params = msg.get("id"), msg.get("method"), msg.get("params") or {}
+    meta = params.get("_meta") or {}
+    version = meta.get("io.modelcontextprotocol/protocolVersion")
+    modern = version is not None
+    if rid is None:  # notifications
+        if method == "notifications/cancelled":
+            p = _procs.get(params.get("requestId"))
+            if p:
+                kill(p)
+        return
+    def ok(result, cacheable=False):
+        if modern:
+            result = dict(result, resultType="complete")
+            result.setdefault("_meta", {})["io.modelcontextprotocol/serverInfo"] = SERVER_INFO
+            if cacheable:
+                result.update(ttlMs=60000, cacheScope="private")
+        send({"jsonrpc": "2.0", "id": rid, "result": result})
+    def err(code, message, data=None):
+        e = {"code": code, "message": message}
+        if data is not None:
+            e["data"] = data
+        send({"jsonrpc": "2.0", "id": rid, "error": e})
+    if modern and version not in MODERN:
+        return err(-32022, "Unsupported protocol version", {"supported": MODERN + LEGACY, "requested": version})
+    if method == "initialize":
+        asked = params.get("protocolVersion")
+        if asked in MODERN:
+            return err(-32602, "initialize is legacy; send modern requests with _meta (see server/discover)",
+                       {"supported": MODERN + LEGACY})
+        return ok({"protocolVersion": asked if asked in LEGACY else LEGACY[0], "capabilities": CAPS,
+                   "serverInfo": SERVER_INFO, "instructions": instructions()})
+    if method == "server/discover":
+        return ok({"supportedVersions": MODERN + LEGACY, "capabilities": CAPS, "instructions": instructions()}, True)
+    if method == "ping":
+        return ok({})
+    if method == "tools/list":
+        return ok({"tools": [{"name": t[0], "title": t[3]["title"], "description": t[1], "inputSchema": t[2],
+                              "annotations": t[3]} for t in TOOLS]}, True)
+    if method == "tools/call":
+        result, error = call_tool(params, rid, meta)
+        return err(*error) if error else ok(result)
+    if method == "resources/list":
+        return ok({"resources": resources()}, True)
+    if method == "resources/templates/list":
+        return ok({"resourceTemplates": TEMPLATES}, True)
+    if method == "resources/read":
+        uri = params.get("uri")
+        text = read_resource(uri)
+        if text is None:
+            return err(-32602 if modern else -32002, f"Resource not found: {uri}", {"uri": uri})
+        return ok({"contents": [{"uri": uri, "mimeType": "text/markdown" if uri in ("uak://map", "uak://agents") else "text/plain",
+                                 "text": shape(text) if uri != "uak://agents" else text}]}, True)
+    if method == "prompts/list":
+        return ok({"prompts": prompts()}, True)
+    if method == "prompts/get":
+        p = get_prompt(params.get("name"), params.get("arguments"))
+        return ok(p) if p else err(-32602, f"Unknown prompt: {params.get('name')}")
+    return err(-32601, f"Method not found: {method}")
+
+
+def main():
+    if "--version" in sys.argv:
+        print(f"uak-mcp {VERSION} · protocols {', '.join(MODERN + LEGACY)}")
+        return 0
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            send({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}})
+            continue
+        if not isinstance(msg, dict):
+            send({"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid request (batches are not supported)"}})
+            continue
+        if msg.get("method") in ("tools/call", "resources/read"):
+            threading.Thread(target=safe, args=(msg,), daemon=True).start()   # a long uak_wait does not block others
+        else:
+            safe(msg)
+    for p in list(_procs.values()):
+        kill(p)
+    return 0
+
+
+def safe(msg):
+    try:
+        handle(msg)
+    except Exception as exc:  # noqa: BLE001
+        if msg.get("id") is not None:
+            send({"jsonrpc": "2.0", "id": msg.get("id"), "error": {"code": -32603, "message": f"Internal error: {exc}"}})
+
+
+if __name__ == "__main__":
+    sys.exit(main())
