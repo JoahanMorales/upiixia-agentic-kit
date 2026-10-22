@@ -20,5 +20,5 @@ Produce in ONE pass, in the format of `.uak/templates/TASKS.template.md`:
 5. Commit `plan: backlog v1` and push to `main`. This is the only direct push to main, made by the planner with human approval.
 
 Later waves:
-- **sprint**: write the new tasks to a file, then `UAK_HUMAN=<human> bash .uak/bin/uak plan file.md`. They are claimable instantly.
+- **sprint**: write the new tasks to a file, then `UAK_HUMAN=<human> bash .uak/bin/uak plan file.md`. They are claimable instantly. A published task needs more Paths or a new Verify before its review: the same file format with `uak plan file.md --amend`.
 - **marathon**: a reviewed `plan: <spec>` PR.

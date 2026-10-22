@@ -1,0 +1,38 @@
+{
+  "tool_calls": 7,
+  "mcp_calls": 0,
+  "explore_calls": 2,
+  "explore_before_map": 2,
+  "used_map": false,
+  "contract_before_done": true,
+  "done": true,
+  "polls_after_done": 0,
+  "sleeps_after_done": 0,
+  "used_wait": true,
+  "verdict_reported": true,
+  "final": "Veredicto: APROBADO por judge (commit bf7d415).",
+  "input_tokens": 18,
+  "output_tokens": 1251,
+  "cache_read": 285669,
+  "cost_usd": 0.13372889999999998,
+  "uak_commands": [
+    "done",
+    "inbox",
+    "msg",
+    "wait"
+  ],
+  "map_brief_seen": false,
+  "map_lens_lines": 0,
+  "label": "v51",
+  "seconds": 85,
+  "reviewer": [
+    {
+      "t": 1792709645.5217984,
+      "sha": "bf7d415",
+      "review": "OK review HACK-001 | REVIEW | attempt 1"
+    }
+  ],
+  "agent": "claude -p --model sonnet",
+  "lens_pushed": 1,
+  "hook_calls": 7
+}

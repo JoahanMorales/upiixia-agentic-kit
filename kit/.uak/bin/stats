@@ -64,3 +64,17 @@ if [ -n "$gd" ] && [ -s "$gd/uak-agents.log" ]; then
     s = ""; for (k in a) s = s sprintf("%s %d · ", k, a[k]); printf "  by type: %s\n", substr(s, 1, length(s) - 3)
   }' "$gd/uak-agents.log"
 fi
+# Harness adoption: what agents called themselves (hook-* calls are the harness's own) per claimed task, from the
+# black box usage lines. Why (MLB hackathon): availability is not adoption; 9 map calls for 67 Claude Code tasks
+# only showed up after recounting the raw files by hand.
+if ls "$dir"/blackbox/*.md >/dev/null 2>&1; then
+  printf 'harness adoption (agent calls per task; lens = map lines the hooks pushed):\n'
+  grep -h '^- ' "$dir"/blackbox/*.md | awk -F' [|] ' '$6 == "usage" {
+      n = split($8, kv, " "); for (i = 1; i <= n; i++) { c = index(kv[i], ":"); if (!c) continue
+        k = substr(kv[i], 1, c - 1); v = substr(kv[i], c + 1) + 0; u[$3, k] += v; H[$3] = 1 } }
+    function r(x, y) { return y ? sprintf("%.1f", x / y) : "-" }
+    END { for (h in H) { t = u[h, "claim"]; d = u[h, "done"]
+        polls = u[h, "status"] + u[h, "inbox"] + u[h, "board"] + u[h, "digest"]
+        printf "  %s: %d claims · %d done · map %s/task · lens %s/task · wait %s/done · polls %s/done · checkpoint %s/task · learn %d · recall %d\n",
+          h, t, d, r(u[h, "map"], t), r(u[h, "lens"], t), r(u[h, "wait"], d), r(polls, d), r(u[h, "checkpoint"], t), u[h, "learn"], u[h, "recall"] } }'
+fi

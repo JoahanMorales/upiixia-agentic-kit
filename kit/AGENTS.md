@@ -23,7 +23,7 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 1. State lives only on the `claims` branch. `.uak/TASKS.md` is a stateless backlog.
 2. The states are AVAILABLE, CLAIMED, BLOCKED, REVIEW, INTEGRATED and CANCELLED.
 3. One task = one branch + one worktree + one claim. Never edit files reserved by another task or owned in `OWNERS.md`. Ask instead: `uak msg ID --kind request "file · change · why"`.
-4. Claude Code sends heartbeats automatically. In other tools, run `uak heartbeat ID` every 10 min.
+4. The hooks send heartbeats. Without hooks, run `uak heartbeat ID` every 10 min.
 5. Low on context: `/uak-handoff`, then `uak release ID` (or `uak handover ID --to NAME`). The next owner inherits your summary. Never leave a claim without a summary.
 6. Someone else's lease expired: read `uak status --task ID --summary`, then release it with its read token.
 7. Use your worktree port: `$UAK_PORT` for the API, `$UAK_PORT+1` for the web. Never hard-code ports. Stop your servers with `bash .uak/bin/wt stop`, never `pkill -f`.

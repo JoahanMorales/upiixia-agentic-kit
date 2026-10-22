@@ -13,6 +13,8 @@
 #   map path A B         the shortest import path from file A to file B
 #   map impact ID|FILE…  the files of a task (its Paths) → in-repo files outside them that import those → the tasks
 #                        whose Paths own those users (who to warn with a contract message before pushing)
+#   map brief ID         the task's slice: its files, what they define, who imports them (printed on claim)
+#   map lens --symbol NAME | --file PATH [--task ID]   one line for a hook, from the existing index
 # Languages: Python, JS/TS (incl. "@/" aliases), Go (packages), Rust (mod/use crate), shell (source), Ruby, PHP,
 # Java/Kotlin/C#/Swift (definitions only), C/C++ (#include "…"). Generated and vendored folders are skipped.
 # The index rebuilds by itself when HEAD or the tracked working tree changed.
@@ -292,6 +294,81 @@ case "$cmd" in
     awk -F'\t' -v f="$f" '$3 == f && $1 != f {k[$1] = 1} $1 == f && $3 != f {c[$3] = 1} END {for (x in k) print "EXTRACTED called by  ← " x; for (x in c) print "EXTRACTED calls      → " x}' "$out/calls.tsv" | sort -u
     awk -F'\t' -v f="$f" '$1 == f {print "INFERRED  shares " $3 " with " $2} $2 == f {print "INFERRED  shares " $3 " with " $1}' "$out/inferred.tsv"
     [ -s "$notes" ] || printf '(no semantic notes yet: uak map notes adds purposes, concepts and INFERRED edges)\n';;
+  brief)
+    # The task's slice of the map, printed when the task is claimed: the files in its Paths (size, what they
+    # define, who imports them), and who outside imports them (the contract audience). Why (MLB, v5 week): the
+    # claim said "run uak map show" and agents did 9 times in 67 tasks; the slice itself is what they need.
+    id= paths= backlog="$top/.uak/TASKS.md"
+    while [ "$#" -gt 0 ]; do case "$1" in --paths) paths=${2:-}; shift 2;; --backlog) backlog=${2:-$backlog}; shift 2;; *) id=$1; shift;; esac; done
+    [ -n "$id" ] || die "Usage: map brief ID [--paths P,Q] [--backlog FILE]"
+    [ -n "$paths" ] || paths=$(awk -v id="$id" '/^## / {on = ($2 == id)} on {s = $0; gsub(/\*\*/, "", s); sub(/^[ \t]*-[ \t]*/, "", s); if (s ~ /^Paths:/) {sub(/^Paths:[ \t]*/, "", s); print s; exit}}' "$backlog" 2>/dev/null)
+    [ -n "$paths" ] || exit 1
+    ensure
+    awk -F'\t' -v id="$id" -v paths="$paths" -v out="$out" -v tasks="$backlog" '
+      function inside(f, list,   i, n, a, y) { n = split(list, a, "\n"); for (i = 1; i <= n; i++) { y = a[i]; if (y == "") continue
+          if (f == y || (index(f, y) == 1 && (y ~ /\/$/ || substr(f, length(y) + 1, 1) == "/"))) return 1 } return 0 }
+      BEGIN { mine = paths; gsub(/[` *]/, "", mine); gsub(/,/, "\n", mine)
+        while ((getline l < (out "/files.tsv")) > 0) { split(l, a, "\t"); if (inside(a[1], mine)) { F[++nf] = a[1]; L[a[1]] = a[2]; tl += a[2] } }
+        while ((getline l < (out "/symbols.tsv")) > 0) { split(l, a, "\t"); if (a[2] != "method" && inside(a[3], mine)) { ns[a[3]]++; if (ns[a[3]] <= 3) D[a[3]] = D[a[3]] (ns[a[3]] > 1 ? ", " : "") a[1] } }
+        while ((getline l < (out "/edges.tsv")) > 0) { split(l, a, "\t"); t = a[2]
+          for (i = 1; i <= nf; i++) if (F[i] == t || (t ~ /\/$/ && index(F[i], t) == 1 && substr(F[i], length(t) + 1) !~ /\//)) {
+            if (!((a[1], F[i]) in seen)) { seen[a[1], F[i]] = 1; fi[F[i]]++ }
+            if (!inside(a[1], mine) && !(a[1] in ext)) { ext[a[1]] = 1; ne++ } } }
+        while ((getline l < tasks) > 0) { if (l ~ /^## [A-Z][A-Z0-9]*-[0-9]/) { split(l, a, " "); cur = a[2]; continue }
+          x = l; gsub(/\*\*/, "", x); sub(/^[ \t]*-[ \t]*/, "", x)
+          if (cur != "" && cur != id && x ~ /^Paths:/) { sub(/^Paths:[ \t]*/, "", x); gsub(/[` *]/, "", x); gsub(/,/, "\n", x); TP[cur] = x } }
+        for (u in ext) for (t in TP) if (inside(u, TP[t])) T[t] = 1
+        for (t in T) { nt++; tl_ = tl_ (nt > 1 ? ", " : "") t; if (nt >= 6) break }
+        if (!nf) { printf "TASK MAP %s: no code files in its Paths yet (%s): new code. Neighbors: uak map show\n", id, paths; exit }
+        for (i = 1; i <= nf; i++) for (j = i + 1; j <= nf; j++) if (fi[F[j]] > fi[F[i]] || (fi[F[j]] == fi[F[i]] && L[F[j]] > L[F[i]])) { x = F[i]; F[i] = F[j]; F[j] = x }
+        printf "TASK MAP %s · %d file(s), %d lines in its Paths (read by ranges; uak map find NAME gives file:line)\n", id, nf, tl
+        for (i = 1; i <= nf && i <= 6; i++) printf "  %s · %d lines%s · imported by %d%s\n", F[i], L[F[i]], (D[F[i]] != "" ? " · defines " D[F[i]] (ns[F[i]] > 3 ? " (+" ns[F[i]] - 3 ")" : "") : ""), fi[F[i]], (fi[F[i]] >= 5 ? " (hub)" : "")
+        if (nf > 6) printf "  … %d more\n", nf - 6
+        if (ne) printf "  %d file(s) outside these Paths import them%s: a change of shape is a contract (uak msg impact:%s --kind contract \"what changed · what to do\")\n", ne, (nt ? ", in the Paths of " tl_ : ""), id
+        else print "  nothing outside these Paths imports them" }' /dev/null;;
+  lens)
+    # One line of structure at the moment an agent searches for a symbol or reads a file, from the existing index
+    # (never builds: it runs inside a hook). Exit 1 when there is nothing to add.
+    # Why (MLB hackathon, v5 week): 9 agent calls of the map in Claude Code for 67 claimed tasks. Agents keep the
+    # tools they know (grep, read); a pilot study measured 0-6% routing to a semantic tool when grep was there, and
+    # better results when the answer came as path:line next to what the agent was already doing.
+    [ -s "$out/symbols.tsv" ] || exit 1
+    case "${1:-}" in
+      --symbol)
+        n=${2:-}; printf '%s' "$n" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]{2,}$' || exit 1
+        awk -F'\t' -v n="$n" -v out="$out" 'BEGIN {
+          while ((getline l < (out "/symbols.tsv")) > 0) { split(l, a, "\t"); if (a[1] == n) d[++nd] = a[3] ":" a[4] " (" a[2] ")" }
+          if (!nd) exit 1
+          while ((getline l < (out "/calls.tsv")) > 0) { split(l, a, "\t")
+            if (a[4] == n && a[1] != a[3]) { k = a[1] ":" a[5] " in " a[2]; if (!(k in s)) { s[k] = 1; c[++nc] = k; f[a[1]] = 1 } } }
+          for (x in f) nf++
+          line = "uak map: " n " is defined at " d[1] (nd > 1 ? " (+" nd - 1 " more)" : "")
+          if (nc) line = line "; called from " nc " place(s) in " nf " other file(s): " c[1] (nc > 1 ? ", " c[2] : "") (nc > 2 ? " (+" nc - 2 ")" : "") ". All: uak map callers " n
+          else line = line "; no resolved callers in other files"
+          print line }';;
+      --file)
+        f=$(resolve_file "${2:-}"); id=${4:-}
+        awk -F'\t' -v f="$f" -v id="$id" -v out="$out" -v tasks="$top/.uak/TASKS.md" 'BEGIN {
+          while ((getline l < (out "/files.tsv")) > 0) { split(l, a, "\t"); if (a[1] == f) { lines = a[2]; known = 1 } }
+          if (!known) exit 1
+          while ((getline l < (out "/edges.tsv")) > 0) { split(l, a, "\t")
+            if (a[1] == f) out_n++
+            if (a[2] == f || (a[2] ~ /\/$/ && index(f, a[2]) == 1 && substr(f, length(a[2]) + 1) !~ /\//)) { if (!(a[1] in u)) { u[a[1]] = 1; in_n++ } } }
+          while ((getline l < (out "/symbols.tsv")) > 0) { split(l, a, "\t"); if (a[3] == f && a[2] != "method") { ns++; if (ns <= 4) defs = defs (ns > 1 ? ", " : "") a[1] } }
+          while ((getline l < tasks) > 0) {
+            if (l ~ /^## [A-Z][A-Z0-9]*-[0-9]/) { split(l, a, " "); cur = a[2]; continue }
+            x = l; gsub(/\*\*/, "", x); sub(/^[ \t]*-[ \t]*/, "", x)
+            if (cur != "" && x ~ /^Paths:/) { sub(/^Paths:[ \t]*/, "", x); np = split(x, pp, ",")
+              for (j = 1; j <= np; j++) { y = pp[j]; gsub(/[` \t*]/, "", y)
+                if (cur == id && y != "") haspaths = 1
+                if (y != "" && (f == y || (index(f, y) == 1 && (y ~ /\/$/ || substr(f, length(y) + 1, 1) == "/")))) { if (cur == id) mine = 1 } } } }
+          line = "uak map: " f " · " lines " lines" (ns ? " · defines " defs (ns > 4 ? " (+" ns - 4 ")" : "") : "") " · imported by " in_n + 0 " file(s) · imports " out_n + 0
+          if (id != "" && haspaths && !mine) line = line " · not in " id "'"'"'s Paths: reading is fine, the merge gate refuses edits here"
+          else if (mine && in_n >= 3) line = line " · a change here reaches " in_n " files: tell them before pushing (uak msg impact:" id " --kind contract)"
+          else if (in_n >= 5) line = line " · a hub (uak map users " f ")"
+          print line }';;
+      *) die "Usage: map lens --symbol NAME | --file PATH [--task ID]";;
+    esac;;
   notes)
     agent=${UAK_MAP_AGENT:-} max=30 batch=6 dry=no
     while [ "$#" -gt 0 ]; do case "$1" in --agent) agent=${2:-}; shift 2;; --max) max=${2:-30}; shift 2;; --dry-run) dry=yes; shift;; *) die "Usage: map notes [--agent CMD] [--max N] [--dry-run]";; esac; done
@@ -367,18 +444,20 @@ case "$cmd" in
         if (!(b in prev)) { print "no import path from " a " to " b; exit 1 }
         p = b; s = b; while (prev[p] != "-") { p = prev[p]; s = p " → " s }; print s }' "$out/edges.tsv";;
   impact)
-    only_tasks=no; [ "${1:-}" != --tasks ] || { only_tasks=yes; shift; }
-    [ "$#" -gt 0 ] || die "Usage: map impact [--tasks] ID|FILE..."; ensure
+    only_tasks=no backlog="$top/.uak/TASKS.md"
+    while :; do case "${1:-}" in --tasks) only_tasks=yes; shift;; --backlog) backlog=${2:-$backlog}; shift 2;; *) break;; esac; done
+    [ "$#" -gt 0 ] || die "Usage: map impact [--tasks] [--backlog FILE] ID|FILE..."; ensure
     : > "$out/impact.prefixes"
     for x in "$@"; do
       if printf '%s' "$x" | grep -Eq '^[A-Za-z][A-Za-z0-9]*-[0-9]+$'; then
         id=$(printf '%s' "$x" | tr '[:lower:]' '[:upper:]')
-        paths=$(awk -v id="$id" '/^## / {on = ($2 == id)} on {s = $0; gsub(/\*\*/, "", s); sub(/^[ \t]*-[ \t]*/, "", s); if (s ~ /^Paths:/) {sub(/^Paths:[ \t]*/, "", s); print s; exit}}' .uak/TASKS.md 2>/dev/null)
-        [ -n "$paths" ] || die "$id has no Paths in .uak/TASKS.md"
+        # The backlog uak passes includes tasks published on claims with `uak plan` (MLB: impact:HACK-075..079 failed).
+        paths=$(awk -v id="$id" '/^## / {on = ($2 == id)} on {s = $0; gsub(/\*\*/, "", s); sub(/^[ \t]*-[ \t]*/, "", s); if (s ~ /^Paths:/) {sub(/^Paths:[ \t]*/, "", s); print s; exit}}' "$backlog" 2>/dev/null)
+        [ -n "$paths" ] || die "$id has no Paths in the backlog"
         printf '%s\n' "$paths" | tr ',' '\n' | sed 's/[` *]//g' | grep -v '^$' >> "$out/impact.prefixes"
       else printf '%s\n' "$(resolve_file "$x")" >> "$out/impact.prefixes"; fi
     done
-    awk -v pf="$out/impact.prefixes" -F'\t' -v tasks="$top/.uak/TASKS.md" -v only="$only_tasks" -v self="$*" -v out="$out" '
+    awk -v pf="$out/impact.prefixes" -F'\t' -v tasks="$backlog" -v only="$only_tasks" -v self="$*" -v out="$out" '
       function inside(f, list,   i, n, a, y) { n = split(list, a, "\n"); for (i = 1; i <= n; i++) { y = a[i]; if (y == "") continue
           if (f == y || (index(f, y) == 1 && (y ~ /\/$/ || substr(f, length(y) + 1, 1) == "/"))) return 1 } return 0 }
       BEGIN { while ((getline l < pf) > 0) mine = mine l "\n"

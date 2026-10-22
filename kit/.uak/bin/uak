@@ -155,7 +155,7 @@ pace [--caps|--json|set USED --resets +3h [--window 5h]]   plan-usage pacing: su
 tokens [--team] [--by task|harness|model|scope|agent] [--since DAYS] [--publish]   real token spend from Claude Code/Codex transcripts
 map [show|find|callers|calls|deps|users|path|related|impact|notes]   code graph: symbols, imports, calls (+ optional semantic notes)
 bb add bug|friction|idea|need|praise TEXT [--fix IDEA] · bb flush · bb show · bb export   black box for kit fixes
-plan FILE   publish new tasks to claims without a PR (Plan-Channel: claims; needs UAK_HUMAN)
+plan FILE [--amend]   publish new tasks to claims without a PR, or amend published ones before review (Plan-Channel: claims; UAK_HUMAN)
 msg DESTINO TEXTO [--kind TIPO] [--task HACK-NNN]   DESTINO: NOMBRE|HACK-NNN|related:HACK-NNN|all|human
 inbox [--ack] [--all] [--peek] [--task HACK-NNN] [--human]
 wait [ID] --for approve|integrated|message [--timeout S]   one call that returns when it happens (instead of polling)
@@ -173,7 +173,7 @@ case "$CMD" in version|--version) cat "$UAK_BIN/../VERSION" 2>/dev/null || say u
 # Call counts give the black box a denominator (error rate per command). Local file, flushed by bb.
 bb_common=$(git rev-parse --git-common-dir 2>/dev/null) || bb_common=
 case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
-  [ -z "$bb_common" ] || printf '%s\n' "$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
+  [ -z "$bb_common" ] || printf '%s\n' "${UAK_CALLER:+$UAK_CALLER-}$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
 esac
 case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map) exec bash "$UAK_BIN/$CMD" "$@";; esac
 case "$CMD" in status|claim|heartbeat|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover|wait|learn|recall) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
@@ -435,7 +435,7 @@ check_collisions() {
         other_until=$(field "$other" Lease-Until)
         case "$other_until" in ''|*[!0-9]*) other_until=0;; esac
         [ "$NOW" -ge "$other_until" ] ||
-          conflict "$AGENT already holds $(field "$other" ID) ($(field "$other" State)). One identity = one live task: finish or release it, or or let another agent take it: bash .uak/bin/wt new $ID (picks a free identity of this machine).";;
+          conflict "$AGENT already holds $(field "$other" ID) ($(field "$other" State)). One identity = one live task: finish or release it, or let another agent take it: bash .uak/bin/wt new $ID (picks a free identity of this machine).";;
       esac
     fi
     if [ "$(field "$other" Branch)" = "$BRANCH" ] || [ "$(field "$other" Worktree)" = "$WORKTREE" ]; then
@@ -795,7 +795,7 @@ mutate() {
       if [ "$STATE" = REVIEW ] && [ -d "$task_worktree" ] && [ -f "$task_worktree/.uak/bin/map" ]; then
         local cfiles ctasks
         cfiles=$(git -C "$task_worktree" diff --name-only "$(field "$RECORD" Task-Base)" "$tip" 2>/dev/null | head -n 30)
-        ctasks=$( [ -z "$cfiles" ] || (cd "$task_worktree" && bash .uak/bin/map impact --tasks $cfiles 2>/dev/null) | grep -v "^$ID\$" |
+        ctasks=$( [ -z "$cfiles" ] || (cd "$task_worktree" && bash .uak/bin/map impact --tasks --backlog "$BACKLOG" $cfiles 2>/dev/null) | grep -v "^$ID\$" |
           while IFS= read -r t; do [ -f "$TX/claims/$t.md" ] && printf '%s ' "$t"; done)
         if [ -n "$ctasks" ] && ! awk -F' [|] ' -v me="$AGENT" -v id="$ID" '$3 == me && $5 == "contract" && ($6 == id || index($4, "impact:" id)) {f = 1} END {exit !f}' "$TX/$MSG_LOG" 2>/dev/null; then
           DONE_HINT="CONTRACT? Your diff changes files that live tasks import (${ctasks% }) and you sent them no contract. If the shape changed: bash .uak/bin/uak msg impact:$ID --kind contract --task $ID \"what changed · what to do\""
@@ -832,15 +832,66 @@ mutate() {
   # An idempotent read changes no STATE and creates no empty commit.
   if [ -n "$(git -C "$TX" status --porcelain)" ]; then snapshot; fi
 }
+# `plan FILE --amend`: new Paths, Verify or criteria for tasks already published, before their review.
+# The amended section replaces the old one wherever the backlog is read (claims backlog/AMEND.md, last one wins);
+# a claimed task's record and claim take the new Paths and Verify, so the merge gate checks the new scope.
+# Why (MLB hackathon, v5 week): a fix had to touch fixtures and tests the plan missed, `uak plan` refused to
+# republish the task, and the only way out was a new task or edits outside Paths.
+plan_amend_mutate() {
+  local id st c old_p new_p old_v new_v changes=
+  for id in $plan_ids; do
+    valid_id "$id" || die "Invalid ID in plan: $id"
+    [ "$(awk -v id="$id" '/^## / && $2==id {n++} END {print n+0}' "$BACKLOG")" -eq 1 ] || conflict "$id is not in the backlog: publish it with uak plan FILE (no --amend)."
+    [ "$(awk -v id="$id" '/^## / && $2==id {n++} END {print n+0}' "$PLAN_FILE")" -eq 1 ] || die "$id appears more than once in $PLAN_FILE."
+    for key in Priority "Paths" "Depends on" "Verify"; do
+      [ -n "$(ID=$id BACKLOG=$PLAN_FILE task_field "$key")" ] || die "$id needs $key."
+    done
+    st=$(field "$TX/tasks/$id.md" State); st=${st:-AVAILABLE}
+    case "$st" in
+      AVAILABLE|CLAIMED|BLOCKED) ;;
+      REVIEW) conflict "$id is in REVIEW: its review covers the old criteria. A reviewer rejects it first (or it merges), then amend; more work after INTEGRATED is uak followup $id.";;
+      *) conflict "$id is $st: more work on it is uak followup $id --title TEXT.";;
+    esac
+    new_p=$(ID=$id BACKLOG=$PLAN_FILE task_field Paths); new_v=$(ID=$id BACKLOG=$PLAN_FILE task_field Verify)
+    old_p=$(ID=$id task_field Paths); old_v=$(ID=$id task_field Verify)
+    # New Paths must not take files of other live claims or of OWNERS rows (same checks as a claim).
+    ( ID=$id; normalize_paths "$new_p" > "$TXROOT/paths-request" || die "Invalid Paths for $id."
+      check_owners
+      for c in "$TX"/claims/*.md; do
+        [ -f "$c" ] && [ "$(field "$c" ID)" != "$id" ] || continue
+        normalize_paths "$(field "$c" Paths)" > "$TXROOT/other-paths" || continue
+        ! overlaps "$TXROOT/paths-request" "$TXROOT/other-paths" || conflict "The new Paths of $id overlap $(field "$c" ID) (claimed by $(field "$c" Owner)): split the work or ask them."
+      done ) || exit $?
+    if [ -f "$TX/tasks/$id.md" ] && [ "$st" != AVAILABLE ]; then
+      put "$TX/tasks/$id.md" Paths "$(one_line "$new_p")"; put "$TX/tasks/$id.md" Verify "$(one_line "$new_v")"
+      [ ! -f "$TX/claims/$id.md" ] || { put "$TX/claims/$id.md" Paths "$(one_line "$new_p")"; put "$TX/claims/$id.md" Verify "$(one_line "$new_v")"; }
+    fi
+    changes="$changes $id"
+    [ "$old_p" = "$new_p" ] || changes="$changes Paths: $old_p → $new_p;"
+    [ "$old_v" = "$new_v" ] || changes="$changes Verify changed;"
+    msg_append "task:$id" info "$id" "$id amended by $HUMAN: Paths $(one_line "$new_p") · Verify $(one_line "$new_v"). uak status --task $id; the merge gate checks the new Paths."
+  done
+  [ -f "$TX/backlog/AMEND.md" ] || printf '%s\n' '# Amended tasks (uak plan --amend)' '' \
+    'Append-only; the last section of an ID replaces its section in the backlog. Why: Paths can grow before review.' '' > "$TX/backlog/AMEND.md"
+  awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {on=1} /^# / {on=0} on {print}' "$PLAN_FILE" >> "$TX/backlog/AMEND.md"
+  if grep -Eq '^\|.*\|[[:space:]]*[A-Z][A-Z0-9]*-[0-9]+[[:space:]]*\|' "$PLAN_FILE"; then
+    [ -f "$TX/backlog/OWNERS.md" ] || printf '%s\n' '# Owners published on claims' '' '| Pattern | Owner task |' '|---|---|' > "$TX/backlog/OWNERS.md"
+    grep -E '^\|.*\|[[:space:]]*[A-Z][A-Z0-9]*-[0-9]+[[:space:]]*\|' "$PLAN_FILE" >> "$TX/backlog/OWNERS.md"
+  fi
+  ID=
+  [ -f "$TX/DECISIONS.md" ] || printf "# DECISIONS\n\nCoordination decisions on the claims branch.\n" > "$TX/DECISIONS.md"
+  printf '%s\n' "- $NOW | plan --amend | $HUMAN/$AGENT | amended:$(one_line "$changes" | tr '|' '/') | Why: scope or criteria fixed before review" >> "$TX/DECISIONS.md"
+}
 plan_mutate() {
   [ "$(coord_source_field Plan-Channel main)" = claims ] ||
     conflict "Plan-Channel is not claims in .uak/PROJECT.md: publish the backlog by PR to $BASE."
   plan_ids=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$PLAN_FILE")
   [ -n "$plan_ids" ] || die "The file has no ## ID sections."
+  if [ "$PLAN_AMEND" = yes ]; then plan_amend_mutate; return; fi
   for ID in $plan_ids; do
     valid_id "$ID" || die "Invalid ID in plan: $ID"
     [ "$(awk -v id="$ID" '/^## / && $2==id {n++} END {print n+0}' "$BACKLOG" "$PLAN_FILE")" -eq 1 ] ||
-      conflict "$ID already exists in the backlog or is duplicated."
+      conflict "$ID already exists in the backlog or is duplicated. To change its Paths, Verify or criteria before review: uak plan FILE --amend."
     for key in Priority "Paths" "Depends on" "Verify"; do
       [ -n "$(BACKLOG=$PLAN_FILE task_field "$key")" ] || die "$ID needs $key."
     done
@@ -873,6 +924,7 @@ transaction() {
       if [ "${QUIET:-no}" != yes ]; then
         if [ "$SESSION_ONLY" = yes ]; then say "OK checkpoint --session | budget reset | attempt $ATTEMPT"
         elif [ "$CMD" = tick ]; then say "OK tick | deadlines reconciled | attempt $ATTEMPT"
+        elif [ "$CMD" = plan ] && [ "$PLAN_AMEND" = yes ]; then say "OK plan --amend$(printf ' %s' $plan_ids) | new Paths/Verify/criteria on claims; their owners got one message | attempt $ATTEMPT"
         elif [ "$CMD" = plan ]; then say "OK plan | tasks published on claims | attempt $ATTEMPT"
         elif [ "$CMD" = allow ]; then say "OK allow${ALLOW_DONE:- (already allowed)} | claim and merge allowed after the freeze | attempt $ATTEMPT"
         elif [ "$CMD" = register-reviewer ]; then say "OK register-reviewer $REGISTER_REVIEWER | attempt $ATTEMPT"
@@ -886,7 +938,10 @@ transaction() {
           case "$CMD" in
             done) [ "$(field "$RECORD" State)" != REVIEW ] ||
                     say "Next: bash .uak/bin/uak wait $ID --for approve (one call; returns on approve or reject). Meanwhile: uak next for other work; do not poll status.";;
-            claim) say "Before reading files: bash .uak/bin/uak map show (structure) · bash .uak/bin/uak recall $ID (lessons for these paths).";;
+            # The task's slice of the code map, not a pointer to it (MLB, v5 week: 9 map calls in 67 tasks).
+            claim) brief=$(bash "$UAK_BIN/map" brief "$ID" --paths "$PATHS" --backlog "$BACKLOG" 2>/dev/null | head -n 10)
+                   [ -z "$brief" ] || say "$brief"
+                   say "Query, do not open whole files: uak map find NAME · callers NAME · users FILE · recall $ID (lessons).";;
           esac
         fi
       fi
@@ -1130,7 +1185,7 @@ lint_all() {
   [ "$LINT_ERRORS" -eq 0 ] || { say "LINT_FAILED $LINT_ERRORS"; return 1; }
   say "LINT_OK"
 }
-PLAN_FILE= ID= BRANCH= WORKTREE= NEXT_TEXT= REQUEST_NEXT= TOKEN= NEW_STATE= LOG_TEXT= PR_URL= EVIDENCE=
+PLAN_FILE= PLAN_AMEND=no ID= BRANCH= WORKTREE= NEXT_TEXT= REQUEST_NEXT= TOKEN= NEW_STATE= LOG_TEXT= PR_URL= EVIDENCE=
 MERGE_COMMIT= REVIEWER= CANCEL_REASON=
 REVIEW_LEARN=no WAIT_FOR=message WAIT_TIMEOUT=${UAK_WAIT_TIMEOUT:-540} WAIT_EVERY=${UAK_WAIT_EVERY:-15}
 EXPIRED=no SHOW_SUMMARY=no LINT_SECRETS=no QUIET=no SESSION_ONLY=no ALLOW_INFLIGHT=no ALLOW_IDS= ALLOW_DONE= REVIEW_NOTE= FULL=no REVIEW_START=no REVIEW_STARTED=no
@@ -1173,7 +1228,7 @@ case "$CMD" in
     if [ "$#" -gt 0 ] && valid_id "$(norm_id "$1")"; then ID=$(norm_id "$1"); shift
     elif [ "$#" -gt 0 ]; then case "$1" in --*) ;; *) MEM_PATHS=$1; shift;; esac; fi;;
   plan)
-    [ "$#" -gt 0 ] && [ -f "$1" ] || die "Usage: plan FILE (## ID sections in TASKS.md format)."
+    [ "$#" -gt 0 ] && [ -f "$1" ] || die "Usage: plan FILE [--amend] (## ID sections in TASKS.md format)."
     PLAN_FILE=$(cd "$(dirname "$1")" && pwd -P)/$(basename "$1"); shift
     [ -n "$HUMAN" ] || die "plan publishes backlog: needs UAK_HUMAN (a human authorizes it)."
     identity;;
@@ -1194,6 +1249,7 @@ while [ "$#" -gt 0 ]; do
     --start) [ "$CMD" = review ] || die "Invalid option: $opt"; REVIEW_START=yes;;
     --stop) [ "$CMD" = review ] || die "Invalid option: $opt"; REVIEW_STOP=yes;;
     --learn) [ "$CMD" = review ] || die "Invalid option: $opt"; REVIEW_LEARN=yes;;
+    --amend) [ "$CMD" = plan ] || die "Invalid option: $opt"; PLAN_AMEND=yes;;
     --ack|--all|--peek|--human)
       [ "$CMD" = inbox ] || die "Invalid option: $opt"
       case "$opt" in --ack) MSG_ACK=yes;; --all) MSG_MODE=all;; --peek) MSG_MODE=peek;; --human) MSG_MODE=human;; esac;;

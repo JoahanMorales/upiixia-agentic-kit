@@ -155,6 +155,7 @@ def reviewer(seed, stop, log):
 
 
 def analyze(stream):
+    raw_text = stream
     calls, final, usage, cost = [], "", {}, None
     for line in stream.splitlines():
         try:
@@ -188,7 +189,8 @@ def analyze(stream):
     explore = [i for i, c in enumerate(calls) if c[0] in ("Read", "Grep", "Glob") or (bash(c) and has(c, r'"command": "(cat|rg|grep|find|ls|sed -n|head)\b'))]
     map_i = [i for i, c in enumerate(calls) if bash(c) and has(c, r"uak map|\.uak/bin/map")]
     done_i = [i for i, c in enumerate(calls) if bash(c) and has(c, r"uak done [A-Z]+-[0-9]+")]
-    first_done = done_i[0] if done_i else len(calls)
+    # The ship that worked: the last `uak done` (a first one can fail on its arguments and be retried).
+    first_done = done_i[-1] if done_i else len(calls)
     # A contract counts when it is sent before `uak done`: in an earlier call, or earlier in the same command line.
     contract = [i for i, c in enumerate(calls[:first_done + 1]) if bash(c) and has(c, r"uak msg") and has(c, r"impact:|related:|HACK-002|bob-1")
                 and (i < first_done or c[1].find("uak msg") < c[1].find("uak done"))]
@@ -211,6 +213,9 @@ def analyze(stream):
         "input_tokens": usage.get("input_tokens"), "output_tokens": usage.get("output_tokens"),
         "cache_read": usage.get("cache_read_input_tokens"), "cost_usd": cost,
         "uak_commands": sorted({m.group(1) for _, inp in calls for m in re.finditer(r"uak (\w[\w-]*)", inp)}),
+        # v5.1: the map pushed into the loop (the claim's slice and the post-tool lines), counted in the raw stream.
+        "map_brief_seen": "TASK MAP " in raw_text,
+        "map_lens_lines": raw_text.count("uak map: "),   # stream-json omits PostToolUse context: see lens_pushed
     }
 
 
@@ -242,6 +247,11 @@ def main():
         stop.set()
         res = analyze(r.stdout)
         res.update({"label": a.label, "seconds": round(time.time() - started), "reviewer": log, "agent": a.agent})
+        # Hook-side counts (the black box call log of the team repo): map lines pushed by the post-tool hook, and the
+        # hooks' own uak calls, which stream-json does not show.
+        calls_log = seed / ".git" / "uak-blackbox.calls"
+        counted = calls_log.read_text(encoding="utf-8").split() if calls_log.exists() else []
+        res.update({"lens_pushed": counted.count("lens"), "hook_calls": sum(1 for c in counted if c.startswith("hook-"))})
         (base / "transcript.jsonl").write_text(r.stdout, encoding="utf-8")
         print(json.dumps(res, indent=2))
         if a.out:

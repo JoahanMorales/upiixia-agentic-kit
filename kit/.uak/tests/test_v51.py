@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 from test_hack import Runner, expect, resolve_binary
-from test_coordination import hack
+from test_coordination import config, hack
 from test_v43 import push_main
 import test_review_merge as rm
 
@@ -236,9 +236,113 @@ def identities_are_reused(r):
     return {"reused": "fixtureagent-1"}
 
 
+AMEND_BASE = """# Wave 2
+
+## HACK-005 — Published on claims
+
+- **Priority:** P0
+- **Paths:** src/five.txt
+- **Depends on:** Ninguna
+- **Verify:** .uak/bin/smoke --package-only
+"""
+
+
+def plan_amends_before_review(r):
+    """A fix had to touch fixtures the plan missed; `uak plan` refused to republish the task (1 black box note)."""
+    f = rm.fixture(r, "v51-amend", count=3)
+    config(f, Plan_Channel="claims")
+    plan = f.worktrees[0] / "wave2.md"
+    plan.write_text(AMEND_BASE, encoding="utf-8")
+    hack(f, 0, "plan", plan, UAK_HUMAN="boss")
+    again = hack(f, 0, "plan", plan, UAK_HUMAN="boss", allowed=None)
+    expect(again.returncode == 3 and "--amend" in again.stderr, "a republish points to --amend: " + again.stderr)
+    f.claim(1, "HACK-005")
+    plan.write_text(AMEND_BASE.replace("src/five.txt", "src/five.txt, tests/five_fixture.txt"), encoding="utf-8")
+    ok = hack(f, 0, "plan", plan, "--amend", UAK_HUMAN="boss", now=1000005)
+    expect(ok.returncode == 0 and "OK plan --amend HACK-005" in ok.stdout, ok.stdout + ok.stderr)
+    expect("tests/five_fixture.txt" in f.show("tasks/HACK-005.md") and "tests/five_fixture.txt" in f.show("claims/HACK-005.md"),
+           "a claimed task's record takes the new Paths (the merge gate reads them)")
+    expect("HACK-005 amended by boss" in f.show("inbox/log.md") and "plan --amend" in f.show("DECISIONS.md"), "owner told, decision kept")
+    six = AMEND_BASE.replace("HACK-005", "HACK-006").replace("src/five.txt", "src/six.txt")
+    plan.write_text(six, encoding="utf-8")
+    hack(f, 0, "plan", plan, UAK_HUMAN="boss", now=1000006)
+    plan.write_text(six.replace("src/six.txt", "src/six.txt, tests/six_fixture.txt"), encoding="utf-8")
+    hack(f, 0, "plan", plan, "--amend", UAK_HUMAN="boss", now=1000006)
+    f.claim(2, "HACK-006", now=1000006)
+    expect("tests/six_fixture.txt" in f.show("claims/HACK-006.md"), "an AVAILABLE task is claimed with its amended Paths")
+    f.claim(0, "HACK-001", now=1000007)
+    plan.write_text(AMEND_BASE.replace("src/five.txt", "src/five.txt, src/value-1.txt"), encoding="utf-8")
+    clash = hack(f, 0, "plan", plan, "--amend", UAK_HUMAN="boss", now=1000008, allowed=None)
+    expect(clash.returncode == 3 and "overlap HACK-001" in clash.stderr, "new Paths cannot take a live claim's files: " + clash.stderr)
+    nohuman = hack(f, 0, "plan", plan, "--amend", now=1000009, allowed=None)
+    expect(nohuman.returncode == 2 and "UAK_HUMAN" in nohuman.stderr, "amend is a human decision")
+    tip = rm.publish(f, 0, "HACK-001")
+    f.hack(0, "done", "HACK-001", "--pr", "https://example.test/pull/1", "--evidence", "ok", now=1000010)
+    review_text = (f.seed / ".uak/TASKS.md").read_text(encoding="utf-8")
+    sec = review_text[review_text.index("## HACK-001"):review_text.index("## HACK-002")]
+    plan.write_text("# Fix\n\n" + sec.replace("src/value-1.txt", "src/value-1.txt, docs/one.md"), encoding="utf-8")
+    late = hack(f, 0, "plan", plan, "--amend", UAK_HUMAN="boss", now=1000011, allowed=None)
+    expect(late.returncode == 3 and "in REVIEW" in late.stderr, "a task in review keeps the criteria it was reviewed on: " + late.stderr)
+    return {"amended": True, "tip": tip[:7]}
+
+
+CODE = {
+    "lib/__init__.py": "",
+    "lib/config.py": "def data_path(name):\n    return name\n\nclass Settings:\n    pass\n",
+    "lib/io.py": "from lib.config import data_path\nfrom . import config\n\ndef load():\n    return data_path('x')\n",
+    "app/page.py": "from lib import io\nimport lib.config as c\n\ndef render():\n    return io.load()\n",
+    "web/src/lib/api.ts": "export async function api(path: string) { return path }\n",
+    "web/src/features/a/index.tsx": "import { api } from '../../lib/api'\nexport default function A() { return api('x') }\n",
+}
+
+
+def map_in_the_loop(r):
+    """9 agent calls of the map for 67 tasks: the claim pointed at `uak map show`, and the graph waited to be asked.
+    impact:ID failed for tasks published with `uak plan`; hook calls inflated the agents' own status/inbox counts."""
+    f = r.fixture("v51-lens", count=2, paths={"HACK-001": "lib/", "HACK-002": "app/"})
+    config(f, Plan_Channel="claims")
+    push_main(f, CODE, "code")
+    for w in f.worktrees:
+        r.g(w, "merge", "-q", "--ff-only", "origin/main")
+    c = f.claim(0, "HACK-001")
+    expect("TASK MAP HACK-001" in c.stdout and "lib/config.py" in c.stdout and "imported by" in c.stdout
+           and "in the Paths of HACK-002" in c.stdout, "the claim prints the task's slice of the map: " + c.stdout)
+    w = f.worktrees[1]
+    r.run([r.bash, ".uak/bin/map", "build"], cwd=w)
+    def send(payload):
+        p = subprocess.run([r.bash, ".uak/bin/hook", "tick"], cwd=w, input=json.dumps(payload), text=True,
+                           capture_output=True, env={**r.env, "UAK_AGENT": ""}, timeout=60)
+        return p.stdout
+    read = send({"session_id": "s1", "tool_name": "Read", "tool_input": {"file_path": str(w / "lib/config.py")}})
+    expect("uak map: lib/config.py" in read and "imported by 2 file(s)" in read, "a read gets who imports the file: " + read)
+    again = send({"session_id": "s1", "tool_name": "Read", "tool_input": {"file_path": str(w / "lib/config.py")}})
+    expect("uak map: lib/config.py" not in again, "once per file per session")
+    grep = send({"session_id": "s1", "tool_name": "Grep", "tool_input": {"pattern": "def data_path"}})
+    expect("data_path is defined at lib/config.py:1" in grep and "called from 1 place(s)" in grep, "a symbol search gets its definition and callers: " + grep)
+    shell = send({"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": "rg -n 'load' app"}})
+    expect("load is defined at lib/io.py" in shell, "grep/rg in a shell too: " + shell)
+    cur = subprocess.run([r.bash, ".uak/bin/hook", "tick", "cursor"], cwd=w, text=True, capture_output=True, timeout=60,
+                         input=json.dumps({"conversation_id": "c1", "tool_name": "Read", "tool_input": {"path": "app/page.py"}}),
+                         env={**r.env, "UAK_AGENT": ""}).stdout
+    expect(cur.startswith('{"additional_context":"') and "uak map: app/page.py" in cur, "Cursor postToolUse gets the same line: " + cur)
+    calls = (f.clones[1] / ".git/uak-blackbox.calls")
+    plan = f.worktrees[0] / "wave2.md"
+    plan.write_text("# Wave 2\n\n## HACK-003 — api\n\n- **Priority:** P1\n- **Paths:** web/src/lib/\n- **Depends on:** Ninguna\n"
+                    "- **Verify:** true\n\n## HACK-004 — feature\n\n- **Priority:** P1\n- **Paths:** web/src/features/\n"
+                    "- **Depends on:** Ninguna\n- **Verify:** true\n", encoding="utf-8")
+    hack(f, 0, "plan", plan, UAK_HUMAN="boss")
+    sent = hack(f, 0, "msg", "impact:HACK-003", "--kind", "contract", "api() takes options now", now=1000005, allowed=None)
+    expect(sent.returncode == 0 and "task:HACK-004" in sent.stdout, "impact:ID works for tasks published on claims: " + sent.stdout + sent.stderr)
+    subprocess.run([r.bash, ".uak/bin/hook", "session-start"], cwd=w, input="{}", text=True, capture_output=True,
+                   env={**r.env, "UAK_AGENT": ""}, timeout=120)
+    counted = calls.read_text(encoding="utf-8") if calls.exists() else ""
+    expect("lens" in counted and "hook-" in counted, "pushes and hook calls are counted apart: " + counted[-300:])
+    return {"brief": True, "lens": True}
+
+
 TESTS = [review_offers_move_on, humans_and_stale_identities_get_no_review, offline_recipients_and_orphans,
          worktree_env_is_not_a_human, approval_survives_forge_merge_and_pull, followup_owns_the_parent_paths,
-         merge_gate_links_node_modules, small_fixes, identities_are_reused]
+         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop]
 
 
 def main():

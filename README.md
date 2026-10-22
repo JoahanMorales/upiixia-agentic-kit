@@ -233,6 +233,15 @@ that touches files another task imports → `msg impact:`), and the next step pr
 Measured, not assumed ([adoption eval](docs/evals/README.md), real headless Claude Code sessions): with the rule in
 context, the agent warned the task that imports its change in **0 of 3** runs; with the adoption layer, **3 of 3**.
 
+**The graph comes to the agent (v5.1).** Reminders were not enough for the code map: at MLB agents called it 9 times
+for 67 Claude Code tasks, and a pilot study saw agents route 0–6% of lookups to a semantic tool when grep was there.
+So the map is pushed into the loop instead of waiting to be asked. The claim prints the task's slice of the map
+(its files, what they define, who imports them, which tasks to warn), and after a `grep`/`Read` the post-tool hook adds one line:
+`uak map: data_path is defined at lib/config.py:1; called from 3 places in 2 other files: …`, or
+`uak map: lib/config.py · imported by 12 files · not in HACK-007's Paths: the merge gate refuses edits here`.
+Claude Code, Codex, Cursor and Gemini CLI, each symbol or file once per session. `uak stats` reports adoption per
+harness (map calls and pushed lines per task, `wait` and polls per done), with the hooks' own calls counted apart.
+
 **MCP server.** The same harness is also a native MCP server (`.uak/bin/uak-mcp`, Python standard library): 14 tools
 (`uak_next`, `uak_claim`, `uak_ship`, `uak_wait`, `uak_map`, `uak_memory`, …), resources (the code map, team status,
 lessons) and the `/uak-*` workflows as prompts, for Claude Code, Codex, Cursor and Gemini CLI. It speaks both MCP
@@ -304,7 +313,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**123 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
+**125 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
 
 ## Works with
 | Tool | How |

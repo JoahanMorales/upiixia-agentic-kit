@@ -50,6 +50,15 @@ coord_init() {
   # Backlog published with `uak plan` on claims is appended to main's, no PR.
   # Why: at Hack-Nation 8 PRs only added tasks and 3 merges fell to the human queue over TASKS.md.
   [ ! -f "$TX/backlog/TASKS.md" ] || { printf '\n'; cat "$TX/backlog/TASKS.md"; } >> "$TXROOT/canonical-TASKS.md"
+  # `plan --amend`: the last amended section of an ID replaces its section, in place.
+  if [ -f "$TX/backlog/AMEND.md" ]; then
+    awk 'FNR == NR { if ($0 ~ /^## [A-Z][A-Z0-9]*-[0-9]/) { id = $2; sec[id] = "" } else if ($0 ~ /^# /) id = ""
+                     if (id != "") sec[id] = sec[id] $0 "\n"; next }
+         /^## [A-Z][A-Z0-9]*-[0-9]/ { skip = 0; if ($2 in sec) { if (!($2 in done)) { printf "%s", sec[$2]; done[$2] = 1 }; skip = 1; next } }
+         /^# / { skip = 0 }
+         !skip { print }' "$TX/backlog/AMEND.md" "$TXROOT/canonical-TASKS.md" > "$TXROOT/canonical-TASKS.amended" &&
+      mv "$TXROOT/canonical-TASKS.amended" "$TXROOT/canonical-TASKS.md"
+  fi
   [ ! -f "$TX/backlog/OWNERS.md" ] || { printf '\n'; cat "$TX/backlog/OWNERS.md"; } >> "$TXROOT/canonical-OWNERS.md"
   BACKLOG="$TXROOT/canonical-TASKS.md"; OWNERS="$TXROOT/canonical-OWNERS.md"
   coord_source=$(git -C "$TX" rev-parse --verify 'refs/uak/config:.uak/PROJECT.md' 2>/dev/null || printf '%s' '-')

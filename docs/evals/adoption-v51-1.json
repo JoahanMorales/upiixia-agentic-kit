@@ -1,0 +1,39 @@
+{
+  "tool_calls": 7,
+  "mcp_calls": 0,
+  "explore_calls": 2,
+  "explore_before_map": 2,
+  "used_map": false,
+  "contract_before_done": true,
+  "done": true,
+  "polls_after_done": 0,
+  "sleeps_after_done": 0,
+  "used_wait": true,
+  "verdict_reported": true,
+  "final": "HACK-001: judge aprob\u00f3 el SHA c430ef5. `uak merge` no lo fusion\u00f3 porque falta `.uak/bin/smoke-project`; un humano debe revisarlo y fusionar el PR.",
+  "input_tokens": 16,
+  "output_tokens": 1321,
+  "cache_read": 252062,
+  "cost_usd": 0.1330042,
+  "uak_commands": [
+    "done",
+    "inbox",
+    "merge",
+    "msg",
+    "wait"
+  ],
+  "map_brief_seen": false,
+  "map_lens_lines": 0,
+  "label": "v51",
+  "seconds": 102,
+  "reviewer": [
+    {
+      "t": 1792709531.6999424,
+      "sha": "c430ef5",
+      "review": "OK review HACK-001 | REVIEW | attempt 1"
+    }
+  ],
+  "agent": "claude -p --model sonnet",
+  "lens_pushed": 1,
+  "hook_calls": 8
+}

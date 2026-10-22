@@ -263,7 +263,10 @@ msg_resolve_targets() {
       MSG_TO=$all; return 0;;
     impact:*)
       valid_id "${MSG_TO#impact:}" || die "Invalid target: $MSG_TO"
-      bash "$UAK_BIN/map" impact --tasks "${MSG_TO#impact:}" 2>/dev/null | grep -E '^[A-Z][A-Z0-9]*-[0-9]+$' | sed 's/^/task:/'
+      local imp
+      imp=$(bash "$UAK_BIN/map" impact --tasks --backlog "$BACKLOG" "${MSG_TO#impact:}" 2>&1) ||
+        die "impact:${MSG_TO#impact:}: $(printf '%s' "$imp" | sed 's/^map: //' | head -n 1)"
+      printf '%s\n' "$imp" | grep -E '^[A-Z][A-Z0-9]*-[0-9]+$' | grep -vx "${MSG_TO#impact:}" | sed 's/^/task:/'
       return 0;;
     all|human) printf '%s\n' "$MSG_TO";;
     related:*)

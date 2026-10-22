@@ -9,6 +9,10 @@
 # Pace: when plan usage changes level (surge/conserve/critical), one line is injected (uak pace).
 # Why: agents forget heartbeats and miss mid-session requests from other tasks.
 set -u
+# uak calls made by the hooks themselves (inbox peeks, heartbeats, next at session start) are counted as hook-CMD,
+# so the black box tells the agent's own calls from the harness's. Why (MLB): status/inbox looked like half of all
+# calls, but the hooks made many of them.
+UAK_CALLER=hook; export UAK_CALLER
 input=''
 [ -t 0 ] || input=$(cat 2>/dev/null || true)
 top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
@@ -57,7 +61,7 @@ coach() {
   [ "${UAK_COACH:-on}" != off ] || return 0
   d="$gd/uak-coach-$(printf '%s' "${sid:-nosid}" | tr -cd 'A-Za-z0-9_.-' | cut -c 1-60)"; mkdir -p "$d" 2>/dev/null || return 0
   tool=$(printf '%s' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([A-Za-z_]*\)".*/\1/p' | head -n 1)
-  cmd=; case "$tool" in Bash|run_shell_command|shell) cmd=$(jdecode tool_input command);; esac
+  cmd=; case "$tool" in Bash|Shell|run_shell_command|shell) cmd=$(jdecode tool_input command);; esac
   fired() { [ "$(cat "$d/fired.$1" 2>/dev/null || echo 0)" -ge "$2" ]; }
   fire() { echo $(( $(cat "$d/fired.$1" 2>/dev/null || echo 0) + 1 )) > "$d/fired.$1"; }
   fill() { tmpl "$1" | head -n 1 | sed "s|{n}|${2:-}|g; s|{m}|${3:-}|g; s|{id}|${4:-}|g; s|{files}|${5:-}|g; s|{tasks}|${6:-}|g"; }
@@ -99,6 +103,60 @@ coach() {
   # 6. Long stretch on a claimed task without a checkpoint (twice per session at most).
   n=$(cat "$d/calls" 2>/dev/null || echo 0)
   if [ -n "$task" ] && [ "$n" -ge "${UAK_COACH_CHECKPOINT:-40}" ] && ! fired checkpoint 2; then fire checkpoint; echo 0 > "$d/calls"; fill checkpoint "$n" "" "$task"; return 0; fi
+}
+# lens: the code map at the moment of a search or a read. After Grep/Read (or grep/rg/cat/sed on a file in a shell),
+# one line from the map index: where a symbol is defined and who calls it from other files, or who imports a file,
+# whether it is a hub, and whether it lies outside the task's Paths. Each symbol/file once per session, at most
+# UAK_LENS_MAX (25) lines. Never builds the index here: a missing index is built once in the background.
+# Why (MLB hackathon, v5 week): agents called the map 9 times for 67 Claude Code tasks; a pilot study saw agents
+# route 0-6% of lookups to a semantic tool when grep was there, and do better when the answer arrives as
+# path:line next to the step they already take. Push the graph into the loop instead of waiting to be asked.
+lens() {
+  [ "${UAK_LENS:-on}" != off ] || return 0
+  local d tool cmd pat file name w prev
+  d="$gd/uak-coach-$(printf '%s' "${sid:-nosid}" | tr -cd 'A-Za-z0-9_.-' | cut -c 1-60)"; mkdir -p "$d" 2>/dev/null || return 0
+  [ "$(wc -l < "$d/lens.seen" 2>/dev/null || echo 0)" -lt "${UAK_LENS_MAX:-25}" ] || return 0
+  tool=$(printf '%s' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([A-Za-z_]*\)".*/\1/p' | head -n 1)
+  pat= file=
+  case "$tool" in
+    Grep|grep_search|search_file_content) pat=$(jdecode tool_input pattern); [ -n "$pat" ] || pat=$(jdecode tool_input query);;
+    Read|read_file) file=$(jdecode tool_input file_path); [ -n "$file" ] || file=$(jdecode tool_input absolute_path)
+      [ -n "$file" ] || file=$(jdecode tool_input path); [ -n "$file" ] || file=$(jdecode tool_input target_file);;
+    Bash|Shell|run_shell_command|shell)
+      cmd=$(jdecode tool_input command | sed 's/[;&|].*//')
+      set -f; set -- $cmd; set +f
+      [ "${1:-}" != git ] || [ "${2:-}" != grep ] || shift
+      case "${1:-}" in
+        rg|grep|egrep|ag|ack)
+          shift; prev=
+          for w in "$@"; do
+            case "$prev" in -e|--regexp) pat=$w; break;; -g|--glob|-t|--type|-A|-B|-C|-m|--max-count|-f|--file|--include|--exclude) prev=; continue;; esac
+            case "$w" in -e|--regexp|-g|--glob|-t|--type|-A|-B|-C|-m|--max-count|-f|--file|--include|--exclude) prev=$w; continue;; -*) continue;; esac
+            pat=$w; break
+          done;;
+        cat|head|tail|less|nl|bat|sed)
+          for w in "$@"; do case "$w" in -*|*\'*|*\"*|[0-9]*p) ;; *) [ -f "$w" ] && { file=$w; break; };; esac; done;;
+      esac;;
+  esac
+  pat=$(printf '%s' "$pat" | tr -d "'\"")
+  if [ -n "$pat" ]; then
+    name=$(printf '%s' "$pat" | sed -E 's/\\b//g; s/^\^//; s/^(def|class|function|func|fn|const|let|var|type|interface|struct)[[:space:]]+//; s/[\\(].*$//; s/[[:space:]].*$//')
+    printf '%s' "$name" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]{2,}$' || return 0
+    key="s:$name"
+  elif [ -n "$file" ]; then
+    case "$file" in "$top"/*) file=${file#"$top"/};; /*) return 0;; esac
+    key="f:$file"
+  else return 0; fi
+  ! grep -qxF -- "$key" "$d/lens.seen" 2>/dev/null || return 0
+  if [ ! -s "$gd/uak-map/symbols.tsv" ]; then
+    [ -f "$d/lens.building" ] || { touch "$d/lens.building"; nohup bash .uak/bin/map build > /dev/null 2>&1 & }
+    return 0
+  fi
+  printf '%s\n' "$key" >> "$d/lens.seen"
+  if [ -n "$pat" ]; then bash .uak/bin/map lens --symbol "$name" 2>/dev/null
+  else bash .uak/bin/map lens --file "$file" ${task:+--task "$task"} 2>/dev/null; fi || return 0
+  # Counted for the black box like a command call, so an autopsy can tell pushes from pulls.
+  case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *) printf 'lens\n' >> "$(git rev-parse --git-common-dir 2>/dev/null)/uak-blackbox.calls" 2>/dev/null;; esac
 }
 case "${1:-}" in
   session-start)
@@ -155,9 +213,20 @@ case "${1:-}" in
     fi
     ;;
   tick)
+    # Cursor's postToolUse takes {"additional_context": "..."}: the same tick, rewrapped. Why (MLB hackathon): Cursor
+    # had no post-tool hook, so its heartbeats were manual and no message, reminder or map fact reached it mid-task.
+    if [ "${2:-}" = cursor ]; then
+      out=$(printf '%s' "$input" | bash "$0" tick 2>/dev/null)
+      ctx=$(printf '%s' "$out" | sed -n 's/^{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":\(".*"\)}}$/\1/p')
+      [ -z "$ctx" ] || printf '{"additional_context":%s}\n' "$ctx"
+      exit 0
+    fi
     # Gemini's AfterTool takes the same additionalContext under its own event name.
     evname=PostToolUse; [ "${2:-}" != gemini ] || evname=AfterTool
     coach_note=$(coach 2>/dev/null)
+    lens_note=$(lens 2>/dev/null)
+    [ -z "$lens_note" ] || coach_note="${lens_note}${coach_note:+
+}$coach_note"
     if [ -z "$agent" ]; then
       [ -z "$coach_note" ] || printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$evname" "$(printf '%s' "$coach_note" | json_text)"
       exit 0
