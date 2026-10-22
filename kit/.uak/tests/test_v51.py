@@ -340,9 +340,38 @@ def map_in_the_loop(r):
     return {"brief": True, "lens": True}
 
 
+def sessions_leave_a_trace(r):
+    """74 checkpoints for 130 claims and 43 lease recoveries; sessions closed without a handoff, and their
+    identities kept getting reviews for hours."""
+    f = rm.fixture(r, "v51-away", count=3)
+    register(f, "agent-2", "agent-3")
+    for i in (1, 2):
+        hack(f, i, "msg", "all", "--kind", "info", "online %d" % i, now=1000005)
+    f.claim(0, "HACK-001", now=1000006)
+    tip = rm.publish(f, 0, "HACK-001")
+    hack(f, 0, "heartbeat", "HACK-001", now=1000007)
+    rec = f.show("tasks/HACK-001.md")
+    expect("Progress: 1 commit(s) since the claim · last: " + tip[:7] in rec and "Implement HACK-001" in rec,
+           "every heartbeat writes where the task stands: " + rec)
+    st = hack(f, 1, "status", "--task", "HACK-001", now=1000008)
+    expect("Progress: 1 commit(s)" in st.stdout, "status shows it to the next owner: " + st.stdout)
+    clear = subprocess.run([r.bash, ".uak/bin/hook", "session-end"], cwd=f.worktrees[1], input='{"reason":"clear"}', text=True,
+                           capture_output=True, env={**r.env, "UAK_AGENT": "agent-2", "UAK_NOW": "1000009"}, timeout=60)
+    expect("meta/agents/agent-2.md" not in f.files("meta/"), "/clear is not the end of a session: " + clear.stderr)
+    subprocess.run([r.bash, ".uak/bin/hook", "session-end"], cwd=f.worktrees[1], input='{"reason":"prompt_input_exit"}', text=True,
+                   capture_output=True, env={**r.env, "UAK_AGENT": "agent-2", "UAK_NOW": "1000009"}, timeout=60)
+    expect("Session-Ended: 1000009" in f.show("meta/agents/agent-2.md"), "SessionEnd runs uak away")
+    f.hack(0, "done", "HACK-001", "--pr", "https://example.test/pull/1", "--evidence", "ok", now=1000010)
+    last = reviews(f)[-1]
+    expect("agent:agent-3" in last, "an identity that closed its session gets no review offer: " + last)
+    sent = hack(f, 0, "msg", "agent-2", "the fixture moved", now=1000011)
+    expect("agent-2 closed its session" in sent.stdout, "the sender is told at once: " + sent.stdout)
+    return {"progress": True, "away": True}
+
+
 TESTS = [review_offers_move_on, humans_and_stale_identities_get_no_review, offline_recipients_and_orphans,
          worktree_env_is_not_a_human, approval_survives_forge_merge_and_pull, followup_owns_the_parent_paths,
-         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop]
+         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace]
 
 
 def main():

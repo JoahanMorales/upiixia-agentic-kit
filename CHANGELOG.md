@@ -16,7 +16,8 @@ agent and that agent gave 14 of the verdicts; 28 messages over the event reached
 - **`uak plan FILE --amend`** (UAK_HUMAN): new Paths, Verify or criteria for published tasks while AVAILABLE, CLAIMED or BLOCKED; a claimed task's record takes the new Paths; overlaps with live claims and OWNERS rows are refused; REVIEW and INTEGRATED are refused (`followup`).
 - **`impact:ID` reads the full backlog**: it failed for tasks published with `uak plan` (HACK-075..079 at MLB); its owners now come from the same backlog.
 - **Adoption is measured.** Calls the hooks make are counted as `hook-CMD`, pushed map lines as `lens`, and `uak stats` prints agent calls per task and harness.
-- `test_v51.py`: 11 scenarios, one per failure.
+- **Sessions leave a trace.** Every heartbeat (sent by the hooks) writes the task's progress: commits since the claim, the last one, uncommitted files; `status --task` shows it to the next owner. `uak away` (run by the SessionEnd hooks of Claude Code, Cursor and Gemini; not on /clear) takes the identity out of the reviewer rotation at once and sends messages for it to its tasks; any uak command brings it back. Why: 74 checkpoints for 130 claims, 43 lease recoveries, 5 handoffs.
+- `test_v51.py`: 12 scenarios, one per failure.
 
 ## v5.0.0 · 2026-10-15 · 5x faster, a code graph, team memory, the real bill
 v5 folds in v4.3 (the MLB autopsy, below; it was never published separately) and closes most of the roadmap.

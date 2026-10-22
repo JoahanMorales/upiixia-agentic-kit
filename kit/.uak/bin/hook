@@ -300,6 +300,13 @@ $act"
         "$(printf 'UAK new inbox (handle per AGENTS.md §5; then uak inbox --ack):\n%s' "$act" | json_text)"
     fi
     ;;
+  session-end)
+    # The session closed (Claude Code SessionEnd, Cursor sessionEnd, Gemini SessionEnd): `uak away` takes the identity
+    # out of the reviewer rotation now and writes where its task stands. Not on /clear: the agent goes on.
+    [ -n "$agent" ] || exit 0
+    case "$input" in *'"reason":"clear"'*|*'"reason": "clear"'*) exit 0;; esac
+    bash .uak/bin/uak away > /dev/null 2>&1 || true
+    ;;
   stop)
     # Black box: publish pending lines at most every 10 min, in background (never slows the turn).
     common=$(git rev-parse --git-common-dir 2>/dev/null)

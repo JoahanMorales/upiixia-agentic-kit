@@ -50,6 +50,19 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "uak-away",
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/hook\" session-end",
+            "timeout": 20000
+          }
+        ]
+      }
     ]
   },
   "mcpServers": {

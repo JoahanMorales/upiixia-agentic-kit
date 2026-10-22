@@ -134,6 +134,7 @@ next
 review ID --start | --stop | --sha SHA --verdict approve|reject [--note "file:line · what · how to reproduce"] [--learn]
 followup ID --title TEXT   new task on ID's Paths after ID is INTEGRATED (fixes and polish; no human needed)
 handover ID --to NAME   pass your claim (or an expired one, or as UAK_HUMAN) to another agent without AVAILABLE
+away   this identity closed its session (SessionEnd hooks run it): no reviews for it until its next command
 retire NAME...   an identity that no longer runs leaves the reviewer rotation (its human or itself)
 register-reviewer NAME...  (UAK_HUMAN, from the main checkout)
 merge ID
@@ -176,7 +177,7 @@ case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
   [ -z "$bb_common" ] || printf '%s\n' "${UAK_CALLER:+$UAK_CALLER-}$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
 esac
 case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map) exec bash "$UAK_BIN/$CMD" "$@";; esac
-case "$CMD" in status|claim|heartbeat|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover|wait|learn|recall) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
+case "$CMD" in status|claim|heartbeat|away|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover|wait|learn|recall) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac
   ROOT=$(pwd -P)
@@ -550,6 +551,36 @@ wait_run() {
     sleep "$WAIT_EVERY"
   done
 }
+# Progress facts from the task's worktree, written by every heartbeat (the hooks send them): commits since the claim,
+# the last one, uncommitted files. The next owner sees them even when nobody checkpointed. Why (MLB hackathon): 74
+# checkpoints for 130 claims, 43 lease recoveries, and a summary that said what the task was, not where it stood.
+task_progress() {
+  local wt base n last dirty
+  wt=$(field "$RECORD" Worktree); [ -d "$wt" ] || wt=$ROOT
+  [ "$(git -C "$wt" symbolic-ref --short HEAD 2>/dev/null)" = "$(field "$RECORD" Branch)" ] || return 0
+  base=$(field "$RECORD" Task-Base)
+  n=$(git -C "$wt" rev-list --count "${base:-HEAD}..HEAD" 2>/dev/null || echo 0)
+  last=$(git -C "$wt" log -1 --format='%h %s (%cr)' 2>/dev/null | cut -c 1-120 | tr '|' '/')
+  dirty=$(git -C "$wt" status --porcelain 2>/dev/null | grep -vc '^??' || true)
+  put "$RECORD" Progress "$n commit(s) since the claim · last: ${last:--} · $dirty uncommitted tracked file(s) · at $NOW"
+}
+# `uak away`: this identity closed its session. It leaves the reviewer rotation and messages to it reach its tasks
+# at once (not after 30 min of silence); its claims keep their leases. The next uak command brings it back.
+# SessionEnd hooks run it. Why (MLB hackathon): sessions closed without a handoff (5 handoffs, 14 releases for 130
+# claims), and their identities kept getting reviews for hours.
+away_mutate() {
+  local c n=0
+  mkdir -p "$TX/meta/agents"
+  [ -f "$TX/meta/agents/$AGENT.md" ] || printf '%s\n' "# $AGENT" "Agent: $AGENT" "Started: $NOW" > "$TX/meta/agents/$AGENT.md"
+  for c in "$TX"/claims/*.md; do
+    [ -f "$c" ] && [ "$(field "$c" Owner)" = "$AGENT" ] || continue
+    ID=$(field "$c" ID); RECORD=$(task_file)
+    case "$(field "$c" State)" in CLAIMED|BLOCKED) task_progress; put "$RECORD" Away "$NOW"; n=$((n + 1));; esac
+  done
+  ID=
+  put "$TX/meta/agents/$AGENT.md" Session-Ended "$NOW"
+  AWAY_TASKS=$n
+}
 # Explicit transfer of a live task: same claim, branch, worktree and summary; only the owner changes.
 # Allowed to the owner, to a human (UAK_HUMAN) and to anyone once the lease has expired.
 # Why (MLB hackathon): the tasks of three abandoned identities were redistributed by messages ("you take 033, I
@@ -559,11 +590,11 @@ handover_mutate() {
   [ -f "$CLAIM" ] && [ -f "$RECORD" ] || conflict "$ID has no claim to hand over."
   owner=$(field "$CLAIM" Owner); until=$(field "$CLAIM" Lease-Until); case "$until" in ''|*[!0-9]*) until=0;; esac
   [ "$DONE_TO" != "$owner" ] || conflict "$ID already belongs to $DONE_TO."
-  # Also another identity of the same human once the owner has been offline for 1 h: a human's closed session must
+  # Also another identity of the same human once the owner has been offline for 1 h (or closed its session, uak away): a human's closed session must
   # not strand its task in review (MLB: verdicts and requests reached closed identities while the same human ran a live one).
   local seen_o; seen_o=$(msg_seen "$owner")
   [ "$owner" = "$AGENT" ] || [ -n "$HUMAN" ] || [ "$NOW" -ge "$until" ] ||
-    { [ "${owner%-*}" = "${AGENT%-*}" ] && [ $((NOW - seen_o)) -ge 3600 ]; } ||
+    { [ "${owner%-*}" = "${AGENT%-*}" ] && { [ $((NOW - seen_o)) -ge 3600 ] || msg_away "$owner"; }; } ||
     conflict "$ID belongs to $owner with a live lease: only $owner, a human (UAK_HUMAN) or another identity of the same human after 1 h offline can hand it over."
   [ ! -f "$TX/meta/retired/$DONE_TO.md" ] || conflict "$DONE_TO is retired; a claim by $DONE_TO brings it back, a handover does not."
   if [ "${UAK_MULTI_CLAIM:-}" != 1 ]; then
@@ -642,6 +673,7 @@ mutate() {
       if [ -f "$TX/$WL" ]; then update_summary_field Next "$NEXT_TEXT"; else set_summary; fi
       event "claim; next: $NEXT_TEXT"
       ;;
+    away) away_mutate;;
     heartbeat)
       coord_tick_mutate
       # Your own task that already left CLAIMED/REVIEW: nothing to renew, not an error.
@@ -651,6 +683,7 @@ mutate() {
       fi
       require_owner; STATE=$(field "$RECORD" State)
       refresh_lease; event "heartbeat; lease until $UNTIL"
+      task_progress
       ;;
     release)
       [ -f "$CLAIM" ] && [ -f "$RECORD" ] || conflict "$ID has no claim."
@@ -930,6 +963,7 @@ transaction() {
         elif [ "$CMD" = register-reviewer ]; then say "OK register-reviewer $REGISTER_REVIEWER | attempt $ATTEMPT"
         elif [ "$CMD" = handover ]; then say "OK handover $ID → $DONE_TO | lease renewed; $DONE_TO continues from the live summary"
         elif [ "$CMD" = learn ]; then say "OK learn $MEM_DONE | uak next shows it to whoever works there"
+        elif [ "$CMD" = away ]; then say "OK away $AGENT | out of the reviewer rotation; messages to you reach your tasks; ${AWAY_TASKS:-0} claim(s) keep their leases. Any uak command brings you back."
         elif [ "$CMD" = retire ]; then say "OK retire$RETIRE_NAMES | out of the reviewer rotation; a new claim brings an identity back"
         elif [ "$CMD" = followup ]; then say "OK followup $NEW_ID (after $ID, same Paths) | take it: bash .uak/bin/wt new $NEW_ID --agent ${AGENT}"
         elif [ "$REVIEW_STARTED" = yes ]; then say "OK review --start $ID | yours for $(( ${UAK_REVIEW_LOCK_SECONDS:-1200} / 60 )) min; finish with --verdict"
@@ -975,6 +1009,9 @@ print_task() {
     say "Branch: $(field "$RECORD" Branch)"
     say "Worktree: $(field "$RECORD" Worktree)"
     say "Next: $(field "$RECORD" Next)"
+    [ -z "$(field "$RECORD" Progress)" ] || say "Progress: $(field "$RECORD" Progress)"
+    [ -z "$(field "$RECORD" Away)" ] || [ "$(field "$RECORD" Away)" -lt "$(field "$RECORD" Updated)" ] 2>/dev/null ||
+      say "Away: its session closed $(( (NOW - $(field "$RECORD" Away)) / 60 )) min ago (uak away); the lease still runs"
     say "Worklog: $WL (claims branch)"
     if [ "$SHOW_SUMMARY" = yes ] || [ "$CMD" = handoff ]; then
       say "Live summary:"; summary_text
@@ -1232,6 +1269,7 @@ case "$CMD" in
     PLAN_FILE=$(cd "$(dirname "$1")" && pwd -P)/$(basename "$1"); shift
     [ -n "$HUMAN" ] || die "plan publishes backlog: needs UAK_HUMAN (a human authorizes it)."
     identity;;
+  away) identity;;
   retire)
     [ "$#" -gt 0 ] || die "Usage: retire NAME... (an identity that no longer runs; its human or the agent itself)."
     while [ "$#" -gt 0 ]; do case "$1" in --*) break;; *[!A-Za-z0-9_.-]*) die "Invalid identity: $1";; *) RETIRE_NAMES="$RETIRE_NAMES $1";; esac; shift; done

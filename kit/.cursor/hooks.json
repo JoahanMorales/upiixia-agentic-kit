@@ -50,6 +50,12 @@
         "matcher": "*",
         "timeout": 10
       }
+    ],
+    "sessionEnd": [
+      {
+        "command": "bash .uak/bin/hook session-end",
+        "timeout": 20
+      }
     ]
   }
 }

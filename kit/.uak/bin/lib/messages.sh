@@ -79,7 +79,9 @@ msg_seen_all() {
     /^Updated: / { v = substr($0, 10) + 0; if (v > seen[name]) seen[name] = v }
     /^Human: / { h = substr($0, 8); if (h != "" && h != name) human[h] = 1 }
     /^Last: / { last[name] = substr($0, 7) + 0 }
+    /^Session-Ended: / { ended[name] = substr($0, 16) + 0 }
     END {
+      for (n in ended) if (ended[n] >= seen[n]) print "A", n
       for (n in seen) { p = n; if (sub(/-[A-Za-z0-9]+$/, "", p) && p !~ /-[A-Za-z0-9]+$/ && (p in seen)) human[p] = 1 }
       for (n in seen) print "S", n, seen[n]
       for (n in human) print "H", n
@@ -88,6 +90,8 @@ msg_seen_all() {
 }
 # Last time NAME was seen (0 if never).
 msg_seen() { msg_seen_all | awk -v n="$1" '$1 == "S" && $2 == n { print $3; f = 1 } END { if (!f) print 0 }'; }
+# NAME closed its session with `uak away` and did nothing since.
+msg_away() { msg_seen_all | awk -v n="$1" '$1 == "A" && $2 == n { f = 1 } END { exit !f }'; }
 # Suggested reviewer: an online agent first (seen within Presence-Seconds), else a recent one (3 h); never the owner,
 # a retired identity, a human, or a name in MSG_PICK_EXCLUDE (already offered this SHA). Within a tier: whoever
 # rejected the previous SHA (they know the diff), then another human's agent, then idle agents (no CLAIMED/BLOCKED
@@ -119,7 +123,7 @@ msg_pick_reviewer() {
   awk -F' [|] ' -v owner="$1" -v now="$NOW" -v busy="$busy" -v retired="$retired" -v rej="$MSG_PICK_REJECTER" \
       -v excl=" $MSG_PICK_EXCLUDE " -v online="$(msg_presence)" -v sf="$TXROOT/seen" '
     function human(n) { if (n ~ /-[A-Za-z0-9]+$/) sub(/-[A-Za-z0-9]+$/, "", n); return n }
-    BEGIN { while ((getline l < sf) > 0) { split(l, fl, " "); if (fl[1] == "H") ishuman[fl[2]] = 1; else if (fl[1] == "S") seen[fl[2]] = fl[3] + 0 } }
+    BEGIN { while ((getline l < sf) > 0) { split(l, fl, " "); if (fl[1] == "H") ishuman[fl[2]] = 1; else if (fl[1] == "S") seen[fl[2]] = fl[3] + 0; else if (fl[1] == "A") away[fl[2]] = 1 } }
     /^- [0-9]/ { if ($5 == "approve" || $5 == "reject") load[$3]++ }
     function better(a, b) {
       if (tier[a] != tier[b]) return tier[a] > tier[b]
@@ -132,7 +136,7 @@ msg_pick_reviewer() {
     }
     END {
       for (n in seen) {
-        if (n == owner || n == "scheduler" || n == "" || (n in ishuman) || index(retired, " " n " ") || index(excl, " " n " ")) continue
+        if (n == owner || n == "scheduler" || n == "" || (n in ishuman) || (n in away) || index(retired, " " n " ") || index(excl, " " n " ")) continue
         age = now - seen[n]; if (age > 10800) continue
         tier[n] = (age <= online) ? 2 : 1
       }
@@ -167,7 +171,8 @@ msg_reoffer_reviews() {
     offered=$(cut -d'|' -f3 "$TXROOT/offers" | sed -n 's/^agent://p' | tr ',' ' ' | tr '\n' ' ')
     n=$(wc -l < "$TXROOT/offers" | tr -d ' ')
     seen_t=$(msg_seen "$who")
-    if [ "$seen_t" -le "$lt" ]; then note="$who has not been seen since the offer $((age / 60)) min ago"
+    if msg_away "$who"; then note="$who closed its session"
+    elif [ "$seen_t" -le "$lt" ]; then note="$who has not been seen since the offer $((age / 60)) min ago"
     else note="$who did not start it in $((age / 60)) min"; fi
     MSG_PICK_EXCLUDE=$offered
     if [ "$n" -ge 3 ]; then reviewer=; else reviewer=$(msg_pick_reviewer "$owner" "$id"); fi
@@ -188,7 +193,7 @@ msg_orphans() {
   msg_seen_all > "$TXROOT/seen"
   awk -F' [|] ' -v me="$AGENT" -v now="$NOW" -v online="$(msg_presence)" -v sf="$TXROOT/seen" '
     function human(n) { if (n ~ /-[A-Za-z0-9]+$/) sub(/-[A-Za-z0-9]+$/, "", n); return n }
-    BEGIN { while ((getline l < sf) > 0) { split(l, fl, " "); if (fl[1] == "S") seen[fl[2]] = fl[3] + 0; else if (fl[1] == "L") last[fl[2]] = fl[3] + 0 } }
+    BEGIN { while ((getline l < sf) > 0) { split(l, fl, " "); if (fl[1] == "S") seen[fl[2]] = fl[3] + 0; else if (fl[1] == "L") last[fl[2]] = fl[3] + 0; else if (fl[1] == "A") away[fl[2]] = 1 } }
     /^- [0-9]/ {
       n = substr($1, 3) + 0
       if (now - $2 > 86400 || $5 !~ /^(review|request|reject|contract|approve)$/) next
@@ -196,8 +201,8 @@ msg_orphans() {
       for (i = 1; i <= k; i++) {
         if (t[i] !~ /^agent:/) continue
         x = substr(t[i], 7)
-        if (x == me || human(x) != human(me) || now - seen[x] <= online || n <= last[x] + 0) continue
-        if (seen[x] > $2) continue            # it was seen after the message: it had its chance
+        if (x == me || human(x) != human(me) || (now - seen[x] <= online && !(x in away)) || n <= last[x] + 0) continue
+        if (seen[x] > $2 && !(x in away)) continue      # it was seen after the message: it had its chance
         line[++c] = sprintf("  #%d · for %s (offline %d min) · %s %s · %s", n, x, (now - seen[x]) / 60, $5, $6, substr($7, 1, 110))
       }
     }
@@ -284,14 +289,14 @@ msg_resolve_targets() {
       # is told. Why (MLB hackathon): 26 requests and review offers went to identities that never came back.
       local seen c held=
       seen=$(msg_seen "$name")
-      if [ $((NOW - seen)) -gt "$(msg_presence)" ]; then
+      if [ $((NOW - seen)) -gt "$(msg_presence)" ] || msg_away "$name"; then
         for c in "$TX"/claims/*.md; do
           [ -f "$c" ] && [ "$(field "$c" Owner)" = "$name" ] || continue
           printf 'task:%s\n' "$(field "$c" ID)"; held="$held $(field "$c" ID)"
         done
         if [ "$seen" -eq 0 ]; then printf '%s\n' "$name has never been seen on claims (a typo?)." >> "$TXROOT/msg-note"
-        elif [ -n "$held" ]; then printf '%s\n' "$name was last seen $(( (NOW - seen) / 60 )) min ago: also sent to its task$held, so whoever takes it over reads it." >> "$TXROOT/msg-note"
-        else printf '%s\n' "$name was last seen $(( (NOW - seen) / 60 )) min ago and holds no task: it waits in its inbox. To reach someone working now: uak msg all, a task ID, or human." >> "$TXROOT/msg-note"; fi
+        elif [ -n "$held" ]; then printf '%s\n' "$name $(msg_away "$name" && printf 'closed its session' || printf 'was last seen %s min ago' $(( (NOW - seen) / 60 ))): also sent to its task$held, so whoever takes it over reads it." >> "$TXROOT/msg-note"
+        else printf '%s\n' "$name $(msg_away "$name" && printf 'closed its session' || printf 'was last seen %s min ago' $(( (NOW - seen) / 60 ))) and holds no task: it waits in its inbox. To reach someone working now: uak msg all, a task ID, or human." >> "$TXROOT/msg-note"; fi
       fi;;
   esac
 }
