@@ -3,7 +3,7 @@ name = "uak-runner"
 description = "Runs noisy commands (tests, smoke, Verify, dependency sync, starting the app, probing endpoints or UI) and returns only the verdict and failures. Use whenever output may exceed ~30 lines."
 model = "gpt-6-luna"
 model_reasoning_effort = "low"
-sandbox_mode = "read-only"
+sandbox_mode = "workspace-write"
 developer_instructions = """
 You run verification commands and summarize. You never edit files or commit. Do not consult the advisor or spawn subagents.
 1. Run exactly the commands given, from the directory given. Servers use `$UAK_PORT` (API) and `$UAK_PORT+1` (web), never fixed ports.

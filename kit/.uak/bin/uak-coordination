@@ -190,6 +190,7 @@ coord_tick_mutate() {
       coord_put "$coord_q" State INTEGRATED; coord_put "$coord_q" Updated "$NOW"
     fi
   done
+  if typeset -f msg_reoffer_reviews >/dev/null 2>&1; then msg_reoffer_reviews; fi
   if typeset -f merge_tick_lock >/dev/null 2>&1; then merge_tick_lock; fi
 }
 coord_threshold() {
@@ -270,6 +271,9 @@ coord_event() {
   if [ ! -f "$coord_af" ]; then
     printf '%s\n' "# $AGENT" "Agent: $AGENT" "Started: $NOW" "Events: 0" "Events-Since-Checkpoint: 0" "Checkpoints: 0" "Sessions: 0" "Last-Checkpoint: 0" > "$coord_af"
   fi
+  # Whose agent this is (from the worktree): presence and reviewer choice tell humans from agents with it.
+  coord_h=${UAK_AGENT_HUMAN:-}
+  if [ -n "$coord_h" ] && [ "$coord_h" != "$AGENT" ] && [ "$(coord_read "$coord_af" Human)" != "$coord_h" ]; then coord_put "$coord_af" Human "$coord_h"; fi
   coord_sf="$TX/meta/sessions/agent-$AGENT/session-$coord_sid.md"
   if [ ! -f "$coord_sf" ]; then
     printf '%s\n' "# Observed session" "Agent: $AGENT" "Session: $coord_sid" "Started: $NOW" "Events: 0" "Checkpoints: 0" > "$coord_sf"
@@ -405,8 +409,38 @@ coord_candidate() {
   done
   return 0
 }
+# "ID PR" of the review this agent should do: one offered to it by name first, then any REVIEW task of another
+# owner with no verdict on its tip and nobody reviewing that SHA right now.
+coord_review_candidate() {
+  local f rid rv tip lk lu mine= any=
+  [ -n "$AGENT" ] || return 0
+  for f in "$TX"/claims/*.md; do
+    [ -f "$f" ] || continue
+    [ "$(coord_read "$f" State)" = REVIEW ] && [ "$(coord_read "$f" Owner)" != "$AGENT" ] || continue
+    rid=$(coord_read "$f" ID); rv="$TX/reviews/$rid.md"
+    tip=$(coord_read "$TX/tasks/$rid.md" Task-Tip)
+    # A SHA that already has a verdict needs a merge or a fix, not a second reviewer (Reap: HACK-005 approved 7 times).
+    [ ! -f "$rv" ] || [ "$(coord_read "$rv" SHA)" != "$tip" ] || continue
+    lk="$TX/reviews/$rid.reviewing"
+    if [ -f "$lk" ] && [ "$(coord_read "$lk" Reviewer)" != "$AGENT" ]; then
+      lu=$(coord_read "$lk" Until | tr -cd '0-9')
+      [ "$NOW" -ge "${lu:-0}" ] || [ "$(coord_read "$lk" SHA)" != "$tip" ] || continue
+    fi
+    [ -n "$any" ] || any="$rid $(coord_read "$f" PR)"
+    if [ -z "$mine" ] && awk -F' [|] ' -v id="$rid" -v me="agent:$AGENT" '/^- [0-9]/ && $5 == "review" && $6 == id { to = $4 } END { exit !(index("," to ",", "," me ",")) }' "$TX/$MSG_LOG" 2>/dev/null; then
+      mine="$rid $(coord_read "$f" PR)"
+    fi
+  done
+  printf '%s' "${mine:-$any}"
+}
 coord_next() {
   [ -z "$AGENT" ] || identity
+  # Each worktree runs the kit copy of its own branch: a branch from before an upgrade keeps the old engine.
+  # Why (MLB hackathon): 37 black box events came from v4.2.1 days after main moved to v5.0.0.
+  coord_kv=$(git -C "$TX" show refs/uak/config:.uak/VERSION 2>/dev/null | tr -d '\r')
+  coord_lv=$(tr -d '\r' < "$UAK_BIN/../VERSION" 2>/dev/null)
+  [ -z "$coord_kv" ] || [ -z "$coord_lv" ] || [ "$coord_kv" = "$coord_lv" ] ||
+    say "KIT: this worktree runs uak $coord_lv; $BASE has $coord_kv. Get its fixes: git fetch origin && git merge origin/$BASE"
   coord_found=
   for coord_state in CLAIMED BLOCKED REVIEW; do
     for coord_f in "$TX"/claims/*.md; do
@@ -424,7 +458,14 @@ coord_next() {
     mem_for_task "$ID"
     freeze_warning
     coord_until=$(coord_read "$RECORD" Lease-Until)
-    if [ "$NOW" -ge "$coord_until" ]; then say "LEASE EXPIRED: read status --task $ID --summary; recover with its token before editing."; fi
+    if [ "$NOW" -ge "$coord_until" ] && [ "$(coord_read "$RECORD" State)" != REVIEW ]; then say "LEASE EXPIRED: read status --task $ID --summary; recover with its token before editing."; fi
+    # Waiting on your own review is idle time: review someone else meanwhile. Why (MLB hackathon): agents in
+    # REVIEW got only their own task from next, while 22 messages asked around for a reviewer.
+    if [ "$(coord_read "$RECORD" State)" = REVIEW ]; then
+      coord_rc=$(coord_review_candidate)
+      [ -z "$coord_rc" ] || say "Meanwhile (yours waits on its review): review ${coord_rc#* } of ${coord_rc%% *}: /uak-review ${coord_rc%% *}"
+    fi
+    msg_orphans
     coord_status_budget
     [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"
     return 0
@@ -449,8 +490,9 @@ coord_next() {
           load_task
           say "$ID | AVAILABLE | $PRIORITY"
           say "Next: $DEFAULT_NEXT"; say "Verify: $VERIFY"; say "Paths: $PATHS"
-          say "Before editing: bash .uak/bin/wt new $ID --agent ${AGENT:-NAME} (branch + worktree + claim)."
+          say "Before editing: bash .uak/bin/wt new $ID${AGENT:+ --agent $AGENT} (branch + worktree + claim)."
           mem_for_task "$ID"
+          msg_orphans
           coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"
           return 0
         fi
@@ -478,23 +520,13 @@ coord_next() {
     say "Idle: $coord_rid is approved ($(( (NOW - coord_rt) / 60 )) min ago) and its owner $(coord_read "$coord_f" Owner) has not merged it: bash .uak/bin/uak merge $coord_rid"
     coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"; return 0
   done
-  for coord_f in "$TX"/claims/*.md; do
-    [ -f "$coord_f" ] || continue
-    [ "$(coord_read "$coord_f" State)" = REVIEW ] && [ "$(coord_read "$coord_f" Owner)" != "$AGENT" ] || continue
-    coord_rid=$(coord_read "$coord_f" ID); coord_rv="$TX/reviews/$coord_rid.md"
-    # A SHA that already has an approval needs a merge, not a second reviewer (Reap: HACK-005 approved 7 times).
-    coord_tip=$(coord_read "$TX/tasks/$coord_rid.md" Task-Tip)
-    if [ -f "$coord_rv" ] && [ "$(coord_read "$coord_rv" Verdict)" = approve ] &&
-       [ "$(coord_read "$coord_rv" SHA)" = "$coord_tip" ]; then continue; fi
-    # Someone else is reviewing it right now (uak review ID --start).
-    coord_lk="$TX/reviews/$coord_rid.reviewing"
-    if [ -f "$coord_lk" ] && [ "$(coord_read "$coord_lk" Reviewer)" != "$AGENT" ]; then
-      coord_lu=$(coord_read "$coord_lk" Until | tr -cd '0-9')
-      [ "$NOW" -ge "${coord_lu:-0}" ] || [ "$(coord_read "$coord_lk" SHA)" != "$coord_tip" ] || continue
-    fi
-    say "Idle: review PR $(coord_read "$coord_f" PR) of $coord_rid (not yours; no approval or reviewer on its SHA yet): /uak-review $coord_rid"
+  coord_rc=$(coord_review_candidate)
+  if [ -n "$coord_rc" ]; then
+    msg_orphans
+    say "Idle: review ${coord_rc#* } of ${coord_rc%% *} (not yours; no verdict or reviewer on its SHA yet): /uak-review ${coord_rc%% *}"
     coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"; return 0
-  done
+  fi
+  msg_orphans
   if [ "$coord_freeze" -gt 0 ] && [ "$NOW" -ge "$coord_freeze" ]; then
     say 'Idle after freeze: rehearse the demo (/uak-demo), check the submission, then stop. Do not poll uak next; a message will reach you.'
   else

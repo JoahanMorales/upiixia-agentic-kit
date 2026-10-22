@@ -17,7 +17,15 @@ jobs:
       - name: Secrets in tracked files
         run: bash .uak/bin/secret-scan --tracked
       - name: Kit syntax
-        run: for f in .uak/bin/* .uak/bin/lib/*.sh; do [ -f "$f" ] && bash -n "$f"; done
+        # Shell scripts only (by shebang): .uak/bin/uak-mcp is Python. Why (MLB hackathon): bash -n on it failed
+        # every product PR after the v5 upgrade.
+        run: |
+          for f in .uak/bin/* .uak/bin/lib/*.sh; do
+            [ -f "$f" ] || continue
+            case "$f" in *.sh) bash -n "$f"; continue;; esac
+            if head -n 1 "$f" | grep -qE '^#!.*(bash|/sh|[[:space:]]sh)([[:space:]]|$)'; then bash -n "$f"; fi
+          done
+          python3 -c 'import ast, sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())' .uak/bin/uak-mcp
       - name: Backlog graph (no cycles, no unknown deps)
         run: if [ -f .uak/TASKS.md ]; then bash .uak/bin/graph --file .uak/TASKS.md; fi
       - name: Product smoke

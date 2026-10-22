@@ -1,5 +1,18 @@
 # Changelog
 
+## v5.1.0 · 2026-10-22 · Delivery: nothing waits on a closed session
+The second MLB autopsy ([the v5 week](docs/blackbox/mlb-2026-10-week2.md)): 67 review offers went to one named
+agent and that agent gave 14 of the verdicts; 28 messages over the event reached identities that never came back.
+- **Presence.** Each identity's last event, inbox read or message on claims. The reviewer pick prefers agents seen in the last 30 min (`Presence-Seconds`), then the last 3 h; a human's bare name never reviews.
+- **Review offers move on.** An offer nobody starts within 15 min (`Review-Offer-Seconds`) goes to another agent on anyone's next `status`/`next`, from the scheduler, saying why; a live review lock holds it; after 3 offers it goes to `all`. `next` suggests a review while your own task waits in REVIEW.
+- **Messages to offline identities.** They also reach the identity's live tasks and the sender gets a NOTE (a never-seen name is flagged as a typo). `next` lists unread requests and reviews that reached your offline identities; the same human's live identity may hand over a task whose owner has been offline for 1 h.
+- **One identity per agent, reused.** `wt new ID` without `--agent` reuses this machine's identity with no claim, or takes the next number (`git config uak.name` sets the prefix). The MCP `uak_claim` no longer needs `agent`.
+- **Human authority only from the shell.** Worktrees write `UAK_AGENT_HUMAN` (recorded for presence), not `UAK_HUMAN`; an older `.uak-env` is read the same way. Run `wt session` in an old worktree to refresh Claude's `settings.local.json`.
+- **Merges.** An approval survives the PR's own merge commit after "merge on GitHub, then pull main" (the carried parent is the one containing the approved SHA). Follow-ups work on the paths their parent owns in OWNERS.md. The merge candidate links the worktree's `node_modules` when the lockfile is identical (a junction on Windows, removed before cleanup), else `npm ci`.
+- **Reliability.** No uak call waits forever: without a terminal, git and ssh never prompt, connect in 15 s and drop a dead link in ~30 s. A sandbox that forbids git in the system temp dir gets one inside `.git`. `next` says when the worktree runs an older kit than the base.
+- **Fixes.** The product CI checks shell files by shebang and parses `uak-mcp` as Python (bash -n on it failed every PR); `install.sh --update` keeps `.uak/bin/smoke-project`; Cursor and Codex reviewer/runner subagents can run Verify; `done` refuses a GitHub PR link to another repository; `msg impact:ID` with no importers is OK; `tasks`, `task ID`, `show ID`, `backlog`, `status --verbose` work; the guard no longer reads an uppercase `-D…` inside a clone URL as `branch -D`.
+- `test_v51.py`: 9 scenarios, one per failure (123 tests in all).
+
 ## v5.0.0 · 2026-10-15 · 5x faster, a code graph, team memory, the real bill
 v5 folds in v4.3 (the MLB autopsy, below; it was never published separately) and closes most of the roadmap.
 - **Speed: one network round trip per call.** One fetch brings claims and the base config together (no `ls-remote` prechecks); OpenSSH connection reuse for ssh remotes (`ControlMaster`, off on Windows and with a custom ssh command; `UAK_SSH_MUX=off`); the GitHub clock check is cached for an hour; `next` drops taken and blocked tasks before its gates. Measured on GitHub against a real 36-task repo: `next` 10.4–12.2 s → 1.5–2.1 s, `status` 7.3–9.2 s → 1.7 s; a round trip 1.2 s → 0.4 s.

@@ -3,7 +3,7 @@ name = "security-reviewer"
 description = "(marathon) Security review of PRs touching auth, personal data, payments, uploads, permissions, dependencies, LLM calls or external calls. Use in /uak-ship and /uak-review for those areas."
 model = "gpt-6-astra"
 model_reasoning_effort = "high"
-sandbox_mode = "read-only"
+sandbox_mode = "workspace-write"
 developer_instructions = """
 You are an AppSec reviewer. You never edit code. Do not spawn subagents. Read the branch's full diff and the threat model in `docs/specs/*/plan.md`.
 Check each item and cite `file:line`:

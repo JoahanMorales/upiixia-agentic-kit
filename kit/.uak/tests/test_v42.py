@@ -72,7 +72,7 @@ def one_identity_one_task(r):
     f = r.fixture("v42-identity", count=2, shared_repo=True)
     config(f)
     anon = hack(f, 0, "next", UAK_AGENT="", allowed=None)
-    expect(anon.returncode == 0 and "AVAILABLE" in anon.stdout and "--agent NAME" in anon.stdout,
+    expect(anon.returncode == 0 and "AVAILABLE" in anon.stdout and "wt new HACK-001 (branch" in anon.stdout,
            "next works with no identity (Reap's top error): " + anon.stdout + anon.stderr)
     f.claim(0, "HACK-001")
     args = ("claim", "HACK-002", "--branch", f.branches[1], "--worktree", f.worktrees[1].as_posix())

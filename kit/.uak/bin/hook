@@ -128,11 +128,11 @@ case "${1:-}" in
     if [ "$same_agent" = no ] && [ -n "$sid" ] && [ -s "$gd/uak-live" ] && fresh "$gd/uak-live" 3; then
       other=$(awk '{print $1}' "$gd/uak-live" 2>/dev/null)
       [ -z "$other" ] || [ "$other" = "$sid" ] ||
-        printf '%s\n' "UAK WARNING: another agent session used this worktree less than 3 min ago. Two writers in one worktree overwrite each other: stop one of them, or start a new task with bash .uak/bin/wt new ID --agent NAME."
+        printf '%s\n' "UAK WARNING: another agent session used this worktree less than 3 min ago. Two writers in one worktree overwrite each other: stop one of them, or start a new task with bash .uak/bin/wt new ID."
     fi
     [ -z "$sid" ] || printf '%s %s\n' "$sid" "$(date +%s)" > "$gd/uak-live" 2>/dev/null
     if [ -z "$agent" ]; then
-      printf '%s\n' "UAK: checkout without .uak-env (planning/human). To implement: bash .uak/bin/uak next, then bash .uak/bin/wt new ID --agent NAME."
+      printf '%s\n' "UAK: checkout without .uak-env (planning/human). To implement: bash .uak/bin/uak next, then bash .uak/bin/wt new ID."
       # The human sees their queue (merges, decisions, messages) unasked.
       git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 && bash .uak/bin/uak digest 2>/dev/null | head -n 25
       tmpl card

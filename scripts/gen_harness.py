@@ -38,6 +38,17 @@ def readonly(meta):
     return "Edit" in meta.get("disallowedTools", "")
 
 
+# Agents that never edit but must run commands (tests, the app, Verify, `uak review`, which pushes to claims).
+# Cursor's readonly and Codex's read-only sandbox forbid that, so they get a normal mode and their prompt keeps
+# them from editing. Why (MLB hackathon): Cursor's uak-reviewer stayed in Ask mode, could not run Verify and
+# released the review lock.
+EXECUTES = {"uak-runner", "uak-reviewer", "design-critic", "security-reviewer"}
+
+
+def no_exec(meta):
+    return readonly(meta) and meta.get("name") not in EXECUTES
+
+
 def toml_str(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -45,7 +56,7 @@ def toml_str(s):
 def codex(meta, body, tier):
     model, effort, _, _ = TIERS[tier]
     effort = {"low": "low", "medium": "medium", "high": "high"}.get(meta.get("effort", ""), effort)
-    sandbox = "read-only" if readonly(meta) else "workspace-write"
+    sandbox = "read-only" if no_exec(meta) else "workspace-write"
     body = body.rstrip()
     return "\n".join([
         "# " + HEADER.format(name=meta["name"]),
@@ -64,7 +75,7 @@ def codex(meta, body, tier):
 def cursor(meta, body, tier):
     model = TIERS[tier][2]
     lines = ["---", f"name: {meta['name']}", f"description: {meta['description']}", f"model: {model}"]
-    if readonly(meta):
+    if no_exec(meta):
         lines.append("readonly: true")
     lines += ["---", f"<!-- {HEADER.format(name=meta['name'])} -->", body]
     return "\n".join(lines)

@@ -16,8 +16,12 @@ hack_env_file="$(git rev-parse --show-toplevel 2>/dev/null)/.uak-env"
 if [ -f "$hack_env_file" ]; then
   while IFS='=' read -r hack_key hack_value || [ -n "$hack_key" ]; do
     case "$hack_key" in
-      UAK_AGENT|UAK_HUMAN|UAK_SESSION|UAK_TASK)
+      UAK_AGENT|UAK_HUMAN|UAK_AGENT_HUMAN|UAK_SESSION|UAK_TASK)
         case "$hack_value" in ''|*[!A-Za-z0-9_.-]*) continue;; esac
+        # The worktree names its agent's human, but that grants no human authority (allow, plan, handover of
+        # others' tasks, retire, register-reviewer): only an explicit UAK_HUMAN in the shell does. Why: every agent
+        # in a task worktree inherited UAK_HUMAN from .uak-env and could pass the human-only gates.
+        case "$hack_key" in UAK_HUMAN|UAK_AGENT_HUMAN) [ -n "${UAK_AGENT_HUMAN:-}" ] || export "UAK_AGENT_HUMAN=$hack_value"; continue;; esac
         hack_current=$(eval "printf '%s' \"\${$hack_key:-}\"")
         # Identity and task of a worktree win over an inherited shell export (UpiixSol: a lead's exported
         # UAK_AGENT made a subagent's claim land under the lead's name). UAK_ENV_OVERRIDE=1 keeps the export.
@@ -37,6 +41,15 @@ HUMAN=${UAK_HUMAN:-}
 ROOT= TX= TXROOT= NOW=
 CMD=${1:-help}
 [ "$#" -eq 0 ] || shift
+# The names agents guessed for existing commands. Why (MLB hackathon): tasks, task, show, backlog and
+# status --verbose/--available were errors, each followed by a retry.
+case "$CMD" in
+  tasks|backlog) CMD=status;;
+  task|show) CMD=status; [ "$#" -eq 0 ] || case "$1" in -*) ;; *) set -- --task "$@";; esac;;
+esac
+if [ "$CMD" = status ] || [ "$CMD" = next ]; then
+  for a in "$@"; do shift; case "$a" in --verbose|-v) set -- "$@" --full;; --available|--all) ;; *) set -- "$@" "$a";; esac; done
+fi
 say() { printf '%s\n' "$*"; }
 UAK_BIN=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # Black box (.uak/docs/BLACKBOX.md): every error is also recorded locally; flushed later in one push.
@@ -88,7 +101,18 @@ identity() {
 cleanup() {
   # Why: only the temp dir created by this invocation is removed.
   if [ -n "$TXROOT" ] && [ -n "${TMP_BASE:-}" ]; then
-    case "$TXROOT" in "$TMP_BASE"/hack.??????) rm -rf "$TXROOT";; esac
+    case "$TXROOT" in "$TMP_BASE"/hack.??????)
+      # Links into real node_modules go first, so the recursive delete can never follow one into its target.
+      if [ -f "$TXROOT/gate-links" ]; then
+        while IFS= read -r l; do
+          case "$(uname -s 2>/dev/null)" in
+            MINGW*|MSYS*|CYGWIN*) cmd //c rmdir "$(cygpath -w "$l")" >/dev/null 2>&1 || rm -f "$l";;
+            *) rm -f "$l";;
+          esac
+        done < "$TXROOT/gate-links"
+      fi
+      rm -rf "$TXROOT";;
+    esac
   fi
 }
 trap cleanup EXIT
@@ -235,12 +259,22 @@ owner_rows() {
       if(q ~ /^[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+$/) print p "|" q
     }}' "$OWNERS"
 }
+# The task itself, or a task it follows up (the "Follow-up of" chain): a follow-up works on its parent's owned paths.
+# Why (MLB hackathon): 4 black box notes; every `uak followup` of a task that owned paths in OWNERS.md was refused.
+owner_is_self() {
+  local id=$ID i=0
+  while [ -n "$id" ] && [ "$i" -lt 6 ]; do
+    [ "$1" != "$id" ] || return 0
+    id=$(ID=$id task_field "Follow-up of" | grep -Eo '^[A-Z][A-Z0-9]*-[0-9]+' | head -n 1); i=$((i + 1))
+  done
+  return 1
+}
 check_owners() {
   owner_rows > "$TXROOT/owners"
   while IFS='|' read -r pat owner; do
     [ -n "$pat" ] || continue
     normalize_paths "$pat" > "$TXROOT/owner-paths" || die "Invalid OWNERS pattern: $pat"
-    if overlaps "$TXROOT/paths-request" "$TXROOT/owner-paths" && [ "$owner" != "$ID" ]; then
+    if overlaps "$TXROOT/paths-request" "$TXROOT/owner-paths" && ! owner_is_self "$owner"; then
       conflict "$pat belongs to $owner; split the work or request its contract."
     fi
   done < "$TXROOT/owners"
@@ -251,7 +285,7 @@ check_owners() {
         printf '%s\n' "$path" > "$TXROOT/one-path"
         while IFS='|' read -r pat owner; do
           normalize_paths "$pat" > "$TXROOT/owner-paths" || die "Invalid OWNERS."
-          if overlaps "$TXROOT/one-path" "$TXROOT/owner-paths" && [ "$owner" = "$ID" ]; then assigned=yes; fi
+          if overlaps "$TXROOT/one-path" "$TXROOT/owner-paths" && owner_is_self "$owner"; then assigned=yes; fi
         done < "$TXROOT/owners"
         [ "$assigned" = yes ] || conflict "Shared resource without an owner in OWNERS.md: $path"
         ;;
@@ -282,6 +316,16 @@ fresh_state() {
   init_try=0
   until git -C "$TX" init -q 2> "$TXROOT/init-error"; do
     init_try=$((init_try + 1))
+    # A sandbox that forbids git in the system temp dir (Codex on macOS: "Operation not permitted" in /var/folders)
+    # gets a temp dir inside the repo's own .git. Why (MLB hackathon): 12 tick/next/status/inbox calls failed this way.
+    if [ "$init_try" -ge 2 ] && [ -z "${UAK_TMP_FALLBACK:-}" ] && grep -qi 'not permitted\|permission denied\|read-only' "$TXROOT/init-error"; then
+      UAK_TMP_FALLBACK="$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null)/uak-tmp"
+      if mkdir -p "$UAK_TMP_FALLBACK" 2>/dev/null && fb_root=$(mktemp -d "$UAK_TMP_FALLBACK/hack.XXXXXX" 2>/dev/null); then
+        case "$TXROOT" in "$TMP_BASE"/hack.??????) rm -rf "$TXROOT";; esac
+        TMP_BASE=$(cd "$UAK_TMP_FALLBACK" && pwd -P); TXROOT=$(cd "$fb_root" && pwd -P); TX="$TXROOT/try-$ATTEMPT"
+        mkdir "$TX" || gitfail "Cannot create transaction."; init_try=0; continue
+      fi
+    fi
     [ "$init_try" -lt 3 ] || gitfail "git init failed in $TX: $(head -n 1 "$TXROOT/init-error"). Check TMPDIR (now ${TMPDIR:-/tmp}) is writable, or set TMPDIR to another folder."
     sleep "$init_try"; rm -rf "$TX"; mkdir "$TX" || gitfail "Cannot create transaction."
   done
@@ -391,7 +435,7 @@ check_collisions() {
         other_until=$(field "$other" Lease-Until)
         case "$other_until" in ''|*[!0-9]*) other_until=0;; esac
         [ "$NOW" -ge "$other_until" ] ||
-          conflict "$AGENT already holds $(field "$other" ID) ($(field "$other" State)). One identity = one live task: finish or release it, or start another agent with its own name (wt new $ID --agent $AGENT-b).";;
+          conflict "$AGENT already holds $(field "$other" ID) ($(field "$other" State)). One identity = one live task: finish or release it, or or let another agent take it: bash .uak/bin/wt new $ID (picks a free identity of this machine).";;
       esac
     fi
     if [ "$(field "$other" Branch)" = "$BRANCH" ] || [ "$(field "$other" Worktree)" = "$WORKTREE" ]; then
@@ -515,8 +559,12 @@ handover_mutate() {
   [ -f "$CLAIM" ] && [ -f "$RECORD" ] || conflict "$ID has no claim to hand over."
   owner=$(field "$CLAIM" Owner); until=$(field "$CLAIM" Lease-Until); case "$until" in ''|*[!0-9]*) until=0;; esac
   [ "$DONE_TO" != "$owner" ] || conflict "$ID already belongs to $DONE_TO."
+  # Also another identity of the same human once the owner has been offline for 1 h: a human's closed session must
+  # not strand its task in review (MLB: verdicts and requests reached closed identities while the same human ran a live one).
+  local seen_o; seen_o=$(msg_seen "$owner")
   [ "$owner" = "$AGENT" ] || [ -n "$HUMAN" ] || [ "$NOW" -ge "$until" ] ||
-    conflict "$ID belongs to $owner with a live lease: only $owner or a human (UAK_HUMAN) can hand it over."
+    { [ "${owner%-*}" = "${AGENT%-*}" ] && [ $((NOW - seen_o)) -ge 3600 ]; } ||
+    conflict "$ID belongs to $owner with a live lease: only $owner, a human (UAK_HUMAN) or another identity of the same human after 1 h offline can hand it over."
   [ ! -f "$TX/meta/retired/$DONE_TO.md" ] || conflict "$DONE_TO is retired; a claim by $DONE_TO brings it back, a handover does not."
   if [ "${UAK_MULTI_CLAIM:-}" != 1 ]; then
     for c in "$TX"/claims/*.md; do
@@ -1241,6 +1289,15 @@ if [ "$CMD" = checkpoint ]; then
 fi
 if [ "$CMD" = done ]; then
   case "$PR_URL" in https://*/*) ;; *) die "done needs --pr HTTPS URL.";; esac
+  # A GitHub PR URL must name this repository. Why (MLB hackathon): two tasks shipped with a PR link to another of
+  # the human's repositories; reviewers opened the wrong compare page.
+  pr_remote=$(git -C "$ROOT" config --get "remote.$REMOTE.url" 2>/dev/null || true)
+  case "$pr_remote:$PR_URL" in
+    *github.com*:https://github.com/*)
+      pr_repo=$(printf '%s' "$pr_remote" | sed 's@^git\@github.com:@@;s@^https://github.com/@@;s@^ssh://git\@github.com/@@;s@\.git$@@' | tr 'A-Z' 'a-z')
+      pr_url_repo=$(printf '%s' "${PR_URL#https://github.com/}" | cut -d/ -f1-2 | tr 'A-Z' 'a-z')
+      [ "$pr_repo" = "$pr_url_repo" ] || die "--pr names github.com/$pr_url_repo, but this repository is github.com/$pr_repo. The right link: bash .uak/bin/wt pr";;
+  esac
   [ -n "$EVIDENCE" ] || die "done needs --evidence."
   if [ -n "$REVIEWER" ]; then
     case "$REVIEWER" in *[!A-Za-z0-9_.-]*) die "Reviewer must be a valid identity.";; esac
@@ -1279,6 +1336,7 @@ case "$CMD" in
   inbox) msg_inbox_run; exit "$?";;
   wait) wait_run; exit "$?";;
   recall) recall_run; exit "$?";;
-  msg) QUIET=yes; transaction; say "OK msg $MSG_SENT";;
+  msg) QUIET=yes; transaction; say "OK msg $MSG_SENT"
+    [ ! -s "$TXROOT/msg-note" ] || sed 's/^/NOTE: /' "$TXROOT/msg-note" | awk '!seen[$0]++';;
   *) [ "$CMD" != tick ] || AGENT=${AGENT:-scheduler}; transaction;;
 esac

@@ -65,7 +65,7 @@ if [ "$assign" = yes ]; then
       else if (s ~ /^Paths:/) { sub(/^Paths:[[:space:]]*/, "", s); paths[cur] = s }
       else if (s ~ /^Depends on:/) { sub(/^Depends on:[[:space:]]*/, "", s); gsub(/\([^)]*\)/, "", s); deps[cur] = s } }
     END {
-      printf "ASSIGN suggestion (each agent still claims: bash .uak/bin/wt new ID --agent NAME)\n"
+      printf "ASSIGN suggestion (each agent still claims: bash .uak/bin/wt new ID)\n"
       for (p = 0; p <= 2; p++) for (i = 1; i <= n; i++) { t = order[i]; if (pri[t] != "P" p) continue
         if (st[t] != "" && st[t] != "AVAILABLE") continue
         ok = 1; s = deps[t]; while (match(s, /[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+/)) { d = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH); if (st[d] != "INTEGRATED") ok = 0 }

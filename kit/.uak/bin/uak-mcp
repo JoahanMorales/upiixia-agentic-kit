@@ -102,9 +102,9 @@ TOOLS = [
      lambda a: ["uak", "status"] + (["--task", a["task"]] if a.get("task") else []) + (["--summary"] if a.get("summary") else []) + ["--full"], 60, False),
     ("uak_claim", "Take a task: creates its branch and worktree, writes the worktree identity and claims it. Use before "
      "editing any file of a task; then work only inside the worktree path it prints (cd there in your shell). "
-     "One identity holds one live task.",
-     obj({"task": TASK, "agent": AGENT}, ["task", "agent"]), ann("Claim a task", False, False),
-     lambda a: ["wt", "new", a["task"], "--agent", a["agent"]], 120, False),
+     "One identity holds one live task; without agent it reuses this machine's free identity or takes the next number.",
+     obj({"task": TASK, "agent": AGENT}, ["task"]), ann("Claim a task", False, False),
+     lambda a: ["wt", "new", a["task"]] + (["--agent", a["agent"]] if a.get("agent") else []), 120, False),
     ("uak_ship", "Ship a task for review after its Verify passes and the branch is pushed: records the PR and the evidence "
      "and asks one reviewer (the rejecter of the last SHA first). Then call uak_wait for the verdict. It warns when your "
      "diff changes files that other live tasks import and you sent no contract.",

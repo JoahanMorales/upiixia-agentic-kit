@@ -1,4 +1,4 @@
-# Agent rules · UPIIXIA Agentic Kit (uak v5)
+# Agent rules · UPIIXIA Agentic Kit (uak v5.1)
 
 Core rules for every agent and harness. Read once per session.
 Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); also read `.uak/modes/<mode>.md`. The human picks the mode at install; never choose, infer or change it.
@@ -15,7 +15,7 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 
 ## 2. Start in under 60 s
 1. Run `uak next` (Claude Code injects it at session start) and follow its `Next`.
-2. New task: `bash .uak/bin/wt new ID --agent NAME`. It creates branch + worktree + identity + port + claim. Work only inside that worktree. One identity = one live task: a second agent needs its own name.
+2. New task: `bash .uak/bin/wt new ID`. It creates branch, worktree, identity, port, claim and reuses a free identity. Work only inside that worktree. One identity = one live task.
 3. New session in the same worktree: `bash .uak/bin/wt session`.
 4. Don't ask what `next`, the task or the code already answers. Ask only for authorization.
 
@@ -47,7 +47,7 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 3. Keep messages to 3 lines or fewer, with SHA, file or command. No greetings, no recaps, no acks ("received", "ok"): `uak inbox --ack` is the ack. Plain words, never glued ones.
 4. Targets: `ID`, `related:ID`, `impact:ID`, `NAME`, `all`, `human`, or a comma list. Humans get one `uak digest`.
 5. Identities: agents use their own name (`ana-1`); humans use `UAK_HUMAN`. No "coordinator" agent speaks for a human: the human runs `uak allow` or `uak decision` personally. Closing an agent for good: `uak retire NAME`. In the main checkout, prefix: `UAK_AGENT=NAME bash .uak/bin/uak …`.
-6. Reviewing: `uak review ID --start` first; if someone else is already reviewing that SHA, pick other work. Cannot finish: `uak review ID --stop`.
+6. Reviewing: `uak review ID --start` first; if someone else is already reviewing that SHA, pick other work. Cannot finish: `uak review ID --stop`. Unstarted offers move on in 15 min; never ask around for reviewers.
 7. A trap that will bite the next agent is `uak learn "what · where · what to do"`, not a message: `uak next` shows it to whoever works on those paths.
 
 ## 6. Context and tokens

@@ -191,7 +191,7 @@ bash .uak/bin/uak loop --verify "uv run pytest -q" --parallel 3 --each "uv run p
 
 - **Inner loop** (`/uak-loop`): implement → `q verify` → fix; 5 tries; the same error twice → BLOCKED with that error.
 - **Hook loops:** a heartbeat every lease/3 and a claims check every 20 s (inbox read only when it moved), in the background; `uak wait` instead of polling.
-- **Review loop:** `done` → reviewer by rotation → approve or reject → merge queue.
+- **Review loop:** `done` → an online reviewer by rotation → approve or reject → merge queue. An offer nobody starts in 15 min moves to another agent, then to all: nothing waits on a closed session.
 - **Deadline loop:** decisions resolve after 15 min (routine only), backlog P0s after 10 min, freeze on schedule.
 - Failures are fed back as a 40-line tail, never full logs. Agent output goes to a log file, never into your context.
 
@@ -280,7 +280,7 @@ model, harness and lead vs subagent; every machine publishes to the claims branc
 - Skills are installed **per mode**: each installed skill's description costs tokens in every session.
 - One task = one session, a 6-line handoff, and `/clear`. Compaction keeps only ID, next step, failures and commands.
 
-## Battle-tested: three team events
+## Battle-tested: four team runs
 
 Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and each event's data became a release:
 
@@ -289,6 +289,7 @@ Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and ea
 | Hack-Nation 2026 ([retro](docs/RETRO-hacknation-2026.md)) | 5 agents, 4 humans, 3 machines, 76 PRs in ~14 h | v3: guards, rotation, `uak plan`, mandatory freeze |
 | Reap buildathon ([autopsy](docs/blackbox/reap-2026-10.md)) | 4 h, 5 humans, 11 agents on Codex, Cursor and Claude Code | v4.2: scope on the current base, `uak clock`, `uak allow`, output cap, `= unchanged` |
 | MLB hackathon ([autopsy](docs/blackbox/mlb-2026-10.md)) | 10 days, 4 Windows laptops, 13 identities, 32 tasks integrated | v4.3/v5: merge by any agent, approvals that survive merges of main, Windows cap, `retire`, `followup` |
+| MLB, the v5 week ([autopsy](docs/blackbox/mlb-2026-10-week2.md)) | 6 more days on v5.0.0, 18 identities, 81 of 89 tasks integrated | v5.1: presence, review offers that move on, messages to offline identities reach their tasks, identity reuse, human authority only from the shell |
 
 Hack-Nation 2026 in detail:
 
@@ -303,7 +304,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**114 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
+**123 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
 
 ## Works with
 | Tool | How |
@@ -321,7 +322,7 @@ Mix them freely: coordination lives in Git, not in any tool.
 |---|---|
 | `uak demo` | see everything in 30 s |
 | `uak next` | what you should do now |
-| `wt new ID --agent NAME` | start a task (branch, worktree, port, claim) |
+| `wt new ID [--agent NAME]` | start a task (branch, worktree, port, claim); without `--agent` it reuses a free identity of this machine |
 | `uak loop --verify CMD [--parallel N --each CMD]` | bounded autonomous fix loop, one per failing file |
 | `uak graph [--mermaid \| --assign]` | backlog DAG: waves, critical path, cycles · who should take what |
 | `uak tokens [--team] [--by model]` | the real token bill per task, model, harness, lead vs subagent |

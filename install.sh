@@ -58,10 +58,16 @@ if [ -d "$target/.uak/bin" ] && [ "$update" = no ]; then
   say "The target already has .uak/. Use --update to refresh the engine." >&2; exit 2
 fi
 mkdir -p "$target/.uak"
+# The project's own smoke adapter lives in .uak/bin but is project data: an --update keeps it.
+# Why (MLB hackathon): an update deleted .uak/bin/smoke-project and its provenance; the team restored them by hand.
+keep=$(mktemp -d)
+for f in smoke-project .smoke-project.provenance; do [ ! -f "$target/.uak/bin/$f" ] || cp -p "$target/.uak/bin/$f" "$keep/$f"; done
 for part in bin docs modes templates tests settings stacks skills; do
   rm -rf "$target/.uak/$part"
   cp -R "$kit/.uak/$part" "$target/.uak/$part"
 done
+for f in smoke-project .smoke-project.provenance; do [ ! -f "$keep/$f" ] || { cp -p "$keep/$f" "$target/.uak/bin/$f"; say "  = .uak/bin/$f kept (project adapter)"; }; done
+rm -rf "$keep"
 cp "$kit/.uak/VERSION" "$target/.uak/VERSION"
 # Coach templates: copied on install; on --update they are refreshed too (they are engine text, not project data).
 cp "$kit/.uak/reminders.md" "$target/.uak/reminders.md"
@@ -135,7 +141,7 @@ cat <<EOF
 Done. Next:
   1. cd "$target" && bash .uak/bin/doctor
   2. Open Claude Code (or Codex / Cursor / Gemini CLI) there and run /uak-setup
-  3. /uak-plan → each agent: bash .uak/bin/wt new ID --agent NAME
+  3. /uak-plan → each agent: bash .uak/bin/wt new ID (reuses a free identity, or --agent NAME)
 Files ending in .uak-new: merge them by hand; the kit never overwrites yours.
 Codex: trust the project once so .codex/config.toml and .codex/hooks.json load (/hooks to review them).
 MCP server: $mcp. $( [ "$mcp" = on ] && echo "Claude Code asks once to approve 'uak'; declining it is fine: the CLI does the same." || echo "Agents use the uak CLI; reinstall without --no-mcp to add the native tools.")

@@ -47,7 +47,9 @@ check_bash() {
       block "git clean -f deletes untracked files (including .env). Delete your files one by one."
     printf '%s' "$s" | grep -Eq 'git[[:space:]].*worktree[[:space:]]+remove.*(--force|[[:space:]]-f([[:space:]]|$))' &&
       block "worktree remove --force loses uncommitted changes. Use bash .uak/bin/wt rm ID."
-    printf '%s' "$s" | grep -Eq 'git[[:space:]].*branch[[:space:]].*(-D|--delete[[:space:]]+--force)' &&
+    # `branch` must be the git subcommand and -D a flag of its own: "git clone --branch X …/app-DATA.git" is not a
+    # branch delete (MLB hackathon: a clone of the team repo was blocked).
+    printf '%s' "$s" | grep -Eq '(^|[[:space:]])git([[:space:]]+(-[Cc][[:space:]]+[^[:space:]]+|-[^[:space:]]+))*[[:space:]]+branch[[:space:]](.*[[:space:]])?(-[A-Za-z]*D[A-Za-z]*|--delete[[:space:]]+--force|--force[[:space:]]+--delete)([[:space:]]|$)' &&
       block "git branch -D: delete only your merged branches, with -d."
     printf '%s' "$s" | grep -Eq '(^|[[:space:]])--no-verify([[:space:]]|$)' &&
       block "--no-verify skips the pre-commit secret scanner."

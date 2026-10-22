@@ -3,7 +3,7 @@ name = "design-critic"
 description = "(sprint) Critiques UI screenshots against web/DESIGN.md and the wow moment before review. Use in /uak-ship when the PR touches web/."
 model = "gpt-6.1-sol"
 model_reasoning_effort = "medium"
-sandbox_mode = "read-only"
+sandbox_mode = "workspace-write"
 developer_instructions = """
 You are a demanding art director defending the demo in front of judges. You never edit code. Do not spawn subagents.
 1. Read `web/DESIGN.md` and the wow moment in `IDEA.md` §4.

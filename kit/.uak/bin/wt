@@ -11,7 +11,8 @@ say() { printf '%s\n' "$*"; }
 die() { say "WT_ERROR: $*" >&2; exit 2; }
 usage() {
   cat <<'USAGE'
-wt new ID [--agent NAME] [--human NAME] [--next TEXT]   create branch/worktree, write .uak-env, claim
+wt new ID [--agent NAME] [--human NAME] [--next TEXT]   create branch/worktree, write .uak-env, claim; without
+                                                        --agent: reuse this machine's free identity or the next one
 wt session                                                          rotate UAK_SESSION of this worktree (new session)
 wt rm ID                                                      remove your worktree (no --force; keeps the branch)
 wt stop [ID]                                                  stop the servers listening on this worktree's ports (exact PIDs)
@@ -27,6 +28,42 @@ port_pids() { # PIDs listening on a TCP port; empty if no tool is available
 }
 clean_id() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9_.-]+$'; }
 main_root() { git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'; }
+# This machine's identities (from its worktrees' .uak-env). wt new without --agent reuses a free one (no claim on
+# the claims branch, not retired), so its inbox and reviews stay under one name, or takes the next number of this
+# machine's prefix. Why (MLB hackathon): one human ran 8 identities (a bare name plus -1..-7) and reviews and requests
+# kept going to the ones whose sessions had closed.
+wt_machine_agents() {
+  git -C "$1" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | while IFS= read -r d; do
+    [ -f "$d/.uak-env" ] && sed -n 's/^UAK_AGENT=//p' "$d/.uak-env"
+  done | awk 'NF && !seen[$0]++'
+}
+WT_PICKED= WT_PICK_NOTE= WT_PICK_REUSE=no
+wt_pick_agent() { # $1 main root, $2 human; sets WT_PICKED, WT_PICK_NOTE, WT_PICK_REUSE
+  local root=$1 human=$2 known held= retired= all= a f base n max=0
+  known=$(wt_machine_agents "$root")
+  if git -C "$root" fetch -q "$REMOTE" claims 2>/dev/null; then
+    held=$(git -C "$root" ls-tree --name-only FETCH_HEAD claims/ 2>/dev/null | while IFS= read -r f; do
+      git -C "$root" cat-file -p "FETCH_HEAD:$f" 2>/dev/null | sed -n 's/^Owner: //p'; done | sort -u | tr '\n' ' ')
+    retired=$(git -C "$root" ls-tree --name-only FETCH_HEAD meta/retired/ 2>/dev/null | sed 's@.*/@@;s@\.md$@@' | tr '\n' ' ')
+    all=$(git -C "$root" ls-tree --name-only FETCH_HEAD meta/agents/ 2>/dev/null | sed 's@.*/@@;s@\.md$@@' | tr '\n' ' ')
+  fi
+  WT_PICK_REUSE=no
+  for a in $known; do
+    case " $held $retired " in *" $a "*) continue;; esac
+    WT_PICKED=$a WT_PICK_REUSE=yes
+    WT_PICK_NOTE="reusing $a (an identity of this machine with no claim): its inbox and review history stay under one name"
+    return 0
+  done
+  base=$(git config --get uak.name 2>/dev/null || true)
+  [ -n "$base" ] || base=$(printf '%s\n' $known | sed 's/-[0-9][0-9]*$//' | sort | uniq -c | sort -rn | awk 'NR == 1 {print $2}')
+  [ -n "$base" ] || base=$(printf '%s' "$human" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9_.\n-' '-' | tr -d '\n')
+  [ -n "$base" ] || base=agent
+  for a in $known $held $all; do
+    case "$a" in "$base"-[0-9]*) n=${a#"$base"-}; case "$n" in *[!0-9]*) ;; *) [ "$n" -le "$max" ] || max=$n;; esac;; esac
+  done
+  WT_PICKED="$base-$((max + 1))"
+  WT_PICK_NOTE="new identity $WT_PICKED (prefix: git config uak.name NAME)"
+}
 wt_path() { printf '%s/%s-wt/%s' "$(dirname "$1")" "$(basename "$1")" "$(printf '%s' "$2" | tr 'A-Z' 'a-z')"; }
 write_env() {
   # $1 dir, $2 agent, $3 human, $4 task
@@ -39,10 +76,11 @@ write_env() {
   # Why (UpiixSol): "address already in use" 3 times; a leftover server or a task 90 IDs apart held the port.
   tries=0
   while [ "$tries" -lt 20 ] && { port_busy "$port" || port_busy $((port + 1)); }; do port=$((port + 900)); [ "$port" -lt 65000 ] || port=$((port - 56000)); tries=$((tries + 1)); done
-  printf 'UAK_AGENT=%s\nUAK_HUMAN=%s\nUAK_SESSION=%s\nUAK_TASK=%s\nUAK_PORT=%s\n' "$2" "$3" "$session" "$4" "$port" > "$1/.uak-env"
-  # Claude Code applies this env to every agent Bash command in this worktree.
+  printf 'UAK_AGENT=%s\nUAK_AGENT_HUMAN=%s\nUAK_SESSION=%s\nUAK_TASK=%s\nUAK_PORT=%s\n' "$2" "$3" "$session" "$4" "$port" > "$1/.uak-env"
+  # Claude Code applies this env to every agent Bash command in this worktree. UAK_AGENT_HUMAN names the agent's
+  # human; it is not UAK_HUMAN, which grants human authority (allow, plan, retire) and only a human sets.
   mkdir -p "$1/.claude"
-  printf '{\n  "env": {\n    "UAK_AGENT": "%s",\n    "UAK_HUMAN": "%s",\n    "UAK_SESSION": "%s",\n    "UAK_TASK": "%s",\n    "UAK_PORT": "%s"\n  }\n}\n' \
+  printf '{\n  "env": {\n    "UAK_AGENT": "%s",\n    "UAK_AGENT_HUMAN": "%s",\n    "UAK_SESSION": "%s",\n    "UAK_TASK": "%s",\n    "UAK_PORT": "%s"\n  }\n}\n' \
     "$2" "$3" "$session" "$4" "$port" > "$1/.claude/settings.local.json"
 }
 cmd=${1:-help}; [ "$#" -eq 0 ] || shift
@@ -52,7 +90,7 @@ case "$cmd" in
   session)
     top=$(git rev-parse --show-toplevel 2>/dev/null) || die "Run inside a worktree."
     [ -f "$top/.uak-env" ] || die "This worktree has no .uak-env; use wt new."
-    agent=$(sed -n 's/^UAK_AGENT=//p' "$top/.uak-env"); human=$(sed -n 's/^UAK_HUMAN=//p' "$top/.uak-env")
+    agent=$(sed -n 's/^UAK_AGENT=//p' "$top/.uak-env"); human=$(sed -n 's/^UAK_AGENT_HUMAN=//p;s/^UAK_HUMAN=//p' "$top/.uak-env" | head -n 1)
     task=$(sed -n 's/^UAK_TASK=//p' "$top/.uak-env")
     write_env "$top" "$agent" "$human" "$task"
     say "SESSION: $(sed -n 's/^UAK_SESSION=//p' "$top/.uak-env")"; exit 0;;
@@ -96,9 +134,16 @@ while [ "$#" -gt 0 ]; do
     *) die "Unknown option: $1";;
   esac
 done
-[ -n "$agent" ] || die "Set --agent NAME or UAK_AGENT (unique and stable per agent, e.g. ana-1)."
-[ "$agent_flag" = yes ] || [ -z "${UAK_AGENT:-}" ] || say "wt: no --agent given; using UAK_AGENT=$UAK_AGENT from your shell. A subagent needs its own: --agent NAME." >&2
 [ -n "$human" ] || human=$(git config user.name 2>/dev/null | tr -c 'A-Za-z0-9_.\n-' '-' | tr -s '-' | tr -d '\n')
+if [ -z "$agent" ] || [ "$agent" = auto ]; then
+  wt_pick_agent "$(main_root)" "$human"; agent=$WT_PICKED
+  say "wt: $WT_PICK_NOTE" >&2
+elif [ "$agent_flag" = yes ] && ! wt_machine_agents "$(main_root)" | grep -qxF -- "$agent"; then
+  # A new name while this machine has a free identity: say so (a hint, not a block).
+  wt_pick_agent "$(main_root)" "$human"
+  [ "$WT_PICK_REUSE" != yes ] || say "wt: $WT_PICKED on this machine holds no claim; reusing it keeps one inbox: wt new $id (or --agent $WT_PICKED)." >&2
+fi
+[ "$agent_flag" = yes ] || [ -z "${UAK_AGENT:-}" ] || say "wt: no --agent given; using UAK_AGENT=$UAK_AGENT from your shell. A subagent needs its own: --agent NAME." >&2
 clean_id "$agent" || die "--agent: letters, digits, dot, dash or underscore only."
 clean_id "$human" || die "--human: letters, digits, dot, dash or underscore only."
 

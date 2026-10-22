@@ -418,8 +418,8 @@ def mcp_server(r):
     nxt = c.call("tools/call", {"name": "uak_next", "arguments": {"agent": "agent-1"}})["result"]
     expect(nxt["isError"] is False and "HACK-001 | AVAILABLE" in nxt["content"][0]["text"] and "structuredContent" not in nxt,
            "the model gets the uak text itself (clients show structuredContent instead of text): " + str(nxt)[:300])
-    bad = c.call("tools/call", {"name": "uak_claim", "arguments": {"task": "HACK-001", "colour": "red"}})["result"]
-    expect(bad["isError"] and "missing agent" in bad["content"][0]["text"] and "unknown colour" in bad["content"][0]["text"], str(bad))
+    bad = c.call("tools/call", {"name": "uak_claim", "arguments": {"colour": "red"}})["result"]
+    expect(bad["isError"] and "missing task" in bad["content"][0]["text"] and "unknown colour" in bad["content"][0]["text"], str(bad))
     claim = c.call("tools/call", {"name": "uak_claim", "arguments": {"task": "HACK-001", "agent": "agent-1"}})["result"]
     expect(claim["isError"] is False and "WT_READY: HACK-001" in claim["content"][0]["text"], str(claim)[:400])
     found = c.call("tools/call", {"name": "uak_map", "arguments": {"action": "find", "query": "helper"}})["result"]["content"][0]["text"]
