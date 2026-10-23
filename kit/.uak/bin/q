@@ -13,11 +13,25 @@ start=$(date +%s)
 "$@" > "$log" 2>&1
 code=$?
 secs=$(( $(date +%s) - start ))
+# The same failure twice in a row (same command, same last lines with numbers blanked): say LOOP once, here,
+# where agents run their tests. Why (MLB hackathon): the loop guards lived in `uak loop`, which no agent ran (0
+# calls), and `log --state BLOCKED` was used 4 times for 130 tasks; agents retried the same failing approach.
+sig_file="$gd/uak-out/q-last-fail"
+cmd_sig=$(printf '%s ' "$@" | cksum | awk '{print $1}')
 if [ "$code" -eq 0 ]; then
   last=$(grep -v '^[[:space:]]*$' "$log" | tail -n 1 | cut -c 1-160)
   printf 'OK exit=0 %ss · %s\n' "$secs" "${last:--}"
+  rm -f "$sig_file"
 else
   printf 'FAIL exit=%s %ss · %s lines · log %s\n' "$code" "$secs" "$(awk 'END {print NR+0}' "$log")" "$log"
   tail -n "${Q_LINES:-40}" "$log" | cut -c 1-300
+  fail_sig=$(grep -v '^[[:space:]]*$' "$log" | tail -n 15 | sed 's/[0-9][0-9.]*/N/g' | cksum | awk '{print $1}')
+  read -r prev_cmd prev_sig prev_n < "$sig_file" 2>/dev/null || prev_n=0
+  if [ "${prev_cmd:-}" = "$cmd_sig" ] && [ "${prev_sig:-}" = "$fail_sig" ]; then n=$(( ${prev_n:-1} + 1 )); else n=1; fi
+  printf '%s %s %s\n' "$cmd_sig" "$fail_sig" "$n" > "$sig_file"
+  if [ "$n" -ge 2 ]; then
+    task=$(sed -n 's/^UAK_TASK=//p' "$(git rev-parse --show-toplevel 2>/dev/null)/.uak-env" 2>/dev/null | head -n 1)
+    printf 'LOOP: this check failed the same way %s times in a row. Stop retrying the same approach: re-read the error and change the idea, or mark it for the team: bash .uak/bin/uak log %s --state BLOCKED "<the exact error>"\n' "$n" "${task:-ID}"
+  fi
 fi
 exit "$code"

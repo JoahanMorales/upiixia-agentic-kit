@@ -491,9 +491,37 @@ def github_feedback_reaches_the_task(r):
     return {"tip": tip[:7]}
 
 
+def commands_come_up_when_they_apply(r):
+    """`loop` 0 calls, `log --state BLOCKED` 4, `secret-exception` 0, `up` 0, `graph --assign` 3 at MLB: nothing brought
+    them up at the moment they apply."""
+    f = rm.fixture(r, "v51-moments", count=2)
+    w = f.worktrees[0]
+    (w / ".uak-env").write_text("UAK_AGENT=agent-1\nUAK_TASK=HACK-001\n", encoding="utf-8")
+    failing = [r.bash, ".uak/bin/q", "bash", "-c", "echo \"AssertionError: expected 3 got 4 (took 0.$RANDOM s)\"; exit 1"]
+    one = r.run(failing, cwd=w, allowed=None)
+    expect(one.returncode == 1 and "LOOP:" not in one.stdout, "one failure is just a failure")
+    two = r.run(failing, cwd=w, allowed=None)
+    expect("LOOP: this check failed the same way 2 times" in two.stdout and "uak log HACK-001 --state BLOCKED" in two.stdout,
+           "the same failure twice says LOOP where tests run (timings ignored): " + two.stdout)
+    r.run([r.bash, ".uak/bin/q", "true"], cwd=w)
+    three = r.run(failing, cwd=w, allowed=None)
+    expect("LOOP:" not in three.stdout, "a pass resets it")
+    (w / "leak.txt").write_text("AKIA" + "ABCDEFGHIJKLMNOP\n", encoding="utf-8")
+    r.g(w, "add", "leak.txt")
+    scan = r.run([r.bash, ".uak/bin/secret-scan", "--staged"], cwd=w, allowed=None)
+    expect(scan.returncode != 0 and "uak secret-exception ID --path FILE" in scan.stderr, "the way out of a false positive: " + scan.stderr)
+    r.g(w, "reset", "-q", "leak.txt")
+    start = subprocess.run([r.bash, ".uak/bin/hook", "session-start"], cwd=w, input='{"source":"compact"}', text=True,
+                           capture_output=True, env={**r.env, "UAK_AGENT": "agent-1"}, timeout=120).stdout
+    expect("context was just compacted" in start and "uak checkpoint HACK-001" in start, "after a compaction: checkpoint now: " + start[:400])
+    digest = rm.actor(f, "boss", "digest", now=1000000, human=True)
+    expect("Capacity:" not in digest.stdout or "tasks wait" in digest.stdout, digest.stdout)
+    return {"moments": True}
+
+
 TESTS = [review_offers_move_on, humans_and_stale_identities_get_no_review, offline_recipients_and_orphans,
          worktree_env_is_not_a_human, approval_survives_forge_merge_and_pull, followup_owns_the_parent_paths,
-         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back, upstream_drift_is_told, stalled_tasks_are_seen, github_feedback_reaches_the_task]
+         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back, upstream_drift_is_told, stalled_tasks_are_seen, github_feedback_reaches_the_task, commands_come_up_when_they_apply]
 
 
 def main():

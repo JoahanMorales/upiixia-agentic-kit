@@ -86,7 +86,7 @@ Every command runs as `bash .uak/bin/uak CMD`. It needs Bash 3.2+, Git with work
 |---|---|
 | `bash .uak/bin/wt new ID [--agent NAME]` | branch `feat/<id>` + worktree `../<repo>-wt/<id>` + `.uak-env` + port + claim. Without `--agent`: reuses this machine's identity with no claim (one inbox per agent), else the next number of its prefix (`git config uak.name NAME` sets it) |
 | `bash .uak/bin/wt session` · `wt rm ID` · `wt ls` · `wt stop [ID]` · `wt pr` | rotate the session · remove your worktree (never `--force`; stops its servers) · list worktrees · stop the servers on the worktree ports (exact PIDs) · print the GitHub compare URL when `gh pr create` lacks permission |
-| `bash .uak/bin/q CMD` | quiet runner: one line on success, the tail on failure, full log in `<git dir>/uak-out/q-*.log` (one per run, last 20) |
+| `bash .uak/bin/q CMD` | quiet runner: one line on success, the tail on failure, full log in `<git dir>/uak-out/q-*.log` (one per run, last 20)  The same failure twice in a row (same command, same last 15 lines with numbers blanked) adds `LOOP:` with the `log ID --state BLOCKED` command; a pass resets it. |
 | `guard agent` / `guard agent-stop` | Claude Code, Codex and Cursor hooks: subagent parallel cap and strong-tier budget per session (scaled by `pace`), spawn log (`.git/uak-agents.log`). Human override: `UAK_ALLOW_OPUS=1`. |
 | `guard shell` · `guard tier MODEL` | Cursor `beforeShellExecution` payloads · prints a model's tier (fast/balanced/strong). |
 | `bash .uak/bin/statusline` | Claude Code status line: task, 5 h/7 d usage, context, pace. Caches `rate_limits` for `pace`. |

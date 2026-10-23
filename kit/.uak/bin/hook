@@ -199,6 +199,11 @@ case "${1:-}" in
     # A new (or compacted) session has seen nothing: forget what earlier sessions were shown.
     rm -f "$gd"/uak-seen.* 2>/dev/null
     printf 'UAK: agent=%s task=%s worktree=%s\n' "$agent" "${task:--}" "$top"
+    # Right after a compaction the summary on claims is older than what the agent just lost: write it now.
+    # Why (MLB hackathon): 5 handoffs and 74 checkpoints for 130 claims; compactions went by with no summary.
+    case "$input" in *'"source":"compact"'*|*'"source": "compact"'*)
+      [ -z "$task" ] || printf 'UAK: the context was just compacted. Save where %s stands before going on (the next session reads it): bash .uak/bin/uak checkpoint %s --done … --decision … --why … --fails … --commands … --next …\n' "$task" "$task";;
+    esac
     p=$(bash .uak/bin/pace 2>/dev/null); case "$p" in "PACE surge"*|"PACE conserve"*|"PACE critical"*) printf '%s\n' "$p";; esac
     git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 || exit 0
     bash .uak/bin/uak next --full 2>&1 | head -n 18

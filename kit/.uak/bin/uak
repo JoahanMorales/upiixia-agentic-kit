@@ -1098,6 +1098,22 @@ print_digest() {
   freeze_warning
   human_msgs=$(msg_select human | tail -n 10)
   [ -z "$human_msgs" ] || { say "Agent messages for humans (last 5):"; say "$human_msgs"; }
+  # Capacity: tasks waiting vs agents online and idle. The commands for it are human ones (`up`, `graph --assign`),
+  # so the human's digest is where they come up. Why (MLB hackathon): `up` 0 calls, `graph --assign` 3.
+  local avail idle online
+  avail=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG" 2>/dev/null | while read -r t; do
+    st=$(field "$TX/tasks/$t.md" State); [ -z "$st" ] || [ "$st" = AVAILABLE ] && echo "$t"; done | wc -l | tr -d ' ')
+  msg_seen_all > "$TXROOT/seen"
+  online=$(awk -v now="$NOW" -v p="$(msg_presence)" '$1 == "A" {a[$2] = 1} $1 == "H" {h[$2] = 1} $1 == "S" && now - $3 <= p {s[$2] = 1}
+    END {for (n in s) if (!(n in a) && !(n in h) && n != "scheduler" && n != "github") print n}' "$TXROOT/seen")
+  local busy=' ' c n; idle=0
+  for c in "$TX"/claims/*.md; do [ -f "$c" ] || continue; case "$(field "$c" State)" in CLAIMED|BLOCKED) busy="$busy$(field "$c" Owner) ";; esac; done
+  for n in $online; do case "$busy" in *" $n "*) ;; *) idle=$((idle + 1));; esac; done
+  if [ "${avail:-0}" -ge 3 ] && [ "$idle" -eq 0 ]; then
+    say "Capacity: $avail tasks wait and no idle agent is online. More hands: bash .uak/bin/uak up N --tool claude (one worktree and agent each), or uak graph --assign for who takes what next."
+  elif [ "${avail:-0}" -gt 0 ] && [ "$idle" -gt 0 ]; then
+    say "Capacity: $avail tasks wait, $idle idle agent(s) online: uak graph --assign suggests who takes which."
+  fi
   # The bill, from what every machine published (uak tokens --publish; the Stop hook does it every 30 min).
   if ls "$TX"/tokens/*.md >/dev/null 2>&1; then
     sed -n 's/^- //p' "$TX"/tokens/*.md | awk -F' [|] ' '{t = $6 + $7 + $8 + $9; T += t; R += $8; k[$1] += t}

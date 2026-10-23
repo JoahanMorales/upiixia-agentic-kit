@@ -21,7 +21,8 @@ agent and that agent gave 14 of the verdicts; 28 messages over the event reached
 - **Upstream drift, told while working.** `map drift`: what the base changed since the branch last synced that touches the branch's files or the files they import, with the commit and the fix; the post-tool hook checks every 5 min in the background and says each change set once, and `done` repeats it. Why: STORM (arXiv 2605.20563) beat isolated worktrees by +18.7 on Commit0 by catching conflicts at write time.
 - **Stalled tasks.** Heartbeats record when the work last moved (a new HEAD or other uncommitted files). A CLAIMED task still for 90 min (`Stall-Seconds`) is STALLED: the owner's `next` says to mark it BLOCKED with the error or hand it over; idle agents and the human digest see it. Why: 43 lease recoveries at MLB; "reassign an agent stuck on one error" (Addy Osmani).
 - **GitHub feedback reaches the task.** `uak pr-sync [ID]` turns failed checks (with `gh run view RUN --log-failed`) and new human PR comments or change requests into one message to the task, once each; the owner's hook runs it every 5 min, the `uak-tick` Action for all tasks. Why: 52 of 59 MLB integrations were merged on GitHub, where CI and comments lived.
-- `test_v51.py`: 16 scenarios, one per failure.
+- **Commands come up when they apply.** `q` (where agents run their tests) says `LOOP:` on the same failure twice in a row, with the `log ID --state BLOCKED` command (the loop guards lived only in `uak loop`, 0 calls at MLB); `secret-scan` shows the `secret-exception` way out when it blocks; after a compaction the session start asks for a checkpoint; the human digest suggests `uak up N` or `graph --assign` from tasks waiting vs idle agents online.
+- `test_v51.py`: 17 scenarios, one per failure.
 
 ## v5.0.0 · 2026-10-15 · 5x faster, a code graph, team memory, the real bill
 v5 folds in v4.3 (the MLB autopsy, below; it was never published separately) and closes most of the roadmap.
