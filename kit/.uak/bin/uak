@@ -134,6 +134,7 @@ next
 review ID --start | --stop | --sha SHA --verdict approve|reject [--note "file:line · what · how to reproduce"] [--learn]
 followup ID --title TEXT   new task on ID's Paths after ID is INTEGRATED (fixes and polish; no human needed)
 handover ID --to NAME   pass your claim (or an expired one, or as UAK_HUMAN) to another agent without AVAILABLE
+pr-sync [ID]   failed checks and new human review comments on a task's GitHub PR → one message to the task (gh)
 away   this identity closed its session (SessionEnd hooks run it): no reviews for it until its next command
 retire NAME...   an identity that no longer runs leaves the reviewer rotation (its human or itself)
 register-reviewer NAME...  (UAK_HUMAN, from the main checkout)
@@ -177,7 +178,7 @@ case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
   [ -z "$bb_common" ] || printf '%s\n' "${UAK_CALLER:+$UAK_CALLER-}$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
 esac
 case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map) exec bash "$UAK_BIN/$CMD" "$@";; esac
-case "$CMD" in status|claim|heartbeat|away|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover|wait|learn|recall) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
+case "$CMD" in status|claim|heartbeat|away|pr-sync|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover|wait|learn|recall) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac
   ROOT=$(pwd -P)
@@ -191,6 +192,7 @@ source "$ROOT/.uak/bin/lib/security.sh"
 source "$ROOT/.uak/bin/lib/smoke-init.sh"
 source "$ROOT/.uak/bin/lib/messages.sh"
 source "$ROOT/.uak/bin/lib/memory.sh"
+source "$ROOT/.uak/bin/lib/github.sh"
 # Reads one section; accepts - **Field:** value, **Field**: value and Field: value.
 task_field() {
   awk -v id="$ID" -v key="$1" '
@@ -687,6 +689,7 @@ mutate() {
       event "claim; next: $NEXT_TEXT"
       ;;
     away) away_mutate;;
+    pr-sync) pr_sync_mutate;;
     heartbeat)
       coord_tick_mutate
       # Your own task that already left CLAIMED/REVIEW: nothing to renew, not an error.
@@ -1297,6 +1300,9 @@ case "$CMD" in
     [ -n "$HUMAN" ] || die "plan publishes backlog: needs UAK_HUMAN (a human authorizes it)."
     identity;;
   away) identity;;
+  pr-sync)
+    if [ "$#" -gt 0 ] && valid_id "$(norm_id "$1")"; then ID=$(norm_id "$1"); shift; fi
+    [ -n "$AGENT" ] || AGENT=scheduler; identity;;
   retire)
     [ "$#" -gt 0 ] || die "Usage: retire NAME... (an identity that no longer runs; its human or the agent itself)."
     while [ "$#" -gt 0 ]; do case "$1" in --*) break;; *[!A-Za-z0-9_.-]*) die "Invalid identity: $1";; *) RETIRE_NAMES="$RETIRE_NAMES $1";; esac; shift; done
@@ -1459,6 +1465,7 @@ case "$CMD" in
   inbox) msg_inbox_run; exit "$?";;
   wait) wait_run; exit "$?";;
   recall) recall_run; exit "$?";;
+  pr-sync) pr_sync_run; exit "$?";;
   msg) QUIET=yes; transaction; say "OK msg $MSG_SENT"
     [ ! -s "$TXROOT/msg-note" ] || sed 's/^/NOTE: /' "$TXROOT/msg-note" | awk '!seen[$0]++';;
   *) [ "$CMD" != tick ] || AGENT=${AGENT:-scheduler}; transaction;;

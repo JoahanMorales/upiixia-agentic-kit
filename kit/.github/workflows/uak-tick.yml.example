@@ -9,6 +9,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+  pull-requests: read
+  checks: read
+  actions: read
 concurrency:
   group: uak-tick
   cancel-in-progress: false
@@ -24,3 +27,8 @@ jobs:
         run: |
           git config user.name uak-tick && git config user.email uak-tick@users.noreply.github.com
           if git ls-remote --exit-code --heads origin claims >/dev/null; then UAK_AGENT=scheduler bash .uak/bin/uak tick; else echo "no claims branch yet"; fi
+      - name: GitHub feedback to the tasks (failed checks, human PR comments)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git ls-remote --exit-code --heads origin claims >/dev/null; then UAK_AGENT=github bash .uak/bin/uak pr-sync; fi

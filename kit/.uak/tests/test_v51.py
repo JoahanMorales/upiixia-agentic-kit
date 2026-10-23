@@ -464,9 +464,36 @@ def stalled_tasks_are_seen(r):
     return {"stalled": True}
 
 
+def github_feedback_reaches_the_task(r):
+    """52 of 59 integrations at MLB were merged on GitHub, where CI results and human comments lived; agents heard of
+    them only when a human relayed them."""
+    f = rm.fixture(r, "v51-gh", count=1)
+    tip = rm.ready(f, 0, "HACK-001")
+    events = f.base / "gh-events.txt"
+    events.write_text("check\tunit|https://github.com/o/r/actions/runs/123/job/9\t#7 CI failed: unit https://github.com/o/r/actions/runs/123/job/9\n"
+                      "comment\tIC_1\t#7 @alice: please rename price_with_tax to price\n", encoding="utf-8")
+    fake = f.base / "gh"
+    fake.write_text("#!/usr/bin/env bash\n[ \"$1 $2\" = \"pr view\" ] || exit 1\ncat '%s'\n" % events, encoding="utf-8")
+    os.chmod(fake, 0o755)
+    sync = lambda now: hack(f, 0, "pr-sync", "HACK-001", now=now, UAK_GH=str(fake))
+    out = sync(1000030)
+    line = [l for l in f.show("inbox/log.md").splitlines() if "| github |" in l]
+    expect("PR_SYNC: HACK-001 (2)" in out.stdout and line and "task:HACK-001" in line[-1] and "gh run view 123 --log-failed" in line[-1]
+           and "@alice: please rename" in line[-1], "one message to the task with the failed check and the comment: " + out.stdout + str(line))
+    again = sync(1000031)
+    expect("nothing new" in again.stdout, "each item is told once: " + again.stdout)
+    events.write_text(events.read_text(encoding="utf-8") + "review\tPRR_2\t#7 review CHANGES_REQUESTED by @bob: missing test\n", encoding="utf-8")
+    third = sync(1000032)
+    last = [l for l in f.show("inbox/log.md").splitlines() if "| github |" in l][-1]
+    expect("HACK-001 (1)" in third.stdout and "@bob: missing test" in last and "@alice" not in last, "only the new one: " + last)
+    inbox = hack(f, 0, "inbox", now=1000033)
+    expect("missing test" in inbox.stdout, "the owner reads it in its inbox: " + inbox.stdout)
+    return {"tip": tip[:7]}
+
+
 TESTS = [review_offers_move_on, humans_and_stale_identities_get_no_review, offline_recipients_and_orphans,
          worktree_env_is_not_a_human, approval_survives_forge_merge_and_pull, followup_owns_the_parent_paths,
-         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back, upstream_drift_is_told, stalled_tasks_are_seen]
+         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back, upstream_drift_is_told, stalled_tasks_are_seen, github_feedback_reaches_the_task]
 
 
 def main():
