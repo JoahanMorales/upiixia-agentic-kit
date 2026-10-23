@@ -7,7 +7,7 @@
 # contract message from day 1. Messages scroll away; lessons stay where the code is. Research on long-running
 # agents points the same way: situational knowledge retrieved by the harness, not chosen by the agent.
 MEM_LOG=memory/LESSONS.md
-MEM_TEXT= MEM_PATHS= MEM_FORGET= MEM_DONE=
+MEM_TEXT= MEM_PATHS= MEM_FORGET= MEM_DONE= MEM_SEARCH= MEM_SIMILAR=no
 mem_paths_of() { # $1 task ID → its Paths from the backlog, comma separated
   local saved=$ID; ID=$1; task_field Paths 2>/dev/null | tr -d '` '; ID=$saved
 }
@@ -48,14 +48,75 @@ mem_select() {
         age = now - E[i]; ag = (age >= 86400) ? int(age / 86400) "d" : (age >= 3600 ? int(age / 3600) "h" : int(age / 60) "m")
         printf "  #%d · %s ago · %s%s: %s\n", i, ag, W[i], (K[i] != "-" ? " · " K[i] : ""), T[i]; shown++ } }' "$TX/$MEM_LOG"
 }
-# For `next`: the lessons of a task's paths, with a header; silent when there are none.
+# The words of a task for retrieval: its title, acceptance and Paths in the backlog.
+mem_task_text() {
+  awk -v id="$1" '/^## / { on = ($2 == id); if (on) { sub(/^## [^ ]+[ ·—-]*/, ""); print }; next } /^# / { on = 0 } on' "$BACKLOG" 2>/dev/null
+}
+# Lexical retrieval (BM25) over what the team already learned: lessons, reject notes, contract messages and
+# decisions on claims, ranked by the words of $1. Prints at most $2 lines; $3 is a space list of lessons to skip
+# ("#4 #9", already shown by path). A hit needs 2 or more shared words. No model, no network, no index to build.
+# Why (MLB hackathon): the same rejects came back on tasks with other paths ("numbers must come from the CSV" in 4
+# rejects, a label that shifts with altitude in 3); lessons matched by path alone missed them, and 10 recalls for
+# 130 claims show agents do not search the past themselves.
+mem_similar() {
+  local f
+  set -- "$1" "${2:-3}" "${3:-}"
+  local q=$1 max=$2 skip=" $3 "
+  shift 3
+  for f in "$TX/$MEM_LOG" "$TX/inbox/log.md" "$TX/DECISIONS.md"; do [ -f "$f" ] && set -- "$@" "$f"; done
+  [ "$#" -gt 0 ] && [ -n "$q" ] || return 0
+  awk -F' [|] ' -v q="$q" -v max="$max" -v now="$NOW" -v skip="$skip" '
+    function toks(s, arr,   n, i, t, a, c) { s = tolower(s); gsub(/[^a-z0-9_\200-\377]+/, " ", s); n = split(s, a, " "); c = 0
+      for (i = 1; i <= n; i++) { t = a[i]; if (length(t) < 3 || (t in stop) || t ~ /^[0-9a-f]{7,}$/ || t ~ /^[0-9]+$/) continue; arr[++c] = t }
+      return c }
+    function add(kind, t, who, task, text,   n, i, a, w, sw2) { D++; K[D] = kind; TM[D] = t + 0; WHO[D] = who; TK[D] = task; TXT[D] = text
+      n = toks(text, a); L[D] = n; tot += n; split("", sw2)
+      for (i = 1; i <= n; i++) { w = a[i]; tf[D, w]++; if (!(w in sw2)) { sw2[w] = 1; df[w]++ } } }
+    BEGIN { n = split("the and for with that this from into are was were not but you your have has had its our out all any can will one two per via use used uses using when what where which who how why than then them they also each more most such only over under after before able los las del que con por para una uno sus como mas sin sobre entre este esta estos estas cada pero tambien ser son fue debe hay todo todos task tasks file files done next fix test tests add new must should hack sha approved rejected review reviewed agent paths path verify acceptance priority depends type estimate area rubric ninguna none", sw, " ")
+      for (i = 1; i <= n; i++) stop[sw[i]] = 1
+      nq = toks(q, Q); for (i = 1; i <= nq; i++) qs[Q[i]] = 1 }
+    FILENAME ~ /LESSONS/ { if ($0 !~ /^- [0-9]/) next
+      if ($6 ~ /^forget #/) { g = $6; sub(/^forget #/, "", g); gone["#" g] = 1; next }
+      add("lesson #" substr($1, 3), $2, $3, $4, $6); next }
+    FILENAME ~ /inbox\/log\.md$/ { if ($0 !~ /^- [0-9]/) next
+      if ($5 == "reject" || $5 == "contract") add($5, $2, $3, $6, $7); next }
+    FILENAME ~ /DECISIONS/ { if ($0 !~ /^- [0-9]/ || $2 ~ /^deadline/ || $0 ~ /REQUIRES_RECOVERY|tasks added|follow-up of/) next
+      t = $1; sub(/^- /, "", t); add("decision", t, $3, "-", $4 (NF > 4 ? " · " $5 : "")) }
+    END { if (!D || !nq) exit; avg = tot / D
+      for (d = 1; d <= D; d++) { k = K[d]; sub(/^lesson /, "", k); if ((k in gone) || index(skip, " " k " ")) continue
+        sc = 0; m = ""; hits = 0
+        for (w in qs) if ((d, w) in tf) { idf = log(1 + (D - df[w] + 0.5) / (df[w] + 0.5)); f = tf[d, w]
+          sc += idf * f * 2.2 / (f + 1.2 * (0.25 + 0.75 * L[d] / avg)); hits++; m = m (m == "" ? "" : ",") w }
+        if (hits >= 2) { S[d] = sc; M[d] = m } }
+      for (r = 1; r <= max; r++) { best = 0
+        for (d in S) if (!(d in used) && (best == 0 || S[d] > S[best])) best = d
+        if (!best) break; used[best] = 1
+        age = now - TM[best]; ag = (age >= 86400) ? int(age / 86400) "d" : (age >= 3600 ? int(age / 3600) "h" : int(age / 60) "m")
+        txt = TXT[best]; if (length(txt) > 170) txt = substr(txt, 1, 167) "..."
+        printf "  %s%s · %s ago%s: %s  [%s]\n", K[best], (TK[best] != "-" && TK[best] != "" ? " on " TK[best] : ""), ag, (WHO[best] != "" ? " · " WHO[best] : ""), txt, M[best] } }' "$@"
+}
+# For `next` and `claim`: the lessons of a task's paths, then what the team learned on similar work; silent when none.
 mem_for_task() {
-  local paths out; paths=$(mem_paths_of "$1"); [ -n "$paths" ] || return 0
-  out=$(mem_select "$paths" 3); [ -n "$out" ] || return 0
-  say "Lessons for these paths (uak recall $1 for all):"; say "$out"
+  local paths out shown sim
+  paths=$(mem_paths_of "$1")
+  if [ -n "$paths" ]; then
+    out=$(mem_select "$paths" 3)
+    [ -z "$out" ] || { say "Lessons for these paths (uak recall $1 for all):"; say "$out"; }
+  fi
+  shown=$(printf '%s\n' "$out" | sed -n 's/^  \(#[0-9][0-9]*\) .*/\1/p' | tr '\n' ' ')
+  sim=$(mem_similar "$(mem_task_text "$1")" 3 "$shown")
+  [ -z "$sim" ] || { say "Learned on similar work (by words; uak recall $1 --similar):"; say "$sim"; }
 }
 recall_run() {
   ATTEMPT=read; fresh_state; coord_init
+  [ -n "$ID" ] || [ -z "${UAK_TASK:-}" ] || ID=$UAK_TASK
+  if [ -n "$MEM_SEARCH" ] || [ "$MEM_SIMILAR" = yes ]; then
+    local q=$MEM_SEARCH; [ -n "$q" ] || q=$(mem_task_text "$ID")
+    [ -n "$q" ] || die "recall --similar needs a task (ID or UAK_TASK) or --search \"words\"."
+    local hits; hits=$(mem_similar "$q" "${MEM_MAX:-8}")
+    if [ -z "$hits" ]; then say "RECALL: nothing the team learned shares 2+ words with: $(printf '%s' "$q" | head -n 1 | cut -c 1-80)"; return 0; fi
+    say "RECALL by words (lessons, rejects, contracts, decisions; best first):"; say "$hits"; return 0
+  fi
   local want=${MEM_PATHS:-}
   if [ -z "$want" ] && [ -n "$ID" ]; then want=$(mem_paths_of "$ID"); [ -n "$want" ] || die "$ID has no Paths in TASKS.md."; fi
   if [ -z "$want" ] && [ -n "${UAK_TASK:-}" ]; then ID=$UAK_TASK; want=$(mem_paths_of "$ID"); fi

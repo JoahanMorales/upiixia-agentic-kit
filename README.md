@@ -219,7 +219,8 @@ bash .uak/bin/uak msg impact:HACK-001 --kind contract "data_path takes a Path no
 
 **Memory anchored to paths**: `uak learn "what bites · where · what to do"` stores a lesson on the task's paths;
 `uak next`, which every session starts with, shows the newest lessons to whoever works there next. A reviewer's
-reject note becomes one with `--learn`.
+reject note becomes one with `--learn`. The claim also brings back past work by words: the rejects, contracts
+and lessons of similar tasks with other paths, ranked by BM25 (`uak recall ID --similar`; no model, no network).
 
 `uak lint` fails on dependency cycles and unknown IDs. `Uses contract:` edges let consumers work on mocks instead of waiting.
 
@@ -313,7 +314,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**126 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
+**127 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
 
 ## Works with
 | Tool | How |
@@ -337,7 +338,7 @@ Mix them freely: coordination lives in Git, not in any tool.
 | `uak tokens [--team] [--by model]` | the real token bill per task, model, harness, lead vs subagent |
 | `uak map [show\|find\|callers\|users\|path\|related\|impact\|notes]` | the code graph: read the structure instead of files |
 | `uak wait ID --for approve\|integrated\|message` | one call that returns when it happens, no polling |
-| `uak learn "…"` · `uak recall ID` | lessons tied to paths; `next` shows them to the next agent there |
+| `uak learn "…"` · `uak recall ID [--similar]` | lessons tied to paths; `claim`/`next` show them, plus past rejects and contracts on similar work (BM25 by words) |
 | `uak handover ID --to NAME` · `retire NAME` · `followup ID` | pass a task on · close an identity · more work on an integrated task |
 | `uak done` / `review` / `merge` | ship → review by rotation → gated merge queue |
 | `uak up N [--tmux]` | claim the N best tasks and launch one agent per worktree |

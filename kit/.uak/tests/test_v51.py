@@ -369,9 +369,35 @@ def sessions_leave_a_trace(r):
     return {"progress": True, "away": True}
 
 
+def past_work_comes_back(r):
+    """The same rejects came back on tasks with other paths ("numbers must come from the CSV" in 4 rejects); lessons
+    matched by path missed them, and 10 recalls for 130 claims show agents do not search the past themselves."""
+    f = rm.fixture(r, "v51-recall", count=3)
+    config(f, Plan_Channel="claims")
+    tip = rm.ready(f, 0, "HACK-001")
+    rm.judge(f)
+    rm.approve(f, "HACK-001", tip, verdict="reject", now=1000020)
+    last = [l for l in f.show("inbox/log.md").splitlines() if "| reject |" in l]
+    expect(last, "a reject on file")
+    hack(f, 1, "learn", "paper figures must be copied from reports/label_shift.csv, never typed by hand", "--path", "docs/", now=1000022)
+    plan = f.worktrees[0] / "wave2.md"
+    plan.write_text("# Wave 2\n\n## HACK-009 — Paper figures for the label shift section\n\n- **Priority:** P0\n"
+                    "- **Paths:** paper/\n- **Depends on:** Ninguna\n- **Acceptance:** figures match label_shift.csv\n"
+                    "- **Verify:** true\n", encoding="utf-8")
+    hack(f, 0, "plan", plan, UAK_HUMAN="boss", now=1000023)
+    c = f.claim(2, "HACK-009", now=1000024)
+    expect("Learned on similar work" in c.stdout and "paper figures must be copied" in c.stdout and "[" in c.stdout,
+           "the claim brings back what the team learned on similar work, with the shared words: " + c.stdout)
+    s = hack(f, 2, "recall", "--search", "label shift figures paper", now=1000025)
+    expect("RECALL by words" in s.stdout and "lesson #1" in s.stdout, s.stdout)
+    none = hack(f, 2, "recall", "--search", "kubernetes helm chart", now=1000026)
+    expect("nothing the team learned" in none.stdout, "no match, no noise: " + none.stdout)
+    return {"similar": True}
+
+
 TESTS = [review_offers_move_on, humans_and_stale_identities_get_no_review, offline_recipients_and_orphans,
          worktree_env_is_not_a_human, approval_survives_forge_merge_and_pull, followup_owns_the_parent_paths,
-         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace]
+         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back]
 
 
 def main():

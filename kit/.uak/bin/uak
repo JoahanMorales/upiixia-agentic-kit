@@ -161,7 +161,7 @@ msg DESTINO TEXTO [--kind TIPO] [--task HACK-NNN]   DESTINO: NOMBRE|HACK-NNN|rel
 inbox [--ack] [--all] [--peek] [--task HACK-NNN] [--human]
 wait [ID] --for approve|integrated|message [--timeout S]   one call that returns when it happens (instead of polling)
 learn "TEXT" [--path P,Q] [--task ID] · learn --forget N   a lesson tied to paths; next shows it to the next agent there
-recall [ID|PATH]   the lessons for a task or a path, newest first
+recall [ID|PATH] [--similar | --search "words"]   lessons for a task or a path; --similar/--search: lessons, rejects, contracts and decisions ranked by words (BM25)
 UAK_AGENT / UAK_HUMAN · UAK_REMOTE=origin · UAK_BASE=main · lease=1800s
 Why: the remote serializes claims; every session keeps an exact next step.
 USAGE
@@ -975,7 +975,8 @@ transaction() {
             # The task's slice of the code map, not a pointer to it (MLB, v5 week: 9 map calls in 67 tasks).
             claim) brief=$(bash "$UAK_BIN/map" brief "$ID" --paths "$PATHS" --backlog "$BACKLOG" 2>/dev/null | head -n 10)
                    [ -z "$brief" ] || say "$brief"
-                   say "Query, do not open whole files: uak map find NAME · callers NAME · users FILE · recall $ID (lessons).";;
+                   say "Query, do not open whole files: uak map find NAME · callers NAME · users FILE · recall $ID (lessons)."
+                   mem_for_task "$ID";;
           esac
         fi
       fi
@@ -1288,13 +1289,14 @@ while [ "$#" -gt 0 ]; do
     --stop) [ "$CMD" = review ] || die "Invalid option: $opt"; REVIEW_STOP=yes;;
     --learn) [ "$CMD" = review ] || die "Invalid option: $opt"; REVIEW_LEARN=yes;;
     --amend) [ "$CMD" = plan ] || die "Invalid option: $opt"; PLAN_AMEND=yes;;
+    --similar) [ "$CMD" = recall ] || die "Invalid option: $opt"; MEM_SIMILAR=yes;;
     --ack|--all|--peek|--human)
       [ "$CMD" = inbox ] || die "Invalid option: $opt"
       case "$opt" in --ack) MSG_ACK=yes;; --all) MSG_MODE=all;; --peek) MSG_MODE=peek;; --human) MSG_MODE=human;; esac;;
     --kind)
       [ "$CMD" = msg ] && [ "$#" -gt 0 ] || die "Invalid option: $opt"
       MSG_KIND=$1; shift; msg_valid_kind "$MSG_KIND" || die "--kind: info|request|contract|blocker|reply|review|approve|reject|integrated|human";;
-    --task|--branch|--worktree|--next|--read-summary|--state|--done|--decision|--why|--fails|--commands|--pr|--evidence|--integrated|--reviewer|--cancel|--sha|--verdict|--note|--command|--option|--reversible|--authorized|--class|--path|--rule|--reason|--to|--title|--for|--timeout|--forget)
+    --task|--branch|--worktree|--next|--read-summary|--state|--done|--decision|--why|--fails|--commands|--pr|--evidence|--integrated|--reviewer|--cancel|--sha|--verdict|--note|--command|--option|--reversible|--authorized|--class|--path|--rule|--reason|--to|--title|--for|--timeout|--forget|--search)
       [ "$#" -gt 0 ] || die "Missing value for $opt."
       value=$1; shift
       case "$opt" in
@@ -1328,6 +1330,7 @@ while [ "$#" -gt 0 ]; do
         --authorized) [ "$CMD" = decision ] || die "Invalid option."; DECISION_AUTHORIZED=$value;;
         --class) [ "$CMD" = decision ] || die "Invalid option."; DECISION_CLASS=$value;;
         --path) case "$CMD" in secret-exception) SECRET_PATH=$value;; learn|recall) MEM_PATHS=$value;; *) die "Invalid option.";; esac;;
+        --search) [ "$CMD" = recall ] || die "Invalid option."; MEM_SEARCH=$value;;
         --forget) [ "$CMD" = learn ] || die "Invalid option."; case "$value" in ''|*[!0-9]*) die "--forget takes a lesson number";; esac; MEM_FORGET=$value;;
         --rule) [ "$CMD" = secret-exception ] || die "Invalid option."; SECRET_RULE=$value;;
         --reason) case "$CMD" in secret-exception) SECRET_REASON=$value;; allow) WHY_TEXT=$value;; *) die "Invalid option.";; esac;;
