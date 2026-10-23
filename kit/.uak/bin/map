@@ -17,7 +17,8 @@
 #   map brief ID         the task's slice: its files, what they define, who imports them (printed on claim)
 #   map lens --symbol NAME | --file PATH [--task ID]   one line for a hook, from the existing index
 # Languages: Python, JS/TS (incl. "@/" aliases), Go (packages), Rust (mod/use crate), shell (source), Ruby, PHP,
-# Java/Kotlin/C#/Swift (definitions only), C/C++ (#include "…"). Generated and vendored folders are skipped.
+# Java/Kotlin (imports by package path, wildcard and static imports, same-package calls), C#/Swift (definitions
+# only), C/C++ (#include "…"). Generated and vendored folders are skipped.
 # The index rebuilds by itself when HEAD or the tracked working tree changed.
 # Why: at Reap and MLB "it burns tokens reading the same stuff again and again" — agents opened file after file to
 # learn the structure; graphify reported 71.5x fewer tokens per question on a 52-file corpus with a graph instead.
@@ -63,7 +64,16 @@ build() {
       return "" }
     function sym(f, kind, txt, ln,   n) { n = txt; sub(/[^A-Za-z0-9_$]+$/, "", n); sub(/.*[^A-Za-z0-9_$]/, "", n)
       if (n == "" || n ~ /^[0-9]/) return; print n "\t" kind "\t" f "\t" ln > (out "/symbols.tsv"); nsym[f]++ }
-    BEGIN { lf = out "/files.list"; while ((getline f < lf) > 0) { known[f] = 1; files[++nf] = f; d = dir(f); if (d != "") known[d "/"] = 1 }
+    # Java/Kotlin: a class is found by its package path under the source root (src/main/java/com/acme/Order.java →
+    # com/acme/Order); a package by its directory. Why: Spring Boot projects had definitions but no edges, so brief,
+    # lens and impact could not tell who uses a service.
+    function jvkey(f,   k) { k = f; if (!sub(/^(.*\/)?(java|kotlin)\//, "", k)) return ""; sub(/\.(java|kt)$/, "", k); return k }
+    function jvimport(f, L,   m, d, r) { m = L; sub(/^[ \t]*import[ \t]+(static[ \t]+)?/, "", m); sub(/[ \t]*(;|[ \t]as[ \t].*)?[ \t]*$/, "", m); gsub(/\./, "/", m)
+      if (m ~ /\/\*$/) { d = substr(m, 1, length(m) - 2); if (d in jpkg) edge(f, jpkg[d]); return }
+      if (m in jcls) { edge(f, jcls[m]); return }
+      d = m; sub(/\/[^\/]*$/, "", d); if (d in jcls) edge(f, jcls[d]) }
+    BEGIN { lf = out "/files.list"; while ((getline f < lf) > 0) { known[f] = 1; files[++nf] = f; d = dir(f); if (d != "") known[d "/"] = 1
+        if (f ~ /\.(java|kt)$/ && (k = jvkey(f)) != "") { jcls[k] = f; pk = k; sub(/\/[^\/]*$/, "", pk); jpkg[pk] = dir(f) "/" } }
       printf "" > (out "/edges.tsv"); printf "" > (out "/symbols.tsv")
       for (i = 1; i <= nf; i++) { f = files[i]; ext = f; sub(/.*\./, "", ext); ln = 0; inimport = 0; cls = ""
         while ((getline L < f) > 0) { ln++
@@ -114,6 +124,8 @@ build() {
           } else if (ext ~ /^(java|kt|cs|swift)$/) {
             if (match(L, /(class|interface|enum|record|struct|object|protocol)[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) sym(f, "type", substr(L, RSTART, RLENGTH), ln)
             else if (match(L, /^[ \t]*(public|private|protected|internal|static|override|suspend|fun|func|[ \t])+[ \t]*(fun|func)[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) sym(f, "func", substr(L, RSTART, RLENGTH), ln)
+            else if (ext == "java" && match(L, /^[ \t]+(public|protected|private)[ \t]+[^=;(]*[ \t][a-z][A-Za-z0-9_]*[ \t]*\(/)) { m = substr(L, RSTART, RLENGTH); sub(/[ \t]*\($/, "", m); sym(f, "method", m, ln) }
+            if ((ext == "java" || ext == "kt") && L ~ /^[ \t]*import[ \t]+[A-Za-z_]/) jvimport(f, L)
           } else {
             if (match(L, /^#include[ \t]+"[^"]+"/)) { m = substr(L, RSTART, RLENGTH); sub(/^#include[ \t]+"/, "", m); sub(/"$/, "", m); r = try(norm(dir(f) "/" m)); if (r == "") r = try(m); if (r != "") edge(f, r) }
           }
@@ -159,6 +171,8 @@ inferred() {
 calls() {
   awk -F'\t' -v out="$out" '
     function dir(p) { if (p !~ /\//) return ""; sub(/\/[^\/]*$/, "", p); return p }
+    # The Java/Kotlin package of a file: src/main/java and src/test/java of one package are one namespace.
+    function jpk(p) { if (!sub(/^(.*\/)?(java|kotlin)\//, "", p)) return ""; return dir(p) }
     BEGIN {
       while ((getline l < (out "/symbols.tsv")) > 0) { split(l, a, "\t"); nm = a[1]; f = a[3]; ln = a[4] + 0
         defs[nm] = defs[nm] SUBSEP f; if (!((f, nm) in inf)) inf[f, nm] = ln; ns[f]++; sl[f, ns[f]] = ln; sn[f, ns[f]] = nm }
@@ -166,7 +180,7 @@ calls() {
       kw = " if for while return print def class function switch catch elif and or not in is with yield await async lambda sizeof typeof new super this self len range str int float list dict set tuple isinstance require import export from fn match case func go defer make append "
       printf "" > (out "/calls.tsv")
       while ((getline f < (out "/files.list")) > 0) {
-        ln = 0; k = 1; isgo = (f ~ /\.go$/); fd = dir(f)
+        ln = 0; k = 1; isgo = (f ~ /\.go$/); isjv = (f ~ /\.(java|kt)$/); fd = dir(f); fp = isjv ? jpk(f) : ""
         while ((getline L < f) > 0) { ln++
           if (length(L) > 400 || L ~ /^[ \t]*(#|\/\/|\*)/) continue
           while (k < ns[f] && sl[f, k + 1] <= ln) k++
@@ -180,7 +194,7 @@ calls() {
             if ((f, nm) in inf) target = f
             else { n = split(defs[nm], d, SUBSEP)
               for (i = 2; i <= n; i++) { g = d[i]; dg = dir(g)
-                if (((f, g) in imp) || ((f, dg "/") in imp) || (isgo && g ~ /\.go$/ && dg == fd)) { target = g; break } } }
+                if (((f, g) in imp) || ((f, dg "/") in imp) || (isgo && g ~ /\.go$/ && dg == fd) || (isjv && g ~ /\.(java|kt)$/ && fp != "" && jpk(g) == fp)) { target = g; break } } }
             if (target == "") continue
             key = f SUBSEP caller SUBSEP target SUBSEP nm
             if (key in seen) continue; seen[key] = 1

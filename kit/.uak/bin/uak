@@ -283,7 +283,7 @@ check_owners() {
   done < "$TXROOT/owners"
   while IFS= read -r path; do
     case "/$path/" in
-      */package-lock.json/*|*/npm-shrinkwrap.json/*|*/pnpm-lock.yaml/*|*/*.lock/*|*/*.lockb/*|*/go.sum/*|*/lockfiles/*|*/migrations/*|*/contracts/*|*/types/*|*/shared-types/*|*/.github/workflows/*|*/.gitlab-ci.yml/*|*/azure-pipelines.yml/*)
+      */package-lock.json/*|*/npm-shrinkwrap.json/*|*/pnpm-lock.yaml/*|*/*.lock/*|*/*.lockb/*|*/go.sum/*|*/gradle.lockfile/*|*/lockfiles/*|*/migrations/*|*/db/migration/*|*/contracts/*|*/types/*|*/shared-types/*|*/.github/workflows/*|*/.gitlab-ci.yml/*|*/azure-pipelines.yml/*)
         assigned=no
         printf '%s\n' "$path" > "$TXROOT/one-path"
         while IFS='|' read -r pat owner; do

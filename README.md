@@ -46,7 +46,7 @@ Going to a hackathon? The one-page plan is in **[docs/HACKATHON.md](docs/HACKATH
 git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit
 bash ~/.uak-kit/install.sh --mode sprint .          # hackathon / AI prototype
 # or: --mode marathon                               # real product: specs, CODEOWNERS, security reviews
-# options: --stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent   --skills ai,tdd   --update (refresh the engine later)
+# options: --stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|spring-boot   --skills ai,tdd   --update (refresh the engine later)
 #          --harness claude,codex (only the dirs of the tools you use)   --no-mcp (CLI only)   --no-blackbox
 bash .uak/bin/doctor                                 # minute-0 preflight: remote, gh perms, hooks, freeze, ports
 ```
@@ -314,7 +314,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**132 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
+**133 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
 
 ## Works with
 | Tool | How |
@@ -367,7 +367,7 @@ AGENTS.md · .claude/CLAUDE.md  76-line core every agent reads (the only kit fil
 .uak/docs/                   CLI · PROTOCOL · LOOPS · GRAPH · ORCHESTRATION · COSTS · BLACKBOX · SECURITY · WHY
 .uak/templates/              PROJECT, TASKS, OWNERS, IDEA, spec, plan, ADR
 .uak/skills/                 curated skills (superpowers, Anthropic, Vercel, taste-skill, Karpathy guidelines), pinned, licensed
-.uak/stacks/                 stack presets: fastapi-react, nextjs, django, go, expo, python-data, ai-agent
+.uak/stacks/                 stack presets: fastapi-react, nextjs, django, go, expo, python-data, ai-agent, spring-boot
 .claude/                     slash commands, subagents, hooks, status line (settings per mode)
 .codex/ · .cursor/ · .gemini/  the same subagents per harness + hooks (Codex, Cursor, Gemini), only for the --harness you pick
 ```

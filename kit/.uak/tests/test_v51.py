@@ -542,9 +542,43 @@ def a_smaller_root(r):
     return {"root": root}
 
 
+JAVA = {
+    "src/main/java/com/acme/app/common/Money.java": "package com.acme.app.common;\n\npublic record Money(long cents) {\n    public static Money of(long cents) { return new Money(cents); }\n}\n",
+    "src/main/java/com/acme/app/orders/OrderService.java": "package com.acme.app.orders;\n\nimport com.acme.app.common.Money;\n\npublic class OrderService {\n    public Money price(int items) {\n        return Money.of(items * 100L);\n    }\n}\n",
+    "src/test/java/com/acme/app/orders/OrderServiceTest.java": "package com.acme.app.orders;\n\nclass OrderServiceTest {\n    void price() { new OrderService().price(2); }\n}\n",
+}
+
+
+def spring_boot_preset(r):
+    """A Spring Boot template, and a code map that knows Java imports (definitions only before)."""
+    pkg = r.package.parent
+    t = r.scratch / "v51-sb"; t.mkdir()
+    r.g(t, "init", "-q", "-b", "main")
+    out = r.run([r.bash, str(pkg / "install.sh"), "--mode", "marathon", "--stack", "spring-boot", "--harness", "claude", str(t)], cwd=t)
+    expect((t / ".claude/skills/stack-spring-boot/SKILL.md").exists() and (t / ".uak/stacks/spring-boot/STACK.md").exists()
+           and "target/" in (t / ".gitignore").read_text(encoding="utf-8"), out.stdout[-400:])
+    f = r.fixture("v51-java", count=2, paths={"HACK-001": "src/main/java/com/acme/app/common/",
+                                             "HACK-002": "src/main/java/com/acme/app/orders/, src/test/java/com/acme/app/orders/"})
+    config(f)
+    push_main(f, JAVA, "java code")
+    for w in f.worktrees:
+        r.g(w, "merge", "-q", "--ff-only", "origin/main")
+    w = f.worktrees[0]
+    edges = r.run([r.bash, ".uak/bin/map", "deps", "src/main/java/com/acme/app/orders/OrderService.java"], cwd=w).stdout
+    expect("src/main/java/com/acme/app/common/Money.java" in edges, "a Java import is an edge: " + edges)
+    callers = r.run([r.bash, ".uak/bin/map", "callers", "price"], cwd=w).stdout
+    expect("OrderServiceTest.java" in callers and "OrderService.java" in callers, "same-package calls across main and test: " + callers)
+    c = f.claim(0, "HACK-001")
+    expect("TASK MAP HACK-001" in c.stdout and "in the Paths of HACK-002" in c.stdout, "brief on a Java task: " + c.stdout)
+    f.claim(1, "HACK-002")
+    sent = hack(f, 0, "msg", "impact:HACK-001", "--kind", "contract", "Money.of takes a currency now", now=1000005)
+    expect("task:HACK-002" in sent.stdout, "impact reaches the Java importer: " + sent.stdout)
+    return {"java": True}
+
+
 TESTS = [review_offers_move_on, humans_and_stale_identities_get_no_review, offline_recipients_and_orphans,
          worktree_env_is_not_a_human, approval_survives_forge_merge_and_pull, followup_owns_the_parent_paths,
-         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back, upstream_drift_is_told, stalled_tasks_are_seen, github_feedback_reaches_the_task, commands_come_up_when_they_apply, a_smaller_root]
+         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back, upstream_drift_is_told, stalled_tasks_are_seen, github_feedback_reaches_the_task, commands_come_up_when_they_apply, a_smaller_root, spring_boot_preset]
 
 
 def main():

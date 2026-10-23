@@ -164,6 +164,10 @@ for line in .env '.env.*' '!.env.example' .uak-env .claude/settings.local.json _
     .venv/ node_modules/ .next/ dist/ .DS_Store; do
   grep -qxF -- "$line" "$target/.gitignore" || { printf '%s\n' "$line" >> "$target/.gitignore"; say "  + .gitignore: $line"; }
 done
+case "$stack" in spring-boot) # Maven/Gradle build output
+  for line in target/ .gradle/ build/ '*.class'; do
+    grep -qxF -- "$line" "$target/.gitignore" || { printf '%s\n' "$line" >> "$target/.gitignore"; say "  + .gitignore: $line"; }
+  done;; esac
 git -C "$target" config core.hooksPath "$hooks_path"
 
 cat <<EOF
