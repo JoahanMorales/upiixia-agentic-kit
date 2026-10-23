@@ -1,0 +1,39 @@
+{
+  "tool_calls": 8,
+  "mcp_calls": 0,
+  "explore_calls": 2,
+  "explore_before_map": 2,
+  "used_map": false,
+  "contract_before_done": true,
+  "done": true,
+  "polls_after_done": 0,
+  "sleeps_after_done": 0,
+  "used_wait": true,
+  "verdict_reported": true,
+  "final": "HACK-001: aprobada por judge en 8a5ab45. El merge est\u00e1 en espera de un humano, porque `uak merge` fall\u00f3: falta `.uak/bin/smoke-project` y sali\u00f3 con PRODUCT_UNVERIFIED. Un humano tiene que mergear https://example.test/pull/1 y despu\u00e9s cualquier agente ejecuta `uak integrate HACK-001`.",
+  "input_tokens": 20,
+  "output_tokens": 1539,
+  "cache_read": 312920,
+  "cost_usd": 0.19510600000000003,
+  "uak_commands": [
+    "done",
+    "inbox",
+    "merge",
+    "msg",
+    "wait"
+  ],
+  "map_brief_seen": false,
+  "map_lens_lines": 0,
+  "label": "v52",
+  "seconds": 158,
+  "reviewer": [
+    {
+      "t": 1792718957.3912268,
+      "sha": "8a5ab45",
+      "review": "OK review HACK-001 | REVIEW | attempt 1"
+    }
+  ],
+  "agent": "claude -p --model sonnet",
+  "lens_pushed": 1,
+  "hook_calls": 10
+}

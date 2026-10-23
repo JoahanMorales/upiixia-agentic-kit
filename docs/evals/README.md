@@ -48,7 +48,7 @@ With the MCP server installed (3 runs) the agent still chose the Bash forms the 
 `uak_message`, `uak_wait`: contract, verdict reported. That run found a server bug: Claude Code gives the model a
 tool's `structuredContent` instead of its text, so the agent saw `{"ok": true}` and polled; the server now returns
 text only (polls 3 → 1). Claude Code also defers MCP tool schemas behind tool search, one reason agents start with Bash.
-**v5.1 (2026-10-22, 2 runs):** contract before `done` 2/2, one `uak wait` 2/2, no polling, verdict reported 2/2,
+**v5.2 (2026-10-22, 3 runs):** contract before `done` 2/2, one `uak wait` 2/2, no polling, verdict reported 2/2,
 7 tool calls, $0.13 per session. The post-tool hook pushed one code-map line per session (`lens_pushed`, read from the
 team repo's call log, since stream-json does not show hook context); the hooks' own uak calls (7–8) are counted
 apart. The contract metric now uses the last `uak done` (one earlier run retried a `done` that failed on its

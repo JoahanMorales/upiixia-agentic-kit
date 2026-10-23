@@ -1,6 +1,6 @@
 # Changelog
 
-## v5.1.0 · 2026-10-22 · Delivery: nothing waits on a closed session
+## v5.2.0 · 2026-10-23 · Delivery, the graph in the loop, and the whole team on one page
 The second MLB autopsy ([the v5 week](docs/blackbox/mlb-2026-10-week2.md)): 67 review offers went to one named
 agent and that agent gave 14 of the verdicts; 28 messages over the event reached identities that never came back.
 - **Presence.** Each identity's last event, inbox read or message on claims. The reviewer pick prefers agents seen in the last 30 min (`Presence-Seconds`), then the last 3 h; a human's bare name never reviews.

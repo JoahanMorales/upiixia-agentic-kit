@@ -234,7 +234,7 @@ that touches files another task imports → `msg impact:`), and the next step pr
 Measured, not assumed ([adoption eval](docs/evals/README.md), real headless Claude Code sessions): with the rule in
 context, the agent warned the task that imports its change in **0 of 3** runs; with the adoption layer, **3 of 3**.
 
-**The graph comes to the agent (v5.1).** Reminders were not enough for the code map: at MLB agents called it 9 times
+**The graph comes to the agent (v5.2).** Reminders were not enough for the code map: at MLB agents called it 9 times
 for 67 Claude Code tasks, and a pilot study saw agents route 0–6% of lookups to a semantic tool when grep was there.
 So the map is pushed into the loop instead of waiting to be asked. The claim prints the task's slice of the map
 (its files, what they define, who imports them, which tasks to warn), and after a `grep`/`Read` the post-tool hook adds one line:
@@ -307,7 +307,7 @@ Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and ea
 | Hack-Nation 2026 ([retro](docs/RETRO-hacknation-2026.md)) | 5 agents, 4 humans, 3 machines, 76 PRs in ~14 h | v3: guards, rotation, `uak plan`, mandatory freeze |
 | Reap buildathon ([autopsy](docs/blackbox/reap-2026-10.md)) | 4 h, 5 humans, 11 agents on Codex, Cursor and Claude Code | v4.2: scope on the current base, `uak clock`, `uak allow`, output cap, `= unchanged` |
 | MLB hackathon ([autopsy](docs/blackbox/mlb-2026-10.md)) | 10 days, 4 Windows laptops, 13 identities, 32 tasks integrated | v4.3/v5: merge by any agent, approvals that survive merges of main, Windows cap, `retire`, `followup` |
-| MLB, the v5 week ([autopsy](docs/blackbox/mlb-2026-10-week2.md)) | 6 more days on v5.0.0, 18 identities, 81 of 89 tasks integrated | v5.1: presence, review offers that move on, messages to offline identities reach their tasks, identity reuse, human authority only from the shell |
+| MLB, the v5 week ([autopsy](docs/blackbox/mlb-2026-10-week2.md)) | 6 more days on v5.0.0, 18 identities, 81 of 89 tasks integrated | v5.2: presence, review offers that move on, messages to offline identities reach their tasks, identity reuse, human authority only from the shell |
 
 Hack-Nation 2026 in detail:
 
