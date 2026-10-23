@@ -252,6 +252,14 @@ claim through `uak_claim` and ship through `bash .uak/bin/uak done`. Don't want 
 Code asks, or install with `--no-mcp` (no `.mcp.json`, `.cursor/mcp.json`, nor the uak blocks in Codex and Gemini
 configs). In the eval, agents with both chose Bash and did as well; MCP matters most in clients without a shell.
 
+## See everything: `uak dash`
+
+`bash .uak/bin/uak dash --watch --open` writes one local page and keeps it current: project progress, a board of tasks
+by state, every agent with an identicon (one pattern per human, one color per identity), who is online, the
+conversation between agents with filters, reviews waiting, stalled tasks, the human queue, the black box with
+adoption per harness, lessons, decisions and token spend. No server, no CDN, nothing leaves the machine; it reads the
+claims branch read-only. Humans stop asking agents "where are we".
+
 ## Speed
 
 Every `uak` call is a Git round trip to the shared branch, so v5 cut the trips, not just the work:
@@ -314,7 +322,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**133 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
+**134 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
 
 ## Works with
 | Tool | How |

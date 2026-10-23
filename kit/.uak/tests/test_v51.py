@@ -576,9 +576,30 @@ def spring_boot_preset(r):
     return {"java": True}
 
 
+def dashboard_shows_everything(r):
+    """To know where the project stood, humans asked the agents (99 digests, 22 "who can review?" messages)."""
+    f = rm.fixture(r, "v51-dash", count=2)
+    tip = rm.ready(f, 0, "HACK-001")
+    hack(f, 1, "msg", "agent-1", "the parser returns a list now", "--kind", "contract", now=1000012)
+    out = f.base / "dash"
+    res = r.run([r.bash, ".uak/bin/uak", "dash", "--out", str(out)], cwd=f.worktrees[1], env={"UAK_NOW": "1000020"})
+    expect("DASH " in res.stdout and "% integrated" in res.stdout, res.stdout + res.stderr)
+    html = (out / "index.html").read_text(encoding="utf-8")
+    expect("<script src=\"data.js\"></script>" in html and "http" not in html.split("<style>")[0], "a self-contained page")
+    expect(not re.search(r"<(script|link)[^>]+(https?:)?//", html), "no external script or stylesheet")
+    data = json.loads((out / "data.js").read_text(encoding="utf-8").split("=", 1)[1].rstrip().rstrip(";"))
+    states = data["progress"]["states"]
+    expect(states.get("REVIEW") == 1 and data["progress"]["total"] == 2, "progress from claims: " + str(data["progress"]))
+    names = {a["name"]: a for a in data["agents"]}
+    expect("agent-1" in names and "agent-2" in names and names["agent-1"]["tasks"][0]["id"] == "HACK-001", str(names)[:300])
+    expect(any(m["kind"] == "contract" and "parser" in m["text"] for m in data["messages"]), "the conversation is there")
+    expect(any(o["task"] == "HACK-001" for o in data["offers"]), "the review waiting is listed: " + str(data["offers"]))
+    return {"tip": tip[:7]}
+
+
 TESTS = [review_offers_move_on, humans_and_stale_identities_get_no_review, offline_recipients_and_orphans,
          worktree_env_is_not_a_human, approval_survives_forge_merge_and_pull, followup_owns_the_parent_paths,
-         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back, upstream_drift_is_told, stalled_tasks_are_seen, github_feedback_reaches_the_task, commands_come_up_when_they_apply, a_smaller_root, spring_boot_preset]
+         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back, upstream_drift_is_told, stalled_tasks_are_seen, github_feedback_reaches_the_task, commands_come_up_when_they_apply, a_smaller_root, spring_boot_preset, dashboard_shows_everything]
 
 
 def main():

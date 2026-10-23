@@ -147,6 +147,7 @@ doctor [--fix]   preflight: remote, gh permissions, hooks, freeze, ports
 graph [--mermaid] [--min-wave1 N] | graph --assign   backlog DAG: waves, critical path, cycles; --assign suggests an idle agent per ready task
 loop --verify CMD [--agent CMD] [--max N] [--task ID]   bounded verify → fix loop
 board [--md] [--watch S]   team kanban from the claims branch
+dash [--watch [S]] [--open]   the whole team on one local page: progress %, agents, conversation, reviews, black box
 stats   retro numbers: messages, reviews, recoveries, queue
 up N [--tool CMD] [--tmux]   claim the N best tasks into worktrees and launch agents
 demo [--keep]   30-second real 3-agent run in a temp repo
@@ -177,7 +178,7 @@ bb_common=$(git rev-parse --git-common-dir 2>/dev/null) || bb_common=
 case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
   [ -z "$bb_common" ] || printf '%s\n' "${UAK_CALLER:+$UAK_CALLER-}$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
 esac
-case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map) exec bash "$UAK_BIN/$CMD" "$@";; esac
+case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map|dash) exec bash "$UAK_BIN/$CMD" "$@";; esac
 case "$CMD" in status|claim|heartbeat|away|pr-sync|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover|wait|learn|recall) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac
@@ -1122,6 +1123,7 @@ print_digest() {
             printf "Tokens: %s, cache hit %d%%%s · detail: uak tokens --team\n", M(T), 100 * R / T, (b != "" ? sprintf(", top task %s %s", b, M(k[b])) : "") }'
   fi
   say "Rule: no answer in 15 min → recorded reversible decision, take another task."
+  say "Everything on one page (progress, agents, conversation, reviews, black box): bash .uak/bin/uak dash --watch --open"
 }
 # Repeated reads: the same `status`/`next`/`digest` output in the same agent session prints one line.
 # The session is the harness process (grandparent of uak); a new session or --full prints everything.

@@ -10,6 +10,7 @@ Lessons from past events: `docs/blackbox/reap-2026-10.md` (4 h, 12 agents) and `
 - [ ] The first time you open Claude Code in the repo, approve the `uak` MCP server (native uak tools; Python 3.8+ needed). The CLI works without it: declining is fine, or install with `--no-mcp`.
 - [ ] Your plan: on Pro, use 1 agent per person. On Max, use 2. Check it with `/status`.
 - [ ] Optional: tmux, to run `uak up N --tmux`.
+- [ ] One human keeps `bash .uak/bin/uak dash --watch --open` on a screen: progress, agents, conversation, reviews and the human queue, without asking the agents.
 
 ## Minute 0 (one person, then everyone pulls) — first claim within 20 min
 At Reap, setup and planning took 2 of the 4 hours. Timebox them.

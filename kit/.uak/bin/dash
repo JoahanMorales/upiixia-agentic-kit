@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# uak dash: the team's state on one local page (progress, agents, conversations, reviews, black box).
+#   bash .uak/bin/uak dash [--watch [SECONDS]] [--open] [--out DIR] [--claims DIR]
+# Read-only on the claims branch; Python 3.8+ standard library (lib/dash.py), like the MCP server.
+set -u
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+for p in python3 python py; do
+  "$p" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null && exec "$p" "$here/lib/dash.py" "$@"
+done
+printf '%s\n' 'uak dash needs Python 3.8+ (python3, python or py). The rest of uak works without it.' >&2
+exit 2
