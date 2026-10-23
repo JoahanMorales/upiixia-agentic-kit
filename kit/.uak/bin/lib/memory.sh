@@ -52,8 +52,8 @@ mem_select() {
 mem_task_text() {
   awk -v id="$1" '/^## / { on = ($2 == id); if (on) { sub(/^## [^ ]+[ ·—-]*/, ""); print }; next } /^# / { on = 0 } on' "$BACKLOG" 2>/dev/null
 }
-# Lexical retrieval (BM25) over what the team already learned: lessons, reject notes, contract messages and
-# decisions on claims, ranked by the words of $1. Prints at most $2 lines; $3 is a space list of lessons to skip
+# Lexical retrieval (BM25) over what the team already learned: lessons, reject notes, contract messages,
+# decisions and the live summaries of INTEGRATED tasks on claims, ranked by the words of $1. Prints at most $2 lines; $3 is a space list of lessons to skip
 # ("#4 #9", already shown by path). A hit needs 2 or more shared words. No model, no network, no index to build.
 # Why (MLB hackathon): the same rejects came back on tasks with other paths ("numbers must come from the CSV" in 4
 # rejects, a label that shifts with altitude in 3); lessons matched by path alone missed them, and 10 recalls for
@@ -63,7 +63,29 @@ mem_similar() {
   set -- "$1" "${2:-3}" "${3:-}"
   local q=$1 max=$2 skip=" $3 "
   shift 3
-  for f in "$TX/$MEM_LOG" "$TX/inbox/log.md" "$TX/DECISIONS.md"; do [ -f "$f" ] && set -- "$@" "$f"; done
+  # Finished work too: the live summary of each INTEGRATED task (how something like this was solved). Three awk
+  # passes, not a field read per task (81 tasks at MLB took 1 s that way).
+  : > "$TXROOT/done-summaries"
+  if ls "$TX"/tasks/*.md >/dev/null 2>&1; then
+    awk 'function out() { if (st == "INTEGRATED" && wl != "") print id "\t" up "\t" ow "\t" wl }
+      FNR == 1 { if (NR > 1) out(); id = st = wl = ow = up = "" }
+      /^ID: / { id = substr($0, 5) } /^State: / { st = substr($0, 8) } /^Worklog: / { wl = substr($0, 10) }
+      /^Owner: / { ow = substr($0, 8) } /^Updated: / { up = substr($0, 10) }
+      END { out() }' "$TX"/tasks/*.md > "$TXROOT/done-meta"
+    awk '/^## [A-Z][A-Z0-9]*-[0-9]/ { id = $2; t = $0; sub(/^## [^ ]+[ ·—-]*/, "", t); print id "\t" t }' "$BACKLOG" 2>/dev/null > "$TXROOT/done-titles"
+    set --
+    while IFS="$(printf '\t')" read -r _ _ _ wl; do [ -f "$TX/$wl" ] && set -- "$@" "$TX/$wl"; done < "$TXROOT/done-meta"
+    [ "$#" -eq 0 ] || awk -v meta="$TXROOT/done-meta" -v titles="$TXROOT/done-titles" -v tx="$TX/" '
+      BEGIN { FS = "\t"; while ((getline l < titles) > 0) { split(l, a, "\t"); T[a[1]] = a[2] }
+        while ((getline l < meta) > 0) { split(l, a, "\t"); W[tx a[4]] = l } FS = " " }
+      FNR == 1 { if (cur != "") flush(); cur = FILENAME; on = 0; txt = "" }
+      /^## Live summary$/ { on = 1; next } /^## History$/ { on = 0 }
+      on && /^- (Done|Decision|Why|Failing): / { x = $0; sub(/^- /, "", x); txt = txt x " · " }
+      function flush(   a) { split(W[cur], a, "\t"); gsub(/[\t|]/, " ", txt); print a[1] "\t" a[2] "\t" a[3] "\t" T[a[1]] " · " txt }
+      END { if (cur != "") flush() }' "$@" > "$TXROOT/done-summaries"
+    set -- "$q" "$max" "${skip# }"; shift 3
+  fi
+  for f in "$TX/$MEM_LOG" "$TX/inbox/log.md" "$TX/DECISIONS.md" "$TXROOT/done-summaries"; do [ -s "$f" ] && set -- "$@" "$f"; done
   [ "$#" -gt 0 ] && [ -n "$q" ] || return 0
   awk -F' [|] ' -v q="$q" -v max="$max" -v now="$NOW" -v skip="$skip" '
     function toks(s, arr,   n, i, t, a, c) { s = tolower(s); gsub(/[^a-z0-9_\200-\377]+/, " ", s); n = split(s, a, " "); c = 0
@@ -80,6 +102,7 @@ mem_similar() {
       add("lesson #" substr($1, 3), $2, $3, $4, $6); next }
     FILENAME ~ /inbox\/log\.md$/ { if ($0 !~ /^- [0-9]/) next
       if ($5 == "reject" || $5 == "contract") add($5, $2, $3, $6, $7); next }
+    FILENAME ~ /done-summaries$/ { split($0, a, "\t"); add("integrated", a[2], a[3], a[1], a[4]); next }
     FILENAME ~ /DECISIONS/ { if ($0 !~ /^- [0-9]/ || $2 ~ /^deadline/ || $0 ~ /REQUIRES_RECOVERY|tasks added|follow-up of/) next
       t = $1; sub(/^- /, "", t); add("decision", t, $3, "-", $4 (NF > 4 ? " · " $5 : "")) }
     END { if (!D || !nq) exit; avg = tot / D

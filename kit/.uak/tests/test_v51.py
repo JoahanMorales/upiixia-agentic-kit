@@ -373,7 +373,7 @@ def past_work_comes_back(r):
     """The same rejects came back on tasks with other paths ("numbers must come from the CSV" in 4 rejects); lessons
     matched by path missed them, and 10 recalls for 130 claims show agents do not search the past themselves."""
     f = rm.fixture(r, "v51-recall", count=3)
-    config(f, Plan_Channel="claims")
+    config(f, Plan_Channel="claims", Auto_Merge="yes")
     tip = rm.ready(f, 0, "HACK-001")
     rm.judge(f)
     rm.approve(f, "HACK-001", tip, verdict="reject", now=1000020)
@@ -390,6 +390,17 @@ def past_work_comes_back(r):
            "the claim brings back what the team learned on similar work, with the shared words: " + c.stdout)
     s = hack(f, 2, "recall", "--search", "label shift figures paper", now=1000025)
     expect("RECALL by words" in s.stdout and "lesson #1" in s.stdout, s.stdout)
+    f.claim(1, "HACK-002", now=1000030)
+    hack(f, 1, "checkpoint", "HACK-002", "--done", "parsed the quokka telemetry with streaming windows",
+         "--decision", "quokka telemetry in streaming windows of 5 s", "--why", "memory bound", "--fails", "-", "--commands", "true", "--next", "ship", now=1000031)
+    tip2 = rm.publish(f, 1, "HACK-002")
+    f.hack(1, "done", "HACK-002", "--pr", "https://example.test/pull/2", "--evidence", "ok", now=1000032)
+    rm.approve(f, "HACK-002", tip2, now=1000033)
+    merged = f.hack(1, "merge", "HACK-002", now=1000034, allowed=None)
+    expect(merged.returncode == 0, merged.stdout + merged.stderr)
+    done_work = hack(f, 2, "recall", "--search", "quokka telemetry streaming", now=1000035)
+    expect("integrated on HACK-002" in done_work.stdout and "streaming windows" in done_work.stdout,
+           "finished work is searchable by how it was solved: " + done_work.stdout)
     none = hack(f, 2, "recall", "--search", "kubernetes helm chart", now=1000026)
     expect("nothing the team learned" in none.stdout, "no match, no noise: " + none.stdout)
     return {"similar": True}
