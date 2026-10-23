@@ -587,6 +587,7 @@ def dashboard_shows_everything(r):
     html = (out / "index.html").read_text(encoding="utf-8")
     expect("<script src=\"data.js\"></script>" in html and "http" not in html.split("<style>")[0], "a self-contained page")
     expect(not re.search(r"<(script|link)[^>]+(https?:)?//", html), "no external script or stylesheet")
+    expect(":root[data-theme=\"dark\"]" in html and "prefers-color-scheme: dark" in html, "light, dark and an explicit theme choice")
     data = json.loads((out / "data.js").read_text(encoding="utf-8").split("=", 1)[1].rstrip().rstrip(";"))
     states = data["progress"]["states"]
     expect(states.get("REVIEW") == 1 and data["progress"]["total"] == 2, "progress from claims: " + str(data["progress"]))

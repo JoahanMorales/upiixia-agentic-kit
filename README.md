@@ -257,7 +257,8 @@ configs). In the eval, agents with both chose Bash and did as well; MCP matters 
 `bash .uak/bin/uak dash --watch --open` writes one local page and keeps it current: project progress, a board of tasks
 by state, every agent with an identicon (one pattern per human, one color per identity), who is online, the
 conversation between agents with filters, reviews waiting, stalled tasks, the human queue, the black box with
-adoption per harness, lessons, decisions and token spend. No server, no CDN, nothing leaves the machine; it reads the
+adoption per harness, lessons, decisions and token spend, plus the pace (integrated per day) and the conversation
+volume. Light and dark, works on a phone. No server, no CDN, nothing leaves the machine; it reads the
 claims branch read-only. Humans stop asking agents "where are we".
 
 ## Speed
