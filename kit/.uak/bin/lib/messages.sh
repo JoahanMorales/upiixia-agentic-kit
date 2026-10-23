@@ -294,7 +294,12 @@ msg_resolve_targets() {
           [ -f "$c" ] && [ "$(field "$c" Owner)" = "$name" ] || continue
           printf 'task:%s\n' "$(field "$c" ID)"; held="$held $(field "$c" ID)"
         done
-        if [ "$seen" -eq 0 ]; then printf '%s\n' "$name has never been seen on claims (a typo?)." >> "$TXROOT/msg-note"
+        if [ "$seen" -eq 0 ]; then
+          # The names that exist, same human first, so a typo or a gone identity (joahan-5) is fixed at once.
+          local known; known=$(msg_seen_all | awk -v n="$name" -v now="$NOW" 'function h(x) { sub(/-[A-Za-z0-9]+$/, "", x); return x }
+            $1 == "H" { hu[$2] = 1 } $1 == "S" { s[$2] = $3 }
+            END { for (x in s) if (!(x in hu) && x != "scheduler" && x != "github") print (h(x) == h(n) ? 0 : 1), now - s[x], x }' | sort -k1,1n -k2,2n | head -n 6 | awk '{printf "%s%s", (NR > 1 ? ", " : ""), $3}')
+          printf '%s\n' "$name has never been seen on claims (a typo?).${known:+ Known: $known.} It waits in its inbox until $name runs." >> "$TXROOT/msg-note"
         elif [ -n "$held" ]; then printf '%s\n' "$name $(msg_away "$name" && printf 'closed its session' || printf 'was last seen %s min ago' $(( (NOW - seen) / 60 ))): also sent to its task$held, so whoever takes it over reads it." >> "$TXROOT/msg-note"
         else printf '%s\n' "$name $(msg_away "$name" && printf 'closed its session' || printf 'was last seen %s min ago' $(( (NOW - seen) / 60 ))) and holds no task: it waits in its inbox. To reach someone working now: uak msg all, a task ID, or human." >> "$TXROOT/msg-note"; fi
       fi;;

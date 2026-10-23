@@ -42,7 +42,7 @@ if [ -f "$project" ]; then
   [ "$(field Backlog-Approved)" = yes ] && ok "Backlog-Approved: yes" || warn "Backlog-Approved is not yes: only P0 after 10 min, with Autonomy"
   freeze=$(field Freeze-Epoch)
   if [ "$mode" = sprint ]; then
-    case "$freeze" in ''|0|*[!0-9]*) bad "sprint without Freeze-Epoch: set it (date -d 'YYYY-MM-DD HH:MM TZ' +%s)";;
+    case "$freeze" in ''|0|*[!0-9]*) bad "sprint without Freeze-Epoch: uak clock \"START\" \"DEADLINE\" [ZONE] --write sets it (dates as YYYY-MM-DD HH:MM)";;
       *) left=$(( (freeze - $(date +%s)) / 60 )); [ "$left" -gt 0 ] && ok "freeze in ${left} min" || warn "freeze passed: demo fixes only";; esac
   fi
 else
@@ -50,9 +50,19 @@ else
 fi
 [ -f .uak/TASKS.md ] && ok ".uak/TASKS.md exists" || warn "no .uak/TASKS.md yet: run /uak-plan"
 hooks_dir=.uak/githooks; [ -d "$hooks_dir" ] || hooks_dir=.githooks   # v5.2 moved them under .uak
-[ "$(git config --get core.hooksPath)" = "$hooks_dir" ] && ok "pre-commit secret scanner active ($hooks_dir)" || {
-  if [ "$fix" = yes ]; then git config core.hooksPath "$hooks_dir" && ok "core.hooksPath=$hooks_dir (fixed)"
-  else bad "core.hooksPath is not $hooks_dir: commits skip the scanner (doctor --fix)"; fi; }
+cur_hooks=$(git config --get core.hooksPath 2>/dev/null || true)
+case "$cur_hooks" in
+  "$hooks_dir"|"$hooks_dir/") ok "pre-commit secret scanner active ($hooks_dir)";;
+  ?*) grep -qs 'secret-scan\|uak/githooks/pre-commit' "$cur_hooks/pre-commit" "$cur_hooks/../pre-commit" &&
+        ok "pre-commit secret scanner active (through your $cur_hooks)" ||
+        warn "core.hooksPath is $cur_hooks (yours or another hook manager): add 'bash .uak/githooks/pre-commit' to its pre-commit";;
+  *)
+    if [ "$fix" = yes ]; then git config core.hooksPath "$hooks_dir" && ok "core.hooksPath=$hooks_dir (fixed)"
+    else bad "core.hooksPath is not set: commits skip the scanner (doctor --fix)"; fi;;
+esac
+# Kit files an update could not replace because the team edited them.
+newfiles=$(git ls-files --others --exclude-standard 2>/dev/null | grep '\.uak-new$' | head -n 6 | tr '\n' ' ')
+[ -z "$newfiles" ] || warn "kit files to merge by hand (yours differ from the kit's): ${newfiles% } — merge each into its file, then delete the .uak-new"
 # Hooks must be executable where git checks the bit (macOS/Linux). Why (MLB hackathon, Codex): the pre-commit
 # scanner was silently skipped because .githooks/pre-commit lost its executable bit.
 for h in "$hooks_dir"/*; do

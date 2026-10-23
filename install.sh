@@ -3,7 +3,8 @@
 #   bash install.sh --mode sprint|marathon [--stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|spring-boot|none]
 #                   [--harness claude,codex,cursor,gemini] [--skills ai,tdd] [--no-blackbox] [--no-mcp] [--update] TARGET
 # Never overwrites your files: if AGENTS.md, CLAUDE.md, settings.json… already exist and differ,
-# the kit's version is written as <file>.uak-new for you to merge.
+# the kit's version is written as <file>.uak-new for you to merge. A file that is an earlier kit version nobody
+# edited (its hash is in .uak/settings/known-files.txt) is simply updated.
 # --update replaces only the engine (.uak/bin, docs, modes, templates, tests, settings, stacks, skills)
 # and keeps PROJECT.md, TASKS.md and OWNERS.md.
 # Harnesses: Claude Code (.claude), Codex (.codex), Cursor (.cursor), Gemini CLI (.gemini) all get
@@ -39,11 +40,21 @@ has() { case ",$harness," in *",$1,"*) return 0;; *) return 1;; esac; }
 [ "$stack" = none ] || [ -d "$kit/.uak/stacks/$stack" ] || { printf 'Unknown stack: %s (available: %s)\n' "$stack" "$(ls "$kit/.uak/stacks" | tr '\n' ' ')" >&2; exit 2; }
 
 say() { printf '%s\n' "$*"; }
-put() { # put SRC DEST: copy if missing; if it exists and differs, write DEST.uak-new
+# An earlier version the kit shipped, unedited. Why: an update from v5.0 left 16 .uak-new files nobody had touched,
+# settings.json among them, so the new hooks never reached the project.
+known() { [ -f "$1" ] && grep -qx "$(git hash-object -- "$1" 2>/dev/null)" "$kit/.uak/settings/known-files.txt" 2>/dev/null; }
+put() { # put SRC DEST: copy if missing; an unedited earlier kit version is updated; edited by you: DEST.uak-new
   mkdir -p "$(dirname "$2")"
   if [ ! -e "$2" ]; then cp "$1" "$2"; say "  + ${2#$target/}"
-  elif ! cmp -s "$1" "$2"; then cp "$1" "$2.uak-new"; say "  ~ ${2#$target/} exists: merge ${2#$target/}.uak-new"
+  elif cmp -s "$1" "$2"; then :
+  elif known "$2"; then cp "$1" "$2"; rm -f "$2.uak-new"; say "  ^ ${2#$target/} updated (an earlier kit version, unedited)"
+  else cp "$1" "$2.uak-new"; say "  ~ ${2#$target/} exists: merge ${2#$target/}.uak-new"
   fi
+}
+drop() { # drop FILE...: the other mode's kit files, only when they are the kit's (yours stay)
+  for f in "$@"; do
+    if [ -f "$f" ] && { cmp -s "$kit/${f#$target/}" "$f" || known "$f"; }; then rm -f "$f"; fi
+  done
 }
 nomcp() { # nomcp SRC: SRC without its uak MCP server block (both blocks are last in their file)
   case "$1" in
@@ -65,13 +76,13 @@ mkdir -p "$target/.uak"
 # The project's own smoke adapter lives in .uak/bin but is project data: an --update keeps it.
 # Why (MLB hackathon): an update deleted .uak/bin/smoke-project and its provenance; the team restored them by hand.
 keep=$(mktemp -d)
+trap 'rm -rf "$keep"' EXIT
 for f in smoke-project .smoke-project.provenance; do [ ! -f "$target/.uak/bin/$f" ] || cp -p "$target/.uak/bin/$f" "$keep/$f"; done
 for part in bin docs modes templates tests settings stacks skills; do
   rm -rf "$target/.uak/$part"
   cp -R "$kit/.uak/$part" "$target/.uak/$part"
 done
 for f in smoke-project .smoke-project.provenance; do [ ! -f "$keep/$f" ] || { cp -p "$keep/$f" "$target/.uak/bin/$f"; say "  = .uak/bin/$f kept (project adapter)"; }; done
-trap 'rm -rf "$keep"' EXIT
 cp "$kit/.uak/VERSION" "$target/.uak/VERSION"
 # Coach templates: copied on install; on --update they are refreshed too (they are engine text, not project data).
 cp "$kit/.uak/reminders.md" "$target/.uak/reminders.md"
@@ -90,7 +101,7 @@ put "$kit/AGENTS.md" "$target/AGENTS.md"
 # Why: a team found the ~12 kit entries at the root invasive.
 if has claude; then
   sed 's|^@AGENTS.md$|@../AGENTS.md|' "$kit/CLAUDE.md" > "$keep/CLAUDE.md"
-  if [ -f "$target/CLAUDE.md" ] && cmp -s "$kit/CLAUDE.md" "$target/CLAUDE.md"; then
+  if [ -f "$target/CLAUDE.md" ] && { cmp -s "$kit/CLAUDE.md" "$target/CLAUDE.md" || known "$target/CLAUDE.md"; }; then
     rm -f "$target/CLAUDE.md"; say "  > CLAUDE.md moved to .claude/CLAUDE.md (the root keeps AGENTS.md)"
   fi
   if [ -f "$target/CLAUDE.md" ]; then say "  ~ CLAUDE.md is yours: kept at the root; the kit's text is in .claude/CLAUDE.md.uak-new"
@@ -101,9 +112,9 @@ put "$kit/.uak/settings/settings.$mode.json" "$target/.claude/settings.json"
 putdir "$kit/.claude/commands" "$target/.claude/commands"
 putdir "$kit/.claude/agents" "$target/.claude/agents"
 case "$mode" in
-  sprint) rm -f "$target/.claude/agents/security-reviewer.md" "$target/.claude/commands/uak-spec.md"
+  sprint) drop "$target/.claude/agents/security-reviewer.md" "$target/.claude/commands/uak-spec.md"
           skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing design-taste-frontend redesign-existing-projects";;
-  marathon) rm -f "$target/.claude/agents/design-critic.md" "$target/.claude/commands/uak-design-lock.md" "$target/.claude/commands/uak-demo.md"
+  marathon) drop "$target/.claude/agents/design-critic.md" "$target/.claude/commands/uak-design-lock.md" "$target/.claude/commands/uak-demo.md"
           skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing test-driven-development";;
 esac
 case ",$extra," in *,ai,*) skills="$skills mcp-builder";; esac
@@ -139,16 +150,17 @@ done
 for link in .agents/skills .cursor/skills; do # Codex, Cursor and others read the same skills
   case "$link" in .agents/*) has codex || continue;; .cursor/*) has cursor || continue;; esac
   mkdir -p "$target/$(dirname "$link")"
-  [ -e "$target/$link" ] || { ln -s ../.claude/skills "$target/$link"; say "  + $link → .claude/skills"; }
+  [ -e "$target/$link" ] || [ -L "$target/$link" ] || { ln -s ../.claude/skills "$target/$link"; say "  + $link → .claude/skills"; }
 done
 # The pre-commit secret scanner lives in .uak/githooks (engine, refreshed by --update). An older install's
 # .githooks/pre-commit that is the kit's own is removed; a changed one stays and keeps working until you move it.
+# Why: an --update removed a pre-commit the team had extended (it still called secret-scan) with everything they added.
 mkdir -p "$target/.uak/githooks"; cp "$kit/.githooks/pre-commit" "$target/.uak/githooks/pre-commit"
 chmod +x "$target/.uak/githooks/pre-commit" 2>/dev/null || true
 hooks_path=.uak/githooks
 if [ -f "$target/.githooks/pre-commit" ]; then
-  if cmp -s "$kit/.githooks/pre-commit" "$target/.githooks/pre-commit" || [ "$update" = yes ] && [ -z "$(ls -A "$target/.githooks" 2>/dev/null | grep -v '^pre-commit$')" ] &&
-     grep -q 'secret-scan' "$target/.githooks/pre-commit"; then
+  if { cmp -s "$kit/.githooks/pre-commit" "$target/.githooks/pre-commit" || known "$target/.githooks/pre-commit"; } &&
+     [ -z "$(ls -A "$target/.githooks" 2>/dev/null | grep -v '^pre-commit$')" ]; then
     rm -rf "$target/.githooks"; say "  > .githooks moved to .uak/githooks"
   else hooks_path=.githooks; say "  ~ .githooks has your own hooks: kept (core.hooksPath stays .githooks)"; fi
 fi
@@ -168,7 +180,13 @@ case "$stack" in spring-boot) # Maven/Gradle build output
   for line in target/ .gradle/ build/ '*.class'; do
     grep -qxF -- "$line" "$target/.gitignore" || { printf '%s\n' "$line" >> "$target/.gitignore"; say "  + .gitignore: $line"; }
   done;; esac
-git -C "$target" config core.hooksPath "$hooks_path"
+# Another hook manager (husky, lefthook, pre-commit) owns core.hooksPath: keep it and say how to add the scan.
+# Why: the installer replaced a husky hooksPath, and every husky hook stopped running without a word.
+cur_hooks=$(git -C "$target" config --get core.hooksPath 2>/dev/null || true)
+case "$cur_hooks" in
+  ''|.githooks|.githooks/|.uak/githooks|.uak/githooks/) git -C "$target" config core.hooksPath "$hooks_path";;
+  *) say "  ~ core.hooksPath is $cur_hooks (another hook manager): kept. Add the secret scan to its pre-commit: bash .uak/githooks/pre-commit";;
+esac
 
 cat <<EOF
 

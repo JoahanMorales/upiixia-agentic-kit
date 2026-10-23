@@ -91,7 +91,7 @@ mem_similar() {
   [ "$#" -gt 0 ] && [ -n "$q" ] || return 0
   awk -F' [|] ' -v q="$q" -v max="$max" -v now="$NOW" -v skip="$skip" '
     function toks(s, arr,   n, i, t, a, c) { s = tolower(s); gsub(/[^a-z0-9_\200-\377]+/, " ", s); n = split(s, a, " "); c = 0
-      for (i = 1; i <= n; i++) { t = a[i]; if (length(t) < 3 || (t in stop) || t ~ /^[0-9a-f]{7,}$/ || t ~ /^[0-9]+$/) continue; arr[++c] = t }
+      for (i = 1; i <= n; i++) { t = a[i]; if (length(t) < 3 || (t in stop) || (length(t) >= 7 && t ~ /^[0-9a-f]+$/) || t ~ /^[0-9]+$/) continue; arr[++c] = t }
       return c }
     function add(kind, t, who, task, text,   n, i, a, w, sw2) { D++; K[D] = kind; TM[D] = t + 0; WHO[D] = who; TK[D] = task; TXT[D] = text
       n = toks(text, a); L[D] = n; tot += n; split("", sw2)

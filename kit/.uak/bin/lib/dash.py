@@ -77,14 +77,21 @@ def snapshot(root, claims_dir=None):
         return Path(claims_dir), read(Path(root) / ".uak/TASKS.md")
     remote = os.environ.get("UAK_REMOTE", "origin")
     base = os.environ.get("UAK_BASE", "main")
-    git("fetch", "-q", remote, f"+refs/heads/claims:refs/uak/dash-claims", f"+refs/heads/{base}:refs/uak/dash-base", cwd=root)
+    git("fetch", "-q", remote, f"+refs/heads/{base}:refs/uak/dash-base", cwd=root)
     tmp = Path(tempfile.mkdtemp(prefix="uak-dash-"))
-    data = git("archive", "refs/uak/dash-claims", cwd=root)
-    with tarfile.open(fileobj=io.BytesIO(data)) as t:
-        for m in t.getmembers():
-            if m.name.startswith("/") or ".." in Path(m.name).parts:
-                continue
-            t.extract(m, tmp)
+    # Before the first claim there is no claims branch: the page shows the backlog, all AVAILABLE.
+    # Why: `uak dash` right after /uak-plan failed with "couldn't find remote ref refs/heads/claims".
+    has_claims = subprocess.run(["git", "ls-remote", "--exit-code", "--heads", remote, "claims"], cwd=root,
+                                capture_output=True).returncode == 0
+    if has_claims:
+        git("fetch", "-q", remote, "+refs/heads/claims:refs/uak/dash-claims", cwd=root)
+        data = git("archive", "refs/uak/dash-claims", cwd=root)
+        with tarfile.open(fileobj=io.BytesIO(data)) as t:
+            for m in t.getmembers():
+                # Plain files and directories only: a symlink on claims could point the page at any local file.
+                if m.name.startswith("/") or ".." in Path(m.name).parts or not (m.isfile() or m.isdir()):
+                    continue
+                t.extract(m, tmp)
     backlog = git("show", "refs/uak/dash-base:.uak/TASKS.md", cwd=root, check=False).decode("utf-8", "replace")
     return tmp, backlog
 
@@ -116,6 +123,7 @@ def human_of(name, humans):
 def build(c, backlog_text, repo):
     now = int(time.time()) if not os.environ.get("UAK_NOW") else int(os.environ["UAK_NOW"])
     cfg = fields(read(c / "meta/config.md"))
+    presence = num(cfg.get("Presence-Seconds"), PRESENCE)
     plan = backlog_tasks(backlog_text + "\n" + read(c / "backlog/TASKS.md"))
     amended = backlog_tasks(read(c / "backlog/AMEND.md"))
     for k, v in amended.items():
@@ -178,7 +186,7 @@ def build(c, backlog_text, repo):
             status = "retired"
         elif ended.get(n, 0) >= last and ended.get(n, 0):
             status = "away"
-        elif now - last <= PRESENCE:
+        elif now - last <= presence:
             status = "online"
         elif now - last <= 3 * 3600:
             status = "recent"

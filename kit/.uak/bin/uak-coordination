@@ -70,7 +70,8 @@ coord_init() {
   REVIEW_LEASE=$(coord_source_field Review-Lease-Seconds $((LEASE * 4)))
   case "$LEASE$REVIEW_LEASE" in *[!0-9]*) die "Lease-Seconds and Review-Lease-Seconds must be integers.";; esac
   coord_old_source=$(coord_config Config-Source UNINITIALIZED)
-  [ "$coord_old_source" != "$coord_source" ] || return 0
+  # Schema 2 carries the timing keys below; an older config.md is rewritten once even if PROJECT.md did not change.
+  [ "$coord_old_source" != "$coord_source" ] || [ "$(coord_config Config-Schema 1)" != 2 ] || return 0
   coord_proposed=$(coord_source_field Backlog-Proposed-Epoch 0)
   coord_uint Backlog-Proposed-Epoch "$coord_proposed"
   if [ "$coord_proposed" -eq 0 ]; then
@@ -85,6 +86,15 @@ coord_init() {
   coord_review_mode=$(coord_source_field Review-Mode auto)
   coord_merge_lease=$(coord_source_field Merge-Lease-Seconds 1800)
   coord_merge_wait=$(coord_source_field Merge-Wait-Seconds 180)
+  # Timing keys read with coord_config (presence, stalls, review offers, merge adoption): PROJECT.md wins, then what
+  # claims already had. Why: they were read from meta/config.md but never written there, so setting them in
+  # PROJECT.md (as CLI.md says) did nothing.
+  local coord_k coord_timing=
+  for coord_k in Presence-Seconds:1800 Stall-Seconds:5400 Review-Offer-Seconds:900 Merge-Adopt-Seconds:1200; do
+    coord_v=$(coord_source_field "${coord_k%%:*}" "$(coord_config "${coord_k%%:*}" "${coord_k#*:}")")
+    coord_uint "${coord_k%%:*}" "$coord_v"; coord_timing="$coord_timing${coord_k%%:*}: $coord_v
+"
+  done
   coord_yesno Backlog-Approved "$coord_approved"; coord_yesno Autonomy "$coord_autonomy"
   coord_yesno Auto-Merge "$coord_auto_merge"
   coord_uint Freeze-Epoch "$coord_freeze"; coord_uint Events-Per-Session "$coord_budget"
@@ -98,6 +108,8 @@ coord_init() {
       "Backlog-Approved: $coord_approved" "Autonomy: $coord_autonomy" "Auto-Merge: $coord_auto_merge" \
       "Freeze-Epoch: $coord_freeze" "Events-Per-Session: $coord_budget" "Checkpoint-Percent: $coord_percent" \
       "Review-Mode: $coord_review_mode" "Merge-Lease-Seconds: $coord_merge_lease" "Merge-Wait-Seconds: $coord_merge_wait"
+    printf '%s' "$coord_timing"
+    printf '%s\n' "Config-Schema: 2"
   } > "$TX/meta/config.md"
 }
 coord_receipt() {
@@ -396,7 +408,7 @@ coord_clock() {
   coord_uint Remote-Date "$coord_remote_now"
   coord_delta=$((NOW - coord_remote_now)); [ "$coord_delta" -ge 0 ] || coord_delta=$((-coord_delta))
   if [ "$coord_delta" -gt 60 ]; then CLOCK_NOTE="CLOCK_SKEW: drift $coord_delta s > 60 s; sync clocks before relying on leases."
-  else CLOCK_NOTE="Reloj: diferencia remota $coord_delta s (<=60 s)."; fi
+  else CLOCK_NOTE="Clock: remote skew $coord_delta s (<=60 s)."; fi
 }
 coord_degraded_status() {
   say "NO REMOTE: local tests, rehearsal and local review only"

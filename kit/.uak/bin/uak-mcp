@@ -386,6 +386,7 @@ def main():
     if "--version" in sys.argv:
         print(f"uak-mcp {VERSION} · protocols {', '.join(MODERN + LEGACY)}")
         return 0
+    workers = []
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -399,9 +400,16 @@ def main():
             send({"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid request (batches are not supported)"}})
             continue
         if msg.get("method") in ("tools/call", "resources/read"):
-            threading.Thread(target=safe, args=(msg,), daemon=True).start()   # a long uak_wait does not block others
+            w = threading.Thread(target=safe, args=(msg,), daemon=True)   # a long uak_wait does not block others
+            w.start()
+            workers.append(w)
         else:
             safe(msg)
+    # stdin closed: answer the calls already running (a script that writes a request and closes stdin waited for
+    # nothing before), at most 60 s, then stop what is left.
+    deadline = time.time() + 60
+    for w in workers:
+        w.join(max(0, deadline - time.time()))
     for p in list(_procs.values()):
         kill(p)
     return 0

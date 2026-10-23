@@ -273,13 +273,50 @@ owner_is_self() {
   done
   return 1
 }
+# The owner task waits on this one (its Depends on reach $ID, directly or through others): it cannot start before
+# this one is INTEGRATED, so there are never two writers and this task may write there first.
+# Why (a team's black box, Oct 2026): the root task created a mock file in a mocks package OWNERS.md gave to a second
+# task, which depends on the root: the root could never be claimed and `uak next` offered nothing at all.
+owner_waits_on_me() {
+  local queue=$1 seen=' ' cur d i=0
+  while [ -n "$queue" ] && [ "$i" -lt 60 ]; do
+    cur=${queue%% *}; queue=${queue#"$cur"}; queue=${queue# }; i=$((i + 1))
+    case "$seen" in *" $cur "*) continue;; esac
+    seen="$seen$cur "
+    for d in $(ID=$cur task_field "Depends on" | awk '{ s = $0; gsub(/\([^)]*\)/, "", s)
+        while (match(s, /[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+/)) { print substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH) } }'); do
+      [ "$d" != "$ID" ] || return 0
+      queue="$queue $d"
+    done
+    queue=${queue# }
+  done
+  return 1
+}
+# Tasks whose Paths fall under an OWNERS row of a task that neither is them nor waits on them: claim refuses those
+# for good. Prints "ID|pattern|owner". `plan` warns with it, `lint` fails on it.
+owner_conflicts() { # [ID...] (default: every task of the backlog)
+  local id ids=$*
+  [ -n "$ids" ] || ids=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG" 2>/dev/null)
+  owner_rows > "$TXROOT/oc-owners"
+  [ -s "$TXROOT/oc-owners" ] || return 0
+  for id in $ids; do
+    ( ID=$id
+      normalize_paths "$(task_field Paths)" > "$TXROOT/oc-paths" 2>/dev/null || exit 0
+      while IFS='|' read -r pat owner; do
+        [ -n "$pat" ] && [ "$owner" != "$id" ] || continue
+        normalize_paths "$pat" > "$TXROOT/oc-owner" 2>/dev/null || continue
+        overlaps "$TXROOT/oc-paths" "$TXROOT/oc-owner" || continue
+        owner_is_self "$owner" || owner_waits_on_me "$owner" || printf '%s|%s|%s\n' "$id" "$pat" "$owner"
+      done < "$TXROOT/oc-owners" )
+  done
+}
 check_owners() {
   owner_rows > "$TXROOT/owners"
   while IFS='|' read -r pat owner; do
     [ -n "$pat" ] || continue
     normalize_paths "$pat" > "$TXROOT/owner-paths" || die "Invalid OWNERS pattern: $pat"
-    if overlaps "$TXROOT/paths-request" "$TXROOT/owner-paths" && ! owner_is_self "$owner"; then
-      conflict "$pat belongs to $owner; split the work or request its contract."
+    if overlaps "$TXROOT/paths-request" "$TXROOT/owner-paths" && ! owner_is_self "$owner" && ! owner_waits_on_me "$owner"; then
+      conflict "$pat belongs to $owner; split the work or request its contract. If the plan gave $ID that path on purpose: drop it (uak plan FILE --amend), give the OWNERS row to $ID, or make $owner depend on $ID."
     fi
   done < "$TXROOT/owners"
   while IFS= read -r path; do
@@ -289,7 +326,7 @@ check_owners() {
         printf '%s\n' "$path" > "$TXROOT/one-path"
         while IFS='|' read -r pat owner; do
           normalize_paths "$pat" > "$TXROOT/owner-paths" || die "Invalid OWNERS."
-          if overlaps "$TXROOT/one-path" "$TXROOT/owner-paths" && owner_is_self "$owner"; then assigned=yes; fi
+          if overlaps "$TXROOT/one-path" "$TXROOT/owner-paths" && { owner_is_self "$owner" || owner_waits_on_me "$owner"; }; then assigned=yes; fi
         done < "$TXROOT/owners"
         [ "$assigned" = yes ] || conflict "Shared resource without an owner in OWNERS.md: $path"
         ;;
@@ -516,7 +553,7 @@ retire_mutate() {
 #   message     a new unread message for you: printed, exit 0
 # Timeout (default 540 s, under a 10-min tool limit): WAIT_TIMEOUT, exit 4. Rerun to keep waiting.
 wait_run() {
-  local deadline last= tip n=0 rv st c
+  local deadline last= tip n=0 rv st c left
   deadline=$(( $(date +%s) + WAIT_TIMEOUT ))
   if [ "$WAIT_FOR" = approve ] && [ -z "$ID" ]; then
     ATTEMPT=wait-0; fresh_state
@@ -550,7 +587,10 @@ wait_run() {
           if [ -n "$c" ]; then say "NEW for $AGENT:"; say "$c"; say "Handle them, then uak inbox --ack."; return 0; fi;;
       esac
     fi
-    [ "$(date +%s)" -lt "$deadline" ] || { say "WAIT_TIMEOUT ${ID:+$ID }$WAIT_FOR after $WAIT_TIMEOUT s: nothing yet. Do other work, or run the same wait again."; return 4; }
+    left=$((deadline - $(date +%s)))
+    [ "$left" -gt 0 ] || { say "WAIT_TIMEOUT ${ID:+$ID }$WAIT_FOR after $WAIT_TIMEOUT s: nothing yet. Do other work, or run the same wait again."; return 4; }
+    # Never past the deadline: --timeout 3 used to sleep the whole 15 s check interval.
+    [ "$left" -ge "$WAIT_EVERY" ] || { sleep "$left"; continue; }
     sleep "$WAIT_EVERY"
   done
 }
@@ -625,9 +665,15 @@ handover_mutate() {
   event "handover; $owner → $DONE_TO by ${HUMAN:-$saved}"
   # The worktree's .uak-env wins over the shell, so it must name the new owner when the worktree is here.
   wt=$(field "$RECORD" Worktree)
-  if [ -f "$wt/.uak-env" ]; then
-    sed "s/^UAK_AGENT=.*/UAK_AGENT=$DONE_TO/" "$wt/.uak-env" > "$wt/.uak-env.tmp" && mv "$wt/.uak-env.tmp" "$wt/.uak-env"
-  fi
+  # Claude Code's env (.claude/settings.local.json) too: the hooks read UAK_AGENT from it. Why: after a handover the
+  # new owner's session started as the old identity ("agent=cy-1") and every uak call printed the mismatch.
+  local f
+  for f in "$wt/.uak-env" "$wt/.claude/settings.local.json"; do
+    [ -f "$f" ] || continue
+    sed -e "s/^UAK_AGENT=.*/UAK_AGENT=$DONE_TO/" -e "s/^UAK_SESSION=.*/UAK_SESSION=$DONE_TO-$NOW/" \
+        -e "s/\"UAK_AGENT\": \"[^\"]*\"/\"UAK_AGENT\": \"$DONE_TO\"/" -e "s/\"UAK_SESSION\": \"[^\"]*\"/\"UAK_SESSION\": \"$DONE_TO-$NOW\"/" \
+        "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+  done
   msg_append "agent:$DONE_TO" request "$ID" "$ID is yours now (from $owner): branch $(field "$RECORD" Branch), worktree $wt. Read uak status --task $ID --summary and continue its Next. Another machine: git fetch origin && git worktree add <dir> $(field "$RECORD" Branch), then write UAK_AGENT=$DONE_TO and UAK_TASK=$ID in <dir>/.uak-env."
 }
 # A follow-up of an INTEGRATED task (fix, polish, a reviewer's non-blocking notes) is a new task on the same
@@ -954,6 +1000,12 @@ plan_mutate() {
       [ -n "$(BACKLOG=$PLAN_FILE task_field "$key")" ] || die "$ID needs $key."
     done
   done
+  # A task the claim would refuse for good (its Paths under another task's OWNERS row): said now, not at claim time.
+  { cat "$BACKLOG"; printf '\n'; cat "$PLAN_FILE"; } > "$TXROOT/plan-backlog"
+  { cat "$OWNERS" 2>/dev/null; grep -E '^\|.*\|[[:space:]]*[A-Z][A-Z0-9]*-[0-9]+[[:space:]]*\|' "$PLAN_FILE"; } > "$TXROOT/plan-owners"
+  DONE_HINT=$(BACKLOG="$TXROOT/plan-backlog" OWNERS="$TXROOT/plan-owners" owner_conflicts $plan_ids | while IFS='|' read -r id pat owner; do
+    printf 'PLAN WARNING: %s can never be claimed: its Paths fall under %s, owned by %s. Drop the path (uak plan FILE --amend), give the OWNERS row to %s, or make %s depend on %s.\n' "$id" "$pat" "$owner" "$id" "$owner" "$id"
+  done)
   mkdir -p "$TX/backlog"
   [ -f "$TX/backlog/TASKS.md" ] || printf '%s\n' '# Backlog published on claims (uak plan)' '' \
     'Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for a PR.' > "$TX/backlog/TASKS.md"
@@ -1050,7 +1102,7 @@ print_task() {
 }
 print_status() {
   [ -z "$ID" ] || { print_task; coord_status_budget; say "$CLOCK_NOTE"; return; }
-  say "uak v3.0 | remote claims | epoch $NOW | lease ${LEASE}s"
+  say "uak v$(cat "$UAK_BIN/../VERSION" 2>/dev/null || printf '?') | remote claims | epoch $NOW | lease ${LEASE}s"
   for state in AVAILABLE CLAIMED BLOCKED REVIEW INTEGRATED CANCELLED; do
     count=0
     for f in "$TX"/tasks/*.md; do
@@ -1069,7 +1121,7 @@ print_status() {
   for f in "$TX"/claims/*.md; do
     [ -f "$f" ] || continue
     until=$(field "$f" Lease-Until); expiry=active
-    [ "$NOW" -lt "$until" ] || expiry=VENCIDA
+    [ "$NOW" -lt "$until" ] || expiry=EXPIRED
     say "$(field "$f" ID) | $(field "$f" State) | $(field "$f" Owner) | $expiry | until $until"
   done | head -n 12
   scope=$(sed -n 's/^# UAK_SMOKE_SCOPE: //p' "$ROOT/.uak/bin/smoke" 2>/dev/null | head -n 1)
@@ -1158,7 +1210,7 @@ seen_print() {
   if [ "$FULL" = yes ] || [ -z "$gp" ] || [ -z "$gd" ] || [ "${UAK_DEDUPE:-on}" = off ]; then
     printf '%s\n' "$out"; [ -z "$gd" ] || rm -f "$gd/uak-seen.$key" 2>/dev/null; return 0
   fi
-  sum=$(printf '%s\n' "$out" | sed 's/epoch [0-9][0-9]*//' | grep -Ev '^(Clock|Reloj|Remote clock|CLOCK_SKEW)' | cksum | awk '{print $1}')
+  sum=$(printf '%s\n' "$out" | sed 's/epoch [0-9][0-9]*//' | grep -Ev '^(Clock|Remote clock|CLOCK_SKEW)' | cksum | awk '{print $1}')
   prev=$(cat "$gd/uak-seen.$key" 2>/dev/null) || prev=
   set -- $prev
   if [ "${1:-}" = "$gp" ] && [ "${3:-}" = "$sum" ] && [ "$((NOW - ${2:-0}))" -lt 1800 ]; then
@@ -1250,12 +1302,21 @@ lint_all() {
     fi
   done
   owner_rows > "$TXROOT/owners"
+  # No backlog yet (before /uak-plan): the template's owner rows name tasks the plan will create.
+  [ -s "$BACKLOG" ] || : > "$TXROOT/owners"
   while IFS='|' read -r pat owner; do
     [ -n "$owner" ] || continue
     if ! awk -v id="$owner" '/^## / && $2==id {found=1} END {exit !found}' "$BACKLOG"; then
       say "LINT: owner not in TASKS: $owner" >&2; LINT_ERRORS=$((LINT_ERRORS + 1))
     fi
   done < "$TXROOT/owners"
+  while IFS='|' read -r id pat owner; do
+    [ -n "$id" ] || continue
+    say "LINT: $id can never be claimed: its Paths fall under '$pat', owned by $owner in OWNERS.md. Drop the path from $id (uak plan FILE --amend), give the row to $id, or make $owner depend on $id." >&2
+    LINT_ERRORS=$((LINT_ERRORS + 1))
+  done <<EOF_OC
+$( [ ! -s "$BACKLOG" ] || owner_conflicts )
+EOF_OC
   # sprint without a freeze = features until the last minute (Hack-Nation: 8 PRs, incl. a product rename, in the last 6 h).
   if [ -f "$ROOT/.uak/PROJECT.md" ] && grep -Eq '^[-* ]*Mode:[* ]*sprint' "$ROOT/.uak/PROJECT.md" &&
      ! grep -Eq '^[-* ]*Freeze-Epoch:[* ]*[1-9][0-9]*' "$ROOT/.uak/PROJECT.md"; then

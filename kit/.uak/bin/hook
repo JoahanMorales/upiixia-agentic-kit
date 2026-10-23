@@ -19,7 +19,9 @@ top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$top" || exit 0
 gd=$(git rev-parse --git-dir 2>/dev/null) || exit 0
 env_value() { [ -f .uak-env ] && sed -n "s/^$1=//p" .uak-env | head -n 1; }
-task=$(env_value UAK_TASK); agent=${UAK_AGENT:-$(env_value UAK_AGENT)}
+# The worktree's identity wins over an inherited export, as in uak (UAK_ENV_OVERRIDE=1 keeps the export).
+task=$(env_value UAK_TASK); agent=$(env_value UAK_AGENT)
+[ -n "$agent" ] && [ "${UAK_ENV_OVERRIDE:-}" != 1 ] || agent=${UAK_AGENT:-$agent}
 fresh() { [ -f "$1" ] && [ -n "$(find "$1" -mmin "-$2" 2>/dev/null)" ]; }
 # JSON string body: sed escapes (awk gsub of a backslash differs between mawk, gawk and BSD awk); control
 # characters such as ANSI colors from test runners are invalid in JSON and are dropped.

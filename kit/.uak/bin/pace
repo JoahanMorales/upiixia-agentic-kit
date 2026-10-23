@@ -50,7 +50,7 @@ from_codex() {
   [ -n "$recent" ] || return 0
   latest=$(ls -t $recent 2>/dev/null | head -n 1)
   [ -n "$latest" ] || return 0
-  obs=$(date -r "$latest" +%s 2>/dev/null || stat -c %Y "$latest" 2>/dev/null || echo "$NOW")
+  obs=$(stat -c %Y "$latest" 2>/dev/null || stat -f %m "$latest" 2>/dev/null || date -r "$latest" +%s 2>/dev/null || echo "$NOW")
   # Rollout files can reach hundreds of MB: read only the tail.
   tail -c 400000 "$latest" | grep '"rate_limits"' | tail -n 1 | awk -v now="$NOW" -v obs="$obs" '
     function num(s, key,   i, r) { i = index(s, "\"" key "\""); if (!i) return ""; r = substr(s, i + length(key) + 2)

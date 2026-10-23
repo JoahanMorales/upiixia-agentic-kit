@@ -11,6 +11,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # kit_hashes --check reads every kit version ever shipped
       - name: mawk too (Debian/Ubuntu default awk)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y mawk && awk -W version | head -1
@@ -18,6 +20,8 @@ jobs:
         run: git config --global user.name ci && git config --global user.email ci@example.invalid
       - name: Codex/Cursor/Gemini subagents are generated from .claude/agents
         run: python3 scripts/gen_harness.py --check
+      - name: install --update recognizes every kit version ever shipped
+        run: python3 scripts/kit_hashes.py --check
       - name: Protocol suite (real Git, local bare remotes)
         working-directory: kit
         run: bash .uak/bin/smoke --package-only
