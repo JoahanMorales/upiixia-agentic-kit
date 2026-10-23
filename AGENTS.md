@@ -15,7 +15,9 @@ If a user asks you to set up multi-agent coordination in ANOTHER repo, use `skil
    - Bash 3.2 (macOS);
    - POSIX tools, no jq;
    - **no `{n}` regex intervals inside awk** (mawk ignores them), so use `grep -E`;
-   - no `gensub` and no arrays of arrays.
+   - no `gensub` and no arrays of arrays;
+   - no newline inside an `awk -v` value (BSD awk on macOS fails with "newline in string"): flatten it with `tr` or pass a file;
+   - compare absolute paths physically (`pwd -P`): macOS temp dirs are symlinks (`/var` → `/private/var`).
 3. Token budget: `kit/AGENTS.md` stays at 100 lines or fewer (lint enforces it). Prefer tables and imperative one-liners. Detail goes in `.uak/docs/`, linked from §7.
 4. Every new rule cites its incident or evidence in `kit/.uak/docs/WHY.md`. A rule without evidence is an opinion.
 5. Third-party skills: pin the commit, review the content, include the LICENSE, and record them in `kit/.uak/skills/SOURCES.md`. Never vendor skills that fetch instructions at runtime.

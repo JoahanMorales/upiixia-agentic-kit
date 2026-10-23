@@ -61,7 +61,9 @@ mem_task_text() {
 mem_similar() {
   local f
   set -- "$1" "${2:-3}" "${3:-}"
-  local q=$1 max=$2 skip=" $3 "
+  # One line: BSD awk (macOS) rejects a -v value with a newline ("newline in string") and prints nothing.
+  local q max=$2 skip=" $3 "
+  q=$(printf '%s' "$1" | tr '\n\r\t' '   ')
   shift 3
   # Finished work too: the live summary of each INTEGRATED task (how something like this was solved). Three awk
   # passes, not a field read per task (81 tasks at MLB took 1 s that way).

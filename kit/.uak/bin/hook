@@ -144,6 +144,8 @@ lens() {
     printf '%s' "$name" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]{2,}$' || return 0
     key="s:$name"
   elif [ -n "$file" ]; then
+    # macOS: the tool may name /var/... while git reports /private/var/...; compare physical paths.
+    case "$file" in "$top"/*) ;; /*) w=$(cd "$(dirname "$file")" 2>/dev/null && pwd -P) && file="$w/${file##*/}";; esac
     case "$file" in "$top"/*) file=${file#"$top"/};; /*) return 0;; esac
     key="f:$file"
   else return 0; fi
