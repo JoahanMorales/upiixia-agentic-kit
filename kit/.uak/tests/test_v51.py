@@ -442,9 +442,31 @@ def upstream_drift_is_told(r):
     return {"drift": True}
 
 
+def stalled_tasks_are_seen(r):
+    """43 lease recoveries at MLB; the orchestra rule: reassign an agent stuck on one error instead of letting it spin."""
+    f = rm.fixture(r, "v51-stall", count=2)
+    f.claim(0, "HACK-001", now=1000000)
+    hack(f, 0, "heartbeat", "HACK-001", now=1000010)
+    rec = f.show("tasks/HACK-001.md")
+    expect("Progress-Changed: 1000010" in rec, "the first heartbeat sets when the work last moved: " + rec)
+    hack(f, 0, "heartbeat", "HACK-001", now=1003000, UAK_LEASE_SECONDS="20000")
+    expect("Progress-Changed: 1000010" in f.show("tasks/HACK-001.md"), "no new commit, no move")
+    own = hack(f, 0, "next", now=1006000)
+    expect("STALLED: no work moved on HACK-001 in 99 min" in own.stdout and "--state BLOCKED" in own.stdout, own.stdout)
+    other = hack(f, 1, "next", now=1006000)
+    expect("Stalled: HACK-001 of agent-1" in other.stdout or "HACK-002 | AVAILABLE" in other.stdout, other.stdout)
+    digest = rm.actor(f, "boss", "digest", now=1006000, human=True)
+    expect("HACK-001 | STALLED | agent-1 | no work moved in 99 min" in digest.stdout, "the human digest lists it: " + digest.stdout)
+    rm.publish(f, 0, "HACK-001")
+    hack(f, 0, "heartbeat", "HACK-001", now=1006100, UAK_LEASE_SECONDS="20000")
+    own2 = hack(f, 0, "next", now=1006200)
+    expect("STALLED" not in own2.stdout, "a commit moves it again: " + own2.stdout)
+    return {"stalled": True}
+
+
 TESTS = [review_offers_move_on, humans_and_stale_identities_get_no_review, offline_recipients_and_orphans,
          worktree_env_is_not_a_human, approval_survives_forge_merge_and_pull, followup_owns_the_parent_paths,
-         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back, upstream_drift_is_told]
+         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back, upstream_drift_is_told, stalled_tasks_are_seen]
 
 
 def main():

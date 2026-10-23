@@ -468,6 +468,8 @@ coord_next() {
     freeze_warning
     coord_until=$(coord_read "$RECORD" Lease-Until)
     if [ "$NOW" -ge "$coord_until" ] && [ "$(coord_read "$RECORD" State)" != REVIEW ]; then say "LEASE EXPIRED: read status --task $ID --summary; recover with its token before editing."; fi
+    coord_st=$(task_stalled "$RECORD")
+    [ -z "$coord_st" ] || say "STALLED: no work moved on $ID in $coord_st min. The same failure twice: bash .uak/bin/uak log $ID --state BLOCKED \"<exact error>\". Out of ideas: checkpoint, then handover or release, and take other work."
     # Waiting on your own review is idle time: review someone else meanwhile. Why (MLB hackathon): agents in
     # REVIEW got only their own task from next, while 22 messages asked around for a reviewer.
     if [ "$(coord_read "$RECORD" State)" = REVIEW ]; then
@@ -536,6 +538,13 @@ coord_next() {
     coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"; return 0
   fi
   msg_orphans
+  # Someone else's task that stopped moving: the idle agent can ask (it cannot take a live claim).
+  for coord_f in "$TX"/tasks/*.md; do
+    [ -f "$coord_f" ] && [ "$(coord_read "$coord_f" Owner)" != "$AGENT" ] || continue
+    coord_st=$(task_stalled "$coord_f"); [ -n "$coord_st" ] || continue
+    say "Stalled: $(coord_read "$coord_f" ID) of $(coord_read "$coord_f" Owner): no work moved in $coord_st min. Ask once (uak msg $(coord_read "$coord_f" ID) --kind request \"stuck? what failed\"); its human can hand it over."
+    break
+  done
   if [ "$coord_freeze" -gt 0 ] && [ "$NOW" -ge "$coord_freeze" ]; then
     say 'Idle after freeze: rehearse the demo (/uak-demo), check the submission, then stop. Do not poll uak next; a message will reach you.'
   else

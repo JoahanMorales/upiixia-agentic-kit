@@ -563,6 +563,19 @@ task_progress() {
   last=$(git -C "$wt" log -1 --format='%h %s (%cr)' 2>/dev/null | cut -c 1-120 | tr '|' '/')
   dirty=$(git -C "$wt" status --porcelain 2>/dev/null | grep -vc '^??' || true)
   put "$RECORD" Progress "$n commit(s) since the claim · last: ${last:--} · $dirty uncommitted tracked file(s) · at $NOW"
+  # When the work last moved (a new HEAD, or a different set of uncommitted files): stall detection reads it.
+  local head; head="$(git -C "$wt" rev-parse --short HEAD 2>/dev/null)/$(git -C "$wt" status --porcelain 2>/dev/null | cksum | awk '{print $1}')"
+  if [ "$(field "$RECORD" Progress-Head)" != "$head" ]; then put "$RECORD" Progress-Head "$head"; put "$RECORD" Progress-Changed "$NOW"; fi
+}
+# Stalled: a CLAIMED task whose work has not moved for Stall-Seconds (default 90 min) while its lease is live.
+# Prints "minutes" or nothing. Why (MLB hackathon): 43 lease recoveries; Addy Osmani's orchestra notes: kill and
+# reassign an agent stuck three iterations on one error instead of letting it spin.
+task_stalled() { # $1 record file
+  local ch lim; [ "$(field "$1" State)" = CLAIMED ] || return 0
+  ch=$(field "$1" Progress-Changed); case "$ch" in ''|*[!0-9]*) return 0;; esac
+  lim=$(coord_config Stall-Seconds 5400 2>/dev/null); case "$lim" in ''|*[!0-9]*) lim=5400;; esac
+  [ $((NOW - ch)) -ge "$lim" ] || return 0
+  printf '%s' $(( (NOW - ch) / 60 ))
 }
 # `uak away`: this identity closed its session. It leaves the reviewer rotation and messages to it reach its tasks
 # at once (not after 30 min of silence); its claims keep their leases. The next uak command brings it back.
@@ -1073,6 +1086,11 @@ print_digest() {
     esac
   done
   [ "$found" = yes ] || say "No pending reviews or blockers."
+  for f in "$TX"/tasks/*.md; do
+    [ -f "$f" ] || continue
+    m=$(task_stalled "$f"); [ -n "$m" ] || continue
+    say "$(field "$f" ID) | STALLED | $(field "$f" Owner) | no work moved in $m min · $(field "$f" Progress | awk -F' · ' '{print $1 " · " $2}')"
+  done
   [ ! -f "$TX/DECISIONS.md" ] || grep '^-' "$TX/DECISIONS.md" | tail -n 5
   freeze_warning
   human_msgs=$(msg_select human | tail -n 10)
