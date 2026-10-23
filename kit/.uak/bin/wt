@@ -155,7 +155,8 @@ path=$(wt_path "$root" "$id")
 git -C "$root" show-ref --verify --quiet "refs/heads/$branch" && die "Branch $branch already exists locally; check uak status --task $id --summary."
 
 # Writes .git/config only if needed: several agents on one machine start at once.
-[ "$(git -C "$root" config --get core.hooksPath)" = .githooks ] || git -C "$root" config core.hooksPath .githooks
+hooks_dir=.uak/githooks; [ -d "$root/$hooks_dir" ] || hooks_dir=.githooks   # v5.2 moved them under .uak
+[ "$(git -C "$root" config --get core.hooksPath)" = "$hooks_dir" ] || git -C "$root" config core.hooksPath "$hooks_dir"
 git -C "$root" fetch -q "$REMOTE" "$BASE" || die "Could not fetch $REMOTE/$BASE."
 mkdir -p "$(dirname "$path")"
 # --no-track: no upstream means no .git/config write (avoids lock contention).

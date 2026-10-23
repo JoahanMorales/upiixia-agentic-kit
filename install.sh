@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # UPIIXIA Agentic Kit installer.
-#   bash install.sh --mode sprint|marathon [--stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|none] [--skills ai,tdd] [--no-blackbox] [--no-mcp] [--update] TARGET
+#   bash install.sh --mode sprint|marathon [--stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|spring-boot|none]
+#                   [--harness claude,codex,cursor,gemini] [--skills ai,tdd] [--no-blackbox] [--no-mcp] [--update] TARGET
 # Never overwrites your files: if AGENTS.md, CLAUDE.md, settings.json… already exist and differ,
 # the kit's version is written as <file>.uak-new for you to merge.
 # --update replaces only the engine (.uak/bin, docs, modes, templates, tests, settings, stacks, skills)
@@ -12,7 +13,7 @@
 set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 kit="$here/kit"
-mode= stack=none extra= update=no target= blackbox=on mcp=on
+mode= stack=none extra= update=no target= blackbox=on mcp=on harness=claude,codex,cursor,gemini
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode) mode=${2:-}; shift 2;;
@@ -21,7 +22,8 @@ while [ "$#" -gt 0 ]; do
     --update) update=yes; shift;;
     --no-blackbox) blackbox=off; shift;;
     --no-mcp) mcp=off; shift;;
-    -h|--help) sed -n '2,11p' "$0"; exit 0;;
+    --harness) harness=${2:-}; shift 2;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0;;
     -*) printf 'Unknown option: %s\n' "$1" >&2; exit 2;;
     *) target=$1; shift;;
   esac
@@ -32,6 +34,8 @@ case "$mode" in sprint|marathon) ;; *) printf '%s\n' 'Missing --mode sprint|mara
 [ -n "$target" ] || { printf '%s\n' 'Missing TARGET (root of a Git repository)' >&2; exit 2; }
 target=$(cd "$target" && pwd)
 git -C "$target" rev-parse --show-toplevel >/dev/null 2>&1 || { printf '%s\n' "$target is not a Git repository (git init first)" >&2; exit 2; }
+for h in $(printf '%s' "$harness" | tr ',' ' '); do case "$h" in claude|codex|cursor|gemini) ;; *) printf 'Unknown harness: %s (claude, codex, cursor, gemini)\n' "$h" >&2; exit 2;; esac; done
+has() { case ",$harness," in *",$1,"*) return 0;; *) return 1;; esac; }
 [ "$stack" = none ] || [ -d "$kit/.uak/stacks/$stack" ] || { printf 'Unknown stack: %s (available: %s)\n' "$stack" "$(ls "$kit/.uak/stacks" | tr '\n' ' ')" >&2; exit 2; }
 
 say() { printf '%s\n' "$*"; }
@@ -67,7 +71,7 @@ for part in bin docs modes templates tests settings stacks skills; do
   cp -R "$kit/.uak/$part" "$target/.uak/$part"
 done
 for f in smoke-project .smoke-project.provenance; do [ ! -f "$keep/$f" ] || { cp -p "$keep/$f" "$target/.uak/bin/$f"; say "  = .uak/bin/$f kept (project adapter)"; }; done
-rm -rf "$keep"
+trap 'rm -rf "$keep"' EXIT
 cp "$kit/.uak/VERSION" "$target/.uak/VERSION"
 # Coach templates: copied on install; on --update they are refreshed too (they are engine text, not project data).
 cp "$kit/.uak/reminders.md" "$target/.uak/reminders.md"
@@ -81,7 +85,18 @@ fi
 grep -Eq "^Mode: $mode\$" "$target/.uak/PROJECT.md" || say "  ! .uak/PROJECT.md does not declare 'Mode: $mode' (left unchanged)"
 
 put "$kit/AGENTS.md" "$target/AGENTS.md"
-put "$kit/CLAUDE.md" "$target/CLAUDE.md"
+# CLAUDE.md lives in .claude/ (Claude Code reads ./.claude/CLAUDE.md), so the root keeps only AGENTS.md, the file every
+# other agent reads there. A root CLAUDE.md that is the kit's own (an older install) moves; a customized one stays.
+# Why: a team found the ~12 kit entries at the root invasive.
+if has claude; then
+  sed 's|^@AGENTS.md$|@../AGENTS.md|' "$kit/CLAUDE.md" > "$keep/CLAUDE.md"
+  if [ -f "$target/CLAUDE.md" ] && cmp -s "$kit/CLAUDE.md" "$target/CLAUDE.md"; then
+    rm -f "$target/CLAUDE.md"; say "  > CLAUDE.md moved to .claude/CLAUDE.md (the root keeps AGENTS.md)"
+  fi
+  if [ -f "$target/CLAUDE.md" ]; then say "  ~ CLAUDE.md is yours: kept at the root; the kit's text is in .claude/CLAUDE.md.uak-new"
+    mkdir -p "$target/.claude"; cp "$keep/CLAUDE.md" "$target/.claude/CLAUDE.md.uak-new"
+  else put "$keep/CLAUDE.md" "$target/.claude/CLAUDE.md"; fi
+fi
 put "$kit/.uak/settings/settings.$mode.json" "$target/.claude/settings.json"
 putdir "$kit/.claude/commands" "$target/.claude/commands"
 putdir "$kit/.claude/agents" "$target/.claude/agents"
@@ -100,28 +115,43 @@ if [ "$stack" != none ]; then
   putdir "$kit/.uak/stacks/$stack/skills" "$target/.claude/skills"
   [ ! -f "$kit/.uak/stacks/$stack/smoke-project.example" ] || put "$kit/.uak/stacks/$stack/smoke-project.example" "$target/.uak/bin/smoke-project.example"
 fi
-put "$kit/.cursor/rules/uak.mdc" "$target/.cursor/rules/uak.mdc"
-put "$kit/.cursor/hooks.json" "$target/.cursor/hooks.json"
-if [ "$mcp" = on ]; then
-  put "$kit/.cursor/mcp.json" "$target/.cursor/mcp.json"
-  put "$kit/.mcp.json" "$target/.mcp.json"
+# Each harness's own directory only for the harnesses the team uses (--harness; all four by default). .claude/
+# stays in every install: the skills and the /uak-* phase scripts there are read by every harness.
+if has cursor; then
+  put "$kit/.cursor/rules/uak.mdc" "$target/.cursor/rules/uak.mdc"
+  put "$kit/.cursor/hooks.json" "$target/.cursor/hooks.json"
+  [ "$mcp" != on ] || put "$kit/.cursor/mcp.json" "$target/.cursor/mcp.json"
 fi
-putmcp "$kit/.uak/settings/codex.$mode.toml" "$target/.codex/config.toml"
-put "$kit/.codex/hooks.json" "$target/.codex/hooks.json"
-putmcp "$kit/.gemini/settings.json" "$target/.gemini/settings.json"
+[ "$mcp" != on ] || ! has claude || put "$kit/.mcp.json" "$target/.mcp.json"
+if has codex; then
+  putmcp "$kit/.uak/settings/codex.$mode.toml" "$target/.codex/config.toml"
+  put "$kit/.codex/hooks.json" "$target/.codex/hooks.json"
+fi
+! has gemini || putmcp "$kit/.gemini/settings.json" "$target/.gemini/settings.json"
 case "$mode" in sprint) skip_agent=security-reviewer;; *) skip_agent=design-critic;; esac
-for h in .codex .cursor .gemini; do # the same subagents as .claude/agents, minus the other mode's
-  for f in "$kit/$h/agents/"*; do
+for h in codex cursor gemini; do # the same subagents as .claude/agents, minus the other mode's
+  has "$h" || continue
+  for f in "$kit/.$h/agents/"*; do
     case "$(basename "$f")" in "$skip_agent".*) continue;; esac
-    put "$f" "$target/$h/agents/$(basename "$f")"
+    put "$f" "$target/.$h/agents/$(basename "$f")"
   done
 done
 for link in .agents/skills .cursor/skills; do # Codex, Cursor and others read the same skills
+  case "$link" in .agents/*) has codex || continue;; .cursor/*) has cursor || continue;; esac
   mkdir -p "$target/$(dirname "$link")"
   [ -e "$target/$link" ] || { ln -s ../.claude/skills "$target/$link"; say "  + $link → .claude/skills"; }
 done
-put "$kit/.githooks/pre-commit" "$target/.githooks/pre-commit"
-chmod +x "$target/.githooks/pre-commit" 2>/dev/null || true
+# The pre-commit secret scanner lives in .uak/githooks (engine, refreshed by --update). An older install's
+# .githooks/pre-commit that is the kit's own is removed; a changed one stays and keeps working until you move it.
+mkdir -p "$target/.uak/githooks"; cp "$kit/.githooks/pre-commit" "$target/.uak/githooks/pre-commit"
+chmod +x "$target/.uak/githooks/pre-commit" 2>/dev/null || true
+hooks_path=.uak/githooks
+if [ -f "$target/.githooks/pre-commit" ]; then
+  if cmp -s "$kit/.githooks/pre-commit" "$target/.githooks/pre-commit" || [ "$update" = yes ] && [ -z "$(ls -A "$target/.githooks" 2>/dev/null | grep -v '^pre-commit$')" ] &&
+     grep -q 'secret-scan' "$target/.githooks/pre-commit"; then
+    rm -rf "$target/.githooks"; say "  > .githooks moved to .uak/githooks"
+  else hooks_path=.githooks; say "  ~ .githooks has your own hooks: kept (core.hooksPath stays .githooks)"; fi
+fi
 put "$kit/.github/pull_request_template.md" "$target/.github/pull_request_template.md"
 put "$kit/.github/workflows/uak.yml" "$target/.github/workflows/uak.yml"
 put "$kit/.github/workflows/uak-tick.yml.example" "$target/.github/workflows/uak-tick.yml.example"
@@ -134,7 +164,7 @@ for line in .env '.env.*' '!.env.example' .uak-env .claude/settings.local.json _
     .venv/ node_modules/ .next/ dist/ .DS_Store; do
   grep -qxF -- "$line" "$target/.gitignore" || { printf '%s\n' "$line" >> "$target/.gitignore"; say "  + .gitignore: $line"; }
 done
-git -C "$target" config core.hooksPath .githooks
+git -C "$target" config core.hooksPath "$hooks_path"
 
 cat <<EOF
 

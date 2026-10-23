@@ -49,12 +49,13 @@ else
   bad "missing $project (bash install.sh --mode sprint|marathon)"
 fi
 [ -f .uak/TASKS.md ] && ok ".uak/TASKS.md exists" || warn "no .uak/TASKS.md yet: run /uak-plan"
-[ "$(git config --get core.hooksPath)" = .githooks ] && ok "pre-commit secret scanner active" || {
-  if [ "$fix" = yes ]; then git config core.hooksPath .githooks && ok "core.hooksPath=.githooks (fixed)"
-  else bad "core.hooksPath is not .githooks: commits skip the scanner (doctor --fix)"; fi; }
+hooks_dir=.uak/githooks; [ -d "$hooks_dir" ] || hooks_dir=.githooks   # v5.2 moved them under .uak
+[ "$(git config --get core.hooksPath)" = "$hooks_dir" ] && ok "pre-commit secret scanner active ($hooks_dir)" || {
+  if [ "$fix" = yes ]; then git config core.hooksPath "$hooks_dir" && ok "core.hooksPath=$hooks_dir (fixed)"
+  else bad "core.hooksPath is not $hooks_dir: commits skip the scanner (doctor --fix)"; fi; }
 # Hooks must be executable where git checks the bit (macOS/Linux). Why (MLB hackathon, Codex): the pre-commit
 # scanner was silently skipped because .githooks/pre-commit lost its executable bit.
-for h in .githooks/*; do
+for h in "$hooks_dir"/*; do
   [ -f "$h" ] || continue
   case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) break;; esac
   if [ ! -x "$h" ]; then

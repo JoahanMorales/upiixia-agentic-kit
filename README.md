@@ -47,7 +47,7 @@ git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-
 bash ~/.uak-kit/install.sh --mode sprint .          # hackathon / AI prototype
 # or: --mode marathon                               # real product: specs, CODEOWNERS, security reviews
 # options: --stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent   --skills ai,tdd   --update (refresh the engine later)
-#          --no-mcp (CLI only, no MCP server config)   --no-blackbox
+#          --harness claude,codex (only the dirs of the tools you use)   --no-mcp (CLI only)   --no-blackbox
 bash .uak/bin/doctor                                 # minute-0 preflight: remote, gh perms, hooks, freeze, ports
 ```
 
@@ -314,7 +314,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**127 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
+**132 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
 
 ## Works with
 | Tool | How |
@@ -360,7 +360,7 @@ Full reference: [CLI.md](kit/.uak/docs/CLI.md). Example backlog: [examples/ai-ha
 
 ## What's inside
 ```
-AGENTS.md · CLAUDE.md        76-line core every agent reads · Claude Code extras
+AGENTS.md · .claude/CLAUDE.md  76-line core every agent reads (the only kit file at the root) · Claude Code extras
 .uak/bin/                    uak CLI, wt, loop, graph, map, tokens, guard, pace, bb, cap, clock, statusline, doctor, q, secret-scan (Bash 3.2, no jq)
 .uak/bin/uak-mcp             the MCP server (Python 3.8+ stdlib), optional; configs: .mcp.json, .cursor/mcp.json, Codex, Gemini
 .uak/modes/                  sprint.md · marathon.md
@@ -369,7 +369,7 @@ AGENTS.md · CLAUDE.md        76-line core every agent reads · Claude Code extr
 .uak/skills/                 curated skills (superpowers, Anthropic, Vercel, taste-skill, Karpathy guidelines), pinned, licensed
 .uak/stacks/                 stack presets: fastapi-react, nextjs, django, go, expo, python-data, ai-agent
 .claude/                     slash commands, subagents, hooks, status line (settings per mode)
-.codex/ · .cursor/ · .gemini/  the same subagents per harness + hooks (Codex, Cursor, Gemini) + Codex config
+.codex/ · .cursor/ · .gemini/  the same subagents per harness + hooks (Codex, Cursor, Gemini), only for the --harness you pick
 ```
 
 ## How it compares

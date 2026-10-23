@@ -519,9 +519,32 @@ def commands_come_up_when_they_apply(r):
     return {"moments": True}
 
 
+def a_smaller_root(r):
+    """About 12 kit entries at the project root felt invasive; only AGENTS.md and the dirs each tool reads must stay."""
+    pkg = r.package.parent
+    t = r.scratch / "v51-root"; t.mkdir()
+    r.g(t, "init", "-q", "-b", "main")
+    r.run([r.bash, str(pkg / "install.sh"), "--mode", "sprint", "--harness", "claude", "--no-mcp", str(t)], cwd=t)
+    root = sorted(p.name for p in t.iterdir() if p.name != ".git")
+    expect(root == [".claude", ".github", ".gitignore", ".uak", "AGENTS.md"], "claude only, no MCP: " + str(root))
+    expect((t / ".claude/CLAUDE.md").read_text(encoding="utf-8").splitlines()[2] == "@../AGENTS.md", "CLAUDE.md imports ../AGENTS.md")
+    expect(r.g(t, "config", "core.hooksPath").stdout.strip() == ".uak/githooks", "the scanner hook lives in .uak")
+    old = r.scratch / "v51-root-old"; old.mkdir()
+    r.g(old, "init", "-q", "-b", "main")
+    r.run([r.bash, str(pkg / "install.sh"), "--mode", "sprint", "--harness", "claude,codex", str(old)], cwd=old)
+    expect(not (old / ".cursor").exists() and not (old / ".gemini").exists() and (old / ".agents/skills").exists(), "only the chosen harnesses")
+    import shutil
+    shutil.copy2(pkg / "kit/CLAUDE.md", old / "CLAUDE.md"); (old / ".claude/CLAUDE.md").unlink()
+    (old / ".githooks").mkdir(); shutil.copy2(pkg / "kit/.githooks/pre-commit", old / ".githooks/pre-commit")
+    up = r.run([r.bash, str(pkg / "install.sh"), "--mode", "sprint", "--harness", "claude,codex", "--update", str(old)], cwd=old)
+    expect(not (old / "CLAUDE.md").exists() and (old / ".claude/CLAUDE.md").exists() and not (old / ".githooks").exists()
+           and "moved" in up.stdout, "an older layout migrates on --update: " + up.stdout[-500:])
+    return {"root": root}
+
+
 TESTS = [review_offers_move_on, humans_and_stale_identities_get_no_review, offline_recipients_and_orphans,
          worktree_env_is_not_a_human, approval_survives_forge_merge_and_pull, followup_owns_the_parent_paths,
-         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back, upstream_drift_is_told, stalled_tasks_are_seen, github_feedback_reaches_the_task, commands_come_up_when_they_apply]
+         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back, upstream_drift_is_told, stalled_tasks_are_seen, github_feedback_reaches_the_task, commands_come_up_when_they_apply, a_smaller_root]
 
 
 def main():
