@@ -406,9 +406,45 @@ def past_work_comes_back(r):
     return {"similar": True}
 
 
+def upstream_drift_is_told(r):
+    """Conflicting changes surfaced only in the merge gate; STORM (arXiv 2605.20563) caught them at write time."""
+    f = r.fixture("v51-drift", count=2, paths={"HACK-001": "lib/", "HACK-002": "app/"})
+    config(f)
+    push_main(f, CODE, "code")
+    for w in f.worktrees:
+        r.g(w, "merge", "-q", "--ff-only", "origin/main")
+    w = f.worktrees[1]
+    (w / ".uak-env").write_text("UAK_AGENT=agent-2\nUAK_TASK=HACK-002\n", encoding="utf-8")
+    f.claim(1, "HACK-002")
+    (w / "app/page.py").write_text(CODE["app/page.py"] + "\ndef title():\n    return 'x'\n", encoding="utf-8")
+    r.g(w, "commit", "-qam", "title()")
+    quiet = r.run([r.bash, ".uak/bin/map", "drift"], cwd=w, allowed=None)
+    expect(quiet.returncode == 1, "nothing upstream, nothing said: " + quiet.stdout)
+    push_main(f, {"lib/config.py": CODE["lib/config.py"].replace("return name", "return 'data/' + name")}, "HACK-001: data_path prefixes data/")
+    r.g(w, "fetch", "-q", "origin")
+    d = r.run([r.bash, ".uak/bin/map", "drift"], cwd=w)
+    expect("UPSTREAM: lib/config.py changed on main" in d.stdout and "your app/page.py imports it" in d.stdout
+           and "HACK-001: data_path prefixes data/" in d.stdout and "git merge origin/main" in d.stdout, d.stdout)
+    payload = json.dumps({"session_id": "d1", "tool_name": "Bash", "tool_input": {"command": "true"}})
+    tick = lambda: subprocess.run([r.bash, ".uak/bin/hook", "tick"], cwd=w, input=payload, text=True, capture_output=True,
+                                  env={**r.env, "UAK_AGENT": "agent-2"}, timeout=60).stdout
+    tick()
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    for _ in range(40):
+        if (gd / "uak-drift.txt").exists(): break
+        time.sleep(0.5)
+    first = tick()
+    expect("UPSTREAM: lib/config.py" in first, "the hook says it during the work: " + first)
+    expect("UPSTREAM" not in tick(), "once per change set")
+    r.g(w, "push", "-q", "origin", f.branches[1])
+    ship = f.hack(1, "done", "HACK-002", "--pr", "https://example.test/pull/2", "--evidence", "ok", now=1000010)
+    expect("UPSTREAM: lib/config.py" in ship.stdout, "and again when shipping: " + ship.stdout)
+    return {"drift": True}
+
+
 TESTS = [review_offers_move_on, humans_and_stale_identities_get_no_review, offline_recipients_and_orphans,
          worktree_env_is_not_a_human, approval_survives_forge_merge_and_pull, followup_owns_the_parent_paths,
-         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back]
+         merge_gate_links_node_modules, small_fixes, identities_are_reused, plan_amends_before_review, map_in_the_loop, sessions_leave_a_trace, past_work_comes_back, upstream_drift_is_told]
 
 
 def main():

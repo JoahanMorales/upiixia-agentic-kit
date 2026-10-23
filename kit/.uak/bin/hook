@@ -225,6 +225,20 @@ case "${1:-}" in
     evname=PostToolUse; [ "${2:-}" != gemini ] || evname=AfterTool
     coach_note=$(coach 2>/dev/null)
     lens_note=$(lens 2>/dev/null)
+    # Upstream drift: at most every 5 min, in the background, fetch the base and ask the map whether it changed what
+    # this branch edits or imports; say it once per change set. Why: STORM (arXiv 2605.20563), conflicts caught at
+    # write time; at MLB they surfaced only in the merge gate.
+    if [ -n "$task" ] && [ -n "$agent" ] && ! fresh "$gd/uak-drift.checked" 5; then
+      touch "$gd/uak-drift.checked" 2>/dev/null
+      ( git fetch -q "${UAK_REMOTE:-origin}" "${UAK_BASE:-main}" 2>/dev/null &&
+          { bash .uak/bin/map drift --ref "${UAK_REMOTE:-origin}/${UAK_BASE:-main}" > "$gd/uak-drift.tmp" 2>/dev/null || : > "$gd/uak-drift.tmp"; } &&
+          mv "$gd/uak-drift.tmp" "$gd/uak-drift.txt" ) > /dev/null 2>&1 &
+    fi
+    if [ -s "$gd/uak-drift.txt" ] && [ "$(sum "$gd/uak-drift.txt")" != "$(cat "$gd/uak-drift.shown" 2>/dev/null)" ]; then
+      sum "$gd/uak-drift.txt" > "$gd/uak-drift.shown"
+      lens_note="$(cat "$gd/uak-drift.txt")${lens_note:+
+}$lens_note"
+    fi
     [ -z "$lens_note" ] || coach_note="${lens_note}${coach_note:+
 }$coach_note"
     if [ -z "$agent" ]; then

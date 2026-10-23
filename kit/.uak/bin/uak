@@ -834,6 +834,14 @@ mutate() {
           DONE_HINT="CONTRACT? Your diff changes files that live tasks import (${ctasks% }) and you sent them no contract. If the shape changed: bash .uak/bin/uak msg impact:$ID --kind contract --task $ID \"what changed · what to do\""
         fi
       fi
+      # Upstream drift at the moment of shipping: the base changed what this branch edits or imports since it last
+      # synced (the merge gate would find it later, after a review). Why: STORM, arXiv 2605.20563.
+      if [ "$STATE" = REVIEW ] && [ -d "$task_worktree" ] && [ -f "$task_worktree/.uak/bin/map" ]; then
+        local drift
+        drift=$(cd "$task_worktree" && git fetch -q origin "$BASE" 2>/dev/null && bash .uak/bin/map drift --ref "origin/$BASE" 2>/dev/null | head -n 4)
+        [ -z "$drift" ] || DONE_HINT="${DONE_HINT}${DONE_HINT:+
+}$drift"
+      fi
       if [ "$STATE" = INTEGRATED ]; then
         put "$RECORD" Next "Integrated in $BASE: $merged; claim next P0"
         put "$RECORD" Lease-Until 0; put "$RECORD" Updated "$NOW"

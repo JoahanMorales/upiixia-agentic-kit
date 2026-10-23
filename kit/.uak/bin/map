@@ -13,6 +13,7 @@
 #   map path A B         the shortest import path from file A to file B
 #   map impact ID|FILE…  the files of a task (its Paths) → in-repo files outside them that import those → the tasks
 #                        whose Paths own those users (who to warn with a contract message before pushing)
+#   map drift [--ref origin/main]   base changes since this branch synced that touch its files or their imports
 #   map brief ID         the task's slice: its files, what they define, who imports them (printed on claim)
 #   map lens --symbol NAME | --file PATH [--task ID]   one line for a hook, from the existing index
 # Languages: Python, JS/TS (incl. "@/" aliases), Go (packages), Rust (mod/use crate), shell (source), Ruby, PHP,
@@ -294,6 +295,34 @@ case "$cmd" in
     awk -F'\t' -v f="$f" '$3 == f && $1 != f {k[$1] = 1} $1 == f && $3 != f {c[$3] = 1} END {for (x in k) print "EXTRACTED called by  ← " x; for (x in c) print "EXTRACTED calls      → " x}' "$out/calls.tsv" | sort -u
     awk -F'\t' -v f="$f" '$1 == f {print "INFERRED  shares " $3 " with " $2} $2 == f {print "INFERRED  shares " $3 " with " $1}' "$out/inferred.tsv"
     [ -s "$notes" ] || printf '(no semantic notes yet: uak map notes adds purposes, concepts and INFERRED edges)\n';;
+  drift)
+    # What changed on the base since this branch last synced with it, that touches the files this branch changed
+    # or the in-repo files they import. Prints up to 6 lines and the fix; exit 1 when nothing. Why (STORM, arXiv
+    # 2605.20563): catching conflicting edits when they happen beat isolated worktrees merged later by +18.7 on
+    # Commit0; at MLB the merge gate found such breaks only at merge time.
+    ref=origin/main; [ "${1:-}" != --ref ] || ref=${2:-$ref}
+    git rev-parse -q --verify "$ref^{commit}" >/dev/null || exit 1
+    mb=$(git merge-base HEAD "$ref" 2>/dev/null) || exit 1
+    [ "$mb" != "$(git rev-parse "$ref")" ] || exit 1                           # nothing new upstream
+    git diff --name-only "$mb" HEAD > "$out/drift.mine" 2>/dev/null
+    git diff --name-only "$mb" "$ref" > "$out/drift.up" 2>/dev/null
+    [ -s "$out/drift.mine" ] && [ -s "$out/drift.up" ] || exit 1
+    ensure
+    awk -F'\t' -v mf="$out/drift.mine" -v uf="$out/drift.up" '
+      BEGIN { while ((getline l < mf) > 0) mine[l] = 1; while ((getline l < uf) > 0) up[l] = 1 }
+      { f = $1; t = $2; if (!(f in mine)) next
+        for (u in up) if (u == t || (t ~ /\/$/ && index(u, t) == 1 && substr(u, length(t) + 1) !~ /\//)) if (!((u, f) in seen)) { seen[u, f] = 1; print "I\t" u "\t" f } }
+      END { for (m in mine) if (m in up) print "B\t" m "\t" m }' "$out/edges.tsv" | sort -u > "$out/drift.hits"
+    [ -s "$out/drift.hits" ] || exit 1
+    n=0
+    while IFS="$(printf '\t')" read -r kind u f; do
+      n=$((n + 1)); [ "$n" -le 6 ] || continue
+      who=$(git log -1 --format='%h "%s"' "$mb..$ref" -- "$u" 2>/dev/null | cut -c 1-90)
+      if [ "$kind" = B ]; then printf 'UPSTREAM: %s changed on %s too (%s): you both edit it\n' "$u" "${ref#origin/}" "$who"
+      else printf 'UPSTREAM: %s changed on %s (%s); your %s imports it\n' "$u" "${ref#origin/}" "$who" "$f"; fi
+    done < "$out/drift.hits"
+    [ "$n" -le 6 ] || printf 'UPSTREAM: … %d more\n' $((n - 6))
+    printf 'Fix now, not at merge: git fetch origin && git merge %s, then rerun Verify (bash .uak/bin/q <Verify>).\n' "$ref";;
   brief)
     # The task's slice of the map, printed when the task is claimed: the files in its Paths (size, what they
     # define, who imports them), and who outside imports them (the contract audience). Why (MLB, v5 week): the
