@@ -100,7 +100,7 @@ def banner_html():
 <div class='glow' style='width:380px;height:380px;right:260px;bottom:-240px;background:#15803d;opacity:.35'></div>
 <div class='grid'></div>
 <div class='left'>
-  <div class='eyebrow mono'><i></i> v5 · multi-agent orchestration</div>
+  <div class='eyebrow mono'><i></i> v5.2 · multi-agent orchestration</div>
   <h1>UPIIXIA<br>Agentic Kit</h1>
   <p class='sub'>Run a team of AI coding agents in parallel.<br><span>One Git branch. No server. No chaos.</span></p>
   <div class='chips'>{chips}</div>
@@ -127,8 +127,8 @@ def banner_html():
 .left{position:absolute;left:72px;top:64px;width:600px}
 .eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:13px;color:#c9d1d9;padding:6px 13px;border:1px solid rgba(255,255,255,.12);
   border-radius:999px;background:rgba(255,255,255,.03)} .eyebrow i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green)}
-h1{margin-top:22px;font-size:76px;line-height:.98;font-weight:800;letter-spacing:-.035em;
-  background:linear-gradient(180deg,#fff 30%,#b8c4ff);-webkit-background-clip:text;color:transparent}
+h1{margin-top:22px;font-size:76px;line-height:1.02;font-weight:800;letter-spacing:-.035em;padding:0 .06em .14em 0;margin-bottom:-.14em;
+  background:linear-gradient(180deg,#fff 30%,#b8c4ff);-webkit-background-clip:text;background-clip:text;color:transparent}
 .sub{margin-top:22px;font-size:24px;line-height:1.38;color:#c9d1d9;font-weight:500;letter-spacing:-.01em} .sub span{color:var(--mut);font-weight:400}
 .chips{margin-top:30px;display:flex;flex-direction:column;gap:10px}
 .chip{display:flex;align-items:center;gap:12px;width:430px;padding:11px 16px;border:1px solid rgba(255,255,255,.09);border-radius:12px;

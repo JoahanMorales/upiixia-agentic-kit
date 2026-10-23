@@ -15,7 +15,7 @@
 ![deps](https://img.shields.io/badge/runtime_deps-bash_%2B_git-success)
 ![agents](https://img.shields.io/badge/agents-Claude_Code_·_Codex_·_Cursor_·_Gemini-8A2BE2)
 
-[Quick start](#quick-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-three-team-events) · [Contributing](CONTRIBUTING.md)
+[Quick start](#quick-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Dashboard](#see-everything-uak-dash) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-three-team-events) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -253,6 +253,8 @@ Code asks, or install with `--no-mcp` (no `.mcp.json`, `.cursor/mcp.json`, nor t
 configs). In the eval, agents with both chose Bash and did as well; MCP matters most in clients without a shell.
 
 ## See everything: `uak dash`
+
+<img src="docs/media/dash.png" alt="uak dash after the 30-second demo: progress, agents online, board by state" width="860">
 
 `bash .uak/bin/uak dash --watch --open` writes one local page and keeps it current: project progress, a board of tasks
 by state, every agent with an identicon (one pattern per human, one color per identity), who is online, the
