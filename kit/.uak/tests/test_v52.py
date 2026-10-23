@@ -182,8 +182,47 @@ def root_task_writes_where_its_dependent_owns(r):
     return {"root": "claimed"}
 
 
+def solo_marathon_has_a_way(r):
+    """A solo marathon project (Oct 2026): "two hours and I still cannot start; it asks for the approval of another
+    GitHub account and I am alone on the repo". GitHub never lets a PR's author approve it, so Review-Mode gh waited
+    forever and nothing said why."""
+    import os
+    pkg = r.package.parent
+    t = r.scratch / "v52-solo"; t.mkdir()
+    r.g(t, "init", "-q", "-b", "main")
+    r.run([r.bash, str(pkg / "install.sh"), "--mode", "marathon", "--solo", "--harness", "claude", str(t)], cwd=t)
+    expect("Review-Mode: claims" in (t / ".uak/PROJECT.md").read_text(encoding="utf-8"), "--solo reviews on claims")
+    remote = r.scratch / "v52-solo-remote.git"
+    r.g(r.scratch, "init", "-q", "--bare", remote)
+    r.g(t, "remote", "add", "origin", "https://github.com/solo/app.git")
+    r.g(t, "config", "url." + remote.as_posix() + ".insteadOf", "https://github.com/solo/app.git")
+    (t / ".uak/PROJECT.md").write_text((t / ".uak/PROJECT.md").read_text(encoding="utf-8").replace("Review-Mode: claims", "Review-Mode: gh"), encoding="utf-8")
+    bin_dir = r.scratch / "v52-solo-bin"; bin_dir.mkdir()
+    (bin_dir / "gh").write_text("#!/usr/bin/env bash\ncase \"$1 $2\" in\n  'auth status') echo 'Token scopes: repo';;\n"
+                                "  'api repos/solo/app/collaborators?per_page=2') echo 1;;\n  'api repos/solo/app') echo true,true,true;;\n"
+                                "  'api '*'/reviews') printf 'solo|COMMENTED|%s\\n' \"$TIP\";;\n"
+                                "  'api '*) printf '%s|solo|main|feat/x|solo/app|open|false|' \"$TIP\";;\nesac\nexit 0\n", encoding="utf-8")
+    os.chmod(bin_dir / "gh", 0o755)
+    env = {"PATH": bin_dir.as_posix() + os.pathsep + r.env.get("PATH", "")}
+    doc = r.run([r.bash, ".uak/bin/doctor"], cwd=t, env=env, allowed=None)
+    expect("only collaborator of solo/app" in doc.stdout and "Review-Mode: claims" in doc.stdout, "doctor says it at minute 0: " + doc.stdout[-700:])
+    sha = "a" * 40
+    rec = r.scratch / "v52-solo-rec"; (rec / "tasks").mkdir(parents=True)
+    (rec / "tasks/HACK-001.md").write_text("Owner: agent-1\nBranch: feat/x\n", encoding="utf-8")
+    harness = r.scratch / "v52-solo-gate.sh"
+    harness.write_text("#!/usr/bin/env bash\nset -u\nfield() { sed -n \"s/^$2: //p\" \"$1\" | head -n 1; }\n"
+                       "source \"$PACKAGE/.uak/bin/lib/review-merge.sh\"\nTX=$FIXTURE; TXROOT=$FIXTURE; RECORD=$FIXTURE/tasks/HACK-001.md\n"
+                       "ID=HACK-001; BASE=main; REMOTE_URL=https://github.com/solo/app.git\n"
+                       "approval_check \"$TIP\" https://github.com/solo/app/pull/3; echo \"$RM_REASON\"\n", encoding="utf-8")
+    gate = r.run([r.bash, harness.as_posix()], env={**env, "PACKAGE": r.package.as_posix(), "FIXTURE": rec.as_posix(), "TIP": sha,
+                                                   "UAK_REVIEW_MODE": "gh"}, allowed=None)
+    expect("never lets the PR's author, solo, approve it" in gate.stdout and "Review-Mode: claims" in gate.stdout, "the gate says the way out: " + gate.stdout)
+    return {"solo": True}
+
+
 TESTS = [update_keeps_what_the_team_wrote, handover_moves_the_worktree_identity, timing_keys_come_from_project,
-         dash_before_the_first_claim, audit_small_fixes, root_task_writes_where_its_dependent_owns]
+         dash_before_the_first_claim, audit_small_fixes, root_task_writes_where_its_dependent_owns,
+         solo_marathon_has_a_way]
 
 
 def main():

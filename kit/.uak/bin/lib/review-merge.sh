@@ -250,7 +250,9 @@ approval_check() {
           for(k in state) if(k!=tolower(author) && state[k]=="CHANGES_REQUESTED" && sha[k]==tip) exit;
           for(k in state) if(k!=tolower(author) && state[k]=="APPROVED" && sha[k]==tip) {print name[k]; exit}
         }' "$TXROOT/gh-reviews")
-      [ -n "$APPROVED_BY" ] || { RM_REASON='GitHub shows no current independent approval on this SHA'; return 1; };;
+      # GitHub never lets a PR's author approve it: with one human on the repo this waits forever. Say the way out.
+      # Why (a solo marathon project, Oct 2026): "it asks for the approval of another GitHub account and I am alone".
+      [ -n "$APPROVED_BY" ] || { RM_REASON="GitHub shows no current independent approval on this SHA (GitHub never lets the PR's author, $gh_author, approve it; alone on the repo? set Review-Mode: claims in .uak/PROJECT.md on $BASE: another agent identity reviews with uak review, you still merge)"; return 1; };;
     *) RM_REASON='Invalid Review-Mode'; return 1;;
   esac
   return 0

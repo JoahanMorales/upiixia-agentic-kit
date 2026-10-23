@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # UPIIXIA Agentic Kit installer.
 #   bash install.sh --mode sprint|marathon [--stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|spring-boot|none]
-#                   [--harness claude,codex,cursor,gemini] [--skills ai,tdd] [--no-blackbox] [--no-mcp] [--update] TARGET
+#                   [--harness claude,codex,cursor,gemini] [--skills ai,tdd] [--no-blackbox] [--no-mcp] [--solo] [--update] TARGET
 # Never overwrites your files: if AGENTS.md, CLAUDE.md, settings.json… already exist and differ,
 # the kit's version is written as <file>.uak-new for you to merge. A file that is an earlier kit version nobody
 # edited (its hash is in .uak/settings/known-files.txt) is simply updated.
@@ -9,12 +9,14 @@
 # and keeps PROJECT.md, TASKS.md and OWNERS.md.
 # Harnesses: Claude Code (.claude), Codex (.codex), Cursor (.cursor), Gemini CLI (.gemini) all get
 # tiered subagents (fast / balanced / strong) and, where the harness has hooks, the same guard.
+# --solo (one human on the repo): reviews happen on claims between agent identities (Review-Mode: claims), because GitHub
+# never lets a PR's author approve it; in marathon the human still merges every PR.
 # --no-mcp leaves out the optional MCP server config (.mcp.json, .cursor/mcp.json and the uak blocks of
 # .codex/config.toml and .gemini/settings.json): agents use the uak CLI through Bash, which works the same.
 set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 kit="$here/kit"
-mode= stack=none extra= update=no target= blackbox=on mcp=on harness=claude,codex,cursor,gemini
+mode= stack=none extra= update=no target= blackbox=on mcp=on harness=claude,codex,cursor,gemini solo=no
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode) mode=${2:-}; shift 2;;
@@ -23,6 +25,7 @@ while [ "$#" -gt 0 ]; do
     --update) update=yes; shift;;
     --no-blackbox) blackbox=off; shift;;
     --no-mcp) mcp=off; shift;;
+    --solo) solo=yes; shift;;
     --harness) harness=${2:-}; shift 2;;
     -h|--help) sed -n '2,15p' "$0"; exit 0;;
     -*) printf 'Unknown option: %s\n' "$1" >&2; exit 2;;
@@ -92,6 +95,10 @@ say "  + .uak/ (engine, modes, templates, docs, tests, skill library)"
 [ -f "$target/.uak/OWNERS.md" ] || { cp "$kit/.uak/templates/OWNERS.template.md" "$target/.uak/OWNERS.md"; say "  + .uak/OWNERS.md"; }
 if [ "$blackbox" = off ] && grep -q '^Blackbox: on' "$target/.uak/PROJECT.md"; then
   sed 's/^Blackbox: on$/Blackbox: off/' "$target/.uak/PROJECT.md" > "$target/.uak/PROJECT.md.tmp" && mv "$target/.uak/PROJECT.md.tmp" "$target/.uak/PROJECT.md"
+fi
+if [ "$solo" = yes ] && grep -q '^Review-Mode: gh$' "$target/.uak/PROJECT.md"; then
+  sed 's/^Review-Mode: gh$/Review-Mode: claims/' "$target/.uak/PROJECT.md" > "$target/.uak/PROJECT.md.tmp" && mv "$target/.uak/PROJECT.md.tmp" "$target/.uak/PROJECT.md"
+  say "  + .uak/PROJECT.md: Review-Mode: claims (--solo: agents review each other on claims; GitHub never lets you approve your own PR)"
 fi
 grep -Eq "^Mode: $mode\$" "$target/.uak/PROJECT.md" || say "  ! .uak/PROJECT.md does not declare 'Mode: $mode' (left unchanged)"
 

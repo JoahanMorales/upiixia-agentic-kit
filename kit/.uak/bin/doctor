@@ -97,6 +97,12 @@ if url=$(git config --get "remote.$remote.url"); then
       scopes=$(gh auth status 2>&1 | sed -n "s/.*Token scopes: //p" | head -n 1)
       if [ -n "$scopes" ]; then ok "gh classic token ($scopes)"
       else warn "fine-grained token: ensure 'Pull requests: Read and write' and 'Contents: Read and write', or humans will open every PR by hand"; fi
+      # GitHub never lets a PR's author approve it: alone on the repo, Review-Mode gh blocks every merge.
+      # Why (a solo marathon project, Oct 2026): two hours in, "it asks for the approval of another GitHub account".
+      case "$(field Review-Mode)" in gh|auto|'')
+        people=$(gh api "repos/$repo/collaborators?per_page=2" --jq 'length' 2>/dev/null)
+        [ "$people" != 1 ] || bad "Review-Mode $(field Review-Mode) needs a GitHub approval from someone else, and you are the only collaborator of $repo: set Review-Mode: claims in .uak/PROJECT.md and push it to main (agent identities review each other; you still merge)";;
+      esac
     else warn "gh not authenticated: agents cannot open PRs (gh auth login)"; fi;;
   esac
 else

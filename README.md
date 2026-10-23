@@ -48,6 +48,7 @@ bash ~/.uak-kit/install.sh --mode sprint .          # hackathon / AI prototype
 # or: --mode marathon                               # real product: specs, CODEOWNERS, security reviews
 # options: --stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|spring-boot   --skills ai,tdd   --update (refresh the engine later)
 #          --harness claude,codex (only the dirs of the tools you use)   --no-mcp (CLI only)   --no-blackbox
+#          --solo (alone on the GitHub repo: agents review each other on claims; in marathon you still merge)
 bash .uak/bin/doctor                                 # minute-0 preflight: remote, gh perms, hooks, freeze, ports
 ```
 
@@ -327,7 +328,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**140 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
+**141 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
 
 ## Works with
 | Tool | How |

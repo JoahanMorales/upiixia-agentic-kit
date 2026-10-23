@@ -11,7 +11,7 @@ Read `.uak/PROJECT.md` and its `Mode:`. The mode is the human's decision, alread
 
 Then ask ONLY for what is missing, all in one message:
 - **sprint**: event, official URL, start and deadline (with IANA zone), submission platforms, video limits, rubric with weights, AI and prior-code rules, humans and agents (2 per human max), the human who owns submission, product name and brand.
-- **marathon**: purpose, principles, measurable NFRs, environments, CODEOWNERS, coverage threshold.
+- **marathon**: purpose, principles, measurable NFRs, environments, CODEOWNERS, coverage threshold, and how many humans can approve PRs on GitHub. **Only one**: set `Review-Mode: claims` (GitHub never lets an author approve their own PR, so `gh` mode blocks every merge); agent identities review each other with `uak review`, the human merges, and branch protection requires green CI but no approvals.
 
 1. Fill in `.uak/PROJECT.md`. In sprint, run `bash .uak/bin/uak clock "START" "DEADLINE" ZONE --write`: it sets `Freeze-Epoch` scaled to the event (a fixed −6 h froze a 4 h event one hour after the first claim) and prints the schedule; copy it into the Event table. Timebox setup + plan to the "first claim by" time it prints.
 2. sprint: copy `.uak/templates/IDEA.template.md` to `IDEA.md` and fill §0–4 with the human.
