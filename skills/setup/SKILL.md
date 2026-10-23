@@ -12,7 +12,7 @@ description: Install the UPIIXIA Agentic Kit (uak) into the current Git reposito
    - whether the project builds AI tools (`--skills ai`).
 3. Find the installer: `install.sh` is two directories above this skill's base directory. If it isn't there, clone the pinned kit:
    `git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit "$HOME/.uak-kit"` and use `$HOME/.uak-kit/install.sh`.
-4. Run `bash <install.sh> --mode <mode> [--stack <stack>] [--skills ai] [--solo] .`, then `bash .uak/bin/doctor`. Report any FAIL lines to the user with their fix.
-5. Tell the user, in 3 lines: the files added (and any `.uak-new` to merge), then the next steps: `/uak-setup` → `/uak-plan` → `bash .uak/bin/wt new ID` per agent.
+4. Run `bash <install.sh> --mode <mode> [--stack <stack>] [--skills ai] [--solo] .`, then `bash .uak/bin/uak start`. Report each TODO line to the user with its fix (it runs doctor; after `/uak-plan`, run it again until `START READY`).
+5. Tell the user, in 3 lines: the files added (and any `.uak-new` to merge), then the next steps: `/uak-setup` → `/uak-plan` → `bash .uak/bin/uak start` → the `wt new ID` it prints.
 
 Never overwrite user files (the installer writes `.uak-new` copies instead). Never ask for or handle secrets.

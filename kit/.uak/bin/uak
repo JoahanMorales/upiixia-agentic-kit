@@ -143,6 +143,7 @@ decision ID --option TEXTO --why TEXTO --reversible yes|no --authorized yes|no -
 secret-exception ID --path RUTA --rule REGLA --reason TEXTO
 init-smoke --command COMANDO
 lint [--secrets]
+start [--fix]   install → first claim, in order: what is missing, then the one command that starts the work
 doctor [--fix]   preflight: remote, gh permissions, hooks, freeze, ports
 graph [--mermaid] [--min-wave1 N] | graph --assign   backlog DAG: waves, critical path, cycles; --assign suggests an idle agent per ready task
 loop --verify CMD [--agent CMD] [--max N] [--task ID]   bounded verify → fix loop
@@ -178,7 +179,7 @@ bb_common=$(git rev-parse --git-common-dir 2>/dev/null) || bb_common=
 case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
   [ -z "$bb_common" ] || printf '%s\n' "${UAK_CALLER:+$UAK_CALLER-}$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
 esac
-case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map|dash) exec bash "$UAK_BIN/$CMD" "$@";; esac
+case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map|dash|start) exec bash "$UAK_BIN/$CMD" "$@";; esac
 case "$CMD" in status|claim|heartbeat|away|pr-sync|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover|wait|learn|recall) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac
@@ -1159,13 +1160,14 @@ print_digest() {
   msg_seen_all > "$TXROOT/seen"
   online=$(awk -v now="$NOW" -v p="$(msg_presence)" '$1 == "A" {a[$2] = 1} $1 == "H" {h[$2] = 1} $1 == "S" && now - $3 <= p {s[$2] = 1}
     END {for (n in s) if (!(n in a) && !(n in h) && n != "scheduler" && n != "github") print n}' "$TXROOT/seen")
-  local busy=' ' c n; idle=0
+  local busy=' ' c n wait_word; idle=0
   for c in "$TX"/claims/*.md; do [ -f "$c" ] || continue; case "$(field "$c" State)" in CLAIMED|BLOCKED) busy="$busy$(field "$c" Owner) ";; esac; done
   for n in $online; do case "$busy" in *" $n "*) ;; *) idle=$((idle + 1));; esac; done
   if [ "${avail:-0}" -ge 3 ] && [ "$idle" -eq 0 ]; then
     say "Capacity: $avail tasks wait and no idle agent is online. More hands: bash .uak/bin/uak up N --tool claude (one worktree and agent each), or uak graph --assign for who takes what next."
   elif [ "${avail:-0}" -gt 0 ] && [ "$idle" -gt 0 ]; then
-    say "Capacity: $avail tasks wait, $idle idle agent(s) online: uak graph --assign suggests who takes which."
+    [ "$avail" -eq 1 ] && wait_word="1 task waits" || wait_word="$avail tasks wait"
+    say "Capacity: $wait_word, $idle idle agent(s) online: uak graph --assign suggests who takes which."
   fi
   # The bill, from what every machine published (uak tokens --publish; the Stop hook does it every 30 min).
   if ls "$TX"/tokens/*.md >/dev/null 2>&1; then
@@ -1304,12 +1306,16 @@ lint_all() {
   owner_rows > "$TXROOT/owners"
   # No backlog yet (before /uak-plan): the template's owner rows name tasks the plan will create.
   [ -s "$BACKLOG" ] || : > "$TXROOT/owners"
-  while IFS='|' read -r pat owner; do
-    [ -n "$owner" ] || continue
+  # One line per missing owner, with its rows. Why (Oct 2026): the template's rows name HACK-001; a plan with another
+  # prefix got 12 identical "owner not in TASKS" lines and no hint of the fix.
+  awk -F'|' 'NF >= 2 && $2 != "" { n[$2]++; if (n[$2] <= 3) ex[$2] = ex[$2] (ex[$2] == "" ? "" : ", ") $1 }
+             END { for (o in n) print o "|" n[o] "|" ex[o] (n[o] > 3 ? ", ..." : "") }' "$TXROOT/owners" | sort > "$TXROOT/owners-by"
+  while IFS='|' read -r owner count examples; do
     if ! awk -v id="$owner" '/^## / && $2==id {found=1} END {exit !found}' "$BACKLOG"; then
-      say "LINT: owner not in TASKS: $owner" >&2; LINT_ERRORS=$((LINT_ERRORS + 1))
+      say "LINT: owner not in TASKS: $owner owns $count row(s) of OWNERS.md ($examples). Point them to the task that sets those files up, or delete the rows for files this project does not have." >&2
+      LINT_ERRORS=$((LINT_ERRORS + 1))
     fi
-  done < "$TXROOT/owners"
+  done < "$TXROOT/owners-by"
   while IFS='|' read -r id pat owner; do
     [ -n "$id" ] || continue
     say "LINT: $id can never be claimed: its Paths fall under '$pat', owned by $owner in OWNERS.md. Drop the path from $id (uak plan FILE --amend), give the row to $id, or make $owner depend on $id." >&2

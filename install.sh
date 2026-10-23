@@ -198,7 +198,7 @@ esac
 cat <<EOF
 
 Done. Next:
-  1. cd "$target" && bash .uak/bin/doctor
+  1. cd "$target" && bash .uak/bin/uak start   (each step to the first claim, in order; runs doctor; again after each fix)
   2. Open Claude Code (or Codex / Cursor / Gemini CLI) there and run /uak-setup
   3. /uak-plan → each agent: bash .uak/bin/wt new ID (reuses a free identity, or --agent NAME)
 Files ending in .uak-new: merge them by hand; the kit never overwrites yours.

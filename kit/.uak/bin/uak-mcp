@@ -175,7 +175,7 @@ TOOLS = [
      lambda a: ["uak", "tokens", "--by", a.get("by", "task")] + (["--team"] if a.get("team") else []), 120, False),
     ("uak_cli", "Any other uak command, as arguments: handover ID --to NAME, release ID, followup ID --title T, retire NAME, "
      "decision ID --option … , log ID TEXT, integrate ID, allow ID --reason T (humans), board, digest, graph --assign, "
-     "loop …, pace, clock …, bb add friction TEXT --fix IDEA. Same rules and errors as the shell.",
+     "loop …, pace, clock …, start (what still blocks the first claim), bb add friction TEXT --fix IDEA. Same rules and errors as the shell.",
      obj({"agent": AGENT, "args": {"type": "array", "items": {"type": "string"}, "minItems": 1}}, ["args"]),
      ann("uak command", False, False), lambda a: ["uak"] + list(a["args"]), 600, True),
 ]

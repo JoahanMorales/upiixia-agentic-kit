@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# uak start: from install to the first claim, in order. Each step is OK or names the one thing to do; the last line
+# is the command that starts the work. Read-only, except --fix: hooks (doctor --fix) and, when you are the only
+# collaborator of the GitHub repo, Review-Mode: claims in your .uak/PROJECT.md (you still commit and push it).
+# Why (a solo marathon project, Oct 2026): "two hours and I still cannot start". An unapproved backlog, Review-Mode gh
+# with one human and an OWNERS row: each a one-line fix, each found by hand.
+set -u
+LC_ALL=C; export LC_ALL
+fix=no
+for a in "$@"; do case "$a" in --fix) fix=yes;; *) printf 'Usage: uak start [--fix]\n' >&2; exit 2;; esac; done
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+remote=${UAK_REMOTE:-origin} base=${UAK_BASE:-main}
+n=0 todo=0
+ok()   { n=$((n + 1)); printf 'OK    %s. %s\n' "$n" "$1"; }
+need() { n=$((n + 1)); todo=$((todo + 1)); printf 'TODO  %s. %s\n' "$n" "$1"; shift; for l in "$@"; do printf '         %s\n' "$l"; done; }
+note() { printf 'NOTE  %s\n' "$*"; }
+finish() {
+  printf '\n'
+  if [ "$todo" -eq 0 ] && [ -n "${1:-}" ]; then printf 'START READY · %s\n' "$1"; exit 0; fi
+  [ "$todo" -gt 0 ] || todo=1
+  if [ "$todo" -eq 1 ]; then printf 'START · 1 thing to do before the first claim. Then run uak start again.\n'
+  else printf 'START · %s things to do before the first claim, in this order. Then run uak start again.\n' "$todo"; fi
+  exit 1
+}
+from() { sed -n "s/^[-* ]*$1:[* ]*//p" | head -n 1 | tr -d '\r`'; }
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  need "a Git repository" "git init -b main, then: bash ~/.uak-kit/install.sh --mode sprint|marathon ."; finish; }
+cd "$root" || exit 1
+
+# 1. The kit
+mode=$(from Mode < .uak/PROJECT.md 2>/dev/null)
+case "$mode" in
+  sprint|marathon) ok "kit installed ($mode, uak $(cat "$here/../VERSION" 2>/dev/null))";;
+  *) need "install the kit" "bash ~/.uak-kit/install.sh --mode sprint .   (deadline with judges)" \
+          "bash ~/.uak-kit/install.sh --mode marathon .   (a product; add --solo if you are alone on the GitHub repo)"; finish;;
+esac
+
+# 2. The remote: claims, branches and reviews all live there.
+url=$(git config --get "remote.$remote.url" 2>/dev/null) ||
+  { need "a remote named $remote" "git remote add $remote <URL of the empty GitHub repo>"; finish; }
+git ls-remote --heads "$remote" >/dev/null 2>&1 ||
+  { need "reach $remote ($url)" "git ls-remote $remote must work: check credentials (gh auth login) or the network"; finish; }
+ok "remote $remote reachable"
+
+# 3. Preflight: doctor's failures are the blockers; its warnings stay in doctor.
+doc=$(bash "$here/doctor" $([ "$fix" = yes ] && printf -- --fix) 2>&1)
+if [ "$fix" = yes ] && printf '%s\n' "$doc" | grep -q 'only collaborator'; then
+  if grep -q '^Review-Mode:' .uak/PROJECT.md; then sed 's/^Review-Mode:.*/Review-Mode: claims/' .uak/PROJECT.md > .uak/PROJECT.md.uak-tmp
+  else { cat .uak/PROJECT.md; printf 'Review-Mode: claims\n'; } > .uak/PROJECT.md.uak-tmp; fi
+  mv .uak/PROJECT.md.uak-tmp .uak/PROJECT.md
+  note "fixed: Review-Mode: claims in .uak/PROJECT.md (you are the only collaborator; agent identities review each other)"
+  doc=$(bash "$here/doctor" 2>&1)
+fi
+fails=$(printf '%s\n' "$doc" | sed -n 's/^FAIL  //p')
+warns=$(printf '%s\n' "$doc" | grep -c '^WARN')
+if [ -z "$fails" ]; then
+  if [ "$warns" -gt 0 ]; then ok "preflight: doctor has no failures ($warns warning(s): bash .uak/bin/doctor)"; else ok "preflight: doctor clean"; fi
+else
+  # A note per failure; the fixable ones say so.
+  set --; while IFS= read -r l; do set -- "$@" "· $l"; done <<EOF
+$fails
+EOF
+  printf '%s\n' "$fails" | grep -Eq 'only collaborator|core.hooksPath is not set|not executable' &&
+    set -- "$@" "uak start --fix does the hooks and, alone on the repo, Review-Mode: claims"
+  need "preflight: doctor found $(printf '%s\n' "$fails" | grep -c .) failure(s)" "$@"
+fi
+
+# 4. The team reads .uak/ from $remote/$base, never from this checkout.
+cur=$(git symbolic-ref --short HEAD 2>/dev/null || printf '%s' HEAD)
+push_cmd="git add -A && git commit -m 'chore: uak setup' && git push -u $remote HEAD:$base"
+[ "$cur" = "$base" ] || push_cmd="commit them, then merge $cur into $base and push $base"
+if ! git fetch -q "$remote" "$base" 2>/dev/null || ! main_project=$(git show "FETCH_HEAD:.uak/PROJECT.md" 2>/dev/null); then
+  need "push the kit to $base: agents read .uak/PROJECT.md and .uak/TASKS.md from $remote/$base, and it has none yet" "$push_cmd"
+  finish
+fi
+main_tasks=$(git show "FETCH_HEAD:.uak/TASKS.md" 2>/dev/null)
+main_version=$(git show "FETCH_HEAD:.uak/VERSION" 2>/dev/null | tr -d '\r')
+drift=
+for f in .uak/PROJECT.md .uak/TASKS.md .uak/OWNERS.md .uak/VERSION; do
+  [ -f "$f" ] || continue
+  git diff --quiet FETCH_HEAD -- "$f" 2>/dev/null || drift="$drift $f"
+done
+if [ -n "$drift" ]; then need "push your changes to$drift: the agents still read $base's copy" "$push_cmd"
+else ok ".uak/ on $remote/$base matches this checkout${main_version:+ (uak $main_version)}"; fi
+
+# 5. What the gates read on $base: autonomy and the plan's approval.
+p_auto=$(printf '%s\n' "$main_project" | from Autonomy)
+p_approved=$(printf '%s\n' "$main_project" | from Backlog-Approved)
+p_review=$(printf '%s\n' "$main_project" | from Review-Mode)
+p_channel=$(printf '%s\n' "$main_project" | from Plan-Channel)
+
+# 6. The plan: main's TASKS.md plus what uak plan published on claims.
+claims_tasks= reviewers=0 claimed=
+if git ls-remote --exit-code --heads "$remote" claims >/dev/null 2>&1 && git fetch -q "$remote" claims 2>/dev/null; then
+  claims_tasks=$(git show FETCH_HEAD:backlog/TASKS.md 2>/dev/null)
+  reviewers=$(git ls-tree --name-only FETCH_HEAD roles/reviewers/ 2>/dev/null | grep -c .)
+  claimed=$(git ls-tree --name-only FETCH_HEAD claims/ 2>/dev/null | grep -c .)
+fi
+tasks=$(printf '%s\n%s\n' "$main_tasks" "$claims_tasks" | grep -c '^## [A-Z][A-Z0-9]*-[0-9]')
+if [ "$tasks" -eq 0 ]; then
+  if [ "$p_channel" = claims ]; then need "a plan: no tasks yet" "open your agent here and run /uak-plan (it publishes with uak plan on claims; no PR)"
+  else need "a plan: no tasks in .uak/TASKS.md on $base" "open your agent here and run /uak-plan, then push TASKS.md to $base"; fi
+else
+  lint=$(bash "$here/uak" lint 2>&1 | grep '^LINT: ' | head -n 4)
+  if [ -n "$lint" ]; then
+    set --; while IFS= read -r l; do set -- "$@" "· ${l#LINT: }"; done <<EOF
+$lint
+EOF
+    need "fix the plan ($tasks tasks): uak lint found problems" "$@"
+  else ok "plan: $tasks task(s), lint clean"; fi
+fi
+[ "$p_auto" = yes ] || need "Autonomy: yes on $base: without it no agent can claim" "set Autonomy: yes in .uak/PROJECT.md and push it to $base"
+# Approved here but not pushed yet: step 4 already says to push it.
+if [ "$tasks" -gt 0 ] && [ "$p_approved" != yes ] && [ "$(from Backlog-Approved < .uak/PROJECT.md)" != yes ]; then
+  need "approve the plan: Backlog-Approved is not yes on $base, so nothing can be claimed for 10 min and then only P0" \
+       "you are the human: read .uak/TASKS.md, set Backlog-Approved: yes in .uak/PROJECT.md, push it to $base"
+fi
+
+# Who reviews the first PR: on claims a reviewer needs its own live claim or a registered role.
+review=${p_review:-auto}
+case "$review:$url" in auto:*github.com*) review=gh;; auto:*) review=claims;; esac
+[ "$review" != claims ] || [ "$reviewers" -gt 0 ] ||
+  note "reviews: no reviewer is registered, so the first PR waits until a second agent holds a claim. Working alone? Register one from this checkout: UAK_HUMAN=<you> UAK_AGENT= bash .uak/bin/uak register-reviewer <you>-r, and a second session as <you>-r runs /uak-review."
+
+# 7. The first task: exactly what uak next offers, with the reason when it offers nothing.
+[ "$todo" -eq 0 ] || finish
+nx=$(UAK_DEDUPE=off bash "$here/uak" next 2>&1)   # the whole answer, not "= unchanged"
+first=$(printf '%s\n' "$nx" | sed -n 's/^\([A-Z][A-Z0-9]*-[0-9][0-9]*\) | AVAILABLE | .*/\1/p' | head -n 1)
+held=$(printf '%s\n' "$nx" | grep -E '^[A-Z][A-Z0-9]*-[0-9]+ \| (CLAIMED|BLOCKED|REVIEW) \| ' | head -n 1 | awk -F' [|] ' '{print $1, $2}')
+if [ -n "$held" ]; then
+  ok "you already hold ${held% *} (${held#* })"
+  wt=$(printf '%s\n' "$nx" | sed -n 's/^Worktree: //p' | head -n 1)
+  finish "cd \"$wt\" and open your agent there; its next step: $(printf '%s\n' "$nx" | sed -n 's/^Next: //p' | head -n 1)"
+elif [ -n "$first" ]; then
+  ok "first task: $first ($(printf '%s\n' "$main_tasks" "$claims_tasks" | sed -n "s/^## $first[ ·:-]*//p" | head -n 1))"
+  finish "bash .uak/bin/wt new $first   (branch + worktree + claim; then open your agent in that worktree, or /uak-start there)"
+else
+  set --; while IFS= read -r l; do case "$l" in 'Why'*|'Waiting on'*|FREEZE*|ERROR*|GIT_ERROR*|CONFLICT*) set -- "$@" "· $l";; esac; done <<EOF
+$nx
+EOF
+  [ "$#" -gt 0 ] || set -- "· $(printf '%s\n' "$nx" | head -n 1)"
+  need "a claimable task: uak next offers none" "$@"
+  finish
+fi

@@ -49,7 +49,7 @@ bash ~/.uak-kit/install.sh --mode sprint .          # hackathon / AI prototype
 # options: --stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|spring-boot   --skills ai,tdd   --update (refresh the engine later)
 #          --harness claude,codex (only the dirs of the tools you use)   --no-mcp (CLI only)   --no-blackbox
 #          --solo (alone on the GitHub repo: agents review each other on claims; in marathon you still merge)
-bash .uak/bin/doctor                                 # minute-0 preflight: remote, gh perms, hooks, freeze, ports
+bash .uak/bin/uak start                              # every step to the first claim, in order, then the command that starts
 ```
 
 It never overwrites your files: a kit file you edited gets its new text beside it as `.uak-new`; an older kit file nobody touched is simply updated by `--update`. Your hook manager (husky, lefthook) keeps its `core.hooksPath`.
@@ -328,7 +328,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**141 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
+**144 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
 
 ## Works with
 | Tool | How |
@@ -345,7 +345,8 @@ Mix them freely: coordination lives in Git, not in any tool.
 | Command | What |
 |---|---|
 | `uak demo` | see everything in 30 s |
-| `uak next` | what you should do now |
+| `uak start [--fix]` | install → first claim: what is missing, in order, then the one command that starts |
+| `uak next` | what you should do now; with nothing to offer, why (per task) |
 | `wt new ID [--agent NAME]` | start a task (branch, worktree, port, claim); without `--agent` it reuses a free identity of this machine |
 | `uak loop --verify CMD [--parallel N --each CMD]` | bounded autonomous fix loop, one per failing file |
 | `uak graph [--mermaid \| --assign]` | backlog DAG: waves, critical path, cycles · who should take what |

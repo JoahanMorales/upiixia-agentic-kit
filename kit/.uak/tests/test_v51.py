@@ -515,7 +515,7 @@ def commands_come_up_when_they_apply(r):
                            capture_output=True, env={**r.env, "UAK_AGENT": "agent-1"}, timeout=120).stdout
     expect("context was just compacted" in start and "uak checkpoint HACK-001" in start, "after a compaction: checkpoint now: " + start[:400])
     digest = rm.actor(f, "boss", "digest", now=1000000, human=True)
-    expect("Capacity:" not in digest.stdout or "tasks wait" in digest.stdout, digest.stdout)
+    expect("Capacity:" not in digest.stdout or "tasks wait" in digest.stdout or "1 task waits" in digest.stdout, digest.stdout)
     return {"moments": True}
 
 

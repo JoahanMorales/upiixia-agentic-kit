@@ -1,5 +1,15 @@
 # Changelog
 
+## v5.3.0 · 2026-10-23 · `uak start`: from install to the first claim, every step named
+A solo marathon project spent two hours before its first claim. Each blocker was one line to fix (the kit not on
+main, an unapproved plan, `gh` review with one human, an OWNERS row), and each was found by hand: `uak next` said only
+"No eligible candidate".
+- **`uak start [--fix]`.** It checks, in order: the kit, the remote, doctor's failures, `.uak/` pushed to the base (the agents read the base's copy, not yours), a plan with clean `lint`, `Autonomy`, the plan's approval, then what `next` offers. Each step is `OK` or a `TODO` with its one fix. The last line is `START READY · bash .uak/bin/wt new ID` (exit 0) or how many steps remain (exit 1). It notes when nobody can review the first PR on claims (no registered reviewer, no second agent). `--fix` does doctor's hook fixes and, when gh says you are the repo's only collaborator, sets `Review-Mode: claims` (you push it). The installer, `/uak-setup`, `/uak-start` and the setup skill point to it.
+- **`next` says why it offers nothing.** It gives the gate's own refusal for each open task, and tasks with the same reason share a line: an unapproved backlog (with the minutes left and who approves it), an overlap with a named claim (it opens when that one merges), an OWNERS row. It also names the dependency the waiting tasks need. The unapproved-backlog refusal now says where to set `Backlog-Approved: yes`.
+- **`lint` groups OWNERS rows by missing owner.** The template's rows name HACK-001 and HACK-002, so a plan with another prefix got 12 identical "owner not in TASKS" lines. Now there is one line per owner, with its rows and the fix.
+- **Wording.** `clock` lists the design lock before the first claim (it comes first), the human-queue line of `stats` has no trailing `·`, and the digest says "1 task waits". The plugin manifest says 5.3.0: it still said 5.0.0, so `/plugin` installs kept the v5.0 cache.
+- `test_v53.py`: 3 scenarios that fail on v5.2.1. One walks a solo marathon from an empty repo to its first merge: `start` at each step, `--fix`, the root task writing under its dependent's OWNERS row, the review by a second identity, the human merge, then the dependent task.
+
 ## v5.2.1 · 2026-10-23 · A full audit: updates that respect the team, and the small things tests missed
 Every command installed, updated and driven by hand in fresh repos, a v5.0 install, a husky repo and the 3-agent
 demo, plus a read of the engine. The suite was green; none of these was covered by a test.

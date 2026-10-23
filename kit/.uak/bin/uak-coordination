@@ -233,7 +233,10 @@ coord_claim_gate() {
   [ "$(coord_config Autonomy no)" = yes ] || conflict "Missing explicit Autonomy: yes in remote .uak/PROJECT.md; a timeout does not authorize."
   if [ "$(coord_config Backlog-Approved no)" != yes ]; then
     coord_proposed=$(coord_config Backlog-Proposed-Epoch "$NOW")
-    [ "$NOW" -ge "$((coord_proposed + 600))" ] && [ "$(coord_remote_task_field Priority)" = P0 ] || conflict "Backlog pending approval: only P0 after 600 s, with autonomy."
+    # Why (a solo marathon project, Oct 2026): "no eligible candidate" for the first 10 min, and nothing said why.
+    coord_left=$(( (coord_proposed + 600 - NOW + 59) / 60 )); [ "$coord_left" -gt 0 ] || coord_left=0
+    [ "$NOW" -ge "$((coord_proposed + 600))" ] && [ "$(coord_remote_task_field Priority)" = P0 ] ||
+      conflict "Backlog pending approval: Backlog-Approved is not yes in .uak/PROJECT.md on $BASE, so only P0 tasks, and only after 10 min ($coord_left min left). The human approves the plan: set Backlog-Approved: yes there and push it to $BASE."
   fi
   coord_freeze=$(coord_config Freeze-Epoch 0)
   if [ "$coord_freeze" -gt 0 ] && [ "$NOW" -ge "$coord_freeze" ]; then
@@ -415,18 +418,25 @@ coord_degraded_status() {
   say "No offline claims. When the remote returns, status reads claims and reconciles via tick."
   say "Remote clock not checked. Keep a local checkpoint for your next session."
 }
+# A gate run quietly; a refusal leaves its one CONFLICT/ERROR line on stderr (next's probe keeps it for coord_why).
+coord_gate() {
+  ( "$@" ) > /dev/null 2> "$TXROOT/coord-gate" && return 0
+  grep -m 1 -E '^(CONFLICT|ERROR): ' "$TXROOT/coord-gate" >&2; return 1
+}
 coord_candidate() {
   load_task
-  coord_claim_gate >/dev/null 2>&1 || return 1
+  coord_gate coord_claim_gate || return 1
   [ ! -f "$TX/claims/$ID.md" ] || return 1
   if [ -f "$TX/tasks/$ID.md" ]; then
     case "$(coord_read "$TX/tasks/$ID.md" State)" in INTEGRATED|CANCELLED) return 1;; esac
   fi
-  (check_owners; check_dependencies) >/dev/null 2>&1 || return 1
+  coord_gate check_owners || return 1
+  coord_gate check_dependencies || return 1
   for coord_other in "$TX"/claims/*.md; do
     [ -f "$coord_other" ] || continue
     normalize_paths "$(coord_read "$coord_other" Paths)" > "$TXROOT/coord-paths" || return 1
-    overlaps "$TXROOT/paths-request" "$TXROOT/coord-paths" && return 1
+    overlaps "$TXROOT/paths-request" "$TXROOT/coord-paths" &&
+      { say "CONFLICT: its Paths overlap $(coord_read "$coord_other" ID) of $(coord_read "$coord_other" Owner) ($(coord_read "$coord_other" State)); it opens when that one merges." >&2; return 1; }
   done
   return 0
 }
@@ -453,6 +463,24 @@ coord_review_candidate() {
     fi
   done
   printf '%s' "${mine:-$any}"
+}
+# Why each open task is not offered: the gate's own refusal, or the dependency it waits on.
+# Why (a solo marathon project, Oct 2026): two hours of "No eligible candidate" with no reason; the reasons were an
+# unapproved backlog and an OWNERS row, both one line to fix.
+coord_why() {
+  local id w
+  if [ ! -f "$BACKLOG" ] || ! grep -q '^## [A-Z][A-Z0-9]*-[0-9]' "$BACKLOG"; then
+    say "Why: the backlog has no tasks (.uak/TASKS.md on $BASE, or uak plan on claims). The human plans first: /uak-plan."
+    return 0
+  fi
+  # Tasks refused for the same reason share one line (an unapproved backlog refuses them all).
+  for id in $(cat "$TXROOT/next-candidates" 2>/dev/null); do
+    w=$(grep -m 1 -E '^(CONFLICT|ERROR|GIT_ERROR): ' "$TXROOT/next-why-$id" 2>/dev/null | sed 's/^[A-Z_]*: //' | cut -c 1-300)
+    [ -z "$w" ] || printf '%s|%s\n' "$id" "$w"
+  done | awk -F'|' '{ r = substr($0, length($1) + 2); if (!(r in ids)) order[++n] = r; ids[r] = ids[r] (ids[r] == "" ? "" : ", ") $1 }
+    END { for (i = 1; i <= n && i <= 4; i++) print "Why not " ids[order[i]] ": " order[i] }' | while IFS= read -r w; do say "$w"; done
+  w=$(awk 'END {print NR + 0}' "$TXROOT/next-waiting" 2>/dev/null)
+  [ "${w:-0}" -eq 0 ] || say "Waiting on dependencies: $w task(s); $(awk 'NR == 1 {printf "%s waits on %s (%s)", $1, $2, $3}' "$TXROOT/next-waiting")."
 }
 coord_next() {
   [ -z "$AGENT" ] || identity
@@ -503,13 +531,15 @@ coord_next() {
       id != "" { s = $0; gsub(/\*\*/, "", s); sub(/^[[:space:]]*-[[:space:]]*/, "", s)
         if (s ~ /^Depends on:/) { gsub(/\([^)]*\)/, "", s); d[id] = s } }
       END { for (i = 1; i <= n; i++) { t = order[i]; if (t in st && st[t] != "AVAILABLE") continue
-              ok = 1; s = d[t]; while (match(s, /[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+/)) { x = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH); if (st[x] != "INTEGRATED") ok = 0 }
-              if (ok) print t } }' "$BACKLOG" > "$TXROOT/next-candidates"
+              ok = 1; w = ""; s = d[t]; while (match(s, /[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+/)) { x = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH); if (st[x] != "INTEGRATED") { ok = 0; if (w == "") w = x " " (st[x] != "" ? st[x] : "AVAILABLE") } }
+              if (ok) print t; else print t, w > wf } }' wf="$TXROOT/next-waiting" "$BACKLOG" > "$TXROOT/next-candidates"
+    : >> "$TXROOT/next-waiting"
     for coord_p in P0 P1 P2; do
       for coord_id in $(cat "$TXROOT/next-candidates"); do
         ID=$coord_id
         # A gate may exit with conflict; the subshell lets us try another candidate (quietly: not an error).
-        if (UAK_PROBE=1; load_task; [ "$PRIORITY" = "$coord_p" ] && coord_candidate) >/dev/null 2>&1; then
+        # The refusal is kept: with no candidate, next says why for each task (coord_why).
+        if (UAK_PROBE=1; load_task; [ "$PRIORITY" = "$coord_p" ] && coord_candidate) > "$TXROOT/next-probe" 2>&1; then
           load_task
           say "$ID | AVAILABLE | $PRIORITY"
           say "Next: $DEFAULT_NEXT"; say "Verify: $VERIFY"; say "Paths: $PATHS"
@@ -519,6 +549,7 @@ coord_next() {
           coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"
           return 0
         fi
+        [ ! -s "$TXROOT/next-probe" ] || mv "$TXROOT/next-probe" "$TXROOT/next-why-$coord_id"
       done
     done
   fi
@@ -528,6 +559,7 @@ coord_next() {
     say "FREEZE since $(( (NOW - coord_freeze) / 60 )) min: no new tasks unless a human runs: UAK_HUMAN=NAME bash .uak/bin/uak allow ID --reason TEXT"
   else
     say 'No eligible candidate (priority, dependencies, claims or authorization).'
+    coord_why
   fi
   # An approval older than Merge-Adopt-Seconds whose owner did not merge: the most valuable idle work.
   coord_adopt=$(coord_config Merge-Adopt-Seconds 1200); case "$coord_adopt" in ''|*[!0-9]*) coord_adopt=1200;; esac
