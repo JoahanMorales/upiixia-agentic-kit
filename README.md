@@ -456,6 +456,8 @@ They combine well: plan with Spec Kit or BMAD, watch agents in a GUI if you like
 
 **Is the guard a sandbox?** No. It is defense in depth against accidents. For untrusted agents, use your tool's sandbox as well.
 
+[![M8ven Score](https://m8ven.ai/badge/mcp/joahanmorales-upiixia-agentic-kit-1e9007?v=3ea0791b0e4a271540c4a4c17c7a87f0)](https://m8ven.ai/mcp/joahanmorales-upiixia-agentic-kit-1e9007?s=readme)
+
 ## Contributing
 PRs are welcome, especially stack presets, an i18n locale, new loop and graph checks, and retros from your own hackathon. Read [CONTRIBUTING.md](CONTRIBUTING.md): every rule needs evidence, and every engine change needs a test.
 
