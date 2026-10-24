@@ -134,7 +134,7 @@ if [ -n "$held" ]; then
   finish "cd \"$wt\" and open your agent there; its next step: $(printf '%s\n' "$nx" | sed -n 's/^Next: //p' | head -n 1)"
 elif [ -n "$first" ]; then
   ok "first task: $first ($(printf '%s\n' "$main_tasks" "$claims_tasks" | sed -n "s/^## $first[ ·:-]*//p" | head -n 1))"
-  finish "bash .uak/bin/wt new $first   (branch + worktree + claim; then open your agent in that worktree, or /uak-start there)"
+  finish "bash .uak/bin/wt new $first   (branch + worktree + claim; then your agent in it)"
 else
   set --; while IFS= read -r l; do case "$l" in 'Why'*|'Waiting on'*|FREEZE*|ERROR*|GIT_ERROR*|CONFLICT*) set -- "$@" "· $l";; esac; done <<EOF
 $nx

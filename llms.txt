@@ -2,13 +2,13 @@
 
 > Multi-agent coordination for AI coding agents (Claude Code, Codex, Cursor, Gemini CLI). Several humans and agents work in parallel on one repo with no server: claims, leases, live summaries, typed messages, bounded verify-fix loops (loop engineering), a task DAG (graph engineering), reviewer rotation and a gated merge queue, all stored on a Git branch; `uak tokens` measures the real token spend per task, model and subagent from local transcripts; `uak map` is a deterministic code graph agents read instead of files; `uak learn` keeps lessons anchored to paths; one Git round trip per call (`uak next` ~2 s on GitHub) and `uak wait` instead of polling. Two modes: sprint (hackathons, fast AI prototypes) and marathon (secure, scalable products). Bash 3.2 + Git only. MIT.
 
-Install into a repo: `git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit && bash ~/.uak-kit/install.sh --mode sprint .`
+Install into a repo: `git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit && bash ~/.uak-kit/install.sh --mode sprint .` (add `--solo` in marathon when you are the only human on the GitHub repo), then `bash .uak/bin/uak start`: every step to the first claim, in order, and the command that starts.
 Try it with no setup (30 s, no keys): `git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit && bash upiixia-agentic-kit/kit/.uak/bin/uak demo`
 Claude Code plugin: `/plugin marketplace add JoahanMorales/upiixia-agentic-kit`, then `/plugin install uak@upiixia-agentic-kit`, then `/uak:setup`.
 
 ## Core
 - [README](README.md): what it is, quick start, modes, results
-- [AGENTS.md (kit core)](kit/AGENTS.md): the 75-line rules every agent follows
+- [AGENTS.md (kit core)](kit/AGENTS.md): the 76-line rules every agent follows
 - [Sprint mode](kit/.uak/modes/sprint.md): hackathon clock, design lock, freeze, submission
 - [Marathon mode](kit/.uak/modes/marathon.md): spec-driven flow, security, scalability, CI
 

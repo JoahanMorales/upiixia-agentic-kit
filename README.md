@@ -15,7 +15,7 @@
 ![deps](https://img.shields.io/badge/runtime_deps-bash_%2B_git-success)
 ![agents](https://img.shields.io/badge/agents-Claude_Code_·_Codex_·_Cursor_·_Gemini-8A2BE2)
 
-[Quick start](#quick-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Dashboard](#see-everything-uak-dash) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-three-team-events) · [Contributing](CONTRIBUTING.md)
+[Quick start](#quick-start) · [First claim](#stuck-before-the-first-claim-uak-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Dashboard](#see-everything-uak-dash) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-three-team-events) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -29,7 +29,8 @@
 git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit && bash upiixia-agentic-kit/kit/.uak/bin/uak demo
 ```
 It runs a real 3-agent session in a temp repo with a local Git remote:
-- parallel claims, and an overlapping claim rejected;
+- `uak start` at minute 0: every step to the first claim checked, then the command that starts;
+- parallel claims, and an overlapping claim rejected, with `uak next` saying why it offers nothing;
 - a bounded fix loop (`LOOP_FAIL → LOOP_FAIL → LOOP_PASS`);
 - a review of the exact SHA by another agent, then a gated merge;
 - a dependent task unlocking by itself;
@@ -62,7 +63,7 @@ It never overwrites your files: a kit file you edited gets its new text beside i
 /uak:setup
 ```
 
-**2. Plan:** open your agent in the repo and run `/uak-setup`, then `/uak-plan`. Codex, Cursor and Gemini read `AGENTS.md` natively.
+**2. Plan:** open your agent in the repo and run `/uak-setup`, then `/uak-plan`. Codex, Cursor and Gemini read `AGENTS.md` natively. Then `bash .uak/bin/uak start` until it says `START READY`.
 
 **3. Start the team:**
 
@@ -74,6 +75,37 @@ bash .uak/bin/uak board --watch 10            # live team kanban for the humans
 ```
 
 That's it. `uak next` always tells every agent what to do next.
+
+### Stuck before the first claim? `uak start`
+
+The first claim needs a few things: the kit pushed to `main` (agents read `main`'s copy, not yours), an approved
+plan, a reviewer who is not the author. Missing any one of them used to look the same: "No eligible candidate".
+`uak start` checks them in order and names the one fix for each:
+
+```text
+$ bash .uak/bin/uak start
+OK    1. kit installed (marathon, uak 5.3.0)
+OK    2. remote origin reachable
+OK    3. preflight: doctor has no failures (4 warning(s): bash .uak/bin/doctor)
+OK    4. .uak/ on origin/main matches this checkout (uak 5.3.0)
+OK    5. plan: 1 task(s), lint clean
+TODO  6. approve the plan: Backlog-Approved is not yes on main, so nothing can be claimed for 10 min and then only P0
+         you are the human: read .uak/TASKS.md, set Backlog-Approved: yes in .uak/PROJECT.md, push it to main
+NOTE  reviews: no reviewer is registered, so the first PR waits until a second agent holds a claim. Working alone? …
+
+START · 1 thing to do before the first claim. Then run uak start again.
+```
+When everything is in place, it prints `START READY · bash .uak/bin/wt new APP-001`. `--fix` does the mechanical
+fixes (hooks; `Review-Mode: claims` when gh says you are the repo's only collaborator). An agent gets the same
+answer from `uak next`: with nothing to offer, it says why for each task.
+
+```text
+Why not APP-001: Backlog pending approval: Backlog-Approved is not yes in .uak/PROJECT.md on main, so only P0 tasks,
+and only after 10 min (10 min left). The human approves the plan: set Backlog-Approved: yes there and push it to main.
+```
+
+**Alone on the repo?** Install with `--solo`. GitHub never lets a PR's author approve it, so in `--solo` mode agent
+identities review each other on the claims branch, and you still merge.
 
 ## Why
 
@@ -304,7 +336,7 @@ model, harness and lead vs subagent; every machine publishes to the claims branc
 - Skills are installed **per mode**: each installed skill's description costs tokens in every session.
 - One task = one session, a 6-line handoff, and `/clear`. Compaction keeps only ID, next step, failures and commands.
 
-## Battle-tested: four team runs
+## Battle-tested: five team runs
 
 Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and each event's data became a release:
 
@@ -314,6 +346,7 @@ Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and ea
 | Reap buildathon ([autopsy](docs/blackbox/reap-2026-10.md)) | 4 h, 5 humans, 11 agents on Codex, Cursor and Claude Code | v4.2: scope on the current base, `uak clock`, `uak allow`, output cap, `= unchanged` |
 | MLB hackathon ([autopsy](docs/blackbox/mlb-2026-10.md)) | 10 days, 4 Windows laptops, 13 identities, 32 tasks integrated | v4.3/v5: merge by any agent, approvals that survive merges of main, Windows cap, `retire`, `followup` |
 | MLB, the v5 week ([autopsy](docs/blackbox/mlb-2026-10-week2.md)) | 6 more days on v5.0.0, 18 identities, 81 of 89 tasks integrated | v5.2: presence, review offers that move on, messages to offline identities reach their tasks, identity reuse, human authority only from the shell |
+| A solo marathon project (black box shared with us) | 1 human on a GitHub repo, two hours without a first claim | v5.2.1/v5.3: `--solo` review, a root task may write where its dependent owns, `uak start`, `next` says why |
 
 Hack-Nation 2026 in detail:
 

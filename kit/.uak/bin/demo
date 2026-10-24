@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # uak demo: a real 3-agent run in a temp repo with a local bare remote. No setup, no network, no AI keys.
 #   demo [--keep] [--fast]
-# Shows: graph waves → parallel claims → an overlapping claim rejected → a bounded fix loop →
+# Shows: graph waves → uak start → parallel claims → an overlapping claim rejected → a bounded fix loop →
 # PR + review by another agent → gated merge → a dependent task unlocked → board + stats.
 set -u
 LC_ALL=C; export LC_ALL
@@ -17,7 +17,7 @@ run() { # run DIR AGENT CMD... : show the command, print only its key lines
   dir=$1 who=$2; shift 2
   printf '  %s%s$%s %s\n' "$Y" "$who" "$R" "$*"
   (cd "$dir" && UAK_AGENT=$who UAK_HUMAN=demo "$@") > "$D/out" 2>&1; rc=$?
-  grep -E '^(OK|WT_READY|CONFLICT|GRAPH|wave|LOOP_|HACK-[0-9]+ \||Next:|Idle|No eligible|Why not|Waiting on|UAK BOARD|CLAIMED|REVIEW|AVAILABLE|INTEGRATED|messages|reviews|UAK STATS|tasks:|MERGE|ERROR)' "$D/out" | head -n 8 | sed 's/^/    /'
+  grep -E '^(OK|WT_READY|CONFLICT|GRAPH|wave|LOOP_|HACK-[0-9]+ \||Next:|Idle|No eligible|Why not|Waiting on|START|TODO|UAK BOARD|CLAIMED|REVIEW|AVAILABLE|INTEGRATED|messages|reviews|UAK STATS|tasks:|MERGE|ERROR)' "$D/out" | head -n 8 | sed 's/^/    /'
   return $rc
 }
 git_q() { git -c user.name=Demo -c user.email=demo@example.invalid "$@"; }
@@ -27,7 +27,7 @@ git init -q --bare "$D/remote.git"; git init -q -b main "$D/team"; T="$D/team"
 mkdir -p "$T/src" "$T/tests" "$T/.github"
 cp -R "$kit/.uak" "$T/.uak"; rm -rf "$T/.uak/tests" "$T/.uak/skills" "$T/.uak/stacks"
 cp "$kit/AGENTS.md" "$T/"; cp -R "$kit/.githooks" "$T/"; cp "$kit/.github/pull_request_template.md" "$T/.github/"
-printf '%s\n' .uak-env .claude/settings.local.json > "$T/.gitignore"
+printf '%s\n' .env .uak-env .claude/settings.local.json > "$T/.gitignore"
 now=$(date +%s)
 { sed -n '/^```text$/,/^```$/p' "$kit/.uak/templates/PROJECT.sprint.md" | sed '1d;$d' |
   sed "s/^Backlog-Approved: no/Backlog-Approved: yes/; s/^Freeze-Epoch: 0/Freeze-Epoch: $((now + 21600))/"; } > "$T/.uak/PROJECT.md"
@@ -68,6 +68,9 @@ printf '#!/usr/bin/env bash\nout=$(bash src/api.sh pompe)\n[ "$out" = "3 results
   git_q add -A && git_q commit -qm "team: backlog" && git_q push -q -u origin main) || { printf 'demo: setup failed\n' >&2; exit 1; }
 git -C "$T" config user.name Demo; git -C "$T" config user.email demo@example.invalid
 run "$T" planner bash .uak/bin/uak graph
+
+step "Minute 0: uak start checks every step from install to the first claim"
+run "$T" human bash .uak/bin/uak start
 
 step "Three agents start at once — overlapping paths are rejected at claim time"
 run "$T" ana-1 bash .uak/bin/wt new HACK-001 --agent ana-1
