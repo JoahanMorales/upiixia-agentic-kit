@@ -15,6 +15,8 @@
 ![deps](https://img.shields.io/badge/runtime_deps-bash_%2B_git-success)
 ![agents](https://img.shields.io/badge/agents-Claude_Code_·_Codex_·_Cursor_·_Gemini-8A2BE2)
 
+[![M8ven Score](https://m8ven.ai/badge/mcp/joahanmorales-upiixia-agentic-kit-1e9007?v=3ea0791b0e4a271540c4a4c17c7a87f0)](https://m8ven.ai/mcp/joahanmorales-upiixia-agentic-kit-1e9007?s=readme)
+
 [Quick start](#quick-start) · [First claim](#stuck-before-the-first-claim-uak-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Dashboard](#see-everything-uak-dash) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-three-team-events) · [Contributing](CONTRIBUTING.md)
 
 </div>
@@ -455,8 +457,6 @@ They combine well: plan with Spec Kit or BMAD, watch agents in a GUI if you like
 **Is my vibe-coded backend safe to launch?** Run `/uak-secure`. It checks IDOR, enumeration, rate limits, idempotent payments, transactions, CORS, log redaction, backups and 15 more items, each with how to verify it. It leaves the human-only items (key rotation, 2FA, the restore drill, watching the logs) to you.
 
 **Is the guard a sandbox?** No. It is defense in depth against accidents. For untrusted agents, use your tool's sandbox as well.
-
-[![M8ven Score](https://m8ven.ai/badge/mcp/joahanmorales-upiixia-agentic-kit-1e9007?v=3ea0791b0e4a271540c4a4c17c7a87f0)](https://m8ven.ai/mcp/joahanmorales-upiixia-agentic-kit-1e9007?s=readme)
 
 ## Contributing
 PRs are welcome, especially stack presets, an i18n locale, new loop and graph checks, and retros from your own hackathon. Read [CONTRIBUTING.md](CONTRIBUTING.md): every rule needs evidence, and every engine change needs a test.
