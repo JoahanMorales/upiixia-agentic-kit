@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased · The Chilangatón autopsy: a lost merge race, venue Wi-Fi, a cross-machine handover, review cleanup
+5 humans and 10 Claude Code identities on macOS and Windows, 35 tasks in 7 hours on venue Wi-Fi
+(`docs/blackbox/chilangaton-2026-10.md`). The suite was green; none of these was covered by a test.
+- **`merge` of a task another agent already merged is `OK`, not a human-queue entry.** The owner's merge waited on
+  "Queue busy" while an adopter merged the approved task; its next lock found no claim, sent the task to the human
+  queue as "Task without claim; cannot merge", wrote `Next: Humano: …` on the INTEGRATED record and messaged the
+  human. Now it prints `OK merge ID | already INTEGRATED by NAME | COMMIT` and exits 0, at the precheck, while
+  waiting for the lock, or when a forge merge recorded with `integrate` lands while it validates the candidate.
+- **The base fetch of `done`/`integrate`/`merge` retries 3 times and says why.** It was the one network call with
+  no retry, and it reported "Could not read PROJECT.md on remote main" with git's error dropped: 10 `done` failed that
+  way over 2 hours of venue Wi-Fi, and nobody saw the cause.
+- **`done` after a handover from another machine.** When the claim's Worktree does not exist here and this checkout
+  is on the task's branch, `done` uses it and records the new path on the task and the claim. It died with
+  "Missing worktree to record Task-Tip" after a Windows → macOS handover; the error now names the path and the branch.
+- **`wt rm --review PATH` removes a detached review checkout.** Verify leaves untracked build output, so the
+  reviewer's `git worktree remove` refused, `--force` was blocked, and the guard's hint (`wt rm ID`) named the owner's
+  worktree. It refuses a checkout on a branch or with edits to tracked files, and the main checkout. The guard and
+  the reviewer subagents (all harnesses) name it.
+- **FastAPI stack: `tzdata` at setup.** `ZoneInfo("America/Mexico_City")` failed to import on Windows, and the fix
+  had to go through the lockfile owner and a human merge.
+- `test_v54.py`: 5 scenarios that fail on v5.3.0, the queue race among them.
+
 ## v5.3.0 · 2026-10-23 · `uak start`: from install to the first claim, every step named
 A solo marathon project spent two hours before its first claim. Each blocker was one line to fix (the kit not on
 main, an unapproved plan, `gh` review with one human, an OWNERS row), and each was found by hand: `uak next` said only

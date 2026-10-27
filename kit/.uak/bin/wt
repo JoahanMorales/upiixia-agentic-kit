@@ -15,6 +15,7 @@ wt new ID [--agent NAME] [--human NAME] [--next TEXT]   create branch/worktree, 
                                                         --agent: reuse this machine's free identity or the next one
 wt session                                                          rotate UAK_SESSION of this worktree (new session)
 wt rm ID                                                      remove your worktree (no --force; keeps the branch)
+wt rm --review PATH                                           remove a detached review checkout and its build output
 wt stop [ID]                                                  stop the servers listening on this worktree's ports (exact PIDs)
 wt pr                                                         print the GitHub "open PR" URL when gh pr create is not allowed
 wt ls                                                               list worktrees
@@ -95,6 +96,29 @@ case "$cmd" in
     write_env "$top" "$agent" "$human" "$task"
     say "SESSION: $(sed -n 's/^UAK_SESSION=//p' "$top/.uak-env")"; exit 0;;
   rm)
+    # A review checkout (detached, `git worktree add ../review-ID origin/<branch>`) keeps Verify's untracked build
+    # output, so a plain `worktree remove` refuses and the guard blocks --force. It holds no work: no branch, no
+    # tracked edits. Why (Chilangatón): 11 guard blocks on `worktree remove --force` and 1 on a recursive rm outside
+    # the worktree; the leftovers were reviewers' detached checkouts, and the hint `wt rm ID` names the owner's worktree.
+    if [ "${1:-}" = --review ]; then
+      [ -n "${2:-}" ] || die "Usage: wt rm --review PATH"
+      root=$(main_root); [ -n "$root" ] || die "Not a Git repository."
+      path=$(cd "$2" 2>/dev/null && pwd -P) || die "No such folder: $2"
+      listed=no
+      while IFS= read -r d; do
+        [ "$(cd "$d" 2>/dev/null && pwd -P)" != "$path" ] || listed=yes
+      done <<EOF_WT
+$(git -C "$root" worktree list --porcelain | sed -n 's/^worktree //p')
+EOF_WT
+      [ "$listed" = yes ] && [ "$path" != "$(cd "$root" && pwd -P)" ] || die "$path is not a worktree of this repository."
+      ! git -C "$path" symbolic-ref -q HEAD >/dev/null 2>&1 || die "$path is on a branch: it may hold work. Use wt rm ID for a task worktree."
+      [ -n "$(git -C "$path" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ] ||
+        die "$path has commits on no branch; push or branch them first (git -C $path log -1)."
+      [ -z "$(git -C "$path" status --porcelain --untracked-files=no 2>/dev/null)" ] ||
+        die "$path has edits to tracked files; a review changes nothing. Look at them (git -C $path status) first."
+      git -C "$root" worktree remove --force "$path" || die "Did not remove $path."
+      say "WT_REMOVED: $path (review checkout; untracked build output dropped)"; exit 0
+    fi
     id=${1:-}; printf '%s' "$id" | grep -Eq '^[A-Z][A-Z0-9]*-[0-9]{3,}$' || die "Usage: wt rm ID"
     root=$(main_root); [ -n "$root" ] || die "Not a Git repository."
     path=$(wt_path "$root" "$id")

@@ -330,6 +330,10 @@ rm_coord_mutate() {
   RECORD=$(task_file); CLAIM=$(claim_file); mkdir -p "$TX/queue"
   case "$RM_ACTION" in
     enqueue|lock|finalize)
+      # Merged by another agent while this one waited for the queue: done, not a human problem.
+      # Why (Chilangatón): the owner's merge waited on "Queue busy" while an adopter merged PB-024; it then went
+      # to the human queue as "Task without claim" and wrote "Humano: …" on the INTEGRATED record.
+      [ "$(field "$RECORD" State)" != INTEGRATED ] || return 5
       [ -f "$RECORD" ] && [ -f "$CLAIM" ] || { RM_REASON='Task without claim; cannot merge'; return 3; }
       [ "$(field "$RECORD" State)" = REVIEW ] || { RM_REASON='Run done first to enter REVIEW'; return 3; }
       # An approved task waits for nobody: after Merge-Adopt-Seconds (20 min) any eligible agent may merge it.
@@ -356,6 +360,8 @@ rm_coord_mutate() {
       printf '%s\n' "Owner: $AGENT" "Task: $ID" "Token: $RM_TOKEN" "Lease-Until: $((NOW + RM_LOCK_LEASE))" "Updated: $NOW" > "$lock"
       put "$TX/queue/$ID.md" State MERGING;;
     human)
+      # Merged meanwhile (another agent's merge, or `integrate` after a forge merge): release the lock, nothing else.
+      if [ "$(field "$RECORD" State)" = INTEGRATED ]; then rm_lock_owned && rm -f "$lock"; return 0; fi
       printf '%s\n' "ID: $ID" 'State: HUMAN' "Owner: $AGENT" "Updated: $NOW" "Reason: $(one_line "$RM_QUEUE_REASON")" > "$TX/queue/$ID.md"
       if [ -f "$RECORD" ]; then
         put "$RECORD" Next "Humano: $(one_line "$RM_QUEUE_REASON")"
@@ -593,12 +599,17 @@ rm_human_hint() {
   local pr; pr=$(field "$(task_file)" PR)
   say "HUMAN: review the reason; if the PR is fine, merge ${pr:-it} on the forge, then any agent runs: bash .uak/bin/uak integrate $ID"
 }
+rm_already_integrated() {
+  local rec; rec=$(task_file)
+  say "OK merge $ID | already INTEGRATED by $(field "$rec" Merged-By | grep . || field "$rec" Owner) | $(field "$rec" Merge-Commit | cut -c 1-12) | nothing to do"
+}
 merge_run() {
   local waited=0 rc wait_started
   # No approval on the current SHA yet is a "wait", not a human-queue entry.
   # Why (Reap buildathon): HACK-008 and HACK-010 ran merge before any review; both landed in the human queue
   # ("Missing verifiable approval") and a human had to read them.
   ATTEMPT=precheck; fresh_state; RECORD=$(task_file)
+  [ "$(field "$RECORD" State)" != INTEGRATED ] || { rm_already_integrated; return 0; }
   if [ -f "$RECORD" ] && [ "$(field "$RECORD" State)" = REVIEW ] && resolve_task_tip &&
      ! approval_check "$RM_TIP" "$(field "$RECORD" PR)"; then
     case "$RM_REASON" in 'Missing verifiable approval on claims'|'Approval missing, rejected, self-made or stale for the current SHA'|'GitHub shows no current independent approval on this SHA')
@@ -609,7 +620,9 @@ merge_run() {
     esac
   fi
   RM_TOKEN="$(basename "$TXROOT")-$AGENT-$ID"; RM_HELD=no; RM_FINISHED=no
-  rm_coord_update enqueue || { say "MERGE_HUMAN $ID | $RM_REASON"; return 3; }
+  rm_coord_update enqueue; rc=$?
+  [ "$rc" -ne 5 ] || { rm_already_integrated; return 0; }
+  [ "$rc" -eq 0 ] || { say "MERGE_HUMAN $ID | $RM_REASON"; return 3; }
   RM_LOCK_LEASE=$(rm_config Merge-Lease-Seconds 1800); RM_WAIT=$(rm_config Merge-Wait-Seconds 180)
   case "$RM_LOCK_LEASE:$RM_WAIT" in *[!0-9:]*|0:*|*:0) die 'Merge lease/wait must be positive seconds.';; esac
   wait_started=$(date +%s)
@@ -617,6 +630,7 @@ merge_run() {
     clock_now
     rm_coord_update lock; rc=$?
     if [ "$rc" -eq 0 ]; then RM_HELD=yes; break; fi
+    [ "$rc" -ne 5 ] || { rm_already_integrated; return 0; }
     waited=$(($(date +%s) - wait_started))
     # A busy queue is a wait, not a human problem (MLB: "Queue busy" landed in the human queue).
     if [ "$rc" -eq 4 ] && [ "$waited" -ge "$RM_WAIT" ]; then
@@ -634,12 +648,15 @@ merge_run() {
   if ! rm_prepare_candidate; then
     RM_QUEUE_REASON=${RM_REASON:-'Candidate validation failed'}
     if rm_coord_update human; then RM_HELD=no; fi
+    [ "$(field "$(task_file)" State)" != INTEGRATED ] || { rm_already_integrated; return 0; }
     say "MERGE_HUMAN $ID | $RM_QUEUE_REASON"; rm_human_hint; return 3
   fi
   clock_now
-  if ! rm_coord_update finalize; then
+  rm_coord_update finalize; rc=$?
+  if [ "$rc" -ne 0 ]; then
     RM_QUEUE_REASON=${RM_REASON:-'Atomic publish failed'}
     if rm_coord_update human; then RM_HELD=no; fi
+    [ "$rc" -ne 5 ] || { rm_already_integrated; return 0; }
     say "MERGE_HUMAN $ID | $RM_QUEUE_REASON"; rm_human_hint; return 3
   fi
   RM_FINISHED=yes; RM_HELD=no

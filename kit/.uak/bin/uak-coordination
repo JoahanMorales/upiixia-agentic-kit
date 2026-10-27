@@ -43,8 +43,16 @@ coord_init() {
   # every status/next was a clone of the product repo per call.
   case "$CMD" in done|integrate|merge) coord_depth=;; *) coord_depth=--depth=1;; esac
   # Already fetched in this transaction directory (status/next reuse the tick's clone): no second fetch.
-  git -C "$TX" rev-parse -q --verify refs/uak/config >/dev/null 2>&1 ||
-    git -C "$TX" fetch -q $coord_depth origin "refs/heads/$BASE:refs/uak/config" || gitfail "Could not read PROJECT.md on remote $BASE."
+  # The whole base is the heaviest fetch of a call: 3 tries, like the claims fetch, and git's own reason.
+  # Why (Chilangatón, venue Wi-Fi): 10 `done` failed as "Could not read PROJECT.md" over 2 hours, never retried,
+  # and git's error was dropped, so nobody saw the cause.
+  local coord_try=0
+  until git -C "$TX" rev-parse -q --verify refs/uak/config >/dev/null 2>&1 ||
+        git -C "$TX" fetch -q $coord_depth origin "refs/heads/$BASE:refs/uak/config" 2> "$TXROOT/config-error"; do
+    coord_try=$((coord_try + 1))
+    [ "$coord_try" -lt 3 ] || gitfail "Could not read PROJECT.md on remote $BASE (3 tries). $(head -n 1 "$TXROOT/config-error")"
+    sleep $((coord_try * 2))
+  done
   git -C "$TX" show refs/uak/config:.uak/TASKS.md > "$TXROOT/canonical-TASKS.md" 2>/dev/null || : > "$TXROOT/canonical-TASKS.md"
   git -C "$TX" show refs/uak/config:.uak/OWNERS.md > "$TXROOT/canonical-OWNERS.md" 2>/dev/null || : > "$TXROOT/canonical-OWNERS.md"
   # Backlog published with `uak plan` on claims is appended to main's, no PR.

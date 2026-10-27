@@ -857,8 +857,15 @@ mutate() {
       task_branch=$(field "$RECORD" Branch)
       task_worktree=$(field "$RECORD" Worktree)
       tip=$(field "$RECORD" Task-Tip)
+      # Handed over from another machine: the recorded Worktree is theirs. This checkout on the task's branch is the
+      # new one. Why (Chilangatón): after a Windows → macOS handover, PB-027's done died with "Missing worktree";
+      # the way out was release and re-claim, which put a decision and two heartbeat conflicts on claims.
+      if [ ! -d "$task_worktree" ] && [ "$(git -C "$ROOT" symbolic-ref --short HEAD 2>/dev/null)" = "$task_branch" ]; then
+        task_worktree=$ROOT; put "$RECORD" Worktree "$ROOT"; put "$CLAIM" Worktree "$ROOT"
+      fi
       if [ -z "$MERGE_COMMIT" ]; then
-        tip=$(git -C "$task_worktree" rev-parse HEAD 2>/dev/null) || die "Missing worktree to record Task-Tip."
+        tip=$(git -C "$task_worktree" rev-parse HEAD 2>/dev/null) ||
+          die "Missing worktree to record Task-Tip: $task_worktree is not on this machine. Run done from a checkout of $task_branch."
       else
         git check-ref-format "refs/heads/$BASE" >/dev/null 2>&1 || die "Invalid UAK_BASE."
         git -C "$TX" fetch -q origin "refs/heads/$BASE:refs/uak/base" ||

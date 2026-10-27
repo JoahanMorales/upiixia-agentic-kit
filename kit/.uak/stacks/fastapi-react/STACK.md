@@ -21,7 +21,7 @@ A vertical task reserves `app/routers/<f>.py, app/services/<f>.py, app/tests/tes
 
 ```bash
 uv init --bare --name app --python 3.12 --pin-python .   # pyproject.toml only; --app in uv 0.12 creates src/ and a build
-uv add fastapi "uvicorn[standard]" pydantic-settings httpx
+uv add fastapi "uvicorn[standard]" pydantic-settings httpx tzdata   # tzdata: Windows has no zoneinfo database
 uv add --dev pytest ruff httpx2 playwright   # httpx2 avoids the TestClient warning; playwright for webapp-testing
 mkdir -p app/routers app/services app/schemas app/fixtures app/tests
 touch app/__init__.py app/routers/__init__.py app/services/__init__.py app/schemas/__init__.py

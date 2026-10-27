@@ -28,6 +28,10 @@ Load only the row you need. Every rule cites the incident behind it. Data comes 
 | sprint: freeze required | `Freeze-Epoch` was 0: 8 PRs, including a product rename, in the last 6 h. |
 | sprint: design lock | 4 global visual directions in 8 h. |
 | sprint: name fixed at T0 | The product was renamed 5 h before the deadline. |
+| `merge` of a merged task is OK | Chilangatón: an adopter merged PB-024 while its owner's `merge` waited for the queue; the owner's run then went to the human queue ("Task without claim") and wrote "Humano" on the INTEGRATED record. |
+| The base fetch retries | Chilangatón: 10 `done` failed as "Could not read PROJECT.md on remote main" over 2 hours of venue Wi-Fi; that fetch had no retry and hid git's error. |
+| `done` adopts this checkout | Chilangatón: after a Windows → macOS handover, `done` read the old machine's worktree path and died; release and re-claim were the way out. |
+| `wt rm --review PATH` | Chilangatón: 11 guard blocks on `worktree remove --force` and 1 on a recursive `rm` outside the worktree, all reviewers cleaning up detached checkouts that kept Verify's build output. |
 | sprint: a human owns submission from T−8 h | The submission task sat with an agent that ran out of tokens; its PR stayed open. |
 | sprint: notices inside 1280×720 | The "not a diagnosis" notice fell below the projector viewport. |
 | sprint: 2 agents per human | With 5 agents, coordination cost more messages than code for hours. |

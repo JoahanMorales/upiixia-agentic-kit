@@ -23,6 +23,7 @@ app/tests/test_<f>.py   # TestClient: happy path + one error
 | External calls only in `services/`, with `httpx` and a `timeout=`; fall back to a mock on `DEMO_MODE=true` or failure | The demo survives a dead API. |
 | Mocks carry `"demo_data": true` | Mocks are always labeled. |
 | New deps: ask the owner of `pyproject.toml`/`uv.lock` | Auto-merge rejects lockfile changes. |
+| `zoneinfo.ZoneInfo(...)` needs `tzdata` in `pyproject.toml` (setup adds it) | Windows has no time zone database: the app failed to import on a Windows laptop, and the fix had to wait for the lockfile owner. |
 | Secrets come only from env via `app/config.py` | The pre-commit scanner blocks them. |
 
 ```bash
