@@ -38,14 +38,15 @@ for d in $(ls "$dir" 2>/dev/null | sed -n 's/^\([0-9][0-9]*\)-1280\.png$/\1/p' |
     grep -qi '^recommended:[[:space:]]*yes' "$dir/$d.md" && rec=yes
   fi
   phone=
-  [ ! -f "$dir/$d-390.png" ] || phone="<a class=\"phone\" href=\"$d-390.png\" target=\"_blank\"><img src=\"$d-390.png\" alt=\"$name at 390 by 844\" loading=\"lazy\"></a>"
-  cards="$cards<article class=\"card${rec:+ rec}\"><header><span class=\"num\">$d</span><div><h2>$name</h2>${intent:+<p>$intent</p>}</div>${rec:+<span class=\"chip\">Agent&#39;s pick</span>}</header>"
-  cards="$cards<div class=\"shots\"><a class=\"desk\" href=\"$d-1280.png\" target=\"_blank\"><img src=\"$d-1280.png\" alt=\"$name at 1280 by 720\" loading=\"lazy\"></a>$phone</div>"
-  cards="$cards<footer>Pick it: tell the agent <code>Direction $d</code></footer></article>"
+  [ ! -f "$dir/$d-390.png" ] || phone="<a class=\"phone\" href=\"$d-390.png\" target=\"_blank\" title=\"Open the phone screen full size\"><img src=\"$d-390.png\" alt=\"$name on a phone, 390 by 844\" loading=\"lazy\"></a>"
+  cards="$cards<figure class=\"work${rec:+ pick}\"><div class=\"wall\"><a class=\"desk\" href=\"$d-1280.png\" target=\"_blank\" title=\"Open the projector screen full size\"><img src=\"$d-1280.png\" alt=\"$name on the projector, 1280 by 720\" loading=\"lazy\"></a>$phone</div>"
+  cards="$cards<figcaption><span class=\"plate\">$d</span><span class=\"title\">$name${rec:+<span class=\"dot\" title=\"The agent recommends this one\"></span>}</span>${intent:+<span class=\"intent\">$intent</span>}"
+  cards="$cards<span class=\"say\">${rec:+Recommended by the agent. }To choose it, tell the agent: <kbd>Direction $d</kbd></span></figcaption></figure>"
 done
-for f in $(ls "$dir" 2>/dev/null | grep -i '\.png$' | grep -Ev '^[0-9]+-(1280|390)\.png$'); do
+for f in $(ls "$dir" 2>/dev/null | grep -i '\.png$' | grep -Ev '^[0-9]+-(1280|390)\.png$|^[_.]'); do
   more="$more<a href=\"$f\" target=\"_blank\"><img src=\"$f\" alt=\"$(printf '%s' "$f" | esc)\" loading=\"lazy\"><span>$(printf '%s' "$f" | esc)</span></a>"
 done
+if [ "$n" -eq 1 ]; then count="One direction"; else count="$n directions"; fi
 [ "$n" -gt 0 ] || [ -n "$more" ] || { printf 'DESIGN_GALLERY: no screenshots in %s (expected 1-1280.png, 1-390.png, …)\n' "$dir" >&2; exit 1; }
 cat > "$dir/index.html" <<EOF
 <!doctype html>
@@ -55,43 +56,55 @@ cat > "$dir/index.html" <<EOF
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Design lock · $project</title>
 <style>
-:root { --bg: #f3f2ef; --surface: #ffffff; --ink: #16151a; --ink-2: #5b5866; --line: #e3e1dc; --accent: #3b5bdb; --pick: #0b7a53; --shadow: 0 1px 2px rgb(22 21 26 / .06), 0 12px 32px rgb(22 21 26 / .08); }
-@media (prefers-color-scheme: dark) { :root { --bg: #111014; --surface: #1b1a20; --ink: #f1eff6; --ink-2: #a9a5b5; --line: #2c2a33; --accent: #8ea4ff; --pick: #4fd1a1; --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 16px 40px rgb(0 0 0 / .35); } }
+:root {
+  --wall: #c9ccc6; --wall-2: #bfc3bc; --mat: #fbfbf9; --ink: #1d1f1c; --ink-2: #4e534c; --rule: #a9aea6; --dot: #d63a2f;
+  --hang: 0 2px 3px rgb(30 32 28 / .18), 0 18px 34px -12px rgb(30 32 28 / .45);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --wall: #33363a; --wall-2: #2c2f33; --mat: #f4f3ef; --ink: #ecebe6; --ink-2: #b4b5ae; --rule: #55595e; --dot: #ff5a4c;
+    --hang: 0 2px 3px rgb(0 0 0 / .4), 0 22px 40px -14px rgb(0 0 0 / .7); }
+}
 * { box-sizing: border-box; margin: 0; }
-body { background: var(--bg); color: var(--ink); font: 16px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif; padding: 48px 24px 64px; }
-main { max-width: 1240px; margin: 0 auto; }
-.top h1 { font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.03em; line-height: 1.05; }
-.top p { color: var(--ink-2); margin-top: 10px; max-width: 64ch; }
-.grid { display: grid; gap: 28px; margin-top: 36px; }
-.card { background: var(--surface); border-radius: 22px; box-shadow: var(--shadow); padding: 22px; }
-.card.rec { outline: 2px solid var(--pick); outline-offset: -2px; }
-.card header { display: flex; gap: 14px; align-items: flex-start; }
-.num { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-weight: 700; background: var(--ink); color: var(--surface); }
-h2 { font-size: 21px; letter-spacing: -0.01em; }
-.card header p { color: var(--ink-2); margin-top: 2px; }
-.chip { margin-left: auto; flex: none; font-size: 13px; font-weight: 600; color: var(--pick); border: 1px solid currentColor; border-radius: 999px; padding: 4px 12px; }
-.shots { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; margin-top: 18px; align-items: start; }
-.shots a { display: block; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: var(--bg); }
-.shots img { display: block; width: 100%; height: auto; }
-.phone { width: 200px; border-radius: 26px !important; }
-.card footer { margin-top: 14px; color: var(--ink-2); font-size: 14px; }
-code { font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px; color: var(--ink); }
-.more { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 16px; }
-.more a { color: var(--ink-2); text-decoration: none; font-size: 14px; }
-.more img { width: 100%; border-radius: 12px; border: 1px solid var(--line); display: block; margin-bottom: 6px; }
-h3 { margin-top: 48px; font-size: 18px; }
-a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-@media (max-width: 760px) { .shots { grid-template-columns: 1fr; } .phone { width: 60%; justify-self: center; } }
+html { background: var(--wall); }
+body { min-height: 100vh; color: var(--ink); font: 400 16px/1.5 "Avenir Next", Avenir, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  background: radial-gradient(120% 70% at 50% 0%, var(--wall) 40%, var(--wall-2) 100%); padding: 56px clamp(16px, 4vw, 56px) 72px; }
+main { max-width: 1480px; margin: 0 auto; }
+.intro { display: flex; flex-wrap: wrap; gap: 8px 40px; align-items: baseline; padding-bottom: 22px; border-bottom: 1px solid var(--rule); }
+h1 { font: 600 clamp(30px, 3.6vw, 46px)/1.02 "Avenir Next", Avenir, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: -0.025em; }
+h1 em { font-style: normal; color: var(--ink-2); font-weight: 400; }
+.intro p { color: var(--ink-2); max-width: 58ch; }
+.room { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 64px 56px; margin-top: 48px; align-items: start; }
+.work { display: grid; gap: 22px; }
+.wall { position: relative; padding: 0 0 34px 0; }
+.desk, .phone { display: block; background: var(--mat); padding: 10px; box-shadow: var(--hang); transition: transform .2s ease-out; }
+.desk img, .phone img { display: block; width: 100%; height: auto; }
+.phone { position: absolute; right: -16px; bottom: 0; width: 21%; min-width: 84px; padding: 5px; border-radius: 4px; }
+.desk:hover, .phone:hover { transform: translateY(-3px); }
+figcaption { display: grid; grid-template-columns: auto 1fr; gap: 2px 16px; max-width: 46ch; }
+.plate { grid-row: span 3; font: 600 15px/1 ui-monospace, Menlo, Consolas, monospace; color: var(--ink-2); border: 1px solid var(--rule); width: 34px; height: 34px; display: grid; place-items: center; }
+.title { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; background: var(--dot); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 22%, transparent); }
+.intent { color: var(--ink-2); }
+.say { color: var(--ink-2); font-size: 14px; margin-top: 8px; }
+kbd { font: 600 13px ui-monospace, Menlo, Consolas, monospace; color: #1d1f1c; background: var(--mat); border-radius: 4px; padding: 2px 7px; box-shadow: 0 1px 0 var(--rule); }
+.pick .say { color: var(--ink); }
+.more h2 { margin-top: 72px; font-size: 18px; font-weight: 600; padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
+.more div { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 28px; margin-top: 24px; }
+.more a { display: block; color: var(--ink-2); text-decoration: none; font-size: 14px; }
+.more img { display: block; width: 100%; background: var(--mat); padding: 8px; box-shadow: var(--hang); margin-bottom: 10px; }
+a:focus-visible { outline: 3px solid var(--ink); outline-offset: 4px; }
+@media (max-width: 760px) { .phone { right: 8px; } .wall { padding-bottom: 28px; } }
+@media (prefers-reduced-motion: reduce) { .desk, .phone { transition: none; } .desk:hover, .phone:hover { transform: none; } }
 </style>
 </head>
 <body>
 <main>
-<section class="top">
-<h1>Design lock · $project</h1>
-<p>$n direction(s), each at 1280×720 (the projector) and 390×844 (a phone). Open any shot full size. Pick by looking: the one the judges should see in 3 seconds.</p>
-</section>
-<div class="grid">$cards</div>
-$( [ -z "$more" ] || printf '<h3>More screens</h3><div class="more">%s</div>' "$more" )
+<header class="intro">
+<h1>Design lock <em>· $project</em></h1>
+<p>$count, hung as the judges will see them: the projector at 1280×720, a phone at 390×844. Open any screen full size. Choose by looking, then tell the agent.</p>
+</header>
+<section class="room">$cards</section>
+$( [ -z "$more" ] || printf '<section class="more"><h2>More screens</h2><div>%s</div></section>' "$more" )
 </main>
 </body>
 </html>

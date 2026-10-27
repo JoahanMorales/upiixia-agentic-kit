@@ -428,7 +428,7 @@ def the_human_sees_the_directions(r):
     page = (d / "index.html").read_text(encoding="utf-8")
     expect(out.returncode == 0 and "DESIGN_GALLERY 2 direction(s)" in out.stdout and "file://" in out.stdout, out.stdout + out.stderr)
     expect('src="1-1280.png"' in page and 'src="1-390.png"' in page and 'src="2-1280.png"' in page and "More screens" in page and "extra.png" in page, page[:400])
-    expect("Night market &lt;script&gt;" in page and "<script>" not in page and "card rec" in page and "Direction 2" in page, "names escaped, the pick marked")
+    expect("Night market &lt;script&gt;" in page and "<script>" not in page and "work pick" in page and "Direction 2" in page and "3 directions" not in page, "names escaped, the pick marked")
     expect("http" not in page.replace("http-equiv", ""), "no network: the page works from the folder")
     empty = r.scratch / "v54-gallery-empty"; (empty / "web/public/design-lock").mkdir(parents=True); r.g(empty, "init", "-q", "-b", "main")
     none = r.run([r.bash, str(r.package / ".uak/bin/design-gallery"), "--no-open"], cwd=empty, allowed=None)

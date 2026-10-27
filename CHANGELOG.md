@@ -1,7 +1,7 @@
 # Changelog
 
 ## v5.4.1 · 2026-10-27 · The human sees the design lock; the MCP tools, tested where anyone looks
-- **`uak design-gallery`.** Claude Code runs in a terminal, so the design lock's screenshots were files nobody
+- **`uak design-gallery`**, hung like a gallery wall: each direction matted, the phone leaning on the projector shot, a placard with the intent, and a red dot on the agent's pick. Claude Code runs in a terminal, so the design lock's screenshots were files nobody
   opened. The lock now saves `N-1280.png`, `N-390.png` and `N.md` (name, intent, the agent's pick) and the gallery
   opens them side by side in the human's browser (`open`, `xdg-open`, `start`, `wslview`), with no network. Over SSH
   it serves them instead, in the background, on `127.0.0.1` and the machine's Tailscale address, and prints both URLs
