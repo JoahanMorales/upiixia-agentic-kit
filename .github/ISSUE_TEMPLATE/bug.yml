@@ -12,7 +12,7 @@ body:
     validations: { required: true }
   - type: input
     id: env
-    attributes: { label: Environment, placeholder: "macOS 15 / Ubuntu 24.04 · bash --version · git --version · awk -W version" }
+    attributes: { label: Environment, placeholder: "macOS 15 / Ubuntu 24.04 · bash --version · git --version · awk -W version </dev/null" }
   - type: dropdown
     id: mode
     attributes: { label: Mode, options: [sprint, marathon] }

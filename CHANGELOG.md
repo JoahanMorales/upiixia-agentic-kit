@@ -1,5 +1,10 @@
 # Changelog
 
+## v5.4.3 · 2026-10-27 · doctor no longer hangs on macOS
+- **`uak doctor` finished on macOS.** It probed the awk with `awk -W version`; BSD awk ignores `-W`, runs `version`
+  as the program and waits on the terminal, so doctor froze at minute 0. The probe now reads `/dev/null`. A test runs
+  doctor with an awk that behaves that way and the terminal left open. The bug template's hint has the same fix.
+
 ## v5.4.2 · 2026-10-27 · A landing that tells the idea
 - **`landing-story` (new skill, sprint and every web stack).** The landing is a P0 task built from `IDEA.md`, never
   from a template: a headline of 8 words or fewer from the one line, one number with its source, the wow as a real

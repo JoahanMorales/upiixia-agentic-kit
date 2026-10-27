@@ -25,7 +25,8 @@ command -v python3 >/dev/null 2>&1 && ok "python3 $(python3 -c 'import sys;print
   warn "no python3: uak works, but the kit test suite cannot run"
 if printf 'AKIA%s\n' ZZZZZZZZZZZZZZZZ | grep -Eq 'AKIA[A-Z0-9]{16}'; then ok "grep -E supports intervals (secret scanner active)"
 else bad "grep -E lacks intervals: the secret scanner would miss keys"; fi
-awk_name=$(awk -W version 2>&1 | head -n 1 | awk '{print $1}')
+# </dev/null: BSD awk (macOS) ignores -W, takes "version" as the program and would wait on the terminal.
+awk_name=$(awk -W version </dev/null 2>&1 | head -n 1 | awk '{print $1}')
 case "$awk_name" in mawk) warn "awk is mawk: uak avoids awk {n} intervals; do not add rules that use them";; esac
 
 # Claude Code orchestration needs Haiku 5.5 (v2.1.293+) and the advisor tool (Anthropic API).

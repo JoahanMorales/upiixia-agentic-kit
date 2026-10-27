@@ -453,11 +453,31 @@ def the_human_sees_the_directions(r):
     return {"gallery": True}
 
 
+def doctor_never_waits_on_the_terminal(r):
+    """On macOS doctor hung at minute 0: BSD awk ignores -W, runs "version" as the program and reads the terminal."""
+    import shutil, subprocess
+    t = r.scratch / "v54-doctor-tty"; t.mkdir(); r.g(t, "init", "-q", "-b", "main")
+    shim = r.scratch / "v54-bsd-awk"; shim.mkdir()
+    (shim / "awk").write_text('#!/bin/sh\nif [ "$1" = -W ]; then shift 2; cat >/dev/null; exit 0; fi\nexec "%s" "$@"\n' % shutil.which("awk"), encoding="utf-8")
+    (shim / "awk").chmod(0o755)
+    env = r.env.copy(); env["PATH"] = "%s%s%s" % (shim, os.pathsep, env["PATH"])
+    read_end, write_end = os.pipe()
+    try:
+        doc = subprocess.run([r.bash, str(r.package / ".uak/bin/doctor")], cwd=t, env=env, stdin=read_end, text=True,
+                             capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        doc = None
+    finally:
+        os.close(read_end); os.close(write_end)
+    expect(doc is not None and "bash" in doc.stdout and "git" in doc.stdout, "doctor finishes with an open terminal: " + (doc.stdout[-500:] if doc else "it hung"))
+    return {"doctor": True}
+
+
 TESTS = [merge_of_a_merged_task_is_done, merge_that_loses_the_queue_race_is_done, base_fetch_retries_and_says_why, done_after_a_cross_machine_handover,
          review_checkout_is_removed_safely, reviews_go_to_agents_only, pr_sync_tells_a_forge_merge, hook_stops_beating_a_task_that_moved,
          errors_say_the_fix, a_retry_reuses_the_base, frontend_uses_the_design_system,
          done_checks_the_design_and_humans_record_forge_merges, deploy_reads_the_project, ui_edits_get_the_gate_at_once,
-         the_human_sees_the_directions]
+         the_human_sees_the_directions, doctor_never_waits_on_the_terminal]
 
 
 def main():
