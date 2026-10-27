@@ -14,7 +14,13 @@ root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$root" || exit 2
 changed= base=${UAK_BASE:-main} only=
 if [ "${1:-}" = --changed ]; then changed=yes; shift; [ -z "${1:-}" ] || { base=$1; shift; }; fi
-if [ "${1:-}" = --file ]; then only=${2:-}; shift 2 2>/dev/null || shift; case "$only" in "$root"/*) only=${only#"$root"/};; esac; fi
+if [ "${1:-}" = --file ]; then
+  only=${2:-}; shift 2 2>/dev/null || shift
+  # Compare physical paths: on macOS /var is a link to /private/var, so a hook's path may not start with git's root.
+  [ ! -d "$(dirname "$only")" ] || only="$(cd "$(dirname "$only")" && pwd -P)/$(basename "$only")"
+  proot=$(cd "$root" && pwd -P)
+  case "$only" in "$proot"/*) only=${only#"$proot"/};; "$root"/*) only=${only#"$root"/};; esac
+fi
 src=${1:-}
 if [ -z "$src" ]; then for d in web/src src app; do [ -d "$d" ] && { src=$d; break; }; done; fi
 [ -n "$src" ] && [ -d "$src" ] || { printf 'DESIGN_LINT_SKIP: no web/src, src or app folder\n'; exit 0; }
