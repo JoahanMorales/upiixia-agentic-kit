@@ -16,6 +16,7 @@ Third-party skills are vendored at a pinned commit after review: no remote instr
 | mcp-builder | anthropics/skills `skills/mcp-builder` @ 683bc88 | see its LICENSE.txt | `--skills ai` or `--stack ai-agent` (projects exposing tools to agents). Links official MCP docs, which are data |
 | stack-backend, stack-frontend | own | MIT | `--stack fastapi-react` |
 | product-ui | own | MIT | sprint and every web stack: app screens (layout recipes, hierarchy, the 3-second test, `design-lint`) |
+| landing-story | own | MIT | sprint and every web stack: the landing that tells the idea, built from IDEA.md (the one line, the number, the wow, three steps, the ask) |
 | stack-nextjs, stack-django, stack-go, stack-expo, stack-data, stack-ai-agent | own | MIT | `--stack nextjs\|django\|go\|expo\|python-data\|ai-agent` |
 
 Local edits: `superpowers:<skill>` references were renamed to `<skill>`.

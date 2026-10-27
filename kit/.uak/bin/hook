@@ -122,7 +122,7 @@ uilint() {
   tool=$(printf '%s' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([A-Za-z_]*\)".*/\1/p' | head -n 1)
   case "$tool" in Edit|Write|MultiEdit|write_file|replace|edit_file|edit) ;; *) return 0;; esac
   file=$(jdecode tool_input file_path); [ -n "$file" ] || file=$(jdecode tool_input absolute_path); [ -n "$file" ] || file=$(jdecode tool_input path)
-  case "$file" in *.tsx|*.jsx|*.ts|*.js|*.vue|*.svelte) ;; *) return 0;; esac
+  case "$file" in *.tsx|*.jsx|*.ts|*.js|*.vue|*.svelte|*.css) ;; *) return 0;; esac
   out=$(bash .uak/bin/design-lint --file "$file" 2>/dev/null) && return 0
   printf '%s\n' "$out" | grep -q '^DESIGN_LINT_FAIL' || return 0
   printf 'UAK design-lint on %s: %s Fix it now with the tokens and the UI kit (skill product-ui).' "${file##*/}" \

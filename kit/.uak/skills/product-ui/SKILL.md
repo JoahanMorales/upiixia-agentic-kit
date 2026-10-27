@@ -5,8 +5,8 @@ description: Make product screens look designed, not templated - dashboards, a m
 
 # Product UI · screens that look designed
 
-The visual direction comes from `/uak-design-lock` (skill `frontend-design`); `design-taste-frontend` is for
-landings only, as its line 1 says. App screens are this skill. Why (Chilangatón, a 7-hour sprint): the first UI was a column of white boxes with gray borders, raw
+The visual direction comes from `/uak-design-lock` (skill `frontend-design`); the landing is `landing-story`.
+App screens are this skill. Why (Chilangatón, a 7-hour sprint): the first UI was a column of white boxes with gray borders, raw
 `stone-*`/`emerald-*` classes, every label `text-lg font-semibold`, and each view with its own badge and toggle. It
 was redone from scratch 3 hours in, and the team nearly lost on it.
 

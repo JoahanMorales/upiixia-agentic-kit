@@ -1,5 +1,16 @@
 # Changelog
 
+## v5.4.2 · 2026-10-27 · A landing that tells the idea
+- **`landing-story` (new skill, sprint and every web stack).** The landing is a P0 task built from `IDEA.md`, never
+  from a template: a headline of 8 words or fewer from the one line, one number with its source, the wow as a real
+  screenshot or loop of the product, three steps each with its own screen, the people it serves, and one action.
+  The look comes from the design lock through `frontend-design`'s plan-and-review, with boldness in one place. It
+  loads fast on venue Wi-Fi, deploys with the product, and passes a 5-second test and a "cover the logo" test.
+  `/uak-plan` adds it (after the design lock, `Freeze-Allowed: yes` in sprint); `design-critic` applies both tests.
+- **`design-lint --file` compares physical paths.** On macOS `/var` links to `/private/var`, so the post-edit hook
+  found no file there and said nothing.
+- **`design-gallery` is a gallery wall**, not a card kit (it looked generated; the kit's own rules flagged it).
+
 ## v5.4.1 · 2026-10-27 · The human sees the design lock; the MCP tools, tested where anyone looks
 - **`uak design-gallery`**, hung like a gallery wall: each direction matted, the phone leaning on the projector shot, a placard with the intent, and a red dot on the agent's pick. Claude Code runs in a terminal, so the design lock's screenshots were files nobody
   opened. The lock now saves `N-1280.png`, `N-390.png` and `N.md` (name, intent, the agent's pick) and the gallery

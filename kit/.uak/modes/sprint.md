@@ -41,6 +41,7 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
    - `frontend-design` for the design lock (`/uak-design-lock`);
    - `design-taste-frontend` only for a landing or hero page (it is large, and not for app screens);
    - `product-ui` for every app screen: dashboards, maps with panels, forms, lists;
+   - `landing-story` for the landing the jury opens first: it tells the idea in 5 seconds, with real screens of the product;
    - `redesign-existing-projects` during the freeze;
    - `webapp-testing` to verify.
 6. Animations respect `prefers-reduced-motion`. UI checks run with reduced motion, so a slow GPU never fakes a failure.

@@ -124,10 +124,14 @@ import functools, http.server, sys, threading
 root, port, addrs = sys.argv[1], int(sys.argv[2]), ["127.0.0.1"] + sys.argv[3:]
 handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=root)
 for p in range(port, port + 20):
+    servers = []
     try:
-        servers = [http.server.ThreadingHTTPServer((a, p), handler) for a in addrs]
+        for a in addrs:
+            servers.append(http.server.ThreadingHTTPServer((a, p), handler))
         break
     except OSError:
+        for s in servers:          # a port free on one address but not the other: release it, try the next
+            s.server_close()
         continue
 else:
     sys.exit("no free port from %d" % port)

@@ -295,13 +295,14 @@ configs). In the eval, agents with both chose Bash and did as well; MCP matters 
 
 We won first place at Chilangatón and nearly lost it on the UI. The first version was a column of white boxes with gray
 borders, raw `stone-*` classes and every label in the same weight, and it was redone from scratch 3 hours in. The
-autopsy found four causes, and v5.4 closes each one:
+autopsy found five causes, and v5.4 closes each one:
 
 | What went wrong | What the kit does now |
 |---|---|
 | The plan wrote the look as a sentence ("sober, public-document") and nobody saw a screenshot | `/uak-plan` makes the **design lock** its own wave-1 task, verified by screenshots; `uak design-gallery` opens the directions side by side in the human's browser, and the human picks by looking. Accessibility is a floor every direction meets, never a style |
 | The design skill was for landings, not app screens | `/uak-design-lock` uses Anthropic's [`frontend-design`](https://github.com/anthropics/skills) (plan the tokens, check them against a list of AI tells, build, critique from screenshots); the new **`product-ui`** skill covers app screens: layout recipes for maps with panels, dashboards, detail pages, flows and lists, five hierarchy rules, the 3-second judge test |
 | 10 views started before the design system and each made its own colors and components | Every UI task depends on the design lock, which ships the tokens **and** the UI kit. **`uak design-lint`** fails raw palette classes, hex colors, local copies of UI kit components, emoji icons, bounce easing and default typefaces (91 findings on that first UI) |
+| The landing came last, as one more screen | **`landing-story`** (new skill): the landing is a P0 task built from `IDEA.md` (the one line, one sourced number, the wow as a real screen, three steps, one ask), checked with a 5-second test and a "cover the logo" test |
 | Nobody judged the look until the end | The post-edit hook runs `design-lint` on each UI file an agent writes and puts the findings in its context (the idea behind [Impeccable](https://github.com/pbakaus/impeccable)'s hook); `uak done` refuses new lines that break the system; `design-critic` compares each screen with the locked screenshot and fails the admin-template look |
 
 ## Deploy in one command: `uak deploy`
@@ -437,7 +438,7 @@ Mix them freely: coordination lives in Git, not in any tool.
 | `uak plan FILE` | publish new tasks instantly (sprint) |
 | `uak deploy [--write]` | how this project deploys; writes the Dockerfile and a Render Blueprint (Vercel for Next.js) |
 | `uak design-lint` | screens use the design system: no raw palette, hex colors, local component copies or AI tells |
-| `uak design-gallery` | the design lock's directions side by side, opened in your browser (from a terminal agent) |
+| `uak design-gallery` | the design lock's directions side by side, opened in your browser; over SSH it serves them on localhost and your Tailscale address |
 | `uak doctor` | preflight everything at minute 0 |
 | `q CMD` | quiet runner (one line on success) |
 
@@ -451,7 +452,7 @@ AGENTS.md · .claude/CLAUDE.md  76-line core every agent reads (the only kit fil
 .uak/modes/                  sprint.md · marathon.md
 .uak/docs/                   CLI · PROTOCOL · LOOPS · GRAPH · ORCHESTRATION · COSTS · BLACKBOX · SECURITY · WHY
 .uak/templates/              PROJECT, TASKS, OWNERS, IDEA, spec, plan, ADR
-.uak/skills/                 curated skills (superpowers, Anthropic frontend-design and webapp-testing, Vercel, taste-skill, Karpathy guidelines), pinned, licensed, plus our product-ui
+.uak/skills/                 curated skills (superpowers, Anthropic frontend-design and webapp-testing, Vercel, taste-skill, Karpathy guidelines), pinned, licensed, plus our product-ui and landing-story
 .uak/stacks/                 stack presets: fastapi-react, nextjs, django, go, expo, python-data, ai-agent, spring-boot
 .claude/                     slash commands, subagents, hooks, status line (settings per mode)
 .codex/ · .cursor/ · .gemini/  the same subagents per harness + hooks (Codex, Cursor, Gemini), only for the --harness you pick
