@@ -1,5 +1,20 @@
 # Changelog
 
+## v5.4.1 · 2026-10-27 · The human sees the design lock; the MCP tools, tested where anyone looks
+- **`uak design-gallery`.** Claude Code runs in a terminal, so the design lock's screenshots were files nobody
+  opened. The lock now saves `N-1280.png`, `N-390.png` and `N.md` (name, intent, the agent's pick) and the gallery
+  opens them side by side in the human's browser (`open`, `xdg-open`, `start`, `wslview`), with no network. Over SSH
+  it serves them instead, in the background, on `127.0.0.1` and the machine's Tailscale address, and prints both URLs
+  and the `ssh -L` tunnel (`--stop` ends it).
+- **`tests/test_mcp_tools.py`.** It installs the kit into a fresh repo and calls every MCP tool through JSON-RPC:
+  discovery (14 tools, schemas that refuse unknown arguments), then a whole task (claim, checkpoint, ship, review,
+  wait, merge), messages, memory, the code map, tokens and the CLI passthrough. CI runs it on Linux and macOS.
+- **`server.json`**: the MCP registry manifest (`io.github.JoahanMorales/upiixia-agentic-kit`), kept at the kit's
+  version by a test.
+- **Bash 3.2.** `design-lint` had a `case` inside `$(...)`, which macOS's `/bin/bash` cannot parse; the macOS CI caught
+  it (it parses every kit script with `/bin/bash` 3.2); the scripts were rechecked under Bash 3.2 before this release.
+- **`known-files.txt` lists the new skills.** They were untracked when the list was generated.
+
 ## v5.4.0 · 2026-10-27 · Chilangatón (first place): frontends that don't look generated, deploy in one command, and the autopsy
 5 humans and 10 Claude Code identities on macOS and Windows, 35 tasks in 7 hours on venue Wi-Fi
 (`docs/blackbox/chilangaton-2026-10.md`). The suite was green; none of these was covered by a test.

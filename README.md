@@ -15,7 +15,7 @@
 ![deps](https://img.shields.io/badge/runtime_deps-bash_%2B_git-success)
 ![agents](https://img.shields.io/badge/agents-Claude_Code_·_Codex_·_Cursor_·_Gemini-8A2BE2)
 
-[![M8ven Score](https://m8ven.ai/badge/mcp/joahanmorales-upiixia-agentic-kit-1e9007?v=3ea0791b0e4a271540c4a4c17c7a87f0)](https://m8ven.ai/mcp/joahanmorales-upiixia-agentic-kit-1e9007?s=readme)
+[![M8ven Score](https://m8ven.ai/badge/mcp/joahanmorales-upiixia-agentic-kit-1e9007)](https://m8ven.ai/mcp/joahanmorales-upiixia-agentic-kit-1e9007?s=readme)
 
 [Quick start](#quick-start) · [First claim](#stuck-before-the-first-claim-uak-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Frontend](#frontends-that-dont-look-generated) · [Deploy](#deploy-in-one-command-uak-deploy) · [Dashboard](#see-everything-uak-dash) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-six-team-runs) · [Contributing](CONTRIBUTING.md)
 
@@ -299,7 +299,7 @@ autopsy found four causes, and v5.4 closes each one:
 
 | What went wrong | What the kit does now |
 |---|---|
-| The plan wrote the look as a sentence ("sober, public-document") and nobody saw a screenshot | `/uak-plan` makes the **design lock** its own wave-1 task, verified by screenshots; the human picks a direction by looking at it. Accessibility is a floor every direction meets, never a style |
+| The plan wrote the look as a sentence ("sober, public-document") and nobody saw a screenshot | `/uak-plan` makes the **design lock** its own wave-1 task, verified by screenshots; `uak design-gallery` opens the directions side by side in the human's browser, and the human picks by looking. Accessibility is a floor every direction meets, never a style |
 | The design skill was for landings, not app screens | `/uak-design-lock` uses Anthropic's [`frontend-design`](https://github.com/anthropics/skills) (plan the tokens, check them against a list of AI tells, build, critique from screenshots); the new **`product-ui`** skill covers app screens: layout recipes for maps with panels, dashboards, detail pages, flows and lists, five hierarchy rules, the 3-second judge test |
 | 10 views started before the design system and each made its own colors and components | Every UI task depends on the design lock, which ships the tokens **and** the UI kit. **`uak design-lint`** fails raw palette classes, hex colors, local copies of UI kit components, emoji icons, bounce easing and default typefaces (91 findings on that first UI) |
 | Nobody judged the look until the end | The post-edit hook runs `design-lint` on each UI file an agent writes and puts the findings in its context (the idea behind [Impeccable](https://github.com/pbakaus/impeccable)'s hook); `uak done` refuses new lines that break the system; `design-critic` compares each screen with the locked screenshot and fails the admin-template look |
@@ -395,7 +395,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**158 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
+**159 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install: `python3 tests/test_mcp_tools.py`.
 
 ## Works with
 | Tool | How |
@@ -437,6 +437,7 @@ Mix them freely: coordination lives in Git, not in any tool.
 | `uak plan FILE` | publish new tasks instantly (sprint) |
 | `uak deploy [--write]` | how this project deploys; writes the Dockerfile and a Render Blueprint (Vercel for Next.js) |
 | `uak design-lint` | screens use the design system: no raw palette, hex colors, local component copies or AI tells |
+| `uak design-gallery` | the design lock's directions side by side, opened in your browser (from a terminal agent) |
 | `uak doctor` | preflight everything at minute 0 |
 | `q CMD` | quiet runner (one line on success) |
 

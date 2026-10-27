@@ -25,6 +25,8 @@ jobs:
       - name: Protocol suite (real Git, local bare remotes)
         working-directory: kit
         run: bash .uak/bin/smoke --package-only
+      - name: MCP tools, one by one (tests/)
+        run: python3 tests/test_mcp_tools.py
       - name: Installer
         run: |
           t=$(mktemp -d) && git -C "$t" init -q -b main && bash install.sh --mode marathon "$t" && test -f "$t/.uak/PROJECT.md"

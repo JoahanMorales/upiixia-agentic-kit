@@ -1,0 +1,13 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.JoahanMorales/upiixia-agentic-kit",
+  "title": "UPIIXIA Agentic Kit",
+  "description": "Multi-agent coordination over Git: claims, reviews, gated merges, code map and lessons as MCP tools.",
+  "version": "5.4.1",
+  "websiteUrl": "https://github.com/JoahanMorales/upiixia-agentic-kit",
+  "repository": {
+    "url": "https://github.com/JoahanMorales/upiixia-agentic-kit",
+    "source": "github",
+    "subfolder": "kit/.uak/bin"
+  }
+}

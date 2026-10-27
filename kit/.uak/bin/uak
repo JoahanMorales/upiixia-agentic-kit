@@ -148,6 +148,7 @@ lint [--secrets]
 start [--fix]   install → first claim, in order: what is missing, then the one command that starts the work
 doctor [--fix]   preflight: remote, gh permissions, hooks, freeze, ports
 deploy [--write] [--disk PATH]   how this project deploys (Render Blueprint + Dockerfile, Vercel for Next.js); --write creates the files
+design-gallery [DIR] [--no-open]   the design lock's directions side by side, opened in the human's browser
 design-lint [SRC]   screens use the design system: no raw palette classes, hex colors or local copies of UI kit components
 graph [--mermaid] [--min-wave1 N] | graph --assign   backlog DAG: waves, critical path, cycles; --assign suggests an idle agent per ready task
 loop --verify CMD [--agent CMD] [--max N] [--task ID]   bounded verify → fix loop
@@ -183,7 +184,7 @@ bb_common=$(git rev-parse --git-common-dir 2>/dev/null) || bb_common=
 case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
   [ -z "$bb_common" ] || printf '%s\n' "${UAK_CALLER:+$UAK_CALLER-}$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
 esac
-case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map|dash|start|design-lint|deploy) exec bash "$UAK_BIN/$CMD" "$@";; esac
+case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map|dash|start|design-lint|deploy|design-gallery) exec bash "$UAK_BIN/$CMD" "$@";; esac
 case "$CMD" in status|claim|heartbeat|away|pr-sync|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover|wait|learn|recall) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac

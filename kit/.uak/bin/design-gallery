@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# design-gallery: the design lock's directions side by side, opened in the human's browser. Bash 3.2+.
+#   design-gallery [DIR] [--no-open | --serve [PORT] | --stop]   default DIR: web/public/design-lock
+# Reads N-1280.png and N-390.png per direction (N = 1, 2, 3…) and an optional N.md: first line the name, then one
+# line of intent, and "Recommended: yes" on the agent's pick. Other PNGs show under "More screens". Writes
+# DIR/index.html (relative paths, no network) and opens it: open (macOS), xdg-open (Linux with a display),
+# start (Git Bash), wslview or explorer.exe (WSL). --no-open or UAK_NO_OPEN=1 only prints the path.
+# Over SSH (or --serve) there is no screen to open: it serves the folder in the background on 127.0.0.1 and on this
+# machine's Tailscale address, prints the URLs and the ssh -L tunnel, and returns; --stop ends that server.
+# Why: Claude Code runs in a terminal; screenshots it takes are files the human never sees unless something opens them,
+# and the design lock is decided by looking (Chilangatón: the look was decided from a sentence).
+set -u
+LC_ALL=C; export LC_ALL
+dir= open=yes serve=no port=8790 stop=no prev=
+for a in "$@"; do
+  if [ "$prev" = --serve ]; then prev=; case "$a" in *[!0-9]*) ;; *) port=$a; continue;; esac; fi
+  case "$a" in --no-open) open=no;; --serve) serve=yes; prev=--serve;; --stop) stop=yes;;
+    -*) printf 'Usage: design-gallery [DIR] [--no-open | --serve [PORT] | --stop]\n' >&2; exit 2;; *) dir=$a;; esac
+done
+[ "${UAK_NO_OPEN:-}" != 1 ] || open=no
+root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+[ -n "$dir" ] || dir="$root/web/public/design-lock"
+case "$dir" in /*) ;; *) dir="$(pwd)/$dir";; esac
+if [ "$stop" = yes ]; then
+  pid=$(cat "$dir/.gallery.pid" 2>/dev/null); [ -n "$pid" ] && kill "$pid" 2>/dev/null && printf 'DESIGN_GALLERY stopped (pid %s)\n' "$pid" || printf 'DESIGN_GALLERY: no server running for %s\n' "$dir"
+  rm -f "$dir/.gallery.pid"; exit 0
+fi
+[ -d "$dir" ] || { printf 'DESIGN_GALLERY: no folder %s (the design lock saves N-1280.png and N-390.png there)\n' "$dir" >&2; exit 1; }
+esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'; }
+project=$(basename "$root" | esc)
+n=0 cards= more=
+for d in $(ls "$dir" 2>/dev/null | sed -n 's/^\([0-9][0-9]*\)-1280\.png$/\1/p' | sort -n); do
+  n=$((n + 1))
+  name="Direction $d" intent= rec=
+  if [ -f "$dir/$d.md" ]; then
+    name=$(grep -v '^[[:space:]]*$' "$dir/$d.md" | head -n 1 | sed 's/^#* *//' | cut -c 1-80 | esc)
+    intent=$(grep -v '^[[:space:]]*$' "$dir/$d.md" | sed -n '2p' | grep -vi '^recommended:' | cut -c 1-220 | esc)
+    grep -qi '^recommended:[[:space:]]*yes' "$dir/$d.md" && rec=yes
+  fi
+  phone=
+  [ ! -f "$dir/$d-390.png" ] || phone="<a class=\"phone\" href=\"$d-390.png\" target=\"_blank\"><img src=\"$d-390.png\" alt=\"$name at 390 by 844\" loading=\"lazy\"></a>"
+  cards="$cards<article class=\"card${rec:+ rec}\"><header><span class=\"num\">$d</span><div><h2>$name</h2>${intent:+<p>$intent</p>}</div>${rec:+<span class=\"chip\">Agent&#39;s pick</span>}</header>"
+  cards="$cards<div class=\"shots\"><a class=\"desk\" href=\"$d-1280.png\" target=\"_blank\"><img src=\"$d-1280.png\" alt=\"$name at 1280 by 720\" loading=\"lazy\"></a>$phone</div>"
+  cards="$cards<footer>Pick it: tell the agent <code>Direction $d</code></footer></article>"
+done
+for f in $(ls "$dir" 2>/dev/null | grep -i '\.png$' | grep -Ev '^[0-9]+-(1280|390)\.png$'); do
+  more="$more<a href=\"$f\" target=\"_blank\"><img src=\"$f\" alt=\"$(printf '%s' "$f" | esc)\" loading=\"lazy\"><span>$(printf '%s' "$f" | esc)</span></a>"
+done
+[ "$n" -gt 0 ] || [ -n "$more" ] || { printf 'DESIGN_GALLERY: no screenshots in %s (expected 1-1280.png, 1-390.png, …)\n' "$dir" >&2; exit 1; }
+cat > "$dir/index.html" <<EOF
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design lock · $project</title>
+<style>
+:root { --bg: #f3f2ef; --surface: #ffffff; --ink: #16151a; --ink-2: #5b5866; --line: #e3e1dc; --accent: #3b5bdb; --pick: #0b7a53; --shadow: 0 1px 2px rgb(22 21 26 / .06), 0 12px 32px rgb(22 21 26 / .08); }
+@media (prefers-color-scheme: dark) { :root { --bg: #111014; --surface: #1b1a20; --ink: #f1eff6; --ink-2: #a9a5b5; --line: #2c2a33; --accent: #8ea4ff; --pick: #4fd1a1; --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 16px 40px rgb(0 0 0 / .35); } }
+* { box-sizing: border-box; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 16px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif; padding: 48px 24px 64px; }
+main { max-width: 1240px; margin: 0 auto; }
+.top h1 { font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.03em; line-height: 1.05; }
+.top p { color: var(--ink-2); margin-top: 10px; max-width: 64ch; }
+.grid { display: grid; gap: 28px; margin-top: 36px; }
+.card { background: var(--surface); border-radius: 22px; box-shadow: var(--shadow); padding: 22px; }
+.card.rec { outline: 2px solid var(--pick); outline-offset: -2px; }
+.card header { display: flex; gap: 14px; align-items: flex-start; }
+.num { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-weight: 700; background: var(--ink); color: var(--surface); }
+h2 { font-size: 21px; letter-spacing: -0.01em; }
+.card header p { color: var(--ink-2); margin-top: 2px; }
+.chip { margin-left: auto; flex: none; font-size: 13px; font-weight: 600; color: var(--pick); border: 1px solid currentColor; border-radius: 999px; padding: 4px 12px; }
+.shots { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; margin-top: 18px; align-items: start; }
+.shots a { display: block; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: var(--bg); }
+.shots img { display: block; width: 100%; height: auto; }
+.phone { width: 200px; border-radius: 26px !important; }
+.card footer { margin-top: 14px; color: var(--ink-2); font-size: 14px; }
+code { font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px; color: var(--ink); }
+.more { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 16px; }
+.more a { color: var(--ink-2); text-decoration: none; font-size: 14px; }
+.more img { width: 100%; border-radius: 12px; border: 1px solid var(--line); display: block; margin-bottom: 6px; }
+h3 { margin-top: 48px; font-size: 18px; }
+a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 760px) { .shots { grid-template-columns: 1fr; } .phone { width: 60%; justify-self: center; } }
+</style>
+</head>
+<body>
+<main>
+<section class="top">
+<h1>Design lock · $project</h1>
+<p>$n direction(s), each at 1280×720 (the projector) and 390×844 (a phone). Open any shot full size. Pick by looking: the one the judges should see in 3 seconds.</p>
+</section>
+<div class="grid">$cards</div>
+$( [ -z "$more" ] || printf '<h3>More screens</h3><div class="more">%s</div>' "$more" )
+</main>
+</body>
+</html>
+EOF
+page="$dir/index.html"
+printf 'DESIGN_GALLERY %s direction(s) · file://%s\n' "$n" "$page"
+# No screen here (SSH): serve it instead of opening it.
+[ "$open" = no ] || [ -z "${SSH_CONNECTION:-}${SSH_TTY:-}" ] || serve=yes
+if [ "$serve" = yes ]; then
+  py=; for c in python3 python; do "$c" -c 'import sys; sys.exit(sys.version_info < (3, 7))' 2>/dev/null && { py=$c; break; }; done
+  [ -n "$py" ] || { printf 'DESIGN_GALLERY: no Python 3 to serve it; copy %s to your laptop and open index.html\n' "$dir"; exit 1; }
+  old=$(cat "$dir/.gallery.pid" 2>/dev/null); [ -z "$old" ] || kill "$old" 2>/dev/null
+  ts=$(tailscale ip -4 2>/dev/null | head -n 1)
+  case "$ts" in 100.*) ;; *) ts=;; esac   # only a tailnet address: never the LAN or 0.0.0.0
+  nohup "$py" - "$dir" "$port" $ts > "$dir/.gallery.log" 2>&1 <<'PY' &
+import functools, http.server, sys, threading
+root, port, addrs = sys.argv[1], int(sys.argv[2]), ["127.0.0.1"] + sys.argv[3:]
+handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=root)
+for p in range(port, port + 20):
+    try:
+        servers = [http.server.ThreadingHTTPServer((a, p), handler) for a in addrs]
+        break
+    except OSError:
+        continue
+else:
+    sys.exit("no free port from %d" % port)
+print("PORT", p, flush=True)
+for s in servers[1:]:
+    threading.Thread(target=s.serve_forever, daemon=True).start()
+servers[0].serve_forever()
+PY
+  pid=$!; printf '%s\n' "$pid" > "$dir/.gallery.pid"
+  i=0; while [ "$i" -lt 50 ] && ! grep -q '^PORT ' "$dir/.gallery.log" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+  got=$(sed -n 's/^PORT //p' "$dir/.gallery.log" | head -n 1)
+  [ -n "$got" ] || { printf 'DESIGN_GALLERY: the server did not start: %s\n' "$(tail -n 1 "$dir/.gallery.log")"; exit 1; }
+  [ -z "$ts" ] || printf 'DESIGN_GALLERY open on your laptop (Tailscale): http://%s:%s/\n' "$ts" "$got"
+  printf 'DESIGN_GALLERY or tunnel it: ssh -L %s:127.0.0.1:%s %s@%s, then http://localhost:%s/ (VS Code Remote forwards the port itself)\n' \
+    "$got" "$got" "$(id -un)" "$(hostname)" "$got"
+  printf 'DESIGN_GALLERY serving in the background (pid %s); stop it: bash .uak/bin/uak design-gallery --stop\n' "$pid"
+  exit 0
+fi
+[ "$open" = yes ] || exit 0
+if [ "$(uname -s 2>/dev/null)" = Darwin ]; then open "$page" >/dev/null 2>&1 &
+elif grep -qi microsoft /proc/version 2>/dev/null; then
+  { command -v wslview >/dev/null 2>&1 && wslview "$page"; } || explorer.exe "$(wslpath -w "$page" 2>/dev/null || printf '%s' "$page")" >/dev/null 2>&1 &
+else case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*) start "" "$page" >/dev/null 2>&1 &;;
+  *) if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xdg-open >/dev/null 2>&1; then xdg-open "$page" >/dev/null 2>&1 &
+     else printf 'DESIGN_GALLERY: no display here; open the file above in a browser (or copy the folder to your laptop)\n'; fi;;
+esac; fi
+exit 0

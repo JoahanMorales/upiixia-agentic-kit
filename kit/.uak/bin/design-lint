@@ -40,10 +40,18 @@ find "$src" -type f \( -name '*.tsx' -o -name '*.jsx' -o -name '*.ts' -o -name '
 palette='(^|[^A-Za-z0-9-])(bg|text|border|ring|fill|stroke|from|via|to|outline|divide|decoration|shadow|accent|caret|placeholder)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)([^0-9]|$)'
 hex='(^|[^,&0-9A-Za-z_])#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})([^0-9A-Za-z_]|$)'
 emoji=$(printf '\360\237')   # the first two bytes of every 4-byte emoji (U+1F300 and up), matched byte-wise under LC_ALL=C
+# The UI kit's component names (PascalCase files). No `case` inside $(...): Bash 3.2 (macOS) cannot parse it.
+ui_names() {
+  local f b
+  for f in "$ui"/*; do
+    [ -f "$f" ] || continue
+    b=$(basename "$f"); b=${b%.*}
+    case "$b" in index|*.test|*.stories|*[!A-Za-z0-9_]*) continue;; esac
+    case "$b" in [A-Z]*) printf '%s|' "$b";; esac
+  done
+}
 names=
-[ -z "$ui" ] || names=$(for f in "$ui"/*; do [ -f "$f" ] || continue; b=$(basename "$f"); b=${b%.*}
-  case "$b" in index|*.test|*.stories|*[!A-Za-z0-9_]*) continue;; esac
-  case "$b" in [A-Z]*) printf '%s|' "$b";; esac; done)
+[ -z "$ui" ] || names=$(ui_names)
 names=${names%|}
 while IFS= read -r f; do
   [ -n "$f" ] || continue

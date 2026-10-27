@@ -416,10 +416,43 @@ def ui_edits_get_the_gate_at_once(r):
     return {"hook": True}
 
 
+def the_human_sees_the_directions(r):
+    """In a terminal the design lock's screenshots were files nobody opened; the look was decided from a sentence."""
+    t = r.scratch / "v54-gallery"; d = t / "web/public/design-lock"; d.mkdir(parents=True)
+    r.g(t, "init", "-q", "-b", "main")
+    png = bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000" "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082")
+    for name in ("1-1280.png", "1-390.png", "2-1280.png", "extra.png"):
+        (d / name).write_bytes(png)
+    (d / "1.md").write_text("Night market <script>\nPink and marigold on ink; the 3D map is the hero.\nRecommended: yes\n", encoding="utf-8")
+    out = r.run([r.bash, str(r.package / ".uak/bin/design-gallery"), "--no-open"], cwd=t, allowed=None)
+    page = (d / "index.html").read_text(encoding="utf-8")
+    expect(out.returncode == 0 and "DESIGN_GALLERY 2 direction(s)" in out.stdout and "file://" in out.stdout, out.stdout + out.stderr)
+    expect('src="1-1280.png"' in page and 'src="1-390.png"' in page and 'src="2-1280.png"' in page and "More screens" in page and "extra.png" in page, page[:400])
+    expect("Night market &lt;script&gt;" in page and "<script>" not in page and "card rec" in page and "Direction 2" in page, "names escaped, the pick marked")
+    expect("http" not in page.replace("http-equiv", ""), "no network: the page works from the folder")
+    empty = r.scratch / "v54-gallery-empty"; (empty / "web/public/design-lock").mkdir(parents=True); r.g(empty, "init", "-q", "-b", "main")
+    none = r.run([r.bash, str(r.package / ".uak/bin/design-gallery"), "--no-open"], cwd=empty, allowed=None)
+    expect(none.returncode == 1 and "no screenshots" in none.stderr, none.stderr)
+    expect("uak design-gallery" in (r.package / ".claude/commands/uak-design-lock.md").read_text(encoding="utf-8"), "the lock opens them for the human")
+    import urllib.request
+    served = r.run([r.bash, str(r.package / ".uak/bin/design-gallery"), "--serve", "18790"], cwd=t, allowed=None)
+    try:
+        port = next(l.split("http://localhost:", 1)[1].split("/", 1)[0] for l in served.stdout.splitlines() if "http://localhost:" in l)
+        expect(served.returncode == 0 and "ssh -L %s:127.0.0.1:%s" % (port, port) in served.stdout, "the tunnel to use over SSH: " + served.stdout + served.stderr)
+        body = urllib.request.urlopen("http://127.0.0.1:%s/" % port, timeout=10).read().decode("utf-8")
+        expect("Design lock" in body and 'src="1-1280.png"' in body, "served on localhost, in the background: " + body[:200])
+        expect("0.0.0.0" not in served.stdout, "never on every interface")
+    finally:
+        stop = r.run([r.bash, str(r.package / ".uak/bin/design-gallery"), "--stop"], cwd=t, allowed=None)
+    expect("stopped" in stop.stdout and not (d / ".gallery.pid").exists(), stop.stdout)
+    return {"gallery": True}
+
+
 TESTS = [merge_of_a_merged_task_is_done, merge_that_loses_the_queue_race_is_done, base_fetch_retries_and_says_why, done_after_a_cross_machine_handover,
          review_checkout_is_removed_safely, reviews_go_to_agents_only, pr_sync_tells_a_forge_merge, hook_stops_beating_a_task_that_moved,
          errors_say_the_fix, a_retry_reuses_the_base, frontend_uses_the_design_system,
-         done_checks_the_design_and_humans_record_forge_merges, deploy_reads_the_project, ui_edits_get_the_gate_at_once]
+         done_checks_the_design_and_humans_record_forge_merges, deploy_reads_the_project, ui_edits_get_the_gate_at_once,
+         the_human_sees_the_directions]
 
 
 def main():
