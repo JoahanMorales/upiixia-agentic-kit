@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # design-lint: product screens use the design system, never their own colors or components. Bash 3.2+, grep -E.
 #   design-lint [SRC_DIR]   default: web/src, else src, else app (Next.js); UI kit: SRC/lib/ui, SRC/components/ui, components/ui
+#   design-lint --changed [BASE]   only the lines this branch adds since origin/BASE (uak done runs it)
+#   design-lint --file PATH        one file (the post-edit hook runs it on each UI file an agent writes)
 # Fails on, outside the UI kit: raw Tailwind palette classes (bg-stone-400, text-emerald-900), hex colors in code
 # (#c2410c; a fallback inside var(--x, #fff) is fine), and a local component named like one of the UI kit's.
 # A line with "design-lint: ok" is skipped (say why on that line).
@@ -10,13 +12,18 @@ set -u
 LC_ALL=C; export LC_ALL
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$root" || exit 2
+changed= base=${UAK_BASE:-main} only=
+if [ "${1:-}" = --changed ]; then changed=yes; shift; [ -z "${1:-}" ] || { base=$1; shift; }; fi
+if [ "${1:-}" = --file ]; then only=${2:-}; shift 2 2>/dev/null || shift; case "$only" in "$root"/*) only=${only#"$root"/};; esac; fi
 src=${1:-}
 if [ -z "$src" ]; then for d in web/src src app; do [ -d "$d" ] && { src=$d; break; }; done; fi
 [ -n "$src" ] && [ -d "$src" ] || { printf 'DESIGN_LINT_SKIP: no web/src, src or app folder\n'; exit 0; }
 ui=
 for d in "$src/lib/ui" "$src/components/ui" components/ui; do [ -d "$d" ] && { ui=$d; break; }; done
-# Tokens exist when some stylesheet defines custom properties (or a Tailwind @theme). Without them there is nothing to enforce yet.
-if ! find "$src" "${ui:-$src}" -name '*.css' -type f 2>/dev/null | while IFS= read -r f; do grep -Eq -- '(--[a-z][a-z0-9-]*:|@theme)' "$f" && echo y; done | grep -q y; then
+# Tokens exist when some stylesheet defines custom properties (or a Tailwind @theme), or a theme file holds them
+# (React Native: theme.ts, tokens.ts, constants/Colors.ts). Without them there is nothing to enforce yet.
+tokfiles=$(find "$src" constants theme -type f \( -iname '*token*' -o -iname 'theme.*' -o -name 'Colors.*' \) ! -path '*/node_modules/*' 2>/dev/null)
+if [ -z "$tokfiles" ] && ! find "$src" "${ui:-$src}" -name '*.css' -type f 2>/dev/null | while IFS= read -r f; do grep -Eq -- '(--[a-z][a-z0-9-]*:|@theme)' "$f" && echo y; done | grep -q y; then
   printf 'DESIGN_LINT_SKIP: no design tokens yet (CSS custom properties or @theme): the design lock writes them\n'; exit 0
 fi
 list=$(mktemp "${TMPDIR:-/tmp}/uak-dlint.XXXXXX") || exit 2
@@ -24,9 +31,15 @@ out=$(mktemp "${TMPDIR:-/tmp}/uak-dlint.XXXXXX") || exit 2
 trap 'rm -f "$list" "$out"' EXIT
 find "$src" -type f \( -name '*.tsx' -o -name '*.jsx' -o -name '*.ts' -o -name '*.js' -o -name '*.vue' -o -name '*.svelte' \) \
   ! -name '*.d.ts' ! -name '*.test.*' ! -name '*.spec.*' ! -path '*/node_modules/*' 2>/dev/null |
-  while IFS= read -r f; do case "$f" in "$ui"/*) [ -n "$ui" ] && continue;; esac; printf '%s\n' "$f"; done > "$list"
+  while IFS= read -r f; do
+    case "$f" in "$ui"/*) [ -n "$ui" ] && continue;; esac
+    printf '%s\n' "$tokfiles" | grep -qxF -- "$f" && continue   # the token files themselves hold the colors
+    [ -z "$only" ] || [ "$f" = "$only" ] || [ "$f" = "./$only" ] || continue
+    printf '%s\n' "$f"
+  done > "$list"
 palette='(^|[^A-Za-z0-9-])(bg|text|border|ring|fill|stroke|from|via|to|outline|divide|decoration|shadow|accent|caret|placeholder)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)([^0-9]|$)'
 hex='(^|[^,&0-9A-Za-z_])#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})([^0-9A-Za-z_]|$)'
+emoji=$(printf '\360\237')   # the first two bytes of every 4-byte emoji (U+1F300 and up), matched byte-wise under LC_ALL=C
 names=
 [ -z "$ui" ] || names=$(for f in "$ui"/*; do [ -f "$f" ] || continue; b=$(basename "$f"); b=${b%.*}
   case "$b" in index|*.test|*.stories|*[!A-Za-z0-9_]*) continue;; esac
@@ -47,8 +60,32 @@ while IFS= read -r f; do
       n=$(printf '%s' "${l#*:}" | grep -Eo "(function|const|class)[[:space:]]+($names)" | awk '{print $2}' | head -n 1)
       printf '%s:%s · local %s: %s already has it; import it (missing a variant? ask its owner with uak msg --kind request)\n' "$f" "${l%%:*}" "$n" "$ui"
     done
+  # AI tells a reader spots at once (Anthropic's frontend-design calibration, Impeccable's detector).
+  grep -nE 'animate-bounce|easeOutBounce|"bounce"' "$f" 2>/dev/null | grep -v 'design-lint: ok' | while IFS= read -r l; do
+    printf '%s:%s · bounce easing reads as generated: one purposeful 150-300 ms ease-out\n' "$f" "${l%%:*}"
+  done
+  grep -n "$emoji" "$f" 2>/dev/null | grep -v 'design-lint: ok' | while IFS= read -r l; do
+    printf '%s:%s · emoji in the UI: use the icon set (Phosphor) at one size and stroke\n' "$f" "${l%%:*}"
+  done
 done < "$list" > "$out"
+# Typefaces: the defaults every generated page reaches for, in any stylesheet or font import of the project.
+find "$src" "${ui:-$src}" -type f \( -name '*.css' -o -name '*.tsx' -o -name '*.ts' -o -name '*.jsx' \) ! -path '*/node_modules/*' 2>/dev/null | sort -u |
+  while IFS= read -r f; do
+    [ -z "$only" ] || [ "$f" = "$only" ] || continue
+    grep -niE "font-family:[[:space:]]*[\"']?(inter|roboto|arial|helvetica)([\"', ;]|$)|@fontsource(-variable)?/(inter|roboto)[\"'/]" "$f" 2>/dev/null | grep -v 'design-lint: ok' |
+      while IFS= read -r l; do printf '%s:%s · default typeface: the design lock picks deliberate faces (frontend-design), not Inter, Roboto or Arial\n' "$f" "${l%%:*}"; done
+  done >> "$out"
 files=$(awk 'END {print NR + 0}' "$list")
+if [ "$changed" = yes ]; then
+  # Keep only findings on lines this branch adds (committed or not) since its fork from origin/BASE.
+  mb=$(git merge-base HEAD "refs/remotes/${UAK_REMOTE:-origin}/$base" 2>/dev/null) || { printf 'DESIGN_LINT_SKIP: no origin/%s to compare with\n' "$base"; exit 0; }
+  git diff -U0 --no-color "$mb" -- "$src" 2>/dev/null | awk '
+    /^\+\+\+ / { f = substr($0, 5); sub(/^b\//, "", f); next }
+    /^@@/ { h = $3; sub(/^\+/, "", h); n = split(h, a, ","); c = (n > 1) ? a[2] + 0 : 1; for (i = 0; i < c; i++) print f ":" (a[1] + i) }' > "$list.added"
+  awk 'NR == FNR { ok[$0] = 1; next } { k = $0; sub(/ · .*/, "", k); if (k in ok) print }' "$list.added" "$out" > "$out.c"
+  mv "$out.c" "$out"
+  files=$(cut -d: -f1 "$list.added" | sort -u | awk 'END {print NR + 0}'); rm -f "$list.added"
+fi
 if [ -s "$out" ]; then
   head -n 30 "$out" | sed 's/^/DESIGN_LINT /'
   n=$(awk 'END {print NR + 0}' "$out")

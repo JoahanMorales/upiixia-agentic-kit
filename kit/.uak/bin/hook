@@ -113,6 +113,21 @@ coach() {
 # Why (MLB hackathon, v5 week): agents called the map 9 times for 67 Claude Code tasks; a pilot study saw agents
 # route 0-6% of lookups to a semantic tool when grep was there, and do better when the answer arrives as
 # path:line next to the step they already take. Push the graph into the loop instead of waiting to be asked.
+# The design gate right after an agent writes a UI file: its findings come back while the file is open, not at done.
+# Why (Chilangatón): views built on their own colors and components were found 3 hours in; Impeccable runs its detector
+# from a post-edit hook for the same reason.
+uilint() {
+  [ -f .uak/bin/design-lint ] || return 0
+  local tool file out
+  tool=$(printf '%s' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([A-Za-z_]*\)".*/\1/p' | head -n 1)
+  case "$tool" in Edit|Write|MultiEdit|write_file|replace|edit_file|edit) ;; *) return 0;; esac
+  file=$(jdecode tool_input file_path); [ -n "$file" ] || file=$(jdecode tool_input absolute_path); [ -n "$file" ] || file=$(jdecode tool_input path)
+  case "$file" in *.tsx|*.jsx|*.ts|*.js|*.vue|*.svelte) ;; *) return 0;; esac
+  out=$(bash .uak/bin/design-lint --file "$file" 2>/dev/null) && return 0
+  printf '%s\n' "$out" | grep -q '^DESIGN_LINT_FAIL' || return 0
+  printf 'UAK design-lint on %s: %s Fix it now with the tokens and the UI kit (skill product-ui).' "${file##*/}" \
+    "$(printf '%s\n' "$out" | grep '^DESIGN_LINT [^_]' | head -n 3 | sed 's/^DESIGN_LINT [^ ]* · //' | tr '\n' ';' | sed 's/;$/./')"
+}
 lens() {
   [ "${UAK_LENS:-on}" != off ] || return 0
   local d tool cmd pat file name w prev
@@ -234,6 +249,9 @@ case "${1:-}" in
     evname=PostToolUse; [ "${2:-}" != gemini ] || evname=AfterTool
     coach_note=$(coach 2>/dev/null)
     lens_note=$(lens 2>/dev/null)
+    ui_note=$(uilint 2>/dev/null)
+    [ -z "$ui_note" ] || coach_note="${ui_note}${coach_note:+
+}$coach_note"
     # Upstream drift: at most every 5 min, in the background, fetch the base and ask the map whether it changed what
     # this branch edits or imports; say it once per change set. Why: STORM (arXiv 2605.20563), conflicts caught at
     # write time; at MLB they surfaced only in the merge gate.

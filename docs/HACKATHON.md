@@ -24,12 +24,15 @@ Then open your agent in the repo:
 1. `/uak-setup`: the event, the rubric, the humans and the submission owner. Commit.
 2. `/uak-plan` turns IDEA.md into tasks with a wide wave 1 (short event: at most 2 tasks per agent, 45 min each).
 3. One human registers every agent as reviewer, from the main checkout: `UAK_HUMAN=ana UAK_AGENT= bash .uak/bin/uak register-reviewer ana-1 ana-2 leo-1 leo-2`.
+   The design lock (`/uak-design-lock`) is its own task: the human picks the look from screenshots, never from a sentence; every UI task depends on it.
+   Setup runs `bash .uak/bin/uak deploy --write`: connect the repo to Render (or Vercel) once, and the walking skeleton is online at T0+2h.
    Then `bash .uak/bin/uak start` until `START READY`: each TODO is the one thing still missing (plan not pushed or approved, an OWNERS row, the freeze).
 4. Start the agents: `UAK_HUMAN=ana bash .uak/bin/uak up 2 --tmux` (at most 2 per human). One identity = one live task.
 
 ## During the event
 | You want | Run |
 |---|---|
+| A screen looks generic or off-brand | `bash .uak/bin/uak design-lint`, then the skill `product-ui` (3-second test) and `design-critic` |
 | `uak next` offers nothing | read its `Why not` lines, or run `bash .uak/bin/uak start` |
 | See the team | `bash .uak/bin/uak board --watch 10` |
 | Your queue (reviews, blockers, decisions) | `bash .uak/bin/uak digest` |

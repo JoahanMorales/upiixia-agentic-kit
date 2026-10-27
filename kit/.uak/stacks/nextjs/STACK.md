@@ -26,7 +26,7 @@ mkdir -p tests src/components src/lib
 ## Product smoke
 
 ```bash
-bash .uak/bin/uak init-smoke --command "npm ci --prefer-offline --no-audit --no-fund --loglevel=error && npm run lint && npm run build"
+bash .uak/bin/uak init-smoke --command "bash .uak/bin/design-lint && npm ci --prefer-offline --no-audit --no-fund --loglevel=error && npm run lint && npm run build"
 ```
 
 ## Run

@@ -58,7 +58,7 @@ pr_sync_mutate() {
       case "$kind" in
         check) local run; run=$(printf '%s' "$key" | sed -n 's@.*/actions/runs/\([0-9]*\).*@\1@p')
                if [ -n "$run" ]; then text="$text · read it: gh run view $run --log-failed"; else text="$text · read it: gh pr checks"; fi;;
-        merged) text="$text: record it with bash .uak/bin/uak integrate $id (no approval on claims yet? a reviewer approves the merged SHA first)";;
+        merged) text="$text: record it with bash .uak/bin/uak integrate $id (no approval on claims? the human who merged it runs UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $id)";;
       esac
       n=$((n + 1)); [ "$n" -le 4 ] || continue
       msgs="${msgs}${msgs:+ · }$text"

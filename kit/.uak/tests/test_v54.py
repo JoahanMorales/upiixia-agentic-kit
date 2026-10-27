@@ -313,9 +313,113 @@ def frontend_uses_the_design_system(r):
     return {"design": True}
 
 
+def done_checks_the_design_and_humans_record_forge_merges(r):
+    """The design gate at the moment the agent can still fix it (done), on the lines the task adds only; and PB-027:
+    merged on GitHub by a human with no approval on claims, integrate refused and the task stayed in REVIEW."""
+    f = r.fixture("v54-done-design", paths={"HACK-001": "web/src/features/mapa/"}, count=1)
+    push_main(f, {"web/src/lib/ui/tokens.css": ":root { --pb-acento: #c8006e; }\n",
+                  "web/src/features/mapa/old.tsx": '<div className="bg-stone-400" />\n'}, "design system and an old view")
+    f.claim(0, "HACK-001")
+    w = f.worktrees[0]
+    r.g(w, "merge", "-q", "origin/main")
+    (w / "web/src/features/mapa/index.tsx").write_text('<div className="bg-[var(--pb-acento)]" />\nconst c = "#c2410c";\n', encoding="utf-8")
+    r.g(w, "add", "-A"); r.g(w, "commit", "-q", "-m", "feat: mapa"); r.g(w, "push", "-q", "-u", "origin", "HEAD")
+    changed = r.run([r.bash, ".uak/bin/design-lint", "--changed"], cwd=w, allowed=None)
+    expect(changed.returncode == 1 and "index.tsx:2 · hex color #c2410c" in changed.stdout and "old.tsx" not in changed.stdout,
+           "only the lines this task adds: " + changed.stdout)
+    done = lambda: f.hack(0, "done", "HACK-001", "--pr", "https://example.test/pull/1", "--evidence", "Fixture product acceptance",
+                          now=1000010, allowed=None)
+    refused = done()
+    expect(refused.returncode == 2 and "break the design system" in refused.stderr and "#c2410c" in refused.stderr,
+           "done refuses before anyone reviews it: " + refused.stdout + refused.stderr)
+    (w / "web/src/features/mapa/index.tsx").write_text('<div className="bg-[var(--pb-acento)]" />\n', encoding="utf-8")
+    r.g(w, "commit", "-q", "-am", "fix: token"); r.g(w, "push", "-q")
+    ok = done()
+    expect(ok.returncode == 0 and "REVIEW" in ok.stdout, "clean lines pass: " + ok.stdout + ok.stderr)
+
+    forge = f.base / "forge"
+    r.g(f.base, "clone", "-q", f.remote, forge)
+    r.g(forge, "-c", "user.name=Forge", "-c", "user.email=f@example.invalid", "merge", "-q", "--no-ff", "-m", "Merge pull request #1", "origin/" + f.branches[0])
+    r.g(forge, "push", "-q", "origin", "HEAD:main")
+    agent = f.hack(0, "integrate", "HACK-001", now=1000040, allowed=None)
+    expect(agent.returncode == 3 and "UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate HACK-001" in agent.stderr,
+           "no approval: an agent cannot, and the error says who can: " + agent.stderr)
+    human = r.run([r.bash, ".uak/bin/uak", "integrate", "HACK-001"], cwd=f.clones[0],
+                  env={"UAK_AGENT": "", "UAK_HUMAN": "boss", "UAK_NOW": "1000041"}, allowed=None)
+    record = f.show("tasks/HACK-001.md")
+    expect(human.returncode == 0 and "State: INTEGRATED" in record and "Reviewer: human:boss" in record,
+           "the human who merged it records it: " + human.stdout + human.stderr + record)
+    return {"design_at_done": True, "human_integrate": True}
+
+
+def deploy_reads_the_project(r):
+    """The deploy file was hand-written 30 min before the deadline, outside the kit."""
+    deploy = lambda t, *a: r.run([r.bash, str(r.package / ".uak/bin/deploy"), *a], cwd=t, allowed=None)
+    t = r.scratch / "v54-deploy"; (t / "app").mkdir(parents=True); (t / "web").mkdir()
+    r.g(t, "init", "-q", "-b", "main")
+    (t / "pyproject.toml").write_text('[project]\nname = "x"\nversion = "0"\ndependencies = ["fastapi"]\n', encoding="utf-8")
+    (t / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    (t / "app/main.py").write_text('@app.get("/api/health")\ndef health(): ...\n', encoding="utf-8")
+    (t / "web/package.json").write_text('{"scripts": {"build": "vite build"}}\n', encoding="utf-8")
+    (t / ".env.example").write_text("OPENAI_API_KEY=\nexport VITE_MAPBOX_TOKEN=pk.example\nPORT=8000\n", encoding="utf-8")
+    (t / ".env").write_text("OPENAI_API_KEY=sk-live-secret-123\n", encoding="utf-8")
+    plan = deploy(t)
+    expect(plan.returncode == 0 and "DEPLOY fastapi-react" in plan.stdout and "health /api/health" in plan.stdout
+           and "OPENAI_API_KEY VITE_MAPBOX_TOKEN" in plan.stdout and not (t / "Dockerfile").exists(), "a plan, nothing written: " + plan.stdout)
+    wrote = deploy(t, "--write", "--disk", "data/live")
+    dockerfile = (t / "Dockerfile").read_text(encoding="utf-8"); blueprint = (t / "render.yaml").read_text(encoding="utf-8")
+    expect(wrote.returncode == 0 and "COPY --from=web /src/web/dist web/dist" in dockerfile and "ARG VITE_MAPBOX_TOKEN" in dockerfile
+           and ".venv/bin/uvicorn app.main:app" in dockerfile, "one image: the React build and FastAPI: " + dockerfile)
+    expect("healthCheckPath: /api/health" in blueprint and "key: OPENAI_API_KEY\n        sync: false" in blueprint
+           and "mountPath: /app/data/live" in blueprint and "key: PORT" not in blueprint, "the Blueprint: " + blueprint)
+    leaked = [f for f in ("Dockerfile", "render.yaml", ".dockerignore") if "sk-live-secret" in (t / f).read_text(encoding="utf-8")]
+    expect(not leaked and ".env" in (t / ".dockerignore").read_text(encoding="utf-8").split(), "no secret value anywhere; .env stays out of the image")
+    (t / "render.yaml").write_text("# ours\n", encoding="utf-8")
+    again = deploy(t, "--write")
+    expect("kept your render.yaml" in again.stdout and (t / "render.yaml").read_text(encoding="utf-8") == "# ours\n"
+           and (t / "render.yaml.uak-new").exists(), "never over a file: " + again.stdout)
+    n = r.scratch / "v54-deploy-next"; n.mkdir(); r.g(n, "init", "-q", "-b", "main")
+    (n / "package.json").write_text('{"dependencies": {"next": "16.0.0"}}\n', encoding="utf-8")
+    expect("DEPLOY nextjs · target Vercel" in deploy(n).stdout, "Next.js goes to Vercel")
+    g = r.scratch / "v54-deploy-go"; (g / "cmd/api").mkdir(parents=True); r.g(g, "init", "-q", "-b", "main")
+    (g / "go.mod").write_text("module x\n", encoding="utf-8"); (g / "cmd/api/main.go").write_text("package main\n", encoding="utf-8")
+    deploy(g, "--write")
+    expect("go build -o /out/app ./cmd/api" in (g / "Dockerfile").read_text(encoding="utf-8"), "Go builds its cmd/ main")
+    e = r.scratch / "v54-deploy-none"; e.mkdir(); r.g(e, "init", "-q", "-b", "main")
+    expect(deploy(e).returncode == 1, "no stack, no guess")
+    return {"deploy": True}
+
+
+def ui_edits_get_the_gate_at_once(r):
+    """Findings reach the agent right after it writes a UI file (Impeccable runs its detector from a post-edit hook),
+    and the gate knows the AI tells: emoji icons, bounce easing, default typefaces."""
+    import json
+    f = r.fixture("v54-uilint", paths={"HACK-001": "web/src/features/a/"}, count=1)
+    push_main(f, {"web/src/lib/ui/tokens.css": ":root { --pb-acento: #c8006e; }\n"}, "tokens")
+    w = f.worktrees[0]
+    r.g(w, "merge", "-q", "origin/main")
+    (w / ".uak-env").write_text("UAK_AGENT=agent-1\nUAK_TASK=HACK-001\n", encoding="utf-8")
+    view = w / "web/src/features/a/index.tsx"; view.parent.mkdir(parents=True, exist_ok=True)
+    view.write_text('<div className="animate-bounce">\U0001F680 Lanzar</div>\n', encoding="utf-8")
+    (w / "web/src/index.css").write_text('body { font-family: "Inter", sans-serif; }\n', encoding="utf-8")
+    full = r.run([r.bash, ".uak/bin/design-lint"], cwd=w, allowed=None)
+    expect("bounce easing" in full.stdout and "emoji in the UI" in full.stdout and "default typeface" in full.stdout, full.stdout)
+    payload = {"session_id": "s1", "hook_event_name": "PostToolUse", "tool_name": "Write", "tool_input": {"file_path": str(view)}}
+    (w / ".git-payload.json").write_text(json.dumps(payload), encoding="utf-8")
+    tick = r.run([r.bash, "-c", "bash .uak/bin/hook tick < .git-payload.json"], cwd=w, env={"UAK_NOW": "1000100"}, allowed=None)
+    expect("UAK design-lint on index.tsx" in tick.stdout and "bounce easing" in tick.stdout, "the agent hears it after the edit: " + tick.stdout)
+    view.write_text('<div className="bg-[var(--pb-acento)]">Lanzar</div>\n', encoding="utf-8")
+    clean = r.run([r.bash, "-c", "bash .uak/bin/hook tick < .git-payload.json"], cwd=w, env={"UAK_NOW": "1000101"}, allowed=None)
+    expect("design-lint" not in clean.stdout, "a clean file says nothing: " + clean.stdout)
+    expect((r.package / ".uak/skills/frontend-design/LICENSE.txt").exists() and "frontend-design" in (r.package / ".uak/skills/SOURCES.md").read_text(encoding="utf-8"),
+           "Anthropic's frontend-design is vendored with its license and pinned")
+    return {"hook": True}
+
+
 TESTS = [merge_of_a_merged_task_is_done, merge_that_loses_the_queue_race_is_done, base_fetch_retries_and_says_why, done_after_a_cross_machine_handover,
          review_checkout_is_removed_safely, reviews_go_to_agents_only, pr_sync_tells_a_forge_merge, hook_stops_beating_a_task_that_moved,
-         errors_say_the_fix, a_retry_reuses_the_base, frontend_uses_the_design_system]
+         errors_say_the_fix, a_retry_reuses_the_base, frontend_uses_the_design_system,
+         done_checks_the_design_and_humans_record_forge_merges, deploy_reads_the_project, ui_edits_get_the_gate_at_once]
 
 
 def main():

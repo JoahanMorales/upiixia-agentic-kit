@@ -5,8 +5,8 @@ description: Make product screens look designed, not templated - dashboards, a m
 
 # Product UI · screens that look designed
 
-`design-taste-frontend` is for landings, portfolios and the visual direction: it says so on line 1. App screens are
-this skill. Why (Chilangatón, a 7-hour sprint): the first UI was a column of white boxes with gray borders, raw
+The visual direction comes from `/uak-design-lock` (skill `frontend-design`); `design-taste-frontend` is for
+landings only, as its line 1 says. App screens are this skill. Why (Chilangatón, a 7-hour sprint): the first UI was a column of white boxes with gray borders, raw
 `stone-*`/`emerald-*` classes, every label `text-lg font-semibold`, and each view with its own badge and toggle. It
 was redone from scratch 3 hours in, and the team nearly lost on it.
 
@@ -71,6 +71,7 @@ Then run `bash .uak/bin/design-lint`, and the `design-critic` subagent.
 | Each view with its own badge, button or toggle | The UI kit's components |
 | Tiny legend and labels on the map | A big legend with a labeled scale, on the map |
 | A header that is a white bar with links | Brand mark, pill navigation, depth |
+| A tracked-out ALL-CAPS eyebrow above every heading, `A · B · C` meta strings, a `→` on every link, the same rounded card and grey shadow on everything | These are the AI tells `frontend-design` lists: use one only when the brief asks for it. Spend boldness in one place |
 
 ## 7. The gate
 `bash .uak/bin/design-lint` fails on raw palette classes, hex colors and local copies of UI kit components in

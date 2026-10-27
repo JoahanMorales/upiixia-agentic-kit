@@ -23,7 +23,7 @@ npx expo install expo-router
 ## Product smoke
 
 ```bash
-bash .uak/bin/uak init-smoke --command "npm ci --prefer-offline --no-audit --no-fund --loglevel=error && npx tsc --noEmit && npx expo export --platform web --output-dir /tmp/uak-expo-export"
+bash .uak/bin/uak init-smoke --command "bash .uak/bin/design-lint && npm ci --prefer-offline --no-audit --no-fund --loglevel=error && npx tsc --noEmit && npx expo export --platform web --output-dir /tmp/uak-expo-export"
 ```
 `expo export` builds the web bundle without a device: it proves the app compiles in the merge gate's clean clone.
 

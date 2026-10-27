@@ -12,6 +12,7 @@ Setup: `.uak/stacks/expo/STACK.md`.
 | API calls through `lib/api.ts` with a timeout and a labeled mock (`demo_data: true`) | the demo survives no network at the venue |
 | Test on web first (`expo export --platform web` in smoke), then on one real device before the demo | the gate has no simulator |
 | Every list has loading, empty and error states; tap targets at least 44 pt | reviewers check them |
+| Screens follow `product-ui` and the design lock; colors only from the theme tokens, components only from `components/ui` (`bash .uak/bin/design-lint`) | at Chilangatón 10 views built their own colors and components and the UI was redone |
 
 ```bash
 bash .uak/bin/q npx tsc --noEmit

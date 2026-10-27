@@ -17,7 +17,7 @@
 
 [![M8ven Score](https://m8ven.ai/badge/mcp/joahanmorales-upiixia-agentic-kit-1e9007?v=3ea0791b0e4a271540c4a4c17c7a87f0)](https://m8ven.ai/mcp/joahanmorales-upiixia-agentic-kit-1e9007?s=readme)
 
-[Quick start](#quick-start) · [First claim](#stuck-before-the-first-claim-uak-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Dashboard](#see-everything-uak-dash) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-three-team-events) · [Contributing](CONTRIBUTING.md)
+[Quick start](#quick-start) · [First claim](#stuck-before-the-first-claim-uak-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Frontend](#frontends-that-dont-look-generated) · [Deploy](#deploy-in-one-command-uak-deploy) · [Dashboard](#see-everything-uak-dash) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-six-team-runs) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -75,6 +75,8 @@ bash .uak/bin/uak up 4 --tmux                 # claim the 4 best tasks, one work
 bash .uak/bin/wt new HACK-003 --agent ana-1   # branch + worktree + identity + port + claim
 bash .uak/bin/uak board --watch 10            # live team kanban for the humans
 ```
+
+**4. Deploy the walking skeleton early:** `bash .uak/bin/uak deploy --write` writes the Dockerfile and a Render Blueprint for your stack (Vercel for Next.js). Connect the repo once; every merge redeploys.
 
 That's it. `uak next` always tells every agent what to do next.
 
@@ -289,6 +291,35 @@ claim through `uak_claim` and ship through `bash .uak/bin/uak done`. Don't want 
 Code asks, or install with `--no-mcp` (no `.mcp.json`, `.cursor/mcp.json`, nor the uak blocks in Codex and Gemini
 configs). In the eval, agents with both chose Bash and did as well; MCP matters most in clients without a shell.
 
+## Frontends that don't look generated
+
+We won first place at Chilangatón and nearly lost it on the UI. The first version was a column of white boxes with gray
+borders, raw `stone-*` classes and every label in the same weight, and it was redone from scratch 3 hours in. The
+autopsy found four causes, and v5.4 closes each one:
+
+| What went wrong | What the kit does now |
+|---|---|
+| The plan wrote the look as a sentence ("sober, public-document") and nobody saw a screenshot | `/uak-plan` makes the **design lock** its own wave-1 task, verified by screenshots; the human picks a direction by looking at it. Accessibility is a floor every direction meets, never a style |
+| The design skill was for landings, not app screens | `/uak-design-lock` uses Anthropic's [`frontend-design`](https://github.com/anthropics/skills) (plan the tokens, check them against a list of AI tells, build, critique from screenshots); the new **`product-ui`** skill covers app screens: layout recipes for maps with panels, dashboards, detail pages, flows and lists, five hierarchy rules, the 3-second judge test |
+| 10 views started before the design system and each made its own colors and components | Every UI task depends on the design lock, which ships the tokens **and** the UI kit. **`uak design-lint`** fails raw palette classes, hex colors, local copies of UI kit components, emoji icons, bounce easing and default typefaces (91 findings on that first UI) |
+| Nobody judged the look until the end | The post-edit hook runs `design-lint` on each UI file an agent writes and puts the findings in its context (the idea behind [Impeccable](https://github.com/pbakaus/impeccable)'s hook); `uak done` refuses new lines that break the system; `design-critic` compares each screen with the locked screenshot and fails the admin-template look |
+
+## Deploy in one command: `uak deploy`
+
+```text
+$ bash .uak/bin/uak deploy --write --disk data/live
+DEPLOY fastapi-react · target Render (Blueprint, one Docker web service) · port $PORT (default 8000) · health /api/health
+DEPLOY env (names from .env.example; values go in the dashboard, never in git): OPENAI_API_KEY MAPBOX_TOKEN VITE_MAPBOX_TOKEN
+DEPLOY wrote Dockerfile
+DEPLOY wrote .dockerignore
+DEPLOY wrote render.yaml
+```
+It reads the project: FastAPI with or without React (one image: FastAPI serves `/api` and the React build), Django,
+Next.js (Vercel, zero config), Streamlit, Go, Spring Boot, Expo web and Vite (static sites). It writes the files and
+never overwrites yours (`FILE.uak-new`). Only the variable **names** from `.env.example` go into the Blueprint; `.env`
+never enters the image. `--disk` keeps the files the app writes across deploys. `/uak-plan` puts it in the setup
+task, so the walking skeleton is online at T0+2h, not 30 min before the deadline.
+
 ## See everything: `uak dash`
 
 <img src="docs/media/dash.png" alt="uak dash after the 30-second demo: progress, agents online, board by state" width="860">
@@ -338,7 +369,7 @@ model, harness and lead vs subagent; every machine publishes to the claims branc
 - Skills are installed **per mode**: each installed skill's description costs tokens in every session.
 - One task = one session, a 6-line handoff, and `/clear`. Compaction keeps only ID, next step, failures and commands.
 
-## Battle-tested: five team runs
+## Battle-tested: six team runs
 
 Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and each event's data became a release:
 
@@ -349,6 +380,7 @@ Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and ea
 | MLB hackathon ([autopsy](docs/blackbox/mlb-2026-10.md)) | 10 days, 4 Windows laptops, 13 identities, 32 tasks integrated | v4.3/v5: merge by any agent, approvals that survive merges of main, Windows cap, `retire`, `followup` |
 | MLB, the v5 week ([autopsy](docs/blackbox/mlb-2026-10-week2.md)) | 6 more days on v5.0.0, 18 identities, 81 of 89 tasks integrated | v5.2: presence, review offers that move on, messages to offline identities reach their tasks, identity reuse, human authority only from the shell |
 | A solo marathon project (black box shared with us) | 1 human on a GitHub repo, two hours without a first claim | v5.2.1/v5.3: `--solo` review, a root task may write where its dependent owns, `uak start`, `next` says why |
+| Chilangatón 2026, **first place** ([autopsy](docs/blackbox/chilangaton-2026-10.md)) | 7 h, 5 humans, 10 Claude Code identities on macOS and Windows, 35 tasks, venue Wi-Fi | v5.4: the frontend gate (`product-ui`, `design-lint`, a design lock picked from screenshots), `uak deploy`, reviews only to agents, CI that installs the stack, a lost merge race is OK |
 
 Hack-Nation 2026 in detail:
 
@@ -363,7 +395,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**144 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
+**158 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk) and macOS (BSD awk): `cd kit && bash .uak/bin/smoke --package-only`.
 
 ## Works with
 | Tool | How |
@@ -403,6 +435,8 @@ Mix them freely: coordination lives in Git, not in any tool.
 | `/uak-secure` | the pre-launch security audit (22 checks + human-only items) |
 | `uak msg` / `inbox` / `digest` | agent messages · the human's single summary |
 | `uak plan FILE` | publish new tasks instantly (sprint) |
+| `uak deploy [--write]` | how this project deploys; writes the Dockerfile and a Render Blueprint (Vercel for Next.js) |
+| `uak design-lint` | screens use the design system: no raw palette, hex colors, local component copies or AI tells |
 | `uak doctor` | preflight everything at minute 0 |
 | `q CMD` | quiet runner (one line on success) |
 
@@ -411,12 +445,12 @@ Full reference: [CLI.md](kit/.uak/docs/CLI.md). Example backlog: [examples/ai-ha
 ## What's inside
 ```
 AGENTS.md · .claude/CLAUDE.md  76-line core every agent reads (the only kit file at the root) · Claude Code extras
-.uak/bin/                    uak CLI, wt, loop, graph, map, tokens, guard, pace, bb, cap, clock, statusline, doctor, q, secret-scan (Bash 3.2, no jq)
+.uak/bin/                    uak CLI, wt, loop, graph, map, tokens, guard, pace, bb, cap, clock, statusline, doctor, start, deploy, design-lint, q, secret-scan (Bash 3.2, no jq)
 .uak/bin/uak-mcp             the MCP server (Python 3.8+ stdlib), optional; configs: .mcp.json, .cursor/mcp.json, Codex, Gemini
 .uak/modes/                  sprint.md · marathon.md
 .uak/docs/                   CLI · PROTOCOL · LOOPS · GRAPH · ORCHESTRATION · COSTS · BLACKBOX · SECURITY · WHY
 .uak/templates/              PROJECT, TASKS, OWNERS, IDEA, spec, plan, ADR
-.uak/skills/                 curated skills (superpowers, Anthropic, Vercel, taste-skill, Karpathy guidelines), pinned, licensed
+.uak/skills/                 curated skills (superpowers, Anthropic frontend-design and webapp-testing, Vercel, taste-skill, Karpathy guidelines), pinned, licensed, plus our product-ui
 .uak/stacks/                 stack presets: fastapi-react, nextjs, django, go, expo, python-data, ai-agent, spring-boot
 .claude/                     slash commands, subagents, hooks, status line (settings per mode)
 .codex/ · .cursor/ · .gemini/  the same subagents per harness + hooks (Codex, Cursor, Gemini), only for the --harness you pick
@@ -437,6 +471,7 @@ kit is the protocol for a **team** of humans and agents on several machines and 
 | Event modes, freeze, black box | **yes** (`sprint`/`marathon`, `uak clock`, autopsies of real events) | — | — | — | — |
 | Code graph, token bill, path memory | **yes** (`uak map`, `uak tokens`, `uak learn`) | — | — | — | — |
 | Native tools for the agent | **MCP server (14 tools, MCP 2026-07-28 and 2025-11-25) + CLI + hooks** in Claude Code, Codex, Cursor, Gemini | MCP tools | built-in tools | — | slash commands |
+| Frontend gate, one-command deploy | **yes** (`design-lint` in the hook, `done` and the smoke; `uak deploy`) | — | — | — | — |
 | Adoption measured with real agents | **yes** ([eval](docs/evals/README.md)) | — | — | — | — |
 
 They combine well: plan with Spec Kit or BMAD, watch agents in a GUI if you like one, and coordinate the team here.

@@ -100,7 +100,7 @@ def banner_html():
 <div class='glow' style='width:380px;height:380px;right:260px;bottom:-240px;background:#15803d;opacity:.35'></div>
 <div class='grid'></div>
 <div class='left'>
-  <div class='eyebrow mono'><i></i> v5.3 · multi-agent orchestration</div>
+  <div class='eyebrow mono'><i></i> v5.4 · multi-agent orchestration</div>
   <h1>UPIIXIA<br>Agentic Kit</h1>
   <p class='sub'>Run a team of AI coding agents in parallel.<br><span>One Git branch. No server. No chaos.</span></p>
   <div class='chips'>{chips}</div>

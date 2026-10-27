@@ -14,6 +14,7 @@ Setup: `.uak/stacks/nextjs/STACK.md`. React performance rules: `vercel-react-bes
 | Dependencies: ask the owner of `package.json`; never commit a lockfile from a feature task | lockfiles go to the human queue |
 | Secrets only in `.env.local` (git-ignored), read on the server; never `NEXT_PUBLIC_` for a secret | the scanner blocks them |
 | Every data view has loading, empty and error states | reviewers check them |
+| Screens follow `product-ui` and the design lock; colors only from tokens, components only from `src/components/ui` (`bash .uak/bin/design-lint`) | at Chilangatón 10 views built their own colors and components and the UI was redone |
 
 ```bash
 bash .uak/bin/q npm run lint && bash .uak/bin/q npx playwright test tests/<f>.spec.ts

@@ -9,7 +9,7 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 | T0 | Product name and brand fixed in `IDEA.md`. Renaming after T-50% needs a human `uak decision`. | human |
 | first claim (`clock`; 20 min in a 4 h event) | `/uak-plan` wave 1: contracts and mocks, walking skeleton, spikes. `uak graph --min-wave1 <agents>` passes. | planner |
 | T0+1h | `/uak-design-lock`: 3 visual directions with screenshots; the human picks one; `web/DESIGN.md` and tokens frozen. | design agent + human |
-| T0+2h | End-to-end walking skeleton up to the wow moment, on labeled mocks. | team |
+| T0+2h | End-to-end walking skeleton up to the wow moment, on labeled mocks, **deployed**: `uak deploy --write` (one Render service from a Blueprint, or Vercel for Next.js), connected once; every merge to main redeploys. Judges open a URL, not a laptop. | team + human (the host account) |
 | T-50% | First plan-B video of the whole flow. Wave 2 via `uak plan` (no PR). | demo |
 | T-8h | A HUMAN owns submission: forms, platforms, videos, team roster. Never an agent low on tokens. | human |
 | freeze (`clock`: 15% of the event, 30 min to 6 h) | `Freeze-Epoch`: only `Freeze-Allowed: yes` or `uak allow` tasks. `uak next` says FREEZE; agents review, rehearse, then stop. | all + human |
@@ -38,7 +38,8 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 3. Every screen on the demo path has empty, loading, error and labeled sample-data states.
 4. Before every UI PR: `bash .uak/bin/design-lint` passes, then the `design-critic` subagent reviews screenshots at 1280×720 and 390×844. Fix its P1s before asking for review.
 5. Skills:
-   - `design-taste-frontend`, only for the design lock and hero screens (it is large, and it is not for app screens);
+   - `frontend-design` for the design lock (`/uak-design-lock`);
+   - `design-taste-frontend` only for a landing or hero page (it is large, and not for app screens);
    - `product-ui` for every app screen: dashboards, maps with panels, forms, lists;
    - `redesign-existing-projects` during the freeze;
    - `webapp-testing` to verify.
@@ -58,7 +59,7 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 ## Submission checklist
 - [ ] Product README in English: real screenshots, setup (`uv sync` / `npm ci`), `.env.example` variables, and how to run the demo with no keys.
 - [ ] Videos within the event limits, with links open to judges.
-- [ ] The demo is deployed, or reproducible from a clean clone in 5 min or less.
+- [ ] The demo is deployed (`uak deploy` since T0+2h, on a plan that does not sleep), or reproducible from a clean clone in 5 min or less.
 - [ ] Data and library licenses declared (non-commercial ones explicit).
 - [ ] Submitted on EVERY platform the event requires, with a receipt.
 - [ ] `/uak-retro` within 48 h: lessons improve this file.

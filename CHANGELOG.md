@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased · The Chilangatón autopsy: a lost merge race, venue Wi-Fi, a cross-machine handover, review cleanup
+## v5.4.0 · 2026-10-27 · Chilangatón (first place): frontends that don't look generated, deploy in one command, and the autopsy
 5 humans and 10 Claude Code identities on macOS and Windows, 35 tasks in 7 hours on venue Wi-Fi
 (`docs/blackbox/chilangaton-2026-10.md`). The suite was green; none of these was covered by a test.
 - **`merge` of a task another agent already merged is `OK`, not a human-queue entry.** The owner's merge waited on
@@ -55,7 +55,22 @@
 - **Errors that say the fix.** An unknown option names itself and the command's usage (`done` failed with a bare
   "Invalid option."); `checkpoint` names the missing fields; `plan` shows the section format; a claim push without
   Git credentials says `gh auth login && gh auth setup-git` and points to `uak start`.
-- `test_v54.py`: 11 scenarios that fail on v5.3.0, the queue race among them.
+- **The design gate right after each UI edit.** The post-edit hook runs `design-lint` on the file an agent just wrote
+  and puts the findings in its context, as Impeccable does with its detector. `done` runs it on the lines the task
+  adds. The lint also knows the AI tells: emoji icons, bounce easing, Inter/Roboto/Arial by default.
+- **`frontend-design` (Anthropic, Apache-2.0, pinned) is the design lock's skill.** It plans tokens, checks the plan
+  against a list of AI tells, builds, then critiques from screenshots, and it covers app screens.
+  `design-taste-frontend` stays for landing and hero pages.
+- **`uak deploy [--write] [--disk PATH]`.** It reads the project (FastAPI with or without React, Django, Next.js,
+  Streamlit, Go, Spring Boot, Expo web, Vite) and writes a Dockerfile, `.dockerignore` and a Render Blueprint (health
+  check, `.env.example` names as dashboard secrets, a persistent disk), or points Next.js to Vercel. It never writes over a
+  file, and `.env` never enters the image. The FastAPI and FastAPI + React images were built and run with Docker
+  (`/api/health` ok, the React build served). `/uak-plan` puts it in Setup, and the sprint deploys the walking skeleton at
+  T0+2h. The deploy file had been hand-written 30 min before the deadline.
+- **A human records a forge merge.** `UAK_HUMAN=NAME UAK_AGENT= uak integrate ID` integrates a PR the human merged on
+  GitHub with no approval on claims (recorded as `human:NAME`). PB-027 stayed in REVIEW for lack of it.
+- **Messages.** "Missing remote" names the folder, its remotes and the way out; "Invalid remote" says git's reason.
+- `test_v54.py`: 14 scenarios that fail on v5.3.0, the queue race among them.
 
 ## v5.3.0 · 2026-10-23 · `uak start`: from install to the first claim, every step named
 A solo marathon project spent two hours before its first claim. Each blocker was one line to fix (the kit not on

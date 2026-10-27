@@ -35,6 +35,7 @@ Goal: software that survives real users. It is secure, scalable and maintainable
 4. Observability: structured logs, `/health` and `/ready`, latency and error metrics, traces on external calls.
 5. Risky changes go behind a feature flag, with the rollback written in `docs/runbook.md`.
 6. Performance budgets run in CI: p95 of the critical endpoint and bundle KB.
+7. Deploy from day one: `bash .uak/bin/uak deploy --write` reads the stack and writes a Dockerfile and a Render Blueprint (health check, `.env.example` names as dashboard secrets, `--disk PATH` for files the app writes), or points Next.js to Vercel. A staging service redeploys on every merge; production promotes a tested image.
 
 ## Orchestration
 - The Sonnet lead runs on `effortLevel: high`. Every multi-file plan and every risky diff passes the Opus advisor checkpoint (or `/uak-advise`). `security-reviewer` (Opus) covers sensitive areas. Caps: 3 parallel subagents, 4 Opus subagents per session.

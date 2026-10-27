@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# uak deploy: read the project, say how it deploys, and with --write create the files for it. Bash 3.2+.
+#   deploy [--write] [--disk PATH]
+# Detects FastAPI (+ React in web/), Django, Next.js, a static Vite or Expo web build, Go, Spring Boot and Streamlit,
+# then proposes ONE service on Render (Blueprint, Docker) or Vercel for Next.js. --write creates Dockerfile,
+# .dockerignore and render.yaml, never over a file that exists (it writes FILE.uak-new beside it). Secrets: only
+# the variable NAMES from .env.example go into render.yaml (sync: false, set in the dashboard); .env is never read.
+# --disk PATH (e.g. data/live): the app writes files there at runtime, so the service gets a persistent disk.
+# Why (Chilangatón): the deploy file was hand-written by a human at 14:30 for a 15:00 deadline, outside the kit.
+set -u
+LC_ALL=C; export LC_ALL
+write=no disk=
+while [ "$#" -gt 0 ]; do case "$1" in
+  --write) write=yes; shift;;
+  --disk) disk=${2:-}; shift 2 2>/dev/null || shift
+          case "$disk" in ''|/*|*..*) printf 'Usage: deploy [--write] [--disk RELATIVE/PATH]\n' >&2; exit 2;; esac;;
+  *) printf 'Usage: deploy [--write] [--disk RELATIVE/PATH]\n' >&2; exit 2;;
+esac; done
+root=$(git rev-parse --show-toplevel 2>/dev/null) || { printf 'DEPLOY: run it inside the project repository\n' >&2; exit 2; }
+cd "$root" || exit 2
+name=$(basename "$root" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9-\n' '-' | sed 's/--*/-/g; s/^-//; s/-$//' | cut -c 1-40)
+has() { grep -qs "$1" "$2"; }
+py=no; [ -f pyproject.toml ] && py=yes
+uvlock=no; [ -f uv.lock ] && uvlock=yes
+stack= port=8000 health= notes=
+if [ "$py" = yes ] && has fastapi pyproject.toml; then
+  stack=fastapi; [ -f web/package.json ] && stack=fastapi-react
+  health=$(grep -rhoE '@app\.get\("(/api)?/health[a-z]*"' app 2>/dev/null | head -n 1 | sed 's/.*("//; s/"$//')
+elif [ -f manage.py ]; then
+  stack=django
+  proj=$(sed -n "s/.*DJANGO_SETTINGS_MODULE['\"]*, *['\"]\([A-Za-z0-9_]*\)\.settings.*/\1/p" manage.py | head -n 1)
+  has gunicorn pyproject.toml || notes="$notes
+- add gunicorn: uv add gunicorn (the owner of pyproject.toml)"
+elif [ -f package.json ] && has '"next"' package.json; then stack=nextjs; port=3000
+elif [ "$py" = yes ] && has streamlit pyproject.toml; then
+  stack=streamlit; port=8501
+  entry=$(for f in streamlit_app.py app.py main.py src/app.py; do [ -f "$f" ] && { printf '%s' "$f"; break; }; done)
+elif [ -f go.mod ]; then
+  stack=go; port=8080
+  main=$(find cmd -maxdepth 2 -name main.go 2>/dev/null | head -n 1); main=${main%/main.go}; [ -n "$main" ] || main=.
+elif [ -f pom.xml ] || [ -f build.gradle ] || [ -f build.gradle.kts ]; then stack=spring; port=8080
+elif [ -f app.json ] && has '"expo"' app.json; then stack=expo
+elif [ -f package.json ] && has '"vite"' package.json; then stack=vite
+fi
+[ -n "$stack" ] || { printf 'DEPLOY: no known stack here (FastAPI, Django, Next.js, Streamlit, Go, Spring Boot, Expo, Vite)\n'; exit 1; }
+# Variable names from .env.example (never .env): set them in the host's dashboard.
+envs=$(for f in .env.example web/.env.example; do [ -f "$f" ] && sed -n 's/^[[:space:]]*\(export[[:space:]]*\)\{0,1\}\([A-Za-z_][A-Za-z0-9_]*\)=.*/\2/p' "$f"; done | grep -v '^PORT$' | awk '!seen[$0]++')
+vite_envs=$(printf '%s\n' $envs | grep '^VITE_' || true)
+
+case "$stack" in
+  nextjs) target="Vercel (import the repo: zero config), or Render with the Dockerfile";;
+  expo|vite) target="Render static site (or any static host)";;
+  *) target="Render (Blueprint, one Docker web service)";;
+esac
+printf 'DEPLOY %s · target %s · port $PORT (default %s)%s\n' "$stack" "$target" "$port" "${health:+ · health $health}"
+[ -z "$envs" ] || printf 'DEPLOY env (names from .env.example; values go in the dashboard, never in git): %s\n' "$(printf '%s ' $envs)"
+[ -z "$disk" ] || printf 'DEPLOY disk: %s persists across deploys (Render: a paid plan; free instances lose local files)\n' "$disk"
+[ -z "$notes" ] || printf 'DEPLOY to do:%s\n' "$notes"
+
+dockerfile() {
+  case "$stack" in
+    fastapi|fastapi-react)
+      if [ "$stack" = fastapi-react ]; then
+        printf '%s\n' '# Built by uak deploy: one image, FastAPI serves /api and the React build (app/main.py mounts web/dist).' \
+          'FROM node:22-slim AS web' 'WORKDIR /src/web' 'COPY web/package.json web/package-lock.json* ./' \
+          'RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund --loglevel=error; else npm install --no-audit --no-fund --loglevel=error; fi' 'COPY web/ ./'
+        for v in $vite_envs; do printf 'ARG %s\nENV %s=$%s\n' "$v" "$v" "$v"; done
+        printf '%s\n' 'RUN npm run build' ''
+      else printf '%s\n' '# Built by uak deploy: one image for the FastAPI app.'; fi
+      printf '%s\n' 'FROM python:3.12-slim' 'RUN pip install --no-cache-dir uv' 'WORKDIR /app' \
+        'COPY pyproject.toml uv.lock* .python-version* ./' \
+        "RUN uv sync $( [ "$uvlock" = yes ] && printf -- '--frozen ')--no-dev --no-install-project" 'COPY . .' "RUN uv sync $( [ "$uvlock" = yes ] && printf -- '--frozen ')--no-dev"
+      [ "$stack" != fastapi-react ] || printf '%s\n' 'COPY --from=web /src/web/dist web/dist'
+      printf '%s\n' 'ENV PORT=8000' 'EXPOSE 8000' 'CMD ["sh", "-c", ".venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]';;
+    django)
+      printf '%s\n' '# Built by uak deploy: Django behind gunicorn.' 'FROM python:3.12-slim' 'RUN pip install --no-cache-dir uv' 'WORKDIR /app' \
+        'COPY pyproject.toml uv.lock* .python-version* ./' "RUN uv sync $( [ "$uvlock" = yes ] && printf -- '--frozen ')--no-dev --no-install-project" 'COPY . .' "RUN uv sync $( [ "$uvlock" = yes ] && printf -- '--frozen ')--no-dev" \
+        'RUN .venv/bin/python manage.py collectstatic --noinput || true' 'ENV PORT=8000' 'EXPOSE 8000' \
+        "CMD [\"sh\", \"-c\", \".venv/bin/python manage.py migrate --noinput && .venv/bin/gunicorn ${proj:-config}.wsgi --bind 0.0.0.0:\${PORT}\"]";;
+    nextjs)
+      printf '%s\n' '# Built by uak deploy: Next.js (Vercel needs no file; this is for Render, Fly or Cloud Run).' 'FROM node:22-slim' 'WORKDIR /app' \
+        'COPY package.json package-lock.json* ./' 'RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund --loglevel=error; else npm install --no-audit --no-fund --loglevel=error; fi' 'COPY . .' 'RUN npm run build' \
+        'ENV PORT=3000' 'EXPOSE 3000' 'CMD ["sh", "-c", "npx next start -p ${PORT}"]';;
+    streamlit)
+      printf '%s\n' '# Built by uak deploy: a Streamlit app.' 'FROM python:3.12-slim' 'RUN pip install --no-cache-dir uv' 'WORKDIR /app' \
+        'COPY pyproject.toml uv.lock* .python-version* ./' "RUN uv sync $( [ "$uvlock" = yes ] && printf -- '--frozen ')--no-dev --no-install-project" 'COPY . .' "RUN uv sync $( [ "$uvlock" = yes ] && printf -- '--frozen ')--no-dev" \
+        'ENV PORT=8501' 'EXPOSE 8501' "CMD [\"sh\", \"-c\", \".venv/bin/streamlit run ${entry:-app.py} --server.port \${PORT} --server.address 0.0.0.0\"]";;
+    go)
+      printf '%s\n' '# Built by uak deploy: a static Go binary. The server must listen on $PORT.' 'FROM golang:1.23 AS build' 'WORKDIR /src' \
+        'COPY go.mod go.sum* ./' 'RUN go mod download' 'COPY . .' "RUN CGO_ENABLED=0 go build -o /out/app ./$main" '' \
+        'FROM gcr.io/distroless/static-debian12' 'COPY --from=build /out/app /app' 'ENV PORT=8080' 'EXPOSE 8080' 'CMD ["/app"]';;
+    spring)
+      if [ -f pom.xml ]; then build='RUN ./mvnw -q -B -DskipTests package' jar='target/*.jar'
+      else build='RUN ./gradlew -q bootJar' jar='build/libs/*.jar'; fi
+      printf '%s\n' '# Built by uak deploy: Spring Boot (Java 21).' 'FROM eclipse-temurin:21-jdk AS build' 'WORKDIR /src' 'COPY . .' "$build" '' \
+        'FROM eclipse-temurin:21-jre' "COPY --from=build /src/$jar /app/app.jar" 'ENV PORT=8080' 'EXPOSE 8080' \
+        'CMD ["sh", "-c", "java -Dserver.port=${PORT} -jar /app/app.jar"]';;
+  esac
+}
+blueprint() {
+  printf '%s\n' "# Built by uak deploy · Render Blueprint: dashboard → New → Blueprint → this repo; fill the sync: false values." 'services:'
+  case "$stack" in
+    expo|vite)
+      out=dist; [ "$stack" != expo ] || build='npm ci --no-audit --no-fund && npx expo export --platform web --output-dir dist'
+      [ "$stack" != vite ] || build='npm ci --no-audit --no-fund && npm run build'
+      printf '%s\n' "  - type: web" "    name: $name" "    runtime: static" "    buildCommand: $build" "    staticPublishPath: $out" \
+        "    routes:" "      - type: rewrite" "        source: /*" "        destination: /index.html";;
+    *)
+      printf '%s\n' "  - type: web" "    name: $name" "    runtime: docker" \
+        "    plan: starter   # a free instance sleeps after 15 min idle: the first request of a live demo then waits ~1 min" \
+        "    autoDeploy: true   # every push to main redeploys"
+      [ -z "$health" ] || printf '    healthCheckPath: %s\n' "$health"
+      [ -z "$disk" ] || printf '%s\n' "    disk:" "      name: data" "      mountPath: /app/$disk" "      sizeGB: 1";;
+  esac
+  if [ -n "$envs" ]; then
+    printf '    envVars:\n'
+    for v in $envs; do printf '      - key: %s\n        sync: false\n' "$v"; done
+  fi
+}
+put() { # put FILE CONTENT-FUNCTION: never over an existing file
+  local f=$1; shift
+  if [ -e "$f" ]; then "$@" > "$f.uak-new"; printf 'DEPLOY kept your %s; the proposal is %s.uak-new\n' "$f" "$f"
+  else "$@" > "$f"; printf 'DEPLOY wrote %s\n' "$f"; fi
+}
+if [ "$write" = yes ]; then
+  case "$stack" in expo|vite) ;; *)
+    put Dockerfile dockerfile
+    put .dockerignore printf '%s\n' .git .env '.env.*' '!.env.example' .venv node_modules web/node_modules '**/__pycache__' .uak-env '*-wt';;
+  esac
+  put render.yaml blueprint
+  printf 'DEPLOY next: commit them, push to main, then connect the repo once (%s). Deploy the walking skeleton early: every later merge redeploys itself.\n' "$target"
+else
+  printf 'DEPLOY files: bash .uak/bin/uak deploy --write%s creates them (Dockerfile, .dockerignore, render.yaml); nothing is changed now.\n' "${disk:+ --disk $disk}"
+fi

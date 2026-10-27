@@ -16,8 +16,8 @@ A task reserves `web/src/features/<f>/`. `package.json`, the lockfile, `vite.con
 
 | Situation | Skill | Cost |
 |---|---|---|
-| Define the visual direction (once) | `design-taste-frontend` → writes `web/DESIGN.md` | high, once |
-| Hero, landing, wow screen | `design-taste-frontend` (sections 4, 9, pre-flight 14) | high; those screens only |
+| Define the visual direction (once) | `/uak-design-lock` with `frontend-design` → `web/DESIGN.md`, tokens, UI kit, screenshots | medium, once |
+| Landing or hero page | `design-taste-frontend` (sections 4, 9, pre-flight 14) | high; that page only |
 | Product screens (dashboards, maps with panels, forms, lists) | `product-ui` + `web/DESIGN.md` + the UI kit in `web/src/lib/ui` | low; every screen |
 | React performance patterns | `vercel-react-best-practices`: read only the relevant `rules/<rule>.md` | low |
 | Verify the UI works | `webapp-testing` (`with_server.py` + Playwright) | low if you print only the verdict |

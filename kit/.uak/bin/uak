@@ -147,6 +147,7 @@ init-smoke --command COMANDO
 lint [--secrets]
 start [--fix]   install → first claim, in order: what is missing, then the one command that starts the work
 doctor [--fix]   preflight: remote, gh permissions, hooks, freeze, ports
+deploy [--write] [--disk PATH]   how this project deploys (Render Blueprint + Dockerfile, Vercel for Next.js); --write creates the files
 design-lint [SRC]   screens use the design system: no raw palette classes, hex colors or local copies of UI kit components
 graph [--mermaid] [--min-wave1 N] | graph --assign   backlog DAG: waves, critical path, cycles; --assign suggests an idle agent per ready task
 loop --verify CMD [--agent CMD] [--max N] [--task ID]   bounded verify → fix loop
@@ -182,7 +183,7 @@ bb_common=$(git rev-parse --git-common-dir 2>/dev/null) || bb_common=
 case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
   [ -z "$bb_common" ] || printf '%s\n' "${UAK_CALLER:+$UAK_CALLER-}$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
 esac
-case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map|dash|start|design-lint) exec bash "$UAK_BIN/$CMD" "$@";; esac
+case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map|dash|start|design-lint|deploy) exec bash "$UAK_BIN/$CMD" "$@";; esac
 case "$CMD" in status|claim|heartbeat|away|pr-sync|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover|wait|learn|recall) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac
@@ -343,7 +344,7 @@ init_temp() {
 }
 remote_setup() {
   REMOTE_URL=$(git -C "$ROOT" config --get "remote.$REMOTE.url") ||
-    gitfail "Missing remote $REMOTE. Offline claims are not allowed."
+    gitfail "Missing remote $REMOTE in $ROOT$(r=$(git -C "$ROOT" remote 2>/dev/null | tr '\n' ' '); [ -z "$r" ] || printf ' (its remotes: %s)' "${r% }"). Run uak from the team checkout or one of its worktrees (a copy or a fresh clone without origin has no claims), or set UAK_REMOTE. Offline claims are not allowed."
   # A relative remote is relative to the main checkout, not to this worktree.
   case "$REMOTE_URL" in /*|[A-Za-z]:*|*://*|*@*:*) ;; *)
     main_dir=$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)/.." 2>/dev/null && pwd -P) || main_dir=$ROOT
@@ -376,7 +377,7 @@ fresh_state() {
   done
   git -C "$TX" config user.name "$USER_NAME"
   git -C "$TX" config user.email "$USER_EMAIL"
-  git -C "$TX" remote add origin "$REMOTE_URL" || gitfail "Invalid remote."
+  git -C "$TX" remote add origin "$REMOTE_URL" 2> "$TXROOT/remote-error" || gitfail "Invalid remote $REMOTE ($REMOTE_URL): $(head -n 1 "$TXROOT/remote-error")"
   # One fetch brings claims and the base's config (PROJECT.md, TASKS.md) together: one network round trip instead
   # of three (ls-remote, fetch claims, fetch config). done/integrate/merge prove ancestry on the base, so they
   # fetch it whole later (coord_init). Wi-Fi at events drops for seconds: 3 tries (Reap: 8 "Remote unreachable").
@@ -840,7 +841,14 @@ mutate() {
       git -C "$TX" fetch -q origin "refs/heads/$BASE:refs/uak/base" || gitfail "Could not verify remote base branch $BASE."
       resolve_task_tip || conflict "$RM_REASON"
       tip=$RM_TIP
-      approval_check "$tip" "$PR_URL" || conflict "$RM_REASON. Approve the merged SHA first: uak review $ID --sha ${tip:-SHA} --verdict approve"
+      # A human who merged it on the forge is the approval: from the shell, under UAK_HUMAN, it is recorded as theirs.
+      # Why (Chilangatón): PB-027 was merged on GitHub with no approval on claims; integrate refused, and the task stayed
+      # in REVIEW after the event.
+      if ! approval_check "$tip" "$PR_URL"; then
+        [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ] ||
+          conflict "$RM_REASON. Approve the merged SHA first: uak review $ID --sha ${tip:-SHA} --verdict approve. A human merged it? That human records it: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID"
+        APPROVED_BY="human:$HUMAN"
+      fi
       if [ -n "$MERGE_COMMIT" ]; then
         merged=$(git -C "$TX" rev-parse --verify "$MERGE_COMMIT^{commit}" 2>/dev/null) || conflict "COMMIT not in the remote history of $BASE."
       elif [ "$RM_REVIEW_MODE" = gh ] && [ -n "$RM_GH_MERGE" ]; then merged=$RM_GH_MERGE
@@ -1533,6 +1541,15 @@ if [ "$CMD" = done ]; then
   [ -n "$EVIDENCE" ] || die "done needs --evidence."
   if [ -n "$REVIEWER" ]; then
     case "$REVIEWER" in *[!A-Za-z0-9_.-]*) die "Reviewer must be a valid identity.";; esac
+  fi
+  # Screens use the design system: the lines this task adds pass design-lint before anyone reviews them.
+  # Why (Chilangatón): 10 views shipped their own colors and components, and the first UI was redone 3 hours in.
+  if [ -z "$MERGE_COMMIT" ] && [ -f "$UAK_BIN/design-lint" ]; then
+    dl_out=$(cd "$ROOT" && bash "$UAK_BIN/design-lint" --changed "$BASE" 2>&1); dl_rc=$?
+    if [ "$dl_rc" -eq 1 ]; then
+      printf '%s\n' "$dl_out" | head -n 12 >&2
+      die "done: the lines this task adds break the design system (above). Use the tokens and the UI kit (skill product-ui), or mark a deliberate line with \"design-lint: ok\" and the reason."
+    fi
   fi
 fi
 [ "$CMD" != log ] || [ -n "$LOG_TEXT" ] || die "log needs an entry."

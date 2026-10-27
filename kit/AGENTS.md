@@ -1,4 +1,4 @@
-# Agent rules · UPIIXIA Agentic Kit (uak v5.3)
+# Agent rules · UPIIXIA Agentic Kit (uak v5.4)
 
 Core rules for every agent and harness. Read once per session.
 Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); also read `.uak/modes/<mode>.md`. The human picks the mode at install; never choose, infer or change it.
