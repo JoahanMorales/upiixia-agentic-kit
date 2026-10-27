@@ -13,6 +13,7 @@ from pathlib import Path
 from test_hack import Runner, expect, resolve_binary
 import test_review_merge as rm
 from test_v43 import push_main
+from test_coordination import hack
 
 
 def merge_of_a_merged_task_is_done(r):
@@ -108,6 +109,14 @@ def done_after_a_cross_machine_handover(r):
     record = f.show("tasks/HACK-001.md")
     expect("Task-Tip: " + tip in record, "the tip of this checkout: " + record)
     expect("Worktree: " + moved.resolve().as_posix() in record, "the new path is recorded: " + record)
+    g = rm.fixture(r, "v54-handover-main", count=1)
+    g.claim(0, "HACK-001")
+    rm.publish(g, 0, "HACK-001")
+    r.g(g.clones[0], "worktree", "remove", g.worktrees[0])
+    r.g(g.clones[0], "checkout", "-q", g.branches[0])
+    main = r.run([r.bash, ".uak/bin/uak", "done", "HACK-001", "--pr", "https://example.test/pull/1", "--evidence", "ok"],
+                 cwd=g.clones[0], env={"UAK_AGENT": "agent-1", "UAK_NOW": "1000010"}, allowed=None)
+    expect(main.returncode == 2 and "is not on this machine" in main.stderr, "never the main checkout: " + main.stdout + main.stderr)
     return {"handover": True}
 
 
@@ -148,8 +157,165 @@ def review_checkout_is_removed_safely(r):
     return {"review_rm": True}
 
 
+def reviews_go_to_agents_only(r):
+    """14 of 48 review offers went to "github" (the sender of pr-sync messages: idle, no verdicts, so the rotation's
+    best pick) and 3 to a human's UAK_HUMAN name; each sat 15 min until the re-offer."""
+    f = rm.fixture(r, "v54-reviewer", count=2)
+    f.claim(0, "HACK-001")
+    f.claim(1, "HACK-002")                                   # the only other agent: busy, with a task of its own
+    events = f.base / "gh-events.txt"
+    events.write_text("comment\tIC_1\t#1 @alice: rename it\n", encoding="utf-8")
+    fake = f.base / "gh"
+    fake.write_text("#!/usr/bin/env bash\n[ \"$1 $2\" = \"pr view\" ] || exit 1\ncat '%s'\n" % events, encoding="utf-8")
+    os.chmod(fake, 0o755)
+    hack(f, 0, "pr-sync", "HACK-001", now=1000005, UAK_GH=str(fake))
+    r.run([r.bash, ".uak/bin/uak", "msg", "all", "plan approved, go"], cwd=f.clones[0],
+          env={"UAK_AGENT": "", "UAK_HUMAN": "Boss", "UAK_NOW": "1000006"})
+    expect("| github |" in f.show("inbox/log.md") and "| Boss |" in f.show("inbox/log.md"), "github and a human were seen")
+    rm.publish(f, 0, "HACK-001")
+    f.hack(0, "done", "HACK-001", "--pr", "https://example.test/pull/1", "--evidence", "Fixture product acceptance", now=1000010)
+    offer = [l for l in f.show("inbox/log.md").splitlines() if "| review | HACK-001 |" in l][-1]
+    expect("| agent:agent-2 |" in offer, "the offer goes to the other agent, never github or a human: " + offer)
+    return {"reviewer": "agent-2"}
+
+
+def pr_sync_tells_a_forge_merge(r):
+    """PB-027 and PB-035 were merged on GitHub and stayed in REVIEW on claims after the event: nothing said so."""
+    f = rm.fixture(r, "v54-forge-merge", count=1)
+    rm.ready(f, 0, "HACK-001")
+    events = f.base / "gh-events.txt"
+    events.write_text("merged\t7\t#7 was merged on GitHub; the task is still open on claims\n", encoding="utf-8")
+    fake = f.base / "gh"
+    fake.write_text("#!/usr/bin/env bash\n[ \"$1 $2\" = \"pr view\" ] || exit 1\ncat '%s'\n" % events, encoding="utf-8")
+    os.chmod(fake, 0o755)
+    out = hack(f, 0, "pr-sync", "HACK-001", now=1000030, UAK_GH=str(fake))
+    line = [l for l in f.show("inbox/log.md").splitlines() if "| github |" in l][-1]
+    expect("HACK-001 (1)" in out.stdout and "uak integrate HACK-001" in line, "the task hears it, with the command: " + line)
+    github = (r.package / ".uak/bin/lib/github.sh").read_text(encoding="utf-8")
+    expect("coderabbitai" in github and 'test("^\\\\s*<!--")' in github, "bot logins and generated bodies are not human comments")
+    return {"merged": True}
+
+
+def hook_stops_beating_a_task_that_moved(r):
+    """After a Windows → macOS handover the old session kept heartbeating PB-027 ("belongs to", "has no active
+    claim") into the black box."""
+    import json
+    f = rm.fixture(r, "v54-gone", count=2)
+    f.claim(1, "HACK-001")                                   # the task is agent-2's now
+    w = f.worktrees[0]
+    (w / ".uak-env").write_text("UAK_AGENT=agent-1\nUAK_TASK=HACK-001\n", encoding="utf-8")
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    payload = json.dumps({"session_id": "s1", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": {"command": "ls"}})
+    (w / ".git-payload.json").write_text(payload, encoding="utf-8")
+    tick = lambda: r.run([r.bash, "-c", "bash .uak/bin/hook tick < .git-payload.json"], cwd=w, env={"UAK_NOW": "1000100"}, allowed=None)
+    tick()
+    deadline = time.monotonic() + 90
+    while not (gd / "uak-task-gone").exists():
+        expect(time.monotonic() < deadline, "the beat that conflicts marks the task: " + (gd / "uak-heartbeat.log").read_text(encoding="utf-8", errors="replace")
+               if (gd / "uak-heartbeat.log").exists() else "no heartbeat log")
+        time.sleep(0.5)
+    told = tick()
+    expect("HACK-001 is no longer this worktree's" in told.stdout, "the agent hears it once: " + told.stdout)
+    (gd / "uak-heartbeat").unlink()
+    again = tick()
+    expect("no longer" not in again.stdout, "once: " + again.stdout)
+    time.sleep(2)
+    expect((gd / "uak-heartbeat").exists() is False, "no more beats for a task that moved")
+    return {"gone": True}
+
+
+def errors_say_the_fix(r):
+    """`done` "Invalid option." with no name, `checkpoint needs all six fields` twice, `plan` "no ## ID sections";
+    approvals waited 11 min on average for their owner's merge in a 7-hour sprint (12 "merge it now" messages)."""
+    f = rm.fixture(r, "v54-errors", count=1)
+    f.claim(0, "HACK-001")
+    bad = f.hack(0, "done", "HACK-001", "--summary", allowed=None)
+    expect(bad.returncode == 2 and "Invalid option --summary for done. Usage: done ID --pr URL" in bad.stderr, bad.stderr)
+    cp = f.hack(0, "checkpoint", "HACK-001", "--done", "x", "--next", "y", allowed=None)
+    expect("missing: --decision --why --fails --commands" in cp.stderr, cp.stderr)
+    plan = f.base / "plan.md"; plan.write_text("## pb-030 · lower-case id\n", encoding="utf-8")
+    pl = r.run([r.bash, ".uak/bin/uak", "plan", str(plan)], cwd=f.clones[0], env={"UAK_AGENT": "", "UAK_HUMAN": "boss", "UAK_NOW": "1000001"}, allowed=None)
+    expect("## PB-030 · Title" in pl.stderr or "Plan-Channel" in pl.stderr, pl.stderr)
+    sprint = (r.package / ".uak/templates/PROJECT.sprint.md").read_text(encoding="utf-8")
+    expect("Merge-Adopt-Seconds: 300" in sprint, "sprint: any agent merges an approval after 5 min")
+    ci = (r.package / ".github/workflows/uak.yml").read_text(encoding="utf-8")
+    expect(ci.index("astral-sh/setup-uv") < ci.index("Product smoke") and "actions/setup-node" in ci, "CI installs the stack's tools before the smoke")
+    return {"errors": True}
+
+
+def a_retry_reuses_the_base(r):
+    """"done/review/status retry 10+ times and take over 8 min" on venue Wi-Fi: done/integrate/merge fetched the
+    whole base again from the remote on every retry. A pre-push hook moves claims once, so done retries for real."""
+    f = rm.fixture(r, "v54-refetch", count=1)
+    f.claim(0, "HACK-001")
+    rm.publish(f, 0, "HACK-001")
+    remote = r.g(f.clones[0], "config", "--get", "remote.origin.url").stdout.strip()
+    tpl = f.base / "tpl"; (tpl / "hooks").mkdir(parents=True)
+    state = f.base / "moved-once"
+    (tpl / "hooks/pre-push").write_text(
+        "#!/usr/bin/env bash\n[ -e '%s' ] && exit 0\n: > '%s'\n"
+        "tip=$(git ls-remote '%s' refs/heads/claims | cut -f1)\n"
+        "c=$(git -c user.name=x -c user.email=x@x.invalid commit-tree \"$tip^{tree}\" -p \"$tip\" -m race)\n"
+        "git push -q --no-verify '%s' \"$c:refs/heads/claims\"\nexit 0\n" % (state, state, remote, remote), encoding="utf-8")
+    os.chmod(tpl / "hooks/pre-push", 0o755)
+    trace = f.base / "git-trace.log"
+    done = r.run([r.bash, ".uak/bin/uak", "done", "HACK-001", "--pr", "https://example.test/pull/1", "--evidence", "Fixture product acceptance"],
+                 cwd=f.worktrees[0], env={"UAK_AGENT": "agent-1", "UAK_NOW": "1000010", "GIT_TEMPLATE_DIR": str(tpl), "GIT_TRACE": str(trace)}, allowed=None)
+    expect(done.returncode == 0 and "attempt 2" in done.stdout, "done retried once: " + done.stdout + done.stderr)
+    log = trace.read_text(encoding="utf-8", errors="replace")
+    remote_base = [l for l in log.splitlines() if "built-in: git fetch" in l and "refs/heads/main:refs/uak/config" in l and " origin " in l]
+    expect(len(remote_base) == 1, "the base came from the remote once, not once per try: %d\n%s" % (len(remote_base), "\n".join(remote_base)))
+    return {"fetches": len(remote_base)}
+
+
+def frontend_uses_the_design_system(r):
+    """The first UI of the event was redone 3 hours in: the plan wrote the direction as a sentence ("sober, public
+    document"), skipped the screenshots, and 10 views started before the design system, each on raw stone-*/emerald-*
+    classes, a hand-typed orange and its own badge. design-taste-frontend says on line 1 it is not for app screens."""
+    pkg = r.package.parent
+    t = r.scratch / "v54-design"; (t / "web/src/lib/ui").mkdir(parents=True); (t / "web/src/features/mapa").mkdir(parents=True)
+    r.g(t, "init", "-q", "-b", "main")
+    lint = lambda: r.run([r.bash, str(r.package / ".uak/bin/design-lint")], cwd=t, allowed=None)
+    (t / "web/src/features/mapa/index.tsx").write_text('<div className="bg-stone-400 p-4">x</div>\n', encoding="utf-8")
+    skip = lint()
+    expect(skip.returncode == 0 and "DESIGN_LINT_SKIP: no design tokens yet" in skip.stdout, "nothing to enforce before the lock: " + skip.stdout)
+    (t / "web/src/lib/ui/tokens.css").write_text(":root { --pb-acento: #c8006e; }\n", encoding="utf-8")
+    (t / "web/src/lib/ui/Boton.tsx").write_text("export function Boton() { return null }\n", encoding="utf-8")
+    (t / "web/src/features/mapa/index.tsx").write_text(
+        '<div className="bg-stone-400 p-4">x</div>\n'
+        'const naranja = "#c2410c";\n'
+        'function Boton() { return null }\n'
+        '<a href="#/sedeco" className="text-[var(--pb-acento,#c8006e)]">ok</a>\n'
+        'const capa = "#e6007e"; // design-lint: ok · Mapbox paint reads the token once at start\n', encoding="utf-8")
+    bad = lint()
+    out = bad.stdout
+    expect(bad.returncode == 1 and "DESIGN_LINT_FAIL 3 finding(s)" in out, "three findings: " + out)
+    expect("index.tsx:1 · raw palette class bg-stone-400" in out and "index.tsx:2 · hex color #c2410c" in out
+           and "index.tsx:3 · local Boton" in out, "each finding names line, what and fix: " + out)
+    expect("#c8006e" not in out and "#/sedeco" not in out and "e6007e" not in out, "fallbacks, routes and waived lines pass: " + out)
+    (t / "web/src/features/mapa/index.tsx").write_text('import { Boton } from "../../lib/ui/Boton";\n<div className="bg-[var(--pb-acento)]" />\n', encoding="utf-8")
+    good = lint()
+    expect(good.returncode == 0 and "DESIGN_LINT_PASS files=1" in good.stdout, good.stdout)
+
+    for mode, stack, want in (("sprint", "none", True), ("marathon", "fastapi-react", True), ("marathon", "none", False)):
+        d = r.scratch / ("v54-design-" + mode + "-" + stack); d.mkdir()
+        r.g(d, "init", "-q", "-b", "main")
+        r.run([r.bash, str(pkg / "install.sh"), "--mode", mode, "--stack", stack, "--harness", "claude", str(d)], cwd=d)
+        expect((d / ".claude/skills/product-ui/SKILL.md").exists() == want, "product-ui installed for %s/%s: %s" % (mode, stack, want))
+    text = lambda rel: (r.package / rel).read_text(encoding="utf-8")
+    expect("**Design lock P0**" in text(".claude/commands/uak-plan.md") and "never merged into another task" in text(".claude/commands/uak-plan.md")
+           and "ls web/public/design-lock/*.png" in text(".claude/commands/uak-plan.md"), "the plan makes the design lock its own task, verified by screenshots")
+    expect("Never skip the screenshots" in text(".claude/commands/uak-design-lock.md") and "a floor every direction meets" in text(".claude/commands/uak-design-lock.md"),
+           "the lock is picked by looking; accessibility is a floor, not a style")
+    expect("design-lint" in text(".claude/agents/design-critic.md") and "3-second test" in text(".claude/agents/design-critic.md"), "the critic runs the gate and the judge test")
+    expect("`product-ui`" in text(".uak/stacks/fastapi-react/skills/stack-frontend/SKILL.md"), "app screens route to product-ui")
+    expect("bash .uak/bin/design-lint &&" in text(".uak/stacks/fastapi-react/STACK.md"), "the stack smoke runs the gate")
+    return {"design": True}
+
+
 TESTS = [merge_of_a_merged_task_is_done, merge_that_loses_the_queue_race_is_done, base_fetch_retries_and_says_why, done_after_a_cross_machine_handover,
-         review_checkout_is_removed_safely]
+         review_checkout_is_removed_safely, reviews_go_to_agents_only, pr_sync_tells_a_forge_merge, hook_stops_beating_a_task_that_moved,
+         errors_say_the_fix, a_retry_reuses_the_base, frontend_uses_the_design_system]
 
 
 def main():

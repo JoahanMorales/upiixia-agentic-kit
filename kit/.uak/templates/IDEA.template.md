@@ -6,6 +6,7 @@
 ## 0. Name and brand (fixed at T0)
 - Name: <name> · repo/domain: <...> · tagline: <8 words or fewer>.
 - Renaming after T−50% needs a human `uak decision`.
+- Look: 2–3 products whose look you want (links or screenshots) and a brand color if you have one. The design lock starts from them; the visual direction itself is picked from screenshots, never written here as a sentence.
 
 ## 1. One line
 For **<user>**, who **<pain, with a number>**, **<product>** lets them **<observable result>**, unlike **<current alternative>**.

@@ -175,7 +175,7 @@ createRoot(document.getElementById("root")!).render(
 
 ```bash
 uv run playwright install chromium   # once per machine (~100 MB), for webapp-testing
-bash .uak/bin/uak init-smoke --command "uv run ruff check app && uv run pytest && npm --prefix web ci --prefer-offline --no-audit --no-fund --loglevel=error && npm --prefix web run lint && npm --prefix web run build"
+bash .uak/bin/uak init-smoke --command "bash .uak/bin/design-lint && uv run ruff check app && uv run pytest && npm --prefix web ci --prefer-offline --no-audit --no-fund --loglevel=error && npm --prefix web run lint && npm --prefix web run build"
 ```
 
 `uak merge` re-runs this smoke in a clean clone, hence `npm ci`: a merge must test the whole product, not just Python.

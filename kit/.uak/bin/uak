@@ -77,6 +77,8 @@ valid_id() { printf '%s\n' "$1" | grep -Eq '^[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+$'; 
 # hack-021 means HACK-021. Why (MLB hackathon): 4 "Invalid ID." errors from Cursor with no hint of the value.
 norm_id() { case "$1" in *[a-z]*-[0-9]*) printf '%s' "$1" | tr '[:lower:]' '[:upper:]';; *) printf '%s' "$1";; esac; }
 bad_id() { die "Invalid ID '$1': use the task ID as in TASKS.md, e.g. HACK-012 (uak status lists them)."; }
+# Why (Chilangatón): `done` failed with a bare "Invalid option." and the agent guessed again.
+bad_opt() { die "Invalid option $opt for $CMD. Usage: $(usage | grep -E "^$CMD( |\$)" | head -n 1)"; }
 one_line() { local text=$1; text=${text//$'\r'/ }; text=${text//$'\n'/ }; printf '%s' "$text"; }
 field() {
   local line prefix="$2: "
@@ -145,6 +147,7 @@ init-smoke --command COMANDO
 lint [--secrets]
 start [--fix]   install → first claim, in order: what is missing, then the one command that starts the work
 doctor [--fix]   preflight: remote, gh permissions, hooks, freeze, ports
+design-lint [SRC]   screens use the design system: no raw palette classes, hex colors or local copies of UI kit components
 graph [--mermaid] [--min-wave1 N] | graph --assign   backlog DAG: waves, critical path, cycles; --assign suggests an idle agent per ready task
 loop --verify CMD [--agent CMD] [--max N] [--task ID]   bounded verify → fix loop
 board [--md] [--watch S]   team kanban from the claims branch
@@ -179,7 +182,7 @@ bb_common=$(git rev-parse --git-common-dir 2>/dev/null) || bb_common=
 case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
   [ -z "$bb_common" ] || printf '%s\n' "${UAK_CALLER:+$UAK_CALLER-}$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
 esac
-case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map|dash|start) exec bash "$UAK_BIN/$CMD" "$@";; esac
+case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map|dash|start|design-lint) exec bash "$UAK_BIN/$CMD" "$@";; esac
 case "$CMD" in status|claim|heartbeat|away|pr-sync|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover|wait|learn|recall) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac
@@ -704,6 +707,7 @@ followup_mutate() {
 }
 mutate() {
   coord_init
+  coord_mark_human
   RECORD=$(task_file); CLAIM=$(claim_file)
   case "$CMD" in
     claim)
@@ -860,7 +864,9 @@ mutate() {
       # Handed over from another machine: the recorded Worktree is theirs. This checkout on the task's branch is the
       # new one. Why (Chilangatón): after a Windows → macOS handover, PB-027's done died with "Missing worktree";
       # the way out was release and re-claim, which put a decision and two heartbeat conflicts on claims.
-      if [ ! -d "$task_worktree" ] && [ "$(git -C "$ROOT" symbolic-ref --short HEAD 2>/dev/null)" = "$task_branch" ]; then
+      # Never the main checkout: a task lives in a worktree of its own (claim refuses the main checkout too).
+      if [ ! -d "$task_worktree" ] && [ "$(git -C "$ROOT" symbolic-ref --short HEAD 2>/dev/null)" = "$task_branch" ] &&
+         [ "$ROOT" != "$(cd "$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^worktree //p' | head -n 1)" 2>/dev/null && pwd -P)" ]; then
         task_worktree=$ROOT; put "$RECORD" Worktree "$ROOT"; put "$CLAIM" Worktree "$ROOT"
       fi
       if [ -z "$MERGE_COMMIT" ]; then
@@ -998,7 +1004,7 @@ plan_mutate() {
   [ "$(coord_source_field Plan-Channel main)" = claims ] ||
     conflict "Plan-Channel is not claims in .uak/PROJECT.md: publish the backlog by PR to $BASE."
   plan_ids=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$PLAN_FILE")
-  [ -n "$plan_ids" ] || die "The file has no ## ID sections."
+  [ -n "$plan_ids" ] || die "The file has no task sections: each starts with a line \"## PB-030 · Title\" (the ID as in TASKS.md, uppercase), then - **Priority:**, - **Paths:**, - **Verify:**."
   if [ "$PLAN_AMEND" = yes ]; then plan_amend_mutate; return; fi
   for ID in $plan_ids; do
     valid_id "$ID" || die "Invalid ID in plan: $ID"
@@ -1072,7 +1078,12 @@ transaction() {
     fi
     if grep -Eqi 'pre-receive hook declined|hook declined|protected branch|permission denied|authentication failed|remote rejected.*(policy|prohibited)' "$TXROOT/push" ||
        ! grep -Eqi 'fetch first|non-fast-forward|cannot lock ref|already exists|failed to update ref|incorrect old value provided' "$TXROOT/push"; then
-      gitfail "push failed; the claim was not confirmed. $(tail -n 2 "$TXROOT/push")"
+      # Why (Chilangatón): a laptop with an https remote and no stored credentials failed its first claim 3 times
+      # ("could not read Username ... terminal prompts disabled"), and the agent gave up on wt new.
+      push_hint=
+      grep -Eqi 'could not read Username|terminal prompts disabled|Authentication failed|Permission denied \(publickey\)|Invalid username or (password|token)' "$TXROOT/push" &&
+        push_hint=" This machine has no Git credentials for $REMOTE: gh auth login && gh auth setup-git (https remote) or an SSH key, then retry; bash .uak/bin/uak start checks push before the first claim."
+      gitfail "push failed; the claim was not confirmed. $(tail -n 2 "$TXROOT/push")$push_hint"
     fi
     # Why: another valid push means redo from the new remote and revalidate, not give up.
     [ "${QUIET:-no}" = yes ] || say "RETRY $CMD $ID | remote contention; refetch and revalidate" >&2
@@ -1405,20 +1416,20 @@ esac
 while [ "$#" -gt 0 ]; do
   opt=$1; shift
     case "$opt" in
-    --secrets) [ "$CMD" = lint ] || die "Invalid option: $opt"; LINT_SECRETS=yes;;
-    --expired) [ "$CMD" = release ] || die "Invalid option: $opt"; EXPIRED=yes;;
-    --summary) [ "$CMD" = status ] || die "Invalid option: $opt"; SHOW_SUMMARY=yes;;
-    --full) case "$CMD" in status|next|digest|inbox) FULL=yes;; *) die "Invalid option: $opt";; esac;;
-    --start) [ "$CMD" = review ] || die "Invalid option: $opt"; REVIEW_START=yes;;
-    --stop) [ "$CMD" = review ] || die "Invalid option: $opt"; REVIEW_STOP=yes;;
-    --learn) [ "$CMD" = review ] || die "Invalid option: $opt"; REVIEW_LEARN=yes;;
-    --amend) [ "$CMD" = plan ] || die "Invalid option: $opt"; PLAN_AMEND=yes;;
-    --similar) [ "$CMD" = recall ] || die "Invalid option: $opt"; MEM_SIMILAR=yes;;
+    --secrets) [ "$CMD" = lint ] || bad_opt; LINT_SECRETS=yes;;
+    --expired) [ "$CMD" = release ] || bad_opt; EXPIRED=yes;;
+    --summary) [ "$CMD" = status ] || bad_opt; SHOW_SUMMARY=yes;;
+    --full) case "$CMD" in status|next|digest|inbox) FULL=yes;; *) bad_opt;; esac;;
+    --start) [ "$CMD" = review ] || bad_opt; REVIEW_START=yes;;
+    --stop) [ "$CMD" = review ] || bad_opt; REVIEW_STOP=yes;;
+    --learn) [ "$CMD" = review ] || bad_opt; REVIEW_LEARN=yes;;
+    --amend) [ "$CMD" = plan ] || bad_opt; PLAN_AMEND=yes;;
+    --similar) [ "$CMD" = recall ] || bad_opt; MEM_SIMILAR=yes;;
     --ack|--all|--peek|--human)
-      [ "$CMD" = inbox ] || die "Invalid option: $opt"
+      [ "$CMD" = inbox ] || bad_opt
       case "$opt" in --ack) MSG_ACK=yes;; --all) MSG_MODE=all;; --peek) MSG_MODE=peek;; --human) MSG_MODE=human;; esac;;
     --kind)
-      [ "$CMD" = msg ] && [ "$#" -gt 0 ] || die "Invalid option: $opt"
+      [ "$CMD" = msg ] && [ "$#" -gt 0 ] || bad_opt
       MSG_KIND=$1; shift; msg_valid_kind "$MSG_KIND" || die "--kind: info|request|contract|blocker|reply|review|approve|reject|integrated|human";;
     --task|--branch|--worktree|--next|--read-summary|--state|--done|--decision|--why|--fails|--commands|--pr|--evidence|--integrated|--reviewer|--cancel|--sha|--verdict|--note|--command|--option|--reversible|--authorized|--class|--path|--rule|--reason|--to|--title|--for|--timeout|--forget|--search)
       [ "$#" -gt 0 ] || die "Missing value for $opt."
@@ -1426,39 +1437,39 @@ while [ "$#" -gt 0 ]; do
       case "$opt" in
         --task)
           value=$(norm_id "$value"); valid_id "$value" || bad_id "$value"
-          case "$CMD" in status|learn) ID=$value;; msg) MSG_TASK=$value;; inbox) MSG_MODE="task:$value";; *) die "Invalid option.";; esac;;
-        --branch) [ "$CMD" = claim ] || die "Invalid option."; BRANCH=$value;;
-        --worktree) [ "$CMD" = claim ] || die "Invalid option."; WORKTREE=$value;;
-        --next) case "$CMD" in claim|checkpoint) NEXT_TEXT=$value;; *) die "Invalid option.";; esac;;
-        --read-summary) [ "$CMD" = release ] || die "Invalid option."; TOKEN=$value;;
-        --state) [ "$CMD" = log ] || die "Invalid option."; NEW_STATE=$value; case "$value" in CLAIMED|BLOCKED) ;; *) die "Invalid state.";; esac;;
-        --done) [ "$CMD" = checkpoint ] || die "Invalid option."; DONE_TEXT=$value;;
-        --decision) [ "$CMD" = checkpoint ] || die "Invalid option."; DECISION_TEXT=$value;;
-        --why) case "$CMD" in checkpoint|decision) ;; *) die "Invalid option.";; esac; WHY_TEXT=$value;;
-        --fails) [ "$CMD" = checkpoint ] || die "Invalid option."; FAILS_TEXT=$value;;
-        --commands) [ "$CMD" = checkpoint ] || die "Invalid option."; COMMANDS_TEXT=$value;;
-        --pr) [ "$CMD" = done ] || die "Invalid option."; PR_URL=$value;;
-        --evidence) [ "$CMD" = done ] || die "Invalid option."; EVIDENCE=$value;;
-        --integrated) case "$CMD" in done|integrate) MERGE_COMMIT=$value;; *) die "Invalid option.";; esac;;
-        --reviewer) [ "$CMD" = done ] || die "Invalid option."; REVIEWER=$value;;
-        --sha) [ "$CMD" = review ] || die "Invalid option."; REVIEW_SHA=$value;;
-        --verdict) [ "$CMD" = review ] || die "Invalid option."; REVIEW_VERDICT=$value;;
-        --note) case "$CMD" in review|done) REVIEW_NOTE=$value;; *) die "Invalid option.";; esac;;
-        --for) [ "$CMD" = wait ] || die "Invalid option."; case "$value" in approve|integrated|message) WAIT_FOR=$value;; *) die "--for approve|integrated|message";; esac;;
-        --timeout) [ "$CMD" = wait ] || die "Invalid option."; case "$value" in ''|*[!0-9]*) die "--timeout takes seconds";; esac; WAIT_TIMEOUT=$value;;
-        --to) case "$CMD" in done|handover) ;; *) die "Invalid option.";; esac; case "$value" in *[!A-Za-z0-9_.-]*) die "--to takes an agent name.";; esac; DONE_TO=$value;;
-        --title) [ "$CMD" = followup ] || die "Invalid option."; FOLLOWUP_TITLE=$value;;
-        --command) [ "$CMD" = init-smoke ] || die "Invalid option."; SMOKE_COMMAND=$value;;
-        --option) [ "$CMD" = decision ] || die "Invalid option."; DECISION_OPTION=$value;;
-        --reversible) [ "$CMD" = decision ] || die "Invalid option."; DECISION_REVERSIBLE=$value;;
-        --authorized) [ "$CMD" = decision ] || die "Invalid option."; DECISION_AUTHORIZED=$value;;
-        --class) [ "$CMD" = decision ] || die "Invalid option."; DECISION_CLASS=$value;;
-        --path) case "$CMD" in secret-exception) SECRET_PATH=$value;; learn|recall) MEM_PATHS=$value;; *) die "Invalid option.";; esac;;
-        --search) [ "$CMD" = recall ] || die "Invalid option."; MEM_SEARCH=$value;;
-        --forget) [ "$CMD" = learn ] || die "Invalid option."; case "$value" in ''|*[!0-9]*) die "--forget takes a lesson number";; esac; MEM_FORGET=$value;;
-        --rule) [ "$CMD" = secret-exception ] || die "Invalid option."; SECRET_RULE=$value;;
-        --reason) case "$CMD" in secret-exception) SECRET_REASON=$value;; allow) WHY_TEXT=$value;; *) die "Invalid option.";; esac;;
-        --cancel) [ "$CMD" = release ] || die "Invalid option."; CANCEL_REASON=$value;;
+          case "$CMD" in status|learn) ID=$value;; msg) MSG_TASK=$value;; inbox) MSG_MODE="task:$value";; *) bad_opt;; esac;;
+        --branch) [ "$CMD" = claim ] || bad_opt; BRANCH=$value;;
+        --worktree) [ "$CMD" = claim ] || bad_opt; WORKTREE=$value;;
+        --next) case "$CMD" in claim|checkpoint) NEXT_TEXT=$value;; *) bad_opt;; esac;;
+        --read-summary) [ "$CMD" = release ] || bad_opt; TOKEN=$value;;
+        --state) [ "$CMD" = log ] || bad_opt; NEW_STATE=$value; case "$value" in CLAIMED|BLOCKED) ;; *) die "Invalid state.";; esac;;
+        --done) [ "$CMD" = checkpoint ] || bad_opt; DONE_TEXT=$value;;
+        --decision) [ "$CMD" = checkpoint ] || bad_opt; DECISION_TEXT=$value;;
+        --why) case "$CMD" in checkpoint|decision) ;; *) bad_opt;; esac; WHY_TEXT=$value;;
+        --fails) [ "$CMD" = checkpoint ] || bad_opt; FAILS_TEXT=$value;;
+        --commands) [ "$CMD" = checkpoint ] || bad_opt; COMMANDS_TEXT=$value;;
+        --pr) [ "$CMD" = done ] || bad_opt; PR_URL=$value;;
+        --evidence) [ "$CMD" = done ] || bad_opt; EVIDENCE=$value;;
+        --integrated) case "$CMD" in done|integrate) MERGE_COMMIT=$value;; *) bad_opt;; esac;;
+        --reviewer) [ "$CMD" = done ] || bad_opt; REVIEWER=$value;;
+        --sha) [ "$CMD" = review ] || bad_opt; REVIEW_SHA=$value;;
+        --verdict) [ "$CMD" = review ] || bad_opt; REVIEW_VERDICT=$value;;
+        --note) case "$CMD" in review|done) REVIEW_NOTE=$value;; *) bad_opt;; esac;;
+        --for) [ "$CMD" = wait ] || bad_opt; case "$value" in approve|integrated|message) WAIT_FOR=$value;; *) die "--for approve|integrated|message";; esac;;
+        --timeout) [ "$CMD" = wait ] || bad_opt; case "$value" in ''|*[!0-9]*) die "--timeout takes seconds";; esac; WAIT_TIMEOUT=$value;;
+        --to) case "$CMD" in done|handover) ;; *) bad_opt;; esac; case "$value" in *[!A-Za-z0-9_.-]*) die "--to takes an agent name.";; esac; DONE_TO=$value;;
+        --title) [ "$CMD" = followup ] || bad_opt; FOLLOWUP_TITLE=$value;;
+        --command) [ "$CMD" = init-smoke ] || bad_opt; SMOKE_COMMAND=$value;;
+        --option) [ "$CMD" = decision ] || bad_opt; DECISION_OPTION=$value;;
+        --reversible) [ "$CMD" = decision ] || bad_opt; DECISION_REVERSIBLE=$value;;
+        --authorized) [ "$CMD" = decision ] || bad_opt; DECISION_AUTHORIZED=$value;;
+        --class) [ "$CMD" = decision ] || bad_opt; DECISION_CLASS=$value;;
+        --path) case "$CMD" in secret-exception) SECRET_PATH=$value;; learn|recall) MEM_PATHS=$value;; *) bad_opt;; esac;;
+        --search) [ "$CMD" = recall ] || bad_opt; MEM_SEARCH=$value;;
+        --forget) [ "$CMD" = learn ] || bad_opt; case "$value" in ''|*[!0-9]*) die "--forget takes a lesson number";; esac; MEM_FORGET=$value;;
+        --rule) [ "$CMD" = secret-exception ] || bad_opt; SECRET_RULE=$value;;
+        --reason) case "$CMD" in secret-exception) SECRET_REASON=$value;; allow) WHY_TEXT=$value;; *) bad_opt;; esac;;
+        --cancel) [ "$CMD" = release ] || bad_opt; CANCEL_REASON=$value;;
       esac
       ;;
     *) case "$CMD" in
@@ -1506,7 +1517,7 @@ fi
 if [ "$CMD" = checkpoint ]; then
   [ -n "$DONE_TEXT" ] && [ -n "$DECISION_TEXT" ] && [ -n "$WHY_TEXT" ] &&
     [ -n "$FAILS_TEXT" ] && [ -n "$COMMANDS_TEXT" ] && [ -n "$NEXT_TEXT" ] ||
-    die "checkpoint needs all six fields; use - for none."
+    die "checkpoint needs all six fields; missing:$([ -n "$DONE_TEXT" ] || printf ' --done')$([ -n "$DECISION_TEXT" ] || printf ' --decision')$([ -n "$WHY_TEXT" ] || printf ' --why')$([ -n "$FAILS_TEXT" ] || printf ' --fails')$([ -n "$COMMANDS_TEXT" ] || printf ' --commands')$([ -n "$NEXT_TEXT" ] || printf ' --next') (use - for none)."
 fi
 if [ "$CMD" = done ]; then
   case "$PR_URL" in https://*/*) ;; *) die "done needs --pr HTTPS URL.";; esac

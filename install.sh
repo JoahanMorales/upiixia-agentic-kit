@@ -120,13 +120,13 @@ putdir "$kit/.claude/commands" "$target/.claude/commands"
 putdir "$kit/.claude/agents" "$target/.claude/agents"
 case "$mode" in
   sprint) drop "$target/.claude/agents/security-reviewer.md" "$target/.claude/commands/uak-spec.md"
-          skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing design-taste-frontend redesign-existing-projects";;
+          skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing design-taste-frontend redesign-existing-projects product-ui";;
   marathon) drop "$target/.claude/agents/design-critic.md" "$target/.claude/commands/uak-design-lock.md" "$target/.claude/commands/uak-demo.md"
           skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing test-driven-development";;
 esac
 case ",$extra," in *,ai,*) skills="$skills mcp-builder";; esac
 case ",$extra," in *,tdd,*) case " $skills " in *" test-driven-development "*) ;; *) skills="$skills test-driven-development";; esac;; esac
-case "$stack" in fastapi-react|nextjs|expo) skills="$skills vercel-react-best-practices";; esac
+case "$stack" in fastapi-react|nextjs|expo) skills="$skills vercel-react-best-practices"; case " $skills " in *" product-ui "*) ;; *) skills="$skills product-ui";; esac;; esac
 [ "$stack" != ai-agent ] || case " $skills " in *" mcp-builder "*) ;; *) skills="$skills mcp-builder";; esac
 for s in $skills; do putdir "$kit/.uak/skills/$s" "$target/.claude/skills/$s"; done
 if [ "$stack" != none ]; then

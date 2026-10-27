@@ -9,7 +9,8 @@ Read `.uak/PROJECT.md`, your mode's §Plan, `.uak/docs/GRAPH.md`, and then `IDEA
 Produce in ONE pass, in the format of `.uak/templates/TASKS.template.md`:
 1. `.uak/TASKS.md`:
    - **Setup P0.** It owns lockfiles, the app entry and config. Add every foreseeable dependency at once.
-   - **Contract P0.** Schemas, fixtures and mocks, plus a provisional `web/DESIGN.md`.
+   - **Contract P0.** Schemas, fixtures and mocks.
+   - **Design lock P0** (any project with screens): its own task in wave 1, 30–45 min, run with `/uak-design-lock`, never merged into another task. Paths: `web/DESIGN.md`, the tokens, `web/src/lib/ui/`, `web/public/design-lock/`. Verify: `test -s web/DESIGN.md && ls web/public/design-lock/*.png`. Never write the visual direction into the plan or the acceptance: the human picks it from screenshots. Every UI task lists it in `Depends on:`, so no view is built on improvised styles; until it lands, those agents take data and API tasks. Why (Chilangatón): the plan said "no time for 3 directions: the one in Appendix D (sober, public-document look)", the task shared 40 min with the map component, and 10 views started on their own colors and components; the UI was redone 3 hours in.
    - **Spikes P0.** One 30-min spike per external risk (API, model, data).
    - **Features.** Vertical P0 → P1 → P2 tasks with disjoint `Paths` and an `Estimate`. In sprint, each maps to a rubric criterion.
    - **Demo and submission** (sprint): `Freeze-Allowed: yes`.

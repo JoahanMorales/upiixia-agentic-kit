@@ -266,14 +266,24 @@ case "${1:-}" in
     # busy; approvals then needed up to 14 attempts. A 45-min sprint lease is safe with a 15-min beat.
     hb=$(sed -n 's/^[-* ]*Lease-Seconds:[* ]*//p' .uak/PROJECT.md 2>/dev/null | head -n 1 | tr -cd '0-9')
     hb=$(( ${hb:-2700} / 180 )); [ "$hb" -ge 8 ] || hb=8; [ "$hb" -le 20 ] || hb=20
-    if [ -n "$task" ] && ! fresh "$gd/uak-heartbeat" "$hb"; then
+    # A task handed over (or released) from another machine is no longer this worktree's: one heartbeat says so, then
+    # the beats stop and the agent hears it once. Why (Chilangatón): after a Windows → macOS handover the old
+    # session kept beating PB-027 ("belongs to", "has no active claim") into the black box.
+    gone=$(cat "$gd/uak-task-gone" 2>/dev/null)
+    if [ -n "$task" ] && [ "$gone" = "$task" ] && [ "$(cat "$gd/uak-task-gone.told" 2>/dev/null)" != "$task" ]; then
+      printf '%s' "$task" > "$gd/uak-task-gone.told" 2>/dev/null
+      coach_note="UAK: $task is no longer this worktree's ($(tail -n 1 "$gd/uak-heartbeat.log" 2>/dev/null | cut -c 1-160)). Stop editing it; run uak next.${coach_note:+
+}$coach_note"
+    fi
+    if [ -n "$task" ] && [ "$gone" != "$task" ] && ! fresh "$gd/uak-heartbeat" "$hb"; then
       touch "$gd/uak-heartbeat" 2>/dev/null
       reviews=no; fresh "$gd/uak-heartbeat.reviews" 30 || { reviews=yes; touch "$gd/uak-heartbeat.reviews" 2>/dev/null; }
       # REVIEW tasks in other worktrees need a live lease for uak merge.
-      nohup bash -c 'bash .uak/bin/uak heartbeat "$1"
+      nohup bash -c 'out=$(bash .uak/bin/uak heartbeat "$1" 2>&1); printf "%s\n" "$out"
+        case "$out" in *"belongs to "*|*"has no active claim"*) printf "%s" "$1" > "$4/uak-task-gone";; esac
         [ "$3" = yes ] || exit 0
         bash .uak/bin/uak status --full 2>/dev/null | awk -F" [|] " -v a="$2" -v t="$1" "\$2==\"REVIEW\" && \$3==a && \$1!=t {print \$1}" |
-          while read -r id; do bash .uak/bin/uak heartbeat "$id"; done' _ "$task" "$agent" "$reviews" > "$gd/uak-heartbeat.log" 2>&1 &
+          while read -r id; do bash .uak/bin/uak heartbeat "$id"; done' _ "$task" "$agent" "$reviews" "$gd" > "$gd/uak-heartbeat.log" 2>&1 &
     fi
     # Poll in background, never blocking the agent: a cheap `ls-remote` of claims every 20 s, and the inbox is read
     # only when the claims tip moved (or every 5 min). Why: the old 2-min full read was the message latency; an

@@ -36,9 +36,10 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 1. The wow moment happens within 90 s of the demo and is fully visible at 1280×720 (projector) without scrolling. Legal or "not a diagnosis" notices stay inside the viewport.
 2. There is one visual direction in `web/DESIGN.md`, and every color comes from CSS tokens. A global redesign after the lock needs a human decision.
 3. Every screen on the demo path has empty, loading, error and labeled sample-data states.
-4. Before every UI PR, the `design-critic` subagent reviews screenshots at 1280×720 and 390×844. Fix its P1s before asking for review.
+4. Before every UI PR: `bash .uak/bin/design-lint` passes, then the `design-critic` subagent reviews screenshots at 1280×720 and 390×844. Fix its P1s before asking for review.
 5. Skills:
-   - `design-taste-frontend`, only for DESIGN.md and hero screens (it is large);
+   - `design-taste-frontend`, only for the design lock and hero screens (it is large, and it is not for app screens);
+   - `product-ui` for every app screen: dashboards, maps with panels, forms, lists;
    - `redesign-existing-projects` during the freeze;
    - `webapp-testing` to verify.
 6. Animations respect `prefers-reduced-motion`. UI checks run with reduced motion, so a slow GPU never fakes a failure.

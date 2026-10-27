@@ -28,6 +28,28 @@ jobs:
           python3 -c 'import ast, sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())' .uak/bin/uak-mcp
       - name: Backlog graph (no cycles, no unknown deps)
         run: if [ -f .uak/TASKS.md ]; then bash .uak/bin/graph --file .uak/TASKS.md; fi
+      # The product smoke needs the stack's tools; a runner has none of uv, a current Node, Java 21 or Go.
+      # Why (Chilangatón): 59 of 60 runs failed with "uv: command not found", so every PR was red and pr-sync told
+      # each task "CI failed" for a tool the runner lacked.
+      - name: Python toolchain (uv)
+        if: hashFiles('**/uv.lock', '**/pyproject.toml') != ''
+        uses: astral-sh/setup-uv@v6
+      - name: Node toolchain
+        if: hashFiles('**/package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Java toolchain
+        if: hashFiles('**/pom.xml', '**/build.gradle', '**/build.gradle.kts') != ''
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Go toolchain
+        if: hashFiles('**/go.mod') != ''
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
       - name: Product smoke
         run: |
           if [ -f .uak/bin/smoke-project ]; then bash .uak/bin/smoke-project

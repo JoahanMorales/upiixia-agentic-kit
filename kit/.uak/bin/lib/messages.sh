@@ -76,6 +76,7 @@ msg_seen_all() {
   awk -F' [|] ' '
     FNR == 1 { name = FILENAME; sub(/.*\//, "", name); sub(/\.md$/, "", name); log_ = (FILENAME ~ /inbox\/log\.md$/) }
     log_ { if ($0 ~ /^- [0-9]/ && $3 != "" && $2 + 0 > seen[$3]) seen[$3] = $2 + 0; next }
+    /^Role: human/ { human[name] = 1 }
     /^Updated: / { v = substr($0, 10) + 0; if (v > seen[name]) seen[name] = v }
     /^Human: / { h = substr($0, 8); if (h != "" && h != name) human[h] = 1 }
     /^Last: / { last[name] = substr($0, 7) + 0 }
@@ -136,7 +137,10 @@ msg_pick_reviewer() {
     }
     END {
       for (n in seen) {
-        if (n == owner || n == "scheduler" || n == "" || (n in ishuman) || (n in away) || index(retired, " " n " ") || index(excl, " " n " ")) continue
+        # Never "github" (the sender of pr-sync messages) nor a human (Role: human). Why (Chilangatón): 14 of 48 review
+        # offers went to "github" (idle, no verdicts, so always the best pick) and 3 to the UAK_HUMAN name of a human;
+        # each waited 15 min for the re-offer.
+        if (n == owner || n == "scheduler" || n == "github" || n == "" || (n in ishuman) || (n in away) || index(retired, " " n " ") || index(excl, " " n " ")) continue
         age = now - seen[n]; if (age > 10800) continue
         tier[n] = (age <= online) ? 2 : 1
       }

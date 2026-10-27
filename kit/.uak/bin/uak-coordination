@@ -47,12 +47,19 @@ coord_init() {
   # Why (Chilangatón, venue Wi-Fi): 10 `done` failed as "Could not read PROJECT.md" over 2 hours, never retried,
   # and git's error was dropped, so nobody saw the cause.
   local coord_try=0
+  # A retry of the same call (claims contention: a new try directory) reuses the base it already fetched, from the
+  # previous try's objects: no second download. Why (Chilangatón): "done/review/status retry 10+ times and take
+  # over 8 min" on venue Wi-Fi, and done/integrate/merge fetched the whole base again on every retry.
+  if [ -n "${COORD_BASE_FROM:-}" ] && [ "$COORD_BASE_FROM" != "$TX" ] && [ -d "$COORD_BASE_FROM/.git" ]; then
+    git -C "$TX" fetch -q "$COORD_BASE_FROM" refs/uak/config:refs/uak/config 2>/dev/null || true
+  fi
   until git -C "$TX" rev-parse -q --verify refs/uak/config >/dev/null 2>&1 ||
         git -C "$TX" fetch -q $coord_depth origin "refs/heads/$BASE:refs/uak/config" 2> "$TXROOT/config-error"; do
     coord_try=$((coord_try + 1))
     [ "$coord_try" -lt 3 ] || gitfail "Could not read PROJECT.md on remote $BASE (3 tries). $(head -n 1 "$TXROOT/config-error")"
     sleep $((coord_try * 2))
   done
+  COORD_BASE_FROM=$TX
   git -C "$TX" show refs/uak/config:.uak/TASKS.md > "$TXROOT/canonical-TASKS.md" 2>/dev/null || : > "$TXROOT/canonical-TASKS.md"
   git -C "$TX" show refs/uak/config:.uak/OWNERS.md > "$TXROOT/canonical-OWNERS.md" 2>/dev/null || : > "$TXROOT/canonical-OWNERS.md"
   # Backlog published with `uak plan` on claims is appended to main's, no PR.
@@ -294,6 +301,17 @@ coord_counter_inc() {
   [ -n "$coord_n" ] || coord_n=0
   coord_uint "$coord_counter_key" "$coord_n"
   coord_put "$coord_counter_file" "$coord_counter_key" "$((coord_n + 1))"
+}
+# A human acting under their own name (UAK_HUMAN): any command they write with marks them `Role: human`, so the
+# reviewer rotation never offers them a review. Why (Chilangatón): a human's allow made "Alexis" an identity seen on
+# claims, and 3 review offers went to it, the last PR of the event among them.
+coord_mark_human() {
+  [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ] || return 0
+  case "$HUMAN" in *[!A-Za-z0-9_.-]*) return 0;; esac
+  local f="$TX/meta/agents/$HUMAN.md"
+  mkdir -p "$TX/meta/agents"
+  [ -f "$f" ] || printf '%s\n' "# $HUMAN" "Agent: $HUMAN" "Started: $NOW" > "$f"
+  [ "$(coord_read "$f" Role)" = human ] || coord_put "$f" Role human
 }
 coord_event() {
   [ -n "$AGENT" ] && [ -n "$ID" ] || return 0

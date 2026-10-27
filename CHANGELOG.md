@@ -20,7 +20,42 @@
   the reviewer subagents (all harnesses) name it.
 - **FastAPI stack: `tzdata` at setup.** `ZoneInfo("America/Mexico_City")` failed to import on Windows, and the fix
   had to go through the lockfile owner and a human merge.
-- `test_v54.py`: 5 scenarios that fail on v5.3.0, the queue race among them.
+- **The frontend: a skill for app screens, a gate, and a design lock that cannot be skipped.** The first UI was
+  redone 3 hours in. The plan wrote the visual direction as a sentence ("sober, public-document look"), skipped the
+  screenshots and gave the lock 40 min shared with the map; 10 views started before the design system, each on raw
+  `stone-*`/`emerald-*` classes, a hand-typed orange and its own badge and toggle; and `design-taste-frontend` says on
+  line 1 it is not for app screens, and reads "accessible public service" as GOV.UK. Now:
+  - `product-ui` (new skill, sprint and every web stack): layout recipes for maps with panels, dashboards, detail
+    pages, flows and lists, hierarchy in five rules, the craft details, and a 3-second judge test.
+  - `uak design-lint`: raw palette classes, hex colors and local copies of UI kit components fail (91 findings on that
+    first UI). The FastAPI + React smoke and `design-critic` run it.
+  - `/uak-plan` makes the design lock its own wave-1 task, verified by screenshots, and every UI task depends on it.
+    `/uak-design-lock` never takes the direction from a sentence; accessibility is a floor, never a style; it ships the
+    UI kit with the tokens.
+  - `design-critic` compares each screen with the locked screenshot and fails the admin-template look. IDEA asks for
+    2–3 visual references.
+- **Reviews go to agents only.** The rotation's pick took any identity seen on claims: 14 of 48 offers went to
+  `github` (the sender of pr-sync messages, idle and with no verdicts, so always the best pick) and 3 to a human's
+  `UAK_HUMAN` name; each waited 15 min for the re-offer, and one PR was never reviewed. Now a reviewer has an agent
+  `github` is never picked, and a human who writes anything under their own name (`UAK_HUMAN`) is marked `Role: human`
+  on claims, so the rotation skips them.
+- **`done` never adopts the main checkout** as the task's worktree after a handover (the claim refuses it too).
+- **The `uak` CI workflow installs the stack's tools.** 59 of 60 runs failed with `uv: command not found`, so every PR
+  was red and pr-sync told each task "CI failed". uv, Node 22, Java 21 or Go are set up when their project files exist.
+- **pr-sync skips bots and tells forge merges.** CodeRabbit (a plain login, HTML-comment bodies) reached agents as
+  requests. A PR merged on GitHub while its task is open on claims now says so once, with `uak integrate ID`: two
+  tasks stayed in REVIEW after the event.
+- **sprint: any agent merges an approval after 5 min** (`Merge-Adopt-Seconds: 300` in the sprint template; 20 min
+  elsewhere). Approvals waited 11 min on average for their owner, up to 28, with 12 "merge it now" messages.
+- **A retry reuses the base it fetched.** Under claims contention `done`/`integrate`/`merge` fetched the whole base
+  again on every try; the next try now copies it from the previous try's objects.
+- **The hook stops heartbeating a task that moved.** After a handover to another machine, the old session's
+  heartbeats kept failing ("belongs to", "has no active claim"); the first such beat stops them and the agent hears
+  it once.
+- **Errors that say the fix.** An unknown option names itself and the command's usage (`done` failed with a bare
+  "Invalid option."); `checkpoint` names the missing fields; `plan` shows the section format; a claim push without
+  Git credentials says `gh auth login && gh auth setup-git` and points to `uak start`.
+- `test_v54.py`: 11 scenarios that fail on v5.3.0, the queue race among them.
 
 ## v5.3.0 · 2026-10-23 · `uak start`: from install to the first claim, every step named
 A solo marathon project spent two hours before its first claim. Each blocker was one line to fix (the kit not on

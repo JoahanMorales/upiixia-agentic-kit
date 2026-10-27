@@ -23,13 +23,19 @@ pr_sync_run() {
   pr_sync_targets > "$TXROOT/pr-targets"
   while IFS="$(printf '\t')" read -r id branch; do
     # One line per item: kind TAB key TAB text. gh's built-in --jq; no jq needed.
-    (cd "$ROOT" && "$gh" pr view "$branch" --json number,statusCheckRollup,comments,reviews --jq '
+    # Bots are not humans: CodeRabbit and others post as plain logins (no [bot]) and HTML-comment bodies.
+    # A PR merged on GitHub with the task still open is told once: record it (Chilangatón: PB-027 and PB-035 were
+    # merged on GitHub and stayed in REVIEW on claims; coderabbitai summaries reached agents as requests).
+    (cd "$ROOT" && "$gh" pr view "$branch" --json number,state,statusCheckRollup,comments,reviews --jq '
+      def human: ((.author.login // "") | test("\\[bot\\]$|^(coderabbitai|copilot|github-actions|dependabot|renovate|sonarcloud|sonarqubecloud|vercel|netlify|codecov|gemini-code-assist|cursor)$"; "i") | not)
+        and ((.body // "") | test("^\\s*<!--") | not);
       .number as $n
-      | ((.statusCheckRollup // [])[] | select(((.conclusion // .state) // "") | test("FAILURE|ERROR|TIMED_OUT|ACTION_REQUIRED"))
+      | (if .state == "MERGED" then "merged\t\($n)\t#\($n) was merged on GitHub; the task is still open on claims" else empty end),
+        ((.statusCheckRollup // [])[] | select(((.conclusion // .state) // "") | test("FAILURE|ERROR|TIMED_OUT|ACTION_REQUIRED"))
           | "check\t\(.name // .context)|\(.detailsUrl // .targetUrl // "")\t#\($n) CI failed: \(.name // .context) \(.detailsUrl // .targetUrl // "")"),
-        ((.comments // [])[] | select((.author.login // "") | test("\\[bot\\]$") | not)
+        ((.comments // [])[] | select(human)
           | "comment\t\(.id)\t#\($n) @\(.author.login): \(.body | gsub("[\r\n\t|]+"; " ") | .[0:220])"),
-        ((.reviews // [])[] | select(((.author.login // "") | test("\\[bot\\]$") | not) and ((.body // "") != "" or .state == "CHANGES_REQUESTED"))
+        ((.reviews // [])[] | select(human and ((.body // "") != "" or .state == "CHANGES_REQUESTED"))
           | "review\t\(.id)\t#\($n) review \(.state) by @\(.author.login): \(.body // "" | gsub("[\r\n\t|]+"; " ") | .[0:220])")' 2>/dev/null) |
       while IFS= read -r line; do [ -n "$line" ] && printf '%s\t%s\n' "$id" "$line"; done >> "$PR_EVENTS"
   done < "$TXROOT/pr-targets"
@@ -52,6 +58,7 @@ pr_sync_mutate() {
       case "$kind" in
         check) local run; run=$(printf '%s' "$key" | sed -n 's@.*/actions/runs/\([0-9]*\).*@\1@p')
                if [ -n "$run" ]; then text="$text · read it: gh run view $run --log-failed"; else text="$text · read it: gh pr checks"; fi;;
+        merged) text="$text: record it with bash .uak/bin/uak integrate $id (no approval on claims yet? a reviewer approves the merged SHA first)";;
       esac
       n=$((n + 1)); [ "$n" -le 4 ] || continue
       msgs="${msgs}${msgs:+ · }$text"

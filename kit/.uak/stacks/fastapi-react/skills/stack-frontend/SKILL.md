@@ -18,7 +18,7 @@ A task reserves `web/src/features/<f>/`. `package.json`, the lockfile, `vite.con
 |---|---|---|
 | Define the visual direction (once) | `design-taste-frontend` → writes `web/DESIGN.md` | high, once |
 | Hero, landing, wow screen | `design-taste-frontend` (sections 4, 9, pre-flight 14) | high; those screens only |
-| Product screens (forms, lists, panels) | `web/DESIGN.md` + loading/empty/error + AA contrast | low |
+| Product screens (dashboards, maps with panels, forms, lists) | `product-ui` + `web/DESIGN.md` + the UI kit in `web/src/lib/ui` | low; every screen |
 | React performance patterns | `vercel-react-best-practices`: read only the relevant `rules/<rule>.md` | low |
 | Verify the UI works | `webapp-testing` (`with_server.py` + Playwright) | low if you print only the verdict |
 | Polish during the freeze | `redesign-existing-projects` | medium |
@@ -26,6 +26,8 @@ A task reserves `web/src/features/<f>/`. `package.json`, the lockfile, `vite.con
 `design-taste-frontend` assumes Next.js. Here there is no RSC or `next/font` (use `@fontsource`), Motion comes from `motion/react`, and icons from `@phosphor-icons/react`.
 
 Rules:
+- Accessibility (AA, 18 px, 48 px targets, focus) is a floor every screen meets, never a style: no gray government-form look unless the human asks.
+- Colors only from tokens and components only from `web/src/lib/ui`: `bash .uak/bin/design-lint` fails raw palette classes, hex colors and local copies.
 - Call the backend only through `api<T>()`, under `/api`. Until an endpoint exists, use a labeled mock with the contract's shape.
 - Every data view has loading (skeleton), empty and error states.
 - No "Lorem ipsum", "John Doe" or "Acme". Respect `prefers-reduced-motion`.
