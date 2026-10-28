@@ -35,8 +35,13 @@ main=$(cd "$common/.." && pwd -P)
 REMOTE=${UAK_REMOTE:-origin}
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-tokens.XXXXXX") || exit 2
 trap 'rm -rf "$tmp"' EXIT
-# The transcript directory name is the cwd with every non-alphanumeric character turned into "-".
-enc() { printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g'; }
+# The transcript directory name is the cwd with every non-alphanumeric character turned into "-", counted the
+# way Claude Code counts them (UTF-16 units): é is one "-", an emoji two. Why: under LC_ALL=C sed saw é as two
+# bytes, so a home like C:\Users\José never matched its transcripts.
+enc() {
+  local u4 u2; u4=$(printf '[\360-\367][\200-\277]*'); u2=$(printf '[\300-\357][\200-\277]*')
+  printf '%s' "$1" | LC_ALL=C sed -e "s/$u4/--/g" -e "s/$u2/-/g" -e 's/[^A-Za-z0-9]/-/g'
+}
 prefixes() {
   local m=$main w
   printf '%s\n' "$(enc "$m")"

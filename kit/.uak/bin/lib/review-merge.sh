@@ -515,7 +515,8 @@ rm_gate_env() {
 rm_link_dir() { # $1 existing dir, $2 link path
   case "$(uname -s 2>/dev/null)" in
     MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 &&
-      cmd //c mklink /J "$(cygpath -w "$2")" "$(cygpath -w "$1")" >/dev/null 2>&1;;
+      # No path conversion: Git Bash rewrote cmd's arguments and mklink said "Invalid switch".
+      MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' cmd /c mklink /J "$(cygpath -w "$2")" "$(cygpath -w "$1")" >> "$TXROOT/gate-node.log" 2>&1 && [ -e "$2" ];;
     *) ln -s "$1" "$2" 2>/dev/null;;
   esac
 }
@@ -530,11 +531,15 @@ rm_gate_node() {
     [ -n "$lock" ] || continue
     done_=no
     for src in "$ROOT/${d:+$d/}" "$RM_MAIN/${d:+$d/}"; do
-      [ -d "${src}node_modules" ] && cmp -s "${src}$lock" "$RM_BUILD/${d:+$d/}$lock" || continue
+      # Ignoring CR: a Windows checkout (core.autocrlf) has the same lockfile with other line ends.
+      [ -d "${src}node_modules" ] && [ "$(tr -d '\r' < "${src}$lock" | cksum)" = "$(tr -d '\r' < "$RM_BUILD/${d:+$d/}$lock" | cksum)" ] || continue
       if rm_link_dir "${src}node_modules" "$RM_BUILD/${d:+$d/}node_modules"; then
-        printf '%s\n' "$RM_BUILD/${d:+$d/}node_modules" >> "$TXROOT/gate-links"; done_=yes; break
+        printf '%s\n' "$RM_BUILD/${d:+$d/}node_modules" >> "$TXROOT/gate-links"; done_=yes
+        printf 'node: %snode_modules linked from %s\n' "${d:+$d/}" "$src" >> "$TXROOT/gate-node.log"; break
       fi
+      printf 'node: could not link %snode_modules from %s\n' "${d:+$d/}" "$src" >> "$TXROOT/gate-node.log"
     done
+    [ "$done_" = yes ] || printf 'node: no node_modules with the same %s for %s\n' "$lock" "${d:-.}" >> "$TXROOT/gate-node.log"
     if [ "$done_" = no ] && [ "$lock" = package-lock.json ] && command -v npm >/dev/null 2>&1; then
       (cd "$RM_BUILD/${d:-.}" && npm ci --no-audit --no-fund --loglevel=error) >> "$TXROOT/gate-node.log" 2>&1 || true
     fi
@@ -547,6 +552,8 @@ rm_gate_log() {
   local src="$TXROOT/gate-$1.log" dir dst line
   dir="$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null)/uak-out"; mkdir -p "$dir" 2>/dev/null || return 0
   dst="$dir/gate-$ID-$1-$NOW.log"; cp "$src" "$dst" 2>/dev/null || return 0
+  # What the gate did with node_modules explains most "command not found" in a candidate.
+  [ ! -s "$TXROOT/gate-node.log" ] || { printf '\n--- node_modules for the candidate\n'; cat "$TXROOT/gate-node.log"; } >> "$dst" 2>/dev/null
   line=$(grep -Ev '^[[:space:]]*$' "$dst" | grep -Ei 'error|fail|not found|no module|exit' | tail -n 1 | cut -c 1-140)
   [ -n "$line" ] || line=$(grep -Ev '^[[:space:]]*$' "$dst" | tail -n 1 | cut -c 1-140)
   printf ': %s (log: %s)' "$(one_line "$line" | tr '|' '/')" "$dst"

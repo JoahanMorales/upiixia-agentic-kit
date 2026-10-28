@@ -1,5 +1,30 @@
 # Changelog
 
+## v5.4.5 · 2026-10-27 · Windows, for real
+The suite now runs on a Windows runner in CI (Git Bash, a CRLF checkout as on a new machine, the MCP server
+started the way Claude Code starts it with a user's PATH), and on Linux from a temp folder named `José Pérez`.
+What it found:
+- **The MCP server did not start on Windows.** `.mcp.json` (and Cursor's, Gemini's, Codex's) ran `bash`; with a
+  user's PATH (Git for Windows adds only `Git\cmd`) that is WSL's launcher in System32. It now starts through `git`,
+  on PATH everywhere, which runs the alias in its own shell at the repo root.
+- **Every MCP tool answered "Windows Subsystem for Linux has no installed distributions".** Python on Windows looks
+  in System32 before PATH; the server now finds Git Bash (next to `git`, `UAK_BASH`, `CLAUDE_CODE_GIT_BASH_PATH`).
+- **MCP text arrived altered on Windows.** Git Bash re-parses a command line: `df['count']` became `df[count]` and
+  `*` became file names. The server passes arguments in the environment there (`lib/argv.sh`). Its commands no
+  longer inherit its stdin (the client's JSON-RPC channel), which made every tool wait out its timeout; a cancelled
+  tool stops its whole process tree (`taskkill /T`).
+- **The hook saw no file on Windows.** Claude Code names `C:\Users\RUNNER~1\…\lib\x.py`; git names `C:/Users/…`.
+  The code map at each read (lens) never fired there; the UI gate named the file wrong.
+- **The merge gate never linked node_modules on Windows.** Git Bash rewrote `cmd //c mklink /J` ("Invalid switch");
+  junctions are made without path conversion, a lockfile is compared ignoring CR, and the kept gate log says what
+  happened to each `node_modules`.
+- **`design-gallery` wrote nothing on Windows** (`C:/…` was not taken as absolute).
+- **A `.uak-env` saved with CRLF left the agent with no identity.**
+- **`uak tokens` found no transcripts for a home with an accent** (`C:\Users\José`): Claude Code names the folder per
+  UTF-16 unit; the kit counted bytes.
+- **`uak demo` broke in a folder with spaces.**
+- `learn --path all` is `*` for everyone (a bare `*` typed in PowerShell reaches Git Bash globbed).
+
 ## v5.4.4 · 2026-10-27 · Nothing waits on the terminal
 After doctor hung on macOS, every command was rerun with the terminal held open, BSD awk and an editor that never
 returns: nothing else read the terminal or opened an editor. What a human at a terminal could still hit:

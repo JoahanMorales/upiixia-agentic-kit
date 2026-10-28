@@ -225,7 +225,7 @@ def output_cap_everywhere(r):
         expect(hook("wrap", shell(skip), env=winenv) == "", "not wrapped on Windows: " + skip)
     q1 = r.run([r.bash, ".uak/bin/q", "false"], cwd=w, allowed=None).stdout
     q2 = r.run([r.bash, ".uak/bin/q", "false"], cwd=w, allowed=None).stdout
-    expect(q1.split("log ")[1].split()[0] != q2.split("log ")[1].split()[0], "q keeps one log per run: " + q1 + q2)
+    expect(q1.split(" · log ")[1].splitlines()[0] != q2.split(" · log ")[1].splitlines()[0], "q keeps one log per run: " + q1 + q2)
     return {"codex": "pre-rewrite", "windows": True, "diff_index": True}
 
 

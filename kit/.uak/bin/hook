@@ -18,7 +18,9 @@ input=''
 top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$top" || exit 0
 gd=$(git rev-parse --git-dir 2>/dev/null) || exit 0
-env_value() { [ -f .uak-env ] && sed -n "s/^$1=//p" .uak-env | head -n 1; }
+env_value() { [ -f .uak-env ] && sed -n "s/^$1=//p" .uak-env | head -n 1 | tr -d '\r'; }
+# Windows harnesses name files C:\Users\RUNNER~1\...; git names the top C:/Users/runneradmin/...: one form for both.
+winpath() { { command -v cygpath >/dev/null 2>&1 && cygpath -m -l "$1" 2>/dev/null; } || printf '%s' "$1" | tr '\\' /; }
 # The worktree's identity wins over an inherited export, as in uak (UAK_ENV_OVERRIDE=1 keeps the export).
 task=$(env_value UAK_TASK); agent=$(env_value UAK_AGENT)
 [ -n "$agent" ] && [ "${UAK_ENV_OVERRIDE:-}" != 1 ] || agent=${UAK_AGENT:-$agent}
@@ -123,6 +125,7 @@ uilint() {
   case "$tool" in Edit|Write|MultiEdit|write_file|replace|edit_file|edit) ;; *) return 0;; esac
   file=$(jdecode tool_input file_path); [ -n "$file" ] || file=$(jdecode tool_input absolute_path); [ -n "$file" ] || file=$(jdecode tool_input path)
   case "$file" in *.tsx|*.jsx|*.ts|*.js|*.vue|*.svelte|*.css) ;; *) return 0;; esac
+  case "$file" in [A-Za-z]:[\\/]*) file=$(winpath "$file");; esac
   out=$(bash .uak/bin/design-lint --file "$file" 2>/dev/null) && return 0
   printf '%s\n' "$out" | grep -q '^DESIGN_LINT_FAIL' || return 0
   printf 'UAK design-lint on %s: %s Fix it now with the tokens and the UI kit (skill product-ui).' "${file##*/}" \
@@ -130,7 +133,7 @@ uilint() {
 }
 lens() {
   [ "${UAK_LENS:-on}" != off ] || return 0
-  local d tool cmd pat file name w prev
+  local d tool cmd pat file name w prev wtop
   d="$gd/uak-coach-$(printf '%s' "${sid:-nosid}" | tr -cd 'A-Za-z0-9_.-' | cut -c 1-60)"; mkdir -p "$d" 2>/dev/null || return 0
   [ "$(wc -l < "$d/lens.seen" 2>/dev/null || echo 0)" -lt "${UAK_LENS_MAX:-25}" ] || return 0
   tool=$(printf '%s' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([A-Za-z_]*\)".*/\1/p' | head -n 1)
@@ -162,8 +165,9 @@ lens() {
     key="s:$name"
   elif [ -n "$file" ]; then
     # macOS: the tool may name /var/... while git reports /private/var/...; compare physical paths.
-    case "$file" in "$top"/*) ;; /*) w=$(cd "$(dirname "$file")" 2>/dev/null && pwd -P) && file="$w/${file##*/}";; esac
-    case "$file" in "$top"/*) file=${file#"$top"/};; /*) return 0;; esac
+    wtop=$top; case "$file" in [A-Za-z]:[\\/]*) file=$(winpath "$file"); wtop=$(winpath "$top");; esac
+    case "$file" in "$wtop"/*) ;; /*) w=$(cd "$(dirname "$file")" 2>/dev/null && pwd -P) && file="$w/${file##*/}";; esac
+    case "$file" in "$wtop"/*) file=${file#"$wtop"/};; /*|[A-Za-z]:/*) return 0;; esac
     key="f:$file"
   else return 0; fi
   ! grep -qxF -- "$key" "$d/lens.seen" 2>/dev/null || return 0

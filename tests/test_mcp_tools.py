@@ -19,6 +19,8 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+# Git Bash on Windows: a bare "bash" there resolves to WSL's launcher in System32 first.
+BASH = str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git" / "bin" / "bash.exe") if os.name == "nt" else "bash"
 TOOLS = ["uak_next", "uak_status", "uak_claim", "uak_ship", "uak_wait", "uak_review", "uak_merge", "uak_message",
          "uak_inbox", "uak_map", "uak_memory", "uak_checkpoint", "uak_tokens", "uak_cli"]
 TASKS = """## APP-001 · Greeting API
@@ -42,9 +44,9 @@ def git(cwd, *args):
 class Server:
     """A JSON-RPC client over the server's stdio (newline-delimited JSON)."""
 
-    def __init__(self, cwd, env):
-        self.p = subprocess.Popen([sys.executable, ".uak/bin/uak-mcp"], cwd=cwd, stdin=subprocess.PIPE,
-                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env)
+    def __init__(self, cwd, env, argv=None):
+        self.p = subprocess.Popen(argv or [sys.executable, ".uak/bin/uak-mcp"], cwd=cwd, stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=env)
         self.q, self.n = queue.Queue(), 0
         threading.Thread(target=self._read, daemon=True).start()
 
@@ -91,7 +93,7 @@ class McpTools(unittest.TestCase):
         repo.mkdir()
         git(repo, "init", "-q", "-b", "main")
         git(repo, "config", "user.name", "Test"); git(repo, "config", "user.email", "test@example.invalid")
-        subprocess.run(["bash", str(REPO / "install.sh"), "--mode", "sprint", "--harness", "claude", str(repo)],
+        subprocess.run([BASH, str(REPO / "install.sh"), "--mode", "sprint", "--harness", "claude", str(repo)],
                        check=True, capture_output=True, text=True, env=cls.env)
         git(repo, "remote", "add", "origin", str(remote))
         (repo / ".uak/TASKS.md").write_text(TASKS, encoding="utf-8")
@@ -102,7 +104,7 @@ class McpTools(unittest.TestCase):
         (repo / "src").mkdir(); (repo / "src/greet.py").write_text("def greet(name):\n    return 'hi'\n", encoding="utf-8")
         git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "setup"); git(repo, "push", "-q", "-u", "origin", "main")
         human = dict(cls.env, UAK_HUMAN="tester", UAK_AGENT="")
-        subprocess.run(["bash", ".uak/bin/uak", "register-reviewer", "rev-1"], cwd=repo, check=True, capture_output=True, env=human)
+        subprocess.run([BASH, ".uak/bin/uak", "register-reviewer", "rev-1"], cwd=repo, check=True, capture_output=True, env=human)
         cls.mcp = Server(repo, cls.env)
 
     @classmethod
@@ -171,6 +173,34 @@ class McpTools(unittest.TestCase):
         self.assertFalse(bad, text)
         bad, text = self.mcp.tool("uak_cli", args=["version"])
         self.assertFalse(bad, text); self.assertEqual(text.strip(), (REPO / "kit/.uak/VERSION").read_text(encoding="utf-8").strip())
+
+    def test_6_text_arrives_as_written(self):
+        """Windows: Git Bash re-parsed the command line, so df['count'] reached uak as df[count] and * was globbed."""
+        tricky = "df['count'] shadows * and [x] · \"quoted\" C:\\tmp\\ · don't · niño"
+        bad, text = self.mcp.tool("uak_memory", agent="dev-1", action="learn", text=tricky, paths="docs/")
+        self.assertFalse(bad, text)
+        bad, text = self.mcp.tool("uak_memory", agent="dev-1", action="recall", paths="docs/a.md")
+        self.assertFalse(bad, text); self.assertIn(tricky, text)
+
+    def test_5_started_as_the_harness_starts_it(self):
+        """Windows: "bash" from .mcp.json was WSL's launcher in System32, and so was every tool's bash."""
+        cfg = json.loads((self.repo / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["uak"]
+        env = dict(self.env)
+        if os.name == "nt":  # a user's PATH: Git for Windows adds only Git\cmd, not Git\bin or usr\bin
+            keep = [d for d in env["PATH"].split(os.pathsep) if not any(x in d.lower() for x in ("\\git\\bin", "\\git\\usr", "\\git\\mingw"))]
+            env["PATH"] = os.pathsep.join(keep)
+        exe = shutil.which(cfg["command"], path=env["PATH"]) or cfg["command"]  # what a harness's spawn finds on PATH
+        sub = self.repo / "src"; sub.mkdir(exist_ok=True)
+        for cwd in (self.repo, sub):
+            s = Server(cwd, env, [exe] + cfg["args"])
+            try:
+                s.call("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "tests", "version": "1"}})
+                bad, text = s.tool("uak_status")
+            finally:
+                s.close()
+            self.assertFalse(bad, text)
+            self.assertIn("APP-001", text, "the tool ran uak, from %s: %s" % (cwd, text[:300]))
+            self.assertNotIn("Windows Subsystem", text.replace("\x00", ""))
 
 
 class Manifest(unittest.TestCase):

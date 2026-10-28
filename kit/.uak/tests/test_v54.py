@@ -67,6 +67,8 @@ def merge_that_loses_the_queue_race_is_done(r):
 
 def base_fetch_retries_and_says_why(r):
     """10 `done` failed as "Could not read PROJECT.md on remote main" on venue Wi-Fi: one try, git's error hidden."""
+    if os.name == "nt":
+        return {"skipped": "Git Bash's launcher puts its own git before a PATH shim"}
     f = rm.fixture(r, "v54-flaky", count=1)
     f.claim(0, "HACK-001")
     rm.publish(f, 0, "HACK-001")
@@ -108,7 +110,10 @@ def done_after_a_cross_machine_handover(r):
     expect(done.returncode == 0 and "REVIEW" in done.stdout, "done from the new checkout: " + done.stdout + done.stderr)
     record = f.show("tasks/HACK-001.md")
     expect("Task-Tip: " + tip in record, "the tip of this checkout: " + record)
-    expect("Worktree: " + moved.resolve().as_posix() in record, "the new path is recorded: " + record)
+    where = moved.resolve().as_posix()
+    if os.name == "nt":  # Git Bash records /c/Users/..., its own form, everywhere
+        where = "/" + where[0].lower() + where[2:]
+    expect("Worktree: " + where in record, "the new path is recorded: " + record)
     g = rm.fixture(r, "v54-handover-main", count=1)
     g.claim(0, "HACK-001")
     rm.publish(g, 0, "HACK-001")
@@ -410,7 +415,7 @@ def ui_edits_get_the_gate_at_once(r):
     full = r.run([r.bash, ".uak/bin/design-lint"], cwd=w, allowed=None)
     expect("bounce easing" in full.stdout and "emoji in the UI" in full.stdout and "default typeface" in full.stdout, full.stdout)
     payload = {"session_id": "s1", "hook_event_name": "PostToolUse", "tool_name": "Write", "tool_input": {"file_path": str(view)}}
-    (w / ".git-payload.json").write_text(json.dumps(payload), encoding="utf-8")
+    (w / ".git-payload.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     tick = r.run([r.bash, "-c", "bash .uak/bin/hook tick < .git-payload.json"], cwd=w, env={"UAK_NOW": "1000100"}, allowed=None)
     expect("UAK design-lint on index.tsx" in tick.stdout and "bounce easing" in tick.stdout, "the agent hears it after the edit: " + tick.stdout)
     view.write_text('<div className="bg-[var(--pb-acento)]">Lanzar</div>\n', encoding="utf-8")
@@ -475,6 +480,8 @@ def doctor_never_waits_on_the_terminal(r):
 
 def verify_never_reads_the_terminal(r):
     """A human ran Verify in a terminal: vitest saw a TTY, entered watch mode and wrote to a log nobody saw end."""
+    if os.name == "nt":
+        return {"skipped": "no pty module on Windows"}
     import base64, pty, subprocess
     t = r.scratch / "v54-verify-tty"; t.mkdir(); r.g(t, "init", "-q", "-b", "main")
     probe = ["bash", "-c", "[ ! -t 0 ]"]
@@ -497,12 +504,24 @@ def verify_never_reads_the_terminal(r):
     return {"tty": True}
 
 
+def transcripts_of_a_home_with_an_accent(r):
+    """C:\\Users\\José: Claude Code names the transcript folder per UTF-16 unit; the kit counted bytes and found none."""
+    import subprocess
+    src = (r.package / ".uak/bin/tokens").read_text(encoding="utf-8")
+    enc = src[src.index("enc() {"):src.index("\n}\n", src.index("enc() {")) + 3]
+    for path in ("/Users/José/app", "C:/Users/Peña Núñez/app", "/home/ana/😀/app"):
+        out = subprocess.run([r.bash, "-c", enc + 'enc "$1"', "_", path], capture_output=True, timeout=30).stdout.decode("utf-8")
+        want = "".join("-" * (len(ch.encode("utf-16-le")) // 2) if not (ch.isascii() and ch.isalnum()) else ch for ch in path)
+        expect(out == want, "%s -> %s, Claude Code: %s" % (path, out, want))
+    return {"accent": True}
+
+
 TESTS = [merge_of_a_merged_task_is_done, merge_that_loses_the_queue_race_is_done, base_fetch_retries_and_says_why, done_after_a_cross_machine_handover,
          review_checkout_is_removed_safely, reviews_go_to_agents_only, pr_sync_tells_a_forge_merge, hook_stops_beating_a_task_that_moved,
          errors_say_the_fix, a_retry_reuses_the_base, frontend_uses_the_design_system,
          done_checks_the_design_and_humans_record_forge_merges, deploy_reads_the_project, ui_edits_get_the_gate_at_once,
          the_human_sees_the_directions, doctor_never_waits_on_the_terminal,
-         verify_never_reads_the_terminal]
+         verify_never_reads_the_terminal, transcripts_of_a_home_with_an_accent]
 
 
 def main():

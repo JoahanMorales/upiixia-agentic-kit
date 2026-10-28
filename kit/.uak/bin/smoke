@@ -29,6 +29,7 @@ if [ "$mode" != product ]; then
     fi
   done
   [ -n "$python_runtime" ] || { printf '%s\n' 'PACKAGE_UNVERIFIED: tests need Python 3.8+ (standard library).' >&2; exit 2; }
+  PYTHONIOENCODING=utf-8; PYTHONUTF8=1; export PYTHONIOENCODING PYTHONUTF8  # a Windows console is cp1252: "→" crashed a print
   "$python_runtime" .uak/tests/test_hack.py --package "$root"
   if [ -f .uak/tests/test_policy.py ]; then "$python_runtime" .uak/tests/test_policy.py --package "$root"; fi
   "$python_runtime" .uak/tests/test_coordination.py --package "$root"

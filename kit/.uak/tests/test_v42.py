@@ -4,6 +4,7 @@ Real Git, local bare remote, separate processes."""
 import argparse
 import concurrent.futures
 import json
+import os
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -83,10 +84,18 @@ def one_identity_one_task(r):
     return {"second_claim_refused": True}
 
 
+def harness_session(r, f):
+    """Linux/macOS key a session by the harness process (ps); Git Bash has no `ps -o`, so the session-start hook's
+    uak-live keys it there, as a harness's would."""
+    if os.name == "nt":
+        for w in f.worktrees:
+            Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip(), "uak-live").write_text("test-session 1000000\n", encoding="utf-8")
+
+
 def messages_without_noise(r):
     """63 copied contract lines, 11 'Recibido' replies, 4 refused messages to Ana-N, 295 inbox calls."""
     f = r.fixture("v42-msg", count=3, dependencies={"HACK-001": "ninguna (contract with HACK-002 HACK-003)"})
-    config(f)
+    config(f); harness_session(r, f)
     f.claim(0, "HACK-001"); f.claim(1, "HACK-002"); f.claim(2, "HACK-003")
     hack(f, 0, "msg", "related:HACK-001", "--kind", "contract", "Signal v2: direction up/down", now=1000001)
     log = f.show("inbox/log.md")
@@ -134,7 +143,7 @@ def reviews_once(r):
 def repeated_reads_and_loops(r):
     """status 258 calls, the same refusal retried in a loop."""
     f = r.fixture("v42-reads", count=1)
-    config(f)
+    config(f); harness_session(r, f)
     f.claim(0, "HACK-001")
     on = {"UAK_DEDUPE": "on"}
     a = hack(f, 0, "status", now=1000010, **on).stdout
@@ -208,11 +217,13 @@ def blackbox_dedupe_and_harness(r):
 
 def output_cap_cursor_and_codex(r):
     """A teammate on Cursor: "tool calling hogs the whole context". Cursor and Codex get the cap too."""
+    if os.name == "nt":
+        return {"skipped": "these are the Linux/macOS forms; Windows is covered with a fake uname in output_cap_everywhere"}
     f = r.fixture("v42-cap", count=1)
     w = f.worktrees[0]
     (w / "src").mkdir(exist_ok=True)
     def hook(mode, payload, *extra):
-        (w / ".git-payload.json").write_text(json.dumps(payload), encoding="utf-8")
+        (w / ".git-payload.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         return r.run([r.bash, "-c", "bash .uak/bin/hook " + mode + " " + " ".join(extra) + " < .git-payload.json"], cwd=w).stdout
     shell = lambda cmd: {"hook_event_name": "preToolUse", "conversation_id": "c1", "tool_name": "Shell",
                          "tool_input": {"command": cmd, "working_directory": str(w)}}

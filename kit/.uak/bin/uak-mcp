@@ -16,6 +16,7 @@ tools are listed with a "when to use" description in every harness, unlike Bash 
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -36,8 +37,31 @@ def repo_root():
         return Path.cwd()
 
 
+def find_bash():
+    """Git Bash on Windows: CreateProcess looks in System32 before PATH, where bash.exe is WSL's launcher."""
+    if os.name != "nt":
+        return "bash"
+    for explicit in (os.environ.get("UAK_BASH"), os.environ.get("CLAUDE_CODE_GIT_BASH_PATH")):
+        if explicit and Path(explicit).is_file():
+            return explicit
+    roots = []
+    git = shutil.which("git")
+    if git:  # ...\Git\cmd\git.exe or ...\Git\mingw64\bin\git.exe
+        roots += [Path(git).resolve().parent.parent, Path(git).resolve().parent.parent.parent]
+    roots += [Path(os.environ[k]) / "Git" for k in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)") if os.environ.get(k)]
+    if os.environ.get("LOCALAPPDATA"):
+        roots.append(Path(os.environ["LOCALAPPDATA"]) / "Programs" / "Git")
+    for root in roots:
+        for rel in ("bin/bash.exe", "usr/bin/bash.exe"):
+            if (root / rel).is_file():
+                return str(root / rel)
+    found = shutil.which("bash")
+    return found if found and "system32" not in found.lower() else "bash"
+
+
 ROOT = repo_root()
 BIN = ROOT / ".uak" / "bin"
+BASH = find_bash()
 VERSION = (ROOT / ".uak" / "VERSION").read_text(encoding="utf-8").strip() if (ROOT / ".uak" / "VERSION").exists() else "dev"
 SERVER_INFO = {"name": "uak", "title": "UPIIXIA Agentic Kit", "version": VERSION}
 _out = threading.Lock()
@@ -157,7 +181,7 @@ TOOLS = [
     ("uak_memory", "Team lessons anchored to paths. learn: a trap the next agent will hit ('what bites · where · what to do', "
      "on your task's paths by default). recall: the lessons for a task or a path. forget: drop lesson N.",
      obj({"agent": AGENT, "action": {"type": "string", "enum": ["learn", "recall", "forget"]}, "text": S, "task": TASK,
-          "paths": {"type": "string", "description": "Comma-separated paths; * for everyone"},
+          "paths": {"type": "string", "description": "Comma-separated paths; * or all for everyone"},
           "number": {"type": "integer", "minimum": 1}}, ["action"]), ann("Team memory", False, False),
      lambda a: (["uak", "learn", a.get("text", "")] + (["--task", a["task"]] if a.get("task") else []) + (["--path", a["paths"]] if a.get("paths") else [])) if a["action"] == "learn"
      else (["uak", "learn", "--forget", str(a.get("number", 0))] if a["action"] == "forget"
@@ -183,12 +207,17 @@ TOOL_BY_NAME = {t[0]: t for t in TOOLS}
 
 
 def run(argv, args, timeout, rid=None, progress=None):
-    cmd = ["bash", str(BIN / argv[0])] + [str(x) for x in argv[1:]]
+    cmd = [BASH, str(BIN / argv[0])] + [str(x) for x in argv[1:]]
     env = dict(os.environ)
+    if os.name == "nt":  # Git Bash re-parses a command line (quotes, globs): the arguments go in the environment
+        env.update({"UAK_ARGV0": (BIN / argv[0]).as_posix(), "UAK_ARGC": str(len(cmd) - 2)})
+        env.update({"UAK_ARG_%d" % i: a for i, a in enumerate(cmd[2:])})
+        cmd = [BASH, (BIN / "lib" / "argv.sh").as_posix()]
     if args.get("agent"):
         env["UAK_AGENT"] = args["agent"]
     env.setdefault("UAK_DEDUPE", "off")  # an MCP client shows every result; "= unchanged" helps shells, not tools
-    p = subprocess.Popen(cmd, cwd=str(ROOT), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace",
+    # stdin is the client's JSON-RPC channel: a child must never inherit it.
+    p = subprocess.Popen(cmd, cwd=str(ROOT), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace",
                          start_new_session=(os.name != "nt"))
     if rid is not None:
         _procs[rid] = p
@@ -217,10 +246,14 @@ def kill(p):
     try:
         if os.name != "nt":
             os.killpg(p.pid, signal.SIGTERM)
-        else:
-            p.terminate()
+        else:  # the whole tree: terminate() stops bash and leaves its git and sleep children holding the worktree
+            if subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True, timeout=15).returncode:
+                p.terminate()
     except Exception:  # noqa: BLE001
-        pass
+        try:
+            p.terminate()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def shape(text):

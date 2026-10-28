@@ -27,6 +27,8 @@ jobs:
         # stdin held open, as in a terminal: a command that reads it (BSD awk -W version did) hangs here, not on a laptop
         run: |
           mkfifo "$RUNNER_TEMP/stdin"; sleep 7200 > "$RUNNER_TEMP/stdin" 2>/dev/null & holder=$!
+          # Linux: temp paths with a space and an accent, like C:\Users\José Pérez
+          if [ "$RUNNER_OS" = Linux ]; then export TMPDIR="$RUNNER_TEMP/José Pérez"; mkdir -p "$TMPDIR"; fi
           rc=0; bash .uak/bin/smoke --package-only < "$RUNNER_TEMP/stdin" || rc=$?
           kill "$holder"; exit "$rc"
       - name: MCP tools, one by one (tests/)
@@ -34,3 +36,25 @@ jobs:
       - name: Installer
         run: |
           t=$(mktemp -d) && git -C "$t" init -q -b main && bash install.sh --mode marathon "$t" && test -f "$t/.uak/PROJECT.md"
+  windows:
+    # Git Bash, a CRLF checkout (core.autocrlf=true, as on a new Windows machine) and the MCP server started the way
+    # Claude Code starts it. One job per test file: the Windows runner is slow at forking.
+    strategy:
+      fail-fast: false
+      matrix:
+        t: [test_hack, test_policy, test_coordination, test_review_merge, test_v21_security, test_v3, test_v41, test_v42, test_v43, test_v5, test_v51, test_v52, test_v53, test_v54, mcp_tools]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Git identity for fixtures
+        run: git config --global user.name ci && git config --global user.email ci@example.invalid
+      - name: ${{ matrix.t }}
+        run: |
+          if [ "${{ matrix.t }}" = mcp_tools ]; then exec python tests/test_mcp_tools.py; fi
+          cd kit && python .uak/tests/${{ matrix.t }}.py --package "$PWD"

@@ -15,6 +15,7 @@ export MSYS2_ARG_CONV_EXCL
 hack_env_file="$(git rev-parse --show-toplevel 2>/dev/null)/.uak-env"
 if [ -f "$hack_env_file" ]; then
   while IFS='=' read -r hack_key hack_value || [ -n "$hack_key" ]; do
+    hack_value=${hack_value%$'\r'}  # a .uak-env saved with CRLF (Windows editors) kept the identity out
     case "$hack_key" in
       UAK_AGENT|UAK_HUMAN|UAK_AGENT_HUMAN|UAK_SESSION|UAK_TASK)
         case "$hack_value" in ''|*[!A-Za-z0-9_.-]*) continue;; esac
@@ -108,7 +109,7 @@ cleanup() {
       if [ -f "$TXROOT/gate-links" ]; then
         while IFS= read -r l; do
           case "$(uname -s 2>/dev/null)" in
-            MINGW*|MSYS*|CYGWIN*) cmd //c rmdir "$(cygpath -w "$l")" >/dev/null 2>&1 || rm -f "$l";;
+            MINGW*|MSYS*|CYGWIN*) MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' cmd /c rmdir "$(cygpath -w "$l")" >/dev/null 2>&1 || rm -f "$l";;
             *) rm -f "$l";;
           esac
         done < "$TXROOT/gate-links"
@@ -168,7 +169,7 @@ plan FILE [--amend]   publish new tasks to claims without a PR, or amend publish
 msg DESTINO TEXTO [--kind TIPO] [--task HACK-NNN]   DESTINO: NOMBRE|HACK-NNN|related:HACK-NNN|all|human
 inbox [--ack] [--all] [--peek] [--task HACK-NNN] [--human]
 wait [ID] --for approve|integrated|message [--timeout S]   one call that returns when it happens (instead of polling)
-learn "TEXT" [--path P,Q] [--task ID] · learn --forget N   a lesson tied to paths; next shows it to the next agent there
+learn "TEXT" [--path P,Q|all] [--task ID] · learn --forget N   a lesson tied to paths; next shows it to the next agent there
 recall [ID|PATH] [--similar | --search "words"]   lessons for a task or a path; --similar/--search: lessons, rejects, contracts and decisions ranked by words (BM25)
 UAK_AGENT / UAK_HUMAN · UAK_REMOTE=origin · UAK_BASE=main · lease=1800s
 Why: the remote serializes claims; every session keeps an exact next step.
@@ -1473,7 +1474,8 @@ while [ "$#" -gt 0 ]; do
         --reversible) [ "$CMD" = decision ] || bad_opt; DECISION_REVERSIBLE=$value;;
         --authorized) [ "$CMD" = decision ] || bad_opt; DECISION_AUTHORIZED=$value;;
         --class) [ "$CMD" = decision ] || bad_opt; DECISION_CLASS=$value;;
-        --path) case "$CMD" in secret-exception) SECRET_PATH=$value;; learn|recall) MEM_PATHS=$value;; *) bad_opt;; esac;;
+        # all = * (everyone): typed in PowerShell, a bare * reaches Git Bash as the folder's file names.
+        --path) case "$CMD" in secret-exception) SECRET_PATH=$value;; learn|recall) MEM_PATHS=$value; [ "$MEM_PATHS" != all ] || MEM_PATHS='*';; *) bad_opt;; esac;;
         --search) [ "$CMD" = recall ] || bad_opt; MEM_SEARCH=$value;;
         --forget) [ "$CMD" = learn ] || bad_opt; case "$value" in ''|*[!0-9]*) die "--forget takes a lesson number";; esac; MEM_FORGET=$value;;
         --rule) [ "$CMD" = secret-exception ] || bad_opt; SECRET_RULE=$value;;

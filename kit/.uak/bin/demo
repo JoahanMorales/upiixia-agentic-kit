@@ -88,7 +88,7 @@ cat > "$D/fake-agent.sh" <<'EOA'
 grep -q 'got: 0 results' && n=2 || n=3
 printf '#!/usr/bin/env bash\necho "%s results for $1"\n' "$n" > src/api.sh
 EOA
-run "$A" ana-1 bash .uak/bin/uak loop --verify "bash tests/api_test.sh" --agent "bash $D/fake-agent.sh" --max 5 --task HACK-001
+run "$A" ana-1 bash .uak/bin/uak loop --verify "bash tests/api_test.sh" --agent "bash $(printf %q "$D/fake-agent.sh")" --max 5 --task HACK-001
 
 step "ana-1 ships: push + PR + evidence → a reviewer is asked by rotation"
 (cd "$A" && git_q add src/api.sh && git_q commit -qm "fix(api): count results" && git_q push -q -u origin HEAD) >/dev/null 2>&1

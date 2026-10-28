@@ -20,7 +20,7 @@ done
 [ "${UAK_NO_OPEN:-}" != 1 ] || open=no
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 [ -n "$dir" ] || dir="$root/web/public/design-lock"
-case "$dir" in /*) ;; *) dir="$(pwd)/$dir";; esac
+case "$dir" in /*|[A-Za-z]:[\\/]*) ;; *) dir="$(pwd)/$dir";; esac  # C:/... is absolute too (git on Windows)
 if [ "$stop" = yes ]; then
   pid=$(cat "$dir/.gallery.pid" 2>/dev/null); [ -n "$pid" ] && kill "$pid" 2>/dev/null && printf 'DESIGN_GALLERY stopped (pid %s)\n' "$pid" || printf 'DESIGN_GALLERY: no server running for %s\n' "$dir"
   rm -f "$dir/.gallery.pid"; exit 0

@@ -6,6 +6,8 @@ import concurrent.futures
 import json
 import os
 import re
+import shlex
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -47,7 +49,7 @@ def tokens_per_task_and_team(r):
         claude_line("msg_d", "claude-haiku-5-5", 2, 50, 4000, 400, True) + "\n", encoding="utf-8")
     codex = home / ".codex" / "sessions" / "2026" / "10" / "15"
     codex.mkdir(parents=True)
-    rollout = [json.dumps({"type": "session_meta", "payload": {"cwd": str(main) + "-wt/hack-001"}}),
+    rollout = [json.dumps({"type": "session_meta", "payload": {"cwd": str(main) + "-wt/hack-001"}}, ensure_ascii=False),  # Codex writes UTF-8 as is
                json.dumps({"type": "turn_context", "payload": {"model": "gpt-5.5-codex"}}),
                json.dumps({"type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage":
                           {"input_tokens": 1000, "cached_input_tokens": 600, "output_tokens": 50, "reasoning_output_tokens": 10}}}}),
@@ -108,7 +110,7 @@ def loop_guards_and_parallel(r):
                               encoding="utf-8")
     r.g(w, "add", "-A"); r.g(w, "commit", "-qm", "two failing parts")
     par = r.run([r.bash, ".uak/bin/uak", "loop", "--verify", "bash check.sh", "--parallel", "2",
-                 "--each", "bash check.sh {}", "--agent", "bash " + str(w / "fix.sh")], cwd=w, allowed=None)
+                 "--each", "bash check.sh {}", "--agent", "bash " + shlex.quote(str(w / "fix.sh"))], cwd=w, allowed=None)
     expect("LOOP_PARALLEL 2 sub-loop(s)" in par.stdout, par.stdout + par.stderr)
     expect(par.returncode == 0 and "LOOP_PASS parallel" in par.stdout, "both fixes come back and Verify passes: " + par.stdout)
     expect((w / "src_a.txt").read_text() == "good\n" and (w / "src_b.txt").read_text() == "good\n", "patches applied here")
@@ -150,7 +152,7 @@ def gemini_hooks(r):
     cmds = [h["command"] for g in settings["hooks"]["BeforeTool"] for h in g["hooks"]]
     expect(any("guard\" bash" in c for c in cmds) and any("wrap gemini" in c for c in cmds), str(cmds))
     def hook(mode, payload, env=None):
-        (w / ".git-payload.json").write_text(json.dumps(payload), encoding="utf-8")
+        (w / ".git-payload.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         return r.run([r.bash, "-c", "bash .uak/bin/hook " + mode + " < .git-payload.json"], cwd=w, env=env or {}, allowed=None)
     base = {"session_id": "g1", "cwd": str(w), "hook_event_name": "BeforeTool", "tool_name": "run_shell_command"}
     (w / ".git-payload.json").write_text(json.dumps(dict(base, tool_input={"command": "git push --force origin main"})), encoding="utf-8")
@@ -234,14 +236,14 @@ def code_map_and_impact(r):
     fake.write_text("#!/usr/bin/env bash\nsed -n 's/^=== FILE: //p' | while read -r p; do\n"
                     "  case $p in lib/*) c='raw data paths, storage config';; app/*) c='page rendering, storage config';; *) c='frontend api';; esac\n"
                     "  echo \"FILE: $p | PURPOSE: does things for $p | CONCEPTS: $c\"; done\n", encoding="utf-8")
-    notes = m("notes", "--agent", "bash " + str(fake), "--max", "10").stdout
+    notes = m("notes", "--agent", "bash " + shlex.quote(str(fake)), "--max", "10").stdout
     expect("with purpose and concepts" in notes, notes)
     shown = m("show").stdout
     expect("## Concepts (INFERRED" in shown and "path (3)" in shown and "does things for lib/config.py" in shown,
            "MAP.md gets purposes and concepts: " + shown)
     rel = m("related", "lib/io.py").stdout
     expect("EXTRACTED imports   → lib/config.py" in rel, "related lists extracted neighbors: " + rel)
-    again = m("notes", "--agent", "bash " + str(fake), "--max", "10").stdout
+    again = m("notes", "--agent", "bash " + shlex.quote(str(fake)), "--max", "10").stdout
     expect("already has a note" in again, "notes are cached by content: " + again)
     (w / "lib/new.py").write_text("def fresh():\n    pass\n", encoding="utf-8")
     expect("lib/new.py:1  def fresh" in m("find", "fresh").stdout, "the index rebuilds when the tree changes")
@@ -252,11 +254,13 @@ def lessons_follow_the_paths(r):
     """The same traps came back task after task (a shifting label: 3 tasks; numbers vs CSV: 4 rejects)."""
     f = rm.fixture(r, "v5-learn", count=2)
     rm.judge(f)
-    ok = f.hack(0, "learn", "Use", "df['count']:", "the", "column", "shadows", "DataFrame.count", "--task", "HACK-001", now=1000001)
+    ok = f.hack(0, "learn", "Use", "df.loc:", "the", "column", "count", "shadows", "DataFrame.count", "--task", "HACK-001", now=1000001)
     expect("OK learn #1 on src/value-1.txt" in ok.stdout, ok.stdout + ok.stderr)
-    again = f.hack(1, "learn", "Use df['count']: the column shadows DataFrame.count", "--task", "HACK-001", now=1000002)
+    # No quotes or brackets: Git Bash re-parses a Windows command line (uak-mcp passes arguments in the environment).
+    again = f.hack(1, "learn", "Use df.loc: the column count shadows DataFrame.count", "--task", "HACK-001", now=1000002)
     expect("already known" in again.stdout, "a lesson is stored once: " + again.stdout)
-    f.hack(1, "learn", "Every number in a README comes from a CSV in reports/", "--path", "*", now=1000003)
+    # all = *: a bare * from a Windows process reaches Git Bash globbed (PowerShell users type all)
+    f.hack(1, "learn", "Every number in a README comes from a CSV in reports/", "--path", "all" if os.name == "nt" else "*", now=1000003)
     nxt = f.hack(0, "next", now=1000004).stdout
     expect("Lessons for these paths" in nxt and "DataFrame.count" in nxt and "from a CSV" in nxt,
            "next shows the lessons of the task it proposes: " + nxt)
@@ -300,21 +304,23 @@ def latency_paths(r):
     w = f.worktrees[0]
     first = hack(f, 0, "next", now=1000001)
     expect(first.returncode == 0 and "HACK-001 | AVAILABLE" in first.stdout, "next works before claims exists: " + first.stdout + first.stderr)
-    shim = f.base / "shim"
-    shim.mkdir()
-    (shim / "git").write_text("#!/usr/bin/env bash\nprintf '%%s\\n' \"$*\" >> %s\nexec %s \"$@\"\n" % (f.base / "git.log", r.git), encoding="utf-8")
-    os.chmod(shim / "git", 0o755)
-    r.run([r.bash, ".uak/bin/uak", "status"], cwd=w, env={"UAK_AGENT": "agent-1", "UAK_NOW": "1000002",
-                                                          "PATH": str(shim) + os.pathsep + os.environ["PATH"]}, allowed=None)
-    calls = [l for l in (f.base / "git.log").read_text(encoding="utf-8").splitlines() if re.search(r"(^| )(ls-remote|fetch|push|clone)( |$)", l)]
-    expect(len(calls) == 1 and "refs/heads/claims:refs/uak/claims" in calls[0] and "refs/uak/config" in calls[0],
-           "status makes one network call for claims and config: " + "\n".join(calls))
+    if os.name != "nt":  # Git Bash's launcher puts its own git before a PATH shim
+        shim = f.base / "shim"
+        shim.mkdir()
+        (shim / "git").write_text("#!/usr/bin/env bash\nprintf '%%s\\n' \"$*\" >> %s\nexec %s \"$@\"\n" % (shlex.quote(str(f.base / "git.log")), shlex.quote(r.git)), encoding="utf-8")
+        os.chmod(shim / "git", 0o755)
+        r.run([r.bash, ".uak/bin/uak", "status"], cwd=w, env={"UAK_AGENT": "agent-1", "UAK_NOW": "1000002",
+                                                              "PATH": str(shim) + os.pathsep + os.environ["PATH"]}, allowed=None)
+        calls = [l for l in (f.base / "git.log").read_text(encoding="utf-8").splitlines() if re.search(r"(^| )(ls-remote|fetch|push|clone)( |$)", l)]
+        expect(len(calls) == 1 and "refs/heads/claims:refs/uak/claims" in calls[0] and "refs/uak/config" in calls[0],
+               "status makes one network call for claims and config: " + "\n".join(calls))
     mux = lambda url, extra="": r.run([r.bash, "-c", "git remote set-url origin '%s'; %s . .uak/bin/lib/net.sh; ssh_mux; printf %%s \"${GIT_SSH_COMMAND:-none}\"" % (url, extra)],
                                      cwd=w, env={"HOME": str(f.base)}).stdout
-    expect("ControlMaster=auto" in mux("git@github.com:o/r.git"), "ssh remotes reuse one connection")
+    plain_home = re.fullmatch(r"[A-Za-z0-9/._-]+", str(f.base)) is not None  # GIT_SSH_COMMAND is split on spaces
+    expect(("ControlMaster=auto" in mux("git@github.com:o/r.git")) == plain_home, "ssh remotes reuse one connection (not from a HOME with spaces)")
     expect(mux("https://github.com/o/r.git") == "none", "https remotes are left alone")
     expect(mux("git@github.com:o/r.git", "GIT_SSH_COMMAND='ssh -i k';") == "ssh -i k", "the user's own ssh command wins")
-    r.run([r.bash, "-c", "git remote set-url origin %s" % f.remote], cwd=w)
+    r.run([r.bash, "-c", "git remote set-url origin %s" % shlex.quote(str(f.remote))], cwd=w)
     hack(f, 0, "msg", "all", "an old broadcast from long ago", now=1000003)
     fresh = hack(f, 0, "inbox", now=1000003 + 30000, UAK_AGENT="newcomer-1").stdout
     expect("old broadcast" not in fresh, "a new identity starts with the last 6 h: " + fresh)
@@ -326,6 +332,9 @@ def adoption_layer(r):
     without a contract; at MLB agents made 486 status/inbox/board/digest calls and wrote 4 black box notes."""
     f = r.fixture("v5-adopt", count=2, paths={"HACK-001": "lib/", "HACK-002": "app/"})
     config(f)
+    if os.name == "nt":  # Git Bash has no `ps -o`: the session-start hook's uak-live keys the session there
+        for wt in f.worktrees:
+            Path(r.g(wt, "rev-parse", "--absolute-git-dir").stdout.strip(), "uak-live").write_text("test-session 1000000\n", encoding="utf-8")
     w = f.worktrees[0]
     seed = f.seed
     (seed / "lib").mkdir(); (seed / "app").mkdir()
@@ -345,7 +354,7 @@ def adoption_layer(r):
     unchanged = [hack(f, 1, "status", now=1000010 + i, UAK_DEDUPE="on").stdout for i in range(2)][1]
     expect("uak wait ID --for" in unchanged, "= unchanged points at uak wait: " + unchanged)
     def tick(payload):
-        (w / ".git-payload.json").write_text(json.dumps(payload), encoding="utf-8")
+        (w / ".git-payload.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         return r.run([r.bash, "-c", "bash .uak/bin/hook tick < .git-payload.json"], cwd=w).stdout
     reads = [tick({"session_id": "s9", "tool_name": "Read", "tool_input": {"file_path": "x"}}) for _ in range(5)]
     expect(reads[3] == "" and "map show" in reads[4], "5 reads in a row bring the code map: " + str(reads))
@@ -364,7 +373,7 @@ class Mcp:
         import subprocess, queue
         self.q = queue.Queue()
         self.p = subprocess.Popen(["python3", ".uak/bin/uak-mcp"], cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, text=True, env=dict(os.environ, **(env or {})))
+                                  stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=dict(os.environ, **(env or {})))
         import threading
         threading.Thread(target=self._read, daemon=True).start()
         self.n = 0
@@ -472,7 +481,8 @@ def main():
     parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--jobs", type=int, default=3)
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="uak-v5-") as tmp:
+    tmp = tempfile.mkdtemp(prefix="uak-v5-")
+    try:
         runner = Runner(args.package.resolve(), Path(tmp), resolve_binary("bash"), resolve_binary("git"))
         def one(test):
             started = time.monotonic()
@@ -483,6 +493,8 @@ def main():
                 return test.__name__, False, str(exc)[:1500]
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
             results = list(pool.map(one, TESTS))
+    finally:  # Windows: a process that outlived its test can still hold a folder; the results matter more
+        shutil.rmtree(tmp, ignore_errors=True)
     for name, ok, info in results:
         print(("PASS " if ok else "FAIL ") + name + " (" + info + ")")
     passed = sum(1 for _, ok, _ in results if ok)

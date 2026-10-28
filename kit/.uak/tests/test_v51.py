@@ -175,7 +175,13 @@ def merge_gate_links_node_modules(r):
     tip = rm.ready(f, 0, "HACK-001")
     rm.judge(f); rm.approve(f, "HACK-001", tip)
     out = f.hack(0, "merge", "HACK-001", now=1000030, allowed=None)
-    expect(out.returncode == 0 and "INTEGRATED" in out.stdout, "the gate sees the worktree's node_modules: " + out.stdout + out.stderr)
+    gate_log = ""
+    if "(log: " in out.stdout:
+        try:
+            gate_log = Path(out.stdout.split("(log: ", 1)[1].split(")", 1)[0]).read_text(encoding="utf-8", errors="replace")[-1500:]
+        except OSError:
+            pass
+    expect(out.returncode == 0 and "INTEGRATED" in out.stdout, "the gate sees the worktree's node_modules: " + out.stdout + out.stderr + gate_log)
     expect((nm / "index.js").exists(), "cleaning the candidate never deletes the real node_modules")
     tree = r.g(f.remote, "ls-tree", "-r", "--name-only", "main").stdout
     expect("node_modules" not in tree, "the link is never committed")
@@ -310,7 +316,7 @@ def map_in_the_loop(r):
     w = f.worktrees[1]
     r.run([r.bash, ".uak/bin/map", "build"], cwd=w)
     def send(payload):
-        p = subprocess.run([r.bash, ".uak/bin/hook", "tick"], cwd=w, input=json.dumps(payload), text=True,
+        p = subprocess.run([r.bash, ".uak/bin/hook", "tick"], cwd=w, input=json.dumps(payload, ensure_ascii=False), text=True, encoding="utf-8",
                            capture_output=True, env={**r.env, "UAK_AGENT": ""}, timeout=60)
         return p.stdout
     read = send({"session_id": "s1", "tool_name": "Read", "tool_input": {"file_path": str(w / "lib/config.py")}})

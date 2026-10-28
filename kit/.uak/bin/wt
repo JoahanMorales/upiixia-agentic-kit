@@ -35,7 +35,7 @@ main_root() { git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree /
 # kept going to the ones whose sessions had closed.
 wt_machine_agents() {
   git -C "$1" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | while IFS= read -r d; do
-    [ -f "$d/.uak-env" ] && sed -n 's/^UAK_AGENT=//p' "$d/.uak-env"
+    [ -f "$d/.uak-env" ] && sed -n 's/^UAK_AGENT=//p' "$d/.uak-env" | tr -d '\r'
   done | awk 'NF && !seen[$0]++'
 }
 WT_PICKED= WT_PICK_NOTE= WT_PICK_REUSE=no
@@ -91,8 +91,8 @@ case "$cmd" in
   session)
     top=$(git rev-parse --show-toplevel 2>/dev/null) || die "Run inside a worktree."
     [ -f "$top/.uak-env" ] || die "This worktree has no .uak-env; use wt new."
-    agent=$(sed -n 's/^UAK_AGENT=//p' "$top/.uak-env"); human=$(sed -n 's/^UAK_AGENT_HUMAN=//p;s/^UAK_HUMAN=//p' "$top/.uak-env" | head -n 1)
-    task=$(sed -n 's/^UAK_TASK=//p' "$top/.uak-env")
+    agent=$(sed -n 's/^UAK_AGENT=//p' "$top/.uak-env" | tr -d '\r'); human=$(sed -n 's/^UAK_AGENT_HUMAN=//p;s/^UAK_HUMAN=//p' "$top/.uak-env" | head -n 1 | tr -d '\r')
+    task=$(sed -n 's/^UAK_TASK=//p' "$top/.uak-env" | tr -d '\r')
     write_env "$top" "$agent" "$human" "$task"
     say "SESSION: $(sed -n 's/^UAK_SESSION=//p' "$top/.uak-env")"; exit 0;;
   rm)
@@ -129,7 +129,7 @@ EOF_WT
     top=$(git rev-parse --show-toplevel 2>/dev/null) || die "Run inside a worktree."
     if [ -n "${1:-}" ]; then top=$(wt_path "$(main_root)" "$1"); fi
     [ -f "$top/.uak-env" ] || die "No .uak-env in $top; nothing to stop."
-    port=$(sed -n 's/^UAK_PORT=//p' "$top/.uak-env"); case "$port" in ''|*[!0-9]*) die "No UAK_PORT in .uak-env.";; esac
+    port=$(sed -n 's/^UAK_PORT=//p' "$top/.uak-env" | tr -d '\r'); case "$port" in ''|*[!0-9]*) die "No UAK_PORT in .uak-env.";; esac
     stopped=
     for p in "$port" $((port + 1)); do
       for pid in $(port_pids "$p"); do [ "$pid" = "$$" ] || { kill "$pid" 2>/dev/null && stopped="$stopped $pid@$p"; }; done
