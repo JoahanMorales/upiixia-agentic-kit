@@ -473,11 +473,36 @@ def doctor_never_waits_on_the_terminal(r):
     return {"doctor": True}
 
 
+def verify_never_reads_the_terminal(r):
+    """A human ran Verify in a terminal: vitest saw a TTY, entered watch mode and wrote to a log nobody saw end."""
+    import base64, pty, subprocess
+    t = r.scratch / "v54-verify-tty"; t.mkdir(); r.g(t, "init", "-q", "-b", "main")
+    probe = ["bash", "-c", "[ ! -t 0 ]"]
+    leader, follower = pty.openpty()
+    try:
+        run = lambda cmd: subprocess.run(cmd, cwd=t, env=r.env, stdin=follower, text=True, capture_output=True, timeout=60)
+        q = run([r.bash, str(r.package / ".uak/bin/q"), *probe])
+        cap = run([r.bash, str(r.package / ".uak/bin/cap"), "--b64", base64.b64encode(b"[ ! -t 0 ]").decode()])
+    finally:
+        os.close(leader); os.close(follower)
+    expect(q.returncode == 0, "q gives Verify no terminal: " + q.stdout + q.stderr)
+    expect(cap.returncode == 0, "cap gives the command no terminal: " + cap.stdout + cap.stderr)
+    for path, needle in ((".uak/bin/loop", 'bash -c "$verify" > "$out" 2>&1 < /dev/null'), (".uak/bin/lib/review-merge.sh", 'bash -c "$verify" < /dev/null')):
+        expect(needle in (r.package / path).read_text(encoding="utf-8"), path + " runs Verify without the terminal")
+    hints = "".join((r.package / p).read_text(encoding="utf-8") for p in (".uak/bin/uak", ".uak/bin/map", ".uak/bin/uak-coordination", ".uak/bin/lib/review-merge.sh"))
+    expect("git merge origin/" not in hints and "git merge %s" not in hints, "every merge hint says --no-edit: git opens an editor in a terminal")
+    for mode in ("sprint", "marathon"):
+        allowed = (r.package / (".uak/settings/settings.%s.json" % mode)).read_text(encoding="utf-8")
+        expect('"Bash(git merge --no-edit origin/main)"' in allowed, mode + " allows the hint it gives, without a permission prompt")
+    return {"tty": True}
+
+
 TESTS = [merge_of_a_merged_task_is_done, merge_that_loses_the_queue_race_is_done, base_fetch_retries_and_says_why, done_after_a_cross_machine_handover,
          review_checkout_is_removed_safely, reviews_go_to_agents_only, pr_sync_tells_a_forge_merge, hook_stops_beating_a_task_that_moved,
          errors_say_the_fix, a_retry_reuses_the_base, frontend_uses_the_design_system,
          done_checks_the_design_and_humans_record_forge_merges, deploy_reads_the_project, ui_edits_get_the_gate_at_once,
-         the_human_sees_the_directions, doctor_never_waits_on_the_terminal]
+         the_human_sees_the_directions, doctor_never_waits_on_the_terminal,
+         verify_never_reads_the_terminal]
 
 
 def main():

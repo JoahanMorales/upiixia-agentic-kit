@@ -587,7 +587,7 @@ wait_run() {
           fi;;
         integrated)
           st=$(field "$TX/tasks/$ID.md" State)
-          if [ "$st" = INTEGRATED ]; then say "INTEGRATED $ID ($(field "$TX/tasks/$ID.md" Merge-Commit | cut -c 1-7)). git fetch origin && git merge origin/$BASE"; return 0; fi;;
+          if [ "$st" = INTEGRATED ]; then say "INTEGRATED $ID ($(field "$TX/tasks/$ID.md" Merge-Commit | cut -c 1-7)). git fetch origin && git merge --no-edit origin/$BASE"; return 0; fi;;
         message)
           c=$(msg_select unread)
           if [ -n "$c" ]; then say "NEW for $AGENT:"; say "$c"; say "Handle them, then uak inbox --ack."; return 0; fi;;
@@ -863,7 +863,7 @@ mutate() {
       update_summary_field Next "Integrated in $BASE: $merged (recorded by $AGENT)"
       rm -f "$CLAIM"
       event "integrate; recorded by $AGENT; PR $PR_URL; merged $merged; proof $RM_PROOF"
-      msg_notify_related "$ID" integrated "$ID integrated in $BASE ($merged), recorded by $AGENT. If you depend on it: git fetch origin && git merge origin/$BASE"
+      msg_notify_related "$ID" integrated "$ID integrated in $BASE ($merged), recorded by $AGENT. If you depend on it: git fetch origin && git merge --no-edit origin/$BASE"
       ;;
     done)
       require_owner; STATE=REVIEW
@@ -936,7 +936,7 @@ mutate() {
       else refresh_lease; fi
       event "done; PR $PR_URL; evidence: $EVIDENCE; reviewer: ${REVIEWER:--}"
       if [ "$STATE" = INTEGRATED ]; then
-        msg_notify_related "$ID" integrated "$ID integrated in $BASE ($merged). If you depend on it: git fetch origin && git merge origin/$BASE"
+        msg_notify_related "$ID" integrated "$ID integrated in $BASE ($merged). If you depend on it: git fetch origin && git merge --no-edit origin/$BASE"
       else
         # One review message: --to picks the reviewer, --note says what changed. Why (MLB hackathon): a re-review
         # was 3 messages (rotation + "re-review X" to the task + "ready" to the rejecter) 9 times.

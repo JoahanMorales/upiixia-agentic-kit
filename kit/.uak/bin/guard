@@ -35,7 +35,7 @@ check_bash() {
     s=" $seg "
     case "$s" in *git*push*)
       if printf '%s' "$s" | grep -Eq -- '(^|[[:space:]])(--force|--force-with-lease|-f|--mirror)([[:space:]=]|$)|[[:space:]]\+[A-Za-z0-9_./-]+'; then
-        block "forced push rewrites shared history. Use git merge origin/main and a normal push."
+        block "forced push rewrites shared history. Use git merge --no-edit origin/main and a normal push."
       fi
       if printf '%s' "$s" | grep -Eq -- '(^|[[:space:]])(--delete|-d)([[:space:]]|$)|[[:space:]]:[A-Za-z0-9_./-]+'; then
         block "deleting remote branches is for the branch's human owner."

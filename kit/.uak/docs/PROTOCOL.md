@@ -45,7 +45,7 @@ Deadlines run when any agent calls `next` or `status` (or cron or a GitHub Actio
 
 ## Merged outside uak
 - A human merged the PR on GitHub and the owner agent is offline: any agent runs `uak integrate ID`. It needs a valid approval for the merged SHA and proof that the SHA is in the remote base. For a squash merge, pass `--integrated COMMIT`.
-- Generated files that every task touches (permission matrices, OpenAPI dumps, snapshots) get one owner in `OWNERS.md`. Other tasks regenerate them after `git merge origin/main` instead of hand-merging.
+- Generated files that every task touches (permission matrices, OpenAPI dumps, snapshots) get one owner in `OWNERS.md`. Other tasks regenerate them after `git merge --no-edit origin/main` instead of hand-merging.
 - New test files outside a task's `Paths`: list the test dirs in `Additive-Paths` (PROJECT.md). New files there pass the scope gate; edits to existing files still need a reservation.
 
 ## Offline

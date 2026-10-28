@@ -53,9 +53,9 @@ case "${1:-}" in
   --b64)
     cmd=$(printf '%s' "${2:-}" | base64 -d 2>/dev/null) || cmd=$(printf '%s' "${2:-}" | base64 -D 2>/dev/null) || exit 2
     [ -n "$cmd" ] || exit 2
-    d=$(out_dir) || exec bash -c "$cmd"
+    d=$(out_dir) || exec bash -c "$cmd" < /dev/null
     log="$d/$(date +%s)-$$.log"
-    bash -c "$cmd" > "$log" 2>&1; rc=$?
+    bash -c "$cmd" > "$log" 2>&1 < /dev/null; rc=$?
     print_log "$log" "$rc"; exit "$rc";;
 esac
 log=${1:-}; rc=${2:-0}

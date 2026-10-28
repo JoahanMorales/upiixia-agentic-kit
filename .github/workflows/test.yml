@@ -24,7 +24,11 @@ jobs:
         run: python3 scripts/kit_hashes.py --check
       - name: Protocol suite (real Git, local bare remotes)
         working-directory: kit
-        run: bash .uak/bin/smoke --package-only
+        # stdin held open, as in a terminal: a command that reads it (BSD awk -W version did) hangs here, not on a laptop
+        run: |
+          mkfifo "$RUNNER_TEMP/stdin"; sleep 7200 > "$RUNNER_TEMP/stdin" 2>/dev/null & holder=$!
+          rc=0; bash .uak/bin/smoke --package-only < "$RUNNER_TEMP/stdin" || rc=$?
+          kill "$holder"; exit "$rc"
       - name: MCP tools, one by one (tests/)
         run: python3 tests/test_mcp_tools.py
       - name: Installer

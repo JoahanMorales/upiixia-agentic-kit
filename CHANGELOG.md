@@ -1,5 +1,15 @@
 # Changelog
 
+## v5.4.4 · 2026-10-27 · Nothing waits on the terminal
+After doctor hung on macOS, every command was rerun with the terminal held open, BSD awk and an editor that never
+returns: nothing else read the terminal or opened an editor. What a human at a terminal could still hit:
+- **Verify runs without the terminal** (`q`, `cap`, `loop`, the merge gate). vitest and jest enter watch mode
+  when stdin is a TTY; with the output going to a log, it looked frozen.
+- **Every `git merge` hint says `--no-edit`** (`done`, `integrate`, `map drift`, the kit-version notice, guard,
+  `/uak-ship`). In a terminal, or a harness with a pty, git opened an editor for the merge message and waited.
+- **`q` no longer prints a false error** on the first failure (`q-last-fail: No such file or directory`).
+- **CI runs the suite with stdin held open** on Linux and macOS, so a command that reads it fails there first.
+
 ## v5.4.3 · 2026-10-27 · doctor no longer hangs on macOS
 - **`uak doctor` finished on macOS.** It probed the awk with `awk -W version`; BSD awk ignores `-W`, runs `version`
   as the program and waits on the terminal, so doctor froze at minute 0. The probe now reads `/dev/null`. A test runs

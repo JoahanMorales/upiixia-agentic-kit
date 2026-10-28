@@ -10,7 +10,7 @@ mkdir -p "$gd/uak-out" 2>/dev/null || true
 log="$gd/uak-out/q-$(date +%s)-$$.log"
 ls -t "$gd"/uak-out/q-*.log 2>/dev/null | tail -n +21 | while IFS= read -r old; do rm -f "$old"; done
 start=$(date +%s)
-"$@" > "$log" 2>&1
+"$@" > "$log" 2>&1 < /dev/null  # a TTY puts vitest/jest in watch mode: the log never ends
 code=$?
 secs=$(( $(date +%s) - start ))
 # The same failure twice in a row (same command, same last lines with numbers blanked): say LOOP once, here,
@@ -26,7 +26,7 @@ else
   printf 'FAIL exit=%s %ss · %s lines · log %s\n' "$code" "$secs" "$(awk 'END {print NR+0}' "$log")" "$log"
   tail -n "${Q_LINES:-40}" "$log" | cut -c 1-300
   fail_sig=$(grep -v '^[[:space:]]*$' "$log" | tail -n 15 | sed 's/[0-9][0-9.]*/N/g' | cksum | awk '{print $1}')
-  read -r prev_cmd prev_sig prev_n < "$sig_file" 2>/dev/null || prev_n=0
+  read -r prev_cmd prev_sig prev_n 2>/dev/null < "$sig_file" || prev_n=0
   if [ "${prev_cmd:-}" = "$cmd_sig" ] && [ "${prev_sig:-}" = "$fail_sig" ]; then n=$(( ${prev_n:-1} + 1 )); else n=1; fi
   printf '%s %s %s\n' "$cmd_sig" "$fail_sig" "$n" > "$sig_file"
   if [ "$n" -ge 2 ]; then

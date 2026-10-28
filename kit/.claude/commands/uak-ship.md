@@ -5,7 +5,7 @@ argument-hint: "[ID]"
 ---
 Task: ${ARGUMENTS:-$UAK_TASK}. Run these in order and stop at the first red; fix it before continuing.
 0. `bash .uak/bin/uak inbox`: handle pending reject, request and contract messages first.
-1. `git fetch origin main && git merge origin/main`. Never force anything. On conflicts, keep both sides' work.
+1. `git fetch origin main && git merge --no-edit origin/main`. Never force anything. On conflicts, keep both sides' work.
 2. `git diff --stat origin/main...HEAD`: everything must be inside `Paths`. Take anything outside out, or request it from its owner.
 3. `bash .uak/bin/q <Verify> && bash .uak/bin/q bash .uak/bin/smoke`. Use `uak-runner` for long output or when the app must run.
    - sprint + UI: screenshots at 1280×720 and 390×844 → `design-critic`; fix its P1s.

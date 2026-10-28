@@ -41,6 +41,7 @@
       "Bash(git push -u origin feat/*)",
       "Bash(git push -u origin HEAD)",
       "Bash(git merge origin/main)",
+      "Bash(git merge --no-edit origin/main)",
       "Bash(git rebase origin/main)",
       "Bash(git switch:*)",
       "Bash(git branch:*)",

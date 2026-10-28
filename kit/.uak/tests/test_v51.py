@@ -424,7 +424,7 @@ def upstream_drift_is_told(r):
     r.g(w, "fetch", "-q", "origin")
     d = r.run([r.bash, ".uak/bin/map", "drift"], cwd=w)
     expect("UPSTREAM: lib/config.py changed on main" in d.stdout and "your app/page.py imports it" in d.stdout
-           and "HACK-001: data_path prefixes data/" in d.stdout and "git merge origin/main" in d.stdout, d.stdout)
+           and "HACK-001: data_path prefixes data/" in d.stdout and "git merge --no-edit origin/main" in d.stdout, d.stdout)
     payload = json.dumps({"session_id": "d1", "tool_name": "Bash", "tool_input": {"command": "true"}})
     tick = lambda: subprocess.run([r.bash, ".uak/bin/hook", "tick"], cwd=w, input=payload, text=True, capture_output=True,
                                   env={**r.env, "UAK_AGENT": "agent-2"}, timeout=60).stdout

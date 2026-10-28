@@ -59,7 +59,7 @@ work_sig() {
 
 # ---- parallel: one sub-loop per failing test file ----
 if [ "$parallel" -gt 0 ]; then
-  bash -c "$verify" > "$out" 2>&1 && { printf 'LOOP_PASS iteration=0 · %s\n' "$(last_line "$out")"; exit 0; }
+  bash -c "$verify" > "$out" 2>&1 < /dev/null && { printf 'LOOP_PASS iteration=0 · %s\n' "$(last_line "$out")"; exit 0; }
   files=$(sed -n -E 's/^(FAILED|ERROR) ([^: ]+)(::| ).*/\2/p; s/^ *FAIL +([^ ]+\.(js|jsx|ts|tsx|mjs|cjs)).*/\1/p; s/^FAIL[[:space:]]+([^[:space:]]+\/[^[:space:]]+)[[:space:]].*/\1/p' "$out" |
     awk '!seen[$0]++' | head -n "$parallel")
   [ -n "$files" ] || { printf 'LOOP_STOP no failing test files found in the output (pytest FAILED/ERROR, jest/vitest FAIL, go FAIL): use a plain loop\n'; exit 3; }
@@ -93,7 +93,7 @@ if [ "$parallel" -gt 0 ]; then
   done
   git worktree prune 2>/dev/null
   printf 'LOOP_MERGE applied:%s · not fixed:%s\n' "${applied:- none}" "${failed:- none}"
-  bash -c "$verify" > "$out" 2>&1; code=$?
+  bash -c "$verify" > "$out" 2>&1 < /dev/null; code=$?
   if [ "$code" -eq 0 ]; then printf 'LOOP_PASS parallel · %s\n' "$(last_line "$out")"; uak log "$task" "parallel loop pass: $verify"; exit 0; fi
   printf 'LOOP_STOP parallel: Verify still fails · %s · log %s\n' "$(last_line "$out" 160)" "$log"
   uak log "$task" --state BLOCKED "parallel loop: Verify still fails: $(last_line "$out" 160)"
@@ -104,7 +104,7 @@ fi
 tests0=$(tests_sig)
 while :; do
   i=$((i + 1))
-  bash -c "$verify" > "$out" 2>&1; code=$?
+  bash -c "$verify" > "$out" 2>&1 < /dev/null; code=$?
   if [ "$code" -eq 0 ]; then
     printf 'LOOP_PASS iteration=%s · %s\n' "$i" "$(last_line "$out")"
     printf 'LOOP_SUMMARY %s iteration(s) · %s s · changed: %s · log %s\n' "$i" "$(( $(date +%s) - start ))" \

@@ -336,7 +336,7 @@ case "$cmd" in
       else printf 'UPSTREAM: %s changed on %s (%s); your %s imports it\n' "$u" "${ref#origin/}" "$who" "$f"; fi
     done < "$out/drift.hits"
     [ "$n" -le 6 ] || printf 'UPSTREAM: … %d more\n' $((n - 6))
-    printf 'Fix now, not at merge: git fetch origin && git merge %s, then rerun Verify (bash .uak/bin/q <Verify>).\n' "$ref";;
+    printf 'Fix now, not at merge: git fetch origin && git merge --no-edit %s, then rerun Verify (bash .uak/bin/q <Verify>).\n' "$ref";;
   brief)
     # The task's slice of the map, printed when the task is claimed: the files in its Paths (size, what they
     # define, who imports them), and who outside imports them (the contract audience). Why (MLB, v5 week): the

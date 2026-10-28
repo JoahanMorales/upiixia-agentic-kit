@@ -515,7 +515,7 @@ coord_next() {
   coord_kv=$(git -C "$TX" show refs/uak/config:.uak/VERSION 2>/dev/null | tr -d '\r')
   coord_lv=$(tr -d '\r' < "$UAK_BIN/../VERSION" 2>/dev/null)
   [ -z "$coord_kv" ] || [ -z "$coord_lv" ] || [ "$coord_kv" = "$coord_lv" ] ||
-    say "KIT: this worktree runs uak $coord_lv; $BASE has $coord_kv. Get its fixes: git fetch origin && git merge origin/$BASE"
+    say "KIT: this worktree runs uak $coord_lv; $BASE has $coord_kv. Get its fixes: git fetch origin && git merge --no-edit origin/$BASE"
   coord_found=
   for coord_state in CLAIMED BLOCKED REVIEW; do
     for coord_f in "$TX"/claims/*.md; do
