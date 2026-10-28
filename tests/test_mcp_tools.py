@@ -44,9 +44,9 @@ def git(cwd, *args):
 class Server:
     """A JSON-RPC client over the server's stdio (newline-delimited JSON)."""
 
-    def __init__(self, cwd, env, argv=None):
+    def __init__(self, cwd, env, argv=None, stderr=subprocess.DEVNULL):
         self.p = subprocess.Popen(argv or [sys.executable, ".uak/bin/uak-mcp"], cwd=cwd, stdin=subprocess.PIPE,
-                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=env)
+                                  stdout=subprocess.PIPE, stderr=stderr, text=True, encoding="utf-8", env=env)
         self.q, self.n = queue.Queue(), 0
         threading.Thread(target=self._read, daemon=True).start()
 
@@ -68,8 +68,8 @@ class Server:
                 return msg
         raise AssertionError("no answer to %s" % method)
 
-    def tool(self, name, **arguments):
-        msg = self.call("tools/call", {"name": name, "arguments": arguments})
+    def tool(self, name, timeout=180, **arguments):
+        msg = self.call("tools/call", {"name": name, "arguments": arguments}, timeout)
         assert "error" not in msg, "%s: JSON-RPC error %s" % (name, msg)
         result = msg["result"]
         text = "".join(c.get("text", "") for c in result.get("content", []))
@@ -155,7 +155,7 @@ class McpTools(unittest.TestCase):
         self.assertFalse(bad, text)
         bad, text = self.mcp.tool("uak_wait", task="APP-001", agent="dev-1", **{"for": "approve", "timeout": 5})
         self.assertFalse(bad, text)
-        bad, text = self.mcp.tool("uak_merge", task="APP-001", agent="dev-1")
+        bad, text = self.mcp.tool("uak_merge", timeout=600, task="APP-001", agent="dev-1")  # the gate forks a lot: slow on Windows
         self.assertTrue("INTEGRATED" in text or "MERGE_HUMAN" in text, text)   # the gate answers either way, never a crash
 
     def test_4_messages_memory_map_tokens_cli(self):
@@ -187,15 +187,21 @@ class McpTools(unittest.TestCase):
         cfg = json.loads((self.repo / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["uak"]
         env = dict(self.env)
         if os.name == "nt":  # a user's PATH: Git for Windows adds only Git\cmd, not Git\bin or usr\bin
-            keep = [d for d in env["PATH"].split(os.pathsep) if not any(x in d.lower() for x in ("\\git\\bin", "\\git\\usr", "\\git\\mingw"))]
-            env["PATH"] = os.pathsep.join(keep)
+            win = os.environ.get("SystemRoot", "C:\\Windows")
+            git_cmd = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Git" / "cmd"
+            py = Path(sys.executable).parent
+            env["PATH"] = os.pathsep.join([win + "\\System32", win, win + "\\System32\\WindowsPowerShell\\v1.0", str(git_cmd), str(py), str(py / "Scripts")])
         exe = shutil.which(cfg["command"], path=env["PATH"]) or cfg["command"]  # what a harness's spawn finds on PATH
         sub = self.repo / "src"; sub.mkdir(exist_ok=True)
         for cwd in (self.repo, sub):
-            s = Server(cwd, env, [exe] + cfg["args"])
+            err = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
+            s = Server(cwd, env, [exe] + cfg["args"], stderr=err)
             try:
                 s.call("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "tests", "version": "1"}})
                 bad, text = s.tool("uak_status")
+            except AssertionError as e:
+                err.seek(0)
+                raise AssertionError("%s · PATH=%s · stderr: %s" % (e, env["PATH"], err.read()[-1500:]))
             finally:
                 s.close()
             self.assertFalse(bad, text)
