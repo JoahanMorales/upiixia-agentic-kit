@@ -193,7 +193,11 @@ class McpTools(unittest.TestCase):
             env["PATH"] = os.pathsep.join([win + "\\System32", win, win + "\\System32\\WindowsPowerShell\\v1.0", str(git_cmd), str(py), str(py / "Scripts")])
         exe = shutil.which(cfg["command"], path=env["PATH"]) or cfg["command"]  # what a harness's spawn finds on PATH
         sub = self.repo / "src"; sub.mkdir(exist_ok=True)
-        for cwd in (self.repo, sub):
+        # A task worktree: git exports GIT_DIR to the alias there, and uak's temp `git init` made the main repo bare.
+        wt = self.repo.parent / "mcp-task-worktree"
+        if not wt.exists():
+            subprocess.run(["git", "-C", str(self.repo), "worktree", "add", "-q", "-b", "mcp-wt", str(wt)], check=True, env=self.env)
+        for cwd in (self.repo, sub, wt):
             err = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
             s = Server(cwd, env, [exe] + cfg["args"], stderr=err)
             try:
@@ -207,6 +211,8 @@ class McpTools(unittest.TestCase):
             self.assertFalse(bad, text)
             self.assertIn("APP-001", text, "the tool ran uak, from %s: %s" % (cwd, text[:300]))
             self.assertNotIn("Windows Subsystem", text.replace("\x00", ""))
+            bare = subprocess.run(["git", "-C", str(self.repo), "config", "--get", "core.bare"], capture_output=True, text=True, env=self.env).stdout.strip()
+            self.assertNotEqual(bare, "true", "started from %s, the server left the main repository bare" % cwd)
 
 
 class Manifest(unittest.TestCase):

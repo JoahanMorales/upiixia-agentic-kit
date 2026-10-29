@@ -12,6 +12,13 @@ warn() { printf 'WARN  %s\n' "$*"; warns=$((warns + 1)); }
 bad()  { printf 'FAIL  %s\n' "$*"; fails=$((fails + 1)); }
 field() { sed -n "s/^[-* ]*$1:[* ]*//p" "$project" 2>/dev/null | head -n 1 | tr -d '\r`'; }
 
+# A checkout's .git marked bare: uak-mcp 5.4.5-5.5.0, started through its git alias in a task worktree, re-initialized
+# the main repository (core.bare=true) and git then refused every command there ("must be run in a work tree").
+common=$(git rev-parse --git-common-dir 2>/dev/null) && common=$(cd "$common" 2>/dev/null && pwd -P)
+if [ "$(git rev-parse --is-bare-repository 2>/dev/null)" = true ] && [ "$(basename "${common:-x}")" = .git ]; then
+  if [ "$fix" = yes ] && git --git-dir="$common" config core.bare false; then ok "core.bare=false restored on $common"
+  else bad "core.bare=true on a checkout ($common): fix with git --git-dir=\"$common\" config core.bare false (or uak doctor --fix)"; exit 1; fi
+fi
 root=$(git rev-parse --show-toplevel 2>/dev/null) || { bad "not a Git repository"; exit 1; }
 cd "$root" || exit 1
 project=.uak/PROJECT.md

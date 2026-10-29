@@ -27,6 +27,12 @@ from pathlib import Path
 MODERN = ["2026-07-28"]
 LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26"]
 CAP = 12000  # characters of tool output returned to the model (Output-Cap-Chars in PROJECT.md wins)
+# Started through `git -c alias…` (the launch configs), git exports its own repository to the alias: in a task
+# worktree GIT_DIR names that worktree's admin dir. Inherited by uak, its temp `git init` re-initialized the main
+# repository instead and set core.bare=true there. The server and every child run with git's own discovery.
+for _k in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+           "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"):
+    os.environ.pop(_k, None)
 
 
 def repo_root():

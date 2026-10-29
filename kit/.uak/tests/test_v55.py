@@ -181,9 +181,25 @@ def rules_cover_the_holes(r):
     return {"rules": True}
 
 
+def doctor_repairs_a_checkout_made_bare(r):
+    """uak-mcp 5.4.5-5.5.0, started through its git alias in a task worktree, inherited GIT_DIR and its temp
+    `git init` set core.bare=true on the main repository: every git command there failed, and doctor said
+    "not a Git repository"."""
+    t = r.scratch / "v55-bare"; t.mkdir()
+    r.g(t, "init", "-q", "-b", "main")
+    r.g(t, "config", "core.bare", "true")
+    doctor = str(r.package / ".uak/bin/doctor")
+    seen = subprocess.run([r.bash, doctor], cwd=t, env=r.env, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+    expect(seen.returncode == 1 and "core.bare=true on a checkout" in seen.stdout and "config core.bare false" in seen.stdout, seen.stdout + seen.stderr)
+    fixed = subprocess.run([r.bash, doctor, "--fix"], cwd=t, env=r.env, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+    expect("core.bare=false restored" in fixed.stdout, fixed.stdout + fixed.stderr)
+    expect(r.g(t, "config", "core.bare").stdout.strip() == "false", "the checkout works again")
+    return {"bare": "repaired"}
+
+
 TESTS = [offers_skip_a_human_the_mac_folded, a_reject_stands_until_a_new_commit, a_held_review_takes_no_other_verdict,
          gate_takes_fixtures_and_gives_a_port, a_carried_file_names_its_task, errors_name_the_whole_command,
-         wt_stop_finds_a_windows_listener, rules_cover_the_holes]
+         wt_stop_finds_a_windows_listener, rules_cover_the_holes, doctor_repairs_a_checkout_made_bare]
 
 
 def main():

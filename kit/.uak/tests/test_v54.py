@@ -447,7 +447,9 @@ def the_human_sees_the_directions(r):
     import urllib.request
     served = r.run([r.bash, str(r.package / ".uak/bin/design-gallery"), "--serve", "18790"], cwd=t, allowed=None)
     try:
-        port = next(l.split("http://localhost:", 1)[1].split("/", 1)[0] for l in served.stdout.splitlines() if "http://localhost:" in l)
+        urls = [l.split("http://localhost:", 1)[1].split("/", 1)[0] for l in served.stdout.splitlines() if "http://localhost:" in l]
+        expect(urls, "the server printed its URL: " + served.stdout + served.stderr)
+        port = urls[0]
         expect(served.returncode == 0 and "ssh -L %s:127.0.0.1:%s" % (port, port) in served.stdout, "the tunnel to use over SSH: " + served.stdout + served.stderr)
         body = urllib.request.urlopen("http://127.0.0.1:%s/" % port, timeout=10).read().decode("utf-8")
         expect("Design lock" in body and 'src="1-1280.png"' in body, "served on localhost, in the background: " + body[:200])

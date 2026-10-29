@@ -1,5 +1,15 @@
 # Changelog
 
+## v5.5.1 · 2026-10-28 · Hotfix: the MCP server could make the main repository bare
+- **Started from a task worktree, uak-mcp made the main repository bare.** Since v5.4.5 the launch configs start the
+  server through `git -c alias.uak-mcp=…`; in a linked worktree git exports `GIT_DIR` to the alias, the server passed
+  it on, and uak's temp `git init` re-initialized the main repository with `core.bare=true`. Every git command there
+  then failed ("this operation must be run in a work tree"). The server drops git's `GIT_*` variables, and `uak`
+  ignores them too. **Already hit?** `bash .uak/bin/doctor --fix` (or `git --git-dir=<repo>/.git config core.bare
+  false`). The MCP test now starts the server from a task worktree and checks the repository stays a checkout.
+- `design-gallery --serve` waits up to 15 s for its server (a cold Python on a busy Mac took over 5 s, and the URL
+  never printed).
+
 ## v5.5.0 · 2026-10-28 · The Hacktoberfest autopsy
 An overnight sprint on v5.4.2: 5 humans, 13 identities on Claude Code and Codex, macOS and Windows, 33 of 35 tasks
 integrated ([autopsy](docs/blackbox/hacktoberfest-2026-10.md), 18 findings). Each kit failure has a test in

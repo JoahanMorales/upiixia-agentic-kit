@@ -2,6 +2,9 @@
 # Bash 3.2+; Git y utilidades POSIX. No requiere jq ni Python.
 # Why: works on Git Bash, macOS and Linux with no services.
 set -u
+# Inherited from git (an alias, a hook): uak's temp clones would act on the caller's repository instead. Why: the MCP
+# server, started through a git alias in a task worktree, made the main repository bare (core.bare=true).
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
 set -o pipefail
 LC_ALL=C
 export LC_ALL
