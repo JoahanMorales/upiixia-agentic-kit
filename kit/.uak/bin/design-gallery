@@ -141,8 +141,9 @@ for s in servers[1:]:
 servers[0].serve_forever()
 PY
   pid=$!; printf '%s\n' "$pid" > "$dir/.gallery.pid"
-  # Up to 15 s: a cold Python on a busy Mac took over 5 s to bind (CI, Oct 2026), and the URL never printed.
-  i=0; while [ "$i" -lt 150 ] && ! grep -q '^PORT ' "$dir/.gallery.log" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+  # Up to 40 s: a cold Python on a busy Mac took over 5 s to bind (CI, Oct 2026), and once more than 15 s on a
+  # loaded macOS runner; the loop ends as soon as the port is printed.
+  i=0; while [ "$i" -lt 400 ] && ! grep -q '^PORT ' "$dir/.gallery.log" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
   got=$(sed -n 's/^PORT //p' "$dir/.gallery.log" | head -n 1)
   [ -n "$got" ] || { printf 'DESIGN_GALLERY: the server did not start: %s\n' "$(tail -n 1 "$dir/.gallery.log")"; exit 1; }
   [ -z "$ts" ] || printf 'DESIGN_GALLERY open on your laptop (Tailscale): http://%s:%s/\n' "$ts" "$got"

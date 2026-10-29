@@ -250,16 +250,22 @@ tier_of() { # $1 model param, $2 subagent type → strong|balanced|fast|inherit
 # through and lost reservations (audit, Oct 2026). mkdir is atomic everywhere; a lock older than 10 s is a crashed
 # hook's (the hook timeout is 5 s), and the wait stays under that timeout.
 agents_lock() {
-  local l="$1/uak-agents.lock" i=0 t now
+  local l="$1/uak-agents.lock" i=0 t now pid
   while ! mkdir "$l" 2>/dev/null; do
-    now=$(date +%s); t=$(cat "$l/at" 2>/dev/null); case "$t" in ''|*[!0-9]*) t=$now;; esac
-    if [ $((now - t)) -gt 10 ]; then rm -f "$l/at"; rmdir "$l" 2>/dev/null; continue; fi
-    i=$((i + 1)); [ "$i" -lt 40 ] || block "another subagent launch is being counted; try again in a few seconds."
+    now=$(date +%s); t=$(cat "$l/at" 2>/dev/null); pid=$(cat "$l/pid" 2>/dev/null)
+    case "$t" in ''|*[!0-9]*) t=$now;; esac
+    # Stale: its hook died (no such process), or it has no PID and is older than 10 s. Broken by renaming it first, which only one
+    # waiter can do: two waiters removing it in turn freed a lock a third had just taken (CI: 7 launches with cap 4).
+    if { [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; } || { [ -z "$pid" ] && [ $((now - t)) -gt 10 ]; }; then
+      if mv "$l" "$l.stale.$$" 2>/dev/null; then rm -rf "$l.stale.$$"; fi
+      continue
+    fi
+    i=$((i + 1)); [ "$i" -lt 80 ] || block "another subagent launch is being counted; try again in a few seconds."
     sleep 0.1 2>/dev/null || sleep 1
   done
-  date +%s > "$l/at" 2>/dev/null
+  printf '%s\n' "$$" > "$l/pid" 2>/dev/null; date +%s > "$l/at" 2>/dev/null
   AGENTS_LOCK=$l
-  trap 'rm -f "$AGENTS_LOCK/at"; rmdir "$AGENTS_LOCK" 2>/dev/null' EXIT
+  trap 'rm -f "$AGENTS_LOCK/at" "$AGENTS_LOCK/pid"; rmdir "$AGENTS_LOCK" 2>/dev/null' EXIT
 }
 check_agent() {
   input=$1 gd=$(git rev-parse --git-dir 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")
