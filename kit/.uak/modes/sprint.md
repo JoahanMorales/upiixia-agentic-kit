@@ -22,7 +22,8 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 3. Wave 1 is wide: one task with no hard dependency per agent. Consumers use `Uses contract:` plus mocks.
 4. At most 2 agents per human. More agents produce more messages than code.
 5. Wave 2 onward: `UAK_HUMAN=<human> uak plan file.md` publishes tasks instantly, with no PR.
-6. Start the team with `uak up <agents> --tmux`. Humans watch `uak board --watch 10` instead of asking agents for status.
+6. A contract with no task behind it is a hole. When a contract says "each module exposes X" (a stage registry, a plugin hook), the backlog has a task that implements X for every consumer, P0 if the wow runs through it. Why (Hacktoberfest): the pipeline looked up `run_stage` in 8 service modules, no task wrote one, and every run replayed the same recorded project.
+7. Start the team with `uak up <agents> --tmux`. Humans watch `uak board --watch 10` instead of asking agents for status.
 
 ## Speed
 0. Orchestrate by cost (`.uak/docs/ORCHESTRATION.md`): Haiku scouts read, the Sonnet lead builds, and Opus is consulted only at plan lock, a repeated failure and done. The guard caps parallel subagents (4) and Opus subagents (2 per session). `uak pace` scales those with your 5-hour window, and fixed hard limits stop any runaway: 6 parallel, 3 Opus, 40 spawns per session, 8 per machine, 6 per minute, and 6 agents per `uak up`.
@@ -51,6 +52,8 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 ## AI products
 - Pin model IDs in one config file and check with a spike that they exist.
 - Keep a recorded response per model call (`demo_data: true`) so the demo works offline and without keys. Add a `DEMO_MODE` switch.
+- A fallback to the recording is a fallback, not the product. With `DEMO_MODE` off, a new input must produce its own output, or the run must say plainly that it is showing the recording. A judge who types their own idea and gets yours sees a fake.
+- Get the keys in the first hour. A task that only a human with keys can finish (recording real fixtures) is P0 with a named human, not a backlog item.
 - The LLM picks from given options and cites given IDs. Validate every model output against a schema before use.
 - Use `mcp-builder` when the project exposes tools to agents.
 

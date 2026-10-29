@@ -463,8 +463,8 @@ check_dependencies() {
   for dep in $deps; do
     dep_state=$(field "$TX/tasks/$dep.md" State)
     [ "$dep_state" = INTEGRATED ] && continue
-    [ "$dep_state" != REVIEW ] || conflict "$ID depends on $dep (REVIEW). If its PR is already merged, any agent can run: uak integrate $dep"
-    conflict "$ID depends on $dep; claim it after INTEGRATED."
+    [ "$dep_state" != REVIEW ] || conflict "$ID depends on $dep (REVIEW). If its PR is already merged, any agent can run: uak integrate $dep. Otherwise do not retry the claim: take other work, or wait once: uak wait $dep --for integrated"
+    conflict "$ID depends on $dep; claim it after INTEGRATED (do not retry: uak wait $dep --for integrated, once)."
   done
 }
 check_collisions() {
@@ -496,7 +496,8 @@ check_collisions() {
       if [ "$other_until" -gt 0 ] && [ "$NOW" -ge "$other_until" ] && [ "$(field "$other" State)" != REVIEW ]; then
         conflict "$ID overlaps $(field "$other" ID) ($(field "$other" Owner)), whose lease expired $(( (NOW - other_until) / 60 )) min ago. Take that one over: uak status --task $(field "$other" ID) --summary, then uak release $(field "$other" ID) --expired --read-summary TOKEN."
       fi
-      conflict "$ID overlaps $(field "$other" ID) ($(field "$other" Owner)); pick another task."
+      # Why (Hacktoberfest): one agent retried "overlaps HACK-028" and "depends on HACK-028" 14 times in 40 min.
+      conflict "$ID overlaps $(field "$other" ID) ($(field "$other" Owner)); pick another task, or wait once: uak wait $(field "$other" ID) --for integrated (retrying the claim changes nothing)."
     fi
   done
 }
@@ -1125,6 +1126,10 @@ print_task() {
       [ ! -f "$(claim_file)" ] || say "Read-token: $(read_token)"
     fi
     [ "$CMD" != handoff ] || coord_handoff
+  elif [ -f "$(claim_file)" ]; then
+    # A claim without its task record yet (a claim in flight): never AVAILABLE. Why (Hacktoberfest): status said
+    # AVAILABLE, wt new then failed with CONFLICT on the other agent's claim.
+    say "$ID | $(field "$(claim_file)" State) | $(field "$(claim_file)" Owner)"; say "Next: pick another task (uak next)"
   else
     load_task; say "$ID | AVAILABLE | $PRIORITY"; say "Next: $DEFAULT_NEXT"; say "Verify: $VERIFY"
   fi
@@ -1531,7 +1536,11 @@ if [ "$CMD" = checkpoint ]; then
     die "checkpoint needs all six fields; missing:$([ -n "$DONE_TEXT" ] || printf ' --done')$([ -n "$DECISION_TEXT" ] || printf ' --decision')$([ -n "$WHY_TEXT" ] || printf ' --why')$([ -n "$FAILS_TEXT" ] || printf ' --fails')$([ -n "$COMMANDS_TEXT" ] || printf ' --commands')$([ -n "$NEXT_TEXT" ] || printf ' --next') (use - for none)."
 fi
 if [ "$CMD" = done ]; then
-  case "$PR_URL" in https://*/*) ;; *) die "done needs --pr HTTPS URL.";; esac
+  # Both flags in one error, with the whole command. Why (Hacktoberfest): `done` failed 3 times in a row, first
+  # on --pr, then on --evidence; neither wt pr nor the hint named them.
+  done_usage="Usage: bash .uak/bin/uak done ${ID:-ID} --pr URL --evidence \"<Verify command> exit 0; <criteria checked>\" (the PR URL: bash .uak/bin/wt pr)"
+  case "$PR_URL" in https://*/*) [ -n "$EVIDENCE" ] || die "done needs --evidence. $done_usage";;
+    *) die "done needs --pr HTTPS URL$([ -n "$EVIDENCE" ] || printf ' and --evidence'). $done_usage";; esac
   # A GitHub PR URL must name this repository. Why (MLB hackathon): two tasks shipped with a PR link to another of
   # the human's repositories; reviewers opened the wrong compare page.
   pr_remote=$(git -C "$ROOT" config --get "remote.$REMOTE.url" 2>/dev/null || true)
@@ -1541,7 +1550,6 @@ if [ "$CMD" = done ]; then
       pr_url_repo=$(printf '%s' "${PR_URL#https://github.com/}" | cut -d/ -f1-2 | tr 'A-Z' 'a-z')
       [ "$pr_repo" = "$pr_url_repo" ] || die "--pr names github.com/$pr_url_repo, but this repository is github.com/$pr_repo. The right link: bash .uak/bin/wt pr";;
   esac
-  [ -n "$EVIDENCE" ] || die "done needs --evidence."
   if [ -n "$REVIEWER" ]; then
     case "$REVIEWER" in *[!A-Za-z0-9_.-]*) die "Reviewer must be a valid identity.";; esac
   fi

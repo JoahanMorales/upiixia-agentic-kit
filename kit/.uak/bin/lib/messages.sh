@@ -84,6 +84,10 @@ msg_seen_all() {
     END {
       for (n in ended) if (ended[n] >= seen[n]) print "A", n
       for (n in seen) { p = n; if (sub(/-[A-Za-z0-9]+$/, "", p) && p !~ /-[A-Za-z0-9]+$/ && (p in seen)) human[p] = 1 }
+      # Case-blind: on macOS meta/agents/Ana.md opens the ana.md already there, so the Role lands on "ana"
+      # while the human signs "Ana". Why (Hacktoberfest): 22 review offers went to the name of a human, 15+ min each.
+      for (h in human) lh[tolower(h)] = 1
+      for (n in seen) if (tolower(n) in lh) human[n] = 1
       for (n in seen) print "S", n, seen[n]
       for (n in human) print "H", n
       for (n in last) print "L", n, last[n]

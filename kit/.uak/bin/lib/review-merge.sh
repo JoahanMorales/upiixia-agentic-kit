@@ -3,7 +3,7 @@
 # Why: a declared name never proves an independent approval.
 RM_REASON= APPROVED_BY= RM_TIP= RM_ELIGIBLE_VIA= RM_PROOF=
 RM_COUNTER=0 RM_HELD=no RM_FINISHED=no RM_TOKEN= RM_BUILD= RM_CANDIDATE= RM_BASE_TIP= RM_REVIEWED_TIP=
-RM_ACTION= RM_QUEUE_REASON= RM_TREE= RM_REVIEW_MODE= RM_GH_MERGED= RM_GH_MERGE= RM_ADOPTED=no RM_MAIN= RM_GATE_PATH=
+RM_ACTION= RM_QUEUE_REASON= RM_TREE= RM_REVIEW_MODE= RM_GH_MERGED= RM_GH_MERGE= RM_ADOPTED=no RM_MAIN= RM_GATE_PATH= RM_GATE_PORT=
 
 rm_config() {
   if typeset -f coord_config >/dev/null 2>&1; then coord_config "$1" "$2";
@@ -172,6 +172,20 @@ review_mutate() {
     fi
   fi
   case "$REVIEW_VERDICT" in approve|reject) ;; *) die "--verdict must be approve or reject.";; esac
+  # Someone else holds the review of this SHA: their verdict decides. Why (Hacktoberfest): --start said CONFLICT,
+  # the reviewer's chained command still sent an approve, and it landed while the holder was reviewing.
+  local lk="$TX/reviews/$ID.reviewing" lk_until
+  if [ -f "$lk" ] && [ "$(field "$lk" Reviewer)" != "$AGENT" ] && [ "$(field "$lk" SHA)" = "$RM_TIP" ]; then
+    lk_until=$(field "$lk" Until); case "$lk_until" in ''|*[!0-9]*) lk_until=0;; esac
+    [ "$NOW" -ge "$lk_until" ] || conflict "$(field "$lk" Reviewer) is reviewing $ID at this SHA ($(((lk_until - NOW + 59) / 60)) min left); their verdict decides. Nothing recorded."
+  fi
+  # A reject stands until a new commit: another reviewer's approve of the same SHA would erase it.
+  # Why (Hacktoberfest): HACK-018 was rejected for a real SSE bug, approved at the same SHA 15 min later by
+  # someone else, merged, and the bug surfaced 10 h later in the end-to-end test.
+  if [ "$REVIEW_VERDICT" = approve ] && [ -f "$TX/reviews/$ID.md" ] && [ "$(field "$TX/reviews/$ID.md" SHA)" = "$RM_TIP" ] &&
+     [ "$(field "$TX/reviews/$ID.md" Verdict)" = reject ] && [ "$(field "$TX/reviews/$ID.md" Reviewer)" != "$AGENT" ]; then
+    conflict "$(field "$TX/reviews/$ID.md" Reviewer) rejected $ID at this SHA; an approve of the same SHA does not undo it. The owner fixes and pushes (a new SHA gets a new review), or the rejecter changes their verdict. Disagree? uak msg $ID --kind reply \"why the reject is wrong\"."
+  fi
   rm -f "$TX/reviews/$ID.reviewing"
   # An approval of a SHA that already has one is duplicate work (Reap: HACK-005 got 7 approvals, 3 on one SHA).
   if [ -f "$TX/reviews/$ID.md" ] && [ "$(field "$TX/reviews/$ID.md" SHA)" = "$RM_TIP" ] &&
@@ -448,7 +462,7 @@ rm_path_owner() {
   done
 }
 rm_gate_scope() {
-  local path allowed reserve
+  local path allowed reserve owner_t
   normalize_paths "$(field "$RECORD" Paths)" > "$TXROOT/merge-allowed" || { RM_REASON='Invalid claim Paths'; return 1; }
   # Scope = what this merge changes in the CURRENT base (the staged candidate vs RM_BASE_TIP), not Task-Base..tip.
   # Why (Reap buildathon, 6 of 13 merged tasks): a branch that merged origin/main inherited other tasks' files
@@ -466,7 +480,9 @@ rm_gate_scope() {
     case "$path" in *$'\n'*|*$'\r'*) RM_REASON='Path with newline not supported'; return 1;; esac
     # Shared resources first, so the reason says what it really is (MLB: the smoke provenance file, written by
     # init-smoke, was reported as "outside Paths").
+    # Test data is not a shared resource (Hacktoberfest: a fixture repo's migrations/*.sql went to the human).
     case "/$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')/" in
+      */fixtures/*|*/testdata/*|*/__fixtures__/*|*/test-fixtures/*) ;;
       */contracts/*|*/types/*|*/shared-types/*|*/migrations/*|*/db/migration/*|*/gradle.lockfile/*|*/.github/workflows/*|*/.gitlab-ci.yml/*|*/azure-pipelines.yml/*|*/package-lock.json/*|*/pnpm-lock.yaml/*|*/*.lock/*|*/*.lockb/*|*/go.sum/*|*/.uak/bin/smoke/*|*/.uak/bin/smoke-project/*|*/.uak/bin/.smoke-project.provenance/*|*/.uak/bin/secret-scan/*|*/.uak/bin/uak/*|*/.uak/bin/lib/*|*/.uak/bin/uak-coordination/*|*/.githooks/*|*/hackathon.md/*|*/.uak/project.md/*)
         RM_REASON="Shared resource/CI needs a human: $path"; return 1;;
     esac
@@ -485,6 +501,11 @@ rm_gate_scope() {
     if [ "$allowed" = no ]; then
       if printf '%s' "$path" | grep -Eq '(^|/)(__pycache__|node_modules|\.pytest_cache|\.next|dist|build|target|\.gradle)/|\.pyc$|\.class$|(^|/)\.DS_Store$'; then
         RM_REASON="Generated file committed: $path. Remove it from the branch (git rm -r --cached $path), add the pattern to .gitignore, push, and ask for review again"
+      elif [ "$added" = yes ] && owner_t=$(rm_path_owner "$path") && [ -n "$owner_t" ]; then
+        # A stacked branch carries a dependency's new file. Why (Hacktoberfest): HACK-010 and HACK-021 merged their
+        # dependency's branch, and its fixture went to the human queue as this task's file.
+        owner_t=${owner_t#' (Paths of '}; owner_t=${owner_t%')'}
+        RM_REASON="New file outside Paths: $path belongs to $owner_t (its Paths), carried by a branch merge. Merge $owner_t first, then git merge --no-edit origin/$BASE here and uak merge $ID again"
       elif [ "$added" = yes ]; then
         RM_REASON="New file outside Paths: $path. Move it into the task's Paths, or a human adds its dir to Additive-Paths in PROJECT.md (new files there need no reservation)"
       else
@@ -506,6 +527,10 @@ rm_gate_env() {
     if [ -d "$v/Scripts" ]; then RM_GATE_PATH="$v/Scripts:$PATH"; break; fi
     if [ -d "$v/bin" ]; then RM_GATE_PATH="$v/bin:$PATH"; break; fi
   done
+  # A port of its own: Verify that starts the app reads $UAK_PORT; the main checkout has none, and a worktree's may be serving.
+  # Above the worktree range (8100-8990) so the gate never meets a task's server. Why (Hacktoberfest): an
+  # approved e2e task went to the human queue with "no UAK_PORT" from a merge run in the main checkout.
+  RM_GATE_PORT=$(( 9100 + ($$ % 80) * 10 ))
   [ -z "${RM_BUILD:-}" ] || rm_gate_node
 }
 # Node packages for the candidate: each package.json (up to 2 levels deep) gets the worktree's or the main
@@ -586,11 +611,11 @@ rm_prepare_candidate() {
     RM_REASON='Secret gate red'; return 1;
   }
   rm_gate_env
-  (cd "$RM_BUILD" && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" bash .uak/bin/smoke) > "$TXROOT/gate-smoke.log" 2>&1 ||
+  (cd "$RM_BUILD" && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash .uak/bin/smoke) > "$TXROOT/gate-smoke.log" 2>&1 ||
     { RM_REASON="Smoke red or product unverified$(rm_gate_log smoke)"; return 1; }
   verify=$(field "$RECORD" Verify); verify=$(printf '%s\n' "$verify" | sed 's/^`//;s/`$//')
   [ -n "$verify" ] || { RM_REASON='Missing runnable Verify'; return 1; }
-  (cd "$RM_BUILD" && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" bash -c "$verify" < /dev/null) > "$TXROOT/gate-verify.log" 2>&1 ||
+  (cd "$RM_BUILD" && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash -c "$verify" < /dev/null) > "$TXROOT/gate-verify.log" 2>&1 ||
     { RM_REASON="Verify / acceptance red$(rm_gate_log verify)"; return 1; }
   git -C "$RM_BUILD" diff --quiet && [ "$(git -C "$RM_BUILD" write-tree)" = "$RM_TREE" ] || {
     RM_REASON='Smoke/Verify modified tracked files of the candidate; needs a new review'; return 1;

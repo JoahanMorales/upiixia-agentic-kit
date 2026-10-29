@@ -1,5 +1,34 @@
 # Changelog
 
+## v5.5.0 · 2026-10-28 · The Hacktoberfest autopsy
+An overnight sprint on v5.4.2: 5 humans, 13 identities on Claude Code and Codex, macOS and Windows, 33 of 35 tasks
+integrated ([autopsy](docs/blackbox/hacktoberfest-2026-10.md), 18 findings). Each kit failure has a test in
+`test_v55.py` that fails on v5.4.5.
+- **A reject stands until a new commit.** A task rejected for a real bug was approved at the same SHA by another
+  reviewer 15 min later; the approve replaced the reject, the task merged, and the bug surfaced 10 h later. Now only
+  the rejecter can change that verdict; anyone else's approve waits for a new SHA.
+- **No verdict over a held review.** `review --start` said CONFLICT, the chained approve still landed. A verdict
+  while someone else holds the review of that SHA is refused.
+- **No review offers to a human the Mac renamed.** 22 offers went to a human's name: on macOS `meta/agents/Name.md`
+  opened the `name.md` already there, so `Role: human` was recorded under another case. Humans match case-blind.
+- **Merge gate false positives.** A test repository's `migrations/*.sql` under `fixtures/` is not a shared resource;
+  a new file carried from a dependency's branch names that task and the order to merge; the candidate gets its own
+  `UAK_PORT` (an approved e2e failed with "no UAK_PORT" from the main checkout).
+- **`.env.example` is readable.** The deny rule `Read(./.env.*)` covered it; an agent could not add two variable
+  names and four merges waited on a human. The deny list names the secret variants instead.
+- **Errors that say the whole command.** `done` without flags names both `--pr` and `--evidence` and prints the
+  command (6 failures there); `wt pr` prints the `done` that follows; a claim refused for a dependency or an overlap
+  in REVIEW says not to retry and gives `uak wait ID --for integrated` (31 refused claims, 14 by one agent);
+  `status --task` no longer says AVAILABLE for a task whose claim has landed.
+- **Codex and Windows.** `wt new` prints `codex --add-dir <shared .git>` (Codex's sandbox could not write the
+  worktree's git metadata: 5 black-box lines); `wt stop` finds listeners with `netstat` and stops them with
+  `taskkill /T` (Git Bash has no `lsof` or `ss`).
+- **Plan rules for the two holes behind the demo** (`modes/sprint.md`, `/uak-demo`). The pipeline looked up
+  `run_stage` in 8 modules and no task wrote one, so every run replayed the same recorded project whatever the judge
+  typed; no API keys all night, and the task that needed them was never finished. A contract that says "each module exposes X"
+  needs a task that implements X; a fallback to the recording must say so; keys in the first hour; the rehearsal
+  tries an input that is not in the fixtures.
+
 ## v5.4.5 · 2026-10-27 · Windows, for real
 The suite now runs on a Windows runner in CI (Git Bash, a CRLF checkout as on a new machine, the MCP server
 started the way Claude Code starts it with a user's PATH), and on Linux from a temp folder named `José Pérez`.

@@ -22,11 +22,19 @@ wt ls                                                               list worktre
 USAGE
 }
 port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+wt_windows() { case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0;; esac; return 1; }
 port_pids() { # PIDs listening on a TCP port; empty if no tool is available
-  if command -v lsof >/dev/null 2>&1; then lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null
+  if wt_windows && command -v netstat >/dev/null 2>&1; then
+    # Git Bash has neither lsof nor ss. A listening row has the remote port 0; its state word is localized
+    # ("LISTENING", "ESCUCHANDO"), so it is not matched. Why (Hacktoberfest): wt stop said "nothing listening"
+    # while the task's API kept serving.
+    netstat -ano 2>/dev/null | tr -d '\r' | awk -v p=":$1" '$1 ~ /^TCP/ && $3 ~ /:0$/ && substr($2, length($2) - length(p) + 1) == p { print $NF }'
+  elif command -v lsof >/dev/null 2>&1; then lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null
   elif command -v ss >/dev/null 2>&1; then ss -ltnpH "sport = :$1" 2>/dev/null | sed -n 's/.*pid=\([0-9]*\).*/\1/p'
-  fi | sort -u
+  fi | grep -E '^[1-9][0-9]*$' | sort -u
 }
+# A Windows PID from netstat is not a Git Bash PID: taskkill stops it and its children (npm -> node).
+kill_pid() { if wt_windows; then MSYS_NO_PATHCONV=1 taskkill /F /T /PID "$1" >/dev/null 2>&1; else kill "$1" 2>/dev/null; fi; }
 clean_id() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9_.-]+$'; }
 main_root() { git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'; }
 # This machine's identities (from its worktrees' .uak-env). wt new without --agent reuses a free one (no claim on
@@ -132,7 +140,7 @@ EOF_WT
     port=$(sed -n 's/^UAK_PORT=//p' "$top/.uak-env" | tr -d '\r'); case "$port" in ''|*[!0-9]*) die "No UAK_PORT in .uak-env.";; esac
     stopped=
     for p in "$port" $((port + 1)); do
-      for pid in $(port_pids "$p"); do [ "$pid" = "$$" ] || { kill "$pid" 2>/dev/null && stopped="$stopped $pid@$p"; }; done
+      for pid in $(port_pids "$p"); do [ "$pid" = "$$" ] || { kill_pid "$pid" && stopped="$stopped $pid@$p"; }; done
     done
     say "WT_STOPPED:${stopped:- nothing listening on $port/$((port + 1))}"; exit 0;;
   pr)
@@ -142,7 +150,9 @@ EOF_WT
     case "$url" in *github.com*) ;; *) die "Not a GitHub remote: open the PR in your forge's web UI for $branch.";; esac
     # Why (UpiixSol): a fine-grained token without "Pull requests: write" made gh pr create fail for a day.
     say "Open this URL to create the PR (gh pr create needs a token with Pull requests: write):"
-    say "https://github.com/$repo/compare/$BASE...$branch?expand=1"; exit 0;;
+    say "https://github.com/$repo/compare/$BASE...$branch?expand=1"
+    task=$(sed -n 's/^UAK_TASK=//p' "$(git rev-parse --show-toplevel)/.uak-env" 2>/dev/null | tr -d '\r')
+    say "Then: bash .uak/bin/uak done ${task:-ID} --pr <the PR's URL> --evidence \"<Verify command> exit 0; <criteria checked>\""; exit 0;;
   new) ;;
   *) usage >&2; exit 2;;
 esac
@@ -214,3 +224,7 @@ fi
 (cd "$path" && bash .uak/bin/uak inbox --task "$id" 2>/dev/null | tail -n 20)
 say "WT_READY: $id · branch $branch · worktree $path"
 say "Next: cd \"$path\" and open your agent there (claude / codex / cursor)."
+# Codex's sandbox writes only inside the worktree; git and uak also write the shared .git (index, refs, uak-out).
+# Why (Hacktoberfest, Windows): 5 black-box lines of "Git metadata writes require sandbox escalation".
+common=$(cd "$path" && cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P) &&
+  say "Codex: codex --add-dir \"$common\" (its sandbox must write the shared .git: commits, refs, uak state)"
