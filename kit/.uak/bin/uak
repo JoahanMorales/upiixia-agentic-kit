@@ -88,6 +88,7 @@ field() {
   local line prefix="$2: "
   [ -f "$1" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
     case "$line" in "$prefix"*) printf '%s\n' "${line#"$prefix"}"; return 0;; esac
   done < "$1"
 }
@@ -382,6 +383,9 @@ fresh_state() {
   done
   git -C "$TX" config user.name "$USER_NAME"
   git -C "$TX" config user.email "$USER_EMAIL"
+  # Claims files are data read line by line: never CRLF. Git for Windows defaults to core.autocrlf=true, and every
+  # field then ended in \r ("Presence-Seconds must be an integer" on the second command).
+  git -C "$TX" config core.autocrlf false; git -C "$TX" config core.eol lf
   git -C "$TX" remote add origin "$REMOTE_URL" 2> "$TXROOT/remote-error" || gitfail "Invalid remote $REMOTE ($REMOTE_URL): $(head -n 1 "$TXROOT/remote-error")"
   # One fetch brings claims and the base's config (PROJECT.md, TASKS.md) together: one network round trip instead
   # of three (ls-remote, fetch claims, fetch config). done/integrate/merge prove ancestry on the base, so they
@@ -466,6 +470,8 @@ check_dependencies() {
   for dep in $deps; do
     dep_state=$(field "$TX/tasks/$dep.md" State)
     [ "$dep_state" = INTEGRATED ] && continue
+    # A cancelled dependency never integrates: waiting on it is forever (audit, Oct 2026).
+    [ "$dep_state" != CANCELLED ] || conflict "$ID depends on $dep, which is CANCELLED: it never integrates. A human drops it from Depends on: UAK_HUMAN=NAME bash .uak/bin/uak plan --amend FILE (or cancels $ID too)."
     [ "$dep_state" != REVIEW ] || conflict "$ID depends on $dep (REVIEW). If its PR is already merged, any agent can run: uak integrate $dep. Otherwise do not retry the claim: take other work, or wait once: uak wait $dep --for integrated"
     conflict "$ID depends on $dep; claim it after INTEGRATED (do not retry: uak wait $dep --for integrated, once)."
   done
@@ -663,6 +669,14 @@ handover_mutate() {
   [ "$owner" = "$AGENT" ] || [ -n "$HUMAN" ] || [ "$NOW" -ge "$until" ] ||
     { [ "${owner%-*}" = "${AGENT%-*}" ] && { [ $((NOW - seen_o)) -ge 3600 ] || msg_away "$owner"; }; } ||
     conflict "$ID belongs to $owner with a live lease: only $owner, a human (UAK_HUMAN) or another identity of the same human after 1 h offline can hand it over."
+  # An expired lease is taken over the way release --expired takes it: after reading its summary (the token proves
+  # it). Why (audit, Oct 2026): handover --to SELF took any expired claim with no token and no summary read.
+  if [ "$owner" != "$AGENT" ] && [ -z "$HUMAN" ] && [ "$NOW" -ge "$until" ] &&
+     ! { [ "${owner%-*}" = "${AGENT%-*}" ] && { [ $((NOW - seen_o)) -ge 3600 ] || msg_away "$owner"; }; }; then
+    WL=$(field "$RECORD" Worklog)
+    [ -n "$TOKEN" ] && [ "$TOKEN" = "$(read_token)" ] ||
+      conflict "$ID's lease expired: read it first (uak status --task $ID --summary), then handover $ID --to $DONE_TO --read-summary TOKEN."
+  fi
   [ ! -f "$TX/meta/retired/$DONE_TO.md" ] || conflict "$DONE_TO is retired; a claim by $DONE_TO brings it back, a handover does not."
   if [ "${UAK_MULTI_CLAIM:-}" != 1 ]; then
     for c in "$TX"/claims/*.md; do
@@ -854,6 +868,15 @@ mutate() {
         [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ] ||
           conflict "$RM_REASON. Approve the merged SHA first: uak review $ID --sha ${tip:-SHA} --verdict approve. A human merged it? That human records it: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID"
         APPROVED_BY="human:$HUMAN"
+        # A human merge over a reject that still covers this code is a decision: it says why, it is logged, and the
+        # rejecter hears it. Why (Hacktoberfest): a task rejected for files outside its Paths was merged on GitHub a
+        # minute later and recorded as human-approved; the reject stayed on record and nobody was told.
+        if rm_standing_reject; then
+          [ -n "$WHY_TEXT" ] || conflict "$RM_REJECTER rejected this code of $ID. A human who merged it anyway records why: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID --reason \"why the reject does not apply\""
+          [ -f "$TX/DECISIONS.md" ] || printf "# DECISIONS\n" > "$TX/DECISIONS.md"
+          printf '%s\n' "- $NOW | $ID | merged by $HUMAN over the reject of $RM_REJECTER | Why: $(one_line "$WHY_TEXT")" >> "$TX/DECISIONS.md"
+          msg_append "agent:$RM_REJECTER,task:$ID" info "$ID" "$ID was merged by $HUMAN over your reject at ${tip%"${tip#???????}"}: $(one_line "$WHY_TEXT")"
+        fi
       fi
       if [ -n "$MERGE_COMMIT" ]; then
         merged=$(git -C "$TX" rev-parse --verify "$MERGE_COMMIT^{commit}" 2>/dev/null) || conflict "COMMIT not in the remote history of $BASE."
@@ -1119,6 +1142,13 @@ print_task() {
     say "$ID | $(field "$RECORD" State) | $(field "$RECORD" Owner)"
     say "Branch: $(field "$RECORD" Branch)"
     say "Worktree: $(field "$RECORD" Worktree)"
+    # What a reviewer needs, tasks published with uak plan included (they are not in main's TASKS.md). Why (audit,
+    # Oct 2026): uak-reviewer is told to read PR, SHA, Verify and Paths here, and none of them was printed.
+    [ -z "$(field "$RECORD" PR)" ] || say "PR: $(field "$RECORD" PR)"
+    [ -z "$(field "$RECORD" Task-Tip)" ] || say "Task-Tip: $(field "$RECORD" Task-Tip)"
+    if [ -f "$BACKLOG" ] && awk -v id="$ID" '/^## / && $2==id {f=1} END {exit !f}' "$BACKLOG"; then
+      say "Paths: $(task_field Paths)"; say "Verify: $(task_field Verify)"
+    fi
     say "Next: $(field "$RECORD" Next)"
     [ -z "$(field "$RECORD" Progress)" ] || say "Progress: $(field "$RECORD" Progress)"
     [ -z "$(field "$RECORD" Away)" ] || [ "$(field "$RECORD" Away)" -lt "$(field "$RECORD" Updated)" ] 2>/dev/null ||
@@ -1406,6 +1436,8 @@ case "$CMD" in
     [ "$#" -gt 0 ] || die "Missing NAME."; REGISTER_REVIEWER=$1; ID=$1; shift; identity;;
   msg)
     [ "$#" -gt 1 ] || die "Usage: msg TO TEXT [--kind KIND] [--task ID]."
+    # A flag is not a recipient: `uak msg --kind request …` sent to "agent:--kind" (audit, Oct 2026).
+    case "$1" in -*) die "Usage: msg TO TEXT [--kind KIND] [--task ID]: TO comes first (a task ID, NAME, related:ID, impact:ID, all or human).";; esac
     MSG_TO=$1; shift; MSG_TASK=${UAK_TASK:-}; identity;;
   inbox) identity;;
   wait)
@@ -1459,7 +1491,7 @@ while [ "$#" -gt 0 ]; do
         --branch) [ "$CMD" = claim ] || bad_opt; BRANCH=$value;;
         --worktree) [ "$CMD" = claim ] || bad_opt; WORKTREE=$value;;
         --next) case "$CMD" in claim|checkpoint) NEXT_TEXT=$value;; *) bad_opt;; esac;;
-        --read-summary) [ "$CMD" = release ] || bad_opt; TOKEN=$value;;
+        --read-summary) case "$CMD" in release|handover) ;; *) bad_opt;; esac; TOKEN=$value;;
         --state) [ "$CMD" = log ] || bad_opt; NEW_STATE=$value; case "$value" in CLAIMED|BLOCKED) ;; *) die "Invalid state.";; esac;;
         --done) [ "$CMD" = checkpoint ] || bad_opt; DONE_TEXT=$value;;
         --decision) [ "$CMD" = checkpoint ] || bad_opt; DECISION_TEXT=$value;;
@@ -1487,7 +1519,7 @@ while [ "$#" -gt 0 ]; do
         --search) [ "$CMD" = recall ] || bad_opt; MEM_SEARCH=$value;;
         --forget) [ "$CMD" = learn ] || bad_opt; case "$value" in ''|*[!0-9]*) die "--forget takes a lesson number";; esac; MEM_FORGET=$value;;
         --rule) [ "$CMD" = secret-exception ] || bad_opt; SECRET_RULE=$value;;
-        --reason) case "$CMD" in secret-exception) SECRET_REASON=$value;; allow) WHY_TEXT=$value;; *) bad_opt;; esac;;
+        --reason) case "$CMD" in secret-exception) SECRET_REASON=$value;; allow|integrate) WHY_TEXT=$value;; *) bad_opt;; esac;;
         --cancel) [ "$CMD" = release ] || bad_opt; CANCEL_REASON=$value;;
       esac
       ;;

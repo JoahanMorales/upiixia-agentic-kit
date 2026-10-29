@@ -9,8 +9,8 @@ n=${1:-}; [ "$#" -eq 0 ] || shift
 prefix= tool=claude tmux=no
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --prefix) prefix=${2:-}; shift 2;;
-    --tool) tool=${2:-}; shift 2;;
+    --prefix) prefix=${2:-}; shift $(($# > 1 ? 2 : 1));;
+    --tool) tool=${2:-}; shift $(($# > 1 ? 2 : 1));;
     --tmux) tmux=yes; shift;;
     *) printf 'Usage: up N [--prefix NAME] [--tool CMD] [--tmux]\n' >&2; exit 2;;
   esac

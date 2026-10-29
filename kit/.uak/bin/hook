@@ -384,7 +384,9 @@ $act"
     case "$input" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) exit 0;; esac
     bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.tmp" 2>/dev/null && mv "$gd/uak-inbox.tmp" "$gd/uak-inbox.txt"
     [ -s "$gd/uak-inbox.txt" ] || exit 0
-    now_sum=$(sum "$gd/uak-inbox.txt")
+    # The batch is its message numbers, not the text: "#3 · 5m ago" changes every minute and blocked again each time
+    # (audit, Oct 2026).
+    now_sum=$(sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' "$gd/uak-inbox.txt" | tr '\n' ' ')
     [ "$now_sum" != "$(cat "$gd/uak-inbox.stopped" 2>/dev/null)" ] || exit 0
     printf '%s' "$now_sum" > "$gd/uak-inbox.stopped"
     sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' "$gd/uak-inbox.txt" | sort -n | tail -n 1 > "$gd/uak-inbox.shown-n"
@@ -454,6 +456,13 @@ $act"
     printf '%s\n' "$cmd" | grep -Eq '(^|[;&|([:space:]])(pytest|py\.test|tox|nox|jest|vitest|mocha|tsc|eslint|ruff|mypy|pyright|flake8|pylint|rg|tree|du|make)([[:space:]]|$)|python3?[[:space:]]+-m[[:space:]]+(pytest|unittest)|playwright[[:space:]]+test|cypress[[:space:]]+run|go[[:space:]]+(test|build|vet)|cargo[[:space:]]+(test|build|check|clippy)|(mvn|gradle|gradlew)[[:space:]]|(npm|pnpm|yarn|bun)[[:space:]]+(run[[:space:]]+)?(test|build|lint|typecheck|check|format:check)|(uv|poetry)[[:space:]]+run[[:space:]]+(pytest|python|mypy|ruff)|git[[:space:]]+(log|diff|show|blame|status)|grep[[:space:]]+-[a-zA-Z]*r|find[[:space:]]|ls[[:space:]]+-[a-zA-Z]*R|\.uak/bin/(smoke|uak[[:space:]]+(status|board|digest|stats|graph))' || exit 0
     # The guard decides first; a blocked command is left untouched so the deny hook blocks it.
     bash .uak/bin/guard check "$cmd" >/dev/null 2>&1 || exit 0
+    # The wrapper answers "allow" (the harness needs it to take the new command), so EVERY segment must be a noisy
+    # read/test/build command; anything else keeps the harness's own approval. Why (audit, Oct 2026): one keyword
+    # anywhere wrapped and auto-approved `git status; touch X` and `gh api -X DELETE …; git status`.
+    # A redirection to a file writes; 2>&1 and >/dev/null do not.
+    case "$(printf '%s' "$cmd" | sed 's@[0-9]*>&[0-9]@@g; s@[0-9]*>[[:space:]]*/dev/null@@g')" in *'>'*) exit 0;; esac
+    printf '%s\n' "$cmd" | awk '{ gsub(/&&|\|\||;|\|/, "\n"); print }' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' |
+      grep -Evq '^((cd|pushd)[[:space:]]+[^[:space:]]+|export[[:space:]]+[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|(pytest|py\.test|tox|nox|jest|vitest|mocha|tsc|eslint|ruff|mypy|pyright|flake8|pylint|rg|tree|du|make|grep|find|ls|head|tail|wc|sort|uniq|cat|seq|true|false|echo|printf|pwd|date)([[:space:]]|$)|python3?[[:space:]]+-m[[:space:]]+(pytest|unittest)|npx[[:space:]]+(playwright|cypress|jest|vitest|tsc|eslint)([[:space:]]|$)|playwright[[:space:]]+test|cypress[[:space:]]+run|go[[:space:]]+(test|build|vet)|cargo[[:space:]]+(test|build|check|clippy)|(mvn|gradle|\./gradlew|gradlew)([[:space:]]|$)|(npm|pnpm|yarn|bun)[[:space:]]+(run[[:space:]]+)?(test|build|lint|typecheck|check|format:check)([[:space:]]|$)|(uv|poetry)[[:space:]]+run[[:space:]]+(pytest|mypy|ruff)([[:space:]]|$)|git[[:space:]]+(log|diff|show|blame|status)([[:space:]]|$)|bash[[:space:]]+\.uak/bin/(smoke|uak[[:space:]]+(status|board|digest|stats|graph))([[:space:]]|$))' && exit 0
     capbin="$(pwd -P)/.uak/bin/cap"
     if [ "$harness" != cursor ] || [ "$windows" = yes ]; then
       if [ "$windows" = yes ]; then

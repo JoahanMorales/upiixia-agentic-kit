@@ -121,6 +121,19 @@ rm_main_merges_only() {
     c=$p1
   done
 }
+# A reject that still covers the current tip: same SHA, or later commits that are only clean merges of the base
+# (the rejected code is unchanged). Sets RM_REJECTER. Why (audit of v5.5.0): a second reviewer undid a reject by
+# rejecting too and then approving, or by approving the rejected SHA after the owner merged main into the branch.
+RM_REJECTER=
+rm_standing_reject() {
+  local rv="$TX/reviews/$ID.md" rsha
+  RM_REJECTER=
+  [ -f "$rv" ] && [ "$(field "$rv" Verdict)" = reject ] || return 1
+  rsha=$(field "$rv" SHA); [ -n "$rsha" ] || return 1
+  [ "$rsha" = "$RM_TIP" ] || rm_main_merges_only "$rsha" "$RM_TIP" || return 1
+  RM_REJECTER=$(field "$rv" Rejected-By); [ -n "$RM_REJECTER" ] || RM_REJECTER=$(field "$rv" Reviewer)
+  return 0
+}
 review_mutate() {
   RECORD=$(task_file)
   [ -f "$RECORD" ] || conflict "$ID has no claimed task."
@@ -145,6 +158,10 @@ review_mutate() {
       say "SKIP review $ID | already approved by $(field "$TX/reviews/$ID.md" Reviewer) on this SHA; it needs a merge, not a reviewer."
       return 0
     fi
+    if rm_standing_reject && [ "$RM_REJECTER" != "$AGENT" ]; then
+      say "SKIP review $ID | $RM_REJECTER rejected this code; it needs a fix from its owner (a new commit), not another review."
+      return 0
+    fi
     local lock="$TX/reviews/$ID.reviewing" until who
     if [ -f "$lock" ]; then
       who=$(field "$lock" Reviewer); until=$(field "$lock" Until)
@@ -158,6 +175,7 @@ review_mutate() {
     REVIEW_STARTED=yes
     return 0
   fi
+  [ -n "$REVIEW_SHA" ] || die "review needs --sha SHA: the reviewed commit (Task-Tip: $(printf '%s' "$RM_TIP" | cut -c 1-7); uak status --task $ID)."
   # A short SHA of the current HEAD is the HEAD.
   case "$RM_TIP" in "$REVIEW_SHA"*) [ "${#REVIEW_SHA}" -lt 7 ] || REVIEW_SHA=$RM_TIP;; esac
   local carried=
@@ -174,17 +192,19 @@ review_mutate() {
   case "$REVIEW_VERDICT" in approve|reject) ;; *) die "--verdict must be approve or reject.";; esac
   # Someone else holds the review of this SHA: their verdict decides. Why (Hacktoberfest): --start said CONFLICT,
   # the reviewer's chained command still sent an approve, and it landed while the holder was reviewing.
-  local lk="$TX/reviews/$ID.reviewing" lk_until
-  if [ -f "$lk" ] && [ "$(field "$lk" Reviewer)" != "$AGENT" ] && [ "$(field "$lk" SHA)" = "$RM_TIP" ]; then
+  local lk="$TX/reviews/$ID.reviewing" lk_until standing=no
+  ! rm_standing_reject || standing=yes
+  if [ -f "$lk" ] && [ "$(field "$lk" Reviewer)" != "$AGENT" ] && [ "$(field "$lk" SHA)" = "$RM_TIP" ] &&
+     { [ "$standing" = no ] || [ "$RM_REJECTER" != "$AGENT" ]; }; then
     lk_until=$(field "$lk" Until); case "$lk_until" in ''|*[!0-9]*) lk_until=0;; esac
     [ "$NOW" -ge "$lk_until" ] || conflict "$(field "$lk" Reviewer) is reviewing $ID at this SHA ($(((lk_until - NOW + 59) / 60)) min left); their verdict decides. Nothing recorded."
   fi
   # A reject stands until a new commit: another reviewer's approve of the same SHA would erase it.
   # Why (Hacktoberfest): HACK-018 was rejected for a real SSE bug, approved at the same SHA 15 min later by
   # someone else, merged, and the bug surfaced 10 h later in the end-to-end test.
-  if [ "$REVIEW_VERDICT" = approve ] && [ -f "$TX/reviews/$ID.md" ] && [ "$(field "$TX/reviews/$ID.md" SHA)" = "$RM_TIP" ] &&
-     [ "$(field "$TX/reviews/$ID.md" Verdict)" = reject ] && [ "$(field "$TX/reviews/$ID.md" Reviewer)" != "$AGENT" ]; then
-    conflict "$(field "$TX/reviews/$ID.md" Reviewer) rejected $ID at this SHA; an approve of the same SHA does not undo it. The owner fixes and pushes (a new SHA gets a new review), or the rejecter changes their verdict. Disagree? uak msg $ID --kind reply \"why the reject is wrong\"."
+  # Any verdict by someone else: a second reject would take over the record (and its rejecter could then approve).
+  if [ "$standing" = yes ] && [ "$RM_REJECTER" != "$AGENT" ]; then
+    conflict "$RM_REJECTER rejected this code of $ID (SHA ${RM_TIP%"${RM_TIP#???????}"} or one it only merges $BASE into); another verdict does not change it. The owner fixes and pushes (a new commit gets a new review), or $RM_REJECTER changes their verdict. Disagree, or more to add? uak msg $ID --kind reply \"…\"."
   fi
   rm -f "$TX/reviews/$ID.reviewing"
   # An approval of a SHA that already has one is duplicate work (Reap: HACK-005 got 7 approvals, 3 on one SHA).
@@ -197,6 +217,7 @@ review_mutate() {
   printf '%s\n' "ID: $ID" "SHA: $RM_TIP" "Reviewer: $AGENT" "Owner: $(field "$RECORD" Owner)" \
     "Verdict: $REVIEW_VERDICT" "Reviewed: $NOW" "Eligible-Via: $RM_ELIGIBLE_VIA" 'Command: uak review' > "$TX/reviews/$ID.md"
   [ -z "$carried" ] || printf '%s\n' "Carried-From: $carried (later commits are clean merges of $BASE)" >> "$TX/reviews/$ID.md"
+  [ "$REVIEW_VERDICT" != reject ] || printf '%s\n' "Rejected-By: $AGENT" >> "$TX/reviews/$ID.md"
   put "$RECORD" Task-Tip "$RM_TIP"
   WL=$(field "$RECORD" Worklog); STATE=$(field "$RECORD" State)
   event "review; $REVIEW_VERDICT; SHA $RM_TIP; reviewer $AGENT"
@@ -475,7 +496,9 @@ rm_gate_scope() {
   if [ -n "$additive" ] && [ "$additive" != - ]; then
     normalize_paths "$additive" > "$TXROOT/merge-additive" 2>/dev/null || : > "$TXROOT/merge-additive"
   fi
-  git -C "$RM_BUILD" diff --cached --no-renames --diff-filter=A --name-only "$RM_BASE_TIP" > "$TXROOT/merge-added" || return 1
+  # Names as they are (no "se\303\261al.txt" quoting), so they match the -z list. Why (audit): a new src/señal.txt was
+  # taken for an edit and its exemptions (empty file, Additive-Paths) never applied.
+  git -C "$RM_BUILD" -c core.quotePath=false diff --cached --no-renames --diff-filter=A --name-only "$RM_BASE_TIP" > "$TXROOT/merge-added" || return 1
   while IFS= read -r -d '' path; do
     case "$path" in *$'\n'*|*$'\r'*) RM_REASON='Path with newline not supported'; return 1;; esac
     # Shared resources first, so the reason says what it really is (MLB: the smoke provenance file, written by
@@ -642,9 +665,17 @@ merge_run() {
   # ("Missing verifiable approval") and a human had to read them.
   ATTEMPT=precheck; fresh_state; RECORD=$(task_file)
   [ "$(field "$RECORD" State)" != INTEGRATED ] || { rm_already_integrated; return 0; }
-  if [ -f "$RECORD" ] && [ "$(field "$RECORD" State)" = REVIEW ] && resolve_task_tip &&
-     ! approval_check "$RM_TIP" "$(field "$RECORD" PR)"; then
-    case "$RM_REASON" in 'Missing verifiable approval on claims'|'Approval missing, rejected, self-made or stale for the current SHA'|'GitHub shows no current independent approval on this SHA')
+  # A branch that is not pushed is the owner's to fix, not a human's. Why (audit, Oct 2026): "Local and remote HEAD
+  # differ; push the branch" became a human-queue entry with a message to the human.
+  local tip_ok=no
+  if [ -f "$RECORD" ] && [ "$(field "$RECORD" State)" = REVIEW ]; then
+    if resolve_task_tip; then tip_ok=yes
+    else case "$RM_REASON" in 'Local and remote HEAD differ'*) say "MERGE_WAIT $ID | $RM_REASON. Nothing was queued."; return 3;; esac; fi
+  fi
+  if [ "$tip_ok" = yes ] && ! approval_check "$RM_TIP" "$(field "$RECORD" PR)"; then
+    # The gh reason carries a hint after the sentence: match its start. Why (audit): since v5.2.1 the exact text
+    # never matched, and every early merge in gh mode went to the human queue.
+    case "$RM_REASON" in 'Missing verifiable approval on claims'|'Approval missing, rejected, self-made or stale for the current SHA'|'GitHub shows no current independent approval on this SHA'*)
       local rv="$TX/reviews/$ID.md" last=
       [ ! -f "$rv" ] || last=" Last review: $(field "$rv" Verdict) by $(field "$rv" Reviewer) on ${RM_TIP:+$(field "$rv" SHA | cut -c 1-7)}."
       say "MERGE_WAIT $ID | $RM_REASON (current SHA $(printf '%s' "$RM_TIP" | cut -c 1-7)).$last Wait for an approve message on this SHA (or fix a reject and push); nothing was queued."

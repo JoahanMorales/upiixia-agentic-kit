@@ -117,9 +117,9 @@ case "$cmd" in
     resets= window=5h source=manual
     while [ "$#" -gt 0 ]; do
       case "$1" in
-        --resets) resets=$(secs "${2:-}") || die "--resets: +3h, +45m, +2d or epoch seconds"; shift 2;;
-        --window) window=${2:-}; shift 2;;
-        --source) source=$(printf '%s' "${2:-manual}" | tr -c 'A-Za-z0-9_.-' '-'); shift 2;;
+        --resets) resets=$(secs "${2:-}") || die "--resets: +3h, +45m, +2d or epoch seconds"; shift $(($# > 1 ? 2 : 1));;
+        --window) window=${2:-}; shift $(($# > 1 ? 2 : 1));;
+        --source) source=$(printf '%s' "${2:-manual}" | tr -c 'A-Za-z0-9_.-' '-'); shift $(($# > 1 ? 2 : 1));;
         *) die "Unknown option: $1";;
       esac
     done

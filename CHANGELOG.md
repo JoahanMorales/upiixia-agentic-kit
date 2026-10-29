@@ -1,5 +1,50 @@
 # Changelog
 
+## v5.6.0 · 2026-10-29 · A full audit after the Hacktoberfest
+Nine parallel reviews of the kit (gate, messages, claims, wt/hooks/guard, MCP and installer, portability, docs, a
+second autopsy, security), each finding reproduced before it counted. What this release fixes; each has a test in
+`test_v55.py` that fails on v5.5.1:
+- **A reject could still be undone.** In v5.5.0 a second reviewer could reject too (becoming the rejecter) and then
+  approve, or approve the rejected SHA after the owner merged main into the branch. A reject now covers its code
+  across clean merges of the base, `--start` skips a rejected SHA, any other reviewer's verdict on it is refused, and
+  only the rejecter changes it. A human who merges over a reject runs `integrate ID --reason TEXT`: it goes to
+  DECISIONS and to the rejecter.
+- **Windows with Git's default `core.autocrlf=true`: every command after the first failed** ("Presence-Seconds must
+  be an integer"). uak's checkout of claims is always LF, and field reads drop a stray CR.
+- **guard read the command differently from git.** A backslash-newline, a JSON tab, quotes, `(…)`, `&`, `>`, `-fu`,
+  `--for`, `--mirr`, `--har`, `-d -f`, `git commit -n`, `rm -f -r /`, `rm -rf -- /` and `pkill --full` all got
+  past it; a 300-line heredoc took 7.5 s, past the hook's 5 s timeout (0.06 s now). It no longer blocks
+  `cp .env.example .env`, commit messages that mention push, `curl … | sha256sum`, `rm -rf *.egg-info`, or feature
+  names and sentences that look like keys or passwords ("task-assignment…", "the password reset email is broken").
+- **The output-cap wrapper (Codex, Cursor, Gemini) auto-approved compound commands.** It answers "allow" so the
+  harness takes the rewritten command; it now wraps only when every segment is a known read/test/build command and
+  nothing is redirected to a file.
+- **MCP:** `uak_cli` refuses the subcommands that run a command you pass (`loop`, `init-smoke`, `deploy`, `up`): guard
+  never sees them there. The output cap no longer doubles short outputs (a 1 MB line came back twice).
+- **pr-sync:** a PR comment is `info`, quoted as data, and only from the repository's owners, members and
+  collaborators; a failed check or a forge merge is still a `request`.
+- **Messages:** a contract to one consumer no longer hides an earlier contract from the same sender to another; the
+  6-hour window for new identities applies to broadcasts only (a request by name, or to an owned task, is never too
+  old); the Stop hook blocks once per batch of messages, not every minute.
+- **Installer:** a `.gitignore` without a final newline is no longer corrupted (`node_modules.env`); an install into a
+  subfolder of a repository is refused (the secret scan never ran there); a project's own hooks in `.git/hooks` or
+  `.githooks` keep running; `--update` with another `--mode` is refused.
+- **Gate:** in `Review-Mode: gh` an early merge waits instead of going to the human queue (the reason's text had
+  changed and never matched); a new file with an accented name is a new file; an unpushed branch is the owner's
+  wait, not a human-queue entry.
+- **Claims:** `handover` of an expired claim needs its read token, as `release --expired` does; `Freeze-Epoch` and
+  every PROJECT.md key written in bold count for the engine as they did for lint and doctor; an identity whose agent
+  file `uak away` wrote can claim; a dependency that was cancelled says so instead of waiting forever.
+- **Commands that hung for ever** when a flag lost its value (`loop --task`, `board --watch`, `graph --min-wave1`,
+  `up 1 --tool`) stop. `status --task` prints PR, Task-Tip, Paths and Verify (what reviewers are told to read there).
+  `review` without `--sha` says so; `msg --kind …` with no recipient is refused. Docs: the recovery command, the
+  human-merge `done`, `register-reviewer` from the main checkout, the security reviewer's verdict.
+
+Known and not yet fixed (design work, next release): nothing on the claims branch is authenticated, so a forged
+record can still run its Verify on another machine or approve a merge; `UAK_HUMAN` and `UAK_NOW` are environment
+variables an agent can set; sprint allows `gh pr merge`; messages to a task do not reach its next owner; the merge
+lock is not renewed during a long gate.
+
 ## v5.5.1 · 2026-10-28 · Hotfix: the MCP server could make the main repository bare
 - **Started from a task worktree, uak-mcp made the main repository bare.** Since v5.4.5 the launch configs start the
   server through `git -c alias.uak-mcp=…`; in a linked worktree git exports `GIT_DIR` to the alias, the server passed

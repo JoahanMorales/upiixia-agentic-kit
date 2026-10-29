@@ -9,7 +9,7 @@ md=no watch=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --md) md=yes; shift;;
-    --watch) watch=${2:-5}; shift 2;;
+    --watch) watch=${2:-5}; shift $(($# > 1 ? 2 : 1));;
     *) printf 'Usage: board [--md] [--watch SECONDS]\n' >&2; exit 2;;
   esac
 done

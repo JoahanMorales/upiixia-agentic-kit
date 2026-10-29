@@ -342,7 +342,7 @@ case "$cmd" in
     # define, who imports them), and who outside imports them (the contract audience). Why (MLB, v5 week): the
     # claim said "run uak map show" and agents did 9 times in 67 tasks; the slice itself is what they need.
     id= paths= backlog="$top/.uak/TASKS.md"
-    while [ "$#" -gt 0 ]; do case "$1" in --paths) paths=${2:-}; shift 2;; --backlog) backlog=${2:-$backlog}; shift 2;; *) id=$1; shift;; esac; done
+    while [ "$#" -gt 0 ]; do case "$1" in --paths) paths=${2:-}; shift $(($# > 1 ? 2 : 1));; --backlog) backlog=${2:-$backlog}; shift $(($# > 1 ? 2 : 1));; *) id=$1; shift;; esac; done
     [ -n "$id" ] || die "Usage: map brief ID [--paths P,Q] [--backlog FILE]"
     [ -n "$paths" ] || paths=$(awk -v id="$id" '/^## / {on = ($2 == id)} on {s = $0; gsub(/\*\*/, "", s); sub(/^[ \t]*-[ \t]*/, "", s); if (s ~ /^Paths:/) {sub(/^Paths:[ \t]*/, "", s); print s; exit}}' "$backlog" 2>/dev/null)
     [ -n "$paths" ] || exit 1
@@ -414,7 +414,7 @@ case "$cmd" in
     esac;;
   notes)
     agent=${UAK_MAP_AGENT:-} max=30 batch=6 dry=no
-    while [ "$#" -gt 0 ]; do case "$1" in --agent) agent=${2:-}; shift 2;; --max) max=${2:-30}; shift 2;; --dry-run) dry=yes; shift;; *) die "Usage: map notes [--agent CMD] [--max N] [--dry-run]";; esac; done
+    while [ "$#" -gt 0 ]; do case "$1" in --agent) agent=${2:-}; shift $(($# > 1 ? 2 : 1));; --max) max=${2:-30}; shift $(($# > 1 ? 2 : 1));; --dry-run) dry=yes; shift;; *) die "Usage: map notes [--agent CMD] [--max N] [--dry-run]";; esac; done
     case "$max" in ''|*[!0-9]*) die "--max takes a number";; esac
     ensure
     if [ -z "$agent" ]; then
@@ -488,7 +488,7 @@ case "$cmd" in
         p = b; s = b; while (prev[p] != "-") { p = prev[p]; s = p " → " s }; print s }' "$out/edges.tsv";;
   impact)
     only_tasks=no backlog="$top/.uak/TASKS.md"
-    while :; do case "${1:-}" in --tasks) only_tasks=yes; shift;; --backlog) backlog=${2:-$backlog}; shift 2;; *) break;; esac; done
+    while :; do case "${1:-}" in --tasks) only_tasks=yes; shift;; --backlog) backlog=${2:-$backlog}; shift $(($# > 1 ? 2 : 1));; *) break;; esac; done
     [ "$#" -gt 0 ] || die "Usage: map impact [--tasks] [--backlog FILE] ID|FILE..."; ensure
     : > "$out/impact.prefixes"
     for x in "$@"; do

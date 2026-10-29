@@ -40,7 +40,7 @@ Deadlines run when any agent calls `next` or `status` (or cron or a GitHub Actio
    - `smoke` and Verify, with no tracked file modified.
 
    Then it pushes base and claims atomically. If anything fails, the task goes to the human queue (`digest`) and the agent moves on.
-4. Human merges: `done ID --integrated COMMIT`, verified by ancestry or a rebuilt tree hash, so squash and rebase merges work.
+4. Human merges: `done ID --pr URL --evidence "human merge" --integrated COMMIT`, verified by ancestry or a rebuilt tree hash, so squash and rebase merges work.
 5. In marathon, agents only pre-review. Humans merge through branch protection and CI.
 
 ## Merged outside uak

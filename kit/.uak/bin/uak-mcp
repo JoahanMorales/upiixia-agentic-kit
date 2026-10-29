@@ -205,9 +205,9 @@ TOOLS = [
      lambda a: ["uak", "tokens", "--by", a.get("by", "task")] + (["--team"] if a.get("team") else []), 120, False),
     ("uak_cli", "Any other uak command, as arguments: handover ID --to NAME, release ID, followup ID --title T, retire NAME, "
      "decision ID --option … , log ID TEXT, integrate ID, allow ID --reason T (humans), board, digest, graph --assign, "
-     "loop …, pace, clock …, start (what still blocks the first claim), deploy, design-gallery, bb add friction TEXT --fix IDEA. Same rules and errors as the shell.",
+     "pace, clock …, start (what still blocks the first claim), design-gallery, bb add friction TEXT --fix IDEA. Same rules and errors as the shell; commands that run a command you pass (loop, init-smoke, deploy, up) go through the shell, where guard checks them.",
      obj({"agent": AGENT, "args": {"type": "array", "items": {"type": "string"}, "minItems": 1}}, ["args"]),
-     ann("uak command", False, False), lambda a: ["uak"] + list(a["args"]), 600, True),
+     ann("uak command", False, False), lambda a: cli_args(a), 600, True),
 ]
 TOOL_BY_NAME = {t[0]: t for t in TOOLS}
 
@@ -267,8 +267,29 @@ def shape(text):
     limit = cap_chars()
     if len(text) <= limit:
         return text or "(no output)"
+    # Head and tail by lines when there are enough lines, by characters otherwise, and never over the limit: with
+    # under 100 lines the two halves overlapped and a 1 MB line came back twice (audit, Oct 2026).
     lines = text.splitlines()
-    return "\n".join(lines[:40]) + f"\n[uak-mcp: {len(lines)} lines / {len(text)} chars cut to head 40 + tail 60]\n" + "\n".join(lines[-60:])
+    if len(lines) > 100:
+        head, tail = "\n".join(lines[:40]), "\n".join(lines[-60:])
+    else:
+        head, tail = text[: limit * 2 // 5], text[-(limit * 3 // 5):]
+    head, tail = head[: limit * 2 // 5], tail[-(limit * 3 // 5):]
+    return head + f"\n[uak-mcp: {len(lines)} lines / {len(text)} chars cut to head + tail]\n" + tail
+
+
+# Subcommands that run a command given as an argument: through MCP, guard (a Bash PreToolUse hook) never sees it.
+# Why (audit, Oct 2026): uak_cli ["loop", "--verify", "git reset --hard …"] ran with no prompt and no guard.
+RUNS_COMMANDS = {"loop", "init-smoke", "deploy", "up", "q", "smoke"}
+
+
+def cli_args(a):
+    args = a["args"]
+    if not isinstance(args, list) or not all(isinstance(x, str) and "\x00" not in x for x in args):
+        raise ValueError("args is a list of strings, e.g. [\"board\"]")
+    if args and args[0] in RUNS_COMMANDS:
+        raise ValueError("uak %s runs a command you pass; run it in the shell (bash .uak/bin/uak %s …), where guard checks it" % (args[0], args[0]))
+    return ["uak"] + args
 
 
 def call_tool(params, rid, meta):

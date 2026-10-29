@@ -38,6 +38,16 @@ case "$mode" in sprint|marathon) ;; *) printf '%s\n' 'Missing --mode sprint|mara
 [ -n "$target" ] || { printf '%s\n' 'Missing TARGET (root of a Git repository)' >&2; exit 2; }
 target=$(cd "$target" && pwd)
 git -C "$target" rev-parse --show-toplevel >/dev/null 2>&1 || { printf '%s\n' "$target is not a Git repository (git init first)" >&2; exit 2; }
+# The kit lives at the repository root: hooks, the MCP alias and core.hooksPath all resolve .uak from there. Why
+# (audit, Oct 2026): an install into apps/web exited 0 and the secret scan never ran (a commit of a key went in).
+top=$(cd "$(git -C "$target" rev-parse --show-toplevel)" && pwd -P)
+[ "$(cd "$target" && pwd -P)" = "$top" ] || { printf '%s\n' "$target is inside the repository $top; install at its root: install.sh --mode $mode $top" >&2; exit 2; }
+# --update keeps the mode the humans chose: another --mode would swap settings and permissions under a PROJECT.md
+# that still says the old one (audit: marathon got sprint's auto-merge permissions).
+if [ "$update" = yes ] && [ -f "$target/.uak/PROJECT.md" ]; then
+  was=$(sed -n 's/^[-* ]*Mode:[* ]*//p' "$target/.uak/PROJECT.md" | head -n 1 | tr -d '\r `')
+  [ -z "$was" ] || [ "$was" = "$mode" ] || { printf '%s\n' "This project is Mode: $was (.uak/PROJECT.md); update with --mode $was. Changing the mode is a human decision: edit PROJECT.md first." >&2; exit 2; }
+fi
 for h in $(printf '%s' "$harness" | tr ',' ' '); do case "$h" in claude|codex|cursor|gemini) ;; *) printf 'Unknown harness: %s (claude, codex, cursor, gemini)\n' "$h" >&2; exit 2;; esac; done
 has() { case ",$harness," in *",$1,"*) return 0;; *) return 1;; esac; }
 [ "$stack" = none ] || [ -d "$kit/.uak/stacks/$stack" ] || { printf 'Unknown stack: %s (available: %s)\n' "$stack" "$(ls "$kit/.uak/stacks" | tr '\n' ' ')" >&2; exit 2; }
@@ -177,6 +187,8 @@ put "$kit/.github/workflows/uak-tick.yml.example" "$target/.github/workflows/uak
 [ "$mode" != marathon ] || put "$kit/.github/CODEOWNERS.example" "$target/.github/CODEOWNERS.example"
 
 touch "$target/.gitignore"
+# A last line without a newline would glue the first added line to it ("node_modules.env": neither is ignored).
+[ ! -s "$target/.gitignore" ] || [ -z "$(tail -c 1 "$target/.gitignore")" ] || printf '\n' >> "$target/.gitignore"
 # Generated files too: an agent's `git add -A` after running tests committed __pycache__ and the merge gate stopped
 # on it (adoption eval, 2026-10). Common build/cache output of the supported stacks.
 for line in .env '.env.*' '!.env.example' .uak-env .claude/settings.local.json __pycache__/ '*.pyc' .pytest_cache/ \
@@ -190,6 +202,16 @@ case "$stack" in spring-boot) # Maven/Gradle build output
 # Another hook manager (husky, lefthook, pre-commit) owns core.hooksPath: keep it and say how to add the scan.
 # Why: the installer replaced a husky hooksPath, and every husky hook stopped running without a word.
 cur_hooks=$(git -C "$target" config --get core.hooksPath 2>/dev/null || true)
+# Hooks of the project's own (a pre-commit framework, lefthook, git-lfs) in .git/hooks or in .githooks stop running
+# once hooksPath moves: keep them and say how to add the scan. Why (audit): git-lfs's pre-push would stop uploading.
+own_hooks=
+gd_hooks="$(git -C "$target" rev-parse --git-path hooks 2>/dev/null)"; case "$gd_hooks" in /*) ;; *) gd_hooks="$target/$gd_hooks";; esac
+if [ -z "$cur_hooks" ]; then
+  for h in "$gd_hooks"/*; do case "$h" in *.sample) ;; *) if [ -f "$h" ]; then own_hooks=$h; fi;; esac; done
+fi
+case "$cur_hooks" in .githooks|.githooks/)
+  for h in "$target/.githooks"/*; do if [ -f "$h" ] && ! known "$h"; then own_hooks=$h; fi; done;; esac
+[ -z "$own_hooks" ] || cur_hooks="${cur_hooks:-.git/hooks} (with hooks of its own: $(basename "$own_hooks"))"
 case "$cur_hooks" in
   ''|.githooks|.githooks/|.uak/githooks|.uak/githooks/) git -C "$target" config core.hooksPath "$hooks_path";;
   *) say "  ~ core.hooksPath is $cur_hooks (another hook manager): kept. Add the secret scan to its pre-commit: bash .uak/githooks/pre-commit";;

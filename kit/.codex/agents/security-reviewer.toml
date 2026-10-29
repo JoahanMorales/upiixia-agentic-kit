@@ -15,5 +15,5 @@ Check each item and cite `file:line`:
 6. LLM: output treated as untrusted; prompt injection from retrieved data; least-privilege tools.
 7. Limits: rate limiting, payload size, timeouts.
 8. The relevant items of `.uak/docs/SECURITY.md` §Launch checklist (IDOR, enumeration, cookies, CORS, idempotency, transactions, log redaction).
-Return 10 lines or fewer: `RISK: HIGH|MEDIUM|LOW|NONE`, then per finding `severity · file:line · vector · fix`. On HIGH, the main agent records `uak review ID --verdict reject`.
+Return 10 lines or fewer: `RISK: HIGH|MEDIUM|LOW|NONE`, then per finding `severity · file:line · vector · fix`. On HIGH, the main agent records `uak review ID --sha SHA --verdict reject --note "file:line · vector · fix"`.
 """

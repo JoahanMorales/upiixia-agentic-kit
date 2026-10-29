@@ -72,7 +72,7 @@ while IFS= read -r f; do
   [ -z "$names" ] || grep -nE "(function|const|class)[[:space:]]+($names)([^A-Za-z0-9_]|$)" "$f" 2>/dev/null | grep -v 'design-lint: ok' |
     while IFS= read -r l; do
       n=$(printf '%s' "${l#*:}" | grep -Eo "(function|const|class)[[:space:]]+($names)" | awk '{print $2}' | head -n 1)
-      printf '%s:%s · local %s: %s already has it; import it (missing a variant? ask its owner with uak msg --kind request)\n' "$f" "${l%%:*}" "$n" "$ui"
+      printf '%s:%s · local %s: %s already has it; import it (missing a variant? ask its owner: uak msg <owner-ID> --kind request "what · why")\n' "$f" "${l%%:*}" "$n" "$ui"
     done
   # AI tells a reader spots at once (Anthropic's frontend-design calibration, Impeccable's detector).
   grep -nE 'animate-bounce|easeOutBounce|"bounce"' "$f" 2>/dev/null | grep -v 'design-lint: ok' | while IFS= read -r l; do

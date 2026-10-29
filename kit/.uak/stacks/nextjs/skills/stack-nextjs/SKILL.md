@@ -10,7 +10,7 @@ Setup: `.uak/stacks/nextjs/STACK.md`. React performance rules: `vercel-react-bes
 | One feature = `src/app/<f>/` + `src/app/api/<f>/` + `src/components/<f>/`; never edit another feature's folder | disjoint claims |
 | Server Components by default; `"use client"` only for state, effects or browser APIs | smaller bundles |
 | Data from `src/app/api/<f>/route.ts` or server code; external calls with a timeout and a labeled mock (`demo_data: true`) | the demo survives a dead API |
-| Shared types and helpers in `src/lib/` belong to their owner: ask with `uak msg ID --kind request` | one writer per contract |
+| Shared types and helpers in `src/lib/` belong to their owner: ask with `uak msg <owner-ID> --kind request "file · change · why"` | one writer per contract |
 | Dependencies: ask the owner of `package.json`; never commit a lockfile from a feature task | lockfiles go to the human queue |
 | Secrets only in `.env.local` (git-ignored), read on the server; never `NEXT_PUBLIC_` for a secret | the scanner blocks them |
 | Every data view has loading, empty and error states | reviewers check them |

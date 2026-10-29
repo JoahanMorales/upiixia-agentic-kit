@@ -6,6 +6,7 @@ coord_read() {
   local coord_line coord_prefix="$2: "
   [ -f "$1" ] || return 0
   while IFS= read -r coord_line; do
+    coord_line=${coord_line%$'\r'}
     case "$coord_line" in "$coord_prefix"*) printf '%s\n' "${coord_line#"$coord_prefix"}"; return 0;; esac
   done < "$1"
 }
@@ -30,7 +31,9 @@ coord_uint() {
 }
 coord_yesno() { case "$2" in yes|no) ;; *) die "$1 must be yes or no.";; esac; }
 coord_source_field() {
-  coord_v=$(sed -n "s/^$1: //p" "$TXROOT/coord-source" | head -n 1 | tr -d '\r')
+  # Same reading as lint and doctor: "- **Freeze-Epoch:** N" counts. Why (audit, Oct 2026): written in bold, the
+  # freeze passed lint and doctor and did not exist for the engine.
+  coord_v=$(sed -n "s/^[-* ]*$1:[* ]*//p" "$TXROOT/coord-source" | head -n 1 | tr -d '\r`')
   [ -n "$coord_v" ] || coord_v=$2
   printf '%s\n' "$coord_v"
 }
@@ -259,6 +262,8 @@ coord_claim_gate() {
   fi
   coord_af=$(coord_agent_file); coord_since=0
   [ ! -f "$coord_af" ] || coord_since=$(coord_read "$coord_af" Events-Since-Checkpoint)
+  # An agent file written by `uak away` or a human command has no counters yet (audit: no claim was ever possible).
+  case "$coord_since" in ''|*[!0-9]*) coord_since=0;; esac
   [ "$coord_since" -lt "$(coord_threshold)" ] || conflict "CHECKPOINT NOW: a recent checkpoint is required before claiming new tasks."
 }
 # Freeze exception: `Freeze-Allowed: yes` in the remote TASKS, or a human's `uak allow` on claims.

@@ -12,7 +12,7 @@ web/src/index.css            # Tailwind @theme tokens (font, color, radii); owne
 web/src/lib/api.ts           # api<T>("/x") → fetch("/api/x"); owner: setup
 web/src/features/<f>/index.tsx  # one folder per task: `export default` + `export const order = N`
 ```
-A task reserves `web/src/features/<f>/`. `package.json`, the lockfile, `vite.config.ts`, `index.css`, `App.tsx`, `lib/` and `DESIGN.md` have owners: ask them with `uak msg --kind request`.
+A task reserves `web/src/features/<f>/`. `package.json`, the lockfile, `vite.config.ts`, `index.css`, `App.tsx`, `lib/` and `DESIGN.md` have owners: ask them with `uak msg <owner-ID> --kind request "file · change · why"`.
 
 | Situation | Skill | Cost |
 |---|---|---|

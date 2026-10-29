@@ -238,28 +238,34 @@ msg_last_read() {
 msg_select() {
   # $1: unread | all | task:ID | human
   [ -f "$TX/$MSG_LOG" ] || return 0
-  # A newer contract from the same sender about the same task supersedes the older one: the inbox shows only
+  # A newer contract from the same sender about the same task, to the same targets, supersedes the older one (a
+  # contract to another consumer is not replaced: audit, Oct 2026, the first of two contracts to two tasks vanished
+  # from its recipient's inbox). The inbox shows only
   # the current one, the task thread marks the old one. Why (Reap buildathon): two contracts for the same
   # endpoint (#127, #129) arrived minutes apart and a consumer had to ask which shape was final.
   # A new identity (no read pointer yet) starts with the last 6 h, plus anything addressed to it by name.
   # Why (MLB hackathon): 5 identities joined mid-event and each got up to 22 unread "all" messages, 60 h old.
   local since=0; [ -f "$TX/inbox/read/$AGENT.md" ] || since=$((NOW - ${UAK_INBOX_FRESH_SECONDS:-21600}))
   awk -F' [|] ' -v me="$AGENT" -v owned=" $(msg_owned) " -v last="$(msg_last_read)" -v mode="$1" -v now="$NOW" -v since="$since" '
-    FNR == NR { if ($0 ~ /^- [0-9]/ && $5 == "contract" && $6 != "-") latest[$3 "|" $6] = substr($1, 3) + 0; next }
+    FNR == NR { if ($0 ~ /^- [0-9]/ && $5 == "contract" && $6 != "-") latest[$3 "|" $6 "|" $4] = substr($1, 3) + 0; next }
     /^- [0-9]/ {
       n=substr($1, 3) + 0; from=$3; to=$4; sup=""
-      if ($5 == "contract" && $6 != "-" && latest[from "|" $6] > n) {
+      if ($5 == "contract" && $6 != "-" && latest[from "|" $6 "|" to] > n) {
         if (mode !~ /^task:/) next
-        sup=" · superseded by #" latest[from "|" $6]
+        sup=" · superseded by #" latest[from "|" $6 "|" to]
       }
       nt=split(to, t, ",")
       if (mode ~ /^task:/) { hit=0; for (i=1; i<=nt; i++) if (t[i] == mode) hit=1; if (!hit) next }
       else if (mode == "human") { hit=0; for (i=1; i<=nt; i++) if (t[i] == "human") hit=1; if (!hit) next }
       else {
-        mine=0
-        for (i=1; i<=nt; i++) mine = mine || (t[i] == "agent:" me) || (t[i] == "all" && from != me) || (t[i] ~ /^task:/ && index(owned, " " substr(t[i], 6) " "))
+        mine=0; direct=0
+        for (i=1; i<=nt; i++) {
+          d = (t[i] == "agent:" me) || (t[i] ~ /^task:/ && index(owned, " " substr(t[i], 6) " "))
+          direct = direct || d; mine = mine || d || (t[i] == "all" && from != me)
+        }
         if (!mine || (mode == "unread" && n <= last)) next
-        if (mode == "unread" && $2 < since && to != "agent:" me) next
+        # The 6-h window is for broadcasts only: what names this identity or its tasks is never too old.
+        if (mode == "unread" && $2 < since && !direct) next
       }
       age=int((now - $2) / 60)
       printf "#%d · %dm ago · %s → %s · %s · %s%s\n  %s\n", n, age, from, to, $5, $6, sup, $7

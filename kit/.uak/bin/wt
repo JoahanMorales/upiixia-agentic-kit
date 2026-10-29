@@ -162,9 +162,9 @@ printf '%s' "$id" | grep -Eq '^[A-Z][A-Z0-9]*-[0-9]{3,}$' || die "Usage: wt new 
 agent=${UAK_AGENT:-} human=${UAK_HUMAN:-} next_text= agent_flag=no
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --agent) [ "$#" -gt 1 ] || die "--agent needs a value"; agent=$2; agent_flag=yes; shift 2;;
-    --human) [ "$#" -gt 1 ] || die "--human needs a value"; human=$2; shift 2;;
-    --next) [ "$#" -gt 1 ] || die "--next needs a value"; next_text=$2; shift 2;;
+    --agent) [ "$#" -gt 1 ] || die "--agent needs a value"; agent=$2; agent_flag=yes; shift $(($# > 1 ? 2 : 1));;
+    --human) [ "$#" -gt 1 ] || die "--human needs a value"; human=$2; shift $(($# > 1 ? 2 : 1));;
+    --next) [ "$#" -gt 1 ] || die "--next needs a value"; next_text=$2; shift $(($# > 1 ? 2 : 1));;
     *) die "Unknown option: $1";;
   esac
 done

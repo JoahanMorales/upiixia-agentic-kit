@@ -23,66 +23,97 @@ here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # Every block also goes to the black box: a rule that fires often is friction worth fixing.
 block() { printf 'UAK_GUARD: blocked · %s\n' "$*" >&2; bash "$here/bb" auto guard guard "$*" >/dev/null 2>&1 || true; exit 2; }
 
-# Split into segments on ; && || | and newlines (including JSON-escaped \n).
+# Split into segments on ; && || | and newlines (including JSON-escaped \n). `<` becomes a space: `cat<.env` is a read.
 segments() {
   # awk, not sed: BSD sed (macOS) does not turn \n into a newline in replacements.
-  printf '%s\n' "$1" | awk '{ gsub(/\\n|&&|\|\||;|\|/, "\n"); print }'
+  printf '%s\n' "$1" | awk '{ gsub(/</, " "); gsub(/\\n|&&|\|\||;|\|/, "\n"); print }'
+}
+# Rule segments also split on ( ) & > and backticks: `(cd x && git push -f)`, `git push --force&`, `…>/dev/null`.
+rule_segments() { printf '%s\n' "$1" | awk '{ gsub(/\\n|&&|\|\||;|\||&|\(|\)|`|<|>/, "\n"); print }'; }
+# The command as the rules read it. JSON escapes the hook payload keeps: a backslash-newline continuation (\\ + \n)
+# and \t are spaces. Why (audit, Oct 2026): `git push \<newline> --force` and `git push<TAB>--force` passed.
+norm_cmd() {
+  local c=$1 bs='\'
+  c=${c//"$bs$bs"n/ }; c=${c//"$bs"$'\n'/ }; c=${c//"$bs"t/ }; c=${c//$'\t'/ }
+  printf '%s' "$c"
 }
 
 check_bash() {
-  cmd=$1 m=$(mode)
+  cmd=$(norm_cmd "$1") m=$(mode)
+  # Quoted prose (3+ words: a commit message, a uak msg) is not a command, unless the command runs it as code.
+  # Quotes go, so "--force" is --force. Why (audit): `git commit -m "fix: push -d flag parsing"` was blocked as a
+  # remote branch delete, and `git push "--force"` passed.
+  rcmd=$cmd
+  printf '%s' "$cmd" | grep -Eq '(^|[[:space:]])((ba|z|da)?sh[[:space:]]+-[a-z]*c|eval|ssh|xargs)([[:space:]]|$)' || rcmd=$(strip_prose "$cmd")
+  rcmd=$(printf '%s' "$rcmd" | tr -d "\"'")
   while IFS= read -r seg; do
     s=" $seg "
+    # Only segments with a risky word go through the rules: a 300-line heredoc took 7.5 s, past the hook's 5 s
+    # timeout (and a timed-out hook lets the command run).
+    case "$s" in *git*|*rm*|*kill*|*sudo*|*curl*|*wget*|*publish*|*upload*|*gh*|*docker*|*npm*|*pnpm*|*yarn*|*pip*|*uv*) ;; *) continue;; esac
     case "$s" in *git*push*)
-      if printf '%s' "$s" | grep -Eq -- '(^|[[:space:]])(--force|--force-with-lease|-f|--mirror)([[:space:]=]|$)|[[:space:]]\+[A-Za-z0-9_./-]+'; then
+      # Short flags cluster (-fu), long ones abbreviate (--for, --mirr): git accepts both.
+      if printf '%s' "$s" | grep -Eq -- '[[:space:]](-[A-Za-z]*f[A-Za-z]*|--for(c(e(-with-lease|-if-includes)?)?)?(=[^[:space:]]*)?|--mi(r(r(o(r)?)?)?)?)([[:space:]]|$)|[[:space:]]\+[A-Za-z0-9_./*:-]+|remote\.[^[:space:]]*\.mirror'; then
         block "forced push rewrites shared history. Use git merge --no-edit origin/main and a normal push."
       fi
-      if printf '%s' "$s" | grep -Eq -- '(^|[[:space:]])(--delete|-d)([[:space:]]|$)|[[:space:]]:[A-Za-z0-9_./-]+'; then
+      if printf '%s' "$s" | grep -Eq -- '[[:space:]](-[A-Za-z]*d[A-Za-z]*|--del(e(t(e)?)?)?|--prune)([[:space:]]|$)|[[:space:]]:[A-Za-z0-9_./-]+'; then
         block "deleting remote branches is for the branch's human owner."
       fi;;
     esac
-    printf '%s' "$s" | grep -Eq 'git[[:space:]].*reset[[:space:]].*--hard' &&
+    printf '%s' "$s" | grep -Eq '(^|[[:space:]/])git[[:space:]].*reset[[:space:]](.*[[:space:]])?--ha(r(d)?)?([[:space:]]|$)' &&
       block "git reset --hard destroys uncommitted work. Use git stash or a wip: commit."
-    printf '%s' "$s" | grep -Eq 'git[[:space:]].*clean[[:space:]]+-[A-Za-z]*f' &&
+    printf '%s' "$s" | grep -Eq '(^|[[:space:]/])git[[:space:]].*clean[[:space:]](.*[[:space:]])?(-[A-Za-z]*f[A-Za-z]*|--fo(r(c(e)?)?)?)([[:space:]]|$)' &&
       block "git clean -f deletes untracked files (including .env). Delete your files one by one."
-    printf '%s' "$s" | grep -Eq 'git[[:space:]].*worktree[[:space:]]+remove.*(--force|[[:space:]]-f([[:space:]]|$))' &&
+    printf '%s' "$s" | grep -Eq '(^|[[:space:]/])git[[:space:]].*worktree[[:space:]]+remove.*(--fo(r(c(e)?)?)?|[[:space:]]-[A-Za-z]*f[A-Za-z]*)([[:space:]]|$)' &&
       block "worktree remove --force loses uncommitted changes. Use bash .uak/bin/wt rm ID (your task) or bash .uak/bin/wt rm --review PATH (a detached review checkout)."
     # `branch` must be the git subcommand and -D a flag of its own: "git clone --branch X …/app-DATA.git" is not a
-    # branch delete (MLB hackathon: a clone of the team repo was blocked).
-    printf '%s' "$s" | grep -Eq '(^|[[:space:]])git([[:space:]]+(-[Cc][[:space:]]+[^[:space:]]+|-[^[:space:]]+))*[[:space:]]+branch[[:space:]](.*[[:space:]])?(-[A-Za-z]*D[A-Za-z]*|--delete[[:space:]]+--force|--force[[:space:]]+--delete)([[:space:]]|$)' &&
-      block "git branch -D: delete only your merged branches, with -d."
-    printf '%s' "$s" | grep -Eq '(^|[[:space:]])--no-verify([[:space:]]|$)' &&
+    # branch delete (MLB hackathon: a clone of the team repo was blocked). -d with -f/--force is -D.
+    if printf '%s' "$s" | grep -Eq '(^|[[:space:]/])git([[:space:]]+(-[Cc][[:space:]]+[^[:space:]]+|--git-dir[= ][^[:space:]]+|--work-tree[= ][^[:space:]]+|-[^[:space:]]+))*[[:space:]]+branch[[:space:]]'; then
+      { printf '%s' "$s" | grep -Eq '[[:space:]](-[A-Za-z]*D[A-Za-z]*)([[:space:]]|$)' ||
+        { printf '%s' "$s" | grep -Eq '[[:space:]](-[A-Za-z]*d[A-Za-z]*|--del(e(t(e)?)?)?)([[:space:]]|$)' &&
+          printf '%s' "$s" | grep -Eq '[[:space:]](-[A-Za-z]*f[A-Za-z]*|--fo(r(c(e)?)?)?)([[:space:]]|$)'; }; } &&
+        block "git branch -D: delete only your merged branches, with -d."
+    fi
+    printf '%s' "$s" | grep -Eq '(^|[[:space:]])--no-verify([[:space:]]|$)|(^|[[:space:]/])git[[:space:]].*commit[[:space:]](.*[[:space:]])?-[A-Za-z]*n[A-Za-z]*([[:space:]]|$)' &&
       block "--no-verify skips the pre-commit secret scanner."
-    printf '%s' "$s" | grep -Eq '(^|[[:space:]])(pkill[[:space:]]+(-[A-Za-z0-9]+[[:space:]]+)*-[A-Za-z]*f|killall)([[:space:]]|$)' &&
+    printf '%s' "$s" | grep -Eq '(^|[[:space:]])(pkill[[:space:]]+(-[A-Za-z0-9]+[[:space:]]+)*(-[A-Za-z]*f|--full)|killall)([[:space:]]|$)' &&
       block "pkill -f/killall match by pattern and can kill your own shell or other agents' servers (UpiixSol). Kill exact PIDs: bash .uak/bin/wt stop, or kill \$(lsof -ti tcp:\$UAK_PORT)."
     printf '%s' "$s" | grep -Eq '(^|[[:space:]])sudo([[:space:]]|$)' &&
       block "sudo needs the human: ask them to run it themselves. Never ask for or use their password."
-    printf '%s' "$s" | grep -Eq 'rm[[:space:]]+-[A-Za-z]*[rR][A-Za-z]*[[:space:]]+(-[A-Za-z]+[[:space:]]+)*("|'"'"')?(/|~|\$HOME|\.\.|\.git([[:space:]/]|$)|\*)' &&
-      block "rm -r outside your worktree or on .git. Delete concrete relative paths of your task."
-    printf '%s' "$s" | grep -Eq '(curl|wget)[[:space:]].*' && printf '%s\n' "$cmd" | grep -Eq '(curl|wget)[^|]*\|[[:space:]]*(ba|z)?sh' &&
+    # rm with -r anywhere among its flags and any argument that is /, ~, $HOME, .., .git or *.
+    if printf '%s' "$s" | grep -Eq '(^|[[:space:]/])rm[[:space:]]' && printf '%s' "$s" | grep -Eq '[[:space:]](-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]|$)'; then
+      printf '%s' "$s" | grep -Eq '[[:space:]](/|~|~/[^[:space:]]*|\$HOME|\$\{HOME\}|\.\.|\.\./[^[:space:]]*|\.git|\.git/[^[:space:]]*|\*)/?([[:space:]]|$)' &&
+        block "rm -r outside your worktree or on .git. Delete concrete relative paths of your task."
+    fi
+    printf '%s' "$s" | grep -Eq '(curl|wget)[[:space:]].*' && printf '%s\n' "$cmd" | grep -Eq '(curl|wget)[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba|z|da)?sh([[:space:]]|$)' &&
       block "curl | sh runs unreviewed remote code. Download, read, then run."
     printf '%s' "$s" | grep -Eq '(npm|pnpm|yarn)[[:space:]]+publish|(uv|poetry)[[:space:]]+publish|twine[[:space:]]+upload|gh[[:space:]]+(repo[[:space:]]+(create|delete|edit)|release[[:space:]]+create)|docker[[:space:]]+push' &&
       block "publishing outside the repo is a human action."
     if [ "$m" = marathon ]; then
-      printf '%s' "$s" | grep -Eq 'gh[[:space:]]+pr[[:space:]]+merge|git[[:space:]].*push[[:space:]].*[[:space:]](main|master|release[^[:space:]]*)([[:space:]]|$)' &&
+      # A refspec destination counts too (HEAD:main, feat/x:refs/heads/main). Why (audit): both pushed to main.
+      printf '%s' "$s" | grep -Eq 'gh[[:space:]]+pr[[:space:]]+merge|git[[:space:]].*push[[:space:]].*[[:space:]:](refs/heads/)?(main|master|release/[^[:space:]]*|release)([[:space:]]|$)' &&
         block "marathon mode: main changes only via PR with green CI and human CODEOWNERS approval."
-      printf '%s' "$s" | grep -Eq '(npm|pnpm|yarn)[[:space:]]+(install|add|i)[[:space:]]+[^-]|uv[[:space:]]+add[[:space:]]|pip[[:space:]]+install[[:space:]]+[^-]' &&
+      printf '%s' "$s" | grep -Eq '(npm|pnpm|yarn)[[:space:]]+(install|add|i)([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^-[:space:]]|uv[[:space:]]+add[[:space:]]|pip[[:space:]]+install([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^-[:space:]]' &&
         block "marathon mode: a new dependency needs uak decision (license, maintenance, audit) and approval."
     fi
-  done <<EOF
-$(segments "$cmd")
-EOF
+  done <<UAK_SEGMENTS
+$(rule_segments "$rcmd")
+UAK_SEGMENTS
   # .env reads, checked on the command with prose removed: a quoted text of 3+ words is a prompt or a message,
   # not a file operation, unless the command runs it as code (sh -c, eval, ssh).
   # Why (Reap buildathon): `codex exec "... never cat .env ..."` was blocked as a .env read.
   envcmd=$cmd
   printf '%s' "$cmd" | grep -Eq '(^|[[:space:]])((ba|z|da)?sh[[:space:]]+-[a-z]*c|eval|ssh|xargs)([[:space:]]|$)' || envcmd=$(strip_prose "$cmd")
+  # Input redirection from .env, and git show REV:.env.
+  printf '%s' "$envcmd" | grep -Eq '<[[:space:]]*["'"'"']?\.env(\.[a-z]+)?["'"'"']?([[:space:]]|$)|:\.env(\.[a-z]+)?([[:space:]]|$)' &&
+    block ".env holds secrets and never enters context. Read .env.example or ask which variable exists."
   while IFS= read -r seg; do
-    printf '%s' " $seg " | grep -Eq '(cat|less|more|head|tail|bat|grep|rg|sed|awk|cp|scp|base64|xxd|strings|source|\.)[[:space:]]([^#]*[[:space:]/"'"'"'])?["'"'"']?\.env(\.(local|production|prod|dev|development|staging))?["'"'"']?([[:space:]]|$)' &&
+    # cp only when .env is the source: `cp .env.example .env` is the standard setup step (audit: it was blocked).
+    printf '%s' " $seg " | grep -Eq '(cat|less|more|head|tail|bat|grep|rg|sed|awk|scp|base64|xxd|strings|source|nl|tac|cut|od|hexdump|diff|paste|sort|\.)[[:space:]]([^#]*[[:space:]/"'"'"'])?["'"'"']?\.env(\.(local|production|prod|dev|development|staging|test))?\*?["'"'"']?([[:space:]]|$)|(^|[[:space:]])cp[[:space:]]+(-[A-Za-z]+[[:space:]]+)*["'"'"']?\.env(\.(local|production|prod|dev|development|staging|test))?["'"'"']?[[:space:]]' &&
       block ".env holds secrets and never enters context. Read .env.example or ask which variable exists."
-  done <<EOF
+  done <<UAK_SEGMENTS
 $(segments "$envcmd")
-EOF
+UAK_SEGMENTS
   return 0
 }
 strip_prose() {
@@ -99,13 +130,19 @@ strip_prose() {
 check_prompt() {
   text=$1
   hit=
-  printf '%s' "$text" | grep -Eq 'sk-(proj-|ant-|live_|test_)?[A-Za-z0-9_-]{20,}' && hit='API key (sk-…)'
+  # A key starts at a word boundary and mixes in digits: "task-assignment-notification-service" is a word, not
+  # sk-… (audit, Oct 2026: three feature names were blocked as keys). sk_live_/rk_test_: Stripe.
+  printf '%s' "$text" | grep -Eq '(^|[^A-Za-z0-9])(sk-(proj|ant|live|test|svcacct|admin)[-_]|[sr]k_(live|test)_)[A-Za-z0-9_-]{16,}' && hit='API key (sk-…)'
+  printf '%s' "$text" | grep -Eo '(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}' | grep -q '[0-9]' && hit='API key (sk-…)'
   printf '%s' "$text" | grep -Eq 'gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}' && hit='GitHub token'
   printf '%s' "$text" | grep -Eq 'AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}' && hit='AWS key'
   printf '%s' "$text" | grep -Eq 'AIza[0-9A-Za-z_-]{35}' && hit='Google API key'
   printf '%s' "$text" | grep -Eq 'xox[abprs]-[A-Za-z0-9-]{10,}' && hit='Slack token'
   printf '%s' "$text" | grep -Eq -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' && hit='private key'
-  printf '%s' "$text" | grep -Eiq '(contrase(n|ñ|\\u00f1)a|password|passwd|clave)[^.]{0,30}(sudo|root|admin|es|is|:|=)[[:space:]]*[^[:space:]]{6,}' && hit='password'
+  # A password is a whole word, then `:`, `=`, or the word is/es/of sudo…, then a value with a digit or a symbol:
+  # "the password reset email is broken" is a bug report (audit: blocked, and so was "La contraseña es obligatoria").
+  printf '%s' "$text" | grep -Eio '(^|[^A-Za-z])(contrase(n|ñ|\\u00f1)a|password|passwd|clave)([[:space:]]+(de|of|for|del|para)[[:space:]]+[^[:space:]]+)?[[:space:]]*(:|=|[[:space:]](es|is|sudo|root|admin)[[:space:]:=]+)[[:space:]]*[^[:space:]]{6,}' |
+    sed 's/.*[[:space:]:=]//' | grep -q '[0-9!@#$%^&*_+?~-]' && hit='password'
   [ -z "$hit" ] && return 0
   printf 'UAK_GUARD: your message looks like it contains a secret (%s); it was NOT sent to the agent.\n' "$hit" >&2
   printf '%s\n' '- Put it in .env (git-ignored) from your editor; the agent only needs the variable name.' \
