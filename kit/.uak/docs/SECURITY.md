@@ -30,13 +30,17 @@ Load this file when adding assets or dependencies, running commands from externa
   - `curl | sh`;
   - reading `.env*` (except `.env.example`);
   - publishing (npm, PyPI, `gh repo create`, `gh release`, `docker push`).
-- In marathon it also blocks `gh pr merge`, pushes to `main`/`master`/`release*`, and new dependencies without a decision.
+  - `gh pr merge` and pushes whose destination is `main`/`master` (`origin main`, `HEAD:main`), in every mode: merges go through `uak merge ID` (the gate) or a human on the forge;
+  - setting `UAK_NOW` (the clock) in any command.
+- A command that sets `UAK_HUMAN` (a human-only action: `allow`, `plan`, `register-reviewer`, `retire`, a human `integrate`) always asks the human in Claude Code, even when the command is allow-listed; Codex, Cursor and Gemini refuse it, and the human runs it in their own terminal.
+- In marathon it also blocks pushes to `release*` and new dependencies without a decision.
 - `guard prompt` (UserPromptSubmit) blocks human messages that contain:
   - API keys, and GitHub, AWS, Google or Slack tokens;
   - private keys;
   - passwords.
 
   The message never reaches the model.
+- Nothing that looks like a key (API keys, GitHub/AWS/Google/Slack/npm/HF tokens, JWTs, private keys, database URLs with a password) is written to the claims branch: `msg`, `checkpoint`, `log`, review notes and decisions are refused with the reason.
 - These guards are defense in depth, not a sandbox. If you do not trust an agent, use your tool's sandbox and `ask` permissions too.
 
 ## Portability trap
@@ -81,3 +85,11 @@ Human-only items (an agent must never tick them for you):
 - running a restore drill;
 - planning as if you will be attacked: who gets paged, what you shut off first;
 - watching the logs and error rates during launch, and for the first 48 h.
+
+## What the claims branch trusts
+Anyone who can push to the repository can push to `claims`, and uak's commits there are not signed. What follows from that:
+- The settings that grant authority (`Autonomy`, `Auto-Merge`, `Review-Mode`, `Freeze-Epoch`, `Backlog-Approved`, `Review-Independence`) are read only from `.uak/PROJECT.md` on `main`; a `meta/config.md` written on claims cannot change them.
+- The merge gate runs the `Verify` and checks the `Paths` of the backlog (main's TASKS.md plus what a human published with `uak plan`), not the task record an agent writes, and refuses an approval signed by an identity that never worked on claims.
+- `Review-Independence: human` in PROJECT.md makes the gate refuse an approval from another agent of the owner's own human.
+- Still trust-on-push: a collaborator who pushes raw commits to `claims` can forge a review by an existing identity or publish a backlog entry. With collaborators you do not trust, use `Review-Mode: gh` (approvals are GitHub reviews) and protect `main` with required reviews; the gate then cannot merge without them.
+

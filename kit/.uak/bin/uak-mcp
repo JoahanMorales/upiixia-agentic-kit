@@ -3,13 +3,14 @@
 
     python3 .uak/bin/uak-mcp            # stdio; started by the client from .mcp.json / config.toml / mcp.json
 
-Dual-era (MCP 2026-07-28 and the handshake-based 2025-11-25, 2025-06-18, 2025-03-26):
+Dual-era (MCP 2026-07-28 and the handshake-based 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05):
   modern  every request carries io.modelcontextprotocol/protocolVersion in params._meta; server/discover; results
           carry resultType, and list results ttlMs/cacheScope; an unsupported version gets error -32022
   legacy  initialize (with instructions) → notifications/initialized → requests; ping
 Tools wrap the uak CLI (same rules, same errors, same claims branch); nothing here bypasses a gate. Python 3.8+
 standard library only. Long calls (wait, merge, map notes) send notifications/progress when the client gave a
-progressToken, and notifications/cancelled stops them.
+progressToken, and notifications/cancelled stops them (no answer is sent for a cancelled request). Arguments are
+checked against each tool's inputSchema before anything runs.
 Why: the adoption eval showed agents use the harness when it is in front of them at the moment of decision; MCP
 tools are listed with a "when to use" description in every harness, unlike Bash commands the agent must remember.
 """
@@ -25,7 +26,9 @@ import time
 from pathlib import Path
 
 MODERN = ["2026-07-28"]
-LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26"]
+LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
+BATCHING = ("2025-03-26", "2024-11-05")  # JSON-RPC batches: allowed in these, removed in 2025-06-18
+KILL_GRACE = 5  # seconds between SIGTERM and SIGKILL of a tool's process group
 CAP = 12000  # characters of tool output returned to the model (Output-Cap-Chars in PROJECT.md wins)
 # Started through `git -c alias…` (the launch configs), git exports its own repository to the alias: in a task
 # worktree GIT_DIR names that worktree's admin dir. Inherited by uak, its temp `git init` re-initialized the main
@@ -72,6 +75,10 @@ VERSION = (ROOT / ".uak" / "VERSION").read_text(encoding="utf-8").strip() if (RO
 SERVER_INFO = {"name": "uak", "title": "UPIIXIA Agentic Kit", "version": VERSION}
 _out = threading.Lock()
 _procs = {}  # request id → Popen, for cancellation
+_inflight = set()  # request ids of tools/call and resources/read still running
+_cancelled = set()  # in-flight request ids the client cancelled: never answered, never started
+_state = {"version": None}  # the protocol version initialize negotiated (legacy clients)
+_tl = threading.local()  # .batch: the responses of a JSON-RPC batch, sent together
 
 
 def send(msg):
@@ -79,6 +86,17 @@ def send(msg):
     with _out:
         sys.stdout.write(data + "\n")
         sys.stdout.flush()
+
+
+def respond(rid, msg):
+    """A response, unless the client cancelled that request: the spec says the server SHOULD NOT answer it."""
+    if isinstance(rid, (str, int)) and rid in _cancelled:
+        return
+    batch = getattr(_tl, "batch", None)
+    if batch is not None:
+        batch.append(msg)
+    else:
+        send(msg)
 
 
 def cap_chars():
@@ -100,7 +118,10 @@ def instructions():
         pass
     return ("uak coordinates several agents and humans on one repo through a Git branch (claims): tasks, leases, "
             "messages, reviews and a gated merge. The rules are in AGENTS.md; these tools are the same uak CLI.\n"
-            + "\n".join(card).replace("bash .uak/bin/uak ", "uak_")
+            # The card is written for the shell; the tool names are given explicitly. Why (audit, Oct 2026):
+            # "bash .uak/bin/uak " → "uak_" gave "uak_…", and msg/learn/log/bb read as tools that do not exist.
+            + "\n".join(card).replace("(bash .uak/bin/uak …)", "(CLI forms; as tools: map → uak_map, msg → uak_message, "
+                                       "wait → uak_wait, learn → uak_memory, checkpoint → uak_checkpoint, log and bb → uak_cli)")
             + "\nTools map to commands: uak_next/uak_status (what to do, state), uak_claim (take a task: worktree + "
               "claim), uak_ship (done → review), uak_wait (block until approve/integrated/message, never poll), "
               "uak_review, uak_merge, uak_message/uak_inbox, uak_map (code graph), uak_memory (lessons), "
@@ -159,7 +180,7 @@ TOOLS = [
           "note": S, "learn": {"type": "boolean"}}, ["task", "action"]),
      ann("Review a task", False, False),
      lambda a: ["uak", "review", a["task"]] + ({"start": ["--start"], "stop": ["--stop"]}.get(a["action"]) or
-               (["--sha", a.get("sha", ""), "--verdict", a["action"]] + (["--note", a["note"]] if a.get("note") else []) + (["--learn"] if a.get("learn") else []))), 120, False),
+               (["--sha", need_sha(a), "--verdict", a["action"]] + (["--note", a["note"]] if a.get("note") else []) + (["--learn"] if a.get("learn") else []))), 120, False),
     ("uak_merge", "Merge an approved task through the gated queue (scope, secrets, smoke, Verify, atomic claims+main). "
      "The owner merges; 20 min after the approval any eligible agent can. A missing approval answers MERGE_WAIT.",
      obj({"agent": AGENT, "task": TASK}, ["task"]), ann("Merge an approved task", False, False),
@@ -212,7 +233,55 @@ TOOLS = [
 TOOL_BY_NAME = {t[0]: t for t in TOOLS}
 
 
+def need_sha(a):
+    if not a.get("sha"):
+        raise ValueError("approve and reject need sha: the full SHA you reviewed")
+    return a["sha"]
+
+
+def check_args(schema, args):
+    """What is wrong with args against a tool's inputSchema (types, enum, pattern, bounds); [] when valid.
+    Why (audit, Oct 2026): args "status" was split into characters, ack "false" acked the inbox, and a NUL byte or a
+    number for agent crashed the call with -32603."""
+    problems = []
+    props = schema.get("properties", {})
+    for k in schema.get("required", []):
+        if args.get(k) in (None, "", []):
+            problems.append("missing " + k)
+    for k, v in args.items():
+        spec = props.get(k)
+        if spec is None:
+            problems.append("unknown " + k)
+            continue
+        kind = spec.get("type")
+        if kind == "string":
+            if not isinstance(v, str):
+                problems.append("%s must be a string" % k)
+            elif "\x00" in v:
+                problems.append("%s has a NUL byte" % k)
+            elif "enum" in spec and v not in spec["enum"]:
+                problems.append("%s must be one of %s" % (k, ", ".join(spec["enum"])))
+            elif "pattern" in spec and v and not re.match(spec["pattern"], v):
+                problems.append("%s: Invalid ID %r (a task ID as in TASKS.md, e.g. HACK-012)" % (k, v) if k == "task" else "%s %r does not match %s" % (k, v, spec["pattern"]))
+        elif kind == "integer":
+            if isinstance(v, bool) or not isinstance(v, int):
+                problems.append("%s must be an integer" % k)
+            elif v < spec.get("minimum", v) or v > spec.get("maximum", v):
+                problems.append("%s must be between %s and %s" % (k, spec.get("minimum", "-"), spec.get("maximum", "-")))
+        elif kind == "boolean":
+            if not isinstance(v, bool):
+                problems.append("%s must be true or false (a JSON boolean, not a string)" % k)
+        elif kind == "array":
+            if not isinstance(v, list) or not all(isinstance(x, str) and "\x00" not in x for x in v):
+                problems.append("%s must be a list of strings, e.g. [\"board\"]" % k)
+            elif len(v) < spec.get("minItems", 0):
+                problems.append("%s needs at least %d item(s)" % (k, spec["minItems"]))
+    return problems
+
+
 def run(argv, args, timeout, rid=None, progress=None):
+    if isinstance(rid, (str, int)) and rid in _cancelled:  # cancelled before it started: start nothing
+        return 130, "[uak-mcp: cancelled]"
     cmd = [BASH, str(BIN / argv[0])] + [str(x) for x in argv[1:]]
     env = dict(os.environ)
     if os.name == "nt":  # Git Bash re-parses a command line (quotes, globs): the arguments go in the environment
@@ -225,33 +294,49 @@ def run(argv, args, timeout, rid=None, progress=None):
     # stdin is the client's JSON-RPC channel: a child must never inherit it.
     p = subprocess.Popen(cmd, cwd=str(ROOT), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace",
                          start_new_session=(os.name != "nt"))
-    if rid is not None:
+    if isinstance(rid, (str, int)):
         _procs[rid] = p
+        if rid in _cancelled:  # the cancel arrived between the check above and the registration
+            kill(p)
     started, n, out = time.time(), 0, ""
     try:
         while True:
             try:
-                out, _ = p.communicate(timeout=10)
+                # The deadline is checked every second (every 10 s, the "stopped after" note came after the client
+                # had given up); progress still goes out every 10 s.
+                out, _ = p.communicate(timeout=1)
                 break
             except subprocess.TimeoutExpired:
-                n += 1
-                if progress is not None:
-                    send({"jsonrpc": "2.0", "method": "notifications/progress",
-                          "params": {"progressToken": progress, "progress": n, "message": f"{argv[0]} {argv[1] if len(argv) > 1 else ''}: {int(time.time() - started)} s"}})
-                if time.time() - started > timeout:
+                elapsed = time.time() - started
+                if elapsed > timeout:
                     kill(p)
                     out, _ = p.communicate()
                     out += f"\n[uak-mcp: stopped after {timeout} s]"
                     break
+                if int(elapsed) // 10 > n:
+                    n = int(elapsed) // 10
+                    if progress is not None:
+                        send({"jsonrpc": "2.0", "method": "notifications/progress",
+                              "params": {"progressToken": progress, "progress": n, "message": f"{argv[0]} {argv[1] if len(argv) > 1 else ''}: {int(elapsed)} s"}})
     finally:
-        _procs.pop(rid, None)
+        if isinstance(rid, (str, int)):
+            _procs.pop(rid, None)
     return p.returncode, out
 
 
-def kill(p):
+def kill(p, grace=KILL_GRACE):
+    """SIGTERM to the tool's process group, SIGKILL `grace` seconds later. Why (audit, Oct 2026): a child that traps
+    TERM (a dev server, a sleep under trap '' TERM) outlived both the timeout and the cancel."""
     try:
         if os.name != "nt":
             os.killpg(p.pid, signal.SIGTERM)
+            def hard():
+                try:
+                    os.killpg(p.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            if grace:
+                threading.Timer(grace, hard).start()
         else:  # the whole tree: terminate() stops bash and leaves its git and sleep children holding the worktree
             if subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True, timeout=15).returncode:
                 p.terminate()
@@ -293,14 +378,17 @@ def cli_args(a):
 
 
 def call_tool(params, rid, meta):
-    name, args = params.get("name"), params.get("arguments") or {}
+    name, args = params.get("name"), params.get("arguments")
+    if args is None:
+        args = {}
+    if not isinstance(name, str) or not isinstance(args, dict):
+        return None, (-32602, "tools/call needs params {name: string, arguments: object}")
     tool = TOOL_BY_NAME.get(name)
     if not tool:
         return None, (-32602, f"Unknown tool: {name}. tools/list names them (uak_next, uak_wait, uak_map, …).")
-    missing = [k for k in tool[2]["required"] if args.get(k) in (None, "", [])]
-    bad = [k for k in args if k not in tool[2]["properties"]]
-    if missing or bad:
-        return {"content": [{"type": "text", "text": f"{name}: missing {', '.join(missing) or '-'}; unknown {', '.join(bad) or '-'}. "
+    problems = check_args(tool[2], args)
+    if problems:  # a tool error the model reads and fixes, as the spec asks for input validation
+        return {"content": [{"type": "text", "text": f"{name}: {'; '.join(problems)}. "
                              f"Arguments: {', '.join(tool[2]['properties'])}."}], "isError": True}, None
     try:
         argv = tool[4](args)
@@ -332,22 +420,22 @@ TEMPLATES = [
 ]
 
 
-def read_resource(uri):
-    m = re.match(r"^uak://(task|recall)/([A-Za-z][A-Za-z0-9]*-[0-9]+)$", uri or "")
+def read_resource(uri, rid=None):
+    m = re.match(r"^uak://(task|recall)/([A-Za-z][A-Za-z0-9]*-[0-9]+)$", uri if isinstance(uri, str) else "")
     if uri == "uak://card":
         return instructions()
     if uri == "uak://map":
-        return run(["uak", "map", "show"], {}, 120)[1]
+        return run(["uak", "map", "show"], {}, 120, rid)[1]
     if uri == "uak://status":
-        return run(["uak", "status", "--full"], {}, 60)[1]
+        return run(["uak", "status", "--full"], {}, 60, rid)[1]
     if uri == "uak://lessons":
-        return run(["uak", "recall", "*"], {}, 60)[1]
+        return run(["uak", "recall", "*"], {}, 60, rid)[1]
     if uri == "uak://agents":
         return (ROOT / "AGENTS.md").read_text(encoding="utf-8") if (ROOT / "AGENTS.md").exists() else ""
     if m and m.group(1) == "task":
-        return run(["uak", "status", "--task", m.group(2), "--summary", "--full"], {}, 60)[1]
+        return run(["uak", "status", "--task", m.group(2), "--summary", "--full"], {}, 60, rid)[1]
     if m:
-        return run(["uak", "recall", m.group(2)], {}, 60)[1]
+        return run(["uak", "recall", m.group(2)], {}, 60, rid)[1]
     return None
 
 
@@ -375,15 +463,30 @@ CAPS = {"tools": {"listChanged": False}, "resources": {"listChanged": False}, "p
 
 
 def handle(msg):
-    rid, method, params = msg.get("id"), msg.get("method"), msg.get("params") or {}
+    rid, method, params = msg.get("id"), msg.get("method"), msg.get("params")
+    if params is None:
+        params = {}
+    if not isinstance(method, str):  # a response from the client is ignored; anything else is not a request
+        if "result" not in msg and "error" not in msg:
+            respond(rid, {"jsonrpc": "2.0", "id": rid, "error": {"code": -32600, "message": "Invalid request: no method"}})
+        return
+    if not isinstance(params, dict):
+        if rid is not None:
+            respond(rid, {"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "params must be an object"}})
+        return
     meta = params.get("_meta") or {}
+    if not isinstance(meta, dict):
+        meta = {}
     version = meta.get("io.modelcontextprotocol/protocolVersion")
     modern = version is not None
     if rid is None:  # notifications
         if method == "notifications/cancelled":
-            p = _procs.get(params.get("requestId"))
-            if p:
-                kill(p)
+            req = params.get("requestId")
+            if isinstance(req, (str, int)) and req in _inflight:  # one that already finished stays answered
+                _cancelled.add(req)
+                p = _procs.get(req)
+                if p:
+                    kill(p)
         return
     def ok(result, cacheable=False):
         if modern:
@@ -391,12 +494,12 @@ def handle(msg):
             result.setdefault("_meta", {})["io.modelcontextprotocol/serverInfo"] = SERVER_INFO
             if cacheable:
                 result.update(ttlMs=60000, cacheScope="private")
-        send({"jsonrpc": "2.0", "id": rid, "result": result})
+        respond(rid, {"jsonrpc": "2.0", "id": rid, "result": result})
     def err(code, message, data=None):
         e = {"code": code, "message": message}
         if data is not None:
             e["data"] = data
-        send({"jsonrpc": "2.0", "id": rid, "error": e})
+        respond(rid, {"jsonrpc": "2.0", "id": rid, "error": e})
     if modern and version not in MODERN:
         return err(-32022, "Unsupported protocol version", {"supported": MODERN + LEGACY, "requested": version})
     if method == "initialize":
@@ -404,7 +507,8 @@ def handle(msg):
         if asked in MODERN:
             return err(-32602, "initialize is legacy; send modern requests with _meta (see server/discover)",
                        {"supported": MODERN + LEGACY})
-        return ok({"protocolVersion": asked if asked in LEGACY else LEGACY[0], "capabilities": CAPS,
+        _state["version"] = asked if asked in LEGACY else LEGACY[0]  # a 2024-11-05 client got 2025-11-25 and left
+        return ok({"protocolVersion": _state["version"], "capabilities": CAPS,
                    "serverInfo": SERVER_INFO, "instructions": instructions()})
     if method == "server/discover":
         return ok({"supportedVersions": MODERN + LEGACY, "capabilities": CAPS, "instructions": instructions()}, True)
@@ -422,7 +526,7 @@ def handle(msg):
         return ok({"resourceTemplates": TEMPLATES}, True)
     if method == "resources/read":
         uri = params.get("uri")
-        text = read_resource(uri)
+        text = read_resource(uri, rid)
         if text is None:
             return err(-32602 if modern else -32002, f"Resource not found: {uri}", {"uri": uri})
         return ok({"contents": [{"uri": uri, "mimeType": "text/markdown" if uri in ("uak://map", "uak://agents") else "text/plain",
@@ -446,6 +550,11 @@ def main():
     if "--version" in sys.argv:
         print(f"uak-mcp {VERSION} · protocols {', '.join(MODERN + LEGACY)}")
         return 0
+    for sig in ("SIGTERM", "SIGINT", "SIGHUP"):  # children live in their own session: stop them with the server
+        try:
+            signal.signal(getattr(signal, sig), on_signal)
+        except (AttributeError, ValueError, OSError):  # Windows has no SIGHUP
+            pass
     workers = []
     for line in sys.stdin:
         line = line.strip()
@@ -456,10 +565,19 @@ def main():
         except ValueError:
             send({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}})
             continue
+        if isinstance(msg, list):  # a JSON-RPC batch: part of 2025-03-26, removed in 2025-06-18
+            if _state["version"] in BATCHING and msg:
+                batch(msg)
+            else:
+                send({"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message":
+                      "Invalid request (batches: only under protocol %s, and never empty)" % " or ".join(BATCHING)}})
+            continue
         if not isinstance(msg, dict):
-            send({"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid request (batches are not supported)"}})
+            send({"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid request"}})
             continue
         if msg.get("method") in ("tools/call", "resources/read"):
+            if isinstance(msg.get("id"), (str, int)):
+                _inflight.add(msg["id"])
             w = threading.Thread(target=safe, args=(msg,), daemon=True)   # a long uak_wait does not block others
             w.start()
             workers.append(w)
@@ -470,17 +588,64 @@ def main():
     deadline = time.time() + 60
     for w in workers:
         w.join(max(0, deadline - time.time()))
-    for p in list(_procs.values()):
-        kill(p)
+    stop_children()
     return 0
 
 
+def stop_children(grace=KILL_GRACE):
+    """Every tool still running: TERM to its group, KILL after grace. Its children live in their own session, so
+    without this they outlived the server (a loop --verify "sleep 77" kept running after terminate())."""
+    procs = list(_procs.values())
+    for p in procs:
+        kill(p, 0)
+    end = time.time() + grace
+    while time.time() < end and any(p.poll() is None for p in procs):
+        time.sleep(0.1)
+    if os.name != "nt":
+        for p in procs:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+
+def on_signal(signum, _frame):
+    stop_children(2)
+    os._exit(128 + signum)
+
+
+def batch(msgs):
+    """A JSON-RPC batch: each request handled in order, the responses sent as one array (none for notifications)."""
+    _tl.batch = []
+    try:
+        for m in msgs:
+            if isinstance(m, dict):
+                if m.get("method") in ("tools/call", "resources/read") and isinstance(m.get("id"), (str, int)):
+                    _inflight.add(m["id"])
+                safe(m)
+            else:
+                _tl.batch.append({"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid request"}})
+        out = _tl.batch
+    finally:
+        _tl.batch = None
+    if out:
+        data = json.dumps(out, ensure_ascii=False, separators=(",", ":"))
+        with _out:
+            sys.stdout.write(data + "\n")
+            sys.stdout.flush()
+
+
 def safe(msg):
+    rid = msg.get("id")
     try:
         handle(msg)
     except Exception as exc:  # noqa: BLE001
-        if msg.get("id") is not None:
-            send({"jsonrpc": "2.0", "id": msg.get("id"), "error": {"code": -32603, "message": f"Internal error: {exc}"}})
+        if rid is not None:
+            respond(rid, {"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": f"Internal error: {exc}"}})
+    finally:
+        if isinstance(rid, (str, int)) and msg.get("method") in ("tools/call", "resources/read"):
+            _inflight.discard(rid)
+            _cancelled.discard(rid)
 
 
 if __name__ == "__main__":

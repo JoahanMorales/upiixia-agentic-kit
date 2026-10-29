@@ -487,9 +487,18 @@ case "$cmd" in
         if (!(b in prev)) { print "no import path from " a " to " b; exit 1 }
         p = b; s = b; while (prev[p] != "-") { p = prev[p]; s = p " → " s }; print s }' "$out/edges.tsv";;
   impact)
-    only_tasks=no backlog="$top/.uak/TASKS.md"
-    while :; do case "${1:-}" in --tasks) only_tasks=yes; shift;; --backlog) backlog=${2:-$backlog}; shift $(($# > 1 ? 2 : 1));; *) break;; esac; done
+    only_tasks=no backlog=
+    while :; do case "${1:-}" in --tasks) only_tasks=yes; shift;; --backlog) backlog=${2:-}; shift $(($# > 1 ? 2 : 1));; *) break;; esac; done
     [ "$#" -gt 0 ] || die "Usage: map impact [--tasks] [--backlog FILE] ID|FILE..."; ensure
+    # No --backlog: main's TASKS.md plus the tasks published on claims with uak plan. Why (audit, Oct 2026): map impact
+    # ID failed for every task published with uak plan ("has no Paths in the backlog").
+    if [ -z "$backlog" ]; then
+      backlog="$out/impact.backlog"; cat "$top/.uak/TASKS.md" > "$backlog" 2>/dev/null || : > "$backlog"
+      if git -C "$top" fetch -q "${UAK_REMOTE:-origin}" "+refs/heads/claims:refs/uak/map-claims-$$" 2>/dev/null; then
+        { printf '\n'; git -C "$top" show "refs/uak/map-claims-$$:backlog/TASKS.md" 2>/dev/null; } >> "$backlog"
+        git -C "$top" update-ref -d "refs/uak/map-claims-$$" 2>/dev/null || true
+      fi
+    fi
     : > "$out/impact.prefixes"
     for x in "$@"; do
       if printf '%s' "$x" | grep -Eq '^[A-Za-z][A-Za-z0-9]*-[0-9]+$'; then

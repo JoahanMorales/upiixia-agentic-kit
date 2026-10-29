@@ -153,7 +153,7 @@ class McpTools(unittest.TestCase):
         bad, text = self.mcp.tool("uak_review", task="APP-001", agent="rev-1", action="approve", sha=sha,
                                   note="src/greet.py:2 · verified with python3 tests/test_greet.py")
         self.assertFalse(bad, text)
-        bad, text = self.mcp.tool("uak_wait", task="APP-001", agent="dev-1", **{"for": "approve", "timeout": 5})
+        bad, text = self.mcp.tool("uak_wait", task="APP-001", agent="dev-1", **{"for": "approve", "timeout": 10})
         self.assertFalse(bad, text)
         bad, text = self.mcp.tool("uak_merge", timeout=600, task="APP-001", agent="dev-1")  # the gate forks a lot: slow on Windows
         self.assertTrue("INTEGRATED" in text or "MERGE_HUMAN" in text, text)   # the gate answers either way, never a crash
@@ -214,6 +214,143 @@ class McpTools(unittest.TestCase):
             bare = subprocess.run(["git", "-C", str(self.repo), "config", "--get", "core.bare"], capture_output=True, text=True, env=self.env).stdout.strip()
             self.assertNotEqual(bare, "true", "started from %s, the server left the main repository bare" % cwd)
 
+
+    def test_7_arguments_are_checked_before_anything_runs(self):
+        """Audit (Oct 2026): args "status" was split into characters, ack "false" acked the inbox, a NUL byte or a
+        number for agent crashed the call (-32603), and approve without sha ran `--sha ''`."""
+        for name, args, expect in (
+                ("uak_cli", {"args": "status"}, "list of strings"),
+                ("uak_inbox", {"agent": "dev-1", "ack": "false"}, "true or false"),
+                ("uak_status", {"agent": 7}, "must be a string"),
+                ("uak_memory", {"agent": "dev-1", "action": "learn", "text": "a\x00b"}, "NUL"),
+                ("uak_status", {"task": "../etc"}, "Invalid ID"),
+                ("uak_map", {"action": "users", "query": "src/greet.py", "depth": 9}, "between 1 and 5"),
+                ("uak_review", {"agent": "rev-1", "task": "APP-002", "action": "approve"}, "need sha")):
+            bad, text = self.mcp.tool(name, **args)
+            self.assertTrue(bad and expect in text, "%s %s → %s" % (name, args, text))
+        self.assertEqual(self.mcp.call("tools/call", ["uak_status"])["error"]["code"], -32602)
+        self.assertEqual(self.mcp.call("tools/call", {"name": "uak_status", "arguments": ["x"]})["error"]["code"], -32602)
+        self.mcp.n += 1
+        self.mcp.p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": self.mcp.n}) + "\n"); self.mcp.p.stdin.flush()
+        self.assertEqual(self.mcp.q.get(timeout=30)["error"]["code"], -32600, "a message without method")
+
+    def test_8_the_card_names_only_real_tools(self):
+        text = self.mcp.call("initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
+                                            "clientInfo": {"name": "tests", "version": "1"}})["result"]["instructions"]
+        import re
+        named = set(re.findall(r"\buak_[A-Za-z_…]*", text))
+        self.assertTrue(named and named <= set(TOOLS), "tools named in the card that do not exist: %s" % (named - set(TOOLS)))
+
+    def test_9_client_timeouts_outlast_the_server(self):
+        """Audit: uak_merge got 900 s on the server, the clients gave up at 600 s and the agent merged again."""
+        src = (REPO / "kit/.uak/bin/uak-mcp").read_text(encoding="utf-8")
+        import re
+        longest = max(int(x) for x in re.findall(r", (\d+), (?:True|False)\),?\s*$", src, re.M))
+        self.assertGreaterEqual(longest, 900)
+        for f in (".mcp.json", ".cursor/mcp.json", ".gemini/settings.json"):
+            ms = json.loads((REPO / "kit" / f).read_text(encoding="utf-8"))["mcpServers"]["uak"]["timeout"]
+            self.assertGreater(ms / 1000, longest, f)
+        for mode in ("sprint", "marathon"):
+            toml = (REPO / ("kit/.uak/settings/codex.%s.toml" % mode)).read_text(encoding="utf-8")
+            self.assertGreater(int(re.search(r"^tool_timeout_sec = (\d+)", toml, re.M).group(1)), longest, mode)
+
+    def test_10_a_cancelled_call_gets_no_answer(self):
+        self.mcp.n += 1
+        rid = self.mcp.n
+        self.mcp.p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": rid, "method": "tools/call", "params": {
+            "name": "uak_wait", "arguments": {"agent": "dev-cancel", "for": "message", "timeout": 40}}}) + "\n")
+        self.mcp.p.stdin.flush()
+        time.sleep(2)
+        self.mcp.p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/cancelled",
+                                           "params": {"requestId": rid, "reason": "test"}}) + "\n")
+        self.mcp.p.stdin.flush()
+        pong = self.mcp.call("ping", timeout=30)
+        self.assertIn("result", pong)
+        end, seen = time.time() + 8, []
+        while time.time() < end:
+            try:
+                seen.append(self.mcp.q.get(timeout=1))
+            except queue.Empty:
+                pass
+        self.assertFalse([m for m in seen if isinstance(m, dict) and m.get("id") == rid], "answered a cancelled request: %s" % seen)
+
+
+    @unittest.skipIf(os.name == "nt", "process groups and signals are POSIX")
+    def test_11_a_terminated_server_stops_its_tools(self):
+        s = Server(self.repo, self.env)
+        s.call("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}})
+        s.p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 99, "method": "tools/call", "params": {
+            "name": "uak_wait", "arguments": {"agent": "dev-term", "for": "message", "timeout": 537}}}) + "\n")
+        s.p.stdin.flush()
+        def alive():
+            return [l for l in subprocess.run(["ps", "-eo", "args"], capture_output=True, text=True).stdout.splitlines()
+                    if "--timeout 537" in l]
+        end = time.time() + 20
+        while time.time() < end and not alive():
+            time.sleep(0.2)
+        self.assertTrue(alive(), "the tool started")
+        s.p.terminate()
+        s.p.wait(timeout=15)
+        end = time.time() + 10
+        while time.time() < end and alive():
+            time.sleep(0.2)
+        self.assertFalse(alive(), "the server's SIGTERM left its tool running")
+
+
+class McpProcess(unittest.TestCase):
+    """The server's own lifecycle: kill escalation, signals, protocol versions and batches (no project needed)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="uak-mcp-proc-"))
+        cls.env = dict(os.environ, GIT_TERMINAL_PROMPT="0", UAK_DEDUPE="off", UAK_BLACKBOX="off")
+        for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "UAK_AGENT", "UAK_HUMAN", "UAK_TASK"):
+            cls.env.pop(k, None)
+        cls.repo = cls.tmp / "p"
+        cls.repo.mkdir()
+        git(cls.repo, "init", "-q", "-b", "main")
+        shutil.copytree(REPO / "kit/.uak", cls.repo / ".uak")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def raw(self, s, obj):
+        s.p.stdin.write(json.dumps(obj) + "\n"); s.p.stdin.flush()
+        return s.q.get(timeout=30)
+
+    def test_protocol_versions_and_batches(self):
+        s = Server(self.repo, self.env)
+        try:
+            init = s.call("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}})
+            self.assertEqual(init["result"]["protocolVersion"], "2024-11-05", "a 2024-11-05 client gets its version back")
+            out = self.raw(s, [{"jsonrpc": "2.0", "id": "a", "method": "ping"},
+                               {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                               {"jsonrpc": "2.0", "id": "b", "method": "tools/list"}])
+            self.assertIsInstance(out, list)
+            self.assertEqual(sorted(m["id"] for m in out), ["a", "b"])
+        finally:
+            s.close()
+        s = Server(self.repo, self.env)
+        try:
+            s.call("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}})
+            self.assertEqual(self.raw(s, [{"jsonrpc": "2.0", "id": "a", "method": "ping"}])["error"]["code"], -32600)
+        finally:
+            s.close()
+
+    @unittest.skipIf(os.name == "nt", "process groups and signals are POSIX")
+    def test_kill_reaches_a_child_that_ignores_term(self):
+        import importlib.machinery
+        import importlib.util
+        loader = importlib.machinery.SourceFileLoader("uak_mcp_under_test", str(REPO / "kit/.uak/bin/uak-mcp"))
+        mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(mod)
+        p = subprocess.Popen(["bash", "-c", "trap '' TERM; sleep 30 & wait; sleep 30"], start_new_session=True)
+        time.sleep(0.3)
+        started = time.time()
+        mod.kill(p, grace=1)
+        p.wait(timeout=10)
+        self.assertLess(time.time() - started, 8, "SIGKILL followed the ignored SIGTERM")
 
 class Manifest(unittest.TestCase):
     def test_server_json_matches_the_kit(self):

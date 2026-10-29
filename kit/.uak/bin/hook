@@ -32,21 +32,25 @@ json_text() { tr -d '\r' | tr '\t' ' ' | tr -d '\000-\010\013\014\016-\037' | se
 json_cmd() { tab=$(printf '\t'); sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e "s/$tab/\\\\t/g" | tr -d '\r' | awk 'BEGIN {ORS=""} {if (NR > 1) print "\\n"; print}'; }
 # Decode the JSON string at PARENT.KEY of the hook payload (or PARENT itself when it is a string).
 # Handles \n \t \" \\ \/; \uXXXX is kept as is. No jq (Bash 3.2 + POSIX awk).
+# Linear: one match() finds the end of the string, a split on backslashes decodes it and printf streams it. Why
+# (audit, Oct 2026): a loop that added one character at a time took 70 s on a 1.3 MB output, past the 10 s hook
+# timeout, so the whole output reached the model.
 jdecode() {
-  printf '%s' "$input" | awk -v p="\"$1\"" -v key="${2:-}" 'BEGIN {RS="\001"} {
+  printf '%s' "$input" | awk -v p="\"$1\"" -v key="${2:-}" 'BEGIN {RS="\001"; bs = sprintf("%c", 92)} {
     i = index($0, p); if (!i) exit; s = substr($0, i + length(p))
     if (key != "") { k = "\"" key "\""; j = index(s, k); if (!j) exit; s = substr(s, j + length(k)) }
     sub(/^[[:space:]]*:[[:space:]]*/, "", s); if (substr(s, 1, 1) != "\"") exit; s = substr(s, 2)
-    n = length(s); out = ""
-    for (c_i = 1; c_i <= n; c_i++) {
-      c = substr(s, c_i, 1)
-      if (c == "\\") { d = substr(s, c_i + 1, 1); c_i++
-        if (d == "n") out = out "\n"; else if (d == "t") out = out "\t"; else if (d == "r") ; else if (d == "u") out = out "\\u"; else out = out d
-        continue }
-      if (c == "\"") break
-      out = out c
+    if (!match(s, /^([^"\\]|\\.)*/)) exit
+    n = split(substr(s, 1, RLENGTH), part, bs)
+    printf "%s", part[1]
+    for (c_i = 2; c_i <= n; c_i++) {
+      t = part[c_i]
+      if (t == "") { printf "%s", bs; c_i++; if (c_i <= n) printf "%s", part[c_i]; continue }
+      d = substr(t, 1, 1)
+      if (d == "n") printf "\n"; else if (d == "t") printf "\t"; else if (d == "r") ; else if (d == "u") printf "%s", bs "u"; else printf "%s", d
+      printf "%s", substr(t, 2)
     }
-    printf "%s", out }'
+  }'
 }
 cap_chars() {
   c=$(sed -n 's/^[-* ]*Output-Cap-Chars:[* ]*//p' .uak/PROJECT.md 2>/dev/null | head -n 1 | tr -d '\r `')
@@ -65,7 +69,7 @@ coach() {
   [ "${UAK_COACH:-on}" != off ] || return 0
   d="$gd/uak-coach-$(printf '%s' "${sid:-nosid}" | tr -cd 'A-Za-z0-9_.-' | cut -c 1-60)"; mkdir -p "$d" 2>/dev/null || return 0
   tool=$(printf '%s' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([A-Za-z_]*\)".*/\1/p' | head -n 1)
-  cmd=; case "$tool" in Bash|Shell|run_shell_command|shell) cmd=$(jdecode tool_input command);; esac
+  cmd=; case "$tool" in Bash|PowerShell|Shell|run_shell_command|shell) cmd=$(jdecode tool_input command);; esac
   fired() { [ "$(cat "$d/fired.$1" 2>/dev/null || echo 0)" -ge "$2" ]; }
   fire() { echo $(( $(cat "$d/fired.$1" 2>/dev/null || echo 0) + 1 )) > "$d/fired.$1"; }
   fill() { tmpl "$1" | head -n 1 | sed "s|{n}|${2:-}|g; s|{m}|${3:-}|g; s|{id}|${4:-}|g; s|{files}|${5:-}|g; s|{tasks}|${6:-}|g"; }
@@ -142,7 +146,7 @@ lens() {
     Grep|grep_search|search_file_content) pat=$(jdecode tool_input pattern); [ -n "$pat" ] || pat=$(jdecode tool_input query);;
     Read|read_file) file=$(jdecode tool_input file_path); [ -n "$file" ] || file=$(jdecode tool_input absolute_path)
       [ -n "$file" ] || file=$(jdecode tool_input path); [ -n "$file" ] || file=$(jdecode tool_input target_file);;
-    Bash|Shell|run_shell_command|shell)
+    Bash|PowerShell|Shell|run_shell_command|shell)
       cmd=$(jdecode tool_input command | sed 's/[;&|].*//')
       set -f; set -- $cmd; set +f
       [ "${1:-}" != git ] || [ "${2:-}" != grep ] || shift
@@ -236,8 +240,13 @@ case "${1:-}" in
     tmpl card
     bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.txt" 2>/dev/null
     if [ -s "$gd/uak-inbox.txt" ]; then
+      # What was printed is what was shown: a cut list leaves the rest for the next tick (audit, Oct 2026: 15 messages,
+      # 10 printed, all 15 marked seen and never injected).
       head -n 21 "$gd/uak-inbox.txt"
-      sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' "$gd/uak-inbox.txt" | sort -n | tail -n 1 > "$gd/uak-inbox.shown-n"
+      shown=$(head -n 21 "$gd/uak-inbox.txt" | sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' | sort -n | tail -n 1)
+      more=$(sed -n '22,$p' "$gd/uak-inbox.txt" | grep -c '^#[0-9]')
+      [ "$more" -eq 0 ] || printf '(+%s more: uak inbox)\n' "$more"
+      [ -z "$shown" ] || printf '%s\n' "$shown" > "$gd/uak-inbox.shown-n"
     fi
     ;;
   tick)
@@ -269,7 +278,11 @@ case "${1:-}" in
     # injection below delivers it. Every 5 min, in the background, only when gh is there.
     if [ -n "$task" ] && [ -n "$agent" ] && command -v "${UAK_GH:-gh}" >/dev/null 2>&1 && ! fresh "$gd/uak-prsync.checked" 5; then
       touch "$gd/uak-prsync.checked" 2>/dev/null
-      nohup bash .uak/bin/uak pr-sync "$task" > /dev/null 2>&1 &
+      # Every REVIEW task of this identity, not only the worktree's: an agent that moved on after done never synced
+      # the PR it left in review (Hacktoberfest second autopsy: one pr-sync in 16 h, a merged PR 14 min in REVIEW).
+      nohup bash -c 'bash .uak/bin/uak pr-sync "$1"
+        bash .uak/bin/uak status --full 2>/dev/null | awk -F" [|] " -v a="$2" -v t="$1" "\$2==\"REVIEW\" && \$3==a && \$1!=t {print \$1}" |
+        while read -r id; do bash .uak/bin/uak pr-sync "$id"; done' _ "$task" "$agent" > /dev/null 2>&1 &
     fi
     if [ -s "$gd/uak-drift.txt" ] && [ "$(sum "$gd/uak-drift.txt")" != "$(cat "$gd/uak-drift.shown" 2>/dev/null)" ]; then
       sum "$gd/uak-drift.txt" > "$gd/uak-drift.shown"
@@ -344,10 +357,17 @@ case "${1:-}" in
         [ -z "$pace_note" ] || printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$evname" "$(printf '%s' "$pace_note" | json_text)"
         exit 0
       fi
-      printf '%s' "$delta" | sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' | sort -n | tail -n 1 > "$gd/uak-inbox.shown-n"
       # Only actionable kinds enter context in full; info/integrated become one line.
       # Why: every injected message is re-sent on every later turn (tokens).
-      act=$(printf '%s\n' "$delta" | awk '/^#[0-9]/ {k=$0; keep=(k ~ / · (request|contract|reject|approve|review|reply|blocker|human) · /)} keep {print}' | head -n 24)
+      # At most 12 actionable messages per tick; shown-n is the last message this tick covers, so the rest come on the
+      # next one. Why (audit, Oct 2026): 15 requests, 12 injected, shown-n 15, and #13-15 never reached the agent.
+      upto=$(printf '%s\n' "$delta" | awk '/^#[0-9]/ {n = substr($1, 2) + 0; if ($0 ~ / · (request|contract|reject|approve|review|reply|blocker|human) · /) { a++; if (a > 12) { print last; exit } } last = n}
+        END { if (a <= 12) print last }')
+      case "$upto" in ''|*[!0-9]*) upto=$(printf '%s' "$delta" | sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' | sort -n | tail -n 1);; esac
+      left=$(printf '%s\n' "$delta" | awk -v u="$upto" '/^#[0-9]/ && substr($1, 2) + 0 > u {n++} END {print n+0}')
+      delta=$(printf '%s\n' "$delta" | awk -v u="$upto" '/^#[0-9]/ {keep = (substr($1, 2) + 0 <= u)} keep {print}')
+      printf '%s\n' "$upto" > "$gd/uak-inbox.shown-n"
+      act=$(printf '%s\n' "$delta" | awk '/^#[0-9]/ {k=$0; keep=(k ~ / · (request|contract|reject|approve|review|reply|blocker|human) · /)} keep {print}')
       quiet=$(printf '%s\n' "$delta" | awk '/^#[0-9]/ && !/ · (request|contract|reject|approve|review|reply|blocker|human) · / {n++} END {print n+0}')
       [ -z "$pace_note" ] || act="$pace_note
 $act"
@@ -357,6 +377,8 @@ $act"
       fi
       [ "$quiet" -eq 0 ] || act="${act}${act:+
 }(${quiet} info/integrated notice(s): read with uak inbox after the current criterion)"
+      [ "$left" -eq 0 ] || act="${act}
+(+${left} more: the next tool call shows them, or uak inbox)"
       printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$evname" \
         "$(printf 'UAK new inbox (handle per AGENTS.md §5; then uak inbox --ack):\n%s' "$act" | json_text)"
     fi
@@ -404,7 +426,7 @@ $act"
     harness=${2:-claude}
     cap=$(cap_chars); [ "$cap" -gt 0 ] || exit 0
     [ "${#input}" -gt "$cap" ] || exit 0
-    case "$input" in *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*) ;; *) exit 0;; esac
+    case "$input" in *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*|*'"tool_name":"PowerShell"'*|*'"tool_name": "PowerShell"'*) ;; *) exit 0;; esac
     case "$(jdecode tool_input command)" in *UAK_RAW=1*) exit 0;; esac
     out_dir="$gd/uak-out"; mkdir -p "$out_dir" 2>/dev/null || exit 0
     id="$(date +%s)-$$"; log="$out_dir/$id.log"
@@ -415,17 +437,24 @@ $act"
       [ -s "$log" ] || jdecode tool_response output > "$log" 2>/dev/null
     else
       jdecode tool_response stdout > "$log" 2>/dev/null
+      jdecode tool_response stderr > "$log.err" 2>/dev/null
     fi
     size=$(wc -c < "$log" | tr -d ' ')
-    [ "$size" -gt "$cap" ] || { rm -f "$log"; exit 0; }
-    short=$(bash .uak/bin/cap --shape "$log")
+    esize=$(wc -c < "$log.err" 2>/dev/null | tr -d ' '); esize=${esize:-0}
+    # stdout and stderr together: 150 KB of compiler warnings on stderr reached the model whole (audit, Oct 2026).
+    [ $((size + esize)) -gt "$cap" ] && { [ "$size" -gt "$cap" ] || [ "$esize" -gt 4000 ]; } || { rm -f "$log" "$log.err"; exit 0; }
+    if [ "$size" -gt "$cap" ]; then short=$(bash .uak/bin/cap --shape "$log"); else short=$(cat "$log"); fi
     ls -t "$out_dir"/*.log 2>/dev/null | tail -n +21 | while IFS= read -r old; do rm -f "$old"; done
     if [ "$harness" = codex ]; then
       printf '{"decision":"block","reason":"%s"}\n' \
         "$(printf '[uak output cap: the command ran normally; this is its output, shortened]\n%s' "$short" | json_text)"
       exit 0
     fi
-    jdecode tool_response stderr | head -c 4000 > "$log.err" 2>/dev/null; err=$(cat "$log.err" 2>/dev/null); rm -f "$log.err"
+    if [ "$esize" -gt 4000 ]; then
+      elog="$out_dir/$id.stderr.log"; mv "$log.err" "$elog"
+      err=$(bash .uak/bin/cap --shape "$elog")
+    else err=$(cat "$log.err" 2>/dev/null); rm -f "$log.err"; fi
+    [ "$size" -gt "$cap" ] || rm -f "$log"
     intr=false; case "$input" in *'"interrupted":true'*|*'"interrupted": true'*) intr=true;; esac
     printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":{"stdout":"%s","stderr":"%s","interrupted":%s,"isImage":false}}}\n' \
       "$(printf '%s' "$short" | json_text)" "$(printf '%s' "$err" | json_text)" "$intr"

@@ -68,8 +68,10 @@ if [ "$parallel" -gt 0 ]; then
   for f in $files; do
     n=$((n + 1)); d="$gd/uak-out/$run_id-wt$n"
     git worktree add -q --detach "$d" "$base" 2>> "$log" || { printf 'loop: could not create a worktree for %s\n' "$f" >> "$log"; continue; }
-    sub=$(printf '%s' "$each" | sed "s|{}|$f|g")
-    ( cd "$d" && UAK_LOOP_AGENT= bash "$here/loop" --verify "$sub" --agent "$agent" --max "$max" --minutes "$minutes" --tail "$tail_n" \
+    # The file goes in as a variable, never as text in the command: a test file name parsed from the output could
+    # carry shell (audit, Oct 2026). `pytest -q {}` runs `pytest -q "$UAK_LOOP_FILE"`.
+    sub=$(printf '%s' "$each" | awk '{ gsub(/\{\}/, "\"$UAK_LOOP_FILE\""); print }')
+    ( cd "$d" && UAK_LOOP_FILE=$f UAK_LOOP_AGENT= bash "$here/loop" --verify "$sub" --agent "$agent" --max "$max" --minutes "$minutes" --tail "$tail_n" \
         ${prompt_file:+--prompt "$prompt_file"} --protect "$protect" > "$d.result" 2>&1 ) &
     pids="$pids $!"
     printf '%s\n' "$f" > "$d.file"
@@ -102,6 +104,10 @@ fi
 
 # ---- sequential ----
 tests0=$(tests_sig)
+# A parallel sub-loop runs `… "$UAK_LOOP_FILE"`; its agent reads the file name itself.
+shown=$verify
+[ -z "${UAK_LOOP_FILE:-}" ] || shown=$(printf '%s\n' "$verify" | awk -v f="$UAK_LOOP_FILE" '{ t = "\"$UAK_LOOP_FILE\""
+  while ((i = index($0, t)) > 0) $0 = substr($0, 1, i - 1) f substr($0, i + length(t)); print }')
 while :; do
   i=$((i + 1))
   bash -c "$verify" > "$out" 2>&1 < /dev/null; code=$?
@@ -129,7 +135,7 @@ while :; do
   {
     printf 'You are fixing a failing check in this repository (iteration %s of %s).\n' "$i" "$max"
     [ -z "$prompt_file" ] || { printf '\nTask context:\n'; cat "$prompt_file"; printf '\n'; }
-    printf '\nCheck: %s\nExit code: %s\nLast %s lines of output:\n' "$verify" "$code" "$tail_n"
+    printf '\nCheck: %s\nExit code: %s\nLast %s lines of output:\n' "$shown" "$code" "$tail_n"
     tail -n "$tail_n" "$out"
     [ "$i" -eq 1 ] || { printf '\nYour changes so far (diff stat):\n'; git diff --stat HEAD 2>/dev/null | tail -n 15; }
     printf '\nRules: find the root cause and make the smallest correct change. Do not weaken, skip, edit or delete existing tests or the check (the loop stops if you do). Do not touch files outside the task. Do not commit, push or deploy. When the change is done, stop.\n'

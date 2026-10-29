@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # UPIIXIA Agentic Kit installer.
 #   bash install.sh --mode sprint|marathon [--stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|spring-boot|none]
-#                   [--harness claude,codex,cursor,gemini] [--skills ai,tdd] [--no-blackbox] [--no-mcp] [--solo] [--update] TARGET
+#                   [--harness claude,codex,cursor,gemini] [--skills ai,tdd] [--no-blackbox] [--no-mcp|--mcp] [--solo] [--update] TARGET
 # Never overwrites your files: if AGENTS.md, CLAUDE.md, settings.json… already exist and differ,
 # the kit's version is written as <file>.uak-new for you to merge. A file that is an earlier kit version nobody
 # edited (its hash is in .uak/settings/known-files.txt) is simply updated.
@@ -12,22 +12,27 @@
 # --solo (one human on the repo): reviews happen on claims between agent identities (Review-Mode: claims), because GitHub
 # never lets a PR's author approve it; in marathon the human still merges every PR.
 # --no-mcp leaves out the optional MCP server config (.mcp.json, .cursor/mcp.json and the uak blocks of
-# .codex/config.toml and .gemini/settings.json): agents use the uak CLI through Bash, which works the same.
+# .codex/config.toml and .gemini/settings.json): agents use the uak CLI through Bash, which works the same. An --update
+# keeps that choice (no MCP config in the project = none); --mcp adds the server back.
 set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 kit="$here/kit"
-mode= stack=none extra= update=no target= blackbox=on mcp=on harness=claude,codex,cursor,gemini solo=no
+mode= stack=none extra= update=no target= blackbox=on mcp=on mcp_flag= harness=claude,codex,cursor,gemini solo=no
 while [ "$#" -gt 0 ]; do
+  # An option missing its value (the last argument) said nothing: `shift 2` failed under set -e (audit, Oct 2026).
+  case "$1" in --mode|--stack|--skills|--harness)
+    [ "$#" -ge 2 ] && [ -n "$2" ] || { printf '%s needs a value (bash install.sh --help)\n' "$1" >&2; exit 2; };; esac
   case "$1" in
     --mode) mode=${2:-}; shift 2;;
     --stack) stack=${2:-}; shift 2;;
     --skills) extra=${2:-}; shift 2;;
     --update) update=yes; shift;;
     --no-blackbox) blackbox=off; shift;;
-    --no-mcp) mcp=off; shift;;
+    --no-mcp) mcp=off; mcp_flag=off; shift;;
+    --mcp) mcp=on; mcp_flag=on; shift;;
     --solo) solo=yes; shift;;
     --harness) harness=${2:-}; shift 2;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0;;
     -*) printf 'Unknown option: %s\n' "$1" >&2; exit 2;;
     *) target=$1; shift;;
   esac
@@ -47,6 +52,13 @@ top=$(cd "$(git -C "$target" rev-parse --show-toplevel)" && pwd -P)
 if [ "$update" = yes ] && [ -f "$target/.uak/PROJECT.md" ]; then
   was=$(sed -n 's/^[-* ]*Mode:[* ]*//p' "$target/.uak/PROJECT.md" | head -n 1 | tr -d '\r `')
   [ -z "$was" ] || [ "$was" = "$mode" ] || { printf '%s\n' "This project is Mode: $was (.uak/PROJECT.md); update with --mode $was. Changing the mode is a human decision: edit PROJECT.md first." >&2; exit 2; }
+fi
+# --update after --no-mcp: an install without any MCP config stays without one (the update added .mcp.json and the
+# MCP blocks back, audit Oct 2026). --mcp brings them back on purpose.
+if [ "$update" = yes ] && [ -z "$mcp_flag" ] && [ -d "$target/.uak/bin" ] && [ ! -f "$target/.mcp.json" ] &&
+   [ ! -f "$target/.cursor/mcp.json" ] && ! grep -qs '^\[mcp_servers\.uak\]' "$target/.codex/config.toml" &&
+   ! grep -qs '"mcpServers"' "$target/.gemini/settings.json"; then
+  mcp=off; printf '%s\n' "MCP server: kept off (this project was installed with --no-mcp; --mcp adds it)"
 fi
 for h in $(printf '%s' "$harness" | tr ',' ' '); do case "$h" in claude|codex|cursor|gemini) ;; *) printf 'Unknown harness: %s (claude, codex, cursor, gemini)\n' "$h" >&2; exit 2;; esac; done
 has() { case ",$harness," in *",$1,"*) return 0;; *) return 1;; esac; }
@@ -225,7 +237,7 @@ Done. Next:
   3. /uak-plan → each agent: bash .uak/bin/wt new ID (reuses a free identity, or --agent NAME)
 Files ending in .uak-new: merge them by hand; the kit never overwrites yours.
 Codex: trust the project once so .codex/config.toml and .codex/hooks.json load (/hooks to review them).
-MCP server: $mcp. $( [ "$mcp" = on ] && echo "Claude Code asks once to approve 'uak'; declining it is fine: the CLI does the same." || echo "Agents use the uak CLI; reinstall without --no-mcp to add the native tools.")
+MCP server: $mcp. $( [ "$mcp" = on ] && echo "Claude Code asks once to approve 'uak'; declining it is fine: the CLI does the same." || echo "Agents use the uak CLI; install.sh --update --mcp adds the native tools.")
 Black box: $blackbox. Agents record kit problems in claims:blackbox/ so the kit can be fixed
 (no code, paths or identities). Turn off any time: 'Blackbox: off' in .uak/PROJECT.md.
 EOF

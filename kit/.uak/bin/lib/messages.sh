@@ -119,13 +119,29 @@ msg_pick_reviewer() {
   MSG_PICK_REJECTER=
   [ -f "$TX/$MSG_LOG" ] || return 0
   retired=" $(msg_retired) "
+  # Only identities the gate lets review (review_identity_eligible): a live claim, the reviewer role, or a task
+  # integrated within a day. Why (audit, Oct 2026): offers went to identities with no claim, whose --start was
+  # refused, and each one cost a 15-min re-offer window.
+  local elig=' ' st until r win
+  win=${REVIEW_LEASE:-86400}; case "$win" in ''|*[!0-9]*) win=86400;; esac; [ "$win" -ge 86400 ] || win=86400
   for c in "$TX"/claims/*.md; do
     [ -f "$c" ] || continue
-    case "$(field "$c" State)" in CLAIMED|BLOCKED) busy="$busy$(field "$c" Owner) ";; esac
+    st=$(field "$c" State)
+    case "$st" in CLAIMED|BLOCKED) busy="$busy$(field "$c" Owner) ";; esac
+    until=$(field "$c" Lease-Until); case "$until" in ''|*[!0-9]*) until=0;; esac
+    case "$st" in CLAIMED|BLOCKED|REVIEW) [ "$NOW" -ge "$until" ] || elig="$elig$(field "$c" Owner) ";; esac
+  done
+  for r in "$TX"/roles/reviewers/*.md; do
+    [ -f "$r" ] && [ -n "$(field "$r" Registered-By)" ] && elig="$elig$(field "$r" Reviewer) "
+  done
+  for r in "$TX"/tasks/*.md; do
+    [ -f "$r" ] && [ "$(field "$r" State)" = INTEGRATED ] || continue
+    until=$(field "$r" Updated); case "$until" in ''|*[!0-9]*) continue;; esac
+    [ $((NOW - until)) -gt "$win" ] || elig="$elig$(field "$r" Owner) "
   done
   MSG_PICK_REJECTER=$(msg_last_rejecter "$1" "${2:-none}")
   msg_seen_all > "$TXROOT/seen"
-  awk -F' [|] ' -v owner="$1" -v now="$NOW" -v busy="$busy" -v retired="$retired" -v rej="$MSG_PICK_REJECTER" \
+  awk -F' [|] ' -v owner="$1" -v now="$NOW" -v busy="$busy" -v retired="$retired" -v rej="$MSG_PICK_REJECTER" -v elig="$elig" \
       -v excl=" $MSG_PICK_EXCLUDE " -v online="$(msg_presence)" -v sf="$TXROOT/seen" '
     function human(n) { if (n ~ /-[A-Za-z0-9]+$/) sub(/-[A-Za-z0-9]+$/, "", n); return n }
     BEGIN { while ((getline l < sf) > 0) { split(l, fl, " "); if (fl[1] == "H") ishuman[fl[2]] = 1; else if (fl[1] == "S") seen[fl[2]] = fl[3] + 0; else if (fl[1] == "A") away[fl[2]] = 1 } }
@@ -144,7 +160,7 @@ msg_pick_reviewer() {
         # Never "github" (the sender of pr-sync messages) nor a human (Role: human). Why (Chilangatón): 14 of 48 review
         # offers went to "github" (idle, no verdicts, so always the best pick) and 3 to the UAK_HUMAN name of a human;
         # each waited 15 min for the re-offer.
-        if (n == owner || n == "scheduler" || n == "github" || n == "" || (n in ishuman) || (n in away) || index(retired, " " n " ") || index(excl, " " n " ")) continue
+        if (n == owner || n == "scheduler" || n == "github" || n == "" || (n in ishuman) || (n in away) || index(retired, " " n " ") || index(excl, " " n " ") || !index(elig, " " n " ")) continue
         age = now - seen[n]; if (age > 10800) continue
         tier[n] = (age <= online) ? 2 : 1
       }
@@ -174,12 +190,13 @@ msg_reoffer_reviews() {
     last=$(tail -n 1 "$TXROOT/offers"); [ -n "$last" ] || continue
     lt=${last#*|}; lt=${lt%%|*}; lto=${last##*|}
     case "$lto" in agent:*) ;; *) continue;; esac                     # already offered to all
-    age=$((NOW - lt)); [ "$age" -ge "$offer" ] || continue
-    who=${lto#agent:}; who=${who%%,*}
+    age=$((NOW - lt)); who=${lto#agent:}; who=${who%%,*}
+    [ "$age" -ge "$offer" ] || [ "${MSG_DECLINED:-}" = "$id $who" ] || continue
     offered=$(cut -d'|' -f3 "$TXROOT/offers" | sed -n 's/^agent://p' | tr ',' ' ' | tr '\n' ' ')
     n=$(wc -l < "$TXROOT/offers" | tr -d ' ')
     seen_t=$(msg_seen "$who")
-    if msg_away "$who"; then note="$who closed its session"
+    if [ "${MSG_DECLINED:-}" = "$id $who" ]; then note="$who declined it"
+    elif msg_away "$who"; then note="$who closed its session"
     elif [ "$seen_t" -le "$lt" ]; then note="$who has not been seen since the offer $((age / 60)) min ago"
     else note="$who did not start it in $((age / 60)) min"; fi
     MSG_PICK_EXCLUDE=$offered
@@ -246,7 +263,16 @@ msg_select() {
   # A new identity (no read pointer yet) starts with the last 6 h, plus anything addressed to it by name.
   # Why (MLB hackathon): 5 identities joined mid-event and each got up to 22 unread "all" messages, 60 h old.
   local since=0; [ -f "$TX/inbox/read/$AGENT.md" ] || since=$((NOW - ${UAK_INBOX_FRESH_SECONDS:-21600}))
-  awk -F' [|] ' -v me="$AGENT" -v owned=" $(msg_owned) " -v last="$(msg_last_read)" -v mode="$1" -v now="$NOW" -v since="$since" '
+  # The thread of a task an identity just took (claim, handover): its messages since the claim's Thread-Read, even
+  # older than the inbox pointer, for one day. Why (audit, Oct 2026): a request "sent to its task, so whoever takes
+  # it over reads it" never reached the next owner, whose pointer was already past it.
+  local tread=' ' c tr
+  for c in "$TX"/claims/*.md; do
+    [ -f "$c" ] && [ "$(field "$c" Owner)" = "$AGENT" ] || continue
+    tr=$(field "$c" Thread-Read); case "$tr" in ''|*[!0-9]*) continue;; esac
+    tread="$tread$(field "$c" ID):$tr "
+  done
+  awk -F' [|] ' -v me="$AGENT" -v owned=" $(msg_owned) " -v last="$(msg_last_read)" -v mode="$1" -v now="$NOW" -v since="$since" -v tread="$tread" '
     FNR == NR { if ($0 ~ /^- [0-9]/ && $5 == "contract" && $6 != "-") latest[$3 "|" $6 "|" $4] = substr($1, 3) + 0; next }
     /^- [0-9]/ {
       n=substr($1, 3) + 0; from=$3; to=$4; sup=""
@@ -258,12 +284,16 @@ msg_select() {
       if (mode ~ /^task:/) { hit=0; for (i=1; i<=nt; i++) if (t[i] == mode) hit=1; if (!hit) next }
       else if (mode == "human") { hit=0; for (i=1; i<=nt; i++) if (t[i] == "human") hit=1; if (!hit) next }
       else {
-        mine=0; direct=0
+        mine=0; direct=0; thread=0
         for (i=1; i<=nt; i++) {
           d = (t[i] == "agent:" me) || (t[i] ~ /^task:/ && index(owned, " " substr(t[i], 6) " "))
           direct = direct || d; mine = mine || d || (t[i] == "all" && from != me)
+          if (t[i] ~ /^task:/ && (p = index(tread, " " substr(t[i], 6) ":"))) {
+            tr = substr(tread, p + length(t[i]) - 3); sub(/ .*/, "", tr)
+            if (n > tr + 0 && now - $2 <= 86400 && from != me) thread = 1
+          }
         }
-        if (!mine || (mode == "unread" && n <= last)) next
+        if (!mine || (mode == "unread" && n <= last && !thread)) next
         # The 6-h window is for broadcasts only: what names this identity or its tasks is never too old.
         if (mode == "unread" && $2 < since && !direct) next
       }
@@ -294,9 +324,21 @@ msg_resolve_targets() {
     task:*) valid_id "${MSG_TO#task:}" || die "Invalid ID: $MSG_TO"; printf '%s\n' "$MSG_TO";;
     # A task ID only if it is one; "Ana-1" is an agent (Reap: 4 messages to Ana-N refused as "Invalid ID").
     *) if valid_id "$MSG_TO"; then printf 'task:%s\n' "$MSG_TO"; return 0; fi
+      # hack-002 is HACK-002 when that task exists. Why (audit, Oct 2026): it went to a never-seen agent "hack-002".
+      local up; up=$(printf '%s' "$MSG_TO" | tr '[:lower:]' '[:upper:]')
+      if valid_id "$up" && { [ -f "$TX/tasks/$up.md" ] || { [ -f "${BACKLOG:-}" ] && grep -q "^## $up\([[:space:]]\|\$\)" "$BACKLOG"; }; }; then
+        printf 'task:%s\n' "$up"; return 0
+      fi
       local name=${MSG_TO#agent:}
       case "$name" in ''|*[!A-Za-z0-9_.-]*) die "Invalid target: use NAME, ID, related:ID, all or human.";; esac
       [ "$name" != "$AGENT" ] || die "Do not message yourself."
+      # A human by name reads the human digest, not an agent inbox. Why (audit, Oct 2026): "uak msg victor" went to
+      # agent:victor, which victor's digest never shows.
+      if msg_seen_all | awk -v n="$name" '$1 == "H" && tolower($2) == tolower(n) { f = 1 } END { exit !f }'; then
+        printf 'human\n'
+        printf '%s\n' "$name is a human: sent to human (their uak digest)." >> "$TXROOT/msg-note"
+        return 0
+      fi
       [ ! -f "$TX/meta/retired/$name.md" ] || die "$name is retired (no session). Message its task (ID), its human (human) or all."
       printf 'agent:%s\n' "$name"
       # Offline recipient: the message also goes to its live tasks (whoever takes them over reads it), and the sender
@@ -342,8 +384,13 @@ msg_mutate() {
   msg_append "$(printf '%s\n' "$targets" | tr '\n' ',' | sed 's/,$//')" "$MSG_KIND" "$MSG_TASK" "$MSG_TEXT"
 }
 msg_ack_mutate() {
-  local current
+  local current c tr
   current=$(msg_last_read)
+  for c in "$TX"/claims/*.md; do
+    [ -f "$c" ] && [ "$(field "$c" Owner)" = "$AGENT" ] || continue
+    tr=$(field "$c" Thread-Read); case "$tr" in ''|*[!0-9]*) continue;; esac
+    [ "$tr" -ge "$MSG_ACK_UPTO" ] || put "$c" Thread-Read "$MSG_ACK_UPTO"
+  done
   [ "$MSG_ACK_UPTO" -gt "$current" ] || return 0
   mkdir -p "$TX/inbox/read"
   printf 'Agent: %s\nLast: %s\nUpdated: %s\n' "$AGENT" "$MSG_ACK_UPTO" "$NOW" > "$TX/inbox/read/$AGENT.md"
@@ -376,8 +423,16 @@ msg_inbox_run() {
       printf '%s %s\n' "$gp" "$ids" > "$gd/uak-seen.inbox" 2>/dev/null || true
     fi
   fi
-  say "INBOX $AGENT: $count message(s)$([ "$MSG_MODE" = all ] || printf ' unread')"
+  # At most 15 messages per call, and --ack covers only those: the rest come with the next call. Why (audit, Oct
+  # 2026): the output cap hides the middle of a long inbox, and --ack then acked messages nobody had seen.
+  local more=0 cap=${UAK_INBOX_MAX:-15}
+  if [ "$MSG_MODE" != all ] && [ "$count" -gt "$cap" ]; then
+    more=$((count - cap))
+    out=$(printf '%s\n' "$out" | awk -v cap="$cap" '/^#[0-9]/ { k++ } k <= cap')
+  fi
+  say "INBOX $AGENT: $count message(s)$([ "$MSG_MODE" = all ] || printf ' unread')$([ "$more" -eq 0 ] || printf '; the first %s here' "$cap")"
   say "$out"
+  [ "$more" -eq 0 ] || say "(+$more more: handle these, uak inbox --ack, then uak inbox again)"
   if [ "$MSG_MODE" = peek ] || [ "$MSG_ACK" = no ]; then
     say "Handle request/reject/contract/approve first; reply with uak msg NAME --kind reply TEXT; then uak inbox --ack."
     return 0

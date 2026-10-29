@@ -45,6 +45,10 @@ if [ "$mode" != product ]; then
   "$python_runtime" .uak/tests/test_v53.py --package "$root"
   "$python_runtime" .uak/tests/test_v54.py --package "$root"
   "$python_runtime" .uak/tests/test_v55.py --package "$root"
+  "$python_runtime" .uak/tests/test_v57.py --package "$root"
+  "$python_runtime" .uak/tests/test_v57_tools.py --package "$root"
+  # The installer lives next to the kit in the source repository, not in an installed project.
+  [ ! -f "$root/../install.sh" ] || "$python_runtime" .uak/tests/test_v57_install.py --package "$root"
   printf '%s\n' 'PACKAGE_PASS: coordination verified with real Git processes and a local bare remote.'
 fi
 if [ "$mode" = package ]; then

@@ -38,19 +38,64 @@ norm_cmd() {
   printf '%s' "$c"
 }
 
+# The command runs text as code (sh -c, bash -x -c, $SHELL -c, eval, ssh, xargs, a here-string, a pipe into a
+# shell): its quoted text is code, not prose. Why (audit): `bash -x -c "cat .env …"`, `bash <<< "…"` and
+# `echo "…" | bash` passed, because their quotes were read as a message.
+runs_code() {
+  printf '%s' "$1" | grep -Eq '(^|[[:space:]/])((ba|z|da)?sh|\$\{?(SHELL|BASH|shell|bash)\}?)([[:space:]]+-[A-Za-z]+)*[[:space:]]+-[A-Za-z]*c([[:space:]]|$)|(^|[[:space:]])(eval|ssh|xargs)([[:space:]]|$)|<<<|\|[[:space:]]*(sudo[[:space:]]+)?([^[:space:]]*/)?((ba|z|da)?sh|\$\{?(SHELL|BASH)\}?)([[:space:]]|$)'
+}
+# A segment that sets VAR for the command it runs: `VAR=x cmd`, `A=1 VAR=x cmd`, `env VAR=x cmd`,
+# `export VAR=x`, `export VAR`, or the same inside `bash -c`. A search for the text (`rg UAK_NOW= bin/`) does not.
+assigns() { # $1 VAR, $2 segment
+  printf '%s' "$2" | grep -Eq "(^[[:space:]]*|[[:space:]]-[A-Za-z]*c[[:space:]]+)((export|env|declare|typeset|readonly|local|command|exec|nohup|time)([[:space:]]+-[A-Za-z-]+)*[[:space:]]+)*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*$1=|(^|[[:space:]])(export|declare[[:space:]]+-[A-Za-z]*x[A-Za-z]*|typeset[[:space:]]+-[A-Za-z]*x[A-Za-z]*)([[:space:]]+[A-Za-z_][A-Za-z0-9_]*(=[^[:space:]]*)?)*[[:space:]]+$1([[:space:]]|$)"
+}
+# Human-only commands (UAK_HUMAN: plan, allow, retire, register-reviewer, handover of others' tasks, a human
+# integrate) need the human's yes. Claude Code (`guard bash claude`): "ask", so the prompt shows even for an
+# allow-listed `bash .uak/bin/uak`. Harnesses without "ask": blocked; the human runs it in their own terminal.
+# Why (Hacktoberfest second autopsy): an agent prefixed UAK_HUMAN to record a human's approval and merge.
+GUARD_HARNESS=
+ask_human() {
+  case "$GUARD_HARNESS" in
+    claude)
+      bash "$here/bb" auto guard guard "ask: $*" >/dev/null 2>&1 || true
+      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"UAK_GUARD: %s"}}\n' "$*"
+      exit 0;;
+    check) printf 'UAK_GUARD: ask · %s\n' "$*" >&2; exit 3;;
+  esac
+  block "$* This harness cannot ask the human, so the human runs it in their own terminal."
+}
+
 check_bash() {
   cmd=$(norm_cmd "$1") m=$(mode)
   # Quoted prose (3+ words: a commit message, a uak msg) is not a command, unless the command runs it as code.
   # Quotes go, so "--force" is --force. Why (audit): `git commit -m "fix: push -d flag parsing"` was blocked as a
   # remote branch delete, and `git push "--force"` passed.
-  rcmd=$cmd
-  printf '%s' "$cmd" | grep -Eq '(^|[[:space:]])((ba|z|da)?sh[[:space:]]+-[a-z]*c|eval|ssh|xargs)([[:space:]]|$)' || rcmd=$(strip_prose "$cmd")
+  rcmd=$cmd code=no
+  if runs_code "$cmd"; then code=yes; else rcmd=$(strip_prose "$cmd"); fi
   rcmd=$(printf '%s' "$rcmd" | tr -d "\"'")
+  human_cmd=
+  base=${UAK_BASE:-main}
   while IFS= read -r seg; do
     s=" $seg "
     # Only segments with a risky word go through the rules: a 300-line heredoc took 7.5 s, past the hook's 5 s
     # timeout (and a timed-out hook lets the command run).
-    case "$s" in *git*|*rm*|*kill*|*sudo*|*curl*|*wget*|*publish*|*upload*|*gh*|*docker*|*npm*|*pnpm*|*yarn*|*pip*|*uv*) ;; *) continue;; esac
+    case "$s" in *git*|*rm*|*kill*|*sudo*|*curl*|*wget*|*publish*|*upload*|*gh*|*docker*|*npm*|*pnpm*|*yarn*|*pip*|*uv*|*UAK_*) ;; *) continue;; esac
+    # The clock is the engine's: a lease, a freeze or an offer window read at another time is a lie to everyone.
+    case "$s" in *UAK_NOW*|*UAK_TEST_CLOCK*)
+      { assigns UAK_NOW "$seg" || assigns UAK_TEST_CLOCK "$seg"; } &&
+        block "UAK_NOW/UAK_TEST_CLOCK set the uak clock; only the test suite sets them. Run the command without it.";;
+    esac
+    case "$s" in *UAK_HUMAN*) assigns UAK_HUMAN "$seg" && human_cmd=yes;; esac
+    # Merges reach main only through the gate (uak merge) or a human on the forge. Why (Hacktoberfest second
+    # autopsy): 5 of 33 sprint merges were an agent's gh pr merge, and the only out-of-Paths merges were among them.
+    printf '%s' "$s" | grep -Eq '(^|[[:space:]/])gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)|(^|[[:space:]/])gh[[:space:]]+api[[:space:]].*pulls/[0-9]+/merge' &&
+      block "gh pr merge skips the merge gate. Run bash .uak/bin/uak merge ID (Verify, scope and review on the merged result); a human merges on GitHub themselves."
+    # A URL with user@ goes to the host after the @: `curl http://localhost:1@other-host/` passes an allow rule for
+    # localhost (audit). A credential in a URL also lands in shell history and logs.
+    case "$s" in *curl*|*wget*)
+      printf '%s' "$s" | grep -Eq '(^|[[:space:]/])(curl|wget)[[:space:]]' && printf '%s' "$s" | grep -Eq '[A-Za-z][A-Za-z0-9+.-]*://[^/[:space:]?#]*@' &&
+        block "a URL with user@host: it goes to the host after the @, and the credential lands in logs. Use the plain URL (curl -u reads a credential from .env through a variable).";;
+    esac
     case "$s" in *git*push*)
       # Short flags cluster (-fu), long ones abbreviate (--for, --mirr): git accepts both.
       if printf '%s' "$s" | grep -Eq -- '[[:space:]](-[A-Za-z]*f[A-Za-z]*|--for(c(e(-with-lease|-if-includes)?)?)?(=[^[:space:]]*)?|--mi(r(r(o(r)?)?)?)?)([[:space:]]|$)|[[:space:]]\+[A-Za-z0-9_./*:-]+|remote\.[^[:space:]]*\.mirror'; then
@@ -58,7 +103,9 @@ check_bash() {
       fi
       if printf '%s' "$s" | grep -Eq -- '[[:space:]](-[A-Za-z]*d[A-Za-z]*|--del(e(t(e)?)?)?|--prune)([[:space:]]|$)|[[:space:]]:[A-Za-z0-9_./-]+'; then
         block "deleting remote branches is for the branch's human owner."
-      fi;;
+      fi
+      printf '%s' "$s" | grep -Eq -- "(^|[[:space:]/])git[[:space:]].*push[[:space:]].*[[:space:]:+](refs/heads/)?(main|master|$base)([[:space:]]|$)" &&
+        block "a push to $base skips the merge gate. Push your feat/ branch; bash .uak/bin/uak merge ID lands it on $base.";;
     esac
     printf '%s' "$s" | grep -Eq '(^|[[:space:]/])git[[:space:]].*reset[[:space:]](.*[[:space:]])?--ha(r(d)?)?([[:space:]]|$)' &&
       block "git reset --hard destroys uncommitted work. Use git stash or a wip: commit."
@@ -91,7 +138,7 @@ check_bash() {
       block "publishing outside the repo is a human action."
     if [ "$m" = marathon ]; then
       # A refspec destination counts too (HEAD:main, feat/x:refs/heads/main). Why (audit): both pushed to main.
-      printf '%s' "$s" | grep -Eq 'gh[[:space:]]+pr[[:space:]]+merge|git[[:space:]].*push[[:space:]].*[[:space:]:](refs/heads/)?(main|master|release/[^[:space:]]*|release)([[:space:]]|$)' &&
+      printf '%s' "$s" | grep -Eq 'git[[:space:]].*push[[:space:]].*[[:space:]:+](refs/heads/)?(release/[^[:space:]]*|release)([[:space:]]|$)' &&
         block "marathon mode: main changes only via PR with green CI and human CODEOWNERS approval."
       printf '%s' "$s" | grep -Eq '(npm|pnpm|yarn)[[:space:]]+(install|add|i)([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^-[:space:]]|uv[[:space:]]+add[[:space:]]|pip[[:space:]]+install([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^-[:space:]]' &&
         block "marathon mode: a new dependency needs uak decision (license, maintenance, audit) and approval."
@@ -103,7 +150,7 @@ UAK_SEGMENTS
   # not a file operation, unless the command runs it as code (sh -c, eval, ssh).
   # Why (Reap buildathon): `codex exec "... never cat .env ..."` was blocked as a .env read.
   envcmd=$cmd
-  printf '%s' "$cmd" | grep -Eq '(^|[[:space:]])((ba|z|da)?sh[[:space:]]+-[a-z]*c|eval|ssh|xargs)([[:space:]]|$)' || envcmd=$(strip_prose "$cmd")
+  [ "$code" = yes ] || envcmd=$(strip_prose "$cmd")
   # Input redirection from .env, and git show REV:.env.
   printf '%s' "$envcmd" | grep -Eq '<[[:space:]]*["'"'"']?\.env(\.[a-z]+)?["'"'"']?([[:space:]]|$)|:\.env(\.[a-z]+)?([[:space:]]|$)' &&
     block ".env holds secrets and never enters context. Read .env.example or ask which variable exists."
@@ -114,6 +161,7 @@ UAK_SEGMENTS
   done <<UAK_SEGMENTS
 $(segments "$envcmd")
 UAK_SEGMENTS
+  [ -z "$human_cmd" ] || ask_human "UAK_HUMAN is human authority (plan, allow, retire, register-reviewer, handover of another agent's task, a human integrate). Run it only if the human asked for exactly this."
   return 0
 }
 strip_prose() {
@@ -198,6 +246,21 @@ tier_of() { # $1 model param, $2 subagent type → strong|balanced|fast|inherit
   fi
   tier_class "$m"
 }
+# One launch at a time reads, checks and writes the reservations: 12 parallel launches with Max-Parallel 4 let 6
+# through and lost reservations (audit, Oct 2026). mkdir is atomic everywhere; a lock older than 10 s is a crashed
+# hook's (the hook timeout is 5 s), and the wait stays under that timeout.
+agents_lock() {
+  local l="$1/uak-agents.lock" i=0 t now
+  while ! mkdir "$l" 2>/dev/null; do
+    now=$(date +%s); t=$(cat "$l/at" 2>/dev/null); case "$t" in ''|*[!0-9]*) t=$now;; esac
+    if [ $((now - t)) -gt 10 ]; then rm -f "$l/at"; rmdir "$l" 2>/dev/null; continue; fi
+    i=$((i + 1)); [ "$i" -lt 40 ] || block "another subagent launch is being counted; try again in a few seconds."
+    sleep 0.1 2>/dev/null || sleep 1
+  done
+  date +%s > "$l/at" 2>/dev/null
+  AGENTS_LOCK=$l
+  trap 'rm -f "$AGENTS_LOCK/at"; rmdir "$AGENTS_LOCK" 2>/dev/null' EXIT
+}
 check_agent() {
   input=$1 gd=$(git rev-parse --git-dir 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")
   now=${UAK_NOW:-$(date +%s)}
@@ -221,6 +284,7 @@ check_agent() {
   [ "$max" -le "$hard" ] || max=$hard
   [ "$opus_max" -le "$strong_hard" ] || opus_max=$strong_hard
   act="$gd/uak-agents.active" log="$gd/uak-agents.log"
+  agents_lock "$gd"
   touch "$act" "$log"
   # Reservations older than 20 min are stale (a crashed subagent never sent SubagentStop).
   awk -v now="$now" '$1 + 1200 > now' "$act" > "$act.tmp" && mv "$act.tmp" "$act"
@@ -253,11 +317,14 @@ check_agent() {
 agent_stop() {
   gd=$(git rev-parse --git-dir 2>/dev/null) || return 0
   act="$gd/uak-agents.active"; [ -s "$act" ] || return 0
+  agents_lock "$gd"
   sed '1d' "$act" > "$act.tmp" && mv "$act.tmp" "$act"
 }
 
 shell_tool() { # tool names of the shell in each harness' PreToolUse/BeforeTool payload
+  # PowerShell: Claude Code's shell on Windows without Git Bash (audit: no rule applied to it).
   case "$1" in *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*|*'"tool_name":"Shell"'*|*'"tool_name": "Shell"'*|\
+    *'"tool_name":"PowerShell"'*|*'"tool_name": "PowerShell"'*|\
     *'"tool_name":"shell"'*|*'"tool_name": "shell"'*|*'"tool_name":"exec_command"'*|*'"tool_name": "exec_command"'*|\
     *'"tool_name":"local_shell"'*|*'"tool_name": "local_shell"'*|*'"tool_name":"run_shell_command"'*|*'"tool_name": "run_shell_command"'*) return 0;; esac
   return 1
@@ -275,6 +342,7 @@ case "${1:-}" in
   bash)
     input=$(cat 2>/dev/null || true)
     shell_tool "$input" || exit 0
+    [ "${2:-}" != claude ] || GUARD_HARNESS=claude
     check_bash "$(printf '%s' "$input" | json_field command)";;
   shell)
     input=$(cat 2>/dev/null || true)
@@ -282,7 +350,7 @@ case "${1:-}" in
   prompt)
     input=$(cat 2>/dev/null || true)
     check_prompt "$(printf '%s' "$input" | json_field prompt)";;
-  check) check_bash "${2:-}"; printf 'UAK_GUARD: allowed\n';;
+  check) GUARD_HARNESS=check; check_bash "${2:-}"; printf 'UAK_GUARD: allowed\n';;
   check-prompt) check_prompt "${2:-}"; printf 'UAK_GUARD: allowed\n';;
   tier) printf '%s\n' "$(tier_class "${2:-}")";;
   *) printf '%s\n' 'Usage: guard bash|shell|prompt|agent|agent-stop (hook JSON on stdin) · guard check "CMD" · guard check-prompt "TEXT" · guard tier MODEL' >&2; exit 2;;

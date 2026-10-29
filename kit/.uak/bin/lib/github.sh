@@ -50,6 +50,7 @@ pr_sync_mutate() {
   PR_SENT=
   mkdir -p "$TX/meta/pr"
   for id in $(cut -f1 "$TXROOT/pr-events.keep" | sort -u); do
+    valid_id "$id" || continue   # from claims: never a path (../)
     seen="$TX/meta/pr/$id.md"; [ -f "$seen" ] || printf '%s\n' "# Sent to $id (uak pr-sync)" > "$seen"
     msgs= n=0 act=no
     while IFS="$(printf '\t')" read -r tid kind key text; do

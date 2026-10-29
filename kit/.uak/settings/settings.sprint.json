@@ -66,7 +66,6 @@
       "Bash(npm run:*)",
       "Bash(uv add:*)",
       "Bash(npm --prefix web install:*)",
-      "Bash(gh pr merge:*)",
       "Bash(uv run python .claude/skills/webapp-testing/scripts/with_server.py:*)",
       "mcp__uak"
     ],
@@ -95,7 +94,10 @@
       "Read(./**/.env)",
       "Read(./secrets/**)",
       "Read(./**/*.pem)",
-      "Read(./**/*.key)"
+      "Read(./**/*.key)",
+      "Bash(gh pr merge:*)",
+      "Bash(git push origin main:*)",
+      "Bash(git push origin master:*)"
     ]
   },
   "hooks": {
@@ -123,11 +125,11 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.uak/bin/guard\" bash",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.uak/bin/guard\" bash claude",
             "timeout": 5
           }
         ]
@@ -155,7 +157,7 @@
         ]
       },
       {
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",

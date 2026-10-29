@@ -22,7 +22,11 @@ coord_put() {
 }
 coord_config() {
   coord_v=
-  [ ! -f "$TX/meta/config.md" ] || coord_v=$(coord_read "$TX/meta/config.md" "$1")
+  # Authority keys come from PROJECT.md on the remote base (coord-auth, written by coord_init), never from
+  # claims. Why (audit, Oct 2026): a raw push of meta/config.md with the public Config-Source hash and
+  # "Autonomy: yes, Auto-Merge: yes, Review-Mode: claims" passed every gate while main said no.
+  [ ! -f "${TXROOT:-/nonexistent}/coord-auth" ] || coord_v=$(coord_read "$TXROOT/coord-auth" "$1")
+  [ -n "$coord_v" ] || [ ! -f "$TX/meta/config.md" ] || coord_v=$(coord_read "$TX/meta/config.md" "$1")
   [ -n "$coord_v" ] || coord_v=${2:-}
   printf '%s\n' "$coord_v"
 }
@@ -36,6 +40,23 @@ coord_source_field() {
   coord_v=$(sed -n "s/^[-* ]*$1:[* ]*//p" "$TXROOT/coord-source" | head -n 1 | tr -d '\r`')
   [ -n "$coord_v" ] || coord_v=$2
   printf '%s\n' "$coord_v"
+}
+# A key whose value is a list on the next lines ("- **Depends on:**" then "  - HACK-001") becomes one line, and IDs
+# in Depends on are upper case: every reader of the backlog reads one line per key. Why (audit, Oct 2026): a
+# Depends on written as a list, or as hack-001, was ignored and the task was claimed before its dependency.
+coord_fold_backlog() {
+  awk '
+    function flush(   o) { if (held != "") { o = held (items != "" ? " " items : ""); if (hk ~ /^Depends on/) o = upids(o); print o; held = ""; items = "" } }
+    function upids(s,   out) { out = ""
+      while (match(s, /[A-Za-z][A-Za-z0-9]*-[0-9][0-9][0-9]+/)) { out = out substr(s, 1, RSTART - 1) toupper(substr(s, RSTART, RLENGTH)); s = substr(s, RSTART + RLENGTH) }
+      return out s }
+    held != "" && /^[[:space:]]+[-*][[:space:]]+/ { x = $0; sub(/^[[:space:]]+[-*][[:space:]]+/, "", x); items = items (items != "" ? ", " : "") x; next }
+    { flush(); line = $0; sub(/\r$/, "", line)
+      key = line; gsub(/\*\*/, "", key); sub(/^[[:space:]]*[-*][[:space:]]*/, "", key)
+      if (key ~ /^Depends on[[:space:]]*:/) line = upids(line)
+      if (line ~ /^[-*][[:space:]]/ && key ~ /^[A-Za-z][A-Za-z -]*:[[:space:]]*$/) { held = line; hk = key; next }
+      print line }
+    END { flush() }' "$1" > "$1.fold" && mv "$1.fold" "$1"
 }
 coord_init() {
   [ "${COORD_INITIALIZED_TX:-}" != "$TX" ] || return 0
@@ -78,9 +99,19 @@ coord_init() {
       mv "$TXROOT/canonical-TASKS.amended" "$TXROOT/canonical-TASKS.md"
   fi
   [ ! -f "$TX/backlog/OWNERS.md" ] || { printf '\n'; cat "$TX/backlog/OWNERS.md"; } >> "$TXROOT/canonical-OWNERS.md"
+  coord_fold_backlog "$TXROOT/canonical-TASKS.md"
   BACKLOG="$TXROOT/canonical-TASKS.md"; OWNERS="$TXROOT/canonical-OWNERS.md"
   coord_source=$(git -C "$TX" rev-parse --verify 'refs/uak/config:.uak/PROJECT.md' 2>/dev/null || printf '%s' '-')
   git -C "$TX" show refs/uak/config:.uak/PROJECT.md > "$TXROOT/coord-source" 2>/dev/null || : > "$TXROOT/coord-source"
+  # One pass, the same reading as coord_source_field. A key with a default is always written (absent from
+  # PROJECT.md = its default, not whatever claims says); the timing keys only when PROJECT.md sets them.
+  awk -v keys="Backlog-Approved=no Autonomy=no Auto-Merge=no Freeze-Epoch=0 Events-Per-Session=100 Checkpoint-Percent=60 Review-Mode=auto Merge-Lease-Seconds=1800 Merge-Wait-Seconds=180 Review-Independence=agent Claims-Signing=no Presence-Seconds= Stall-Seconds= Review-Offer-Seconds= Merge-Adopt-Seconds=" '
+    BEGIN { n = split(keys, kv, " "); for (i = 1; i <= n; i++) { e = index(kv[i], "="); k[i] = substr(kv[i], 1, e - 1); d[i] = substr(kv[i], e + 1) } }
+    { l = $0; sub(/\r$/, "", l); sub(/^[-* ]*/, "", l)
+      for (i = 1; i <= n; i++) if (!(i in got) && index(l, k[i] ":") == 1) {
+        v = substr(l, length(k[i]) + 2); sub(/^[* ]*/, "", v); gsub(/`/, "", v); got[i] = v } }
+    END { for (i = 1; i <= n; i++) if (i in got) print k[i] ": " got[i]; else if (d[i] != "") print k[i] ": " d[i] }' \
+    "$TXROOT/coord-source" > "$TXROOT/coord-auth"
   COORD_INITIALIZED_TX=$TX
   # Lease per mode (sprint 45 min, marathon 4 h); UAK_LEASE_SECONDS wins if set. REVIEW waits longer:
   # reviewers and humans are slow; an expired REVIEW lease forced pointless recovery.
@@ -188,7 +219,10 @@ coord_tick_mutate() {
   fi
   for coord_claim in "$TX"/claims/*.md; do
     [ -f "$coord_claim" ] || continue
-    coord_until=$(coord_read "$coord_claim" Lease-Until); coord_uint Lease-Until "$coord_until"
+    coord_until=$(coord_read "$coord_claim" Lease-Until)
+    # One damaged claim must not stop every command of every agent: it counts as expired. Why (audit, Oct 2026):
+    # a non-numeric Lease-Until in any claim made claim, heartbeat, status and next die for the whole team.
+    case "$coord_until" in ''|*[!0-9]*) coord_until=1;; esac
     # A REVIEW claim waits on others (reviewer, merge): its lease expiry needs no recovery; any agent can merge
     # it once approved. Why (MLB hackathon): 22 of 62 DECISIONS lines were REQUIRES_RECOVERY, 19 on REVIEW tasks.
     [ "$(coord_read "$coord_claim" State)" != REVIEW ] || continue
@@ -200,7 +234,7 @@ coord_tick_mutate() {
   for coord_decision in "$TX"/meta/decisions/*.md; do
     [ -f "$coord_decision" ] || continue
     [ "$(coord_read "$coord_decision" Status)" = PENDING ] || continue
-    coord_opened=$(coord_read "$coord_decision" Opened); coord_uint Opened "$coord_opened"
+    coord_opened=$(coord_read "$coord_decision" Opened); case "$coord_opened" in ''|*[!0-9]*) coord_opened=0;; esac
     coord_deadline=$((coord_opened + 900))
     [ "$NOW" -ge "$coord_deadline" ] || continue
     coord_effect=BLOCKED_OTHER_TASK
@@ -264,7 +298,7 @@ coord_claim_gate() {
   [ ! -f "$coord_af" ] || coord_since=$(coord_read "$coord_af" Events-Since-Checkpoint)
   # An agent file written by `uak away` or a human command has no counters yet (audit: no claim was ever possible).
   case "$coord_since" in ''|*[!0-9]*) coord_since=0;; esac
-  [ "$coord_since" -lt "$(coord_threshold)" ] || conflict "CHECKPOINT NOW: a recent checkpoint is required before claiming new tasks."
+  [ "$coord_since" -lt "$(coord_threshold)" ] || conflict "CHECKPOINT NOW: a recent checkpoint is required before claiming new tasks: bash .uak/bin/uak checkpoint --session --done T --decision T --why T --fails T --commands T --next T (- for none; with a task: checkpoint ID instead of --session)."
 }
 # Freeze exception: `Freeze-Allowed: yes` in the remote TASKS, or a human's `uak allow` on claims.
 # Why (Reap buildathon): with no command, humans opened 3 PRs (#10, #11, #14) just to flip Freeze-Allowed,
@@ -361,7 +395,7 @@ coord_status_budget() {
   coord_af=$(coord_agent_file); coord_since=0 coord_total=0
   if [ -f "$coord_af" ]; then coord_since=$(coord_read "$coord_af" Events-Since-Checkpoint); coord_total=$(coord_read "$coord_af" Events); fi
   coord_alert=$(coord_threshold); coord_left=$((coord_alert - coord_since)); coord_suffix=
-  if [ "$coord_left" -le 0 ]; then coord_left=0; coord_suffix=' | CHECKPOINT NOW'; fi
+  if [ "$coord_left" -le 0 ]; then coord_left=0; coord_suffix=' | CHECKPOINT NOW: uak checkpoint ID|--session --done T --decision T --why T --fails T --commands T --next T'; fi
   say "Events: $coord_since/$coord_alert alert (total $coord_total); checkpoint required in $coord_left events$coord_suffix"
 }
 coord_handoff() {
@@ -401,7 +435,16 @@ coord_checkpoint_session() {
   coord_put "$coord_sf" Last-Checkpoint "$NOW"; coord_put "$coord_sf" Updated "$NOW"
 }
 coord_decision_mutate() {
-  require_owner
+  # A human opens a decision on any task, claimed or not (AGENTS.md: "the human runs uak decision personally").
+  # Why (audit, Oct 2026): require_owner refused every human decision ("has no active claim", "belongs to").
+  if [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ]; then
+    RECORD=$(task_file); CLAIM=$(claim_file)
+    if [ ! -f "$RECORD" ] && ! awk -v id="$ID" '/^## / && $2==id {f=1} END {exit !f}' "$BACKLOG" 2>/dev/null; then
+      conflict "$ID is not a task (uak status lists them)."
+    fi
+  else
+    require_owner
+  fi
   coord_yesno Reversible "$DECISION_REVERSIBLE"; coord_yesno Authorized "$DECISION_AUTHORIZED"
   case "$DECISION_CLASS" in routine|money|accounts|publish|scope) ;; *) die "Invalid decision class.";; esac
   [ -n "$DECISION_OPTION" ] && [ -n "$WHY_TEXT" ] || die "decision needs --option and --why."
@@ -411,8 +454,10 @@ coord_decision_mutate() {
   printf '%s\n' "# Pending decision" "Task: $ID" "Owner: $AGENT" "Opened: $NOW" "Status: PENDING" \
     "Class: $DECISION_CLASS" "Authorized: $DECISION_AUTHORIZED" "Reversible: $DECISION_REVERSIBLE" \
     "Option: $(one_line "$DECISION_OPTION")" "Why: $(one_line "$WHY_TEXT")" > "$coord_df"
-  WL=$(coord_read "$RECORD" Worklog); STATE=$(coord_read "$RECORD" State)
-  event "pending decision $ID-$NOW; option: $DECISION_OPTION; Why: $WHY_TEXT"
+  if [ -f "$RECORD" ]; then
+    WL=$(coord_read "$RECORD" Worklog); STATE=$(coord_read "$RECORD" State)
+    ! valid_worklog "$WL" || [ ! -f "$TX/$WL" ] || event "pending decision $ID-$NOW; option: $DECISION_OPTION; Why: $WHY_TEXT"
+  fi
   msg_append human human "$ID" "Pending decision ($DECISION_CLASS): $DECISION_OPTION. Why: $WHY_TEXT. Applied after 15 min without answer if routine and authorized"
 }
 coord_clock() {

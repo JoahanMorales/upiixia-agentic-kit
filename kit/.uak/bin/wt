@@ -50,11 +50,15 @@ WT_PICKED= WT_PICK_NOTE= WT_PICK_REUSE=no
 wt_pick_agent() { # $1 main root, $2 human; sets WT_PICKED, WT_PICK_NOTE, WT_PICK_REUSE
   local root=$1 human=$2 known held= retired= all= a f base n max=0
   known=$(wt_machine_agents "$root")
-  if git -C "$root" fetch -q "$REMOTE" claims 2>/dev/null; then
-    held=$(git -C "$root" ls-tree --name-only FETCH_HEAD claims/ 2>/dev/null | while IFS= read -r f; do
-      git -C "$root" cat-file -p "FETCH_HEAD:$f" 2>/dev/null | sed -n 's/^Owner: //p'; done | sort -u | tr '\n' ' ')
-    retired=$(git -C "$root" ls-tree --name-only FETCH_HEAD meta/retired/ 2>/dev/null | sed 's@.*/@@;s@\.md$@@' | tr '\n' ' ')
-    all=$(git -C "$root" ls-tree --name-only FETCH_HEAD meta/agents/ 2>/dev/null | sed 's@.*/@@;s@\.md$@@' | tr '\n' ' ')
+  # A ref of this process, not FETCH_HEAD: another wt new fetching main in between rewrote FETCH_HEAD, `held` came
+  # back empty and an identity that held a claim was reused (audit, Oct 2026).
+  local ref="refs/uak/wt-claims-$$"
+  if git -C "$root" fetch -q "$REMOTE" "+refs/heads/claims:$ref" 2>/dev/null; then
+    held=$(git -C "$root" ls-tree --name-only "$ref" claims/ 2>/dev/null | while IFS= read -r f; do
+      git -C "$root" cat-file -p "$ref:$f" 2>/dev/null | sed -n 's/^Owner: //p'; done | sort -u | tr '\n' ' ')
+    retired=$(git -C "$root" ls-tree --name-only "$ref" meta/retired/ 2>/dev/null | sed 's@.*/@@;s@\.md$@@' | tr '\n' ' ')
+    all=$(git -C "$root" ls-tree --name-only "$ref" meta/agents/ 2>/dev/null | sed 's@.*/@@;s@\.md$@@' | tr '\n' ' ')
+    git -C "$root" update-ref -d "$ref" 2>/dev/null
   fi
   WT_PICK_REUSE=no
   for a in $known; do
@@ -74,23 +78,74 @@ wt_pick_agent() { # $1 main root, $2 human; sets WT_PICKED, WT_PICK_NOTE, WT_PIC
   WT_PICK_NOTE="new identity $WT_PICKED (prefix: git config uak.name NAME)"
 }
 wt_path() { printf '%s/%s-wt/%s' "$(dirname "$1")" "$(basename "$1")" "$(printf '%s' "$2" | tr 'A-Z' 'a-z')"; }
+# Claude Code's .claude/settings.local.json: the UAK_* env entries change, every other key stays. Claude Code saves
+# "don't ask again" permissions in this file; wt session rewrote it whole and they were gone (audit, Oct 2026).
+# An old UAK_HUMAN entry (before v5.1) becomes UAK_AGENT_HUMAN: in a worktree it granted human authority.
+write_local_settings() { # $1 file; values in WT_AGENT WT_HUMAN WT_SESSION WT_TASK WT_PORT
+  local f=$1 k missing= tmp
+  if [ ! -s "$f" ] || [ -z "$(tr -d '{}[:space:]' < "$f")" ]; then
+    printf '{\n  "env": {\n    "UAK_AGENT": "%s",\n    "UAK_AGENT_HUMAN": "%s",\n    "UAK_SESSION": "%s",\n    "UAK_TASK": "%s",\n    "UAK_PORT": "%s"\n  }\n}\n' \
+      "$WT_AGENT" "$WT_HUMAN" "$WT_SESSION" "$WT_TASK" "$WT_PORT" > "$f"
+    return 0
+  fi
+  for k in UAK_AGENT UAK_AGENT_HUMAN UAK_SESSION UAK_TASK UAK_PORT; do
+    grep -q "\"$k\"[[:space:]]*:" "$f" || { [ "$k" = UAK_AGENT_HUMAN ] && grep -q '"UAK_HUMAN"[[:space:]]*:' "$f"; } || missing="$missing $k"
+  done
+  tmp="$f.tmp.$$"
+  awk -v missing="$missing" -v a="$WT_AGENT" -v h="$WT_HUMAN" -v se="$WT_SESSION" -v t="$WT_TASK" -v po="$WT_PORT" '
+    function val(k) { return k == "UAK_AGENT" ? a : k == "UAK_AGENT_HUMAN" ? h : k == "UAK_SESSION" ? se : k == "UAK_TASK" ? t : po }
+    BEGIN { n = split(missing, miss, " ") }
+    {
+      rest = $0; line = ""
+      while (match(rest, /"UAK_(AGENT|AGENT_HUMAN|HUMAN|SESSION|TASK|PORT)"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
+        k = substr(rest, RSTART + 1); k = substr(k, 1, index(k, "\"") - 1); if (k == "UAK_HUMAN") k = "UAK_AGENT_HUMAN"
+        line = line substr(rest, 1, RSTART - 1) "\"" k "\": \"" val(k) "\""; rest = substr(rest, RSTART + RLENGTH)
+      }
+      line = line rest
+      # Missing keys go first in the env object: on their own lines when the object opens a line, inline otherwise.
+      if (!done && n > 0 && match(line, /"env"[[:space:]]*:[[:space:]]*\{/)) {
+        head = substr(line, 1, RSTART + RLENGTH - 1); tail = substr(line, RSTART + RLENGTH); done = 1
+        if (tail ~ /^[[:space:]]*$/) {
+          print line; ind = line; sub(/[^[:space:]].*/, "", ind)
+          for (i = 1; i <= n; i++) printf "%s  \"%s\": \"%s\",\n", ind, miss[i], val(miss[i])
+          next
+        }
+        ins = ""
+        for (i = 1; i <= n; i++) ins = ins (i > 1 ? ", " : "") "\"" miss[i] "\": \"" val(miss[i]) "\""
+        line = head ins (tail ~ /^[[:space:]]*\}/ ? "" : ", ") tail
+      }
+      print line
+    }
+    END { if (n > 0 && !done) exit 3 }' "$f" > "$tmp"
+  if [ $? -eq 0 ]; then mv "$tmp" "$f"; return 0; fi
+  rm -f "$tmp"
+  # No "env" object yet: one goes right after the opening brace.
+  if ! grep -q '"env"[[:space:]]*:' "$f" && [ "$(sed -n '1p' "$f" | tr -d '[:space:]')" = "{" ]; then
+    { printf '{\n  "env": {\n    "UAK_AGENT": "%s",\n    "UAK_AGENT_HUMAN": "%s",\n    "UAK_SESSION": "%s",\n    "UAK_TASK": "%s",\n    "UAK_PORT": "%s"\n  },\n' \
+        "$WT_AGENT" "$WT_HUMAN" "$WT_SESSION" "$WT_TASK" "$WT_PORT"; sed '1d' "$f"; } > "$tmp" && mv "$tmp" "$f" && return 0
+  fi
+  say "wt: could not update the env block of $f; set UAK_AGENT=$WT_AGENT UAK_SESSION=$WT_SESSION UAK_TASK=$WT_TASK UAK_PORT=$WT_PORT there by hand." >&2
+}
 write_env() {
-  # $1 dir, $2 agent, $3 human, $4 task
+  # $1 dir, $2 agent, $3 human, $4 task, $5 port to keep (wt session)
   local session
   session="$2-$(date +%s)"
   # Own port per worktree: agents on one machine run their apps without clashing.
   # API on UAK_PORT, web on UAK_PORT+1. Why: on the Jetson port 8000 was taken.
   num=$(printf '%s' "$4" | sed 's/.*-0*//'); case "$num" in ''|*[!0-9]*) num=0;; esac
-  port=$(( ${UAK_PORT_BASE:-8100} + (num % 90) * 10 ))
-  # Why (UpiixSol): "address already in use" 3 times; a leftover server or a task 90 IDs apart held the port.
-  tries=0
-  while [ "$tries" -lt 20 ] && { port_busy "$port" || port_busy $((port + 1)); }; do port=$((port + 900)); [ "$port" -lt 65000 ] || port=$((port - 56000)); tries=$((tries + 1)); done
+  port=${5:-}
+  case "$port" in
+    ''|*[!0-9]*)
+      port=$(( ${UAK_PORT_BASE:-8100} + (num % 90) * 10 ))
+      # Why (UpiixSol): "address already in use" 3 times; a leftover server or a task 90 IDs apart held the port.
+      tries=0
+      while [ "$tries" -lt 20 ] && { port_busy "$port" || port_busy $((port + 1)); }; do port=$((port + 900)); [ "$port" -lt 65000 ] || port=$((port - 56000)); tries=$((tries + 1)); done;;
+  esac
   printf 'UAK_AGENT=%s\nUAK_AGENT_HUMAN=%s\nUAK_SESSION=%s\nUAK_TASK=%s\nUAK_PORT=%s\n' "$2" "$3" "$session" "$4" "$port" > "$1/.uak-env"
   # Claude Code applies this env to every agent Bash command in this worktree. UAK_AGENT_HUMAN names the agent's
   # human; it is not UAK_HUMAN, which grants human authority (allow, plan, retire) and only a human sets.
   mkdir -p "$1/.claude"
-  printf '{\n  "env": {\n    "UAK_AGENT": "%s",\n    "UAK_AGENT_HUMAN": "%s",\n    "UAK_SESSION": "%s",\n    "UAK_TASK": "%s",\n    "UAK_PORT": "%s"\n  }\n}\n' \
-    "$2" "$3" "$session" "$4" "$port" > "$1/.claude/settings.local.json"
+  WT_AGENT=$2 WT_HUMAN=$3 WT_SESSION=$session WT_TASK=$4 WT_PORT=$port write_local_settings "$1/.claude/settings.local.json"
 }
 cmd=${1:-help}; [ "$#" -eq 0 ] || shift
 case "$cmd" in
@@ -101,7 +156,9 @@ case "$cmd" in
     [ -f "$top/.uak-env" ] || die "This worktree has no .uak-env; use wt new."
     agent=$(sed -n 's/^UAK_AGENT=//p' "$top/.uak-env" | tr -d '\r'); human=$(sed -n 's/^UAK_AGENT_HUMAN=//p;s/^UAK_HUMAN=//p' "$top/.uak-env" | head -n 1 | tr -d '\r')
     task=$(sed -n 's/^UAK_TASK=//p' "$top/.uak-env" | tr -d '\r')
-    write_env "$top" "$agent" "$human" "$task"
+    # The port stays: the worktree's own server holds it, and a new one orphaned that server (audit, Oct 2026).
+    oldport=$(sed -n 's/^UAK_PORT=//p' "$top/.uak-env" | head -n 1 | tr -d '\r')
+    write_env "$top" "$agent" "$human" "$task" "$oldport"
     say "SESSION: $(sed -n 's/^UAK_SESSION=//p' "$top/.uak-env")"; exit 0;;
   rm)
     # A review checkout (detached, `git worktree add ../review-ID origin/<branch>`) keeps Verify's untracked build
@@ -119,13 +176,24 @@ case "$cmd" in
 $(git -C "$root" worktree list --porcelain | sed -n 's/^worktree //p')
 EOF_WT
       [ "$listed" = yes ] && [ "$path" != "$(cd "$root" && pwd -P)" ] || die "$path is not a worktree of this repository."
+      # A task worktree (it has .uak-env) is never a review checkout, even with a detached HEAD: `git rebase` leaves
+      # one, and --review removed a task's new files with it (audit, Oct 2026).
+      [ ! -f "$path/.uak-env" ] || die "$path is a task worktree (.uak-env): use wt rm ID, which keeps uncommitted work."
+      wgd=$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null)
+      for s in rebase-merge rebase-apply BISECT_LOG MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
+        [ -z "$wgd" ] || [ ! -e "$wgd/$s" ] || die "$path is in the middle of a ${s%%[-_]*} (git -C $path status): finish or abort it first."
+      done
       ! git -C "$path" symbolic-ref -q HEAD >/dev/null 2>&1 || die "$path is on a branch: it may hold work. Use wt rm ID for a task worktree."
       [ -n "$(git -C "$path" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ] ||
         die "$path has commits on no branch; push or branch them first (git -C $path log -1)."
       [ -z "$(git -C "$path" status --porcelain --untracked-files=no 2>/dev/null)" ] ||
         die "$path has edits to tracked files; a review changes nothing. Look at them (git -C $path status) first."
+      untracked=$(git -C "$path" ls-files --others --exclude-standard 2>/dev/null)
       git -C "$root" worktree remove --force "$path" || die "Did not remove $path."
-      say "WT_REMOVED: $path (review checkout; untracked build output dropped)"; exit 0
+      if [ -n "$untracked" ]; then
+        say "WT_REMOVED: $path (review checkout); dropped $(printf '%s\n' "$untracked" | wc -l | tr -d ' ') untracked file(s) git does not ignore: $(printf '%s\n' "$untracked" | head -n 10 | tr '\n' ' ')"
+      else say "WT_REMOVED: $path (review checkout; untracked build output dropped)"; fi
+      exit 0
     fi
     id=${1:-}; printf '%s' "$id" | grep -Eq '^[A-Z][A-Z0-9]*-[0-9]{3,}$' || die "Usage: wt rm ID"
     root=$(main_root); [ -n "$root" ] || die "Not a Git repository."
@@ -145,7 +213,13 @@ EOF_WT
     say "WT_STOPPED:${stopped:- nothing listening on $port/$((port + 1))}"; exit 0;;
   pr)
     url=$(git config --get "remote.$REMOTE.url" 2>/dev/null) || die "No remote $REMOTE."
-    repo=$(printf '%s' "$url" | sed 's@^git\@github.com:@@;s@^https://github.com/@@;s@^ssh://git\@github.com/@@;s@\.git$@@')
+    # Host aliases from ~/.ssh/config (git@github.com-work:o/r.git) and ssh://…:22/ forms: the path is what is
+    # after the host. Why (audit, Oct 2026): an alias produced https://github.com/git@github.com-work:o/r/compare/…
+    case "$url" in
+      *://*) repo=${url#*://}; repo=${repo#*@}; repo=${repo#*/};;
+      *) repo=${url#*@}; repo=${repo#*:};;
+    esac
+    repo=${repo%.git}; repo=${repo%/}
     branch=$(git symbolic-ref --short HEAD 2>/dev/null) || die "Detached HEAD."
     case "$url" in *github.com*) ;; *) die "Not a GitHub remote: open the PR in your forge's web UI for $branch.";; esac
     # Why (UpiixSol): a fine-grained token without "Pull requests: write" made gh pr create fail for a day.
@@ -192,14 +266,24 @@ git -C "$root" show-ref --verify --quiet "refs/heads/$branch" && die "Branch $br
 hooks_dir=.uak/githooks; [ -d "$root/$hooks_dir" ] || hooks_dir=.githooks   # v5.2 moved them under .uak
 [ "$(git -C "$root" config --get core.hooksPath)" = "$hooks_dir" ] || git -C "$root" config core.hooksPath "$hooks_dir"
 git -C "$root" fetch -q "$REMOTE" "$BASE" || die "Could not fetch $REMOTE/$BASE."
+# The task was claimed before (released, expired, handed over from another machine): its branch is on the remote,
+# and the new worktree continues it. Why (Hacktoberfest second autopsy): 7 takeovers started from main and one agent
+# redid work that was already on origin/feat/hack-012.
+start="$REMOTE/$BASE"
+if git -C "$root" fetch -q "$REMOTE" "+refs/heads/$branch:refs/remotes/$REMOTE/$branch" 2>/dev/null &&
+   git -C "$root" rev-parse -q --verify "refs/remotes/$REMOTE/$branch" >/dev/null 2>&1; then
+  start="$REMOTE/$branch"
+  behind=$(git -C "$root" rev-list --count "$start..$REMOTE/$BASE" 2>/dev/null || echo 0)
+  say "wt: $branch is already on $REMOTE ($(git -C "$root" rev-list --count "$REMOTE/$BASE..$start" 2>/dev/null || echo '?') commit(s) of earlier work): the worktree starts from it.$([ "${behind:-0}" -eq 0 ] || printf ' It is %s commit(s) behind %s: git merge --no-edit %s/%s.' "$behind" "$BASE" "$REMOTE" "$BASE")" >&2
+fi
 mkdir -p "$(dirname "$path")"
 # --no-track: no upstream means no .git/config write (avoids lock contention).
 added=no
 for attempt in 1 2 3 4 5; do
-  if git -C "$root" worktree add -q --no-track -b "$branch" "$path" "$REMOTE/$BASE" 2> "${TMPDIR:-/tmp}/wt-add.$$"; then added=yes; break; fi
+  if git -C "$root" worktree add -q --no-track -b "$branch" "$path" "$start" 2> "${TMPDIR:-/tmp}/wt-add.$$"; then added=yes; break; fi
   # A failed attempt may leave the branch without a worktree: reuse it only if still at base.
   if [ ! -e "$path" ] && git -C "$root" show-ref --verify --quiet "refs/heads/$branch" &&
-     [ -z "$(git -C "$root" rev-list "$REMOTE/$BASE..$branch" 2>/dev/null)" ]; then
+     [ -z "$(git -C "$root" rev-list "$start..$branch" 2>/dev/null)" ]; then
     git -C "$root" worktree add -q "$path" "$branch" 2>> "${TMPDIR:-/tmp}/wt-add.$$" && { added=yes; break; }
   fi
   sleep "$attempt"
@@ -214,7 +298,7 @@ code=0
 (cd "$path" && bash .uak/bin/uak "$@") || code=$?
 if [ "$code" -ne 0 ]; then
   # Undo only what this command created and that has no own commits yet.
-  if [ -z "$(git -C "$root" rev-list "$REMOTE/$BASE..$branch" 2>/dev/null)" ]; then
+  if [ -z "$(git -C "$root" rev-list "$start..$branch" 2>/dev/null)" ]; then
     rm -f "$path/.uak-env" "$path/.claude/settings.local.json"
     git -C "$root" worktree remove "$path" >/dev/null 2>&1 && git -C "$root" branch -D "$branch" >/dev/null 2>&1
   fi
@@ -227,4 +311,5 @@ say "Next: cd \"$path\" and open your agent there (claude / codex / cursor)."
 # Codex's sandbox writes only inside the worktree; git and uak also write the shared .git (index, refs, uak-out).
 # Why (Hacktoberfest, Windows): 5 black-box lines of "Git metadata writes require sandbox escalation".
 common=$(cd "$path" && cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P) &&
+  { ! wt_windows || ! command -v cygpath >/dev/null 2>&1 || common=$(cygpath -m "$common" 2>/dev/null || printf '%s' "$common"); } &&
   say "Codex: codex --add-dir \"$common\" (its sandbox must write the shared .git: commits, refs, uak state)"

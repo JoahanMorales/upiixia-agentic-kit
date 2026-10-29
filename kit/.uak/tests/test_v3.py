@@ -112,7 +112,8 @@ def guard_commands(r):
     s = run("uv add requests")
     expect(m.returncode == 2 and s.returncode == 2, "marathon blocks direct merges and undecided dependencies")
     marathon.write_text("Mode: sprint\n", encoding="utf-8")
-    expect(run("gh pr merge 12 --squash").returncode == 0, "sprint allows merge with gates")
+    # v5.7: sprint too (Hacktoberfest: 5 of 33 merges were an agent's gh pr merge, around the gate).
+    expect(run("gh pr merge 12 --squash").returncode == 2, "sprint merges only through uak merge")
     return {"blocked": len(GUARD_BLOCK), "allowed": len(GUARD_ALLOW), "marathon_rules": 2}
 
 

@@ -452,10 +452,14 @@ def mcp_server(r):
                                 "_meta": {"progressToken": "w1"}})
     time.sleep(12)
     c.send("notifications/cancelled", {"requestId": rid}, notify=True)
-    cancelled = c.wait(rid, 30, notes)
+    try:  # v5.7: the spec says a cancelled request gets no answer (audit, Oct 2026)
+        cancelled = c.wait(rid, 10, notes)
+    except AssertionError:
+        cancelled = None
     expect(any(n.get("method") == "notifications/progress" and n["params"]["progressToken"] == "w1" for n in notes),
            "a long wait reports progress: " + str(notes)[:300])
-    expect("result" in cancelled, "a cancelled call still answers: " + str(cancelled)[:200])
+    expect(cancelled is None, "a cancelled call gets no answer: " + str(cancelled)[:200])
+    expect("result" in c.call("ping", timeout=30), "the server goes on after a cancel")
     c.close()
     m = Mcp(r, root)
     meta = {"io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {},

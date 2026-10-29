@@ -382,7 +382,7 @@ Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and ea
 | MLB, the v5 week ([autopsy](docs/blackbox/mlb-2026-10-week2.md)) | 6 more days on v5.0.0, 18 identities, 81 of 89 tasks integrated | v5.2: presence, review offers that move on, messages to offline identities reach their tasks, identity reuse, human authority only from the shell |
 | A solo marathon project (black box shared with us) | 1 human on a GitHub repo, two hours without a first claim | v5.2.1/v5.3: `--solo` review, a root task may write where its dependent owns, `uak start`, `next` says why |
 | Chilangatón 2026, **first place** ([autopsy](docs/blackbox/chilangaton-2026-10.md)) | 7 h, 5 humans, 10 Claude Code identities on macOS and Windows, 35 tasks, venue Wi-Fi | v5.4: the frontend gate (`product-ui`, `design-lint`, a design lock picked from screenshots), `uak deploy`, reviews only to agents, CI that installs the stack, a lost merge race is OK |
-| Hacktoberfest 2026 ([autopsy](docs/blackbox/hacktoberfest-2026-10.md)) | ~16 h overnight, 5 humans, 13 identities on Claude Code and Codex, macOS and Windows, 33 of 35 tasks integrated | v5.5: a reject stands until a new commit, no verdict over a held review, no review offers to a human the Mac file system renamed, gate false positives gone (fixtures, carried files, its own port), `.env.example` readable, Codex `--add-dir`, `wt stop` on Windows; plan rules for a contract no task implements and a demo that only replays its recording |
+| Hacktoberfest 2026 ([autopsy](docs/blackbox/hacktoberfest-2026-10.md)) | ~16 h overnight, 5 humans, 13 identities on Claude Code and Codex, macOS and Windows, 33 of 35 tasks integrated | v5.5: a reject stands until a new commit, no verdict over a held review, no review offers to a human the Mac file system renamed, gate false positives gone (fixtures, carried files, its own port), `.env.example` readable, Codex `--add-dir`, `wt stop` on Windows; plan rules for a contract no task implements and a demo that only replays its recording. v5.6–v5.7: a nine-part audit after it (claims cannot grant authority, the gate runs the backlog's Verify, human-only commands ask the human, no secrets on claims, task threads reach the next owner, the merge lock is renewed) |
 
 Hack-Nation 2026 in detail:
 
@@ -397,7 +397,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**181 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
+**220 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
 
 ## Works with
 | Tool | How |
@@ -423,7 +423,7 @@ Mix them freely: coordination lives in Git, not in any tool.
 | `uak map [show\|find\|callers\|users\|path\|related\|impact\|notes]` | the code graph: read the structure instead of files |
 | `uak wait ID --for approve\|integrated\|message` | one call that returns when it happens, no polling |
 | `uak learn "…"` · `uak recall ID [--similar]` | lessons tied to paths; `claim`/`next` show them, plus past rejects and contracts on similar work (BM25 by words) |
-| `uak handover ID --to NAME` · `retire NAME` · `followup ID` | pass a task on · close an identity · more work on an integrated task |
+| `uak handover ID --to NAME` · `retire NAME` · `followup ID --title TEXT` | pass a task on · close an identity · more work on an integrated task |
 | `uak done` / `review` / `merge` | ship → review by rotation → gated merge queue |
 | `uak up N [--tmux]` | claim the N best tasks and launch one agent per worktree |
 | `uak board [--watch] [--md]` | team kanban: state, owner, lease, PR, wave |

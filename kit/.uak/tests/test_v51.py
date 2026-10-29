@@ -69,6 +69,7 @@ def humans_and_stale_identities_get_no_review(r):
     sessions closed hours ago kept getting reviews by rotation."""
     f = rm.fixture(r, "v51-human", count=3)
     hack(f, 2, "msg", "all", "--kind", "info", "agent-3 was here", now=1000005)        # stale by the time of done
+    f.claim(1, "HACK-002", now=1010990)    # a live claim: the gate lets it review (v5.7: offers go only there)
     hack(f, 1, "msg", "all", "--kind", "info", "agent-2 online", now=1011000)
     rm.actor(f, "agent", "msg", "all", "--kind", "info", "the human, as an identity", now=1011001)
     f.claim(0, "HACK-001", now=1011002)

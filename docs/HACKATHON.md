@@ -59,7 +59,7 @@ Never tell an agent "the human authorizes everything" through another agent: run
 ## If something breaks
 | Message | Fix |
 |---|---|
-| `No identity` | work inside the task worktree (`wt new` writes `.uak-env`), or `git config uak.agent NAME` |
+| `No identity` | work inside the task worktree (`wt new` writes `.uak-env`), or prefix the command: `UAK_AGENT=NAME bash .uak/bin/uak …` (never `git config uak.agent`: every worktree shares it) |
 | `already holds HACK-X` | finish or release it, or start another agent with its own name |
 | `FREEZE: … not allowed` | a human runs `uak allow ID --reason TEXT`; otherwise review, rehearse, stop |
 | `depends on X (REVIEW)` | its PR is merged: `uak integrate X` |

@@ -3,7 +3,7 @@ description: Use at the start of a session with no task in hand: take the next t
 argument-hint: "[ID] [agent-name]"
 ---
 Goal: from zero to editing code in under 2 min. Arguments: $ARGUMENTS
-1. Already in a worktree with `.uak-env` and its task still CLAIMED? Follow its `Next` (`bash .uak/bin/uak status --task $UAK_TASK --summary`). Do not claim another.
+1. Already in a worktree with `.uak-env` and its task still CLAIMED? Follow its `Next` (`bash .uak/bin/uak status --task ID --summary`, ID from `.uak-env`). Do not claim another.
 2. Otherwise run `bash .uak/bin/uak next` and take its candidate (or the argument). None? Its `Why not` lines say what blocks each task; run `bash .uak/bin/uak start` for every missing step and pass the human-only ones (approve the plan, push to main) to the human. Read only its section: `grep -n -A25 '^## ID' .uak/TASKS.md`. If it is not there, it came via `uak plan`, and `uak status --task ID` shows Verify and Paths.
 3. Identity: the argument or `UAK_AGENT`. Otherwise ask ONCE (format `person-N`).
 4. `bash .uak/bin/wt new ID --next "<exact first step>"` (no `--agent`: it reuses a free identity of this machine or takes the next number). On CONFLICT (exit 3), go back to `next` and pick another; don't retry.

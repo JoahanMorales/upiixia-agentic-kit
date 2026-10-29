@@ -44,6 +44,10 @@ if [ -z "$file" ]; then
     fi
   fi
 fi
+# One line per key and upper-case dependency IDs, as the engine reads the backlog (coord_fold_backlog).
+if [ -f "$file" ] && [ -f "$(dirname "$0")/uak-coordination" ]; then
+  cp "$file" "$tmp/folded.md" && ( . "$(dirname "$0")/uak-coordination" && coord_fold_backlog "$tmp/folded.md" ) && file="$tmp/folded.md"
+fi
 if [ "$assign" = yes ]; then
   # Why (MLB hackathon): a human redistributed tasks by hand in messages ("you take 033, I take 020").
   [ -s "$tmp/records" ] || { printf 'ASSIGN: no task history on claims yet; take wave 1 with uak next\n'; exit 0; }

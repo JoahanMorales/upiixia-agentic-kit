@@ -135,11 +135,11 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.uak/bin/guard\" bash",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.uak/bin/guard\" bash claude",
             "timeout": 5
           }
         ]
@@ -167,7 +167,7 @@
         ]
       },
       {
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",

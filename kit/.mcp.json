@@ -7,7 +7,7 @@
         "alias.uak-mcp=!for p in python3 python py; do \"$p\" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null && exec \"$p\" .uak/bin/uak-mcp; done; echo 'uak-mcp needs Python 3.8+ (the uak CLI works without it)' >&2; exit 1",
         "uak-mcp"
       ],
-      "timeout": 600000
+      "timeout": 1200000
     }
   }
 }

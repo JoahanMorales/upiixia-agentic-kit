@@ -102,7 +102,7 @@ advice() {
     surge) say "spend: budget will expire unused. Add workers (uak up 2), run more scouts in parallel, use the strong model at every checkpoint.";;
     normal) say "on pace: keep the default routing (fast reads, balanced builds, strong at checkpoints).";;
     conserve) say "save: halve parallel subagents, fast model for all reads, strong model only when stuck twice.";;
-    critical) say "stop spending: 1 subagent, no strong model, finish the current criterion, then uak checkpoint and /uak-handoff before the limit hits.";;
+    critical) say "stop spending: 1 subagent, no strong model, finish the current criterion, then uak checkpoint ID --done T --decision T --why T --fails T --commands T --next T and /uak-handoff before the limit hits.";;
     *) say "no usage data yet: Claude Code fills it after the first reply (statusline); Codex from its session logs; others: uak pace set USED --resets +3h";;
   esac
 }

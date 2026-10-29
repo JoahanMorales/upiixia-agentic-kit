@@ -44,7 +44,7 @@ Deadlines run when any agent calls `next` or `status` (or cron or a GitHub Actio
 5. In marathon, agents only pre-review. Humans merge through branch protection and CI.
 
 ## Merged outside uak
-- A human merged the PR on GitHub and the owner agent is offline: any agent runs `uak integrate ID`. It needs a valid approval for the merged SHA and proof that the SHA is in the remote base. For a squash merge, pass `--integrated COMMIT`.
+- A human merged the PR on GitHub and the owner agent is offline: any agent runs `uak integrate ID`. It needs a valid approval for the merged SHA and proof that the SHA is in the remote base. For a squash merge, pass `--integrated COMMIT`. Without an approval only the human who merged records it (`UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate ID`), and over a standing reject with `--reason TEXT`.
 - Generated files that every task touches (permission matrices, OpenAPI dumps, snapshots) get one owner in `OWNERS.md`. Other tasks regenerate them after `git merge --no-edit origin/main` instead of hand-merging.
 - New test files outside a task's `Paths`: list the test dirs in `Additive-Paths` (PROJECT.md). New files there pass the scope gate; edits to existing files still need a reservation.
 

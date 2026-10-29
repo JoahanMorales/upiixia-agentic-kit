@@ -1,5 +1,54 @@
 # Changelog
 
+## v5.7.0 · 2026-10-29 · What the audit left open
+Everything v5.6.0 listed as "known and not yet fixed", plus the rest of the nine audit reports and the second
+Hacktoberfest autopsy. Each fix has a test that fails on v5.6.0 (`test_v57.py`, `test_v57_tools.py`,
+`test_v57_install.py`, `tests/test_mcp_tools.py`).
+- **Claims can no longer grant authority.** `Autonomy`, `Auto-Merge`, `Review-Mode`, `Freeze-Epoch`,
+  `Backlog-Approved` and `Review-Independence` are read only from `.uak/PROJECT.md` on main; a `meta/config.md`
+  pushed to claims with the public `Config-Source` hash no longer changes them.
+- **The merge gate runs the backlog's Verify and checks its Paths**, not the task record every claim rewrites, and
+  refuses an approval by an identity that never worked on claims (a forged review signed "ghost" merged before).
+  What claims still trusts on push, and how to close it (`Review-Mode: gh` + branch protection), is now in
+  SECURITY.md §What the claims branch trusts.
+- **`Review-Independence: human`** (PROJECT.md): the approval must come from another human's agent.
+- **Human authority and the clock.** A Bash command that sets `UAK_HUMAN` always asks the human in Claude Code,
+  even when allow-listed; Codex, Cursor and Gemini refuse it (the human runs it in a terminal). Setting `UAK_NOW` is
+  blocked. `gh pr merge` and pushes to main/master are blocked in every mode, sprint included (5 of 33 Hacktoberfest
+  merges skipped the gate that way); sprint settings no longer allow `gh pr merge`.
+- **No secrets on claims.** `msg`, `checkpoint`, `log`, review notes and decisions are refused when they carry
+  something that looks like a key, token, JWT, private key or a database URL with a password.
+- **Messages.** A task's thread reaches whoever takes it next (claim or handover); review offers go only to
+  identities the gate lets review; `uak msg NAME` for a human goes to their digest; `uak msg hack-002` is the task;
+  `wait --for message` returns only for messages newer than the wait; `inbox` prints 15 messages per call and
+  `--ack` covers only those; `review --decline` (and `--stop`) re-offer at once.
+- **Claims.** `handover` rewrites the worktree's `.uak-env` only after the push is confirmed; an old owner whose
+  expired lease another agent released gets a conflict on heartbeat and checkpoint; `src/{api,web}/**` reserves
+  both directories, `` `src/a.ts` (new) `` is `src/a.ts`, `app/[slug]/page.tsx` is a file, not all of `app/`;
+  `Depends on` as a list or in lower case counts; one damaged `Lease-Until` no longer stops every command; a REVIEW
+  task whose SHA was rejected can be amended (it goes back to CLAIMED); an OWNERS row of an INTEGRATED task is advice;
+  every retry runs on a fresh clock; `done` warns about files outside Paths and uses the local code map only on a real
+  worktree of this repository; `status --task` prints the criteria, and `STATE.md` marks expired leases.
+- **Gate.** The merge lock is renewed in the background while smoke and Verify run, and its own merger takes it
+  back after an interruption; a base that moved or an owner's push during the gate is `MERGE_WAIT`, not the human
+  queue; the same human-queue reason is not sent twice; adopters can merge GitHub-approved tasks in gh mode; the gate
+  port is probed and follows `UAK_PORT_BASE`; a failed gate quotes the cause ("command not found") instead of the
+  kit's own summary line.
+- **Humans.** A human opens `uak decision` on any task; `CHECKPOINT NOW`, `pace` and a flag where the ID goes print
+  the exact syntax.
+- **guard, hook, wt.** The subagent cap holds under parallel launches (a lock); the PowerShell tool is guarded and
+  capped; JSON decoding is linear (1.6 MB in 0.7 s, was 75 s) and stderr counts for the output cap; injected
+  messages say how many more wait; pr-sync covers every REVIEW task the agent owns; `wt session` keeps the port
+  and Claude's permissions; `wt rm --review` refuses a task worktree or one mid-rebase; `wt new` after a release
+  continues `origin/feat/<id>`; `wt pr` handles SSH host aliases; `loop --each` never runs a file name as shell;
+  `curl` to a URL with userinfo is blocked; more `.env` reads are caught.
+- **MCP and installer.** A cancelled request is not answered and its process is killed (SIGTERM, then SIGKILL);
+  every tool's arguments are checked against its schema; the clients wait 1200 s, longer than any tool; protocol
+  2024-11-05 and batches; the instructions card names only real tools. `install.sh --update` keeps a `--no-mcp`
+  install without MCP (`--mcp` adds it back), options without a value say so, and the setup skill lists every stack.
+- **Docs.** No `$UAK_TASK` in commands (it is empty outside Claude Code); `map impact ID` reads tasks published with
+  `uak plan`; the review skill declines with `--decline`; the integrate and identity hints are exact.
+
 ## v5.6.0 · 2026-10-29 · A full audit after the Hacktoberfest
 Nine parallel reviews of the kit (gate, messages, claims, wt/hooks/guard, MCP and installer, portability, docs, a
 second autopsy, security), each finding reproduced before it counted. What this release fixes; each has a test in

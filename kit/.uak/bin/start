@@ -114,7 +114,7 @@ fi
 # Approved here but not pushed yet: step 4 already says to push it.
 if [ "$tasks" -gt 0 ] && [ "$p_approved" != yes ] && [ "$(from Backlog-Approved < .uak/PROJECT.md)" != yes ]; then
   need "approve the plan: Backlog-Approved is not yes on $base, so nothing can be claimed for 10 min and then only P0" \
-       "you are the human: read .uak/TASKS.md, set Backlog-Approved: yes in .uak/PROJECT.md, push it to $base"
+       "you are the human: read the backlog (uak graph, or .uak/TASKS.md plus what uak plan published), set Backlog-Approved: yes in .uak/PROJECT.md, push it to $base"
 fi
 
 # Who reviews the first PR: on claims a reviewer needs its own live claim or a registered role.

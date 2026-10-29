@@ -15,7 +15,7 @@ Goal: software that survives real users. It is secure, scalable and maintainable
 ## Integration
 1. `main` is protected: it changes only through a PR with green CI and human CODEOWNERS approval.
    **One human on the repo:** GitHub never lets a PR's author approve it, so `Review-Mode: gh` would wait forever. Use `Review-Mode: claims` (`install.sh --solo`): another agent identity reviews with `uak review`, the human merges, and branch protection requires green CI, not approvals.
-2. Agents pre-review (`uak review --verdict approve`) and never merge. `guard` blocks `gh pr merge` and pushes to main.
+2. Agents pre-review (`uak review --verdict approve`) and never merge. `guard` blocks `gh pr merge` and pushes to main (in every mode since v5.7).
 3. Conventional commits (`feat:`, `fix:`, `refactor:`…) and a `CHANGELOG.md` entry for every visible change. Humans cut semver releases.
 4. Backlog changes go through PRs (`Plan-Channel: main`), so every task traces back to a reviewed spec.
 
