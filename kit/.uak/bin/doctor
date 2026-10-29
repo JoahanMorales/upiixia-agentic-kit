@@ -61,7 +61,7 @@ hooks_dir=.uak/githooks; [ -d "$hooks_dir" ] || hooks_dir=.githooks   # v5.2 mov
 cur_hooks=$(git config --get core.hooksPath 2>/dev/null || true)
 case "$cur_hooks" in
   "$hooks_dir"|"$hooks_dir/") ok "pre-commit secret scanner active ($hooks_dir)";;
-  ?*) grep -qs 'secret-scan\|uak/githooks/pre-commit' "$cur_hooks/pre-commit" "$cur_hooks/../pre-commit" &&
+  ?*) grep -Eqs 'secret-scan|uak/githooks/pre-commit' "$cur_hooks/pre-commit" "$cur_hooks/../pre-commit" &&
         ok "pre-commit secret scanner active (through your $cur_hooks)" ||
         warn "core.hooksPath is $cur_hooks (yours or another hook manager): add 'bash .uak/githooks/pre-commit' to its pre-commit";;
   *)

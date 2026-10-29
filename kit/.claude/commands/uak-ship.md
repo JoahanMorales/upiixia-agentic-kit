@@ -8,7 +8,7 @@ Task: ${ARGUMENTS:-$UAK_TASK}. Run these in order and stop at the first red; fix
 1. `git fetch origin main && git merge --no-edit origin/main`. Never force anything. On conflicts, keep both sides' work.
 2. `git diff --stat origin/main...HEAD`: everything must be inside `Paths`. Take anything outside out, or request it from its owner.
 3. `bash .uak/bin/q <Verify> && bash .uak/bin/q bash .uak/bin/smoke`. Use `uak-runner` for long output or when the app must run.
-   - sprint + UI: screenshots at 1280×720 and 390×844 → `design-critic`; fix its P1s.
+   - sprint + UI: the `design-critic` subagent with your task ID: it captures 1280×720 and 390×844 into `.uak-shots/ID/` and writes `critic.txt`. Fix its P1s and rerun it until `VERDICT: SHIP`; `done` checks it for this commit.
    - marathon + sensitive area: `security-reviewer`; a HIGH finding blocks.
 3b. Risky diff (auth, data, money, migrations, or more than 300 lines): consult the advisor (or `/uak-advise done`) before pushing, and apply its CHANGE items.
 4. `git push -u origin HEAD && gh pr create --title "ID · <visible result>" --body "<.github/pull_request_template.md filled in>"`. If gh cannot create PRs (403), do NOT stop: `bash .uak/bin/wt pr` prints the URL; give it to the human and use it below.

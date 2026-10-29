@@ -5,6 +5,8 @@
 # Why (a solo marathon project, Oct 2026): "two hours and I still cannot start". An unapproved backlog, Review-Mode gh
 # with one human and an OWNERS row: each a one-line fix, each found by hand.
 set -u
+# Git Bash rewrites "rev:.path" arguments for native git unless told not to (the same list as uak).
+MSYS2_ARG_CONV_EXCL="refs/;origin/;${UAK_REMOTE:-origin}/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXCL
 LC_ALL=C; export LC_ALL
 fix=no
 for a in "$@"; do case "$a" in --fix) fix=yes;; *) printf 'Usage: uak start [--fix]\n' >&2; exit 2;; esac; done

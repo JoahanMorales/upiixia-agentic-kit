@@ -70,6 +70,8 @@ msg_notify_related() {
 msg_presence() { local v; v=$(coord_config Presence-Seconds 1800 2>/dev/null); case "$v" in ''|*[!0-9]*) v=1800;; esac; printf '%s' "$v"; }
 msg_seen_all() {
   local f
+  # Cached for one re-offer pass (msg_reoffer_reviews): it was computed up to 5 times per REVIEW task.
+  if [ -n "${MSG_SEEN_CACHE:-}" ] && [ -f "$MSG_SEEN_CACHE" ]; then cat "$MSG_SEEN_CACHE"; return 0; fi
   set --   # file arguments, safe with spaces in the temp path (Windows profiles)
   for f in "$TX"/meta/agents/*.md "$TX"/inbox/read/*.md "$TX/$MSG_LOG"; do [ -f "$f" ] && set -- "$@" "$f"; done
   [ "$#" -gt 0 ] || return 0
@@ -83,7 +85,9 @@ msg_seen_all() {
     /^Session-Ended: / { ended[name] = substr($0, 16) + 0 }
     END {
       for (n in ended) if (ended[n] >= seen[n]) print "A", n
-      for (n in seen) { p = n; if (sub(/-[A-Za-z0-9]+$/, "", p) && p !~ /-[A-Za-z0-9]+$/ && (p in seen)) human[p] = 1 }
+      # "ana" next to "ana-1", and "juan-pablo" next to "juan-pablo-1": the agent suffix is a number. Why (audit, Oct
+      # 2026): a human with a dash in the name was taken for an agent and could be picked as reviewer.
+      for (n in seen) { p = n; if (sub(/-[0-9]+$/, "", p) && p !~ /-[0-9]+$/ && (p in seen)) human[p] = 1 }
       # Case-blind: on macOS meta/agents/Ana.md opens the ana.md already there, so the Role lands on "ana"
       # while the human signs "Ana". Why (Hacktoberfest): 22 review offers went to the name of a human, 15+ min each.
       for (h in human) lh[tolower(h)] = 1
@@ -175,6 +179,10 @@ msg_reoffer_reviews() {
   local c id tip owner last offer lt lto who n offered pr lk lu age note seen_t reviewer
   offer=$(coord_config Review-Offer-Seconds 900 2>/dev/null); case "$offer" in ''|*[!0-9]*) offer=900;; esac
   [ "$offer" -gt 0 ] && [ -f "$TX/$MSG_LOG" ] || return 0
+  # One pass over the log for every task's review offers, and presence computed once. Why (audit, Oct 2026): 30 REVIEW
+  # tasks on a 5,000-line log took 2 s per tick and 19 s when offers lapsed, inside the push transaction.
+  awk -F' [|] ' '/^- [0-9]/ && $5 == "review" { print $6 "|" substr($1, 3) "|" $2 "|" $4 "|" $7 }' "$TX/$MSG_LOG" > "$TXROOT/review-offers"
+  MSG_SEEN_CACHE= ; msg_seen_all > "$TXROOT/seen-cache"; MSG_SEEN_CACHE="$TXROOT/seen-cache"
   for c in "$TX"/claims/*.md; do
     [ -f "$c" ] && [ "$(field "$c" State)" = REVIEW ] || continue
     id=$(field "$c" ID); owner=$(field "$c" Owner); tip=$(field "$TX/tasks/$id.md" Task-Tip); pr=$(field "$c" PR)
@@ -185,8 +193,8 @@ msg_reoffer_reviews() {
       lu=$(field "$lk" Until | tr -cd '0-9'); [ "$NOW" -ge "${lu:-0}" ] || continue   # someone is on it
     fi
     # The offers for this SHA: "N|epoch|to" of every review message on this task that names the SHA.
-    awk -F' [|] ' -v id="$id" -v tip="$tip" '/^- [0-9]/ && $5 == "review" && $6 == id && index($7, tip) { print substr($1, 3) "|" $2 "|" $4 }' \
-      "$TX/$MSG_LOG" > "$TXROOT/offers"
+    awk -F'|' -v id="$id" -v tip="$tip" '$1 == id && index(substr($0, length($1 $2 $3 $4) + 5), tip) { print $2 "|" $3 "|" $4 }' \
+      "$TXROOT/review-offers" > "$TXROOT/offers"
     last=$(tail -n 1 "$TXROOT/offers"); [ -n "$last" ] || continue
     lt=${last#*|}; lt=${lt%%|*}; lto=${last##*|}
     case "$lto" in agent:*) ;; *) continue;; esac                     # already offered to all
@@ -208,6 +216,7 @@ msg_reoffer_reviews() {
       msg_append_as scheduler all review "$id" "$id ready for review (offered to ${offered% }; nobody started it): $pr (SHA $tip). First free agent: /uak-review $id"
     fi
   done
+  MSG_SEEN_CACHE=
   return 0
 }
 # Unread messages that need an answer, addressed to another identity of the same human that went offline.
@@ -326,7 +335,7 @@ msg_resolve_targets() {
     *) if valid_id "$MSG_TO"; then printf 'task:%s\n' "$MSG_TO"; return 0; fi
       # hack-002 is HACK-002 when that task exists. Why (audit, Oct 2026): it went to a never-seen agent "hack-002".
       local up; up=$(printf '%s' "$MSG_TO" | tr '[:lower:]' '[:upper:]')
-      if valid_id "$up" && { [ -f "$TX/tasks/$up.md" ] || { [ -f "${BACKLOG:-}" ] && grep -q "^## $up\([[:space:]]\|\$\)" "$BACKLOG"; }; }; then
+      if valid_id "$up" && { [ -f "$TX/tasks/$up.md" ] || { [ -f "${BACKLOG:-}" ] && grep -Eq "^## $up([[:space:]]|\$)" "$BACKLOG"; }; }; then
         printf 'task:%s\n' "$up"; return 0
       fi
       local name=${MSG_TO#agent:}
@@ -352,9 +361,10 @@ msg_resolve_targets() {
         done
         if [ "$seen" -eq 0 ]; then
           # The names that exist, same human first, so a typo or a gone identity (joahan-5) is fixed at once.
-          local known; known=$(msg_seen_all | awk -v n="$name" -v now="$NOW" 'function h(x) { sub(/-[A-Za-z0-9]+$/, "", x); return x }
+          # Never a retired name: messaging it is refused (audit, Oct 2026).
+          local known; known=$(msg_seen_all | awk -v n="$name" -v now="$NOW" -v ret=" $(msg_retired) " 'function h(x) { sub(/-[A-Za-z0-9]+$/, "", x); return x }
             $1 == "H" { hu[$2] = 1 } $1 == "S" { s[$2] = $3 }
-            END { for (x in s) if (!(x in hu) && x != "scheduler" && x != "github") print (h(x) == h(n) ? 0 : 1), now - s[x], x }' | sort -k1,1n -k2,2n | head -n 6 | awk '{printf "%s%s", (NR > 1 ? ", " : ""), $3}')
+            END { for (x in s) if (!(x in hu) && x != "scheduler" && x != "github" && !index(ret, " " x " ")) print (h(x) == h(n) ? 0 : 1), now - s[x], x }' | sort -k1,1n -k2,2n | head -n 6 | awk '{printf "%s%s", (NR > 1 ? ", " : ""), $3}')
           printf '%s\n' "$name has never been seen on claims (a typo?).${known:+ Known: $known.} It waits in its inbox until $name runs." >> "$TXROOT/msg-note"
         elif [ -n "$held" ]; then printf '%s\n' "$name $(msg_away "$name" && printf 'closed its session' || printf 'was last seen %s min ago' $(( (NOW - seen) / 60 ))): also sent to its task$held, so whoever takes it over reads it." >> "$TXROOT/msg-note"
         else printf '%s\n' "$name $(msg_away "$name" && printf 'closed its session' || printf 'was last seen %s min ago' $(( (NOW - seen) / 60 ))) and holds no task: it waits in its inbox. To reach someone working now: uak msg all, a task ID, or human." >> "$TXROOT/msg-note"; fi

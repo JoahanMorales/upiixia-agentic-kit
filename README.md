@@ -305,6 +305,17 @@ autopsy found five causes, and v5.4 closes each one:
 | The landing came last, as one more screen | **`landing-story`** (new skill): the landing is a P0 task built from `IDEA.md` (the one line, one sourced number, the wow as a real screen, three steps, one ask), checked with a 5-second test and a "cover the logo" test |
 | Nobody judged the look until the end | The post-edit hook runs `design-lint` on each UI file an agent writes and puts the findings in its context (the idea behind [Impeccable](https://github.com/pbakaus/impeccable)'s hook); `uak done` refuses new lines that break the system; `design-critic` compares each screen with the locked screenshot and fails the admin-template look |
 
+**v5.8: the gate reaches every screen.** Friends used it at the next hackathon and the result was still mediocre: the
+lock was good, and the other ten screens copied its one screen as grey panels with striped rows, under a nav nobody
+owned. An experiment that followed the kit literally scored its own main screen 5/10. Now:
+
+| What went wrong | What the kit does now |
+|---|---|
+| Nobody looked: "UI not walked in browser" in the approvals | `uak done` on a task in `UI-Paths` needs screenshots at 1280 and 390 and the `design-critic`'s `VERDICT: SHIP` for that commit; the critic must open every PNG, and the reviewer captures the screen too |
+| One locked screen, copied ten times; a bare nav nobody owned | The design lock owns the shell (`AppShell`, `NavBar`, `PageLayout`) and locks three screens; `DESIGN.md` comes from a template with numbers and a screen → recipe → hero table, and every UI task names its recipe |
+| The lint missed the tells and the contrast | `design-lint` fails side stripes, gradients, color literals, arbitrary pixels, eyebrows, glass, heavy shadows, sparkles, Geist/Inter, keyed map tiles, token pairs under 4.5:1, and hand-typed hex in the lock's directions |
+| Skills that contradicted each other | `design-taste-frontend` is opt-in; `product-ui` gains map and chart recipes and checkable questions instead of "is it Stripe-level?" |
+
 ## Deploy in one command: `uak deploy`
 
 ```text
@@ -397,7 +408,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**220 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
+**237 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
 
 ## Works with
 | Tool | How |

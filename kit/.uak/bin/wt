@@ -3,6 +3,8 @@
 # Why: the manual ritual (4 commands with flags) is the most common session-start error.
 set -u
 set -o pipefail
+# Git Bash rewrites "rev:.path" arguments for native git unless told not to (the same list as uak).
+MSYS2_ARG_CONV_EXCL="refs/;origin/;${UAK_REMOTE:-origin}/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXCL
 LC_ALL=C; export LC_ALL
 REMOTE=${UAK_REMOTE:-origin}
 BASE=${UAK_BASE:-main}
@@ -21,8 +23,9 @@ wt pr                                                         print the GitHub "
 wt ls                                                               list worktrees
 USAGE
 }
-port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 wt_windows() { case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0;; esac; return 1; }
+# On Windows a /dev/tcp connect to a closed port takes ~2 s (SYN retries): netstat answers at once.
+port_busy() { if wt_windows && command -v netstat >/dev/null 2>&1; then [ -n "$(port_pids "$1")" ]; else (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; fi; }
 port_pids() { # PIDs listening on a TCP port; empty if no tool is available
   if wt_windows && command -v netstat >/dev/null 2>&1; then
     # Git Bash has neither lsof nor ss. A listening row has the remote port 0; its state word is localized

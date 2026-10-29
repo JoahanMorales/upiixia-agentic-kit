@@ -29,7 +29,7 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 0. Orchestrate by cost (`.uak/docs/ORCHESTRATION.md`): Haiku scouts read, the Sonnet lead builds, and Opus is consulted only at plan lock, a repeated failure and done. The guard caps parallel subagents (4) and Opus subagents (2 per session). `uak pace` scales those with your 5-hour window, and fixed hard limits stop any runaway: 6 parallel, 3 Opus, 40 spawns per session, 8 per machine, 6 per minute, and 6 agents per `uak up`.
 1. Mock first; switch to the real thing after its spike. Every mock shows `demo_data: true` in the UI.
 2. Merge as soon as there is an `approve` and the gates are green (`Auto-Merge: yes`). The human gets a `digest`, not pings.
-3. Stuck for 20 min, or the loop is stuck → `uak decision` with a reversible fallback, and move on.
+3. Stuck for 20 min, or the loop is stuck → `uak decision ID --option "TEXT" --why "TEXT" --reversible yes --authorized yes --class routine` (the reversible fallback), and move on.
 4. Mechanical fixes (lint, types, a failing test with a clear error) go to `uak loop --verify <cmd> --agent <cli> --max 5`.
 5. No free tasks: review PRs → demo-path tests → polish → rehearse.
 
@@ -37,11 +37,10 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 1. The wow moment happens within 90 s of the demo and is fully visible at 1280×720 (projector) without scrolling. Legal or "not a diagnosis" notices stay inside the viewport.
 2. There is one visual direction in `web/DESIGN.md`, and every color comes from CSS tokens. A global redesign after the lock needs a human decision.
 3. Every screen on the demo path has empty, loading, error and labeled sample-data states.
-4. Before every UI PR: `bash .uak/bin/design-lint` passes, then the `design-critic` subagent reviews screenshots at 1280×720 and 390×844. Fix its P1s before asking for review.
+4. Before `uak done` on a UI task: `bash .uak/bin/design-lint` passes, screenshots at 1280×720 and 390×844 go in `.uak-shots/<ID>/`, and the `design-critic` subagent writes its verdict there. `done` refuses a task in `UI-Paths` without `VERDICT: SHIP` for its commit.
 5. Skills:
    - `frontend-design` for the design lock (`/uak-design-lock`);
-   - `design-taste-frontend` only for a landing or hero page (it is large, and not for app screens);
-   - `product-ui` for every app screen: dashboards, maps with panels, forms, lists;
+   - `product-ui` for every app screen, with your screen's recipe row in `web/DESIGN.md` and its locked screen in `web/public/design-lock/screens/`;
    - `landing-story` for the landing the jury opens first: it tells the idea in 5 seconds, with real screens of the product;
    - `redesign-existing-projects` during the freeze;
    - `webapp-testing` to verify.

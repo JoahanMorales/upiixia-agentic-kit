@@ -310,10 +310,10 @@ def frontend_uses_the_design_system(r):
         expect((d / ".claude/skills/landing-story/SKILL.md").exists() == want, "landing-story installed for %s/%s: %s" % (mode, stack, want))
     text = lambda rel: (r.package / rel).read_text(encoding="utf-8")
     expect("**Design lock P0**" in text(".claude/commands/uak-plan.md") and "never merged into another task" in text(".claude/commands/uak-plan.md")
-           and "ls web/public/design-lock/*.png" in text(".claude/commands/uak-plan.md"), "the plan makes the design lock its own task, verified by screenshots")
+           and "ls web/public/design-lock/screens/*-1280.png" in text(".claude/commands/uak-plan.md"), "the plan makes the design lock its own task, verified by screenshots")
     expect("Never skip the screenshots" in text(".claude/commands/uak-design-lock.md") and "a floor every direction meets" in text(".claude/commands/uak-design-lock.md"),
            "the lock is picked by looking; accessibility is a floor, not a style")
-    expect("design-lint" in text(".claude/agents/design-critic.md") and "3-second test" in text(".claude/agents/design-critic.md"), "the critic runs the gate and the judge test")
+    expect("design-lint" in text(".claude/agents/design-critic.md") and "VERDICT: SHIP" in text(".claude/agents/design-critic.md") and "did not open" in text(".claude/agents/design-critic.md"), "the critic runs the gate, looks at the screenshots and writes the verdict done checks")
     expect("`product-ui`" in text(".uak/stacks/fastapi-react/skills/stack-frontend/SKILL.md"), "app screens route to product-ui")
     expect("**Landing P0**" in text(".claude/commands/uak-plan.md") and "landing-story" in text(".claude/agents/design-critic.md")
            and "`landing-story`" in text(".uak/stacks/fastapi-react/skills/stack-frontend/SKILL.md"), "the landing is planned, built and judged as a story")

@@ -25,7 +25,10 @@ If a beat has no real content yet, leave it out. A missing section beats a fake 
 ## 1. Structure: one scroll, one argument
 1. **Hero (above the fold at 1280×720 and 390×844):** the headline, one sentence under it, the primary action, and the
    wow as the dominant visual. The wow is a real product screenshot or a looping capture of the real UI, never a
-   div-built fake dashboard, a stock photo or an abstract gradient blob.
+   div-built fake dashboard, a stock photo or an abstract gradient blob. Crop the screenshot to the wow region at 2×:
+   it must stay readable at its hero size. Not the whole app shrunk into a rounded shadow frame next to the headline;
+   consider the wow full-bleed with the headline over a calm zone. Every number on it equals what the app computes
+   from the fixtures (a hand-typed 146 on the landing next to 109 in the app is a P1).
 2. **The pain, in one number:** big, tabular, with its source. One line of context. No wall of stats.
 3. **How it works:** three steps, each with a real screen (from `webapp-testing` captures of the app). Alternate
    image side or use one sticky screen that changes per step; never three identical cards with icons.

@@ -1,5 +1,42 @@
 # Changelog
 
+## v5.8.0 · 2026-10-29 · The frontend gate reaches every screen
+Friends used the frontend gate and the result was still mediocre. Two audits found why: a static read of the kit
+next to the Hacktoberfest screens, and an experiment that built a product following the kit literally (5/10 for the
+main screen, 4/10 for the landing). The design lock worked; nothing carried it to the other screens, and nobody had
+to look. Each fix has a test in `test_v58.py` (frontend) or `test_v571.py` (the rest) that fails on v5.7.0.
+- **UI tasks ship with what was seen.** `UI-Paths` in PROJECT.md (written by the installer for fastapi-react,
+  nextjs and expo): `uak done` on a task that writes there needs `.uak-shots/ID/1280.png`, `390.png` and the
+  design critic's `critic.txt` saying `VERDICT: SHIP <sha7>` for the current commit (`--no-ui "why"` for a change
+  with nothing visible). The critic must open every PNG it grades, scores 0/1/2 per check, and compares with the
+  locked screens and real references. The reviewer captures the screen too and puts one visual line in the note.
+- **The design lock owns the whole look.** It owns DESIGN.md, the tokens, the UI kit and the shell (`App.tsx` /
+  `layout.tsx`, which the stack used to say nobody edits): `AppShell`, `NavBar`, `PageHeader`, `PageLayout` and
+  components with sizes. It locks three screens (wow, a flow, a list or detail), not one; directions differ in layout,
+  not only palette, are scored on projector legibility, distinctiveness and fit, and their numbers come from the
+  fixtures. `DESIGN.md` comes from a template with required numbers (type scale, spacing, radius, tokens with ink
+  colors) and a screen → recipe → hero table; `uak lint` fails a template field left empty and warns about a UI task
+  without `Recipe:`. Every web stack has a `## UI paths` table, so Next.js and Expo no longer guess Vite's paths.
+- **At claim, a UI task is told what to open:** its recipe row, the locked screen with that recipe, `product-ui`.
+- **design-lint** now fails on colored side stripes, gradients and `rgb()`/`hsl()` in feature code, arbitrary pixel
+  values, tracked uppercase eyebrows, 3-byte emoji (✨ ⚡ ✅ ★), Inter/Roboto/Geist through `next/font` or tokens,
+  more than one glass surface, heavy shadows, tile servers that need a key, token pairs under 4.5:1 contrast
+  (`--warn-ink` on `--warn`), more than 6 type sizes, hex outside `:root` in the lock's HTML, and a DESIGN.md with no
+  tokens behind it.
+- **Skills agree.** `design-taste-frontend` is no longer installed (`--skills taste` opts in): it asked for
+  "artsy" variance, mandatory dark mode, `text-gray-600` and Geist. `product-ui` drops glass, adds map (muted keyless
+  basemap) and chart (uncertainty band, direct labels, one annotation) recipes, and replaces "Linear or Stripe level?"
+  with checkable questions; `landing-story` crops the wow at 2× instead of shrinking the whole app into a frame.
+- **The rest of the audit lists.** A migration under `db/migration/fixtures/` is still a shared resource; the gate
+  stops servers its Verify started; `done --to` refuses retired, human and unknown names; `juan-pablo` next to
+  `juan-pablo-1` is a human; "Known:" never offers retired names; lint warns when a Verify needs a scaffold file
+  another task creates; `Botón` and `BOTÓN` overlap; the re-offer pass reads the log once.
+- **Portability (bash 3.2 + original-awk audit).** CRLF checkouts no longer break `map impact` (the contract coach
+  on Windows), CRLF plans publish, `pace` reads Codex under `C:/Users/José Pérez`, identities that differ only in
+  case are refused, Git Bash path conversion is off in secret-scan, start, map, wt and hook, no slow `/dev/tcp`
+  probes on Windows, skills are copied (not symlinked) for Codex and Cursor on Windows, no GNU `\|` in grep, and
+  `map` works on git older than 2.31.
+
 ## v5.7.0 · 2026-10-29 · What the audit left open
 Everything v5.6.0 listed as "known and not yet fixed", plus the rest of the nine audit reports and the second
 Hacktoberfest autopsy. Each fix has a test that fails on v5.6.0 (`test_v57.py`, `test_v57_tools.py`,

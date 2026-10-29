@@ -23,7 +23,7 @@ Every change is a commit pushed fast-forward. On contention, uak fetches, rebase
 | Situation | Mechanism |
 |---|---|
 | Backlog not approved | After 10 min, only P0 can start, and only with `Autonomy: yes`. |
-| Reversible product question | `uak decision`. After 15 min an authorized routine option is applied and logged. |
+| Reversible product question | `uak decision ID --option "TEXT" --why "TEXT" --reversible yes --authorized yes --class routine` (`--class` routine\|money\|accounts\|publish\|scope). After 15 min an authorized routine option is applied and logged. |
 | Money, accounts, publishing, scope | Never by timeout. The task stays BLOCKED; take another task. |
 | Freeze (`Freeze-Epoch`) | New claims and merges only for `Freeze-Allowed: yes`. |
 

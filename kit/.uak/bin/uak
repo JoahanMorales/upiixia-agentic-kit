@@ -149,7 +149,7 @@ release ID [--expired --read-summary TOKEN] [--cancel MOTIVO]
 log ID [--state CLAIMED|BLOCKED] TEXTO
 checkpoint ID|--session --done TEXT --decision TEXT --why TEXT --fails TEXT --commands TEXT --next TEXT
 handoff ID
-done ID --pr URL --evidence TEXTO [--to REVIEWER] [--note "what changed since the last review"] [--integrated COMMIT --reviewer OTRO]
+done ID --pr URL --evidence TEXT [--to REVIEWER] [--no-ui "why it changes nothing visible"] [--note "what changed since the last review"] [--integrated COMMIT --reviewer OTRO]
 digest
 tick
 next
@@ -254,7 +254,9 @@ load_task() {
 # name, not a glob (Next.js app/[slug]/page.tsx reserves that file, not all of app/). Why (audit, Oct 2026): the
 # brace case let two claims share src/api, and [slug] made app/about collide with app/[slug].
 normalize_paths() {
-  printf '%s\n' "$1" | awk '
+  # Accented capitals fold too (awk's tolower leaves UTF-8 bytes alone): Botón and BOTÓN are one file on macOS and
+  # Windows. Byte-sequence replacements, the same under GNU and BSD sed.
+  printf '%s\n' "$1" | sed 's/Á/á/g;s/É/é/g;s/Í/í/g;s/Ó/ó/g;s/Ú/ú/g;s/Ü/ü/g;s/Ñ/ñ/g;s/À/à/g;s/È/è/g;s/Ì/ì/g;s/Ò/ò/g;s/Ù/ù/g;s/Â/â/g;s/Ê/ê/g;s/Î/î/g;s/Ô/ô/g;s/Û/û/g;s/Ç/ç/g;s/Ã/ã/g;s/Õ/õ/g' | awk '
     BEGIN {bad=0}
     function emit(p,   n, seg, i, out, g) {
       gsub(sprintf("%c",96),"",p);
@@ -410,7 +412,7 @@ fresh_state() {
     init_try=$((init_try + 1))
     # A sandbox that forbids git in the system temp dir (Codex on macOS: "Operation not permitted" in /var/folders)
     # gets a temp dir inside the repo's own .git. Why (MLB hackathon): 12 tick/next/status/inbox calls failed this way.
-    if [ "$init_try" -ge 2 ] && [ -z "${UAK_TMP_FALLBACK:-}" ] && grep -qi 'not permitted\|permission denied\|read-only' "$TXROOT/init-error"; then
+    if [ "$init_try" -ge 2 ] && [ -z "${UAK_TMP_FALLBACK:-}" ] && grep -Eqi 'not permitted|permission denied|read-only' "$TXROOT/init-error"; then
       UAK_TMP_FALLBACK="$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null)/uak-tmp"
       if mkdir -p "$UAK_TMP_FALLBACK" 2>/dev/null && fb_root=$(mktemp -d "$UAK_TMP_FALLBACK/hack.XXXXXX" 2>/dev/null); then
         case "$TXROOT" in "$TMP_BASE"/hack.??????) rm -rf "$TXROOT";; esac
@@ -803,8 +805,19 @@ followup_mutate() {
   [ -f "$TX/DECISIONS.md" ] || printf "# DECISIONS\n" > "$TX/DECISIONS.md"
   printf '%s\n' "- $NOW | $NEW_ID | follow-up of $parent by $AGENT: $(one_line "$FOLLOWUP_TITLE") | Why: same Paths, no scope change" >> "$TX/DECISIONS.md"
 }
+# Identities that differ only in case collide on macOS and Windows disks (meta/agents/Ana-1.md opens ana-1.md), and
+# git add then commits one over the other. The name already on claims wins. Why (portability audit, Oct 2026).
+identity_case_check() {
+  local other
+  # A human's name is matched case-blind already (v5.5: the Mac folded Victor.md into victor.md).
+  [ -n "$AGENT" ] && [ "$AGENT" != "$HUMAN" ] || return 0
+  other=$(git -C "$TX" ls-tree --name-only HEAD meta/agents/ 2>/dev/null | sed 's#^meta/agents/##; s#\.md$##' |
+    awk -v me="$AGENT" 'tolower($0) == tolower(me) && $0 != me { print; exit }')
+  [ -z "$other" ] || conflict "Identity $AGENT differs from $other only in case; on macOS and Windows they are one file. Use $other (UAK_AGENT=$other)."
+}
 mutate() {
   coord_init
+  identity_case_check
   coord_mark_human
   RECORD=$(task_file); CLAIM=$(claim_file)
   case "$CMD" in
@@ -1014,6 +1027,7 @@ mutate() {
         STATE=INTEGRATED
         put "$RECORD" Merge-Commit "$merged"; put "$RECORD" Reviewer "$REVIEWER"
       fi
+      [ "$STATE" != REVIEW ] || ui_gate "$tip" "$task_worktree"
       put "$RECORD" Task-Tip "$tip"
       put "$RECORD" State "$STATE"; put "$CLAIM" State "$STATE"
       put "$RECORD" PR "$PR_URL"; put "$CLAIM" PR "$PR_URL"; put "$RECORD" Evidence "$EVIDENCE"
@@ -1080,6 +1094,13 @@ mutate() {
         local why_r="your turn by rotation" note_r=; [ -z "$REVIEW_NOTE" ] || note_r=" · $REVIEW_NOTE"
         if [ -n "$DONE_TO" ]; then
           [ "$DONE_TO" != "$AGENT" ] || conflict "--to: the reviewer is never the author."
+          # Someone who can review: not retired, not a human, seen on claims. Why (audit, Oct 2026): --to took any
+          # name, and the offer waited 15 min for the re-offer.
+          [ ! -f "$TX/meta/retired/$DONE_TO.md" ] || conflict "--to: $DONE_TO is retired. Leave out --to (rotation), or name an active agent."
+          if msg_seen_all | awk -v n="$DONE_TO" '$1 == "H" && tolower($2) == tolower(n) { f = 1 } END { exit !f }'; then
+            conflict "--to: $DONE_TO is a human; reviews go to agents. Leave out --to, or name an agent."
+          fi
+          [ "$(msg_seen "$DONE_TO")" -gt 0 ] || registered_reviewer "$DONE_TO" || conflict "--to: $DONE_TO has never been seen on claims (a typo?). Leave out --to for the rotation."
           reviewer=$DONE_TO; why_r="asked by $AGENT"
         else
           reviewer=$(msg_pick_reviewer "$AGENT" "$ID")
@@ -1102,6 +1123,9 @@ mutate() {
 # Why (MLB hackathon, v5 week): a fix had to touch fixtures and tests the plan missed, `uak plan` refused to
 # republish the task, and the only way out was a new task or edits outside Paths.
 plan_amend_mutate() {
+  # A plan written on Windows is CRLF: "## PB-030\r" was an invalid ID and a list-form Verify kept a \r that broke
+  # the gate's bash -c (portability audit, Oct 2026). Read an LF copy.
+  [ "$PLAN_FILE" = "$TXROOT/plan-lf.md" ] || { tr -d '\r' < "$PLAN_FILE" > "$TXROOT/plan-lf.md" && coord_fold_backlog "$TXROOT/plan-lf.md" && PLAN_FILE="$TXROOT/plan-lf.md"; }
   local id st c old_p new_p old_v new_v changes=
   for id in $plan_ids; do
     valid_id "$id" || die "Invalid ID in plan: $id"
@@ -1153,6 +1177,9 @@ plan_amend_mutate() {
   printf '%s\n' "- $NOW | plan --amend | $HUMAN/$AGENT | amended:$(one_line "$changes" | tr '|' '/') | Why: scope or criteria fixed before review" >> "$TX/DECISIONS.md"
 }
 plan_mutate() {
+  # A plan written on Windows is CRLF: "## PB-030\r" was an invalid ID and a list-form Verify kept a \r that broke
+  # the gate's bash -c (portability audit, Oct 2026). Read an LF copy.
+  [ "$PLAN_FILE" = "$TXROOT/plan-lf.md" ] || { tr -d '\r' < "$PLAN_FILE" > "$TXROOT/plan-lf.md" && coord_fold_backlog "$TXROOT/plan-lf.md" && PLAN_FILE="$TXROOT/plan-lf.md"; }
   [ "$(coord_source_field Plan-Channel main)" = claims ] ||
     conflict "Plan-Channel is not claims in .uak/PROJECT.md: publish the backlog by PR to $BASE."
   plan_ids=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$PLAN_FILE")
@@ -1229,7 +1256,8 @@ transaction() {
             claim) brief=$(bash "$UAK_BIN/map" brief "$ID" --paths "$PATHS" --backlog "$BACKLOG" 2>/dev/null | head -n 10)
                    [ -z "$brief" ] || say "$brief"
                    say "Query, do not open whole files: uak map find NAME · callers NAME · users FILE · recall $ID (lessons)."
-                   mem_for_task "$ID";;
+                   mem_for_task "$ID"
+                   ui_brief;;
           esac
         fi
       fi
@@ -1293,6 +1321,83 @@ print_task() {
     load_task; say "$ID | AVAILABLE | $PRIORITY"; say "Next: $DEFAULT_NEXT"; say "Paths: $PATHS"; say "Verify: $VERIFY"
     task_criteria
   fi
+}
+# DESIGN.md filled from its template, and every UI task names its recipe and hero. Why (Hacktoberfest): the lock had a
+# 15 px body and no screen table, and ten screens copied the one locked screen.
+lint_design() {
+  local d ui id tp
+  for d in "$ROOT/web/DESIGN.md" "$ROOT/DESIGN.md"; do
+    [ -f "$d" ] || continue
+    if grep -q '`<[^`]*>`' "$d"; then
+      say "LINT: ${d#"$ROOT"/} still has template fields: $(grep -n '`<[^`]*>`' "$d" | head -n 3 | cut -d: -f1 | tr '\n' ' ')(line numbers). The design lock fills every one." >&2
+      LINT_ERRORS=$((LINT_ERRORS + 1))
+    fi
+    grep -q '^## Screens' "$d" || say "LINT WARNING: ${d#"$ROOT"/} has no '## Screens' table (screen → recipe → hero): .uak/templates/DESIGN.template.md" >&2
+  done
+  [ -s "$BACKLOG" ] || return 0
+  if [ -f "$TXROOT/coord-source" ]; then ui=$(coord_source_field UI-Paths -)
+  else ui=$(sed -n 's/^[-* ]*UI-Paths:[* ]*//p' "$ROOT/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r`'); fi
+  [ -n "$ui" ] && [ "$ui" != - ] || return 0
+  normalize_paths "$ui" > "$TXROOT/lint-ui" 2>/dev/null || return 0
+  for id in $(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG"); do
+    tp=$(ID=$id task_field Paths)
+    case "$tp" in *DESIGN.md*|*design-lock*) continue;; esac
+    normalize_paths "$tp" > "$TXROOT/lint-tp" 2>/dev/null || continue
+    overlaps "$TXROOT/lint-tp" "$TXROOT/lint-ui" || continue
+    awk -v id="$id" '/^## / { on = ($2 == id) } on && /Recipe:/ { f = 1 } END { exit !f }' "$BACKLOG" ||
+      say "LINT WARNING: $id writes UI but names no recipe: add to its Acceptance \"Recipe: <map + panel | dashboard | detail | flow | list> · Hero: <element>\" (web/DESIGN.md, ## Screens)." >&2
+  done
+}
+lint_verify_scaffold() {
+  [ -s "$BACKLOG" ] || return 0
+  local id v dir need f t tp dep
+  for id in $(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG"); do
+    v=$(ID=$id task_field Verify | tr -d '`'); dir=
+    case "$v" in "cd "*" && "*) dir=${v#cd }; dir=${dir%% &&*}; dir=${dir%/}/; v=${v#*&& };; esac
+    case "$v" in "uv run"*|pytest*|"python -m pytest"*|"python3 -m pytest"*|"poetry run"*) need=pyproject.toml;;
+      npm\ *|pnpm\ *|yarn\ *|npx\ *|bun\ *) need=package.json;; "go test"*|"go run"*|"go build"*) need=go.mod;;
+      mvn*|./mvnw*) need=pom.xml;; cargo\ *) need=Cargo.toml;; *) continue;; esac
+    f="$dir$need"
+    git -C "$ROOT" cat-file -e "refs/remotes/$REMOTE/$BASE:$f" 2>/dev/null || [ -f "$ROOT/$f" ] && continue
+    dep=" $(ID=$id task_field 'Depends on' | tr ',()' '   ') "
+    for t in $(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG"); do
+      [ "$t" != "$id" ] || continue
+      tp=$(ID=$t task_field Paths | tr -d '`' | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s#^\./##')
+      printf '%s\n' "$tp" | grep -qxF -- "$f" || continue
+      case "$dep" in *" $t "*) ;; *) say "LINT WARNING: $id's Verify needs $f, which $t creates; add Depends on: $t (or its Verify runs on someone's local merge of $t)." >&2;; esac
+      break
+    done
+  done
+}
+# At claim: a task in UI-Paths is told what to open before the first line of UI. Why (frontend audit, Oct 2026):
+# product-ui reached agents only when its description happened to match, and DESIGN.md was read by a few.
+ui_brief() {
+  local ui r
+  ui=$(coord_source_field UI-Paths -); [ -n "$ui" ] && [ "$ui" != - ] || return 0
+  normalize_paths "$ui" > "$TXROOT/ui-paths" 2>/dev/null && normalize_paths "$PATHS" > "$TXROOT/ui-task" 2>/dev/null || return 0
+  overlaps "$TXROOT/ui-task" "$TXROOT/ui-paths" || return 0
+  r=$(awk -v id="$ID" '/^## / { on = ($2 == id) } on && /Recipe:/ { s = $0; sub(/.*Recipe:[* ]*/, "", s); print s; exit }' "$BACKLOG" 2>/dev/null)
+  say "UI TASK: before the first line, read web/DESIGN.md (your row of ## Screens${r:+: $r}), open the locked screen with that recipe in web/public/design-lock/screens/ (Read the PNG), and load the skill product-ui. Build only from web/src/lib/ui."
+  say "Before done: capture 1280 and 390 into .uak-shots/$ID/ and run the design-critic subagent; done checks its SHIP verdict."
+}
+# A task that writes where screens live (UI-Paths in PROJECT.md) ships with what someone saw: screenshots at 1280 and
+# 390 wide and the design critic's verdict on this commit, in <worktree>/.uak-shots/ID/ (git-ignored). Why
+# (Hacktoberfest): approvals said "UI not walked in browser" and "no 390x844 screenshot", the critic ran on a few PRs,
+# and ten screens shipped as copies of one template.
+ui_gate() {
+  local ui d f missing= short
+  ui=$(coord_source_field UI-Paths -); [ -n "$ui" ] && [ "$ui" != - ] || return 0
+  normalize_paths "$ui" > "$TXROOT/ui-paths" 2>/dev/null || return 0
+  normalize_paths "$(rm_task_value Paths)" > "$TXROOT/ui-task" 2>/dev/null || return 0
+  overlaps "$TXROOT/ui-task" "$TXROOT/ui-paths" || return 0
+  if [ -n "$NO_UI_TEXT" ]; then EVIDENCE="$EVIDENCE · no visible change: $NO_UI_TEXT"; return 0; fi
+  d="$2/.uak-shots/$ID"; short=$(printf '%s' "$1" | cut -c 1-7)
+  for f in 1280.png 390.png critic.txt; do [ -s "$d/$f" ] || missing="$missing $f"; done
+  [ -z "$missing" ] || conflict "$ID writes UI ($ui): it ships with what was seen. Missing in .uak-shots/$ID/:$missing. Capture the screens it changed at 1280x720 and 390x844 there (skill webapp-testing), then run the design-critic subagent on them: it writes critic.txt. No visible change? done $ID ... --no-ui \"why\"."
+  grep -q '^VERDICT: SHIP' "$d/critic.txt" ||
+    conflict "The design critic said FIX for $ID ($(grep -m 1 '^VERDICT' "$d/critic.txt" 2>/dev/null)). Fix its P1s (.uak-shots/$ID/critic.txt), capture again and rerun it."
+  grep -q "$short" "$d/critic.txt" ||
+    conflict "critic.txt in .uak-shots/$ID/ is about another commit; this one is $short. Capture again and rerun design-critic on it."
 }
 # The task's acceptance criteria as the backlog has them (amended, plan tasks included): every line of its section
 # that is not one of the keys above. Why (Hacktoberfest): reviewers of 11 tasks published with uak plan judged
@@ -1395,7 +1500,7 @@ session_key() {
     case "$pid" in ''|*[!0-9]*|0|1) break;; esac
     line=$(ps -o ppid= -o comm= -p "$pid" 2>/dev/null) || break
     ppid=$(printf '%s\n' "$line" | awk '{print $1}'); comm=$(printf '%s\n' "$line" | awk '{print $2}' | tr '[:upper:]' '[:lower:]')
-    case "$comm" in *claude*|*codex*|*cursor*|*gemini*|*aider*|node*) printf '%s' "$pid"; return 0;; esac
+    case "$comm" in *claude*|*codex*|*cursor*|*gemini*|*aider*|node*|*/node) printf '%s' "$pid"; return 0;; esac
     pid=$ppid; i=$((i + 1))
   done
   # Git Bash has no `ps -o` and the harness is a native Windows process: use the session id that the
@@ -1527,6 +1632,11 @@ lint_all() {
   done <<EOF_OC
 $( [ ! -s "$BACKLOG" ] || owner_conflicts )
 EOF_OC
+  # A Verify that needs a project file (pyproject.toml, package.json…) another task creates: that task belongs in
+  # Depends on. Why (Hacktoberfest): 12 backend tasks said "Depends on: None" while their `uv run pytest` needed the
+  # scaffold's pyproject; agents verified on local merges of it, stacked branches and clashed with its ruff config.
+  lint_verify_scaffold
+  lint_design
   # sprint without a freeze = features until the last minute (Hack-Nation: 8 PRs, incl. a product rename, in the last 6 h).
   if [ -f "$ROOT/.uak/PROJECT.md" ] && grep -Eq '^[-* ]*Mode:[* ]*sprint' "$ROOT/.uak/PROJECT.md" &&
      ! grep -Eq '^[-* ]*Freeze-Epoch:[* ]*[1-9][0-9]*' "$ROOT/.uak/PROJECT.md"; then
@@ -1545,7 +1655,7 @@ PLAN_FILE= PLAN_AMEND=no ID= BRANCH= WORKTREE= NEXT_TEXT= REQUEST_NEXT= TOKEN= N
 MERGE_COMMIT= REVIEWER= CANCEL_REASON=
 REVIEW_LEARN=no WAIT_FOR=message WAIT_TIMEOUT=${UAK_WAIT_TIMEOUT:-540} WAIT_EVERY=${UAK_WAIT_EVERY:-15}
 EXPIRED=no SHOW_SUMMARY=no LINT_SECRETS=no QUIET=no SESSION_ONLY=no ALLOW_INFLIGHT=no ALLOW_IDS= ALLOW_DONE= REVIEW_NOTE= FULL=no REVIEW_START=no REVIEW_STARTED=no
-RETIRE_NAMES= DONE_TO= FOLLOWUP_TITLE= REVIEW_STOP=no REVIEW_DECLINE=no NEW_ID= REVIEW_HINT= DONE_HINT=
+NO_UI_TEXT= RETIRE_NAMES= DONE_TO= FOLLOWUP_TITLE= REVIEW_STOP=no REVIEW_DECLINE=no NEW_ID= REVIEW_HINT= DONE_HINT=
 REVIEW_SHA= REVIEW_VERDICT= REGISTER_REVIEWER= SMOKE_COMMAND= SECRET_PATH= SECRET_RULE= SECRET_REASON=
 DECISION_OPTION= DECISION_REVERSIBLE=no DECISION_AUTHORIZED=no DECISION_CLASS=routine
 DONE_TEXT= DECISION_TEXT= WHY_TEXT= FAILS_TEXT= COMMANDS_TEXT=
@@ -1620,7 +1730,7 @@ while [ "$#" -gt 0 ]; do
     --kind)
       [ "$CMD" = msg ] && [ "$#" -gt 0 ] || bad_opt
       MSG_KIND=$1; shift; msg_valid_kind "$MSG_KIND" || die "--kind: info|request|contract|blocker|reply|review|approve|reject|integrated|human";;
-    --task|--branch|--worktree|--next|--read-summary|--state|--done|--decision|--why|--fails|--commands|--pr|--evidence|--integrated|--reviewer|--cancel|--sha|--verdict|--note|--command|--option|--reversible|--authorized|--class|--path|--rule|--reason|--to|--title|--for|--timeout|--forget|--search)
+    --task|--branch|--worktree|--next|--read-summary|--state|--done|--decision|--why|--fails|--commands|--pr|--evidence|--integrated|--reviewer|--cancel|--sha|--verdict|--note|--command|--option|--reversible|--authorized|--class|--path|--rule|--reason|--to|--title|--for|--timeout|--forget|--search|--no-ui)
       [ "$#" -gt 0 ] || die "Missing value for $opt."
       value=$1; shift
       case "$opt" in
@@ -1639,6 +1749,7 @@ while [ "$#" -gt 0 ]; do
         --commands) [ "$CMD" = checkpoint ] || bad_opt; COMMANDS_TEXT=$value;;
         --pr) [ "$CMD" = done ] || bad_opt; PR_URL=$value;;
         --evidence) [ "$CMD" = done ] || bad_opt; EVIDENCE=$value;;
+        --no-ui) [ "$CMD" = done ] || bad_opt; NO_UI_TEXT=$value;;
         --integrated) case "$CMD" in done|integrate) MERGE_COMMIT=$value;; *) bad_opt;; esac;;
         --reviewer) [ "$CMD" = done ] || bad_opt; REVIEWER=$value;;
         --sha) [ "$CMD" = review ] || bad_opt; REVIEW_SHA=$value;;

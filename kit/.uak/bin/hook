@@ -9,6 +9,8 @@
 # Pace: when plan usage changes level (surge/conserve/critical), one line is injected (uak pace).
 # Why: agents forget heartbeats and miss mid-session requests from other tasks.
 set -u
+# Git Bash rewrites "rev:.path" arguments for native git unless told not to (the same list as uak).
+MSYS2_ARG_CONV_EXCL="refs/;origin/;${UAK_REMOTE:-origin}/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXCL
 # uak calls made by the hooks themselves (inbox peeks, heartbeats, next at session start) are counted as hook-CMD,
 # so the black box tells the agent's own calls from the harness's. Why (MLB): status/inbox looked like half of all
 # calls, but the hooks made many of them.

@@ -17,6 +17,18 @@ pyproject.toml / uv.lock · web/package.json / web/package-lock.json   # single 
 
 A vertical task reserves `app/routers/<f>.py, app/services/<f>.py, app/tests/test_<f>.py, web/src/features/<f>/`: disjoint Paths allow simultaneous claims.
 
+
+## UI paths
+The design lock (`/uak-design-lock`) and every UI task use these; `UI-Paths` in `.uak/PROJECT.md` lists the folders.
+| What | Where | Owner |
+|---|---|---|
+| DESIGN | `web/DESIGN.md` | design lock |
+| Tokens | `web/src/index.css` | design lock |
+| UI kit | `web/src/lib/ui/` | design lock |
+| Shell (AppShell, NavBar) | `web/src/App.tsx` | design lock |
+| Locked screens, refs | `web/public/design-lock/` (`screens/`, `refs/`) | design lock |
+| Landing | `web/src/features/landing/` | landing task |
+
 ## Backend setup (~5 min)
 
 ```bash
@@ -83,11 +95,11 @@ Adding an endpoint = creating `app/routers/<f>.py`; `main.py` never becomes a co
 ```bash
 CI=1 npm create vite@latest web -- --template react-ts --no-interactive
 npm --prefix web install --no-audit --no-fund --loglevel=error
-npm --prefix web install --no-audit --no-fund --loglevel=error tailwindcss @tailwindcss/vite motion @phosphor-icons/react @fontsource-variable/geist
+npm --prefix web install --no-audit --no-fund --loglevel=error tailwindcss @tailwindcss/vite motion @phosphor-icons/react
 rm -rf web/src/App.css web/src/assets web/public/vite.svg
 mkdir -p web/src/features web/src/lib
 sed -i.bak 's#<title>.*</title>#<title>hacknation</title>#; /vite.svg/d' web/index.html && rm web/index.html.bak
-# + the five files below; then web/DESIGN.md with the design-taste-frontend skill
+# + the five files below; then /uak-design-lock writes web/DESIGN.md, the fonts (@fontsource) and the shell
 ```
 
 ### web/vite.config.ts
@@ -108,10 +120,9 @@ export default defineConfig({
 
 ```css
 @import "tailwindcss";
-@import "@fontsource-variable/geist";
 
 @theme {
-  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, sans-serif; /* placeholder: the design lock sets the faces */
 }
 ```
 
@@ -136,6 +147,7 @@ import type { ComponentType } from "react";
 
 // Each feature is web/src/features/<name>/index.tsx with `export default` and `order`.
 // Adding a feature = creating its folder; App.tsx never becomes a conflict point.
+// The design lock task owns this file: it wraps the features in AppShell + NavBar from lib/ui.
 type FeatureModule = { default: ComponentType; order?: number };
 
 const features = Object.entries(
@@ -146,7 +158,7 @@ const features = Object.entries(
 
 export default function App() {
   return (
-    <main className="mx-auto min-h-[100dvh] max-w-7xl px-4 py-12 font-sans text-zinc-900 dark:text-zinc-100">
+    <main className="mx-auto min-h-[100dvh] max-w-7xl px-4 py-12 font-sans">
       {features.map(({ path, default: Feature }) => (
         <Feature key={path} />
       ))}

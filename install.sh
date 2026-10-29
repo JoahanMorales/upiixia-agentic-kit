@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # UPIIXIA Agentic Kit installer.
 #   bash install.sh --mode sprint|marathon [--stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|spring-boot|none]
-#                   [--harness claude,codex,cursor,gemini] [--skills ai,tdd] [--no-blackbox] [--no-mcp|--mcp] [--solo] [--update] TARGET
+#                   [--harness claude,codex,cursor,gemini] [--skills ai,tdd,taste] [--no-blackbox] [--no-mcp|--mcp] [--solo] [--update] TARGET
 # Never overwrites your files: if AGENTS.md, CLAUDE.md, settings.json… already exist and differ,
 # the kit's version is written as <file>.uak-new for you to merge. A file that is an earlier kit version nobody
 # edited (its hash is in .uak/settings/known-files.txt) is simply updated.
@@ -122,6 +122,17 @@ if [ "$solo" = yes ] && grep -q '^Review-Mode: gh$' "$target/.uak/PROJECT.md"; t
   sed 's/^Review-Mode: gh$/Review-Mode: claims/' "$target/.uak/PROJECT.md" > "$target/.uak/PROJECT.md.tmp" && mv "$target/.uak/PROJECT.md.tmp" "$target/.uak/PROJECT.md"
   say "  + .uak/PROJECT.md: Review-Mode: claims (--solo: agents review each other on claims; GitHub never lets you approve your own PR)"
 fi
+# UI-Paths: where screens live for this stack. A task that writes there ships with its screenshots and the design
+# critic's verdict (uak done checks them). Why (Hacktoberfest): approvals said "UI not walked in browser" and the
+# shipped screens were one template copied ten times.
+ui_paths=
+case "$stack" in fastapi-react) ui_paths='web/src/';; nextjs) ui_paths='app/, components/, src/app/, src/components/';; expo) ui_paths='app/, components/';; esac
+if [ -n "$ui_paths" ] && ! grep -q '^UI-Paths:' "$target/.uak/PROJECT.md" && [ "$update" = yes ]; then
+  say "  ! .uak/PROJECT.md: no UI-Paths. To make UI tasks ship with screenshots and the critic's verdict, a human adds: UI-Paths: $ui_paths"
+elif [ -n "$ui_paths" ] && ! grep -q '^UI-Paths:' "$target/.uak/PROJECT.md" && grep -q '^Additive-Paths:' "$target/.uak/PROJECT.md"; then
+  awk -v v="UI-Paths: $ui_paths" '{ print } /^Additive-Paths:/ && !d { print v; d = 1 }' "$target/.uak/PROJECT.md" > "$target/.uak/PROJECT.md.tmp" &&
+    mv "$target/.uak/PROJECT.md.tmp" "$target/.uak/PROJECT.md" && say "  + .uak/PROJECT.md: UI-Paths: $ui_paths (UI tasks ship with screenshots and the design critic's verdict)"
+fi
 grep -Eq "^Mode: $mode\$" "$target/.uak/PROJECT.md" || say "  ! .uak/PROJECT.md does not declare 'Mode: $mode' (left unchanged)"
 
 put "$kit/AGENTS.md" "$target/AGENTS.md"
@@ -142,11 +153,12 @@ putdir "$kit/.claude/commands" "$target/.claude/commands"
 putdir "$kit/.claude/agents" "$target/.claude/agents"
 case "$mode" in
   sprint) drop "$target/.claude/agents/security-reviewer.md" "$target/.claude/commands/uak-spec.md"
-          skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing frontend-design design-taste-frontend redesign-existing-projects product-ui landing-story";;
+          skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing frontend-design redesign-existing-projects product-ui landing-story";;
   marathon) drop "$target/.claude/agents/design-critic.md" "$target/.claude/commands/uak-design-lock.md" "$target/.claude/commands/uak-demo.md"
           skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing test-driven-development";;
 esac
 case ",$extra," in *,ai,*) skills="$skills mcp-builder";; esac
+case ",$extra," in *,taste,*|*,design-taste-frontend,*) skills="$skills design-taste-frontend";; esac
 case ",$extra," in *,tdd,*) case " $skills " in *" test-driven-development "*) ;; *) skills="$skills test-driven-development";; esac;; esac
 case "$stack" in fastapi-react|nextjs|expo) skills="$skills vercel-react-best-practices"; case " $skills " in *" product-ui "*) ;; *) skills="$skills frontend-design product-ui landing-story";; esac;; esac
 [ "$stack" != ai-agent ] || case " $skills " in *" mcp-builder "*) ;; *) skills="$skills mcp-builder";; esac
@@ -179,6 +191,13 @@ done
 for link in .agents/skills .cursor/skills; do # Codex, Cursor and others read the same skills
   case "$link" in .agents/*) has codex || continue;; .cursor/*) has cursor || continue;; esac
   mkdir -p "$target/$(dirname "$link")"
+  # Git Bash: ln -s makes a copy (no native symlinks without developer mode), and a copy never refreshes. There the
+  # skills are copied again on every install and update. Why (portability audit, Oct 2026): Codex and Cursor kept
+  # stale skills after --update on Windows.
+  case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*)
+    if [ ! -L "$target/$link" ]; then mkdir -p "$target/$link" && cp -R "$target/.claude/skills/." "$target/$link/" && say "  + $link (a copy of .claude/skills, refreshed: Windows)"; fi
+    continue;;
+  esac
   [ -e "$target/$link" ] || [ -L "$target/$link" ] || { ln -s ../.claude/skills "$target/$link"; say "  + $link → .claude/skills"; }
 done
 # The pre-commit secret scanner lives in .uak/githooks (engine, refreshed by --update). An older install's
@@ -204,7 +223,7 @@ touch "$target/.gitignore"
 # Generated files too: an agent's `git add -A` after running tests committed __pycache__ and the merge gate stopped
 # on it (adoption eval, 2026-10). Common build/cache output of the supported stacks.
 for line in .env '.env.*' '!.env.example' .uak-env .claude/settings.local.json __pycache__/ '*.pyc' .pytest_cache/ \
-    .venv/ node_modules/ .next/ dist/ .DS_Store; do
+    .venv/ node_modules/ .next/ dist/ .DS_Store .uak-shots/; do
   grep -qxF -- "$line" "$target/.gitignore" || { printf '%s\n' "$line" >> "$target/.gitignore"; say "  + .gitignore: $line"; }
 done
 case "$stack" in spring-boot) # Maven/Gradle build output
@@ -217,7 +236,7 @@ cur_hooks=$(git -C "$target" config --get core.hooksPath 2>/dev/null || true)
 # Hooks of the project's own (a pre-commit framework, lefthook, git-lfs) in .git/hooks or in .githooks stop running
 # once hooksPath moves: keep them and say how to add the scan. Why (audit): git-lfs's pre-push would stop uploading.
 own_hooks=
-gd_hooks="$(git -C "$target" rev-parse --git-path hooks 2>/dev/null)"; case "$gd_hooks" in /*) ;; *) gd_hooks="$target/$gd_hooks";; esac
+gd_hooks="$(git -C "$target" rev-parse --git-path hooks 2>/dev/null)"; case "$gd_hooks" in /*|[A-Za-z]:*) ;; *) gd_hooks="$target/$gd_hooks";; esac
 if [ -z "$cur_hooks" ]; then
   for h in "$gd_hooks"/*; do case "$h" in *.sample) ;; *) if [ -f "$h" ]; then own_hooks=$h; fi;; esac; done
 fi

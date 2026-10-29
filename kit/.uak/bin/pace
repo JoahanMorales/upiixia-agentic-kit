@@ -46,9 +46,11 @@ from_manual() {
 from_codex() {
   [ "${UAK_PACE_CODEX:-1}" != 0 ] || return 0
   d=${CODEX_HOME:-$HOME/.codex}/sessions; [ -d "$d" ] || return 0
-  recent=$(find "$d" -type f -name '*.jsonl' -mmin -360 2>/dev/null)
-  [ -n "$recent" ] || return 0
-  latest=$(ls -t $recent 2>/dev/null | head -n 1)
+  # Newest of the recent rollouts, safe with spaces in HOME ("C:/Users/José Pérez"): no word splitting.
+  latest=
+  while IFS= read -r f; do [ -n "$latest" ] && [ ! "$f" -nt "$latest" ] || latest=$f; done <<EOF_PACE
+$(find "$d" -type f -name '*.jsonl' -mmin -360 2>/dev/null)
+EOF_PACE
   [ -n "$latest" ] || return 0
   obs=$(stat -c %Y "$latest" 2>/dev/null || stat -f %m "$latest" 2>/dev/null || date -r "$latest" +%s 2>/dev/null || echo "$NOW")
   # Rollout files can reach hundreds of MB: read only the tail.

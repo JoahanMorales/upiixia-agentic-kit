@@ -554,8 +554,15 @@ rm_gate_scope() {
     # Shared resources first, so the reason says what it really is (MLB: the smoke provenance file, written by
     # init-smoke, was reported as "outside Paths").
     # Test data is not a shared resource (Hacktoberfest: a fixture repo's migrations/*.sql went to the human).
-    case "/$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')/" in
-      */fixtures/*|*/testdata/*|*/__fixtures__/*|*/test-fixtures/*) ;;
+    # Only when the fixture directory holds the shared-looking path, not the other way round: db/migration/fixtures/
+    # V9__x.sql is still a migration (Flyway scans db/migration recursively). Why (audit, Oct 2026).
+    local lp fx pre fixture=no
+    lp="/$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')/"
+    for fx in /fixtures/ /testdata/ /__fixtures__/ /test-fixtures/; do
+      case "$lp" in *"$fx"*) pre="${lp%%"$fx"*}/"
+        case "$pre" in */contracts/*|*/types/*|*/shared-types/*|*/migrations/*|*/db/migration/*|*/.github/*|*/.uak/*) ;; *) fixture=yes;; esac;; esac
+    done
+    [ "$fixture" = yes ] || case "$lp" in
       */contracts/*|*/types/*|*/shared-types/*|*/migrations/*|*/db/migration/*|*/gradle.lockfile/*|*/.github/workflows/*|*/.gitlab-ci.yml/*|*/azure-pipelines.yml/*|*/package-lock.json/*|*/pnpm-lock.yaml/*|*/*.lock/*|*/*.lockb/*|*/go.sum/*|*/.uak/bin/smoke/*|*/.uak/bin/smoke-project/*|*/.uak/bin/.smoke-project.provenance/*|*/.uak/bin/secret-scan/*|*/.uak/bin/uak/*|*/.uak/bin/lib/*|*/.uak/bin/uak-coordination/*|*/.githooks/*|*/hackathon.md/*|*/.uak/project.md/*)
         RM_REASON="Shared resource/CI needs a human: $path"; return 1;;
     esac
@@ -610,10 +617,20 @@ rm_gate_env() {
   local gbase=9100 gtry=0
   case "${UAK_PORT_BASE:-}" in ''|*[!0-9]*) ;; *) gbase=$((UAK_PORT_BASE + 1000));; esac
   RM_GATE_PORT=$(( gbase + ($$ % 80) * 10 ))
+  # Not on Windows: there a connect to a closed port retries for ~2 s, and wt stop's netstat clears the port after.
+  case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) gtry=40;; esac
   while [ "$gtry" -lt 40 ] && { (exec 3<>"/dev/tcp/127.0.0.1/$RM_GATE_PORT") 2>/dev/null || (exec 3<>"/dev/tcp/127.0.0.1/$((RM_GATE_PORT + 1))") 2>/dev/null; }; do
     RM_GATE_PORT=$((RM_GATE_PORT + 10)); [ "$RM_GATE_PORT" -lt "$((gbase + 800))" ] || RM_GATE_PORT=$gbase; gtry=$((gtry + 1))
   done
   [ -z "${RM_BUILD:-}" ] || rm_gate_node
+}
+# Servers a Verify left running on the gate's ports (npm run dev &) are stopped, as wt stop does for a worktree.
+# Why (audit, Oct 2026): they outlived the deleted candidate and a later gate on the same port tested old code.
+rm_gate_stop() {
+  [ -n "${RM_BUILD:-}" ] && [ -d "$RM_BUILD" ] && [ -f "$UAK_BIN/wt" ] || return 0
+  printf 'UAK_PORT=%s\n' "$RM_GATE_PORT" > "$RM_BUILD/.uak-env"
+  (cd "$RM_BUILD" && bash "$UAK_BIN/wt" stop) > /dev/null 2>&1 || true
+  rm -f "$RM_BUILD/.uak-env"
 }
 # Node packages for the candidate: each package.json (up to 2 levels deep) gets the worktree's or the main
 # checkout's node_modules when its lockfile is identical (a link, or a junction on Windows); a changed lockfile
@@ -703,7 +720,8 @@ rm_prepare_candidate() {
   verify=$(rm_task_value Verify); verify=$(printf '%s\n' "$verify" | sed 's/^`//;s/`$//')
   [ -n "$verify" ] || { RM_REASON='Missing runnable Verify'; return 1; }
   (cd "$RM_BUILD" && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash -c "$verify" < /dev/null) > "$TXROOT/gate-verify.log" 2>&1 ||
-    { RM_REASON="Verify / acceptance red$(rm_gate_log verify)"; return 1; }
+    { RM_REASON="Verify / acceptance red$(rm_gate_log verify)"; rm_gate_stop; return 1; }
+  rm_gate_stop
   git -C "$RM_BUILD" diff --quiet && [ "$(git -C "$RM_BUILD" write-tree)" = "$RM_TREE" ] || {
     RM_REASON='Smoke/Verify modified tracked files of the candidate; needs a new review'; return 1;
   }

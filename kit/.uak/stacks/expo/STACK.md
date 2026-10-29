@@ -13,6 +13,17 @@ package.json · app.json        # single owner (setup)
 ```
 A task reserves `app/<f>.tsx` (or `app/<f>/`) and `components/<f>/`.
 
+
+## UI paths
+The design lock (`/uak-design-lock`) and every UI task use these; `UI-Paths` in `.uak/PROJECT.md` lists the folders.
+| What | Where | Owner |
+|---|---|---|
+| DESIGN | `DESIGN.md` | design lock |
+| Tokens | `constants/theme.ts` | design lock |
+| UI kit | `components/ui/` | design lock |
+| Shell (tabs, header) | `app/_layout.tsx` | design lock |
+| Locked screens, refs | `design-lock/` (`screens/`, `refs/`) | design lock |
+
 ## Setup (~5 min)
 
 ```bash

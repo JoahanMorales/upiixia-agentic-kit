@@ -18,7 +18,7 @@ You review someone else's task. Your context is disposable, so read the full dif
    - no invented number, citation or URL (open 2 at random).
 4. Run it in a temp worktree: `git worktree add -q ../review-ID origin/<branch>`, then `bash .uak/bin/q <Verify>` inside, then `bash .uak/bin/wt rm --review ../review-ID` (it drops the build output; never --force by hand). Smoke and full suites can take minutes: give the Bash call a 10-minute timeout (or run it in the background), never report "did not finish in 120 s" as a result.
 5. By mode:
-   - sprint + UI: walk the screen at 1280×720; the wow and the notices must be visible without scrolling.
+   - sprint + UI: capture the screen yourself at 1280×720 and 390×844 in the review worktree, open the PNGs with Read next to the locked screen with its recipe (`web/public/design-lock/screens/`), and put one visual line in the note (same product? hero the biggest thing? anything clipped?). The wow and the notices must be visible without scrolling. An approval of UI you did not look at is a reject.
    - marathon: look for N+1 queries, missing pagination, per-resource authz, edge validation, PII in logs and irreversible migrations.
 6. Verdict, ONE command (the note travels in the same message; never send a second one):
    - OK → `bash .uak/bin/uak review ID --sha SHA --verdict approve --note "Verify N passed; smoke PASS; <1 risk if any>"`.

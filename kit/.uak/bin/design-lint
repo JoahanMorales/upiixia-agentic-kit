@@ -21,15 +21,37 @@ if [ "${1:-}" = --file ]; then
   proot=$(cd "$root" && pwd -P)
   case "$only" in "$proot"/*) only=${only#"$proot"/};; "$root"/*) only=${only#"$root"/};; esac
 fi
+# The design lock's HTML directions: colors live in :root only (hand-typed hex elsewhere drifted from the tokens), and no
+# tile server that needs a key (the directions shipped with a CARTO watermark). Why (frontend experiment, Oct 2026).
+lock_out=
+for h in web/public/design-lock/*.html public/design-lock/*.html design-lock/*.html; do
+  [ -f "$h" ] || continue
+  [ -z "$only" ] || [ "$h" = "$only" ] || continue
+  lock_out="$lock_out$(awk -v f="$h" '
+    /:root[[:space:]]*\{/ { inroot = 1 }
+    { line = $0; if (!inroot && line ~ /#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]([0-9a-fA-F][0-9a-fA-F][0-9a-fA-F])?([^0-9A-Za-z_]|$)/ && line !~ /design-lint: ok/ && line !~ /href=|src=|url\(#/) {
+        printf "%s:%d · hex color outside :root in a design-lock direction: name it a token\n", f, NR; n++ }
+      if (line ~ /basemaps\.cartocdn\.com|api\.mapbox\.com|tiles\.stadiamaps\.com/) printf "%s:%d · tile server that needs a key: use OpenFreeMap or grayscale OSM (product-ui §2)\n", f, NR }
+    inroot && /\}/ { inroot = 0 }' "$h" | head -n 10)
+"
+done
 src=${1:-}
 if [ -z "$src" ]; then for d in web/src src app; do [ -d "$d" ] && { src=$d; break; }; done; fi
-[ -n "$src" ] && [ -d "$src" ] || { printf 'DESIGN_LINT_SKIP: no web/src, src or app folder\n'; exit 0; }
+if [ -z "$src" ] || [ ! -d "$src" ]; then
+  lock_out=$(printf '%s' "$lock_out" | grep -v '^$' || true)
+  if [ -n "$lock_out" ]; then printf '%s\n' "$lock_out" | sed 's/^/DESIGN_LINT /'; printf 'DESIGN_LINT_FAIL %s finding(s) in the design-lock directions\n' "$(printf '%s\n' "$lock_out" | wc -l | tr -d ' ')"; exit 1; fi
+  printf 'DESIGN_LINT_SKIP: no web/src, src or app folder\n'; exit 0
+fi
 ui=
 for d in "$src/lib/ui" "$src/components/ui" components/ui; do [ -d "$d" ] && { ui=$d; break; }; done
 # Tokens exist when some stylesheet defines custom properties (or a Tailwind @theme), or a theme file holds them
 # (React Native: theme.ts, tokens.ts, constants/Colors.ts). Without them there is nothing to enforce yet.
 tokfiles=$(find "$src" constants theme -type f \( -iname '*token*' -o -iname 'theme.*' -o -name 'Colors.*' \) ! -path '*/node_modules/*' 2>/dev/null)
+# After the design lock (web/DESIGN.md exists) a screen with no tokens is a failure, not a skip. Why (frontend audit,
+# Oct 2026): the skip let screens built before or around the tokens pass.
+locked=no; for d in web/DESIGN.md DESIGN.md "$src/../DESIGN.md"; do [ -f "$d" ] && locked=yes; done
 if [ -z "$tokfiles" ] && ! find "$src" "${ui:-$src}" -name '*.css' -type f 2>/dev/null | while IFS= read -r f; do grep -Eq -- '(--[a-z][a-z0-9-]*:|@theme)' "$f" && echo y; done | grep -q y; then
+  if [ "$locked" = yes ]; then printf 'DESIGN_LINT_FAIL DESIGN.md exists but no stylesheet defines its tokens (CSS custom properties or @theme): write them in the tokens file\n'; exit 1; fi
   printf 'DESIGN_LINT_SKIP: no design tokens yet (CSS custom properties or @theme): the design lock writes them\n'; exit 0
 fi
 list=$(mktemp "${TMPDIR:-/tmp}/uak-dlint.XXXXXX") || exit 2
@@ -46,6 +68,8 @@ find "$src" -type f \( -name '*.tsx' -o -name '*.jsx' -o -name '*.ts' -o -name '
 palette='(^|[^A-Za-z0-9-])(bg|text|border|ring|fill|stroke|from|via|to|outline|divide|decoration|shadow|accent|caret|placeholder)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)([^0-9]|$)'
 hex='(^|[^,&0-9A-Za-z_])#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})([^0-9A-Za-z_]|$)'
 emoji=$(printf '\360\237')   # the first two bytes of every 4-byte emoji (U+1F300 and up), matched byte-wise under LC_ALL=C
+# 3-byte symbols used as icons: U+2600-27BF (sparkles, lightning, check marks, stars) and U+2B50 (star).
+sym=$(printf '\342\234\250|\342\232\241|\342\234\205|\342\230\205|\342\255\220|\342\234\224|\342\235\214|\342\232\240')
 # The UI kit's component names (PascalCase files). No `case` inside $(...): Bash 3.2 (macOS) cannot parse it.
 ui_names() {
   local f b
@@ -78,17 +102,73 @@ while IFS= read -r f; do
   grep -nE 'animate-bounce|easeOutBounce|"bounce"' "$f" 2>/dev/null | grep -v 'design-lint: ok' | while IFS= read -r l; do
     printf '%s:%s · bounce easing reads as generated: one purposeful 150-300 ms ease-out\n' "$f" "${l%%:*}"
   done
-  grep -n "$emoji" "$f" 2>/dev/null | grep -v 'design-lint: ok' | while IFS= read -r l; do
+  { grep -n "$emoji" "$f"; grep -nE "$sym" "$f"; } 2>/dev/null | grep -v 'design-lint: ok' | while IFS= read -r l; do
     printf '%s:%s · emoji in the UI: use the icon set (Phosphor) at one size and stroke\n' "$f" "${l%%:*}"
   done
+  # The tells the frontend audit found on shipped hackathon screens (Impeccable and Hallmark flag the same):
+  # a colored side stripe on rows and cards, gradients and color literals in feature code, arbitrary pixel values
+  # that bypass the scale, and tracked uppercase eyebrows.
+  grep -nE '(^|[^A-Za-z0-9-])border-[ls]-([2-9]|\[[0-9]+px\])([^0-9]|$)|border-(left|inline-start)(-width)?:[[:space:]]*[2-9]px' "$f" 2>/dev/null | grep -v 'design-lint: ok' | while IFS= read -r l; do
+    printf '%s:%s · colored side stripe on a row or card reads as generated: use a leading icon, a chip or weight\n' "$f" "${l%%:*}"
+  done
+  grep -nE '(^|[^A-Za-z0-9-])bg-gradient-to-|linear-gradient\(|radial-gradient\(' "$f" 2>/dev/null | grep -v 'design-lint: ok' | while IFS= read -r l; do
+    printf '%s:%s · gradient in feature code: if the direction has one, it is a token or a UI kit surface\n' "$f" "${l%%:*}"
+  done
+  grep -nE '(^|[^A-Za-z0-9_-])(rgba?|hsla?|oklch)\([[:space:]]*[0-9]' "$f" 2>/dev/null | grep -v 'design-lint: ok' | while IFS= read -r l; do
+    printf '%s:%s · color literal in code: read it from a token (var(--…))\n' "$f" "${l%%:*}"
+  done
+  grep -nE '(^|[^A-Za-z0-9-])(p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|text|rounded|w|h|top|left|right|bottom)-\[[0-9.]+px\]' "$f" 2>/dev/null | grep -v 'design-lint: ok' | while IFS= read -r l; do
+    v=$(printf '%s' "${l#*:}" | grep -Eo '[a-z]+-\[[0-9.]+px\]' | head -n 1)
+    printf '%s:%s · arbitrary value %s bypasses the scale in DESIGN.md: use a spacing, type or radius step\n' "$f" "${l%%:*}" "$v"
+  done
+  grep -nE 'uppercase[^"]*tracking-|tracking-[^"]*uppercase' "$f" 2>/dev/null | grep -v 'design-lint: ok' | head -n 3 | while IFS= read -r l; do
+    printf '%s:%s · tracked uppercase eyebrow reads as generated: a heading weight or size does the job (mark it design-lint: ok if DESIGN.md asks for one)\n' "$f" "${l%%:*}"
+  done
+  n_blur=$(grep -oE 'backdrop-blur|backdrop-filter' "$f" 2>/dev/null | wc -l | tr -d ' ')
+  [ "${n_blur:-0}" -le 1 ] || printf '%s:%s · %s glass surfaces: one at most per screen (DESIGN.md: one solid container level)\n' "$f" "$(grep -nE 'backdrop-blur|backdrop-filter' "$f" | head -n 1 | cut -d: -f1)" "$n_blur"
+  grep -nE '(^|[^A-Za-z0-9-])shadow-(xl|2xl)([^A-Za-z0-9-]|$)' "$f" 2>/dev/null | grep -v 'design-lint: ok' | head -n 3 | while IFS= read -r l; do
+    printf '%s:%s · heavy shadow: the one elevation token of DESIGN.md\n' "$f" "${l%%:*}"
+  done
+  grep -nE 'basemaps\.cartocdn\.com|api\.mapbox\.com|tiles\.stadiamaps\.com' "$f" 2>/dev/null | grep -v 'design-lint: ok' | head -n 2 | while IFS= read -r l; do
+    printf '%s:%s · tile server that needs a key: use OpenFreeMap or grayscale OSM (product-ui §2)\n' "$f" "${l%%:*}"
+  done
 done < "$list" > "$out"
+# More than 6 type sizes across the screens is no scale. Why (Hacktoberfest): one view used 9 text sizes.
+sizes=$(while IFS= read -r f; do [ -n "$f" ] && grep -Eo '(^|[^A-Za-z0-9-])text-(xs|sm|base|lg|xl|[2-9]xl)([^A-Za-z0-9-]|$)' "$f" 2>/dev/null; done < "$list" |
+  grep -Eo 'text-[a-z0-9]+' | sort -u | tr '\n' ' ')
+n_sizes=$(printf '%s' "$sizes" | wc -w | tr -d ' ')
+if [ "${n_sizes:-0}" -gt 6 ] && [ -z "$only" ] && [ "$changed" != yes ]; then
+  printf '%s:1 · %s type sizes across the screens (%s): DESIGN.md allows 6 at most; use the scale\n' "$(head -n 1 "$list")" "$n_sizes" "${sizes% }" >> "$out"
+fi
 # Typefaces: the defaults every generated page reaches for, in any stylesheet or font import of the project.
 find "$src" "${ui:-$src}" -type f \( -name '*.css' -o -name '*.tsx' -o -name '*.ts' -o -name '*.jsx' \) ! -path '*/node_modules/*' 2>/dev/null | sort -u |
   while IFS= read -r f; do
     [ -z "$only" ] || [ "$f" = "$only" ] || continue
-    grep -niE "font-family:[[:space:]]*[\"']?(inter|roboto|arial|helvetica)([\"', ;]|$)|@fontsource(-variable)?/(inter|roboto)[\"'/]" "$f" 2>/dev/null | grep -v 'design-lint: ok' |
-      while IFS= read -r l; do printf '%s:%s · default typeface: the design lock picks deliberate faces (frontend-design), not Inter, Roboto or Arial\n' "$f" "${l%%:*}"; done
+    grep -niE "font-family:[[:space:]]*[\"']?(inter|roboto|arial|helvetica|geist)([\"', ;]|$)|--font-[a-z-]+:[[:space:]]*[\"']?(inter|roboto|geist)([\"' ,;]|$)|@fontsource(-variable)?/(inter|roboto|geist)[\"'/]|import[[:space:]]*\{[^}]*(Inter|Roboto|Geist)[^}]*\}[[:space:]]*from[[:space:]]*[\"'](next/font/google|geist/font)" "$f" 2>/dev/null | grep -v 'design-lint: ok' |
+      while IFS= read -r l; do printf '%s:%s · default typeface: the design lock picks deliberate faces (frontend-design), not Inter, Roboto, Arial or Geist\n' "$f" "${l%%:*}"; done
   done >> "$out"
+# Contrast of the token pairs text sits on (WCAG 2): text on bg/surface, and every --X-ink on --X. Hex values, through
+# up to 3 var() hops. Why (frontend experiment): white on amber (2.2:1) passed every check twice.
+find "$src" "${ui:-$src}" -type f -name '*.css' ! -path '*/node_modules/*' 2>/dev/null | sort -u | while IFS= read -r f; do
+  [ -z "$only" ] || [ "$f" = "$only" ] || continue
+  awk -v f="$f" '
+    function hv(ch) { return index("0123456789abcdef", tolower(ch)) - 1 }
+    function lum(h,   r, g, b) { sub(/^#/, "", h); if (length(h) == 3) h = substr(h,1,1) substr(h,1,1) substr(h,2,1) substr(h,2,1) substr(h,3,1) substr(h,3,1)
+      if (length(h) < 6) return -1
+      r = (hv(substr(h,1,1)) * 16 + hv(substr(h,2,1))) / 255; g = (hv(substr(h,3,1)) * 16 + hv(substr(h,4,1))) / 255; b = (hv(substr(h,5,1)) * 16 + hv(substr(h,6,1))) / 255
+      return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b) }
+    function lin(c) { return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ^ 2.4 }
+    function val(k,   v, i) { v = def[k]; for (i = 0; i < 3 && v ~ /^var\(--/; i++) { sub(/^var\(/, "", v); sub(/[,)].*/, "", v); v = def[v] }; return v }
+    function check(a, b,   x, y, l1, l2, r) { if (!(a in def) || !(b in def)) return; x = val(a); y = val(b)
+      if (x !~ /^#[0-9a-fA-F]+$/ || y !~ /^#[0-9a-fA-F]+$/) return; l1 = lum(x); l2 = lum(y); if (l1 < 0 || l2 < 0) return
+      r = (l1 > l2) ? (l1 + 0.05) / (l2 + 0.05) : (l2 + 0.05) / (l1 + 0.05)
+      if (r < 4.5) printf "%s:%d · contrast %s on %s is %.1f:1 (AA needs 4.5): darken or lighten one token\n", f, line[a], a, b, r }
+    { s = $0; while (match(s, /--[a-z0-9-]+[[:space:]]*:[[:space:]]*[^;]+/)) { d = substr(s, RSTART, RLENGTH); k = d; sub(/[[:space:]]*:.*/, "", k); v = d; sub(/^[^:]*:[[:space:]]*/, "", v); sub(/[[:space:]]+$/, "", v)
+        if (!(k in def)) { def[k] = v; line[k] = NR }; s = substr(s, RSTART + RLENGTH) } }
+    END { check("--text", "--bg"); check("--text", "--surface"); check("--text-2", "--bg"); check("--text-2", "--surface")
+      for (k in def) if (k ~ /-ink$/) { b = k; sub(/-ink$/, "", b); check(k, b) } }' "$f"
+done >> "$out"
+[ -z "$(printf '%s' "$lock_out" | tr -d '\n')" ] || printf '%s\n' "$lock_out" | grep -v '^$' >> "$out"
 files=$(awk 'END {print NR + 0}' "$list")
 if [ "$changed" = yes ]; then
   # Keep only findings on lines this branch adds (committed or not) since its fork from origin/BASE.

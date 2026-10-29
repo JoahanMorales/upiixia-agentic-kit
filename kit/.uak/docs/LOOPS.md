@@ -8,7 +8,7 @@ Loop engineering means designing the cycles that run agents, instead of promptin
 | **Verifier** | What machine check says "done"? | the task's `Verify` command, exit 0 |
 | **Budget** | Max iterations, minutes and tokens? | 5 iterations; failure tail fed back as 40 lines or fewer |
 | **Stop** | When must it stop, even if not done? | pass · budget exhausted · same failure twice (stuck) · the agent changed nothing · the agent edited the verifier |
-| **Escalation** | Who takes over and with what? | `uak log ID --state BLOCKED "<exact error>"` or `uak decision`, then pick another task |
+| **Escalation** | Who takes over and with what? | `uak log ID --state BLOCKED "<exact error>"` or `uak decision ID --option "TEXT" --why "TEXT" --reversible yes --authorized yes --class routine`, then pick another task |
 
 ## The loops in uak
 | Loop | Trigger | Verifier | Stop / escalation |

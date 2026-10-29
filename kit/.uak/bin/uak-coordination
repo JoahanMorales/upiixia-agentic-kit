@@ -50,7 +50,7 @@ coord_fold_backlog() {
     function upids(s,   out) { out = ""
       while (match(s, /[A-Za-z][A-Za-z0-9]*-[0-9][0-9][0-9]+/)) { out = out substr(s, 1, RSTART - 1) toupper(substr(s, RSTART, RLENGTH)); s = substr(s, RSTART + RLENGTH) }
       return out s }
-    held != "" && /^[[:space:]]+[-*][[:space:]]+/ { x = $0; sub(/^[[:space:]]+[-*][[:space:]]+/, "", x); items = items (items != "" ? ", " : "") x; next }
+    held != "" && /^[[:space:]]+[-*][[:space:]]+/ { x = $0; sub(/\r$/, "", x); sub(/^[[:space:]]+[-*][[:space:]]+/, "", x); items = items (items != "" ? ", " : "") x; next }
     { flush(); line = $0; sub(/\r$/, "", line)
       key = line; gsub(/\*\*/, "", key); sub(/^[[:space:]]*[-*][[:space:]]*/, "", key)
       if (key ~ /^Depends on[[:space:]]*:/) line = upids(line)
@@ -447,7 +447,7 @@ coord_decision_mutate() {
   fi
   coord_yesno Reversible "$DECISION_REVERSIBLE"; coord_yesno Authorized "$DECISION_AUTHORIZED"
   case "$DECISION_CLASS" in routine|money|accounts|publish|scope) ;; *) die "Invalid decision class.";; esac
-  [ -n "$DECISION_OPTION" ] && [ -n "$WHY_TEXT" ] || die "decision needs --option and --why."
+  [ -n "$DECISION_OPTION" ] && [ -n "$WHY_TEXT" ] || die "decision needs --option and --why: uak decision ID --option \"TEXT\" --why \"TEXT\" --reversible yes|no --authorized yes|no --class routine|money|accounts|publish|scope."
   mkdir -p "$TX/meta/decisions"
   coord_df="$TX/meta/decisions/$ID-$NOW.md"
   [ ! -f "$coord_df" ] || conflict "A decision for $ID already exists at epoch $NOW."

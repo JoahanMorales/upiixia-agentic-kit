@@ -185,7 +185,8 @@ def output_cap_is_linear_and_counts_stderr(r):
     big = hook(r, t, "output", payload)
     took = time.monotonic() - started
     out = json.loads(big.stdout)["hookSpecificOutput"]["updatedToolOutput"]
-    expect(len(json.dumps(payload)) > 1200000 and took < 9 and "[uak:" in out["stdout"], "%.1f s for %d bytes" % (took, len(json.dumps(payload))))
+    # About 2.6 s alone (the quadratic decoder took 75 s); a loaded runner with 8 suites in parallel took 10.5 s.
+    expect(len(json.dumps(payload)) > 1200000 and took < 25 and "[uak:" in out["stdout"], "%.1f s for %d bytes" % (took, len(json.dumps(payload))))
     logs = sorted((t / ".git/uak-out").glob("*.log"))
     expect(logs and logs[-1].read_text(encoding="utf-8") == text, "the full output is kept byte for byte")
     payload["tool_response"] = {"stdout": "ok\n", "stderr": "warning: unused variable\n" * 6000, "interrupted": False}

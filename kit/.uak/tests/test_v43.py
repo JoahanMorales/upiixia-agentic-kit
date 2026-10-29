@@ -94,6 +94,7 @@ def rotation_skips_ghosts_and_asks_the_rejecter(r):
     last = [l for l in f.show("inbox/log.md").splitlines() if "| review |" in l][-1]
     expect("agent:agent-3" in last and "you rejected the previous SHA" in last and "fixed a.txt:1" in last,
            "the re-review goes to the rejecter in ONE message with the note: " + last)
+    rm.judge(f)                                          # v5.7.1: --to names someone who can review
     f.hack(0, "done", "HACK-001", "--pr", "https://example.test/pull/1", "--evidence", "fixed", "--to", "judge", now=1000014)
     last = [l for l in f.show("inbox/log.md").splitlines() if "| review |" in l][-1]
     expect("agent:judge" in last and "asked by agent-1" in last, "--to picks the reviewer: " + last)
