@@ -19,6 +19,30 @@ import time
 from pathlib import Path
 
 
+def run_tree(command, cwd, env, timeout):
+    """subprocess.run with its output in files and the whole process tree killed on timeout. With pipes, a grandchild
+    that kept stdout open (a server a Verify started, a background renewer) made communicate() wait forever after the
+    kill: a Windows CI job hung for 84 minutes."""
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+        proc = subprocess.Popen(command, cwd=cwd, env=env, stdout=out, stderr=err, **kw)
+        try:
+            code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+            else:
+                try:
+                    os.killpg(proc.pid, 9)
+                except OSError:
+                    proc.kill()
+            proc.wait()
+            raise subprocess.TimeoutExpired(command, timeout)
+        out.seek(0); err.seek(0)
+        return subprocess.CompletedProcess(command, code, out.read().decode("utf-8", "replace"),
+                                           err.read().decode("utf-8", "replace"))
+
+
 class Failure(Exception):
     pass
 
@@ -65,9 +89,7 @@ class Runner:
         effective = self.env.copy()
         if env:
             effective.update(env)
-        result = subprocess.run(command, cwd=cwd, env=effective, text=True,
-                                encoding="utf-8", errors="replace", capture_output=True,
-                                timeout=timeout)
+        result = run_tree(command, cwd, effective, timeout)
         if allowed is not None and result.returncode not in allowed:
             raise Failure("Command failed (%s): %s\n%s\n%s" % (
                 result.returncode, " ".join(map(str, command)), result.stdout[-8000:],
