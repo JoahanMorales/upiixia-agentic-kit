@@ -455,7 +455,7 @@ rm_coord_mutate() {
       [ ! -f "$TX/queue/$ID.md" ] || put "$TX/queue/$ID.md" State WAITING;;
     renew)
       # A long gate keeps its lock: renewed every third of the lease while smoke and Verify run.
-      rm_lock_owned || return 6
+      rm_lock_owned || { RM_REASON='Lock no longer ours'; return 3; }
       put "$lock" Lease-Until "$((NOW + RM_LOCK_LEASE))"; put "$lock" Updated "$NOW";;
     finalize)
       rm_authority_check || return 3
@@ -775,13 +775,19 @@ merge_run() {
   # Lease renewal in the background while the candidate is built and verified. Why (audit and Hacktoberfest): a gate
   # longer than Merge-Lease-Seconds always ended "Lock expired" in the human queue, and another merger could take
   # the lock and run its gate at the same time.
-  # Its own temp dir: coord_init rewrites the backlog and config files there, which the gate is reading.
-  ( RM_ATTEMPT_PREFIX=renew; TXROOT=$(mktemp -d "$TMP_BASE/hack.XXXXXX") || exit 0; trap 'rm -rf "$TXROOT"' EXIT; COORD_INITIALIZED_TX=; COORD_BASE_FROM=
-    # sleep in the background and wait for it: a TERM then ends the renewer at once (bash runs a trap only after the
-    # foreground command, so a plain sleep 600 held the merge for 10 minutes).
-    rm_sleep_pid=; trap '[ -z "$rm_sleep_pid" ] || kill "$rm_sleep_pid" 2>/dev/null; exit 0' TERM INT
-    while sleep $(( RM_LOCK_LEASE / 3 > 0 ? RM_LOCK_LEASE / 3 : 1 )) & rm_sleep_pid=$!; wait "$rm_sleep_pid"; do
-      NOW=${UAK_NOW:-$(date +%s)}; rm_coord_update renew >/dev/null 2>&1 || break; done ) &
+  # Its own temp dir: coord_init rewrites the backlog and config files there, which the gate is reading. No stdio of
+  # ours (an orphaned sleep holding the caller's pipe made a harness wait 240 s on macOS), and sleeps of 5 s, so a
+  # TERM ends it at once (the trap kills the sleep it waits on) and nothing outlives the merge for long.
+  ( RM_ATTEMPT_PREFIX=renew; TXROOT=$(mktemp -d "$TMP_BASE/hack.XXXXXX") || exit 0; trap 'rm -rf "$TXROOT"' EXIT
+    COORD_INITIALIZED_TX=; COORD_BASE_FROM=; rm_sleep_pid=; rm_slept=0
+    trap '[ -z "$rm_sleep_pid" ] || kill "$rm_sleep_pid" 2>/dev/null; exit 0' TERM INT
+    rm_every=$(( RM_LOCK_LEASE / 3 > 5 ? RM_LOCK_LEASE / 3 : 5 ))
+    while :; do
+      sleep 5 & rm_sleep_pid=$!; wait "$rm_sleep_pid"; rm_sleep_pid=
+      rm_slept=$((rm_slept + 5)); [ "$rm_slept" -ge "$rm_every" ] || continue; rm_slept=0
+      NOW=${UAK_NOW:-$(date +%s)}; RM_ACTION=renew
+      rm_coord_update renew || break
+    done ) </dev/null >/dev/null 2>&1 &
   RM_RENEWER=$!
   if ! rm_prepare_candidate; then
     kill "$RM_RENEWER" 2>/dev/null; wait "$RM_RENEWER" 2>/dev/null
