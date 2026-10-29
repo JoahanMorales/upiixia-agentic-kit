@@ -631,6 +631,20 @@ rm_gate_stop() {
   printf 'UAK_PORT=%s\n' "$RM_GATE_PORT" > "$RM_BUILD/.uak-env"
   (cd "$RM_BUILD" && bash "$UAK_BIN/wt" stop) > /dev/null 2>&1 || true
   rm -f "$RM_BUILD/.uak-env"
+  # Also anything still running inside the candidate (its working directory is there): a server on another port, a
+  # watcher. Why (macOS CI): the port lookup missed a server Verify had started in the background.
+  local b pid
+  b=$(cd "$RM_BUILD" && pwd -P) || return 0
+  if [ -d /proc/self ]; then
+    for pid in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$'); do
+      [ "$pid" != "$$" ] || continue
+      case "$(readlink "/proc/$pid/cwd" 2>/dev/null)" in "$b"|"$b"/*) kill "$pid" 2>/dev/null;; esac
+    done
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -a -d cwd -Fpn 2>/dev/null | awk -v b="$b" '/^p/ { p = substr($0, 2) } /^n/ { n = substr($0, 2); if (n == b || index(n, b "/") == 1) print p }' |
+      while IFS= read -r pid; do [ "$pid" = "$$" ] || kill "$pid" 2>/dev/null; done
+  fi
+  return 0
 }
 # Node packages for the candidate: each package.json (up to 2 levels deep) gets the worktree's or the main
 # checkout's node_modules when its lockfile is identical (a link, or a junction on Windows); a changed lockfile

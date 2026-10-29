@@ -169,8 +169,9 @@ def pace_reads_codex_under_a_spaced_home(r):
     home = r.scratch / "v571 José Pérez"
     sess = home / ".codex/sessions/2026/10/29"
     sess.mkdir(parents=True)
+    resets = int(time.time()) + 3 * 3600          # a fixed epoch expired mid-CI and pace rightly dropped it
     (sess / "rollout-1.jsonl").write_text('{"type":"event_msg","payload":{"rate_limits":{"primary":{"used_percent":42.0,'
-                                          '"window_minutes":300,"resets_at":1793299605}}}}\n', encoding="utf-8")
+                                          '"window_minutes":300,"resets_at":%d}}}}\n' % resets, encoding="utf-8")
     d = r.scratch / "v571-pace"
     d.mkdir()
     r.g(d, "init", "-q")
