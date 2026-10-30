@@ -1,5 +1,25 @@
 # Changelog
 
+## v5.9.0 · 2026-10-29 · A copied repo keeps its old kit
+We won HackADA (first place) on a repository copied from the previous hackathon, `.uak/` included: it ran uak 5.3.0,
+without the frontend gate or any fix of v5.4 to v5.8. The autopsy ([docs/blackbox/hackada-2026-10.md](docs/blackbox/hackada-2026-10.md))
+found 14 rows; 8 were already fixed by releases the event did not have. Each new fix has a test in `test_v59.py` that
+fails on v5.8.0.
+- **`uak start` says when the kit is old.** It compares the project's `.uak/VERSION` with `~/.uak-kit` (or
+  `UAK_KIT_HOME`) and that clone's latest `v*` tag, and makes the update a step: `bash ~/.uak-kit/install.sh --mode
+  <mode> --update .` (`git pull` first when only the tag is newer). `UAK_KIT_PIN=1` stays on purpose.
+- **A Verify that does not parse never reaches the gate.** `uak plan` and `plan --amend` refuse it with bash's error,
+  and `uak lint` fails it. An unbalanced quote had been approved and then went red at the gate as "unexpected end of
+  file".
+- **A green Verify with a missing command is red.** `! rg …` passes wherever rg is missing (Git Bash on Windows has
+  none): the gate now refuses a passing Verify whose log says "command not found", and lint warns about a negated rg.
+- **`doctor` names the Verify tools this laptop lacks** (uv, npm, rg, go, mvn…, read from the plan's Verify lines),
+  with the winget line for uv on Windows.
+- **Keys reach the worktrees.** `wt new` links the main checkout's git-ignored `.env`, `web/.env` and `app/.env` into
+  the new worktree (a copy on Windows); the fastapi-react `vite.config.ts` reads the root `.env` (`envDir: ".."`);
+  `product-ui`'s map recipe gives the map's container a real height. The map had said "needs a key" in every worktree,
+  and in the README's screenshot.
+
 ## v5.8.0 · 2026-10-29 · The frontend gate reaches every screen
 Friends used the frontend gate and the result was still mediocre. Two audits found why: a static read of the kit
 next to the Hacktoberfest screens, and an experiment that built a product following the kit literally (5/10 for the

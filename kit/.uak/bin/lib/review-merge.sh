@@ -702,7 +702,7 @@ rm_gate_log() {
   printf ': %s (log: %s)' "$(one_line "$line" | tr '|' '/')" "$dst"
 }
 rm_prepare_candidate() {
-  local branch task_base verify
+  local branch task_base verify missing
   RECORD=$(task_file); CLAIM=$(claim_file)
   rm_authority_check || return 1
   resolve_task_tip || return 1; RM_REVIEWED_TIP=$RM_TIP
@@ -736,6 +736,13 @@ rm_prepare_candidate() {
   (cd "$RM_BUILD" && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash -c "$verify" < /dev/null) > "$TXROOT/gate-verify.log" 2>&1 ||
     { RM_REASON="Verify / acceptance red$(rm_gate_log verify)"; rm_gate_stop; return 1; }
   rm_gate_stop
+  # Green while a command was missing: a negated check (`! rg …`) passes for any code. Why (HackADA): rg was not on
+  # every machine, and a Verify meant to fail on the old brand name passed wherever it was missing.
+  # bash names itself first ("bash: line 1: rg: …", "/bin/bash: rg: …" on 3.2), so only the end of the line is fixed.
+  missing=$(grep -E ': command not found$' "$TXROOT/gate-verify.log" | head -n 1 | sed 's/: command not found$//;s/.*: //')
+  [ -z "$missing" ] || {
+    RM_REASON="Verify passed while $missing was missing on this machine: a negated check (! $missing …) passes for any code. Install $missing, or change Verify to grep -E (uak plan FILE --amend)"; return 1;
+  }
   git -C "$RM_BUILD" diff --quiet && [ "$(git -C "$RM_BUILD" write-tree)" = "$RM_TREE" ] || {
     RM_REASON='Smoke/Verify modified tracked files of the candidate; needs a new review'; return 1;
   }

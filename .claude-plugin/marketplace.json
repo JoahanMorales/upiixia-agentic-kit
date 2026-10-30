@@ -6,7 +6,7 @@
     {
       "name": "uak",
       "description": "Install and run the UPIIXIA Agentic Kit: parallel agents with claims, leases, bounded loops, reviews and merges over Git",
-      "version": "5.8.0",
+      "version": "5.9.0",
       "source": "./",
       "author": { "name": "Joahan Morales" }
     }

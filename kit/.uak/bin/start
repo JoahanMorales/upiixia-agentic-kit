@@ -37,6 +37,21 @@ case "$mode" in
   *) need "install the kit" "bash ~/.uak-kit/install.sh --mode sprint .   (deadline with judges)" \
           "bash ~/.uak-kit/install.sh --mode marathon .   (a product; add --solo if you are alone on the GitHub repo)"; finish;;
 esac
+# A project started from an older one keeps that one's kit. Why (HackADA): the repo began as a copy of the previous
+# hackathon's and ran uak 5.3.0, without five releases of fixes (the frontend gate among them).
+vnum() { printf '%s\n' "$1" | awk -F. '/^[0-9]+\.[0-9]+\.[0-9]+$/ {printf "%d\n", $1 * 1000000 + $2 * 1000 + $3; exit} {print 0}'; }
+kit_home=${UAK_KIT_HOME:-$HOME/.uak-kit}
+mine=$(tr -d '\r' < "$here/../VERSION" 2>/dev/null)
+newest=$(tr -d '\r' < "$kit_home/kit/.uak/VERSION" 2>/dev/null) where=$kit_home
+tag=$(git -C "$kit_home" ls-remote --tags --refs origin 'v*' 2>/dev/null | sed 's#.*refs/tags/v##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' |
+      sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
+pull=
+[ -z "$tag" ] || [ "$(vnum "$tag")" -le "$(vnum "${newest:-0.0.0}")" ] || { newest=$tag where="the kit's GitHub"; pull="git -C $kit_home pull --ff-only, then "; }
+if [ -n "$newest" ] && [ "$(vnum "$newest")" -gt "$(vnum "${mine:-0.0.0}")" ] && [ -z "${UAK_KIT_PIN:-}" ]; then
+  need "update the kit: this project has uak $mine and $where has $newest" \
+       "${pull}bash $kit_home/install.sh --mode $mode --update .   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)" \
+       "to stay on $mine on purpose: UAK_KIT_PIN=1 uak start"
+fi
 
 # 2. The remote: claims, branches and reviews all live there.
 url=$(git config --get "remote.$remote.url" 2>/dev/null) ||

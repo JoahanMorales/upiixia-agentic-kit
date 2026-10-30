@@ -294,6 +294,13 @@ done
 [ "$added" = yes ] || { cat "${TMPDIR:-/tmp}/wt-add.$$" >&2; rm -f "${TMPDIR:-/tmp}/wt-add.$$"; die "Could not create the worktree."; }
 rm -f "${TMPDIR:-/tmp}/wt-add.$$"
 write_env "$path" "$agent" "$human" "$id"
+# The git-ignored .env files of the main checkout reach the worktree (a link; a copy on Windows), so the app finds its
+# keys there too. Why (HackADA): the map said "needs a key" in every worktree; the keys lived in the main checkout only.
+for f in .env web/.env app/.env; do
+  [ -f "$root/$f" ] && [ ! -e "$path/$f" ] && [ -d "$(dirname "$path/$f")" ] || continue
+  git -C "$path" check-ignore -q "$f" 2>/dev/null || continue
+  if wt_windows; then cp "$root/$f" "$path/$f" 2>/dev/null; else ln -s "$root/$f" "$path/$f" 2>/dev/null; fi
+done
 
 set -- claim "$id" --branch "$branch" --worktree "$path"
 [ -z "$next_text" ] || set -- "$@" --next "$next_text"

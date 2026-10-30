@@ -28,6 +28,7 @@ Here there is no RSC or `next/font` (fonts come from `@fontsource`), Motion come
 Rules:
 - Accessibility (AA, 18 px, 48 px targets, focus) is a floor every screen meets, never a style: no gray government-form look unless the human asks.
 - Colors only from tokens and components only from `web/src/lib/ui`: `bash .uak/bin/design-lint` fails raw palette classes, hex colors and local copies.
+- One `.env`, at the repo root: `vite.config.ts` has `envDir: ".."`, so `VITE_*` keys are read from there (without it the map said "needs a key"). `wt new` links it into each worktree.
 - Call the backend only through `api<T>()`, under `/api`. Until an endpoint exists, use a labeled mock with the contract's shape.
 - Every data view has loading (skeleton), empty and error states.
 - No "Lorem ipsum", "John Doe" or "Acme". Respect `prefers-reduced-motion`.

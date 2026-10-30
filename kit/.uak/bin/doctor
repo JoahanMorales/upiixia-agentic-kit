@@ -137,6 +137,21 @@ if [ -f .mcp.json ] || [ -f .cursor/mcp.json ]; then
   if [ -n "$py" ] && "$py" .uak/bin/uak-mcp --version >/dev/null 2>&1; then ok "MCP server: $("$py" .uak/bin/uak-mcp --version) (Claude Code asks once to approve the project server)"
   else warn "MCP server configured but no Python 3.8+ to run it: the uak CLI still works; install Python or remove .mcp.json"; fi
 fi
+# The tools the plan's Verify commands run, on this machine. Why (HackADA, Windows): uv was not on PATH and rg was
+# missing; agents found out task by task, and a Verify that negated rg passed for any code.
+if [ -s .uak/TASKS.md ]; then
+  { cat .uak/TASKS.md; git show "$remote/claims:backlog/TASKS.md" 2>/dev/null; } | grep -E '^[-* ]*Verify:' | tr -d '\r' > "${TMPDIR:-/tmp}/uak-doctor-verify.$$"
+  lacking=
+  for t in uv npm npx pnpm yarn bun node rg go mvn cargo docker make java; do
+    grep -Eq "(^|[;&|(\`'\"!:[:space:]])$t([[:space:]]|\$)" "${TMPDIR:-/tmp}/uak-doctor-verify.$$" || continue
+    command -v "$t" >/dev/null 2>&1 || lacking="$lacking $t"
+  done
+  rm -f "${TMPDIR:-/tmp}/uak-doctor-verify.$$"
+  if [ -z "$lacking" ]; then ok "the tools the plan's Verify commands run are on PATH"
+  else
+    warn "Verify commands run$lacking, missing on this machine: install them before claiming$(case " $lacking " in *" uv "*) printf ' (uv on Windows: winget install astral-sh.uv, then open a new terminal)';; esac)$(case " $lacking " in *" rg "*) printf '; a negated rg (! rg) passes when rg is missing';; esac)"
+  fi
+fi
 # Harnesses, pacing and black box (v4.1)
 here_d=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 top_d=$(git rev-parse --show-toplevel 2>/dev/null || pwd)

@@ -76,6 +76,8 @@ class Runner:
         self.env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"})
         # Repeated-read dedupe and harness detection are tested on purpose (test_v42); fixtures see plain output.
         self.env.update({"UAK_DEDUPE": "off", "UAK_HARNESS": "test"})
+        # The kit-version check in uak start reads ~/.uak-kit; fixtures compare against no installed kit.
+        self.env["UAK_KIT_HOME"] = str(scratch / "no-kit-home")
         for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"):
             self.env.pop(k, None)
         # A user signing default must not make disposable fixture commits interactive.

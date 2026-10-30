@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        t: [test_hack, test_policy, test_coordination, test_review_merge, test_v21_security, test_v3, test_v41, test_v42, test_v43, test_v5, test_v51, test_v52, test_v53, test_v54, test_v55, test_v57, test_v57_tools, test_v57_install, test_v571, test_v58, mcp_tools]
+        t: [test_hack, test_policy, test_coordination, test_review_merge, test_v21_security, test_v3, test_v41, test_v42, test_v43, test_v5, test_v51, test_v52, test_v53, test_v54, test_v55, test_v57, test_v57_tools, test_v57_install, test_v571, test_v58, test_v59, mcp_tools]
     runs-on: windows-latest
     timeout-minutes: 30   # one test file per job: about 8 min for the longest
     defaults:

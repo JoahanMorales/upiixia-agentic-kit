@@ -1126,7 +1126,7 @@ plan_amend_mutate() {
   # A plan written on Windows is CRLF: "## PB-030\r" was an invalid ID and a list-form Verify kept a \r that broke
   # the gate's bash -c (portability audit, Oct 2026). Read an LF copy.
   [ "$PLAN_FILE" = "$TXROOT/plan-lf.md" ] || { tr -d '\r' < "$PLAN_FILE" > "$TXROOT/plan-lf.md" && coord_fold_backlog "$TXROOT/plan-lf.md" && PLAN_FILE="$TXROOT/plan-lf.md"; }
-  local id st c old_p new_p old_v new_v changes=
+  local id st c e old_p new_p old_v new_v changes=
   for id in $plan_ids; do
     valid_id "$id" || die "Invalid ID in plan: $id"
     [ "$(awk -v id="$id" '/^## / && $2==id {n++} END {print n+0}' "$BACKLOG")" -eq 1 ] || conflict "$id is not in the backlog: publish it with uak plan FILE (no --amend)."
@@ -1134,6 +1134,8 @@ plan_amend_mutate() {
     for key in Priority "Paths" "Depends on" "Verify"; do
       [ -n "$(ID=$id BACKLOG=$PLAN_FILE task_field "$key")" ] || die "$id needs $key."
     done
+    ! e=$(verify_parse_error "$(ID=$id BACKLOG=$PLAN_FILE task_field Verify)") ||
+      die "$id's Verify does not parse ($e): check its quotes. The merge gate runs it with bash -c."
     st=$(field "$TX/tasks/$id.md" State); st=${st:-AVAILABLE}
     case "$st" in
       AVAILABLE|CLAIMED|BLOCKED) ;;
@@ -1185,6 +1187,7 @@ plan_mutate() {
   plan_ids=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$PLAN_FILE")
   [ -n "$plan_ids" ] || die "The file has no task sections: each starts with a line \"## PB-030 · Title\" (the ID as in TASKS.md, uppercase), then - **Priority:**, - **Paths:**, - **Verify:**."
   if [ "$PLAN_AMEND" = yes ]; then plan_amend_mutate; return; fi
+  local e
   for ID in $plan_ids; do
     valid_id "$ID" || die "Invalid ID in plan: $ID"
     [ "$(awk -v id="$ID" '/^## / && $2==id {n++} END {print n+0}' "$BACKLOG" "$PLAN_FILE")" -eq 1 ] ||
@@ -1192,6 +1195,8 @@ plan_mutate() {
     for key in Priority "Paths" "Depends on" "Verify"; do
       [ -n "$(BACKLOG=$PLAN_FILE task_field "$key")" ] || die "$ID needs $key."
     done
+    ! e=$(verify_parse_error "$(BACKLOG=$PLAN_FILE task_field Verify)") ||
+      die "$ID's Verify does not parse ($e): check its quotes. The merge gate runs it with bash -c."
   done
   # A task the claim would refuse for good (its Paths under another task's OWNERS row): said now, not at claim time.
   { cat "$BACKLOG"; printf '\n'; cat "$PLAN_FILE"; } > "$TXROOT/plan-backlog"
@@ -1346,6 +1351,30 @@ lint_design() {
     overlaps "$TXROOT/lint-tp" "$TXROOT/lint-ui" || continue
     awk -v id="$id" '/^## / { on = ($2 == id) } on && /Recipe:/ { f = 1 } END { exit !f }' "$BACKLOG" ||
       say "LINT WARNING: $id writes UI but names no recipe: add to its Acceptance \"Recipe: <map + panel | dashboard | detail | flow | list> · Hero: <element>\" (web/DESIGN.md, ## Screens)." >&2
+  done
+}
+# A Verify bash cannot parse is red at the gate whatever the code does; prints bash's error. Why (HackADA): an
+# unbalanced quote in a published Verify sent an approved PR to the human queue as "unexpected end of file".
+verify_parse_error() {
+  local v err
+  v=$(printf '%s\n' "$1" | sed 's/^`//;s/`$//')
+  err=$(bash -n -c "$v" 2>&1) && return 1
+  printf '%s\n' "$err" | head -n 1 | sed 's/^bash: -c: //'
+}
+# `! rg …` passes on a machine without rg (command not found is a failure, and ! turns it into success). Why
+# (HackADA): a negated rg in Verify passed for any code where rg was missing; Git Bash on Windows ships none.
+verify_negates_rg() { printf '%s\n' "$1" | grep -Eq '(^|[;&|(`'"'"'"[:space:]])![[:space:]]+rg([[:space:]]|$)'; }
+lint_verify_syntax() {
+  [ -s "$BACKLOG" ] || return 0
+  local id v e
+  for id in $(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG"); do
+    v=$(ID=$id task_field Verify); [ -n "$v" ] || continue
+    if e=$(verify_parse_error "$v"); then
+      say "LINT: $id's Verify does not parse ($e): check its quotes; the merge gate runs it with bash -c (uak plan FILE --amend)." >&2
+      LINT_ERRORS=$((LINT_ERRORS + 1))
+    fi
+    ! verify_negates_rg "$v" ||
+      say "LINT WARNING: $id's Verify negates rg: where rg is missing (Git Bash on Windows), \`! rg …\` passes for any code. Use \`! grep -rniE …\`." >&2
   done
 }
 lint_verify_scaffold() {
@@ -1636,6 +1665,7 @@ EOF_OC
   # Depends on. Why (Hacktoberfest): 12 backend tasks said "Depends on: None" while their `uv run pytest` needed the
   # scaffold's pyproject; agents verified on local merges of it, stacked branches and clashed with its ruff config.
   lint_verify_scaffold
+  lint_verify_syntax
   lint_design
   # sprint without a freeze = features until the last minute (Hack-Nation: 8 PRs, incl. a product rename, in the last 6 h).
   if [ -f "$ROOT/.uak/PROJECT.md" ] && grep -Eq '^[-* ]*Mode:[* ]*sprint' "$ROOT/.uak/PROJECT.md" &&
