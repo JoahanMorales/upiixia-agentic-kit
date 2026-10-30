@@ -65,7 +65,7 @@ def the_gate_stops_what_verify_started(r):
     out = rm.actor(f, "agent-1", "merge", "HACK-001", now=1000030, allowed=None, timeout=300)
     expect(out.returncode == 0 and "INTEGRATED" in out.stdout, out.stdout + out.stderr)
     time.sleep(1)
-    alive = subprocess.run(["pgrep", "-f", mark], capture_output=True, text=True).stdout.split()
+    alive = subprocess.run(["pgrep", "-f", mark], capture_output=True, text=True, errors="replace").stdout.split()
     for pid in alive:
         subprocess.run(["kill", pid])
     expect(not alive, "no server of the gate left running: " + " ".join(alive))

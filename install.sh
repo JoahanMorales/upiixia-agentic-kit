@@ -230,6 +230,14 @@ case "$stack" in spring-boot) # Maven/Gradle build output
   for line in target/ .gradle/ build/ '*.class'; do
     grep -qxF -- "$line" "$target/.gitignore" || { printf '%s\n' "$line" >> "$target/.gitignore"; say "  + .gitignore: $line"; }
   done;; esac
+# LF for the kit's scripts whatever core.autocrlf says. Why (Windows audit, Oct 2026): Git for Windows sets autocrlf=true
+# system-wide, so every .uak/bin script was CRLF on disk: Git Bash copes, but WSL, Docker or a CI container mounting the
+# checkout stop at "$'\r': command not found". text=auto leaves binary files alone.
+touch "$target/.gitattributes"
+[ ! -s "$target/.gitattributes" ] || [ -z "$(tail -c 1 "$target/.gitattributes")" ] || printf '\n' >> "$target/.gitattributes"
+for line in '.uak/** text=auto eol=lf' '.githooks/** text=auto eol=lf' '*.sh text=auto eol=lf'; do
+  grep -qxF -- "$line" "$target/.gitattributes" || { printf '%s\n' "$line" >> "$target/.gitattributes"; say "  + .gitattributes: $line"; }
+done
 # Another hook manager (husky, lefthook, pre-commit) owns core.hooksPath: keep it and say how to add the scan.
 # Why: the installer replaced a husky hooksPath, and every husky hook stopped running without a word.
 cur_hooks=$(git -C "$target" config --get core.hooksPath 2>/dev/null || true)

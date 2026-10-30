@@ -322,6 +322,13 @@ uak 5.3.0: none of the frontend gate above. `uak start` now says when the projec
 Verify that hit "command not found" (a negated `rg` passed on Windows, where Git Bash has none), `doctor` names the
 Verify tools a laptop lacks, and each worktree gets the main checkout's `.env`, so the map stops asking for a key.
 
+**v5.9.1: what Windows runs is not what the kit found.** A [Windows audit](docs/blackbox/windows-audit-2026-10.md) of
+the same project on an event laptop: `python3` was the Store alias and doctor said OK; `start` could not tell the kit
+was old without `~/.uak-kit`; the updated project still had no `tzdata`, a Node under Vite 8's `engines` and a Vite
+without `envDir`. doctor now runs Python instead of finding it and checks those three, `start` asks the kit's GitHub,
+Codex/Cursor/Gemini hooks start through `git` (a bare `bash` from PowerShell is WSL), and the installer pins the kit's
+scripts to LF.
+
 ## Deploy in one command: `uak deploy`
 
 ```text
@@ -400,6 +407,7 @@ Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and ea
 | A solo marathon project (black box shared with us) | 1 human on a GitHub repo, two hours without a first claim | v5.2.1/v5.3: `--solo` review, a root task may write where its dependent owns, `uak start`, `next` says why |
 | Chilangatón 2026, **first place** ([autopsy](docs/blackbox/chilangaton-2026-10.md)) | 7 h, 5 humans, 10 Claude Code identities on macOS and Windows, 35 tasks, venue Wi-Fi | v5.4: the frontend gate (`product-ui`, `design-lint`, a design lock picked from screenshots), `uak deploy`, reviews only to agents, CI that installs the stack, a lost merge race is OK |
 | HackADA 2026, **first place** ([autopsy](docs/blackbox/hackada-2026-10.md)) | ~4 h, 9 Claude Code identities on macOS and Windows, 25 of 27 tasks integrated, on a repo copied from the previous event (kit v5.3.0) | v5.9: `start` says when the kit is old, plans refuse a Verify that does not parse, the gate refuses a green Verify with a missing command, `doctor` checks the Verify tools, worktrees get the `.env` |
+| HackADA on a Windows laptop ([audit](docs/blackbox/windows-audit-2026-10.md)) | the suite and the product on Git Bash, Node 20.16, the Store's `python3`, no uv or rg | v5.9.1: doctor runs Python and checks `tzdata`, Node `engines` and `envDir`; `start` asks the kit's GitHub; hooks through `git`; LF scripts |
 | Hacktoberfest 2026 ([autopsy](docs/blackbox/hacktoberfest-2026-10.md)) | ~16 h overnight, 5 humans, 13 identities on Claude Code and Codex, macOS and Windows, 33 of 35 tasks integrated | v5.5: a reject stands until a new commit, no verdict over a held review, no review offers to a human the Mac file system renamed, gate false positives gone (fixtures, carried files, its own port), `.env.example` readable, Codex `--add-dir`, `wt stop` on Windows; plan rules for a contract no task implements and a demo that only replays its recording. v5.6–v5.7: a nine-part audit after it (claims cannot grant authority, the gate runs the backlog's Verify, human-only commands ask the human, no secrets on claims, task threads reach the next owner, the merge lock is renewed) |
 
 Hack-Nation 2026 in detail:
@@ -415,7 +423,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**242 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
+**247 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
 
 ## Works with
 | Tool | How |
@@ -504,7 +512,7 @@ They combine well: plan with Spec Kit or BMAD, watch agents in a GUI if you like
 
 **And from agent orchestrators or swarms?** They spawn agents on one machine. This kit has no daemon: any agent, anywhere, coordinates through `git push`.
 
-**Windows?** Yes, with Git Bash: a 10-day team event ran on 4 Windows laptops (Claude Code, Codex, Cursor), and every push runs the whole suite on a Windows runner. The MCP server starts through `git` and runs its tools with Git Bash, never WSL's `bash.exe`. macOS ships Bash 3.2, which is supported. In PowerShell terminals, the MCP tools avoid shell quoting for message text (`$`, quotes, accents); the server finds a real Python (`python3`, `python` or `py`, skipping the Store alias).
+**Windows?** Yes, with Git Bash: a 10-day team event ran on 4 Windows laptops (Claude Code, Codex, Cursor), and every push runs the whole suite on a Windows runner. The MCP server starts through `git` and runs its tools with Git Bash, never WSL's `bash.exe`. macOS ships Bash 3.2, which is supported. In PowerShell terminals, the MCP tools avoid shell quoting for message text (`$`, quotes, accents); the server finds a real Python (`python3`, `python` or `py`, skipping the Store alias). The Codex, Cursor and Gemini hooks start through `git` too, and `doctor` names what a Windows laptop lacks: uv, rg, a Node that meets the project's `engines`, `tzdata` for `zoneinfo`.
 
 **Will it burn my Opus (or Astra) budget?** No. The strong tier is pinned to checkpoints, the guard blocks fan-out beyond the per-session budget, and `uak pace` tightens it when your 5-hour or weekly window runs low. Run `uak tokens --by model` to see the real spend per tier.
 

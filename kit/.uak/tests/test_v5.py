@@ -8,6 +8,7 @@ import os
 import re
 import shlex
 import shutil
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -150,7 +151,7 @@ def gemini_hooks(r):
     w = f.worktrees[0]
     settings = json.loads((r.package / ".gemini/settings.json").read_text(encoding="utf-8"))
     cmds = [h["command"] for g in settings["hooks"]["BeforeTool"] for h in g["hooks"]]
-    expect(any("guard\" bash" in c for c in cmds) and any("wrap gemini" in c for c in cmds), str(cmds))
+    expect(any("guard bash" in c for c in cmds) and any("wrap gemini" in c for c in cmds), str(cmds))
     def hook(mode, payload, env=None):
         (w / ".git-payload.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         return r.run([r.bash, "-c", "bash .uak/bin/hook " + mode + " < .git-payload.json"], cwd=w, env=env or {}, allowed=None)
@@ -285,7 +286,7 @@ def wait_instead_of_polling(r):
     tip = rm.ready(f, 0, "HACK-001")
     env = dict(os.environ, UAK_AGENT="agent-1", UAK_HUMAN="", UAK_WAIT_EVERY="1", UAK_REMOTE="origin")
     proc = subprocess.Popen([r.bash, ".uak/bin/uak", "wait", "--for", "approve", "--timeout", "60"], cwd=f.worktrees[0],
-                            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
     time.sleep(2.5)
     rm.approve(f, "HACK-001", tip, now=int(time.time()))
     out, _ = proc.communicate(timeout=90)
@@ -372,8 +373,8 @@ class Mcp:
     def __init__(self, r, cwd, env=None):
         import subprocess, queue
         self.q = queue.Queue()
-        self.p = subprocess.Popen(["python3", ".uak/bin/uak-mcp"], cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=dict(os.environ, **(env or {})))
+        self.p = subprocess.Popen([sys.executable, ".uak/bin/uak-mcp"], cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL, text=True, errors="replace", encoding="utf-8", env=dict(os.environ, **(env or {})))
         import threading
         threading.Thread(target=self._read, daemon=True).start()
         self.n = 0

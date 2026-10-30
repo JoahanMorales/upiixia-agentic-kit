@@ -317,7 +317,7 @@ def map_in_the_loop(r):
     w = f.worktrees[1]
     r.run([r.bash, ".uak/bin/map", "build"], cwd=w)
     def send(payload):
-        p = subprocess.run([r.bash, ".uak/bin/hook", "tick"], cwd=w, input=json.dumps(payload, ensure_ascii=False), text=True, encoding="utf-8",
+        p = subprocess.run([r.bash, ".uak/bin/hook", "tick"], cwd=w, input=json.dumps(payload, ensure_ascii=False), text=True, errors="replace", encoding="utf-8",
                            capture_output=True, env={**r.env, "UAK_AGENT": ""}, timeout=60)
         return p.stdout
     read = send({"session_id": "s1", "tool_name": "Read", "tool_input": {"file_path": str(w / "lib/config.py")}})
@@ -328,7 +328,7 @@ def map_in_the_loop(r):
     expect("data_path is defined at lib/config.py:1" in grep and "called from 1 place(s)" in grep, "a symbol search gets its definition and callers: " + grep)
     shell = send({"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": "rg -n 'load' app"}})
     expect("load is defined at lib/io.py" in shell, "grep/rg in a shell too: " + shell)
-    cur = subprocess.run([r.bash, ".uak/bin/hook", "tick", "cursor"], cwd=w, text=True, capture_output=True, timeout=60,
+    cur = subprocess.run([r.bash, ".uak/bin/hook", "tick", "cursor"], cwd=w, text=True, errors="replace", capture_output=True, timeout=60,
                          input=json.dumps({"conversation_id": "c1", "tool_name": "Read", "tool_input": {"path": "app/page.py"}}),
                          env={**r.env, "UAK_AGENT": ""}).stdout
     expect(cur.startswith('{"additional_context":"') and "uak map: app/page.py" in cur, "Cursor postToolUse gets the same line: " + cur)
@@ -340,7 +340,7 @@ def map_in_the_loop(r):
     hack(f, 0, "plan", plan, UAK_HUMAN="boss")
     sent = hack(f, 0, "msg", "impact:HACK-003", "--kind", "contract", "api() takes options now", now=1000005, allowed=None)
     expect(sent.returncode == 0 and "task:HACK-004" in sent.stdout, "impact:ID works for tasks published on claims: " + sent.stdout + sent.stderr)
-    subprocess.run([r.bash, ".uak/bin/hook", "session-start"], cwd=w, input="{}", text=True, capture_output=True,
+    subprocess.run([r.bash, ".uak/bin/hook", "session-start"], cwd=w, input="{}", text=True, errors="replace", capture_output=True,
                    env={**r.env, "UAK_AGENT": ""}, timeout=120)
     counted = calls.read_text(encoding="utf-8") if calls.exists() else ""
     expect("lens" in counted and "hook-" in counted, "pushes and hook calls are counted apart: " + counted[-300:])
@@ -362,10 +362,10 @@ def sessions_leave_a_trace(r):
            "every heartbeat writes where the task stands: " + rec)
     st = hack(f, 1, "status", "--task", "HACK-001", now=1000008)
     expect("Progress: 1 commit(s)" in st.stdout, "status shows it to the next owner: " + st.stdout)
-    clear = subprocess.run([r.bash, ".uak/bin/hook", "session-end"], cwd=f.worktrees[1], input='{"reason":"clear"}', text=True,
+    clear = subprocess.run([r.bash, ".uak/bin/hook", "session-end"], cwd=f.worktrees[1], input='{"reason":"clear"}', text=True, errors="replace",
                            capture_output=True, env={**r.env, "UAK_AGENT": "agent-2", "UAK_NOW": "1000009"}, timeout=60)
     expect("meta/agents/agent-2.md" not in f.files("meta/"), "/clear is not the end of a session: " + clear.stderr)
-    subprocess.run([r.bash, ".uak/bin/hook", "session-end"], cwd=f.worktrees[1], input='{"reason":"prompt_input_exit"}', text=True,
+    subprocess.run([r.bash, ".uak/bin/hook", "session-end"], cwd=f.worktrees[1], input='{"reason":"prompt_input_exit"}', text=True, errors="replace",
                    capture_output=True, env={**r.env, "UAK_AGENT": "agent-2", "UAK_NOW": "1000009"}, timeout=60)
     expect("Session-Ended: 1000009" in f.show("meta/agents/agent-2.md"), "SessionEnd runs uak away")
     f.hack(0, "done", "HACK-001", "--pr", "https://example.test/pull/1", "--evidence", "ok", now=1000010)
@@ -433,7 +433,7 @@ def upstream_drift_is_told(r):
     expect("UPSTREAM: lib/config.py changed on main" in d.stdout and "your app/page.py imports it" in d.stdout
            and "HACK-001: data_path prefixes data/" in d.stdout and "git merge --no-edit origin/main" in d.stdout, d.stdout)
     payload = json.dumps({"session_id": "d1", "tool_name": "Bash", "tool_input": {"command": "true"}})
-    tick = lambda: subprocess.run([r.bash, ".uak/bin/hook", "tick"], cwd=w, input=payload, text=True, capture_output=True,
+    tick = lambda: subprocess.run([r.bash, ".uak/bin/hook", "tick"], cwd=w, input=payload, text=True, errors="replace", capture_output=True,
                                   env={**r.env, "UAK_AGENT": "agent-2"}, timeout=60).stdout
     tick()
     gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
@@ -518,7 +518,7 @@ def commands_come_up_when_they_apply(r):
     scan = r.run([r.bash, ".uak/bin/secret-scan", "--staged"], cwd=w, allowed=None)
     expect(scan.returncode != 0 and "uak secret-exception ID --path FILE" in scan.stderr, "the way out of a false positive: " + scan.stderr)
     r.g(w, "reset", "-q", "leak.txt")
-    start = subprocess.run([r.bash, ".uak/bin/hook", "session-start"], cwd=w, input='{"source":"compact"}', text=True,
+    start = subprocess.run([r.bash, ".uak/bin/hook", "session-start"], cwd=w, input='{"source":"compact"}', text=True, errors="replace",
                            capture_output=True, env={**r.env, "UAK_AGENT": "agent-1"}, timeout=120).stdout
     expect("context was just compacted" in start and "uak checkpoint HACK-001" in start, "after a compaction: checkpoint now: " + start[:400])
     digest = rm.actor(f, "boss", "digest", now=1000000, human=True)
@@ -533,7 +533,7 @@ def a_smaller_root(r):
     r.g(t, "init", "-q", "-b", "main")
     r.run([r.bash, str(pkg / "install.sh"), "--mode", "sprint", "--harness", "claude", "--no-mcp", str(t)], cwd=t)
     root = sorted(p.name for p in t.iterdir() if p.name != ".git")
-    expect(root == [".claude", ".github", ".gitignore", ".uak", "AGENTS.md"], "claude only, no MCP: " + str(root))
+    expect(root == [".claude", ".gitattributes", ".github", ".gitignore", ".uak", "AGENTS.md"], "claude only, no MCP: " + str(root))
     expect((t / ".claude/CLAUDE.md").read_text(encoding="utf-8").splitlines()[2] == "@../AGENTS.md", "CLAUDE.md imports ../AGENTS.md")
     expect(r.g(t, "config", "core.hooksPath").stdout.strip() == ".uak/githooks", "the scanner hook lives in .uak")
     old = r.scratch / "v51-root-old"; old.mkdir()

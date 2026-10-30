@@ -15,7 +15,7 @@ def installer(r):
     inst = str(r.package.parent / "install.sh")
     def repo(name):
         d = r.scratch / ("v57-inst-" + name); d.mkdir(parents=True); r.g(d, "init", "-q", "-b", "main"); return d
-    run = lambda *a: subprocess.run([r.bash, inst, *map(str, a)], capture_output=True, text=True, env=r.env, timeout=180,
+    run = lambda *a: subprocess.run([r.bash, inst, *map(str, a)], capture_output=True, text=True, errors="replace", env=r.env, timeout=180,
                                     stdin=subprocess.DEVNULL)
     return repo, run
 

@@ -1,5 +1,26 @@
 # Changelog
 
+## v5.9.1 · 2026-10-30 · What Windows runs is not what the kit found
+A teammate ran the kit's suite and the HackADA product on a Windows laptop of the event
+([docs/blackbox/windows-audit-2026-10.md](docs/blackbox/windows-audit-2026-10.md), 19 rows). Nothing hung; what broke
+was the gap between finding a program and running it, and between `.uak/` and the project's own files. Each fix has a
+test in `test_v591.py` that fails on v5.9.0.
+- **doctor runs Python instead of finding it.** `python3` was the Store alias (exits 49) and doctor said OK; it now
+  tries `python3`, `python` and `py` and names the one that answers. The tests use `sys.executable`, decode child output
+  with `errors="replace"`, and the product CI's syntax step falls back to `python`.
+- **`uak start` knows the latest kit without `~/.uak-kit`.** It asks the kit's GitHub for the newest tag (5 s low-speed
+  limit offline) and says `git clone … ~/.uak-kit, then install.sh --update`; the stray "No such file or directory"
+  line is gone.
+- **doctor checks what `--update` cannot touch:** `zoneinfo` without `tzdata` in `pyproject.toml`/`uv.lock` (FAIL on
+  Windows), a Node under the `engines` of the project or its direct dependencies (FAIL: npm had skipped Vite 8's native
+  binding and the build failed), and a Vite one level down with no `envDir` while the root `.env` has the keys.
+- **Codex, Cursor and Gemini hooks never run a bare `bash`.** From PowerShell or cmd that is WSL's launcher; each hook
+  now starts through `git -c alias…` (Git's own shell, from the top level, without the alias's git variables).
+- **LF for the kit's scripts.** `install.sh` adds `text=auto eol=lf` for `.uak/**`, `.githooks/**` and `*.sh` to the
+  project's `.gitattributes`.
+- Tests: a push the local remote hung up on is retried once; the handover test asks bash for the path (`/tmp` is
+  `%TEMP%` in Git Bash); the MCP tool tests close their pipes.
+
 ## v5.9.0 · 2026-10-29 · A copied repo keeps its old kit
 We won HackADA (first place) on a repository copied from the previous hackathon, `.uak/` included: it ran uak 5.3.0,
 without the frontend gate or any fix of v5.4 to v5.8. The autopsy ([docs/blackbox/hackada-2026-10.md](docs/blackbox/hackada-2026-10.md))

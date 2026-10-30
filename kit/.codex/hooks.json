@@ -1,11 +1,11 @@
 {
   "hooks": {
-    "SessionStart": [{"hooks": [{"type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/hook\" session-start", "timeout": 45}]}],
-    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/guard\" prompt", "timeout": 5}]}],
-    "PreToolUse": [{"matcher": "Bash|shell|exec_command|local_shell", "hooks": [{"type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/guard\" bash", "timeout": 5, "statusMessage": "uak guard"}]}, {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/hook\" wrap codex", "timeout": 5}]}],
-    "PostToolUse": [{"hooks": [{"type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/hook\" tick", "timeout": 10}]}],
-    "SubagentStart": [{"hooks": [{"type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/guard\" agent", "timeout": 5}]}],
-    "SubagentStop": [{"hooks": [{"type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/guard\" agent-stop", "timeout": 5}]}],
-    "Stop": [{"hooks": [{"type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.uak/bin/hook\" stop", "timeout": 30}]}]
+    "SessionStart": [{"hooks": [{"type": "command", "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/hook session-start\" uak-hook", "timeout": 45}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/guard prompt\" uak-hook", "timeout": 5}]}],
+    "PreToolUse": [{"matcher": "Bash|shell|exec_command|local_shell", "hooks": [{"type": "command", "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/guard bash\" uak-hook", "timeout": 5, "statusMessage": "uak guard"}]}, {"matcher": "Bash", "hooks": [{"type": "command", "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/hook wrap codex\" uak-hook", "timeout": 5}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/hook tick\" uak-hook", "timeout": 10}]}],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/guard agent\" uak-hook", "timeout": 5}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/guard agent-stop\" uak-hook", "timeout": 5}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/hook stop\" uak-hook", "timeout": 30}]}]
   }
 }

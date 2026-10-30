@@ -78,6 +78,7 @@ class Runner:
         self.env.update({"UAK_DEDUPE": "off", "UAK_HARNESS": "test"})
         # The kit-version check in uak start reads ~/.uak-kit; fixtures compare against no installed kit.
         self.env["UAK_KIT_HOME"] = str(scratch / "no-kit-home")
+        self.env["UAK_KIT_URL"] = str(scratch / "no-kit-remote")  # start asks the kit's GitHub when there is no clone
         for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"):
             self.env.pop(k, None)
         # A user signing default must not make disposable fixture commits interactive.
@@ -92,6 +93,10 @@ class Runner:
         if env:
             effective.update(env)
         result = run_tree(command, cwd, effective, timeout)
+        # Git for Windows 2.45 sometimes drops a push to a local bare repo: "unexpected disconnect while reading
+        # sideband packet", "the remote end hung up". A machine hiccup, not the kit: retry it once.
+        if result.returncode and "push" in map(str, command) and "hung up unexpectedly" in result.stderr:
+            result = run_tree(command, cwd, effective, timeout)
         if allowed is not None and result.returncode not in allowed:
             raise Failure("Command failed (%s): %s\n%s\n%s" % (
                 result.returncode, " ".join(map(str, command)), result.stdout[-8000:],

@@ -163,7 +163,7 @@ def wt_stop_finds_a_windows_listener(r):
         os.chmod(shims / s, 0o755)
     script = funcs + '\nprintf "%s|" $(port_pids 8100); printf "%s|" $(port_pids 8101)\n'
     env = dict(os.environ, PATH=str(shims) + os.pathsep + os.environ.get("PATH", ""))
-    out = subprocess.run([r.bash, "-c", script], env=env, capture_output=True, text=True, timeout=30).stdout
+    out = subprocess.run([r.bash, "-c", script], env=env, capture_output=True, text=True, errors="replace", timeout=30).stdout
     expect(out == "4242|5151|", "listeners on 8100 and 8101 only: " + out)
     return {"pids": out}
 
@@ -190,9 +190,9 @@ def doctor_repairs_a_checkout_made_bare(r):
     r.g(t, "init", "-q", "-b", "main")
     r.g(t, "config", "core.bare", "true")
     doctor = str(r.package / ".uak/bin/doctor")
-    seen = subprocess.run([r.bash, doctor], cwd=t, env=r.env, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+    seen = subprocess.run([r.bash, doctor], cwd=t, env=r.env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, stdin=subprocess.DEVNULL)
     expect(seen.returncode == 1 and "core.bare=true on a checkout" in seen.stdout and "config core.bare false" in seen.stdout, seen.stdout + seen.stderr)
-    fixed = subprocess.run([r.bash, doctor, "--fix"], cwd=t, env=r.env, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+    fixed = subprocess.run([r.bash, doctor, "--fix"], cwd=t, env=r.env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, stdin=subprocess.DEVNULL)
     expect("core.bare=false restored" in fixed.stdout, fixed.stdout + fixed.stderr)
     expect(r.g(t, "config", "core.bare").stdout.strip() == "false", "the checkout works again")
     return {"bare": "repaired"}
@@ -275,19 +275,19 @@ def guard_reads_the_command_git_runs(r):
     wrong = []
     for c in block + allow:
         out = subprocess.run([r.bash, g, "bash"], input=json.dumps({"tool_name": "Bash", "tool_input": {"command": c}}),
-                             capture_output=True, text=True, cwd=str(r.scratch), timeout=60)
+                             capture_output=True, text=True, errors="replace", cwd=str(r.scratch), timeout=60)
         if out.returncode != (2 if c in block else 0):
             wrong.append("%r -> %d" % (c, out.returncode))
     expect(not wrong, "; ".join(wrong))
     heredoc = "cat > f <<'X'\n" + "\n".join("line %d" % i for i in range(300)) + "\nX\ngit push --force"
     started = time.monotonic()
     long = subprocess.run([r.bash, g, "bash"], input=json.dumps({"tool_name": "Bash", "tool_input": {"command": heredoc}}),
-                          capture_output=True, text=True, cwd=str(r.scratch), timeout=60)
+                          capture_output=True, text=True, errors="replace", cwd=str(r.scratch), timeout=60)
     expect(long.returncode == 2 and time.monotonic() - started < 4, "a long command is checked within the hook timeout")
     for text, want in (("Build the task-assignment-notification-service next", 0), ("the password reset email is broken", 0),
                        ("La contraseña es obligatoria", 0), ("my key " + "sk-" + "proj-AbC123dEf456GhI789jKl0", 2),
                        ("sk_" + "live_51HxYzAbCdEf1234567890", 2), ("la contraseña de sudo es " + "Hunter2024!", 2)):
-        got = subprocess.run([r.bash, g, "check-prompt", text], capture_output=True, text=True, cwd=str(r.scratch), timeout=30).returncode
+        got = subprocess.run([r.bash, g, "check-prompt", text], capture_output=True, text=True, errors="replace", cwd=str(r.scratch), timeout=30).returncode
         expect(got == want, "%r -> %d" % (text, got))
     return {"guard": True}
 
@@ -333,7 +333,7 @@ def the_installer_keeps_what_the_project_had(r):
     inst = str(r.package.parent / "install.sh")
     def repo(name):
         d = r.scratch / ("v55-inst-" + name); d.mkdir(parents=True); r.g(d, "init", "-q", "-b", "main"); return d
-    run = lambda *a: subprocess.run([r.bash, inst, *map(str, a)], capture_output=True, text=True, env=r.env, timeout=180, stdin=subprocess.DEVNULL)
+    run = lambda *a: subprocess.run([r.bash, inst, *map(str, a)], capture_output=True, text=True, errors="replace", env=r.env, timeout=180, stdin=subprocess.DEVNULL)
     a = repo("gitignore"); (a / ".gitignore").write_text("node_modules", encoding="utf-8")
     expect(run("--mode", "sprint", a).returncode == 0, "installs")
     expect((a / ".gitignore").read_text(encoding="utf-8").splitlines()[:2] == ["node_modules", ".env"], (a / ".gitignore").read_text(encoding="utf-8")[:60])

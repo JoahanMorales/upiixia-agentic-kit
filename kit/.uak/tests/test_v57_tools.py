@@ -23,7 +23,7 @@ def guard_run(r, cwd, cmd, harness=None, tool="Bash"):
     g = str(r.package / ".uak/bin/guard")
     args = [r.bash, g, "bash"] + ([harness] if harness else [])
     return subprocess.run(args, input=json.dumps({"tool_name": tool, "tool_input": {"command": cmd}}),
-                          capture_output=True, text=True, cwd=str(cwd), env=r.env, timeout=60)
+                          capture_output=True, text=True, errors="replace", cwd=str(cwd), env=r.env, timeout=60)
 
 
 def guard_keeps_authority_clock_and_merges_human(r):
@@ -53,7 +53,7 @@ def guard_keeps_authority_clock_and_merges_human(r):
     for c in (human, "export UAK_HUMAN=ana", "env UAK_HUMAN=ana bash .uak/bin/uak plan f.md"):
         other = guard_run(r, cwd, c)
         expect(other.returncode == 2 and "own terminal" in other.stderr, "a harness without ask blocks: %r %s" % (c, other.stderr))
-    check = subprocess.run([r.bash, str(r.package / ".uak/bin/guard"), "check", human], capture_output=True, text=True, cwd=str(cwd), timeout=60)
+    check = subprocess.run([r.bash, str(r.package / ".uak/bin/guard"), "check", human], capture_output=True, text=True, errors="replace", cwd=str(cwd), timeout=60)
     expect(check.returncode == 3 and "ask" in check.stderr, "guard check says ask: " + check.stderr)
     # A blocked rule wins over the question.
     both = guard_run(r, cwd, "UAK_HUMAN=ana git push --force origin x", harness="claude")
@@ -82,7 +82,7 @@ def subagent_cap_holds_under_parallel_launches(r):
         return t
     def launch(t, i):
         payload = json.dumps({"tool_name": "Agent", "session_id": "s%d" % i, "tool_input": {"subagent_type": "uak-scout"}})
-        return subprocess.run([r.bash, g, "agent"], input=payload, capture_output=True, text=True, cwd=str(t), env=r.env, timeout=60).returncode
+        return subprocess.run([r.bash, g, "agent"], input=payload, capture_output=True, text=True, errors="replace", cwd=str(t), env=r.env, timeout=60).returncode
     seq = repo("v57-cap-seq")
     cap = sum(1 for i in range(12) if launch(seq, i) == 0)
     expect(1 <= cap < 12, "a cap applies: %d" % cap)
@@ -128,7 +128,7 @@ def hook(r, t, event, payload, env=None):
     e = {"UAK_AGENT": "agent-1", "UAK_POLL_SECONDS": "999999", "UAK_COACH": "off", "UAK_LENS": "off"}
     e.update(env or {})
     return r.run([r.bash, ".uak/bin/hook", event], cwd=t, env=e, allowed=None) if payload is None else \
-        subprocess.run([r.bash, ".uak/bin/hook", event], input=json.dumps(payload), capture_output=True, text=True, cwd=str(t),
+        subprocess.run([r.bash, ".uak/bin/hook", event], input=json.dumps(payload), capture_output=True, text=True, errors="replace", cwd=str(t),
                        env={**r.env, **e}, timeout=120)
 
 

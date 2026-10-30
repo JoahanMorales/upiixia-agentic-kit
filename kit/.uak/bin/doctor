@@ -11,6 +11,7 @@ ok()   { printf 'OK    %s\n' "$*"; }
 warn() { printf 'WARN  %s\n' "$*"; warns=$((warns + 1)); }
 bad()  { printf 'FAIL  %s\n' "$*"; fails=$((fails + 1)); }
 field() { sed -n "s/^[-* ]*$1:[* ]*//p" "$project" 2>/dev/null | head -n 1 | tr -d '\r`'; }
+self_d=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)  # before the cd to the top level: $0 may be relative
 
 # A checkout's .git marked bare: uak-mcp 5.4.5-5.5.0, started through its git alias in a task worktree, re-initialized
 # the main repository (core.bare=true) and git then refused every command there ("must be run in a work tree").
@@ -28,8 +29,10 @@ remote=${UAK_REMOTE:-origin}
 bash_major=${BASH_VERSINFO[0]:-0}
 [ "$bash_major" -ge 3 ] && ok "bash $BASH_VERSION" || bad "bash 3.2+ required"
 git_v=$(git --version | awk '{print $3}'); ok "git $git_v"
-command -v python3 >/dev/null 2>&1 && ok "python3 $(python3 -c 'import sys;print(sys.version.split()[0])') (kit tests only)" ||
-  warn "no python3: uak works, but the kit test suite cannot run"
+# Run each candidate: on Windows python3 is often the Store alias, found by command -v but exiting 49 with a message.
+py_v=; for c in python3 python py; do py_v=$("$c" -c 'import sys;print(sys.version.split()[0])' 2>/dev/null) && [ -n "$py_v" ] && { py_c=$c; break; }; py_v=; done
+[ -n "$py_v" ] && ok "$py_c $py_v (kit tests and the MCP server only)" ||
+  warn "no Python that runs (python3, python or py; a Windows Store alias does not count): uak works, but the kit tests and the MCP server cannot run"
 if printf 'AKIA%s\n' ZZZZZZZZZZZZZZZZ | grep -Eq 'AKIA[A-Z0-9]{16}'; then ok "grep -E supports intervals (secret scanner active)"
 else bad "grep -E lacks intervals: the secret scanner would miss keys"; fi
 # </dev/null: BSD awk (macOS) ignores -W, takes "version" as the program and would wait on the terminal.
@@ -151,6 +154,34 @@ if [ -s .uak/TASKS.md ]; then
   else
     warn "Verify commands run$lacking, missing on this machine: install them before claiming$(case " $lacking " in *" uv "*) printf ' (uv on Windows: winget install astral-sh.uv, then open a new terminal)';; esac)$(case " $lacking " in *" rg "*) printf '; a negated rg (! rg) passes when rg is missing';; esac)"
   fi
+fi
+# The product's own setup, which install.sh --update never touches. Why (Windows audit of HackADA, Oct 2026): the
+# stack's fixes reached the template, not the copied project. No tzdata (every test failed to import on Windows), Vite
+# without envDir, and Node 20.16 under Vite 8's engines (npm skipped the native rolldown binding; the build failed).
+on_windows=; case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) on_windows=yes;; esac
+for pp in $(git ls-files 'pyproject.toml' '*/pyproject.toml' 2>/dev/null); do
+  d=$(dirname "$pp")
+  git grep -qE '(^|[^A-Za-z_])(ZoneInfo\(|zoneinfo)' -- "$d/*.py" 2>/dev/null || continue
+  grep -qi tzdata "$pp" "$d/uv.lock" 2>/dev/null && continue
+  msg="$pp: the code uses zoneinfo but tzdata is no dependency; Windows has no time zone database, so imports fail with ZoneInfoNotFoundError. Fix: uv add tzdata"
+  if [ -n "$on_windows" ]; then bad "$msg"; else warn "$msg"; fi
+done
+for vc in $(git ls-files '*/vite.config.ts' '*/vite.config.js' '*/vite.config.mjs' '*/vite.config.mts' 2>/dev/null); do
+  d=$(dirname "$vc")
+  case "$d" in */*) continue;; esac  # web/, frontend/: the root .env is one level up
+  grep -q envDir "$vc" && continue
+  { [ -e "$d/.env" ] || [ -e "$d/.env.example" ]; } && continue
+  grep -qs '^VITE_' .env.example .env || continue  # names only: nothing is printed
+  warn "$vc reads $d/.env only, but the VITE_ keys live in the root .env: add envDir: \"..\" to its defineConfig"
+done
+if node_v=$(node --version 2>/dev/null | tr -d 'v\r') && [ -n "$node_v" ]; then
+  for pj in $(git ls-files 'package.json' '*/package.json' 2>/dev/null); do
+    d=$(dirname "$pj")
+    lock=; [ ! -f "$d/package-lock.json" ] || lock=$d/package-lock.json
+    short=$(awk -v node="$node_v" -f "$self_d/lib/engines.awk" "$pj" ${lock:+"$lock"} 2>/dev/null |
+            head -n 3 | awk -F '\t' '{printf "%s%s wants %s", (NR > 1 ? "; " : ""), $1, $2}')
+    [ -z "$short" ] || bad "Node $node_v is too old for $d: $short. npm skips native packages a Node excludes, so the build fails (\"Cannot find module @rolldown/binding-…\"). Fix: winget install OpenJS.NodeJS.LTS (Windows), brew upgrade node, or nvm install --lts; then rm -rf $d/node_modules and npm ci"
+  done
 fi
 # Harnesses, pacing and black box (v4.1)
 here_d=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)

@@ -38,7 +38,7 @@ TASKS = """## APP-001 · Greeting API
 
 
 def git(cwd, *args):
-    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, errors="replace").stdout
 
 
 class Server:
@@ -46,7 +46,7 @@ class Server:
 
     def __init__(self, cwd, env, argv=None, stderr=subprocess.DEVNULL):
         self.p = subprocess.Popen(argv or [sys.executable, ".uak/bin/uak-mcp"], cwd=cwd, stdin=subprocess.PIPE,
-                                  stdout=subprocess.PIPE, stderr=stderr, text=True, encoding="utf-8", env=env)
+                                  stdout=subprocess.PIPE, stderr=stderr, text=True, errors="replace", encoding="utf-8", env=env)
         self.q, self.n = queue.Queue(), 0
         threading.Thread(target=self._read, daemon=True).start()
 
@@ -76,8 +76,12 @@ class Server:
         return result.get("isError", False), text
 
     def close(self):
-        self.p.stdin.close()
+        try:
+            self.p.stdin.close()
+        except OSError:  # the server already died (a test terminated it)
+            pass
         self.p.wait(timeout=30)
+        self.p.stdout.close()  # or Python warns "unclosed file" at exit (Windows audit, Oct 2026)
 
 
 class McpTools(unittest.TestCase):
@@ -94,7 +98,7 @@ class McpTools(unittest.TestCase):
         git(repo, "init", "-q", "-b", "main")
         git(repo, "config", "user.name", "Test"); git(repo, "config", "user.email", "test@example.invalid")
         subprocess.run([BASH, str(REPO / "install.sh"), "--mode", "sprint", "--harness", "claude", str(repo)],
-                       check=True, capture_output=True, text=True, env=cls.env)
+                       check=True, capture_output=True, text=True, errors="replace", env=cls.env)
         git(repo, "remote", "add", "origin", str(remote))
         (repo / ".uak/TASKS.md").write_text(TASKS, encoding="utf-8")
         project = repo / ".uak/PROJECT.md"
@@ -211,7 +215,7 @@ class McpTools(unittest.TestCase):
             self.assertFalse(bad, text)
             self.assertIn("APP-001", text, "the tool ran uak, from %s: %s" % (cwd, text[:300]))
             self.assertNotIn("Windows Subsystem", text.replace("\x00", ""))
-            bare = subprocess.run(["git", "-C", str(self.repo), "config", "--get", "core.bare"], capture_output=True, text=True, env=self.env).stdout.strip()
+            bare = subprocess.run(["git", "-C", str(self.repo), "config", "--get", "core.bare"], capture_output=True, text=True, errors="replace", env=self.env).stdout.strip()
             self.assertNotEqual(bare, "true", "started from %s, the server left the main repository bare" % cwd)
 
 
@@ -283,7 +287,7 @@ class McpTools(unittest.TestCase):
             "name": "uak_wait", "arguments": {"agent": "dev-term", "for": "message", "timeout": 537}}}) + "\n")
         s.p.stdin.flush()
         def alive():
-            return [l for l in subprocess.run(["ps", "-eo", "args"], capture_output=True, text=True).stdout.splitlines()
+            return [l for l in subprocess.run(["ps", "-eo", "args"], capture_output=True, text=True, errors="replace").stdout.splitlines()
                     if "--timeout 537" in l]
         end = time.time() + 20
         while time.time() < end and not alive():
@@ -291,6 +295,7 @@ class McpTools(unittest.TestCase):
         self.assertTrue(alive(), "the tool started")
         s.p.terminate()
         s.p.wait(timeout=15)
+        s.close()
         end = time.time() + 10
         while time.time() < end and alive():
             time.sleep(0.2)

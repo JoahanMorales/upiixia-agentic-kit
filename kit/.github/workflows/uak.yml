@@ -25,7 +25,9 @@ jobs:
             case "$f" in *.sh) bash -n "$f"; continue;; esac
             if head -n 1 "$f" | grep -qE '^#!.*(bash|/sh|[[:space:]]sh)([[:space:]]|$)'; then bash -n "$f"; fi
           done
-          python3 -c 'import ast, sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())' .uak/bin/uak-mcp
+          # python3 can be the Windows Store alias (it exits 49): try python too.
+          for py in python3 python; do "$py" -c 'import sys' 2>/dev/null && break; done
+          "$py" -c 'import ast, sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())' .uak/bin/uak-mcp
       - name: Backlog graph (no cycles, no unknown deps)
         run: if [ -f .uak/TASKS.md ]; then bash .uak/bin/graph --file .uak/TASKS.md; fi
       # The product smoke needs the stack's tools; a runner has none of uv, a current Node, Java 21 or Go.

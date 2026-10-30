@@ -31,7 +31,7 @@ root=$(git rev-parse --show-toplevel 2>/dev/null) || {
 cd "$root" || exit 1
 
 # 1. The kit
-mode=$(from Mode < .uak/PROJECT.md 2>/dev/null)
+mode=$({ from Mode < .uak/PROJECT.md; } 2>/dev/null)
 case "$mode" in
   sprint|marathon) ok "kit installed ($mode, uak $(cat "$here/../VERSION" 2>/dev/null))";;
   *) need "install the kit" "bash ~/.uak-kit/install.sh --mode sprint .   (deadline with judges)" \
@@ -41,12 +41,23 @@ esac
 # hackathon's and ran uak 5.3.0, without five releases of fixes (the frontend gate among them).
 vnum() { printf '%s\n' "$1" | awk -F. '/^[0-9]+\.[0-9]+\.[0-9]+$/ {printf "%d\n", $1 * 1000000 + $2 * 1000 + $3; exit} {print 0}'; }
 kit_home=${UAK_KIT_HOME:-$HOME/.uak-kit}
-mine=$(tr -d '\r' < "$here/../VERSION" 2>/dev/null)
-newest=$(tr -d '\r' < "$kit_home/kit/.uak/VERSION" 2>/dev/null) where=$kit_home
-tag=$(git -C "$kit_home" ls-remote --tags --refs origin 'v*' 2>/dev/null | sed 's#.*refs/tags/v##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' |
+# { …; } 2>/dev/null: a plain `< file 2>/dev/null` opens the file before stderr moves, so a missing ~/.uak-kit printed
+# "No such file or directory" (Windows audit, Oct 2026).
+mine=$({ tr -d '\r' < "$here/../VERSION"; } 2>/dev/null)
+newest=$({ tr -d '\r' < "$kit_home/kit/.uak/VERSION"; } 2>/dev/null) where=$kit_home
+# Without a local clone (installed from another checkout or the plugin), ask the kit's GitHub directly: HackADA's copied
+# repo is exactly the case that has no ~/.uak-kit. The low-speed limit keeps an offline laptop from waiting.
+kit_url=${UAK_KIT_URL:-https://github.com/JoahanMorales/upiixia-agentic-kit}
+if [ -d "$kit_home/.git" ]; then tags_dir=$kit_home tags_from=origin; else tags_dir=. tags_from=$kit_url; fi
+tag=$(GIT_TERMINAL_PROMPT=0 git -C "$tags_dir" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 \
+      ls-remote --tags --refs "$tags_from" 'v*' 2>/dev/null | sed 's#.*refs/tags/v##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' |
       sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
 pull=
-[ -z "$tag" ] || [ "$(vnum "$tag")" -le "$(vnum "${newest:-0.0.0}")" ] || { newest=$tag where="the kit's GitHub"; pull="git -C $kit_home pull --ff-only, then "; }
+if [ -n "$tag" ] && [ "$(vnum "$tag")" -gt "$(vnum "${newest:-0.0.0}")" ]; then
+  newest=$tag where="the kit's GitHub"
+  if [ -d "$kit_home/.git" ]; then pull="git -C $kit_home pull --ff-only, then "
+  else pull="git clone --depth 1 $kit_url $kit_home, then "; fi
+fi
 if [ -n "$newest" ] && [ "$(vnum "$newest")" -gt "$(vnum "${mine:-0.0.0}")" ] && [ -z "${UAK_KIT_PIN:-}" ]; then
   need "update the kit: this project has uak $mine and $where has $newest" \
        "${pull}bash $kit_home/install.sh --mode $mode --update .   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)" \

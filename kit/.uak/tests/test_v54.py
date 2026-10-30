@@ -110,9 +110,8 @@ def done_after_a_cross_machine_handover(r):
     expect(done.returncode == 0 and "REVIEW" in done.stdout, "done from the new checkout: " + done.stdout + done.stderr)
     record = f.show("tasks/HACK-001.md")
     expect("Task-Tip: " + tip in record, "the tip of this checkout: " + record)
-    where = moved.resolve().as_posix()
-    if os.name == "nt":  # Git Bash records /c/Users/..., its own form, everywhere
-        where = "/" + where[0].lower() + where[2:]
+    # The path as bash spells it: Git Bash writes /c/Users/... or /tmp/... (its mount of %TEMP%), never a drive letter.
+    where = r.run([r.bash, "-c", 'cd "$1" && pwd', "_", str(moved)]).stdout.strip()
     expect("Worktree: " + where in record, "the new path is recorded: " + record)
     g = rm.fixture(r, "v54-handover-main", count=1)
     g.claim(0, "HACK-001")
@@ -470,7 +469,7 @@ def doctor_never_waits_on_the_terminal(r):
     env = r.env.copy(); env["PATH"] = "%s%s%s" % (shim, os.pathsep, env["PATH"])
     read_end, write_end = os.pipe()
     try:
-        doc = subprocess.run([r.bash, str(r.package / ".uak/bin/doctor")], cwd=t, env=env, stdin=read_end, text=True,
+        doc = subprocess.run([r.bash, str(r.package / ".uak/bin/doctor")], cwd=t, env=env, stdin=read_end, text=True, errors="replace",
                              capture_output=True, timeout=60)
     except subprocess.TimeoutExpired:
         doc = None
@@ -489,7 +488,7 @@ def verify_never_reads_the_terminal(r):
     probe = ["bash", "-c", "[ ! -t 0 ]"]
     leader, follower = pty.openpty()
     try:
-        run = lambda cmd: subprocess.run(cmd, cwd=t, env=r.env, stdin=follower, text=True, capture_output=True, timeout=60)
+        run = lambda cmd: subprocess.run(cmd, cwd=t, env=r.env, stdin=follower, text=True, errors="replace", capture_output=True, timeout=60)
         q = run([r.bash, str(r.package / ".uak/bin/q"), *probe])
         cap = run([r.bash, str(r.package / ".uak/bin/cap"), "--b64", base64.b64encode(b"[ ! -t 0 ]").decode()])
     finally:

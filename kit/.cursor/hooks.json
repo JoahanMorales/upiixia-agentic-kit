@@ -3,57 +3,57 @@
   "hooks": {
     "sessionStart": [
       {
-        "command": "bash .uak/bin/hook session-start cursor",
+        "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/hook session-start cursor\" uak-hook",
         "timeout": 30
       }
     ],
     "preToolUse": [
       {
-        "command": "bash .uak/bin/hook wrap",
+        "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/hook wrap\" uak-hook",
         "matcher": "Shell",
         "timeout": 5
       }
     ],
     "beforeShellExecution": [
       {
-        "command": "bash .uak/bin/guard shell",
+        "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/guard shell\" uak-hook",
         "timeout": 5
       }
     ],
     "beforeSubmitPrompt": [
       {
-        "command": "bash .uak/bin/guard prompt",
+        "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/guard prompt\" uak-hook",
         "timeout": 5
       }
     ],
     "subagentStart": [
       {
-        "command": "bash .uak/bin/guard agent",
+        "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/guard agent\" uak-hook",
         "timeout": 5
       }
     ],
     "subagentStop": [
       {
-        "command": "bash .uak/bin/guard agent-stop",
+        "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/guard agent-stop\" uak-hook",
         "timeout": 5
       }
     ],
     "stop": [
       {
-        "command": "bash .uak/bin/bb flush --quiet",
+        "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/bb flush --quiet\" uak-hook",
         "timeout": 30
       }
     ],
     "postToolUse": [
       {
-        "command": "bash .uak/bin/hook tick cursor",
+        "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/hook tick cursor\" uak-hook",
         "matcher": "*",
         "timeout": 10
       }
     ],
     "sessionEnd": [
       {
-        "command": "bash .uak/bin/hook session-end",
+        "command": "git -c \"alias.uak-hook=!unset GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_CONFIG_PARAMETERS; exec bash .uak/bin/hook session-end\" uak-hook",
         "timeout": 20
       }
     ]

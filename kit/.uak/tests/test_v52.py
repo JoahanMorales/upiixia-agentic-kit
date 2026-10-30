@@ -10,6 +10,7 @@ import concurrent.futures
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -23,7 +24,7 @@ import test_review_merge as rm
 def older_version(repo, rel):
     """The newest committed version of repo/rel that differs from the working tree (None without history)."""
     current = (repo / rel).read_bytes()
-    log = subprocess.run(["git", "rev-list", "HEAD", "--", rel], cwd=repo, capture_output=True, text=True)
+    log = subprocess.run(["git", "rev-list", "HEAD", "--", rel], cwd=repo, capture_output=True, text=True, errors="replace")
     for commit in log.stdout.split():
         old = subprocess.run(["git", "show", commit + ":" + rel], cwd=repo, capture_output=True)
         if old.returncode == 0 and old.stdout and old.stdout != current:
@@ -88,7 +89,7 @@ def handover_moves_the_worktree_identity(r):
     expect(env["UAK_AGENT"] == "agent-2" and env["UAK_SESSION"].startswith("agent-2-") and env["UAK_TASK"] == "HACK-001",
            "Claude Code's env names the new owner: " + str(env))
     expect("UAK_AGENT=agent-2" in (w / ".uak-env").read_text(encoding="utf-8"), "so does .uak-env")
-    start = subprocess.run([r.bash, ".uak/bin/hook", "session-start"], cwd=w, input='{"session_id":"s9"}', text=True,
+    start = subprocess.run([r.bash, ".uak/bin/hook", "session-start"], cwd=w, input='{"session_id":"s9"}', text=True, errors="replace",
                            capture_output=True, env={**r.env, "UAK_AGENT": "agent-1"}, timeout=120).stdout
     expect("agent=agent-2" in start, "the hook takes the worktree's identity over an inherited export: " + start[:300])
     return {"owner": "agent-2"}
@@ -150,8 +151,8 @@ def audit_small_fixes(r):
     calls = "\n".join(json.dumps(m) for m in (
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "uak_status", "arguments": {}}})) + "\n"
-    py = shutil.which("python3") or shutil.which("python")
-    mcp = subprocess.run([py, ".uak/bin/uak-mcp"], cwd=f.worktrees[0], input=calls, text=True, capture_output=True,
+    py = sys.executable  # a bare python3 can be the Windows Store alias
+    mcp = subprocess.run([py, ".uak/bin/uak-mcp"], cwd=f.worktrees[0], input=calls, text=True, errors="replace", capture_output=True,
                          env={**r.env, "UAK_AGENT": "agent-1"}, timeout=120)
     expect('"id":2' in mcp.stdout.replace(" ", ""), "the call running when stdin closed is answered: " + mcp.stdout[-300:] + mcp.stderr[-300:])
     return {"version": version}
