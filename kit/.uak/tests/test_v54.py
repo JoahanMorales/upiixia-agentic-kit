@@ -110,9 +110,12 @@ def done_after_a_cross_machine_handover(r):
     expect(done.returncode == 0 and "REVIEW" in done.stdout, "done from the new checkout: " + done.stdout + done.stderr)
     record = f.show("tasks/HACK-001.md")
     expect("Task-Tip: " + tip in record, "the tip of this checkout: " + record)
-    # The path as bash spells it: Git Bash writes /c/Users/... or /tmp/... (its mount of %TEMP%), never a drive letter.
-    where = r.run([r.bash, "-c", 'cd "$1" && pwd', "_", str(moved)]).stdout.strip()
-    expect("Worktree: " + where in record, "the new path is recorded: " + record)
+    # The path as bash spells it, resolved or not: /private/var/... on macOS; /c/Users/... or /tmp/... (Git Bash's mount
+    # of %TEMP%) on Windows, never a drive letter.
+    spelled = r.run([r.bash, "-c", 'cd "$1" && pwd && pwd -P', "_", str(moved)]).stdout.splitlines()
+    real = moved.resolve().as_posix()  # Python expands Windows short names (RUNNER~1) that bash keeps
+    spelled.append("/" + real[0].lower() + real[2:] if os.name == "nt" else real)
+    expect(any("Worktree: " + w + "\n" in record + "\n" for w in spelled), "the new path is recorded: " + record)
     g = rm.fixture(r, "v54-handover-main", count=1)
     g.claim(0, "HACK-001")
     rm.publish(g, 0, "HACK-001")

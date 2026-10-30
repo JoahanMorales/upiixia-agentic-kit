@@ -41,7 +41,7 @@ def doctor_runs_python_instead_of_finding_it(r):
     for name in ("python3", "python", "py"):
         (shim / name).write_text("#!/bin/sh\necho 'Python was not found; run without arguments to install from the Microsoft Store' >&2\nexit 49\n", encoding="utf-8")
         os.chmod(shim / name, 0o755)
-    out = r.run([r.bash, "-c", 'PATH="$1:$PATH"; bash .uak/bin/doctor', "_", shim.as_posix()], cwd=f.seed, allowed=None)
+    out = r.run([r.bash, "-c", 'PATH="$(cd "$1" && pwd):$PATH"; bash .uak/bin/doctor', "_", shim.as_posix()], cwd=f.seed, allowed=None)
     expect("OK    python" not in out.stdout and "no Python that runs" in out.stdout, out.stdout)
     return {"alias": "not OK"}
 
@@ -65,7 +65,7 @@ def doctor_names_what_update_cannot_fix(r):
     os.chmod(shim / "node", 0o755)
     r.g(s, "add", "-A")
     r.g(s, "commit", "-q", "-m", "a product")
-    doctor = lambda: r.run([r.bash, "-c", 'PATH="$1:$PATH"; bash .uak/bin/doctor', "_", shim.as_posix()], cwd=s, allowed=None).stdout
+    doctor = lambda: r.run([r.bash, "-c", 'PATH="$(cd "$1" && pwd):$PATH"; bash .uak/bin/doctor', "_", shim.as_posix()], cwd=s, allowed=None).stdout
     out = doctor()
     expect("pyproject.toml: the code uses zoneinfo but tzdata is no dependency" in out, out)
     expect("web/vite.config.ts reads web/.env only" in out, out)
