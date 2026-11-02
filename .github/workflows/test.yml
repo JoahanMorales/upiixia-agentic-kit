@@ -21,6 +21,8 @@ jobs:
         run: git config --global user.name ci && git config --global user.email ci@example.invalid
       - name: Codex/Cursor/Gemini subagents are generated from .claude/agents
         run: python3 scripts/gen_harness.py --check
+      - name: The kit's own rules as checks (portability, structure)
+        run: python3 scripts/kit_lint.py
       - name: install --update recognizes every kit version ever shipped
         run: python3 scripts/kit_hashes.py --check
       - name: Protocol suite (real Git, local bare remotes)

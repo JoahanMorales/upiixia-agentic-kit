@@ -342,6 +342,9 @@ test failing on its assertion before the code (a red on a missing module does no
 covers Fakes instead of mocks, tests by layer and contracts. `uak garden` prunes the harness: stale lessons, docs that
 name missing commands, and the corrections humans keep typing. Marathon now gets the whole design chain, and
 design-lint knows the 2026 tells (gradient text, glows, italic serif heroes, icon-tile grids, em dashes, filler copy).
+v5.10.1: the kit checks itself (`scripts/kit_lint.py` in CI: its portability and structure rules as code, and `uak garden` on a
+fresh install). How it is built and where to change what: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); a Go engine estimate:
+[docs/plans/port-go.md](docs/plans/port-go.md).
 
 ## Deploy in one command: `uak deploy`
 
@@ -439,7 +442,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**260 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
+**261 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
 
 ## Works with
 | Tool | How |

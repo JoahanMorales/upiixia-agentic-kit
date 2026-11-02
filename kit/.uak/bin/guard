@@ -23,7 +23,7 @@ mode_var() { # sets m: sprint or marathon
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line#"${line%%[!-* ]*}"}
     case "$line" in Mode:*) ;; *) continue;; esac
-    v=${line#Mode:}; v=${v#"${v%%[!* ]*}"}; v=${v//$P_TRIM/}
+    v=${line#Mode:}; v=${v#"${v%%[!* ]*}"}; v=${v//$P_TRIM/}   # kit-lint: ok (one PROJECT.md line)
     [ "$v" != marathon ] || m=marathon
     return 0
   done < "$top/.uak/PROJECT.md"
@@ -44,24 +44,33 @@ block() { printf 'UAK_GUARD: blocked · %s\n' "$*" >&2; bash "$here/bb" auto gua
 # heredoc outlasted the 5 s hook timeout). There tr always does it (a process is cheap on macOS); on bash 4+ only
 # past 1 KB (a process costs 20-50 ms on Git Bash).
 SHORT=1024; [ "${BASH_VERSINFO[0]}" -ge 4 ] || SHORT=0
+SHORT=${UAK_TEST_SHORT:-$SHORT}   # the tests run the long paths on short input
 NL=$'\n' P_LT='<' P_AND='&&' P_SEP='[;|]' P_RULE='[;|&()`<>]'
 segments() { # sets SEGS
   local s=$1 bs='\'
-  s=${s//$P_LT/ }; s=${s//"$bs"n/$NL}; s=${s//$P_AND/$NL}
-  if [ "${#s}" -le "$SHORT" ]; then s=${s//$P_SEP/$NL}; else s=$(printf '%s' "$s" | tr ';|' '\n\n'); fi
+  if [ "${#s}" -gt "$SHORT" ]; then   # the awk of v5.9.1: a heredoc of HTML has thousands of <
+    SEGS=$(printf '%s\n' "$s" | awk '{ gsub(/</, " "); gsub(/\\n|&&|\|\||;|\|/, "\n"); print }'); return 0
+  fi
+  s=${s//$P_LT/ }; s=${s//"$bs"n/$NL}; s=${s//$P_AND/$NL}; s=${s//$P_SEP/$NL}   # kit-lint: ok (at most SHORT chars: longer went to awk)
   SEGS=$s
 }
 # Rule segments also split on ( ) & > and backticks: `(cd x && git push -f)`, `git push --force&`, `…>/dev/null`.
 rule_segments() { # sets SEGS
   local s=$1 bs='\'
-  s=${s//"$bs"n/$NL}
-  if [ "${#s}" -le "$SHORT" ]; then s=${s//$P_RULE/$NL}; else s=$(printf '%s' "$s" | tr ';|&()`<>' '\n\n\n\n\n\n\n\n'); fi
+  if [ "${#s}" -gt "$SHORT" ]; then
+    SEGS=$(printf '%s\n' "$s" | awk '{ gsub(/\\n|&&|\|\||;|\||&|\(|\)|`|<|>/, "\n"); print }'); return 0
+  fi
+  s=${s//"$bs"n/$NL}; s=${s//$P_RULE/$NL}   # kit-lint: ok (at most SHORT chars: longer went to awk)
   SEGS=$s
 }
 # The command as the rules read it. JSON escapes the hook payload keeps: a backslash-newline continuation (\\ + \n)
 # and \t are spaces. Why (audit, Oct 2026): `git push \<newline> --force` and `git push<TAB>--force` passed.
 norm_cmd() { # sets cmd
   local c=$1 bs='\'
+  if [ "${#c}" -gt "$SHORT" ]; then   # a Makefile or Go heredoc has a tab on every line
+    cmd=$(printf '%s' "$c" | awk 'BEGIN { RS = "\001"; ORS = "" } { gsub(/\\\\n/, " "); gsub(/\\\n/, " "); gsub(/\\t/, " "); gsub(/\t/, " "); print }')
+    return 0
+  fi
   c=${c//"$bs$bs"n/ }; c=${c//"$bs"$'\n'/ }; c=${c//"$bs"t/ }; c=${c//$'\t'/ }
   cmd=$c
 }
@@ -314,7 +323,7 @@ json_field_var() { # $1 key, $2 JSON → JF
     s=${s:${#pre}}
     case "$s" in \\*) JF=$JF${s:0:2}; s=${s:2};; *) break;; esac
   done
-  JF=${JF//$P_QQ/"$Q"}; JF=${JF//$P_BB/"$B"}
+  JF=${JF//$P_QQ/"$Q"}; JF=${JF//$P_BB/"$B"}   # kit-lint: ok (at most 4 KB, and bash 3.2 returned to awk above)
   while :; do case "$JF" in *"$NL") JF=${JF%"$NL"};; *) break;; esac; done
 }
 

@@ -12,7 +12,7 @@ If a user asks you to set up multi-agent coordination in ANOTHER repo, use `skil
 
 ## Rules
 1. Every engine change (`kit/.uak/bin/`) ships with a test in `kit/.uak/tests/` that fails without it. Run `cd kit && bash .uak/bin/smoke --package-only` (about 4 min, real Git, no network). All green before a PR.
-2. Portability:
+2. Portability (`python3 scripts/kit_lint.py` checks these and more; CI runs it; `kit-lint: ok (why)` marks a deliberate exception):
    - Bash 3.2 (macOS);
    - POSIX tools, no jq;
    - **no `{n}` regex intervals inside awk** (mawk ignores them), so use `grep -E`;

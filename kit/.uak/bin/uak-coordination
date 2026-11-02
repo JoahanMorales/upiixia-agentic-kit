@@ -599,9 +599,9 @@ coord_next() {
     say "Live summary:"; summary_text | head -n 6
     mem_for_task "$ID"
     # A new session on a claimed task hears the test-first step too, until its red is recorded.
-    if [ "$(coord_read "$RECORD" State)" = CLAIMED ]; then
+    if [ "$(coord_read "$RECORD" State)" = CLAIMED ] && [ "$NOW" -lt "$(coord_read "$RECORD" Lease-Until)" ]; then
       coord_wt=$(coord_read "$RECORD" Worktree)
-      [ -s "$(git -C "$coord_wt" rev-parse --absolute-git-dir 2>/dev/null)/uak-red/$ID.txt" ] || test_brief
+      [ -s "$(git -C "$coord_wt" rev-parse --absolute-git-dir 2>/dev/null)/uak-red/$ID.txt" ] || test_brief next
     fi
     freeze_warning
     coord_until=$(coord_read "$RECORD" Lease-Until)

@@ -210,7 +210,7 @@ proj_value() {
 P_TRIM=$'[\r` ]'
 cap_chars() { # sets CAP
   local c
-  proj_value Output-Cap-Chars; c=${PV//$P_TRIM/}
+  proj_value Output-Cap-Chars; c=${PV//$P_TRIM/}   # kit-lint: ok (one PROJECT.md value)
   case "$c" in off|0) CAP=0;; ''|*[!0-9]*) CAP=12000;; *) CAP=$c;; esac
 }
 sum() { cksum < "$1" 2>/dev/null | awk '{print $1}'; }
@@ -220,7 +220,7 @@ json_id session_id "$ID_CHARS"; sid=$ID
 # This session's coach directory, made once (it was printf | tr | cut and a mkdir on every call).
 coach_dir() { # sets CDIR; 1 when it cannot be made
   local x=${sid:-nosid}
-  x=${x//[!$ID_CHARS]/}; CDIR="$gd/uak-coach-${x:0:60}"
+  x=${x//[!$ID_CHARS]/}; CDIR="$gd/uak-coach-${x:0:60}"   # kit-lint: ok (a session id)
   [ -d "$CDIR" ] || mkdir -p "$CDIR" 2>/dev/null
 }
 # Reminder templates (.uak/reminders.md, "key: text"); {n} {m} {id} {files} {tasks} are filled by `remind`.
@@ -358,7 +358,7 @@ UAK_CMD
           for w in "$@"; do case "$w" in -*|*\'*|*\"*|[0-9]*p) ;; *) [ -f "$w" ] && { file=$w; break; };; esac; done;;
       esac;;
   esac
-  pat=${pat//[\"\']/}
+  pat=${pat//[\"\']/}   # kit-lint: ok (a search pattern)
   if [ -n "$pat" ]; then
     name=$(printf '%s' "$pat" | sed -E 's/\\b//g; s/^\^//; s/^(def|class|function|func|fn|const|let|var|type|interface|struct)[[:space:]]+//; s/[\\(].*$//; s/[[:space:]].*$//')
     printf '%s' "$name" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]{2,}$' || return 0
@@ -502,7 +502,7 @@ case "${1:-}" in
     # Heartbeat every lease/3 (8..20 min), and the REVIEW tasks of other worktrees at most every 30 min.
     # Why (Reap buildathon): 11 agents heartbeating every 8 min plus a status per beat kept the claims branch
     # busy; approvals then needed up to 14 attempts. A 45-min sprint lease is safe with a 15-min beat.
-    proj_value Lease-Seconds; hb=${PV//[!0123456789]/}
+    proj_value Lease-Seconds; hb=${PV//[!0123456789]/}   # kit-lint: ok (one PROJECT.md value)
     hb=$(( ${hb:-2700} / 180 )); [ "$hb" -ge 8 ] || hb=8; [ "$hb" -le 20 ] || hb=20
     # A task handed over (or released) from another machine is no longer this worktree's: one heartbeat says so, then
     # the beats stop and the agent hears it once. Why (Chilangatón): after a Windows → macOS handover the old

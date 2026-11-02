@@ -124,6 +124,7 @@ def done_wants_the_named_tests(r):
 def red_wants_an_assertion(r):
     """A red on a missing module says nothing; a test that passes before the code tests nothing new."""
     f = r.fixture("v510-red", count=1)
+    set_project(f, PROJECT + "Test-First: yes\n")   # next says TEST FIRST where the gate is on
     f.claim(0, "HACK-001")
     wt = f.worktrees[0]
     red = lambda *cmd: r.run([r.bash, ".uak/bin/uak", "red", "HACK-001", "--", *cmd], cwd=wt, allowed=None)
@@ -210,10 +211,9 @@ def garden_finds_drift_stale_lessons_and_corrections(r):
         h.write("\nRun `uak frobnicate` before the loop.\n")
     home = r.scratch / "v510-claude"
     main = r.run([r.bash, "-c", 'cd "$(git rev-parse --git-common-dir)/.." && pwd -P'], cwd=wt).stdout.strip()
-    names = {re.sub(r"[^A-Za-z0-9]", "-", main)}
+    # One folder, named as Claude Code names it: after the Windows path where there is one (C:/…), else the path.
     win = r.run([r.bash, "-c", 'cygpath -m "$1" 2>/dev/null', "_", main], cwd=wt, allowed=None).stdout.strip()
-    if win:
-        names.add(re.sub(r"[^A-Za-z0-9]", "-", win))
+    names = {re.sub(r"[^A-Za-z0-9]", "-", win or main)}
     line = lambda text: json.dumps({"type": "user", "message": {"role": "user", "content": text}, "uuid": "u"}, separators=(",", ":"))
     for n in names:
         (home / "projects" / n).mkdir(parents=True)
@@ -247,10 +247,25 @@ def both_modes_get_test_first_and_the_design_chain(r):
     return {"modes": 2}
 
 
+def guard_stays_fast_on_html_and_tabs(r):
+    """kit_lint found it: `<` and tabs were replaced by ${s//…}, which costs matches × length on bash 3.2 (437 s at
+    18 KB); a heredoc of HTML or of a Makefile has one on every line. Past 1 KB (always on bash 3.2) awk does it."""
+    f = r.fixture("v510-html", count=1)
+    body = "\n".join("\t<div class=\"row\"><span>%d</span>\t<b>x</b></div>" % i for i in range(1500))
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "cat > page.html <<'H'\n" + body + "\nH\ngit push --force"}})
+    started = time.monotonic()
+    stdin = f.base / "html.json"
+    stdin.write_text(payload, encoding="utf-8")
+    out = r.run([r.bash, "-c", 'exec < "$1"; exec bash .uak/bin/guard bash claude', "_", stdin.as_posix()], cwd=f.worktrees[0], allowed=None)
+    took = time.monotonic() - started
+    expect(out.returncode == 2 and "forced push" in out.stderr and took < 4, "rc %d in %.1f s: %s" % (out.returncode, took, out.stderr[-200:]))
+    return {"seconds": round(took, 1)}
+
+
 TESTS = [done_refuses_weakened_tests, test_findings_see_skips_deletes_deselects_and_mocks, done_wants_the_named_tests,
          red_wants_an_assertion, done_requires_the_red_when_test_first_is_yes, lint_asks_feature_tasks_for_test_names,
          design_lint_flags_the_2026_tells, garden_finds_drift_stale_lessons_and_corrections,
-         both_modes_get_test_first_and_the_design_chain]
+         both_modes_get_test_first_and_the_design_chain, guard_stays_fast_on_html_and_tabs]
 
 
 def main():

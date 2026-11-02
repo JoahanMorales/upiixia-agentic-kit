@@ -1433,12 +1433,13 @@ ui_brief() {
 }
 # At claim: the task's tests and the red, before the first line of code. Why (v5.10, harness review): the agent heard
 # of the test-first gate only when done refused it, one round trip late; a rule reaches agents at the moment it applies.
-test_brief() {
+test_brief() { # [next]: only where the gate is on (next keeps its 15-line budget)
   local policy names t
   case "$(rm_task_value Test-First)" in no*|No*|off*) return 0;; esac
   policy=$(coord_source_field Test-First warn); t=$(rm_task_value Type)
   case "$t" in bug*|Bug*|fix*) [ "$policy" = no ] || policy=yes;; esac
   [ "$policy" != no ] || return 0
+  [ "${1:-}" != next ] || [ "$policy" = yes ] || return 0
   names=$(rm_task_value Tests); case "$names" in -|none|None) names=;; esac
   say "TEST FIRST: ${names:+write the tests $names (their names are the spec), }the stub (signature, wrong value), then bash .uak/bin/uak red $ID: it must fail on its assertion; then implement until Verify is green. Never change an existing test to pass: done refuses it (skill test-first)."
 }

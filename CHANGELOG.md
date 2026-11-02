@@ -1,5 +1,23 @@
 # Changelog
 
+## v5.10.1 · 2026-11-02 · The kit checks itself
+v5.10.0's CI found two test bugs on Windows and macOS, and the first run of a new lint found a real one.
+- **`scripts/kit_lint.py` in CI: the kit's own rules as checks, not prose.** Portability (bash 4+ syntax, GNU-only
+  flags without their BSD fallback, awk intervals, `awk -W version` without `/dev/null`, class substitutions that are
+  quadratic on bash 3.2, CRLF, `bash -n`), structure (every command documented in CLI.md, every test file in `smoke`
+  and in the Windows matrix, every installed skill vendored and recorded in SOURCES.md, scripts executable, the
+  AGENTS.md budget), and `uak garden` on a fresh install of each mode (no doc names what does not exist). A deliberate
+  exception carries `kit-lint: ok (why)`.
+- **guard on a heredoc of HTML or tabs** (found by the lint): `<` and tabs were replaced with `${s//…}`, which costs
+  matches × length on bash 3.2. Past 1 KB (always on bash 3.2) the v5.9.1 awk does it; a differential run with the
+  long paths forced on short input (3,000 cases, mawk and BSD awk) shows no difference.
+- `uak next` keeps its 15-line budget: TEST FIRST shows there only with `Test-First: yes` (or a bug task) and a live
+  lease; the claim always shows it.
+- The adoption eval for v5.10 (`docs/evals/`): with the kit, 2 of 2 Sonnet sessions wrote the named tests, a stub and
+  saw the red before the code; on v5.9.2, 0 of 2 (the code first, the tests after, never seen failing).
+- `docs/ARCHITECTURE.md` (the pieces, where to change what, why it got hard to change, the scaling plan) and
+  `docs/plans/port-go.md` (an estimate for a Go or Rust engine).
+
 ## v5.10.0 · 2026-11-02 · Test-first that agents cannot short-cut, and a harness that gets pruned
 Agents optimize toward green. Stuck on red they edit the assertion, add a skip or delete the test; a test written
 after the code passes by construction; a test that only checks "the mock was called" passes whatever the code does.
