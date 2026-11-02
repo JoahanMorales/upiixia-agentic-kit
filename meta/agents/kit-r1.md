@@ -1,0 +1,10 @@
+# kit-r1
+Agent: kit-r1
+Started: 1793658119
+Events: 1
+Events-Since-Checkpoint: 1
+Checkpoints: 0
+Sessions: 1
+Last-Checkpoint: 0
+Last-Session: stable
+Updated: 1793658119
