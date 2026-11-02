@@ -1,5 +1,28 @@
 # Changelog
 
+## v5.9.2 · 2026-11-02 · The hooks stop starting processes
+On Git Bash a process costs 20 to 50 ms, and the kit's hooks ran around every command an agent sent: `guard bash`
+before it, `hook tick` and `hook output` after it, about 140 processes and 5.1 s per command on a teammate's Windows
+laptop. Measured there before and after, in [docs/perf-windows.md](docs/perf-windows.md); `test_v592.py` counts the
+processes and fails on v5.9.1.
+- **guard and the tick read with builtins.** The payload by `read`, fields by parameter expansion, one `git rev-parse`
+  for the top and the git dir, `.uak-env` and `PROJECT.md` by loops, the clock once, state files that hold their epoch.
+  Each guard rule runs its grep only when the segment holds its words. guard bash: 35 → 1 processes (1064 → 79 ms);
+  tick: 85 → 3 (3395 → 222 ms); one Bash command in Claude Code: **5.1 s → 0.52 s**.
+- **A long heredoc no longer outlasts the hook timeout.** guard's `json_field` added one character at a time: a
+  300-line heredoc took 35 s, past the 5 s timeout, and a timed-out hook lets the command run. It is one `match()` now
+  (1.2 s).
+- **Same answers.** The old and the new guard were run side by side on 6,620 commands, payloads and prompts (rules,
+  known bypasses, escapes, CRLF, 3,000 and 3,000 random ones on Git Bash and on Linux): no difference in exit code or
+  output.
+- **Long payloads stay linear.** Review on Linux found the hook's builtin readers copying the rest of the payload at
+  each escape: an 800-line heredoc took the tick 10.6 s, 40 KB of output 1.3 s (0.2 s on v5.9.1). They now read the
+  payload's first 4 KB, where the harnesses put the ids and the command, and hand anything past it to the sed and awk
+  they replaced; stdin is read 8 KB by `read`, the rest by `cat`. The tick is now faster than v5.9.1 at every size
+  (400 KB of output: 0.64 → 0.14 s).
+- Not yet: `uak next`/`status` (about 200 processes, most of them the claims transaction's git calls), `hook stop`
+  and `session-start`.
+
 ## v5.9.1 · 2026-10-30 · What Windows runs is not what the kit found
 A teammate ran the kit's suite and the HackADA product on a Windows laptop of the event
 ([docs/blackbox/windows-audit-2026-10.md](docs/blackbox/windows-audit-2026-10.md), 19 rows). Nothing hung; what broke

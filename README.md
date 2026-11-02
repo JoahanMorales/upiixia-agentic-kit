@@ -329,6 +329,12 @@ without `envDir`. doctor now runs Python instead of finding it and checks those 
 Codex/Cursor/Gemini hooks start through `git` (a bare `bash` from PowerShell is WSL), and the installer pins the kit's
 scripts to LF.
 
+**v5.9.2: the hooks stop starting processes.** On Git Bash a process costs 20 to 50 ms, and the hooks around every
+command an agent sends started about 140: 5.1 s per command on a Windows laptop, **0.52 s** now
+([measured there](docs/perf-windows.md)). guard and the tick read the payload, `.uak-env` and the state files with
+bash builtins and run each rule's grep only when its words are there; the same 6,620 commands get the same answers. A
+300-line heredoc no longer outlasts the 5 s hook timeout (35 s → 1.2 s), and long payloads stay linear.
+
 ## Deploy in one command: `uak deploy`
 
 ```text
@@ -408,6 +414,7 @@ Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and ea
 | Chilangatón 2026, **first place** ([autopsy](docs/blackbox/chilangaton-2026-10.md)) | 7 h, 5 humans, 10 Claude Code identities on macOS and Windows, 35 tasks, venue Wi-Fi | v5.4: the frontend gate (`product-ui`, `design-lint`, a design lock picked from screenshots), `uak deploy`, reviews only to agents, CI that installs the stack, a lost merge race is OK |
 | HackADA 2026, **first place** ([autopsy](docs/blackbox/hackada-2026-10.md)) | ~4 h, 9 Claude Code identities on macOS and Windows, 25 of 27 tasks integrated, on a repo copied from the previous event (kit v5.3.0) | v5.9: `start` says when the kit is old, plans refuse a Verify that does not parse, the gate refuses a green Verify with a missing command, `doctor` checks the Verify tools, worktrees get the `.env` |
 | HackADA on a Windows laptop ([audit](docs/blackbox/windows-audit-2026-10.md)) | the suite and the product on Git Bash, Node 20.16, the Store's `python3`, no uv or rg | v5.9.1: doctor runs Python and checks `tzdata`, Node `engines` and `envDir`; `start` asks the kit's GitHub; hooks through `git`; LF scripts |
+| The same laptop, timed ([perf](docs/perf-windows.md)) | 140 processes and 5.1 s of hooks around every shell command on Git Bash | v5.9.2: guard and the tick on builtins (35 → 1 and 85 → 3 processes), a heredoc inside the hook timeout |
 | Hacktoberfest 2026 ([autopsy](docs/blackbox/hacktoberfest-2026-10.md)) | ~16 h overnight, 5 humans, 13 identities on Claude Code and Codex, macOS and Windows, 33 of 35 tasks integrated | v5.5: a reject stands until a new commit, no verdict over a held review, no review offers to a human the Mac file system renamed, gate false positives gone (fixtures, carried files, its own port), `.env.example` readable, Codex `--add-dir`, `wt stop` on Windows; plan rules for a contract no task implements and a demo that only replays its recording. v5.6–v5.7: a nine-part audit after it (claims cannot grant authority, the gate runs the backlog's Verify, human-only commands ask the human, no secrets on claims, task threads reach the next owner, the merge lock is renewed) |
 
 Hack-Nation 2026 in detail:
@@ -423,7 +430,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**247 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
+**251 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
 
 ## Works with
 | Tool | How |

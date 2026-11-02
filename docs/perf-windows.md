@@ -83,3 +83,33 @@ loop that appended one character at a time; it is now one `match()`.
   process further. It is a security trade-off for the person who owns the machine; this work did not change any
   system setting and did not measure it.
 - Keep repositories outside OneDrive (HACKATHON.md already says so): sync locks the files git writes.
+
+## Review on Linux (before the merge)
+
+The table above is the common path: a short command and a short output. The review measured the hook on long
+payloads too, old (5.9.1) and new on the same machine (aarch64, bash 5.1, mawk, `es_MX.UTF-8`), best of 3:
+
+| `hook tick` payload | 5.9.1 | this branch as pushed | merged |
+|---|---|---|---|
+| 10-line heredoc | 105 ms | 22 ms | 22 ms |
+| 200-line heredoc (4 KB) | 123 ms | 755 ms | 62 ms |
+| 800-line heredoc (16 KB) | 177 ms | 10.4 s | 93 ms |
+| `pytest -q`, 40 KB of output | 169 ms | 1.26 s | 52 ms |
+| `pytest -q`, 480 KB of output | 638 ms | 435 ms | 139 ms |
+
+- **The builtin readers were quadratic under 64 KB.** `jdecode_var` copied the rest of the payload at each escape
+  (`\"`, `\n`), and a PostToolUse payload carries the whole output after the command; `json_id`'s `${line%"KEY"*}`
+  tried every end position (0.55 s on 40 KB in a UTF-8 locale). Above 64 KB awk took over, so the Windows table never
+  saw it. Now: the readers look at the payload's first 4 KB (`IN_HEAD`), where the harnesses put the ids and the
+  command; a key also present past it, a key not in it, or a value cut by its end goes to the sed or awk they
+  replaced, so the answer is the old one. `jdecode_var` reads a 2 KB window, sends a value with more than 64
+  backslashes to awk, and remembers its last answer (coach and lens both read the command).
+- **stdin**: `read` takes a pipe a byte at a time (0.3 s for 480 KB). The first 8 KB by `read`, the rest by `cat`.
+- **A command over 4 KB** goes to the old `sed`/`awk` for coach's first words and lens's segments (a loop copied it at
+  every line).
+- **test_v43** faked Windows with a `uname` shim; `wrap` reads `OSTYPE` now, so the test sets `UAK_TEST_WINDOWS=1`
+  (it failed on Linux and macOS CI, and the suite stops at the first failure).
+- Checked: the readers against `sed`/`awk` on 600 payloads with keys and values around the 4 KB boundary, and the
+  2 KB window on 1,500; the hybrid stdin read against `$(cat)` at the 8 KB boundary (ASCII, `é`, `日`, trailing
+  newlines, C and UTF-8); the old and new guard on 3,000 more random cases with mawk: no difference.
+  `test_v592.tick_stays_fast_on_a_long_payload` fails on the branch as pushed (10.6 s) and passes on 5.9.1 and here.
