@@ -90,5 +90,5 @@ another OS.
 | 3. One command registry for help, dispatch, the CLI.md index and the MCP tools | v5.11 |
 | 4. `uak` split into one file per command family (1,995 → 258 lines) | v5.11 |
 | 5. The kit developed with the kit | v5.11 |
-| 6. The claims transaction without the process storm (`next` ≤ 40 processes) | next: `.uak/TASKS.md`, UAK-001 … UAK-007 |
+| 6. The claims transaction without the process storm (`next` ≤ 40 processes) | next: `.uak/TASKS.md`, UAK-001 … UAK-008 |
 | Tests regrouped by area (`test_done.py`, `test_guard.py`…) | open: today they are grouped by release |

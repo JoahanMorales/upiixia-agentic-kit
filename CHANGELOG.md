@@ -24,11 +24,17 @@ changed instead, so a change touches one place and a check catches the drift. Ea
 - **The kit is developed with the kit.** The repository has its own `.uak/`: the roadmap as `.uak/TASKS.md` (test-first,
   `Tests:` per task), `Review-Mode: claims`, `Plan-Channel: claims`, and 3-line shims in `.uak/bin` to the engine in
   `kit/` of the same checkout. The merge gate runs `kit_lint` and the whole suite on the merged result. The first
-  phase is the claims transaction without the process storm (UAK-001 … UAK-007, `next` ≤ 40 processes). `kit_lint`
+  phase is the claims transaction without the process storm (UAK-001 … UAK-008, `next` ≤ 40 processes). `kit_lint`
   lints that backlog offline on every push.
 - Fixed: the engine found its libraries and scripts (`graph`, `secret-scan`) under the checkout's `.uak/bin`, not its
   own folder, so an engine run from another path half-worked (lint skipped the graph silently). `uak` now resolves its
   folder from `$0` without a subshell (two fewer processes per call).
+- **`secret-scan` in one pass per rule, not ~20 processes per file.** It runs in the pre-commit hook and twice in
+  every merge gate. On the kit's own 374 files: 8,244 processes and 11.4 s on Linux before, 58 and 0.2 s now; on Git
+  Bash, where a process costs 20-50 ms, that was minutes per scan. Tracked and staged files are still read from the
+  index (`git grep --cached`), the output is the same path by path (a differential run over every rule, CRLF, paths
+  with spaces and accents, `.env` files, exceptions, staged and directory modes), and a key inside a binary file is
+  now found: GNU grep 3.5+ sent "Binary file matches" to stderr, which the scan discarded.
 - Fixed: a human's `uak next` printed `Events: /90 alert (total )`; it prints 0.
 - `uak help` and the CLI.md index name every placeholder in English (`--branch BRANCH`, `msg TO TEXT`).
 

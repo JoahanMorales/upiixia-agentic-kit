@@ -85,7 +85,7 @@ Phase: the claims transaction without the process storm (docs/ROADMAP.md, "Next"
 - **Type:** integration
 - **Priority:** P0
 - **Estimate:** 4 h
-- **Depends on:** UAK-003, UAK-004, UAK-005
+- **Depends on:** UAK-003, UAK-004, UAK-005, UAK-008
 - **Paths:** scripts/claims_diff.py, kit/.uak/tests/test_claims_perf.py, kit/.uak/bin/lib/, kit/.uak/bin/uak, kit/.uak/bin/uak-coordination, docs/perf-windows.md
 - **Acceptance:**
   - the protocol suites run the old and the new engine side by side on the same fixtures: every command's stdout and the resulting claims tree are identical
@@ -108,3 +108,17 @@ Phase: the claims transaction without the process storm (docs/ROADMAP.md, "Next"
 - **Tests:** stop_reads_the_inbox_from_the_cache, tick_runs_pace_in_the_background
 - **Verify:** `python3 kit/.uak/tests/test_hook_claims.py`
 - **Next step:** the stop branch of kit/.uak/bin/hook
+
+## UAK-008 · The merge gate's scope check in one pass
+
+- **Type:** feature
+- **Priority:** P1
+- **Estimate:** 3 h
+- **Depends on:** UAK-001
+- **Paths:** kit/.uak/bin/lib/review-merge.sh, kit/.uak/tests/test_gate_scope.py
+- **Acceptance:**
+  - the scope check of `uak merge` (every changed file against the task's Paths, Additive-Paths, fixtures and owners) is one awk pass over the diff, not `normalize_paths` and `overlaps` per file (about 4 processes per file today)
+  - the same refusals with the same reasons on the merge fixtures of test_review_merge.py and test_v43.py
+- **Tests:** scope_check_is_one_pass_for_200_files, the_same_reasons_for_new_and_edited_files_outside_paths
+- **Verify:** `python3 kit/.uak/tests/test_gate_scope.py`
+- **Next step:** the `while IFS= read -r -d '' path` loop of rm_gate_scope in kit/.uak/bin/lib/review-merge.sh

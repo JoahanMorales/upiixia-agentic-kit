@@ -27,7 +27,7 @@
 - [ ] `uak board --watch` in the demo animation.
 
 ## Next: the claims transaction without the process storm (Windows)
-The tasks are in `.uak/TASKS.md` (UAK-001 … UAK-007): this repo develops the kit with the kit since v5.11. What
+The tasks are in `.uak/TASKS.md` (UAK-001 … UAK-008): this repo develops the kit with the kit since v5.11. What
 follows is the design they implement.
 
 Why: on Git Bash a process costs 20–50 ms, and `uak next` starts about 200 (`status` 173, `inbox` 67, `heartbeat`

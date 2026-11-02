@@ -7,6 +7,7 @@ import argparse
 import concurrent.futures
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -146,8 +147,37 @@ def a_human_reads_zero_events_not_blanks(r):
     return {"events": "0"}
 
 
+def secret_scan_reads_every_file_in_one_pass(r):
+    """The scan started about 20 processes per tracked file (git show, hash-object, a grep pipeline per rule): 8,244
+    for the kit's own 374 files, 11 s on Linux and minutes on Git Bash, twice per merge. Now one pass per rule. And a
+    key in a binary file is found: GNU grep 3.5+ sent "Binary file matches" to stderr, which the scan discarded."""
+    from test_v592 import processes
+    t = r.scratch / "v511-scan"
+    t.mkdir()
+    r.g(t, "init", "-q", "-b", "main")
+    (t / ".uak/bin").mkdir(parents=True)
+    shutil.copy2(r.package / ".uak/bin/secret-scan", t / ".uak/bin/secret-scan")
+    for i in range(150):
+        (t / ("f%03d.txt" % i)).write_text("line\n" * 5, encoding="utf-8")
+    r.g(t, "add", "-A")
+    clean = r.run([r.bash, ".uak/bin/secret-scan", "--tracked"], cwd=t)
+    expect("SECRET_SCAN_PASS files=151" in clean.stdout, clean.stdout + clean.stderr)
+    n, out = processes(r, t, [".uak/bin/secret-scan", "--tracked"], "")
+    expect(out.returncode == 0 and n <= 60, "secret-scan of 151 files: %d processes" % n)
+    (t / "font.bin").write_bytes(b"\x00\x01binary\nsk-" + b"G" * 25 + b"\n")
+    (t / "f007.txt").write_text("a\nb\nAKIA" + "Z" * 16 + "\n", encoding="utf-8")
+    r.g(t, "add", "-A")
+    found = r.run([r.bash, ".uak/bin/secret-scan", "--tracked"], cwd=t, allowed=None)
+    expect(found.returncode == 1 and "SECRET_FOUND: f007.txt:3 SEC_CLOUD_ACCESS" in found.stderr
+           and "SECRET_FOUND: font.bin:2 SEC_OPENAI" in found.stderr and "findings=2" in found.stderr, found.stderr)
+    staged = r.run([r.bash, ".uak/bin/secret-scan", "--staged"], cwd=t, allowed=None)
+    expect(staged.returncode == 1 and "font.bin:2" in staged.stderr, staged.stderr)
+    return {"processes": n}
+
+
 TESTS = [config_reader_reads_every_form, json_envelope_reports_results_and_codes, registry_drives_help_and_dispatch,
-         engine_is_split_and_finds_its_libraries, an_engine_in_another_folder_runs_whole, a_human_reads_zero_events_not_blanks]
+         engine_is_split_and_finds_its_libraries, an_engine_in_another_folder_runs_whole, a_human_reads_zero_events_not_blanks,
+         secret_scan_reads_every_file_in_one_pass]
 
 
 def main():
