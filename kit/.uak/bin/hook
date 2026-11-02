@@ -15,18 +15,84 @@ MSYS2_ARG_CONV_EXCL="refs/;origin/;${UAK_REMOTE:-origin}/;HEAD;FETCH_HEAD;:"; ex
 # so the black box tells the agent's own calls from the harness's. Why (MLB): status/inbox looked like half of all
 # calls, but the hooks made many of them.
 UAK_CALLER=hook; export UAK_CALLER
+# Speed: tick runs after every tool call, and a process costs 20-50 ms in Git Bash (Windows), so its common path
+# reads with builtins: stdin by read, one git call for the top and the git dir, .uak-env and the payload's ids by
+# loops, the clock once, and state files that hold their epoch (see fresh).
+NL=$'\n' CR=$'\r' TAB=$'\t'
 input=''
-[ -t 0 ] || input=$(cat 2>/dev/null || true)
-top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+if [ ! -t 0 ]; then
+  IFS= read -r -d '' input || true
+  while :; do case "$input" in *"$NL") input=${input%"$NL"};; *) break;; esac; done   # as $(cat) had it
+fi
+cwd0=$PWD
+rp=$(git rev-parse --show-toplevel --git-dir 2>/dev/null) || exit 0
+top=${rp%%"$NL"*} gd=${rp#*"$NL"}
 cd "$top" || exit 0
-gd=$(git rev-parse --git-dir 2>/dev/null) || exit 0
+# A relative git dir is relative to where git ran: still right only if that was the top.
+case "$gd" in /*|[A-Za-z]:[\\/]*) ;; *) [ "$PWD" = "$cwd0" ] || gd=$(git rev-parse --git-dir 2>/dev/null) || exit 0;; esac
 env_value() { [ -f .uak-env ] && sed -n "s/^$1=//p" .uak-env | head -n 1 | tr -d '\r'; }
 # Windows harnesses name files C:\Users\RUNNER~1\...; git names the top C:/Users/runneradmin/...: one form for both.
 winpath() { { command -v cygpath >/dev/null 2>&1 && cygpath -m -l "$1" 2>/dev/null; } || printf '%s' "$1" | tr '\\' /; }
 # The worktree's identity wins over an inherited export, as in uak (UAK_ENV_OVERRIDE=1 keeps the export).
-task=$(env_value UAK_TASK); agent=$(env_value UAK_AGENT)
+# The first UAK_TASK= and UAK_AGENT= lines, as env_value reads them.
+task= agent= seen_t= seen_a=
+if [ -f .uak-env ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      UAK_TASK=*) [ -n "$seen_t" ] || { task=${line#UAK_TASK=}; seen_t=1; };;
+      UAK_AGENT=*) [ -n "$seen_a" ] || { agent=${line#UAK_AGENT=}; seen_a=1; };;
+    esac
+  done < .uak-env
+  task=${task//$CR/} agent=${agent//$CR/}
+fi
 [ -n "$agent" ] && [ "${UAK_ENV_OVERRIDE:-}" != 1 ] || agent=${UAK_AGENT:-$agent}
-fresh() { [ -f "$1" ] && [ -n "$(find "$1" -mmin "-$2" 2>/dev/null)" ]; }
+# The clock, once per call (printf %()T needs bash 4.2; macOS has 3.2).
+if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+  printf -v NOW '%(%s)T' -1
+else NOW=$(date +%s); fi
+# Written less than $2 minutes ago. The hook writes the epoch into its own state files (stamp) and reads it back; a
+# file without one (touched by bb or by an older kit, or one that holds text) is judged by its mtime, through find.
+fresh() {
+  local v=
+  [ -f "$1" ] || return 1
+  { IFS= read -r v < "$1"; } 2>/dev/null
+  case "$v" in ''|*[!0-9]*) [ -n "$(find "$1" -mmin "-$2" 2>/dev/null)" ];; *) [ $((NOW - v)) -lt $(($2 * 60)) ];; esac
+}
+stamp() { printf '%s\n' "$NOW" > "$1" 2>/dev/null; }
+# A small file's first line into RD (as $(cat) for the one-line state files); 1 when there is no file.
+rd() { RD=; [ -f "$1" ] || return 1; { IFS= read -r RD < "$1"; } 2>/dev/null; return 0; }
+# What sed -n 's/.*"KEY"[[:space:]]*:[[:space:]]*"\([CHARS]*\)".*/\1/p' | head -n 1 printed, into ID: on the first
+# line that has one, the last "KEY": "value" (sed's .* is greedy). Over 64 KB sed does it: each pattern operation
+# here copies the string.
+ID_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-' TOOL_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_'
+json_id() { # $1 key, $2 characters of the value (ID_CHARS or TOOL_CHARS) → ID
+  local k="\"$1\"" line pre rest v re
+  ID=
+  case "$input" in *"$k"*) ;; *) return 0;; esac
+  if [ "${#input}" -gt 65536 ]; then
+    case "$2" in "$ID_CHARS") re='A-Za-z0-9_.-';; *) re='A-Za-z_';; esac
+    ID=$(printf '%s' "$input" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([$re]*\)\".*/\1/p" | head -n 1)
+    return 0
+  fi
+  while IFS= read -r line; do
+    pre=$line
+    while :; do
+      case "$pre" in *"$k"*) ;; *) break;; esac
+      pre=${pre%"$k"*}
+      rest=${line:$((${#pre} + ${#k}))}
+      rest=${rest#"${rest%%[![:space:]]*}"}
+      case "$rest" in :*) ;; *) continue;; esac
+      rest=${rest#:}; rest=${rest#"${rest%%[![:space:]]*}"}
+      case "$rest" in \"*) ;; *) continue;; esac
+      rest=${rest#\"}; v=${rest%%[!$2]*}
+      case "${rest:${#v}}" in \"*) ID=$v; return 0;; esac
+    done
+  done <<UAK_INPUT
+$input
+UAK_INPUT
+}
+TOOL=unset
+tool_name() { [ "$TOOL" != unset ] || { json_id tool_name "$TOOL_CHARS"; TOOL=$ID; }; }
 # JSON string body: sed escapes (awk gsub of a backslash differs between mawk, gawk and BSD awk); control
 # characters such as ANSI colors from test runners are invalid in JSON and are dropped.
 json_text() { tr -d '\r' | tr '\t' ' ' | tr -d '\000-\010\013\014\016-\037' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'BEGIN {ORS=""} {if (NR > 1) print "\\n"; print}'; }
@@ -54,64 +120,133 @@ jdecode() {
     }
   }'
 }
-cap_chars() {
-  c=$(sed -n 's/^[-* ]*Output-Cap-Chars:[* ]*//p' .uak/PROJECT.md 2>/dev/null | head -n 1 | tr -d '\r `')
-  case "$c" in off|0) printf 0;; ''|*[!0-9]*) printf 12000;; *) printf '%s' "$c";; esac
+# What $(jdecode PARENT KEY) gave, into JD, by builtins. awk for a payload over 64 KB (each step copies the rest)
+# or with \001 (awk's record separator).
+P_ESC='[\\"]' P_SOH=$'\001' P_CUT='[;&|]'
+jdecode_var() {
+  local s t pre c raw p="\"$1\"" k
+  JD=
+  if [ "${#input}" -gt 65536 ]; then JD=$(jdecode "$@"); return 0; fi
+  case "$input" in *$P_SOH*) JD=$(jdecode "$@"); return 0;; esac
+  case "$input" in *"$p"*) ;; *) return 0;; esac
+  s=${input#*"$p"}
+  if [ -n "${2:-}" ]; then k="\"$2\""; case "$s" in *"$k"*) ;; *) return 0;; esac; s=${s#*"$k"}; fi
+  # sub(/^[[:space:]]*:[[:space:]]*/): all of it or nothing; then the string must open here.
+  t=${s#"${s%%[![:space:]]*}"}
+  case "$t" in :*) t=${t#:}; s=${t#"${t%%[![:space:]]*}"};; esac
+  case "$s" in \"*) s=${s#\"};; *) return 0;; esac
+  # The raw body: up to the first quote no backslash escapes (a lone backslash at the end is not part of it).
+  raw=
+  while :; do
+    pre=${s%%$P_ESC*}; raw=$raw$pre; s=${s:${#pre}}
+    case "$s" in \\?*) raw=$raw${s:0:2}; s=${s:2};; *) break;; esac
+  done
+  # Decoded as jdecode does: \n \t, \r dropped, \u kept as is, any other escaped character as itself.
+  while :; do
+    case "$raw" in *\\*) ;; *) JD=$JD$raw; break;; esac
+    pre=${raw%%\\*}; JD=$JD$pre; raw=${raw#*\\}
+    c=${raw:0:1}; raw=${raw:1}
+    case "$c" in n) JD=$JD$NL;; t) JD=$JD$TAB;; r) ;; u) JD=$JD'\u';; *) JD=$JD$c;; esac
+  done
+  while :; do case "$JD" in *"$NL") JD=${JD%"$NL"};; *) break;; esac; done
+}
+# Output-Cap-Chars (or another "Key:" of PROJECT.md): its first line, after the key, into PV (as sed -n | head -n 1).
+proj_value() {
+  local line v
+  PV=
+  [ -f .uak/PROJECT.md ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line#"${line%%[!-* ]*}"}
+    case "$line" in "$1:"*) ;; *) continue;; esac
+    v=${line#"$1:"}; PV=${v#"${v%%[!* ]*}"}
+    return 0
+  done < .uak/PROJECT.md
+}
+P_TRIM=$'[\r` ]'
+cap_chars() { # sets CAP
+  local c
+  proj_value Output-Cap-Chars; c=${PV//$P_TRIM/}
+  case "$c" in off|0) CAP=0;; ''|*[!0-9]*) CAP=12000;; *) CAP=$c;; esac
 }
 sum() { cksum < "$1" 2>/dev/null | awk '{print $1}'; }
 # Session id: Claude Code and Codex send session_id, Cursor conversation_id (BSD sed has no \| alternation).
-sid=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9_.-]*\)".*/\1/p' | head -n 1)
-[ -n "$sid" ] || sid=$(printf '%s' "$input" | sed -n 's/.*"conversation_id"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9_.-]*\)".*/\1/p' | head -n 1)
+json_id session_id "$ID_CHARS"; sid=$ID
+[ -n "$sid" ] || { json_id conversation_id "$ID_CHARS"; sid=$ID; }
+# This session's coach directory, made once (it was printf | tr | cut and a mkdir on every call).
+coach_dir() { # sets CDIR; 1 when it cannot be made
+  local x=${sid:-nosid}
+  x=${x//[!$ID_CHARS]/}; CDIR="$gd/uak-coach-${x:0:60}"
+  [ -d "$CDIR" ] || mkdir -p "$CDIR" 2>/dev/null
+}
 # Reminder templates (.uak/reminders.md, "key: text"); {n} {m} {id} {files} {tasks} are filled by `remind`.
 tmpl() { sed -n "s/^$1: //p" .uak/reminders.md 2>/dev/null; }
 # coach: event-driven reminders at the moment of decision, each capped per session (OpenDev-style). Prints one
 # reminder or nothing. State per session in <git dir>/uak-coach-<sid>/. Why: see .uak/reminders.md.
+# Called without a subshell: the reminder goes to NOTE (fill), and RD replaces each $(cat state).
 coach() {
-  local d tool cmd n now key t f first
+  local d tool cmd n now key t f first line
+  NOTE=
   [ "${UAK_COACH:-on}" != off ] || return 0
-  d="$gd/uak-coach-$(printf '%s' "${sid:-nosid}" | tr -cd 'A-Za-z0-9_.-' | cut -c 1-60)"; mkdir -p "$d" 2>/dev/null || return 0
-  tool=$(printf '%s' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([A-Za-z_]*\)".*/\1/p' | head -n 1)
-  cmd=; case "$tool" in Bash|PowerShell|Shell|run_shell_command|shell) cmd=$(jdecode tool_input command);; esac
-  fired() { [ "$(cat "$d/fired.$1" 2>/dev/null || echo 0)" -ge "$2" ]; }
-  fire() { echo $(( $(cat "$d/fired.$1" 2>/dev/null || echo 0) + 1 )) > "$d/fired.$1"; }
-  fill() { tmpl "$1" | head -n 1 | sed "s|{n}|${2:-}|g; s|{m}|${3:-}|g; s|{id}|${4:-}|g; s|{files}|${5:-}|g; s|{tasks}|${6:-}|g"; }
+  coach_dir || return 0; d=$CDIR
+  tool_name; tool=$TOOL
+  cmd=; case "$tool" in Bash|PowerShell|Shell|run_shell_command|shell) jdecode_var tool_input command; cmd=$JD;; esac
+  fired() { rd "$d/fired.$1" || RD=0; [ "$RD" -ge "$2" ] 2>/dev/null; }
+  fire() { rd "$d/fired.$1" || RD=0; echo $(( RD + 1 )) > "$d/fired.$1"; }
+  fill() { NOTE=$(tmpl "$1" | head -n 1 | sed "s|{n}|${2:-}|g; s|{m}|${3:-}|g; s|{id}|${4:-}|g; s|{files}|${5:-}|g; s|{tasks}|${6:-}|g"); }
   # Calls since the last checkpoint (any tool).
-  n=$(( $(cat "$d/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$d/calls"
+  rd "$d/calls" || RD=0; n=$(( RD + 1 )); echo "$n" > "$d/calls"
   case "$cmd" in *"uak checkpoint"*|*"uak handoff"*|*"/uak-handoff"*) echo 0 > "$d/calls";; esac
-  case "$cmd" in *"uak map"*|*".uak/bin/map"*) touch "$d/mapused";; esac
-  case "$cmd" in *"uak msg"*) case "$cmd" in *contract*|*impact:*|*related:*) touch "$d/contract";; esac;; esac
+  case "$cmd" in *"uak map"*|*".uak/bin/map"*) : > "$d/mapused";; esac
+  case "$cmd" in *"uak msg"*) case "$cmd" in *contract*|*impact:*|*related:*) : > "$d/contract";; esac;; esac
   # 1. The kit kept failing the same way: invite one black box line, once.
   case "$input" in *'LOOP: the same error'*) fired friction 1 || { fire friction; fill friction; return 0; };; esac
-  # 2. Shipped: wait, do not poll (once per task).
-  if [ -n "$task" ] && printf '%s' "$cmd" | grep -Eq 'uak[" ]+done ' && printf '%s' "$input" | grep -q "OK done $task"; then
-    fired "done.$task" 1 || { fire "done.$task"; fill done "" "" "$task"; return 0; }
-  fi
+  # 2. Shipped: wait, do not poll (once per task). Each grep runs only when its words are there.
+  case "$cmd:$input" in *uak*done*:*"OK done "*)
+    if [ -n "$task" ] && grep -Eq 'uak[" ]+done ' <<< "$cmd" && printf '%s' "$input" | grep -q "OK done $task"; then
+      fired "done.$task" 1 || { fire "done.$task"; fill done "" "" "$task"; return 0; }
+    fi;;
+  esac
   # 3. Pushed changes that other tasks import, with no contract message in this session (once per pushed HEAD).
-  if [ -n "$task" ] && printf '%s' "$cmd" | grep -Eq '(^|[;&| ])git[[:space:]]+push' && [ ! -f "$d/contract" ]; then
-    local head files tasks
-    head=$(git rev-parse --short HEAD 2>/dev/null)
-    if [ -n "$head" ] && ! fired "contract.$head" 1; then
-      files=$(git diff --name-only "origin/${UAK_BASE:-main}...HEAD" 2>/dev/null | head -n 20)
-      tasks=$( [ -z "$files" ] || bash .uak/bin/map impact --tasks $files 2>/dev/null | grep -v "^$task\$" | tr '\n' ' ')
-      if [ -n "$tasks" ]; then fire "contract.$head"; fill contract "" "" "$task" "$(printf '%s' "$files" | head -n 3 | tr '\n' ' ')" "${tasks% }"; return 0; fi
-    fi
-  fi
+  case "$cmd" in *git*push*)
+    if [ -n "$task" ] && grep -Eq '(^|[;&| ])git[[:space:]]+push' <<< "$cmd" && [ ! -f "$d/contract" ]; then
+      local head files tasks
+      head=$(git rev-parse --short HEAD 2>/dev/null)
+      if [ -n "$head" ] && ! fired "contract.$head" 1; then
+        files=$(git diff --name-only "origin/${UAK_BASE:-main}...HEAD" 2>/dev/null | head -n 20)
+        tasks=$( [ -z "$files" ] || bash .uak/bin/map impact --tasks $files 2>/dev/null | grep -v "^$task\$" | tr '\n' ' ')
+        if [ -n "$tasks" ]; then fire "contract.$head"; fill contract "" "" "$task" "$(printf '%s' "$files" | head -n 3 | tr '\n' ' ')" "${tasks% }"; return 0; fi
+      fi
+    fi;;
+  esac
   # 4. Polling status/inbox: the third look in 10 min suggests `uak wait` (twice per session at most).
-  if printf '%s' "$cmd" | grep -Eq 'uak[" ]+(status|inbox|board|digest|next)([" ]|$)'; then
-    now=$(date +%s); echo "$now" >> "$d/polls"
-    n=$(awk -v now="$now" '$1 >= now - 600' "$d/polls" | wc -l | tr -d ' ')
-    if [ "$n" -ge 3 ] && ! fired poll 2; then fire poll; : > "$d/polls"; fill poll "$n" 10 "${task:+$task }"; return 0; fi
-  fi
+  case "$cmd" in *uak*)
+    if grep -Eq 'uak[" ]+(status|inbox|board|digest|next)([" ]|$)' <<< "$cmd"; then
+      now=$NOW; echo "$now" >> "$d/polls"
+      # The looks of the last 10 min ($1 >= now - 600; the file holds only epochs).
+      n=0
+      while read -r t _; do case "$t" in ''|*[!0-9]*) ;; *) [ "$t" -lt $((now - 600)) ] || n=$((n + 1));; esac; done < "$d/polls"
+      if [ "$n" -ge 3 ] && ! fired poll 2; then fire poll; : > "$d/polls"; fill poll "$n" 10 "${task:+$task }"; return 0; fi
+    fi;;
+  esac
   # 5. An exploration spiral without the code map: 5 reads in a row (twice per session at most).
-  first=$(printf '%s' "$cmd" | sed 's/^[[:space:]]*//' | awk '{print $1}')
+  # The first word of each line (sed strips the leading space, awk prints $1), joined as $(…) joined them.
+  first=
+  if [ -n "$cmd" ]; then
+    while IFS= read -r line; do
+      line=${line#"${line%%[![:space:]]*}"}; first="$first${line%%[ $TAB]*}$NL"
+    done <<UAK_CMD
+$cmd
+UAK_CMD
+    while :; do case "$first" in *"$NL") first=${first%"$NL"};; *) break;; esac; done
+  fi
   case "$tool:$first" in
     Read:*|Grep:*|Glob:*|read_file:*|read_many_files:*|grep_search:*|glob:*|list_directory:*|*:cat|*:rg|*:grep|*:find|*:head|*:tail|*:ls|*:sed|*:wc)
-      n=$(( $(cat "$d/explore" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$d/explore"
+      rd "$d/explore" || RD=0; n=$(( RD + 1 )); echo "$n" > "$d/explore"
       if [ "$n" -ge 5 ] && [ ! -f "$d/mapused" ] && ! fired explore 2; then fire explore; echo 0 > "$d/explore"; fill explore "$n"; return 0; fi;;
     *) echo 0 > "$d/explore";;
   esac
   # 6. Long stretch on a claimed task without a checkpoint (twice per session at most).
-  n=$(cat "$d/calls" 2>/dev/null || echo 0)
+  rd "$d/calls" || RD=0; n=$RD
   if [ -n "$task" ] && [ "$n" -ge "${UAK_COACH_CHECKPOINT:-40}" ] && ! fired checkpoint 2; then fire checkpoint; echo 0 > "$d/calls"; fill checkpoint "$n" "" "$task"; return 0; fi
 }
 # lens: the code map at the moment of a search or a read. After Grep/Read (or grep/rg/cat/sed on a file in a shell),
@@ -124,32 +259,42 @@ coach() {
 # The design gate right after an agent writes a UI file: its findings come back while the file is open, not at done.
 # Why (Chilangatón): views built on their own colors and components were found 3 hours in; Impeccable runs its detector
 # from a post-edit hook for the same reason.
+# uilint and lens run without a subshell too: their line goes to NOTE.
 uilint() {
-  [ -f .uak/bin/design-lint ] || return 0
   local tool file out
-  tool=$(printf '%s' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([A-Za-z_]*\)".*/\1/p' | head -n 1)
+  NOTE=
+  [ -f .uak/bin/design-lint ] || return 0
+  tool_name; tool=$TOOL
   case "$tool" in Edit|Write|MultiEdit|write_file|replace|edit_file|edit) ;; *) return 0;; esac
-  file=$(jdecode tool_input file_path); [ -n "$file" ] || file=$(jdecode tool_input absolute_path); [ -n "$file" ] || file=$(jdecode tool_input path)
+  jdecode_var tool_input file_path; file=$JD
+  [ -n "$file" ] || { jdecode_var tool_input absolute_path; file=$JD; }; [ -n "$file" ] || { jdecode_var tool_input path; file=$JD; }
   case "$file" in *.tsx|*.jsx|*.ts|*.js|*.vue|*.svelte|*.css) ;; *) return 0;; esac
   case "$file" in [A-Za-z]:[\\/]*) file=$(winpath "$file");; esac
   out=$(bash .uak/bin/design-lint --file "$file" 2>/dev/null) && return 0
   printf '%s\n' "$out" | grep -q '^DESIGN_LINT_FAIL' || return 0
-  printf 'UAK design-lint on %s: %s Fix it now with the tokens and the UI kit (skill product-ui).' "${file##*/}" \
-    "$(printf '%s\n' "$out" | grep '^DESIGN_LINT [^_]' | head -n 3 | sed 's/^DESIGN_LINT [^ ]* · //' | tr '\n' ';' | sed 's/;$/./')"
+  NOTE=$(printf 'UAK design-lint on %s: %s Fix it now with the tokens and the UI kit (skill product-ui).' "${file##*/}" \
+    "$(printf '%s\n' "$out" | grep '^DESIGN_LINT [^_]' | head -n 3 | sed 's/^DESIGN_LINT [^ ]* · //' | tr '\n' ';' | sed 's/;$/./')")
 }
 lens() {
+  local d tool cmd pat file name w prev wtop line n
+  NOTE=
   [ "${UAK_LENS:-on}" != off ] || return 0
-  local d tool cmd pat file name w prev wtop
-  d="$gd/uak-coach-$(printf '%s' "${sid:-nosid}" | tr -cd 'A-Za-z0-9_.-' | cut -c 1-60)"; mkdir -p "$d" 2>/dev/null || return 0
-  [ "$(wc -l < "$d/lens.seen" 2>/dev/null || echo 0)" -lt "${UAK_LENS_MAX:-25}" ] || return 0
-  tool=$(printf '%s' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([A-Za-z_]*\)".*/\1/p' | head -n 1)
+  coach_dir || return 0; d=$CDIR
+  # Lines in lens.seen, as wc -l counts them (newlines).
+  n=0; [ ! -f "$d/lens.seen" ] || while IFS= read -r line; do n=$((n + 1)); done < "$d/lens.seen"
+  [ "$n" -lt "${UAK_LENS_MAX:-25}" ] || return 0
+  tool_name; tool=$TOOL
   pat= file=
   case "$tool" in
-    Grep|grep_search|search_file_content) pat=$(jdecode tool_input pattern); [ -n "$pat" ] || pat=$(jdecode tool_input query);;
-    Read|read_file) file=$(jdecode tool_input file_path); [ -n "$file" ] || file=$(jdecode tool_input absolute_path)
-      [ -n "$file" ] || file=$(jdecode tool_input path); [ -n "$file" ] || file=$(jdecode tool_input target_file);;
+    Grep|grep_search|search_file_content) jdecode_var tool_input pattern; pat=$JD; [ -n "$pat" ] || { jdecode_var tool_input query; pat=$JD; };;
+    Read|read_file) jdecode_var tool_input file_path; file=$JD; [ -n "$file" ] || { jdecode_var tool_input absolute_path; file=$JD; }
+      [ -n "$file" ] || { jdecode_var tool_input path; file=$JD; }; [ -n "$file" ] || { jdecode_var tool_input target_file; file=$JD; };;
     Bash|PowerShell|Shell|run_shell_command|shell)
-      cmd=$(jdecode tool_input command | sed 's/[;&|].*//')
+      # Each line up to its first ; & or | (sed 's/[;&|].*//').
+      jdecode_var tool_input command; cmd=
+      while IFS= read -r line; do cmd="$cmd${line%%$P_CUT*}$NL"; done <<UAK_CMD
+$JD
+UAK_CMD
       set -f; set -- $cmd; set +f
       [ "${1:-}" != git ] || [ "${2:-}" != grep ] || shift
       case "${1:-}" in
@@ -164,7 +309,7 @@ lens() {
           for w in "$@"; do case "$w" in -*|*\'*|*\"*|[0-9]*p) ;; *) [ -f "$w" ] && { file=$w; break; };; esac; done;;
       esac;;
   esac
-  pat=$(printf '%s' "$pat" | tr -d "'\"")
+  pat=${pat//[\"\']/}
   if [ -n "$pat" ]; then
     name=$(printf '%s' "$pat" | sed -E 's/\\b//g; s/^\^//; s/^(def|class|function|func|fn|const|let|var|type|interface|struct)[[:space:]]+//; s/[\\(].*$//; s/[[:space:]].*$//')
     printf '%s' "$name" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]{2,}$' || return 0
@@ -176,14 +321,18 @@ lens() {
     case "$file" in "$wtop"/*) file=${file#"$wtop"/};; /*|[A-Za-z]:/*) return 0;; esac
     key="f:$file"
   else return 0; fi
-  ! grep -qxF -- "$key" "$d/lens.seen" 2>/dev/null || return 0
+  # Seen already (grep -qxF: a whole line equal to the key).
+  if [ -f "$d/lens.seen" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do [ "$line" != "$key" ] || return 0; done < "$d/lens.seen"
+  fi
   if [ ! -s "$gd/uak-map/symbols.tsv" ]; then
-    [ -f "$d/lens.building" ] || { touch "$d/lens.building"; nohup bash .uak/bin/map build > /dev/null 2>&1 & }
+    [ -f "$d/lens.building" ] || { : > "$d/lens.building"; nohup bash .uak/bin/map build > /dev/null 2>&1 & }
     return 0
   fi
   printf '%s\n' "$key" >> "$d/lens.seen"
-  if [ -n "$pat" ]; then bash .uak/bin/map lens --symbol "$name" 2>/dev/null
-  else bash .uak/bin/map lens --file "$file" ${task:+--task "$task"} 2>/dev/null; fi || return 0
+  # Its output is the note, also when it fails (what $(lens) captured).
+  if [ -n "$pat" ]; then NOTE=$(bash .uak/bin/map lens --symbol "$name" 2>/dev/null)
+  else NOTE=$(bash .uak/bin/map lens --file "$file" ${task:+--task "$task"} 2>/dev/null); fi || return 0
   # Counted for the black box like a command call, so an autopsy can tell pushes from pulls.
   case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *) printf 'lens\n' >> "$(git rev-parse --git-common-dir 2>/dev/null)/uak-blackbox.calls" 2>/dev/null;; esac
 }
@@ -217,7 +366,7 @@ case "${1:-}" in
       [ -z "$other" ] || [ "$other" = "$sid" ] ||
         printf '%s\n' "UAK WARNING: another agent session used this worktree less than 3 min ago. Two writers in one worktree overwrite each other: stop one of them, or start a new task with bash .uak/bin/wt new ID."
     fi
-    [ -z "$sid" ] || printf '%s %s\n' "$sid" "$(date +%s)" > "$gd/uak-live" 2>/dev/null
+    [ -z "$sid" ] || printf '%s %s\n' "$sid" "$NOW" > "$gd/uak-live" 2>/dev/null
     if [ -z "$agent" ]; then
       printf '%s\n' "UAK: checkout without .uak-env (planning/human). To implement: bash .uak/bin/uak next, then bash .uak/bin/wt new ID."
       # The human sees their queue (merges, decisions, messages) unasked.
@@ -262,16 +411,17 @@ case "${1:-}" in
     fi
     # Gemini's AfterTool takes the same additionalContext under its own event name.
     evname=PostToolUse; [ "${2:-}" != gemini ] || evname=AfterTool
-    coach_note=$(coach 2>/dev/null)
-    lens_note=$(lens 2>/dev/null)
-    ui_note=$(uilint 2>/dev/null)
+    # Called, not run in $(…): a subshell is a fork. Their stderr is silenced as it was.
+    coach 2>/dev/null; coach_note=$NOTE
+    lens 2>/dev/null; lens_note=$NOTE
+    uilint 2>/dev/null; ui_note=$NOTE
     [ -z "$ui_note" ] || coach_note="${ui_note}${coach_note:+
 }$coach_note"
     # Upstream drift: at most every 5 min, in the background, fetch the base and ask the map whether it changed what
     # this branch edits or imports; say it once per change set. Why: STORM (arXiv 2605.20563), conflicts caught at
     # write time; at MLB they surfaced only in the merge gate.
     if [ -n "$task" ] && [ -n "$agent" ] && ! fresh "$gd/uak-drift.checked" 5; then
-      touch "$gd/uak-drift.checked" 2>/dev/null
+      stamp "$gd/uak-drift.checked"
       ( git fetch -q "${UAK_REMOTE:-origin}" "${UAK_BASE:-main}" 2>/dev/null &&
           { bash .uak/bin/map drift --ref "${UAK_REMOTE:-origin}/${UAK_BASE:-main}" > "$gd/uak-drift.tmp" 2>/dev/null || : > "$gd/uak-drift.tmp"; } &&
           mv "$gd/uak-drift.tmp" "$gd/uak-drift.txt" ) > /dev/null 2>&1 &
@@ -279,14 +429,16 @@ case "${1:-}" in
     # GitHub feedback on this task's PR (failed checks, human comments) becomes a message to the task: the inbox
     # injection below delivers it. Every 5 min, in the background, only when gh is there.
     if [ -n "$task" ] && [ -n "$agent" ] && command -v "${UAK_GH:-gh}" >/dev/null 2>&1 && ! fresh "$gd/uak-prsync.checked" 5; then
-      touch "$gd/uak-prsync.checked" 2>/dev/null
+      stamp "$gd/uak-prsync.checked"
       # Every REVIEW task of this identity, not only the worktree's: an agent that moved on after done never synced
       # the PR it left in review (Hacktoberfest second autopsy: one pr-sync in 16 h, a merged PR 14 min in REVIEW).
       nohup bash -c 'bash .uak/bin/uak pr-sync "$1"
         bash .uak/bin/uak status --full 2>/dev/null | awk -F" [|] " -v a="$2" -v t="$1" "\$2==\"REVIEW\" && \$3==a && \$1!=t {print \$1}" |
         while read -r id; do bash .uak/bin/uak pr-sync "$id"; done' _ "$task" "$agent" > /dev/null 2>&1 &
     fi
-    if [ -s "$gd/uak-drift.txt" ] && [ "$(sum "$gd/uak-drift.txt")" != "$(cat "$gd/uak-drift.shown" 2>/dev/null)" ]; then
+    # The checksum only when the drift file changed after it was last shown: a shown file newer than it holds its sum.
+    if [ -s "$gd/uak-drift.txt" ] && ! [ "$gd/uak-drift.shown" -nt "$gd/uak-drift.txt" ] &&
+       { rd "$gd/uak-drift.shown"; [ "$(sum "$gd/uak-drift.txt")" != "$RD" ]; }; then
       sum "$gd/uak-drift.txt" > "$gd/uak-drift.shown"
       lens_note="$(cat "$gd/uak-drift.txt")${lens_note:+
 }$lens_note"
@@ -297,24 +449,24 @@ case "${1:-}" in
       [ -z "$coach_note" ] || printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$evname" "$(printf '%s' "$coach_note" | json_text)"
       exit 0
     fi
-    [ -z "$sid" ] || printf '%s %s\n' "$sid" "$(date +%s)" > "$gd/uak-live" 2>/dev/null
+    [ -z "$sid" ] || printf '%s %s\n' "$sid" "$NOW" > "$gd/uak-live" 2>/dev/null
     # Heartbeat every lease/3 (8..20 min), and the REVIEW tasks of other worktrees at most every 30 min.
     # Why (Reap buildathon): 11 agents heartbeating every 8 min plus a status per beat kept the claims branch
     # busy; approvals then needed up to 14 attempts. A 45-min sprint lease is safe with a 15-min beat.
-    hb=$(sed -n 's/^[-* ]*Lease-Seconds:[* ]*//p' .uak/PROJECT.md 2>/dev/null | head -n 1 | tr -cd '0-9')
+    proj_value Lease-Seconds; hb=${PV//[!0123456789]/}
     hb=$(( ${hb:-2700} / 180 )); [ "$hb" -ge 8 ] || hb=8; [ "$hb" -le 20 ] || hb=20
     # A task handed over (or released) from another machine is no longer this worktree's: one heartbeat says so, then
     # the beats stop and the agent hears it once. Why (Chilangatón): after a Windows → macOS handover the old
     # session kept beating PB-027 ("belongs to", "has no active claim") into the black box.
-    gone=$(cat "$gd/uak-task-gone" 2>/dev/null)
-    if [ -n "$task" ] && [ "$gone" = "$task" ] && [ "$(cat "$gd/uak-task-gone.told" 2>/dev/null)" != "$task" ]; then
+    rd "$gd/uak-task-gone"; gone=$RD
+    if [ -n "$task" ] && [ "$gone" = "$task" ] && { rd "$gd/uak-task-gone.told"; [ "$RD" != "$task" ]; }; then
       printf '%s' "$task" > "$gd/uak-task-gone.told" 2>/dev/null
       coach_note="UAK: $task is no longer this worktree's ($(tail -n 1 "$gd/uak-heartbeat.log" 2>/dev/null | cut -c 1-160)). Stop editing it; run uak next.${coach_note:+
 }$coach_note"
     fi
     if [ -n "$task" ] && [ "$gone" != "$task" ] && ! fresh "$gd/uak-heartbeat" "$hb"; then
-      touch "$gd/uak-heartbeat" 2>/dev/null
-      reviews=no; fresh "$gd/uak-heartbeat.reviews" 30 || { reviews=yes; touch "$gd/uak-heartbeat.reviews" 2>/dev/null; }
+      stamp "$gd/uak-heartbeat"
+      reviews=no; fresh "$gd/uak-heartbeat.reviews" 30 || { reviews=yes; stamp "$gd/uak-heartbeat.reviews"; }
       # REVIEW tasks in other worktrees need a live lease for uak merge.
       nohup bash -c 'out=$(bash .uak/bin/uak heartbeat "$1" 2>&1); printf "%s\n" "$out"
         case "$out" in *"belongs to "*|*"has no active claim"*) printf "%s" "$1" > "$4/uak-task-gone";; esac
@@ -325,9 +477,12 @@ case "${1:-}" in
     # Poll in background, never blocking the agent: a cheap `ls-remote` of claims every 20 s, and the inbox is read
     # only when the claims tip moved (or every 5 min). Why: the old 2-min full read was the message latency; an
     # answer to a contract question took up to 2 min to reach the asker, and most reads found nothing new.
-    . .uak/bin/lib/net.sh 2>/dev/null && ssh_mux
-    now_s=$(date +%s); last_s=$(cat "$gd/uak-inbox.poll" 2>/dev/null); case "$last_s" in ''|*[!0-9]*) last_s=0;; esac
+    # The network settings (net.sh) only matter to the git calls started below, so they are set right before them.
+    net_ready=
+    net_once() { [ -n "$net_ready" ] || { net_ready=1; . .uak/bin/lib/net.sh 2>/dev/null && ssh_mux; }; }
+    now_s=$NOW; rd "$gd/uak-inbox.poll"; last_s=$RD; case "$last_s" in ''|*[!0-9]*) last_s=0;; esac
     if [ $((now_s - last_s)) -ge "${UAK_POLL_SECONDS:-20}" ]; then
+      net_once
       printf '%s' "$now_s" > "$gd/uak-inbox.poll" 2>/dev/null
       ( tip=$(git ls-remote "${UAK_REMOTE:-origin}" refs/heads/claims 2>/dev/null | awk '{print $1; exit}')
         if [ -n "$tip" ] && { [ "$tip" != "$(cat "$gd/uak-claims.tip" 2>/dev/null)" ] || ! fresh "$gd/uak-inbox.txt" 5; }; then
@@ -338,9 +493,10 @@ case "${1:-}" in
     # Pace check every ~5 min; speak only when the level changes. Why: the agent can't see /usage.
     pace_note=
     if ! fresh "$gd/uak-pace.seen" 5; then
-      touch "$gd/uak-pace.seen" 2>/dev/null
+      net_once
+      stamp "$gd/uak-pace.seen"
       lvl=$(bash .uak/bin/pace --caps 2>/dev/null | awk '{print $1}')
-      if [ -n "$lvl" ] && [ "$lvl" != "$(cat "$gd/uak-pace.level" 2>/dev/null)" ]; then
+      if [ -n "$lvl" ] && { rd "$gd/uak-pace.level"; [ "$lvl" != "$RD" ]; }; then
         printf '%s' "$lvl" > "$gd/uak-pace.level"
         case "$lvl" in surge|conserve|critical) pace_note=$(bash .uak/bin/pace 2>/dev/null);; esac
       fi
@@ -353,7 +509,7 @@ case "${1:-}" in
     fi
     if [ -s "$gd/uak-inbox.txt" ]; then
       # Only messages newer than the last injected one: never resend what was seen.
-      last=$(cat "$gd/uak-inbox.shown-n" 2>/dev/null); case "$last" in ''|*[!0-9]*) last=0;; esac
+      rd "$gd/uak-inbox.shown-n"; last=$RD; case "$last" in ''|*[!0-9]*) last=0;; esac
       delta=$(awk -v last="$last" '/^#[0-9]/ {n=substr($1, 2) + 0; keep=(n > last)} /^#[0-9]/ || /^  / {if (keep) print}' "$gd/uak-inbox.txt")
       if [ -z "$delta" ]; then
         [ -z "$pace_note" ] || printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$evname" "$(printf '%s' "$pace_note" | json_text)"
@@ -401,7 +557,7 @@ $act"
     fi
     # Token spend of this machine (Claude Code and Codex transcripts) to claims:tokens/, at most every 30 min.
     if [ -n "$common" ] && ! fresh "$common/uak-tokens.published" 30; then
-      touch "$common/uak-tokens.published" 2>/dev/null
+      stamp "$common/uak-tokens.published"
       nohup bash .uak/bin/tokens --publish --quiet > /dev/null 2>&1 &
     fi
     [ -n "$agent" ] || exit 0
@@ -411,7 +567,7 @@ $act"
     # The batch is its message numbers, not the text: "#3 · 5m ago" changes every minute and blocked again each time
     # (audit, Oct 2026).
     now_sum=$(sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' "$gd/uak-inbox.txt" | tr '\n' ' ')
-    [ "$now_sum" != "$(cat "$gd/uak-inbox.stopped" 2>/dev/null)" ] || exit 0
+    rd "$gd/uak-inbox.stopped"; [ "$now_sum" != "$RD" ] || exit 0
     printf '%s' "$now_sum" > "$gd/uak-inbox.stopped"
     sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' "$gd/uak-inbox.txt" | sort -n | tail -n 1 > "$gd/uak-inbox.shown-n"
     printf '{"decision":"block","reason":"%s"}\n' \
@@ -426,12 +582,12 @@ $act"
     #                  (the command already ran; no permission or sandbox decision is involved).
     # Cursor cannot replace a shell result after it runs: see `wrap` (preToolUse).
     harness=${2:-claude}
-    cap=$(cap_chars); [ "$cap" -gt 0 ] || exit 0
+    cap_chars; cap=$CAP; [ "$cap" -gt 0 ] || exit 0
     [ "${#input}" -gt "$cap" ] || exit 0
     case "$input" in *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*|*'"tool_name":"PowerShell"'*|*'"tool_name": "PowerShell"'*) ;; *) exit 0;; esac
-    case "$(jdecode tool_input command)" in *UAK_RAW=1*) exit 0;; esac
+    jdecode_var tool_input command; case "$JD" in *UAK_RAW=1*) exit 0;; esac
     out_dir="$gd/uak-out"; mkdir -p "$out_dir" 2>/dev/null || exit 0
-    id="$(date +%s)-$$"; log="$out_dir/$id.log"
+    id="$NOW-$$"; log="$out_dir/$id.log"
     if [ "$harness" = codex ]; then
       # tool_response is the model-facing output: a string, or an object with stdout/output.
       jdecode tool_response > "$log" 2>/dev/null
@@ -474,32 +630,37 @@ $act"
     # Why (MLB hackathon): the Windows skip meant the 4 Windows laptops never got a cap in Cursor; Codex's
     # PostToolUse "block" cut documentation reads and "interrupted the tool batch".
     harness=${2:-cursor}
-    cap=$(cap_chars); [ "$cap" -gt 0 ] || exit 0
+    cap_chars; cap=$CAP; [ "$cap" -gt 0 ] || exit 0
     # Codex: hooks.json matches Bash; the payload must carry tool_input.command (a string).
     case "$harness:$input" in cursor:*'"tool_name":"Shell"'*|cursor:*'"tool_name": "Shell"'*|codex:*|gemini:*'"tool_name":"run_shell_command"'*|gemini:*'"tool_name": "run_shell_command"'*) ;; *) exit 0;; esac
     case "${SHELL:-}" in *fish) [ "$harness" = codex ] || exit 0;; esac
-    windows=no; case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) windows=yes;; esac
+    # bash's own OSTYPE is msys or cygwin exactly where uname -s says MINGW*, MSYS* or CYGWIN* (no process).
+    windows=no; case "${OSTYPE:-}" in msys*|cygwin*) windows=yes;; esac
     [ "${UAK_TEST_WINDOWS:-}" != 1 ] || windows=yes
-    cmd=$(jdecode tool_input command); [ -n "$cmd" ] || exit 0
-    wd=$(jdecode tool_input working_directory)
+    jdecode_var tool_input command; cmd=$JD; [ -n "$cmd" ] || exit 0
+    jdecode_var tool_input working_directory; wd=$JD
     case "$cmd" in *UAK_RAW=1*|*.uak/bin/q*|*.uak/bin/cap*) exit 0;; esac
-    printf '%s\n' "$cmd" | grep -Eq '(^|[^&>])&([^&>]|$)|(^|[;&|[:space:]])(exit|exec|read|vim|vi|nano|less|more|top|htop|watch|ssh)([[:space:]]|$)|tail[[:space:]]+-[a-zA-Z]*f|--watch|--follow|(npm|pnpm|yarn|bun)[[:space:]]+(run[[:space:]]+)?(dev|start|serve)|uvicorn|gunicorn|flask[[:space:]]+run|http\.server|nodemon|next[[:space:]]+(dev|start)|docker(-|[[:space:]])compose[[:space:]]+up|rails[[:space:]]+s|streamlit[[:space:]]+run' && exit 0
-    printf '%s\n' "$cmd" | grep -Eq '(^|[;&|([:space:]])(pytest|py\.test|tox|nox|jest|vitest|mocha|tsc|eslint|ruff|mypy|pyright|flake8|pylint|rg|tree|du|make)([[:space:]]|$)|python3?[[:space:]]+-m[[:space:]]+(pytest|unittest)|playwright[[:space:]]+test|cypress[[:space:]]+run|go[[:space:]]+(test|build|vet)|cargo[[:space:]]+(test|build|check|clippy)|(mvn|gradle|gradlew)[[:space:]]|(npm|pnpm|yarn|bun)[[:space:]]+(run[[:space:]]+)?(test|build|lint|typecheck|check|format:check)|(uv|poetry)[[:space:]]+run[[:space:]]+(pytest|python|mypy|ruff)|git[[:space:]]+(log|diff|show|blame|status)|grep[[:space:]]+-[a-zA-Z]*r|find[[:space:]]|ls[[:space:]]+-[a-zA-Z]*R|\.uak/bin/(smoke|uak[[:space:]]+(status|board|digest|stats|graph))' || exit 0
+    # Here-strings, not printf pipes (a fork each); <<< adds the newline printf '%s\n' gave.
+    grep -Eq '(^|[^&>])&([^&>]|$)|(^|[;&|[:space:]])(exit|exec|read|vim|vi|nano|less|more|top|htop|watch|ssh)([[:space:]]|$)|tail[[:space:]]+-[a-zA-Z]*f|--watch|--follow|(npm|pnpm|yarn|bun)[[:space:]]+(run[[:space:]]+)?(dev|start|serve)|uvicorn|gunicorn|flask[[:space:]]+run|http\.server|nodemon|next[[:space:]]+(dev|start)|docker(-|[[:space:]])compose[[:space:]]+up|rails[[:space:]]+s|streamlit[[:space:]]+run' <<< "$cmd" && exit 0
+    grep -Eq '(^|[;&|([:space:]])(pytest|py\.test|tox|nox|jest|vitest|mocha|tsc|eslint|ruff|mypy|pyright|flake8|pylint|rg|tree|du|make)([[:space:]]|$)|python3?[[:space:]]+-m[[:space:]]+(pytest|unittest)|playwright[[:space:]]+test|cypress[[:space:]]+run|go[[:space:]]+(test|build|vet)|cargo[[:space:]]+(test|build|check|clippy)|(mvn|gradle|gradlew)[[:space:]]|(npm|pnpm|yarn|bun)[[:space:]]+(run[[:space:]]+)?(test|build|lint|typecheck|check|format:check)|(uv|poetry)[[:space:]]+run[[:space:]]+(pytest|python|mypy|ruff)|git[[:space:]]+(log|diff|show|blame|status)|grep[[:space:]]+-[a-zA-Z]*r|find[[:space:]]|ls[[:space:]]+-[a-zA-Z]*R|\.uak/bin/(smoke|uak[[:space:]]+(status|board|digest|stats|graph))' <<< "$cmd" || exit 0
     # The guard decides first; a blocked command is left untouched so the deny hook blocks it.
     bash .uak/bin/guard check "$cmd" >/dev/null 2>&1 || exit 0
     # The wrapper answers "allow" (the harness needs it to take the new command), so EVERY segment must be a noisy
     # read/test/build command; anything else keeps the harness's own approval. Why (audit, Oct 2026): one keyword
     # anywhere wrapped and auto-approved `git status; touch X` and `gh api -X DELETE …; git status`.
     # A redirection to a file writes; 2>&1 and >/dev/null do not.
-    case "$(printf '%s' "$cmd" | sed 's@[0-9]*>&[0-9]@@g; s@[0-9]*>[[:space:]]*/dev/null@@g')" in *'>'*) exit 0;; esac
-    printf '%s\n' "$cmd" | awk '{ gsub(/&&|\|\||;|\|/, "\n"); print }' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' |
+    case "$cmd" in *'>'*)   # without a > there is nothing to strip
+      case "$(printf '%s' "$cmd" | sed 's@[0-9]*>&[0-9]@@g; s@[0-9]*>[[:space:]]*/dev/null@@g')" in *'>'*) exit 0;; esac;;
+    esac
+    awk '{ gsub(/&&|\|\||;|\|/, "\n"); print }' <<< "$cmd" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' |
       grep -Evq '^((cd|pushd)[[:space:]]+[^[:space:]]+|export[[:space:]]+[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|(pytest|py\.test|tox|nox|jest|vitest|mocha|tsc|eslint|ruff|mypy|pyright|flake8|pylint|rg|tree|du|make|grep|find|ls|head|tail|wc|sort|uniq|cat|seq|true|false|echo|printf|pwd|date)([[:space:]]|$)|python3?[[:space:]]+-m[[:space:]]+(pytest|unittest)|npx[[:space:]]+(playwright|cypress|jest|vitest|tsc|eslint)([[:space:]]|$)|playwright[[:space:]]+test|cypress[[:space:]]+run|go[[:space:]]+(test|build|vet)|cargo[[:space:]]+(test|build|check|clippy)|(mvn|gradle|\./gradlew|gradlew)([[:space:]]|$)|(npm|pnpm|yarn|bun)[[:space:]]+(run[[:space:]]+)?(test|build|lint|typecheck|check|format:check)([[:space:]]|$)|(uv|poetry)[[:space:]]+run[[:space:]]+(pytest|mypy|ruff)([[:space:]]|$)|git[[:space:]]+(log|diff|show|blame|status)([[:space:]]|$)|bash[[:space:]]+\.uak/bin/(smoke|uak[[:space:]]+(status|board|digest|stats|graph))([[:space:]]|$))' && exit 0
-    capbin="$(pwd -P)/.uak/bin/cap"
+    # cd -P . puts pwd -P's path in PWD without a subshell (the same directory).
+    if cd -P . 2>/dev/null; then capbin="$PWD/.uak/bin/cap"; else capbin="$(pwd -P)/.uak/bin/cap"; fi
     if [ "$harness" != cursor ] || [ "$windows" = yes ]; then
       if [ "$windows" = yes ]; then
         # PowerShell and bash must read it the same way.
         case "$cmd" in *'$'*|*'\'*|*'`'*|*'%'*) exit 0;; esac
-        printf '%s\n' "$cmd" | grep -Eq '(^|[;&|[:space:]])(cd|pushd|export|set|source)([[:space:]]|$)|(^|[;&|])[[:space:]]*\.[[:space:]]|[A-Z][a-z]+-[A-Z][a-z]+' && exit 0
+        grep -Eq '(^|[;&|[:space:]])(cd|pushd|export|set|source)([[:space:]]|$)|(^|[;&|])[[:space:]]*\.[[:space:]]|[A-Z][a-z]+-[A-Z][a-z]+' <<< "$cmd" && exit 0
         capbin=$(cygpath -m "$capbin" 2>/dev/null || printf '%s' "$capbin")
       fi
       case "$capbin" in *"'"*) exit 0;; esac
@@ -507,7 +668,7 @@ $act"
       wrapped="bash '$capbin' --b64 $b64"
     else
       out_dir="$(cd "$gd" && pwd -P)/uak-out"; mkdir -p "$out_dir" 2>/dev/null || exit 0
-      log="$out_dir/$(date +%s)-$$.log"
+      log="$out_dir/$NOW-$$.log"
       case "$log$capbin" in *"'"*) exit 0;; esac
       wrapped="{ $cmd
 } > '$log' 2>&1; __uak_rc=\$?; bash '$capbin' '$log' \"\$__uak_rc\"; (exit \$__uak_rc)"
