@@ -21,7 +21,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 # Git Bash on Windows: a bare "bash" there resolves to WSL's launcher in System32 first.
 BASH = str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git" / "bin" / "bash.exe") if os.name == "nt" else "bash"
-TOOLS = ["uak_next", "uak_status", "uak_claim", "uak_ship", "uak_wait", "uak_review", "uak_merge", "uak_message",
+TOOLS = ["uak_next", "uak_status", "uak_claim", "uak_ship", "uak_red", "uak_wait", "uak_review", "uak_merge", "uak_message",
          "uak_inbox", "uak_map", "uak_memory", "uak_checkpoint", "uak_tokens", "uak_cli"]
 TASKS = """## APP-001 · Greeting API
 - **Priority:** P0
@@ -142,8 +142,12 @@ class McpTools(unittest.TestCase):
         self.assertFalse(bad, text); self.assertIn("OK claim APP-001", text)
         wt = Path(next(l.split(" · worktree ", 1)[1].strip() for l in text.splitlines() if l.startswith("WT_READY")))
         (wt / "tests").mkdir(exist_ok=True)
-        (wt / "src/greet.py").write_text("def greet(name):\n    return 'hi ' + name\n", encoding="utf-8")
+        # Test first (a new install says Test-First: yes): the test and a stub, the red through the tool, then the code.
         (wt / "tests/test_greet.py").write_text("import sys; sys.path.insert(0, 'src')\nfrom greet import greet\nassert greet('ana') == 'hi ana'\n", encoding="utf-8")
+        (wt / "src/greet.py").write_text("def greet(name):\n    return ''\n", encoding="utf-8")
+        bad, text = self.mcp.tool("uak_red", task="APP-001", agent="dev-1")
+        self.assertFalse(bad, text); self.assertIn("RED_OK APP-001", text)
+        (wt / "src/greet.py").write_text("def greet(name):\n    return 'hi ' + name\n", encoding="utf-8")
         git(wt, "add", "-A"); git(wt, "commit", "-q", "-m", "feat: greet"); git(wt, "push", "-q", "-u", "origin", "HEAD")
         bad, text = self.mcp.tool("uak_checkpoint", task="APP-001", agent="dev-1", done="greet", decision="-", why="-",
                                   fails="-", commands="python3 tests/test_greet.py", next="ship")

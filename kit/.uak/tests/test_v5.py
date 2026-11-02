@@ -421,7 +421,7 @@ def mcp_server(r):
     c.send("notifications/initialized", notify=True)
     tools = c.call("tools/list")["result"]["tools"]
     names = [t["name"] for t in tools]
-    expect(names[0] == "uak_next" and "uak_wait" in names and "uak_map" in names and len(names) == 14, str(names))
+    expect(names[0] == "uak_next" and "uak_wait" in names and "uak_map" in names and len(names) == 15, str(names))
     expect(all(t["inputSchema"]["additionalProperties"] is False and "annotations" in t for t in tools), "strict schemas and annotations")
     expect(next(t for t in tools if t["name"] == "uak_map")["annotations"]["readOnlyHint"] is True, "map is read-only")
     expect("resultType" not in c.call("ping")["result"], "legacy results stay legacy")

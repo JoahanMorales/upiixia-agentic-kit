@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# uak garden: keep the harness small, true and backed by checks. A report; it changes nothing.
+#   uak garden [--days N]     N: how far back to read transcripts and the black box (default 14)
+# Sections: instruction budget · docs that name what does not exist · lessons whose paths are gone · commands nobody
+# ran · black box lines that repeat · corrections a human had to make (candidate rules, from local transcripts).
+# Why (v5.10, harness gardening): the best harnesses are small, evidence-based and pruned. Rules go stale and docs
+# drift from the code; a rule nobody needed costs context in every session, and a correction a human typed twice is
+# a rule (better: a check) the harness lacks. Run it after a big change and at every retro.
+set -u
+LC_ALL=C; export LC_ALL
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+days=14
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --days) days=${2:-14}; shift 2 2>/dev/null || shift;;
+    -h|--help) sed -n '2,6p' "$0" | sed 's/^# //'; exit 0;;
+    *) printf 'GARDEN_ERROR: unknown argument %s. Usage: uak garden [--days N]\n' "$1" >&2; exit 2;;
+  esac
+done
+case "$days" in ''|*[!0-9]*) days=14;; esac
+top=$(git rev-parse --show-toplevel 2>/dev/null) || { printf 'GARDEN_ERROR: run inside the repository\n' >&2; exit 2; }
+cd "$top" || exit 2
+common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common="$top/.git"
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-garden.XXXXXX") || exit 2
+trap 'rm -rf "$tmp"' EXIT
+prune=0
+note() { printf '  %s\n' "$*"; }
+cut_() { cut -c 1-"${1:-160}"; }
+
+# 1. What every session pays for: the instruction files and the descriptions of installed skills.
+printf 'INSTRUCTIONS (read every session; small wins: about 100 lines that point elsewhere)\n'
+mode=$(sed -n 's/^[-* ]*Mode:[* ]*//p' .uak/PROJECT.md 2>/dev/null | head -n 1 | tr -d '\r` ')
+for f in AGENTS.md CLAUDE.md .claude/CLAUDE.md ".uak/modes/${mode:-none}.md"; do
+  [ -f "$f" ] || continue
+  l=$(awk 'END {print NR+0}' "$f"); w=$(wc -w < "$f" | tr -d ' ')
+  flag=; case "$f" in AGENTS.md) [ "$l" -le 100 ] || { flag=' · OVER 100 lines: move detail to .uak/docs and point to it'; prune=$((prune + 1)); };; esac
+  note "$f: $l lines, $w words$flag"
+done
+if [ -d .claude/skills ]; then
+  n=0 chars=0
+  for s in .claude/skills/*/SKILL.md; do
+    [ -f "$s" ] || continue
+    n=$((n + 1)); d=$(sed -n 's/^description:[[:space:]]*//p' "$s" | head -n 1); chars=$((chars + ${#d}))
+  done
+  note "$n skills installed; their descriptions: $chars chars in every session (install.sh --skills adds, a mode installs only what it uses)"
+fi
+
+# 2. Docs that name a command, script, doc or skill that does not exist.
+printf '\nDRIFT (docs that name what does not exist)\n'
+cmds=$(bash "$here/uak" help 2>/dev/null | awk 'NF && $1 ~ /^[a-z][a-z-]*$/ {print $1}' | sort -u)
+for f in "$here"/*; do [ -f "$f" ] && cmds="$cmds
+${f##*/}"; done
+# smoke-project: the project writes it from smoke-project.example.
+printf '%s\nsmoke-project\n' "$cmds" | sort -u > "$tmp/cmds"
+docs=$(ls AGENTS.md CLAUDE.md .uak/modes/*.md .uak/docs/*.md .claude/commands/*.md .claude/agents/*.md .claude/skills/*/SKILL.md 2>/dev/null)
+drift=0
+for f in $docs; do
+  { grep -oE '`(bash \.uak/bin/)?uak [a-z][a-z-]*' "$f" | sed 's/.*uak //'
+    grep -oE '\.uak/bin/[a-z][a-z-]*' "$f" | sed 's|.*/||'; } 2>/dev/null | sort -u | while IFS= read -r c; do
+    grep -qxF -- "$c" "$tmp/cmds" || printf '%s: names `%s`, which is not a uak command or .uak/bin script\n' "$f" "$c"
+  done
+  grep -oE '\.uak/docs/[A-Z][A-Za-z_-]*\.md' "$f" 2>/dev/null | sort -u | while IFS= read -r d; do
+    [ -f "$d" ] || printf '%s: names %s, which does not exist\n' "$f" "$d"
+  done
+  grep -oE 'skill `[a-z][a-z0-9-]*`' "$f" 2>/dev/null | sed 's/skill `//; s/`$//' | sort -u | while IFS= read -r k; do
+    [ ! -d .claude/skills ] || [ -d ".claude/skills/$k" ] || printf '%s: names skill %s, which is not installed\n' "$f" "$k"
+  done
+done > "$tmp/drift"
+drift=$(awk 'END {print NR+0}' "$tmp/drift")
+if [ "$drift" -eq 0 ]; then note "none"; else sed 's/^/  /' "$tmp/drift" | head -n 20; prune=$((prune + drift)); fi
+
+# 3. Lessons (uak learn) whose paths no longer exist: they still print to every agent who claims there.
+printf '\nLESSONS (uak learn) whose paths are gone\n'
+lessons=
+for ref in refs/remotes/${UAK_REMOTE:-origin}/claims refs/heads/claims; do
+  lessons=$(git show "$ref:memory/LESSONS.md" 2>/dev/null) && break
+done
+if [ -z "$lessons" ]; then note "no lessons on claims (or no claims fetched)"
+else
+  git ls-files > "$tmp/files"
+  forgotten=$(printf '%s\n' "$lessons" | sed -n 's/^- [0-9]* | [0-9]* | [^|]* | - | - | forget #\([0-9]*\)$/\1/p')
+  printf '%s\n' "$lessons" | awk -F' [|] ' '/^- [0-9]/ { n = $1; sub(/^- /, "", n); print n "\t" $5 "\t" $6 }' |
+    while IFS="$(printf '\t')" read -r n paths text; do
+      case " $(printf '%s' "$forgotten" | tr '\n' ' ') " in *" $n "*) continue;; esac
+      case "$paths" in ''|-|'*') continue;; esac
+      alive=no
+      for p in $(printf '%s' "$paths" | tr ',' ' '); do
+        p=${p%\*}; p=${p%/}
+        grep -q -- "^$p" "$tmp/files" && { alive=yes; break; }
+      done
+      [ "$alive" = yes ] || printf '#%s (%s): %s → uak learn --forget %s\n' "$n" "$paths" "$text" "$n"
+    done | cut_ > "$tmp/stale"
+  s=$(awk 'END {print NR+0}' "$tmp/stale")
+  if [ "$s" -eq 0 ]; then note "none"; else sed 's/^/  /' "$tmp/stale" | head -n 15; prune=$((prune + s)); fi
+fi
+
+# 4. Commands nobody ran: every uak command in the docs is context; one never used may not earn it.
+printf '\nUSE (uak commands called on this machine; hooks excluded)\n'
+if [ -s "$common/uak-blackbox.calls" ] && [ "$(awk 'END {print NR+0}' "$common/uak-blackbox.calls")" -ge 200 ]; then
+  grep -v '^hook-' "$common/uak-blackbox.calls" | sort | uniq -c | sort -rn | head -n 8 | awk '{printf "  %s ×%s\n", $2, $1}'
+  never=
+  for c in next status claim done review msg inbox wait learn recall map graph decision checkpoint red handover followup; do
+    grep -qx -- "$c" "$common/uak-blackbox.calls" || never="$never $c"
+  done
+  [ -z "$never" ] || note "never called:$never (a rule that names one of them is a candidate to prune, or to teach)"
+else note "fewer than 200 calls recorded yet (uak counts its calls unless Blackbox: off)"; fi
+
+# 5. The black box: a line that repeats is a rule or a fix the kit lacks.
+printf '\nREPEATS (black box lines seen 2 or more times)\n'
+{ cat "$common/uak-blackbox.pending" 2>/dev/null
+  for ref in refs/remotes/${UAK_REMOTE:-origin}/claims refs/heads/claims; do
+    git rev-parse -q --verify "$ref" >/dev/null 2>&1 || continue
+    git ls-tree -r --name-only "$ref" -- blackbox/ 2>/dev/null | while IFS= read -r b; do git show "$ref:$b" 2>/dev/null; done
+    break
+  done; } | awk -F' [|] ' '/^- / && NF >= 8 && $6 != "usage" { t = $6 " · " $7 " · " $8; gsub(/[0-9]+/, "N", t); print substr(t, 1, 120) }' | sort | uniq -c | sort -rn |
+  awk '$1 >= 2' | head -n 8 > "$tmp/repeats"
+if [ -s "$tmp/repeats" ]; then sed 's/^ */  ×/' "$tmp/repeats"; else note "none"; fi
+
+# 6. Corrections: what a human had to tell an agent more than once is a rule the harness lacks. Better a check
+# (a guard rule, a lint, a gate) than a line of prose; prose is a suggestion. Local transcripts only: nothing leaves.
+printf '\nCORRECTIONS (human messages in the last %s days that correct an agent; turn the repeated ones into checks)\n' "$days"
+enc() { local u4 u2; u4=$(printf '[\360-\367][\200-\277]*'); u2=$(printf '[\300-\357][\200-\277]*')
+  printf '%s' "$1" | sed -e "s/$u4/--/g" -e "s/$u2/-/g" -e 's/[^A-Za-z0-9]/-/g'; }
+main=$(cd "$common/.." && pwd -P)
+projects=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects
+# Claude Code names the folder after the cwd as Windows writes it (C:\Users\…) where Git Bash says /c/Users/…: both.
+prefixes=$(enc "$main"); w=$(cygpath -m "$main" 2>/dev/null) && [ -n "$w" ] && prefixes="$prefixes $(enc "$w")"
+: > "$tmp/corr"
+for p in $prefixes; do for d in "$projects/$p" "$projects/$p"-wt-*; do
+  [ -d "$d" ] || continue
+  find "$d" -maxdepth 1 -name '*.jsonl' -mtime "-$days" 2>/dev/null | while IFS= read -r f; do
+    # A human turn has a string content; tool results carry an array.
+    grep -h '"type":"user"' "$f" 2>/dev/null | grep '"role":"user","content":"' |
+      sed -E 's/.*"role":"user","content":"//; s/"[}],"(parentUuid|uuid|isMeta|timestamp)".*//; s/","(isMeta|uuid)".*//; s/\\n/ /g; s/\\"/"/g'
+  done >> "$tmp/corr"
+done; done
+grep -Eiv '^(<|\[|caveat:|this session is being continued)' "$tmp/corr" |
+  grep -Ei '^(no[ ,.!]|nope|wrong|that.s not|don.t|do not|stop|never|again|otra vez|te dije|ya te dije|no hagas|no uses|deja de|está mal|esta mal|así no|asi no|eso no|por qu[eé] (hiciste|cambiaste|borraste|quitaste)|why did you|you (broke|deleted|removed|skipped)|rompiste|borraste)' |
+  cut_ 160 | sort | uniq -c | sort -rn | head -n 12 > "$tmp/corr-top"
+if [ -s "$tmp/corr-top" ]; then
+  sed 's/^ *\([0-9]*\) /  ×\1 /' "$tmp/corr-top"
+  note "→ each repeated one: a check (guard rule, lint, gate, test) beats a line in AGENTS.md; a trap on some paths: uak learn"
+else note "none found (Claude Code transcripts of this repository, last $days days)"; fi
+
+printf '\nGARDEN: %s item(s) to prune. Prune before you add; after a big change, run the suite and this again.\n' "$prune"

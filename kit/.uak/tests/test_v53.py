@@ -112,8 +112,12 @@ def solo_marathon_from_zero_to_merge(r):
     w = r.scratch / "v53-solo-wt/app-001"
     for d in ("src", "tests", "pkg/mocks"):
         (w / d).mkdir(parents=True, exist_ok=True)
+    # Test first (Test-First: yes in a new install): the test and a stub, the red on its assertion, then the code.
+    (w / "tests/core_test.sh").write_text('out=$(bash src/core.sh)\n[ "$out" = core ] || { echo "expected: core, got: $out"; exit 1; }\n', encoding="utf-8")
+    (w / "src/core.sh").write_text("echo todo\n", encoding="utf-8")
+    red = r.run([r.bash, ".uak/bin/uak", "red", "APP-001"], cwd=w, env=env, allowed=None)
+    expect(red.returncode == 0 and "RED_OK APP-001" in red.stdout, "the red first: " + red.stdout + red.stderr)
     (w / "src/core.sh").write_text("echo core\n", encoding="utf-8")
-    (w / "tests/core_test.sh").write_text("bash src/core.sh\n", encoding="utf-8")
     (w / "pkg/mocks/Mocks.sh").write_text("echo mock\n", encoding="utf-8")
     wgit = lambda *a: r.run([r.git, *a], cwd=w, env=env)
     wgit("add", "-A"); wgit("commit", "-qm", "feat: core"); wgit("push", "-q", "-u", "origin", "HEAD")

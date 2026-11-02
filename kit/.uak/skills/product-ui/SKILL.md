@@ -80,8 +80,10 @@ subagent: `uak done` refuses a task in `UI-Paths` without its `SHIP` for the cur
 | Rows or cards with a colored stripe on the left, each panel the same grey box, ten screens with one layout | One recipe per screen from DESIGN.md; a leading icon, chip or weight instead of a stripe (design-lint flags `border-l-4`) |
 | A bare row of 10 text links as the nav, clipped at 390 wide | `NavBar` from the UI kit: brand mark, 6 entries at most, a menu at 390 |
 | A tracked-out ALL-CAPS eyebrow above every heading, `A · B · C` meta strings, a `→` on every link, the same rounded card and grey shadow on everything | These are the AI tells `frontend-design` lists: use one only when the brief asks for it. Spend boldness in one place |
+| Gradient text, a glow or text shadow, an italic serif display headline, a pill chip over the hero heading, a grid of icon tiles each above a heading, em dashes all over the copy | The 2026 generated look (Impeccable's detector names each). design-lint fails on all of them |
 
 ## 7. The gate
 `bash .uak/bin/design-lint` fails on raw palette classes, hex colors and local copies of UI kit components in
-`web/src` (outside the UI kit and the stylesheets). A deliberate exception carries `design-lint: ok` and the reason
+`web/src` (outside the UI kit and the stylesheets), and on the tells of §6 (gradients, glows, bounce, stripes, eyebrows,
+emoji, default faces, gradient text, italic serif display, hero chips, icon-tile grids, em dashes, marketing filler). A deliberate exception carries `design-lint: ok` and the reason
 on the same line, for example a map paint color read once from a token. The stack's smoke and `design-critic` run it.

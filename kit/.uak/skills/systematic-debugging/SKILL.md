@@ -174,7 +174,7 @@ You MUST complete each phase before proceeding to the next.
    - Automated test if possible
    - One-off test script if no framework
    - MUST have before fixing
-   - Use the `test-driven-development` skill for writing proper failing tests
+   - Use the `test-first` skill for writing proper failing tests (`uak red ID` records the red)
 
 2. **Implement Single Fix**
    - Address the root cause identified

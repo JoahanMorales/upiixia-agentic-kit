@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# uak red: the test fails before the code exists, on its assertion. Records the evidence `uak done` checks.
+#   uak red [ID] [-- COMMAND]     default: the task's Verify (TASKS.md, else uak status); ID: the worktree's task
+# Exit 0 = a right red, recorded in <git dir>/uak-red/ID.txt (never committed). Exit 1 = it passed (the test checks
+# nothing new) or it failed for the wrong cause (a missing module or file, no tests collected, a syntax error).
+# Why (v5.10, test-first): a test never seen failing can pass for the wrong reason, and an agent never notices.
+# A red on "file not found" says nothing; a red on the wrong result does. Write the test, add the stub (the
+# signature returning a wrong value), see this red, then implement until the same command is green.
+set -u
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$here/lib/tests.sh"
+top=$(git rev-parse --show-toplevel 2>/dev/null) || { printf 'RED_ERROR: run inside the task worktree\n' >&2; exit 2; }
+cd "$top" || exit 2
+id= cmd=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --) shift; cmd=$(printf '%q ' "$@"); cmd=${cmd% }; break;;   # each word quoted as given
+    --cmd) cmd=${2:-}; shift 2 2>/dev/null || shift;;
+    -h|--help) sed -n '2,3p' "$0" | sed 's/^# //'; exit 0;;
+    -*) printf 'RED_ERROR: unknown option %s. Usage: uak red [ID] [-- COMMAND]\n' "$1" >&2; exit 2;;
+    *) id=$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]'); shift;;
+  esac
+done
+if [ -z "$id" ] && [ -f .uak-env ]; then id=$(sed -n 's/^UAK_TASK=//p' .uak-env | head -n 1 | tr -d '\r'); fi
+[ -n "$id" ] || { printf 'RED_ERROR: no task: uak red ID, inside its worktree\n' >&2; exit 2; }
+# Run from elsewhere (the main checkout, an MCP server started there): the red belongs to the task's own worktree.
+here_task=$(sed -n 's/^UAK_TASK=//p' .uak-env 2>/dev/null | head -n 1 | tr -d '\r')
+if [ "$here_task" != "$id" ]; then
+  wt=$(bash "$here/uak" status --task "$id" 2>/dev/null | sed -n 's/^Worktree: //p' | head -n 1)
+  common() { (cd "$1" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" && pwd -P) 2>/dev/null; }   # same repository only
+  if [ -n "$wt" ] && [ -d "$wt" ] && [ "$(common "$wt")" = "$(common .)" ]; then
+    cd "$wt" || exit 2; top=$(pwd)
+  fi
+fi
+if [ -z "$cmd" ] && [ -f .uak/TASKS.md ]; then
+  cmd=$(awk -v id="$id" '/^## / { on = ($2 == id) } on { s = $0; gsub(/\*\*/, "", s); sub(/^[[:space:]]*-[[:space:]]*/, "", s)
+    if (index(s, "Verify:") == 1) { sub(/^Verify:[[:space:]]*/, "", s); print s; exit } }' .uak/TASKS.md)
+fi
+[ -n "$cmd" ] || cmd=$(bash "$here/uak" status --task "$id" 2>/dev/null | sed -n 's/^Verify: //p' | head -n 1)
+cmd=${cmd#\`}; cmd=${cmd%\`}
+[ -n "$cmd" ] || { printf 'RED_ERROR: %s has no Verify; give the test command: uak red %s -- COMMAND\n' "$id" "$id" >&2; exit 2; }
+gd=$(git rev-parse --absolute-git-dir 2>/dev/null) || exit 2
+mkdir -p "$gd/uak-red" || exit 2
+log="$gd/uak-red/$id.log"
+printf 'RED %s: %s\n' "$id" "$cmd"
+bash -c "$cmd" > "$log" 2>&1
+rc=$?
+tail -n 15 "$log" | cut -c 1-200
+if [ "$rc" -eq 0 ]; then
+  printf 'RED_PASSED: %s exits 0 before the code: the test checks nothing new, or the code already exists. Write a test for the behavior this task adds, and see it fail.\n' "$cmd"
+  exit 1
+fi
+kind=$(tf_red_kind "$log")
+case "$kind" in
+  wrong\ *)
+    printf 'RED_WRONG: it fails for the wrong cause: %s\nAdd the stub (the function or route, returning a wrong value) so the test runs and fails on its assertion; then uak red again.\n' "$(printf '%s' "${kind#wrong }" | cut -c 1-160)"
+    exit 1;;
+esac
+reason=${kind#right }; [ "$kind" != unknown ] || reason="exit $rc (no assertion line recognized: the reviewer reads the log)"
+sha=$(git rev-parse HEAD 2>/dev/null)
+{ printf 'SHA: %s\nCommand: %s\nExit: %s\nReason: %s\nAt: %s\n---\n' "$sha" "$cmd" "$rc" "$(printf '%s' "$reason" | cut -c 1-200)" "$(date +%s)"
+  tail -n 40 "$log"; } > "$gd/uak-red/$id.txt"
+printf 'RED_OK %s at %s: %s\nNow implement until it is green: bash .uak/bin/q %s\n' "$id" "$(printf '%s' "$sha" | cut -c 1-7)" "$(printf '%s' "$reason" | cut -c 1-120)" "$cmd"

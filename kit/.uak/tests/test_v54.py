@@ -304,7 +304,8 @@ def frontend_uses_the_design_system(r):
     good = lint()
     expect(good.returncode == 0 and "DESIGN_LINT_PASS files=1" in good.stdout, good.stdout)
 
-    for mode, stack, want in (("sprint", "none", True), ("marathon", "fastapi-react", True), ("marathon", "none", False)):
+    # Since v5.10 marathon installs the whole design chain with or without a web stack: users judge its screens too.
+    for mode, stack, want in (("sprint", "none", True), ("marathon", "fastapi-react", True), ("marathon", "none", True)):
         d = r.scratch / ("v54-design-" + mode + "-" + stack); d.mkdir()
         r.g(d, "init", "-q", "-b", "main")
         r.run([r.bash, str(pkg / "install.sh"), "--mode", mode, "--stack", stack, "--harness", "claude", str(d)], cwd=d)

@@ -19,7 +19,7 @@ The same 6 subagents exist in every harness. `scripts/gen_harness.py` generates 
 | `uak-scout` | fast | yes | where/how is X; file:line evidence |
 | `uak-runner` | fast | runs commands | tests, smoke, app, probes; verdict only |
 | `uak-reviewer` | balanced | yes | independent PR review → `uak review` |
-| `design-critic` (sprint) | balanced | yes | UI screenshots vs DESIGN.md |
+| `design-critic` | balanced | yes | UI screenshots vs DESIGN.md |
 | `security-reviewer` (marathon) | strong | yes | auth, data, payments, uploads |
 | `uak-architect` | strong | yes | the 3 checkpoints from a compact packet |
 

@@ -282,7 +282,7 @@ So the map is pushed into the loop instead of waiting to be asked. The claim pri
 Claude Code, Codex, Cursor and Gemini CLI, each symbol or file once per session. `uak stats` reports adoption per
 harness (map calls and pushed lines per task, `wait` and polls per done), with the hooks' own calls counted apart.
 
-**MCP server.** The same harness is also a native MCP server (`.uak/bin/uak-mcp`, Python standard library): 14 tools
+**MCP server.** The same harness is also a native MCP server (`.uak/bin/uak-mcp`, Python standard library): 15 tools
 (`uak_next`, `uak_claim`, `uak_ship`, `uak_wait`, `uak_map`, `uak_memory`, …), resources (the code map, team status,
 lessons) and the `/uak-*` workflows as prompts, for Claude Code, Codex, Cursor and Gemini CLI. It speaks both MCP
 2026-07-28 (stateless) and 2025-11-25 (handshake), and every tool runs the same CLI and gates.
@@ -334,6 +334,14 @@ command an agent sends started about 140: 5.1 s per command on a Windows laptop,
 ([measured there](docs/perf-windows.md)). guard and the tick read the payload, `.uak-env` and the state files with
 bash builtins and run each rule's grep only when its words are there; the same 6,620 commands get the same answers. A
 300-line heredoc no longer outlasts the 5 s hook timeout (35 s → 1.2 s), and long payloads stay linear.
+
+**v5.10: test-first that agents cannot short-cut, and a harness that gets pruned.** Agents optimize toward green:
+stuck on red they edit the assertion, skip the test or delete it. Now `uak done` refuses all three in every mode
+(a human allows a real test change), checks that the task's `Tests:` names exist, and asks for `uak red ID`: the
+test failing on its assertion before the code (a red on a missing module does not count). The new `test-first` skill
+covers Fakes instead of mocks, tests by layer and contracts. `uak garden` prunes the harness: stale lessons, docs that
+name missing commands, and the corrections humans keep typing. Marathon now gets the whole design chain, and
+design-lint knows the 2026 tells (gradient text, glows, italic serif heroes, icon-tile grids, em dashes, filler copy).
 
 ## Deploy in one command: `uak deploy`
 
@@ -415,6 +423,7 @@ Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and ea
 | HackADA 2026, **first place** ([autopsy](docs/blackbox/hackada-2026-10.md)) | ~4 h, 9 Claude Code identities on macOS and Windows, 25 of 27 tasks integrated, on a repo copied from the previous event (kit v5.3.0) | v5.9: `start` says when the kit is old, plans refuse a Verify that does not parse, the gate refuses a green Verify with a missing command, `doctor` checks the Verify tools, worktrees get the `.env` |
 | HackADA on a Windows laptop ([audit](docs/blackbox/windows-audit-2026-10.md)) | the suite and the product on Git Bash, Node 20.16, the Store's `python3`, no uv or rg | v5.9.1: doctor runs Python and checks `tzdata`, Node `engines` and `envDir`; `start` asks the kit's GitHub; hooks through `git`; LF scripts |
 | The same laptop, timed ([perf](docs/perf-windows.md)) | 140 processes and 5.1 s of hooks around every shell command on Git Bash | v5.9.2: guard and the tick on builtins (35 → 1 and 85 → 3 processes), a heredoc inside the hook timeout |
+| Research on agents gaming tests and on harness design (2026) | agents edit assertions, skip or delete tests to reach green; the best harnesses are small, evidence-based and pruned | v5.10: tests only grow, named tests, `uak red`, skill `test-first`, `uak garden` |
 | Hacktoberfest 2026 ([autopsy](docs/blackbox/hacktoberfest-2026-10.md)) | ~16 h overnight, 5 humans, 13 identities on Claude Code and Codex, macOS and Windows, 33 of 35 tasks integrated | v5.5: a reject stands until a new commit, no verdict over a held review, no review offers to a human the Mac file system renamed, gate false positives gone (fixtures, carried files, its own port), `.env.example` readable, Codex `--add-dir`, `wt stop` on Windows; plan rules for a contract no task implements and a demo that only replays its recording. v5.6–v5.7: a nine-part audit after it (claims cannot grant authority, the gate runs the backlog's Verify, human-only commands ask the human, no secrets on claims, task threads reach the next owner, the merge lock is renewed) |
 
 Hack-Nation 2026 in detail:
@@ -430,7 +439,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**251 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
+**260 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
 
 ## Works with
 | Tool | How |
@@ -506,7 +515,7 @@ kit is the protocol for a **team** of humans and agents on several machines and 
 | Review and merge | independent review of the exact SHA + gated, atomic merge queue | — | — | you review and merge | — |
 | Event modes, freeze, black box | **yes** (`sprint`/`marathon`, `uak clock`, autopsies of real events) | — | — | — | — |
 | Code graph, token bill, path memory | **yes** (`uak map`, `uak tokens`, `uak learn`) | — | — | — | — |
-| Native tools for the agent | **MCP server (14 tools, MCP 2026-07-28 and 2025-11-25) + CLI + hooks** in Claude Code, Codex, Cursor, Gemini | MCP tools | built-in tools | — | slash commands |
+| Native tools for the agent | **MCP server (15 tools, MCP 2026-07-28 and 2025-11-25) + CLI + hooks** in Claude Code, Codex, Cursor, Gemini | MCP tools | built-in tools | — | slash commands |
 | Frontend gate, one-command deploy | **yes** (`design-lint` in the hook, `done` and the smoke; `uak deploy`) | — | — | — | — |
 | Adoption measured with real agents | **yes** ([eval](docs/evals/README.md)) | — | — | — | — |
 

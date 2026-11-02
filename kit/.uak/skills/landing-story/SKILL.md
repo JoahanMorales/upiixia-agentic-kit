@@ -49,7 +49,9 @@ Seven sections at most. Cut any section a judge would skim past.
 - Spend boldness in ONE place (usually the hero's type or the wow visual) and keep the rest quiet and disciplined.
 - Never: a centered hero over a purple or dark mesh gradient, three equal feature cards, an ALL-CAPS eyebrow over
   every heading, `A · B · C` meta strings, a `→` on every link, the same rounded card and grey shadow everywhere,
-  emoji as icons, Inter/Roboto/Arial by default. `bash .uak/bin/design-lint` catches part of this; your eye the rest.
+  emoji as icons, Inter/Roboto/Arial by default, gradient text, a glowing headline, an italic serif display, a pill
+  chip over the hero heading, em dashes in every sentence, and filler ("elevate", "seamless", "unlock", "supercharge",
+  "game-changer"). `bash .uak/bin/design-lint` catches part of this; your eye the rest.
 
 ## 3. Words that sell by being specific
 - Headline: the result for the user, concrete, 8 words or fewer. Not "Revolutionizing X with AI".

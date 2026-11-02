@@ -9,7 +9,7 @@ Goal: software that survives real users. It is secure, scalable and maintainable
    - `plan.md`: design, data and migrations, contracts, threat model, rollout and rollback.
    - The tasks go to `.uak/TASKS.md` through a reviewed PR.
 3. **ADR** in `docs/adr/NNNN-title.md` for anything costly to reverse: data, auth, vendors, architecture.
-4. Tasks take 1 day or less. Each starts with a failing test (skill `test-driven-development`).
+4. Tasks take 1 day or less. Each lists its behaviors as `Tests:` (test names) and starts with their red (skill `test-first`, `uak red ID`).
 5. Check the execution graph: `uak graph`. Shorten the critical path with contracts.
 
 ## Integration
@@ -37,21 +37,31 @@ Goal: software that survives real users. It is secure, scalable and maintainable
 6. Performance budgets run in CI: p95 of the critical endpoint and bundle KB.
 7. Deploy from day one: `bash .uak/bin/uak deploy --write` reads the stack and writes a Dockerfile and a Render Blueprint (health check, `.env.example` names as dashboard secrets, `--disk PATH` for files the app writes), or points Next.js to Vercel. A staging service redeploys on every merge; production promotes a tested image.
 
+## Frontend (users judge the product by its screens)
+1. `/uak-design-lock` before the first screen: 3 directions with screenshots, a human picks one; `web/DESIGN.md`, the tokens and the locked screens are the source. A global redesign needs a human `uak decision`.
+2. Every screen from the UI kit and its recipe row in `web/DESIGN.md` (skill `product-ui`); the public landing tells the idea in 5 seconds with real screens (skill `landing-story`); polishing an existing screen uses `redesign-existing-projects`.
+3. Empty, loading, error and permission-denied states on every screen; long text, i18n and 390 px widths do not break the layout.
+4. WCAG 2.2 AA: contrast, visible focus, keyboard-operable, labels on every control, `prefers-reduced-motion`.
+5. `done` on a task in `UI-Paths` needs `design-lint`, screenshots at 1280 and 390 in `.uak-shots/ID/` and the `design-critic` SHIP for that commit; e2e covers the critical journeys in a real browser (skill `webapp-testing`).
+6. Performance budgets in CI: LCP, CLS and bundle KB of the critical page.
+
 ## Orchestration
 - The Sonnet lead runs on `effortLevel: high`. Every multi-file plan and every risky diff passes the Opus advisor checkpoint (or `/uak-advise`). `security-reviewer` (Opus) covers sensitive areas. Caps: 3 parallel subagents, 4 Opus subagents per session.
 - Run `/uak-secure` (the launch checklist) before the first real user, and again on every auth or payment change.
 
-## Tests and loops
-1. Unit tests for the domain, integration tests against a real DB (container), e2e for critical journeys. The coverage threshold lives in PROJECT.md.
-2. Bug → a failing test first (skill `systematic-debugging`), then the fix.
-3. Tests are deterministic: no real network; clock and randomness injected.
-4. `uak loop` may fix tests and types, but never on deploy or migration commands, and never by weakening a test.
-5. Before any "done": skill `verification-before-completion`.
+## Tests and loops (skill `test-first`)
+1. Names, red, green: the task's `Tests:` names exist, `uak red ID` saw them fail on an assertion, then the code. `done` checks both (`Test-First: yes`).
+2. Tests only grow: `done` refuses a changed or removed assertion, a skip or a deselect. A wrong test is reported (`uak msg human`); a human allows the change (`uak allow ID --tests`).
+3. By layer: unit for the domain (ms), integration on the production database engine in its own container (never SQLite for Postgres, never a mocked DB), contract tests for every endpoint and between services, architecture tests for the layers (`import-linter`, `dependency-cruiser`), e2e for critical journeys. The coverage threshold lives in PROJECT.md.
+4. Fakes with state for every external dependency (payments, mail, clock, randomness); assert outcomes, not calls.
+5. Bug → the test that reproduces it fails first (skills `systematic-debugging`, `test-first`), then the fix.
+6. `uak loop` may fix tests and types, but never on deploy or migration commands, and never by weakening a test.
+7. Before any "done": skill `verification-before-completion`.
 
 ## Pace
 - 1 or 2 agents per human. Lease is 4 h; review wait is 24 h.
 - A task that changes behavior closes with its docs updated (README, ADR or runbook).
-- Run `/uak-retro` at every milestone.
+- Run `/uak-retro` and `uak garden` at every milestone: prune rules nobody needed, turn repeated corrections into checks.
 
 ## Defaults (`PROJECT.md`)
 `Mode: marathon` · `Autonomy: yes` · `Auto-Merge: no` · `Review-Mode: gh` · `Plan-Channel: main` · `Lease-Seconds: 14400` · `Review-Lease-Seconds: 86400` · `Freeze-Epoch: 0` (humans control releases).

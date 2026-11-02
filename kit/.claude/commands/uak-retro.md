@@ -7,5 +7,6 @@ description: Use after an event or milestone: a data-driven retro from the claim
 2. Classify each problem: coordination, quality, security, product or time. Each one cites evidence (a number, a SHA or message #N).
 3. For each problem, propose the smallest change that would have prevented it (a rule, hook, CLI gate, template or checklist) and name the exact file.
 4. Write `docs/retro/YYYY-MM-DD.md` with four parts: keep, broke (with data), proposed changes, and the top 3 for next time.
-5. Run `bash .uak/bin/uak bb export` and commit `.uak/BLACKBOX.md` in the retro PR. Public repos let the kit maintainers fix the kit from it.
+5. Run `bash .uak/bin/uak garden` and put its prune list in the retro's proposed changes: lessons whose paths are gone, docs that name missing commands, and each correction a human typed twice turned into a check (a guard rule, a lint, a gate or a test) rather than a line of AGENTS.md.
+6. Run `bash .uak/bin/uak bb export` and commit `.uak/BLACKBOX.md` in the retro PR. Public repos let the kit maintainers fix the kit from it.
 6. Don't edit `AGENTS.md` while agents are running. Propose changes as a PR, and consider upstreaming generic fixes to upiixia-agentic-kit.

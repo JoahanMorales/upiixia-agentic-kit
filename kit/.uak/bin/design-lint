@@ -124,6 +124,44 @@ while IFS= read -r f; do
   grep -nE 'uppercase[^"]*tracking-|tracking-[^"]*uppercase' "$f" 2>/dev/null | grep -v 'design-lint: ok' | head -n 3 | while IFS= read -r l; do
     printf '%s:%s · tracked uppercase eyebrow reads as generated: a heading weight or size does the job (mark it design-lint: ok if DESIGN.md asks for one)\n' "$f" "${l%%:*}"
   done
+  # The 2026 tells (Impeccable's detector names them; v5.10 research): gradient text, glows and text shadows, an
+  # italic serif display headline, a pill chip above the hero heading, a stack of icon tiles above headings, em
+  # dashes all over the copy, and marketing filler instead of what the product does.
+  grep -nE 'bg-clip-text|background-clip:[[:space:]]*text' "$f" 2>/dev/null | grep -v 'design-lint: ok' | head -n 2 | while IFS= read -r l; do
+    printf '%s:%s · gradient text reads as generated: solid ink; weight and size carry a heading
+' "$f" "${l%%:*}"
+  done
+  grep -nE 'text-shadow|\[text-shadow|drop-shadow-\[0_0|shadow-\[0_0_' "$f" 2>/dev/null | grep -v 'design-lint: ok' | head -n 2 | while IFS= read -r l; do
+    printf '%s:%s · glow or text shadow reads as generated: contrast comes from the tokens, depth from the one elevation
+' "$f" "${l%%:*}"
+  done
+  grep -nE 'italic' "$f" 2>/dev/null | grep -E 'font-serif|font-display|serif' | grep -E '<h[12]|text-([3-9]xl|\[[4-9][0-9]px\])' | grep -v 'design-lint: ok' | head -n 2 |
+    while IFS= read -r l; do
+      printf '%s:%s · italic serif display headline is the 2026 generated look: the design lock picks the display face and style
+' "$f" "${l%%:*}"
+    done
+  awk -v f="$f" '
+    /design-lint: ok/ { next }
+    /<h1/ { for (i = 1; i <= 3; i++) if (p[i] ~ /rounded-full/ && p[i] ~ /text-(xs|sm)/ && p[i] ~ /(px|py)-/) { printf "%s:%d · pill chip above the hero heading reads as generated: the heading leads; news goes in the copy\n", f, NR - i; break } }
+    { p[3] = p[2]; p[2] = p[1]; p[1] = $0 }' "$f" 2>/dev/null | head -n 1
+  awk -v f="$f" '
+    { L[NR] = $0 }
+    END { for (i = 1; i <= NR; i++) {
+            t = L[i]; if (t ~ /design-lint: ok/) continue
+            if (t !~ /(^|[^A-Za-z0-9-])(h|size)-(8|9|10|11|12|14)([^0-9]|$)/ || t !~ /rounded-(md|lg|xl|2xl|3xl)/ || t !~ /(items-center|place-items-center)/) continue
+            head = 0; for (j = i + 1; j <= i + 4 && j <= NR; j++) if (L[j] ~ /<h[2-4]/) head = 1
+            if (!head) continue
+            inmap = 0; for (j = i - 1; j >= i - 8 && j >= 1; j--) if (L[j] ~ /\.map\(/) inmap = 1
+            n++; if (!first) first = i; if (inmap) rep = 1 }
+          if (n >= 3 || rep) printf "%s:%d · icon tiles stacked above headings: the feature grid of every generated page; let the content or a real screen lead\n", f, first }' "$f" 2>/dev/null
+  n_dash=$(grep -o "$(printf '\342\200\224')" "$f" 2>/dev/null | wc -l | tr -d ' ')
+  [ "${n_dash:-0}" -lt 4 ] || grep -q 'design-lint: ok' "$f" ||
+    printf '%s:%s · %s em dashes in the copy: a generated-writing tell; periods and commas read as written\n' "$f" "$(grep -n "$(printf '\342\200\224')" "$f" | head -n 1 | cut -d: -f1)" "$n_dash"
+  grep -niE "(^|[^A-Za-z])(elevate your|unlock (the|your)|supercharge|revolutioni[sz]e|seamless(ly)?|effortless(ly)?|unleash|game[- ]?changer|cutting[- ]edge|next[- ]level|world[- ]class|harness the power|in today.s (fast|digital|world))([^A-Za-z]|$)" "$f" 2>/dev/null |
+    grep -v 'design-lint: ok' | head -n 2 | while IFS= read -r l; do
+      w=$(printf '%s' "${l#*:}" | grep -ioE "elevate your|unlock (the|your)|supercharge|revolutioni[sz]e|seamless(ly)?|effortless(ly)?|unleash|game[- ]?changer|cutting[- ]edge|next[- ]level|world[- ]class|harness the power|in today.s [a-z]+" | head -n 1)
+      printf '%s:%s · marketing filler "%s": say what it does for whom, with a number (skill landing-story)\n' "$f" "${l%%:*}" "$w"
+    done
   n_blur=$(grep -oE 'backdrop-blur|backdrop-filter' "$f" 2>/dev/null | wc -l | tr -d ' ')
   [ "${n_blur:-0}" -le 1 ] || printf '%s:%s · %s glass surfaces: one at most per screen (DESIGN.md: one solid container level)\n' "$f" "$(grep -nE 'backdrop-blur|backdrop-filter' "$f" | head -n 1 | cut -d: -f1)" "$n_blur"
   grep -nE '(^|[^A-Za-z0-9-])shadow-(xl|2xl)([^A-Za-z0-9-]|$)' "$f" 2>/dev/null | grep -v 'design-lint: ok' | head -n 3 | while IFS= read -r l; do

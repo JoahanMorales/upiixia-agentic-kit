@@ -133,6 +133,11 @@ elif [ -n "$ui_paths" ] && ! grep -q '^UI-Paths:' "$target/.uak/PROJECT.md" && g
   awk -v v="UI-Paths: $ui_paths" '{ print } /^Additive-Paths:/ && !d { print v; d = 1 }' "$target/.uak/PROJECT.md" > "$target/.uak/PROJECT.md.tmp" &&
     mv "$target/.uak/PROJECT.md.tmp" "$target/.uak/PROJECT.md" && say "  + .uak/PROJECT.md: UI-Paths: $ui_paths (UI tasks ship with screenshots and the design critic's verdict)"
 fi
+# Test-First: done asks for the red (uak red) and checks the task's named tests. A project from before v5.10 keeps
+# warnings only until a human opts in.
+if ! grep -q '^Test-First:' "$target/.uak/PROJECT.md" && [ "$update" = yes ]; then
+  say "  ! .uak/PROJECT.md: no Test-First (done only warns about a missing red). To require it, a human adds: Test-First: yes"
+fi
 grep -Eq "^Mode: $mode\$" "$target/.uak/PROJECT.md" || say "  ! .uak/PROJECT.md does not declare 'Mode: $mode' (left unchanged)"
 
 put "$kit/AGENTS.md" "$target/AGENTS.md"
@@ -153,9 +158,11 @@ putdir "$kit/.claude/commands" "$target/.claude/commands"
 putdir "$kit/.claude/agents" "$target/.claude/agents"
 case "$mode" in
   sprint) drop "$target/.claude/agents/security-reviewer.md" "$target/.claude/commands/uak-spec.md"
-          skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing frontend-design redesign-existing-projects product-ui landing-story";;
-  marathon) drop "$target/.claude/agents/design-critic.md" "$target/.claude/commands/uak-design-lock.md" "$target/.claude/commands/uak-demo.md"
-          skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing test-driven-development";;
+          skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing test-first frontend-design redesign-existing-projects product-ui landing-story";;
+  # Marathon keeps the whole design chain (lock, critic, product-ui, landing, redesign): a product's users judge its
+  # screens too. Why (v5.10): marathon dropped the critic while UI-Paths still made done ask for its verdict.
+  marathon) drop "$target/.claude/commands/uak-demo.md"
+          skills="karpathy-guidelines verification-before-completion systematic-debugging webapp-testing test-first frontend-design redesign-existing-projects product-ui landing-story";;
 esac
 case ",$extra," in *,ai,*) skills="$skills mcp-builder";; esac
 case ",$extra," in *,taste,*|*,design-taste-frontend,*) skills="$skills design-taste-frontend";; esac
@@ -180,7 +187,7 @@ if has codex; then
   put "$kit/.codex/hooks.json" "$target/.codex/hooks.json"
 fi
 ! has gemini || putmcp "$kit/.gemini/settings.json" "$target/.gemini/settings.json"
-case "$mode" in sprint) skip_agent=security-reviewer;; *) skip_agent=design-critic;; esac
+case "$mode" in sprint) skip_agent=security-reviewer;; *) skip_agent=-;; esac
 for h in codex cursor gemini; do # the same subagents as .claude/agents, minus the other mode's
   has "$h" || continue
   for f in "$kit/.$h/agents/"*; do

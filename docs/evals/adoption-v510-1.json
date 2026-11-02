@@ -1,0 +1,69 @@
+{
+  "tool_calls": 8,
+  "mcp_calls": 0,
+  "explore_calls": 3,
+  "explore_before_map": 3,
+  "used_map": false,
+  "contract_before_done": true,
+  "done": true,
+  "polls_after_done": 0,
+  "sleeps_after_done": 0,
+  "used_wait": true,
+  "used_red": true,
+  "red_ok_seen": true,
+  "red_before_code": true,
+  "test_before_code": true,
+  "gate_refusals": {
+    "No red recorded": 0,
+    "Tests only grow": 0,
+    "names tests the branch does not add": 0,
+    "RED_WRONG": 0,
+    "RED_PASSED": 0
+  },
+  "verdict_reported": true,
+  "final": "`judge` aprob\u00f3 HACK-001 en el commit d6bb905. No ejecut\u00e9 `uak merge`, porque no me lo pidieron.",
+  "input_tokens": 20,
+  "output_tokens": 2185,
+  "cache_read": 343439,
+  "cost_usd": 0.16453390000000004,
+  "uak_commands": [
+    "bb",
+    "checkpoint",
+    "done",
+    "inbox",
+    "msg",
+    "red",
+    "wait"
+  ],
+  "map_brief_seen": false,
+  "map_lens_lines": 0,
+  "label": "v510-1",
+  "seconds": 108,
+  "reviewer": [
+    {
+      "t": 1793611477.6200771,
+      "sha": "d6bb905",
+      "review": "OK review HACK-001 | REVIEW | attempt 1"
+    }
+  ],
+  "agent": "claude -p --model sonnet",
+  "lens_pushed": 2,
+  "hook_calls": 11,
+  "tests_weakened": [],
+  "mock_only_warnings": [],
+  "named_tests_missing": [],
+  "order": {
+    "test": [
+      2,
+      4
+    ],
+    "red": [
+      2,
+      474
+    ],
+    "code": [
+      3,
+      0
+    ]
+  }
+}

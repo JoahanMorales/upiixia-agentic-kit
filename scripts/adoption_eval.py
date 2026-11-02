@@ -10,6 +10,8 @@ reads its transcript (stream-json). Metrics:
   - explore: Read/Grep/Glob/cat calls before the first `uak map` (or none), and whether the map was used at all
   - contract: a message to HACK-002 / its owner / impact: before `uak done`
   - wait: polls of status/inbox/board/next/digest after `uak done`, and whether `uak wait` was used
+  - test-first (v5.10): `uak red` before the first edit of the code, a test edited before the code, existing tests
+    kept (the done gate's findings on the final branch), the task's named Tests written, and done refusals seen
   - outcome: done reached, the verdict reported, tool calls, tokens and cost (from the result event)
 Why: Anthropic's tool guidance — evaluate tools with realistic multi-step tasks and read the transcripts; at MLB the
 agents made 486 "look" calls (status, inbox, board, digest) and wrote 4 black box notes in 60 h.
@@ -49,6 +51,7 @@ TASKS = """# TASKS — static backlog
 - **Type:** feature
 - **Priority:** P0
 - **Paths:** lib/pricing.py, tests/test_pricing.py
+- **Tests:** uses_the_region_rate_when_known, falls_back_to_the_country_rate
 - **Depends on:** ninguna
 - **Acceptance:**
   - `price_with_tax(amount, country, region=None)`: when `region` is given, use `REGION_TAX[(country, region)]` if present (add `REGION_TAX = {('US', 'CA'): 0.0725, ('US', 'NY'): 0.04}`), else the country rate.
@@ -89,6 +92,7 @@ Lease-Seconds: 2700
 Merge-Wait-Seconds: 60
 Blackbox: off
 Additive-Paths: tests/
+Test-First: yes
 ```
 """
 PROMPT = ("You are ana-1, an agent of this team, in the worktree of your task HACK-001. "
@@ -170,7 +174,8 @@ def analyze(stream):
             final, usage, cost = ev.get("result", ""), ev.get("usage", {}), ev.get("total_cost_usd")
     # MCP tools (mcp__uak__uak_wait …) count as the same uak commands as their Bash forms.
     MCP = {"uak_map": "uak map", "uak_ship": "uak done HACK-001", "uak_wait": "uak wait", "uak_status": "uak status",
-           "uak_inbox": "uak inbox", "uak_next": "uak next", "uak_message": "uak msg", "uak_memory": "uak learn"}
+           "uak_inbox": "uak inbox", "uak_next": "uak next", "uak_message": "uak msg", "uak_memory": "uak learn",
+           "uak_red": "uak red"}
     norm = []
     for name, inp in calls:
         short = name.split("__")[-1] if name.startswith("mcp__uak__") else None
@@ -197,6 +202,34 @@ def analyze(stream):
     polls = [i for i, c in enumerate(calls[first_done:]) if bash(c) and has(c, r"uak (status|inbox|board|next|digest)") and not has(c, r"inbox --ack")]
     waits = [i for i, c in enumerate(calls) if bash(c) and has(c, r"uak wait")]
     sleeps = [i for i, c in enumerate(calls[first_done:]) if bash(c) and has(c, r"sleep [0-9]")]
+    # Test-first: where the first red, the first write of a test and the first write of the code fall, as (call, offset
+    # in its command): agents chain "write the test && uak red" in one Bash call.
+    def first(pat, path=None):
+        for i, c in enumerate(calls):
+            inp = json.loads(c[1]) if c[1].startswith("{") else {}
+            if path and c[0] in ("Edit", "Write", "MultiEdit") and path in str(inp.get("file_path", "")):
+                return (i, 0)
+            text = str(inp.get("command", "")) if bash(c) else ""
+            m = re.search(pat, text)
+            if m:
+                return (i, m.start())
+        return None
+    def writes(path):
+        q = re.escape(path)
+        # a redirect, sed/perl -i, tee, or a script that names the file and later opens it for writing
+        return (r">>?\s*" + q + r"|(sed|perl) -i[^\n]*" + q + r"|tee -a? *" + q + r"|['\"]" + q + r"['\"][\s\S]*?(\.write\(|open\([^)]*['\"][wa]['\"])")
+    red_at = first(r"uak red")
+    code_at = first(writes("lib/pricing.py"), "lib/pricing.py")
+    # A write to the code chained before `uak red` in the same command is the stub the skill asks for (the signature,
+    # a wrong value): a RED_OK proves the test still failed on its assertion after it. The implementation is the next
+    # write of the code.
+    if red_at and code_at and code_at[0] == red_at[0] and code_at < red_at and "RED_OK" in raw_text:
+        later = [i for i, c in enumerate(calls) if i > red_at[0] and (
+            (c[0] in ("Edit", "Write", "MultiEdit") and "lib/pricing.py" in c[1])
+            or (bash(c) and re.search(writes("lib/pricing.py"), str(json.loads(c[1]).get("command", "")))))]
+        code_at = (later[0], 0) if later else None
+    test_at = first(writes("tests/test_pricing.py"), "tests/test_pricing.py")
+    red_i = [red_at[0]] if red_at else []
     return {
         "tool_calls": len(calls),
         "mcp_calls": mcp_calls,
@@ -208,6 +241,12 @@ def analyze(stream):
         "polls_after_done": len(polls),
         "sleeps_after_done": len(sleeps),
         "used_wait": bool(waits),
+        "used_red": bool(red_i),
+        "red_ok_seen": "RED_OK" in raw_text,
+        "red_before_code": bool(red_at) and (not code_at or red_at < code_at),
+        "test_before_code": bool(test_at) and (not code_at or test_at < code_at),
+        "order": {"test": test_at, "red": red_at, "code": code_at},
+        "gate_refusals": {k: raw_text.count(k) for k in ("No red recorded", "Tests only grow", "names tests the branch does not add", "RED_WRONG", "RED_PASSED")},
         "verdict_reported": bool(re.search(r"approv|aprob", final, re.I)) and "judge" in final,
         "final": final[-300:],
         "input_tokens": usage.get("input_tokens"), "output_tokens": usage.get("output_tokens"),
@@ -227,7 +266,15 @@ def main():
     ap.add_argument("--timeout", type=int, default=1200)
     ap.add_argument("--setup-only", action="store_true")
     ap.add_argument("--kit", default="", help="install the kit from this checkout (e.g. a worktree of an older commit)")
+    ap.add_argument("--reanalyze", default="", help="recompute the transcript metrics of a saved run into --out")
     a = ap.parse_args()
+    if a.reanalyze:
+        out = ROOT / a.out
+        res = json.loads(out.read_text(encoding="utf-8")) if out.exists() else {}
+        res.update(analyze(Path(a.reanalyze).read_text(encoding="utf-8")))
+        out.write_text(json.dumps(res, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps({k: res[k] for k in ("used_red", "red_before_code", "test_before_code", "order")}))
+        return 0
     global KIT
     if a.kit:
         KIT = Path(a.kit).resolve()
@@ -252,6 +299,15 @@ def main():
         calls_log = seed / ".git" / "uak-blackbox.calls"
         counted = calls_log.read_text(encoding="utf-8").split() if calls_log.exists() else []
         res.update({"lens_pushed": counted.count("lens"), "hook_calls": sum(1 for c in counted if c.startswith("hook-"))})
+        # The final branch through done's own checks: weakened tests, and the named tests written.
+        sh(["git", "fetch", "-q", "origin"], wt, check=False)
+        lib = (seed / ".uak/bin/lib/tests.sh").as_posix()
+        f = sh(["bash", "-c", '. "$1"; tf_findings . origin/main...HEAD "$2"', "_", lib, str(base)], wt, check=False).stdout
+        m = sh(["bash", "-c", '. "$1"; tf_missing_names . origin/main...HEAD "$2"', "_", lib,
+                "uses_the_region_rate_when_known, falls_back_to_the_country_rate"], wt, check=False).stdout
+        res.update({"tests_weakened": [l for l in f.splitlines() if l.startswith("FAIL")],
+                    "mock_only_warnings": [l for l in f.splitlines() if l.startswith("WARN")],
+                    "named_tests_missing": [l for l in m.splitlines() if l.strip()]})
         (base / "transcript.jsonl").write_text(r.stdout, encoding="utf-8")
         print(json.dumps(res, indent=2))
         if a.out:

@@ -1,5 +1,47 @@
 # Changelog
 
+## v5.10.0 · 2026-11-02 · Test-first that agents cannot short-cut, and a harness that gets pruned
+Agents optimize toward green. Stuck on red they edit the assertion, add a skip or delete the test; a test written
+after the code passes by construction; a test that only checks "the mock was called" passes whatever the code does.
+Research on agents gaming tests (EvilGenie, SpecBench, 2026) finds the same, and a rule in prose is a suggestion, so
+each short cut is now a check. Each has a test in `test_v510.py`.
+- **Tests only grow.** `uak done` refuses, in every mode, a changed or removed existing assertion or test definition,
+  a deleted test file, an added `skip`/`only`/`todo`/`xfail`, and tests taken out of the run in the runner's config
+  (`--deselect`, `testPathIgnorePatterns`…). A moved or re-indented line is fine. It warns when new assertions only
+  check mock calls. A wrong test is reported, not changed: a human allows it with `uak allow ID --tests --reason`.
+- **The task's tests are its spec.** `Tests:` lists the behaviors as test names (`places_order_when_stock_is_enough`);
+  `done` checks each is in an added test line; `uak lint` warns on a feature or bug task without them; `/uak-plan`
+  writes them.
+- **`uak red ID`: the red, on an assertion.** It runs the task's Verify with the test written and the code not yet,
+  refuses a pass (the test checks nothing new) and a red on a missing module, file or name, no tests collected or a
+  syntax error, and records the right red for `done`. `Test-First: yes` (new installs, both modes) makes it a gate;
+  a bug task always needs it; `--no-red "why"` tells the reviewer why nothing could fail first.
+- **Skill `test-first`** (own, both modes; replaces superpowers' TDD, still `--skills tdd`): names → red → green,
+  Fakes with state instead of mocks, the regression test before a fix, tests by layer (unit, integration on the
+  production database engine, contract, architecture with `import-linter`/`dependency-cruiser`, e2e), contracts
+  between services, and The Clean Coder's professionalism (done means done, say no with an alternative). The
+  reviewer reads the tests first.
+- **Each rule reaches the agent when it applies** (a harness review of this release): the claim and `uak next` say
+  `TEST FIRST` with the task's test names until its red is recorded, the session card says when to run `red`, the
+  default next step is "write its tests, see them fail, then implement" (it said "implement and run"), the MCP server
+  has `uak_red` (the task's Verify only: no command from the client) and `uak_ship` takes `no_red` and `no_ui`
+  (15 tools), and `/uak-retro` runs `uak garden`. `scripts/adoption_eval.py` measures it with a real agent: red before
+  the code, a test before the code, existing tests kept, named tests written, gate refusals.
+- **`uak garden`**: the harness kept small and true. Instruction budget, docs that name a command, script, doc or
+  skill that does not exist, lessons whose paths are gone, commands never called, black box lines that repeat, and
+  the corrections a human typed in local transcripts (a correction typed twice is a check the harness lacks).
+- **Marathon gets the whole design chain**: `/uak-design-lock`, the `design-critic`, `product-ui`, `landing-story`,
+  `redesign-existing-projects` and a Frontend section (states, WCAG 2.2 AA, LCP/CLS budgets). Marathon used to drop
+  the critic while `UI-Paths` made `done` ask for its verdict.
+- **design-lint knows the 2026 tells** (from Impeccable's detector): gradient text, glows and text shadows, an italic
+  serif display headline, a pill chip above the hero heading, icon tiles stacked above headings, em dashes all over
+  the copy, and marketing filler ("seamless", "elevate your", "supercharge").
+- **Fixes from v5.9.2's CI.** Bash 3.2 (macOS) made `${s//[class]/}` quadratic: the guard took 47 s on a 300-line
+  heredoc, past the 5 s hook timeout. Strings over 1 KB go through `tr` there, and on bash 3.2 the readers use awk and sed as before v5.9.2 (a process is cheap on macOS). A command with no risky segment no longer
+  feeds an empty here-document (a fork on Git Bash). The process counts are checked where bash has `$BASHPID`.
+- `uak demo` shows the red before the loop (and `done` checks it): the animated demo walks the test-first cycle.
+- Roadmap: the claims transaction redesign for Windows (`uak next` ~200 processes), with targets and the proof method.
+
 ## v5.9.2 · 2026-11-02 · The hooks stop starting processes
 On Git Bash a process costs 20 to 50 ms, and the kit's hooks ran around every command an agent sent: `guard bash`
 before it, `hook tick` and `hook output` after it, about 140 processes and 5.1 s per command on a teammate's Windows

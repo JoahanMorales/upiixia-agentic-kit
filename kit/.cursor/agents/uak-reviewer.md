@@ -13,7 +13,7 @@ You review someone else's task. Your context is disposable, so read the full dif
    - the diff stays inside `Paths`;
    - no secrets, contracts, CI or others' lockfiles;
    - mocks are labeled (`demo_data`);
-   - there is a happy-path test and at least one error test;
+   - read the tests before the code (skill `test-first`): each name in the task's `Tests:` has a test that asserts an outcome (not only that a mock was called, not `is not None`), there is a happy-path test and at least one error test, and the done note shows a red on an assertion (`red at SHA: …`) or a `no red:` reason that holds;
    - no invented number, citation or URL (open 2 at random).
 4. Run it in a temp worktree: `git worktree add -q ../review-ID origin/<branch>`, then `bash .uak/bin/q <Verify>` inside, then `bash .uak/bin/wt rm --review ../review-ID` (it drops the build output; never --force by hand). Smoke and full suites can take minutes: give the Bash call a 10-minute timeout (or run it in the background), never report "did not finish in 120 s" as a result.
 5. By mode:

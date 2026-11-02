@@ -316,6 +316,23 @@ coord_allow_mutate() {
     [ -n "$coord_ids" ] || conflict "No in-flight task (CLAIMED, BLOCKED or REVIEW) to allow."
   else coord_ids=$ALLOW_IDS; fi
   mkdir -p "$TX/backlog"
+  # A test change: the human read why an existing test is wrong. Why (v5.10): tests only grow unless a human says so.
+  if [ "$ALLOW_TESTS" = yes ]; then
+    [ "$ALLOW_INFLIGHT" != yes ] || die "allow --tests names its task: allow ID --tests --reason TEXT."
+    [ -f "$TX/backlog/TEST-CHANGES.md" ] || printf '%s\n' '# Existing tests a human allowed to change (uak allow --tests)' '' \
+      'Append-only. Format: - ID | epoch | human | reason. Why: a test is a spec; changing one is a human decision.' '' > "$TX/backlog/TEST-CHANGES.md"
+    ALLOW_DONE=
+    for coord_a in $coord_ids; do
+      ! grep -q "^- $coord_a |" "$TX/backlog/TEST-CHANGES.md" || continue
+      printf -- '- %s | %s | %s | %s\n' "$coord_a" "$NOW" "$HUMAN" "$(one_line "$WHY_TEXT" | tr '|' '/')" >> "$TX/backlog/TEST-CHANGES.md"
+      ALLOW_DONE="$ALLOW_DONE $coord_a"
+    done
+    [ -n "$ALLOW_DONE" ] || return 0
+    [ -f "$TX/DECISIONS.md" ] || printf '# DECISIONS\n' > "$TX/DECISIONS.md"
+    printf '%s\n' "- $NOW | allow | $HUMAN | test change:$ALLOW_DONE | Why: $(one_line "$WHY_TEXT")" >> "$TX/DECISIONS.md"
+    ID=; msg_append all info - "Test change allowed by $HUMAN:$ALLOW_DONE. Why: $WHY_TEXT"
+    return 0
+  fi
   [ -f "$TX/backlog/ALLOW.md" ] || printf '%s\n' '# Freeze exceptions (uak allow)' '' \
     'Append-only. Format: - ID | epoch | human | reason. Why: a freeze exception is a human decision with a name.' '' > "$TX/backlog/ALLOW.md"
   ALLOW_DONE=
@@ -581,6 +598,11 @@ coord_next() {
     say "Next: $(coord_read "$RECORD" Next)"
     say "Live summary:"; summary_text | head -n 6
     mem_for_task "$ID"
+    # A new session on a claimed task hears the test-first step too, until its red is recorded.
+    if [ "$(coord_read "$RECORD" State)" = CLAIMED ]; then
+      coord_wt=$(coord_read "$RECORD" Worktree)
+      [ -s "$(git -C "$coord_wt" rev-parse --absolute-git-dir 2>/dev/null)/uak-red/$ID.txt" ] || test_brief
+    fi
     freeze_warning
     coord_until=$(coord_read "$RECORD" Lease-Until)
     if [ "$NOW" -ge "$coord_until" ] && [ "$(coord_read "$RECORD" State)" != REVIEW ]; then say "LEASE EXPIRED: read status --task $ID --summary; recover with its token before editing."; fi

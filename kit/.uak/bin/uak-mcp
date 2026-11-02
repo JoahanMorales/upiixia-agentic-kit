@@ -121,9 +121,9 @@ def instructions():
             # The card is written for the shell; the tool names are given explicitly. Why (audit, Oct 2026):
             # "bash .uak/bin/uak " → "uak_" gave "uak_…", and msg/learn/log/bb read as tools that do not exist.
             + "\n".join(card).replace("(bash .uak/bin/uak …)", "(CLI forms; as tools: map → uak_map, msg → uak_message, "
-                                       "wait → uak_wait, learn → uak_memory, checkpoint → uak_checkpoint, log and bb → uak_cli)")
+                                       "wait → uak_wait, learn → uak_memory, checkpoint → uak_checkpoint, red → uak_red, log and bb → uak_cli)")
             + "\nTools map to commands: uak_next/uak_status (what to do, state), uak_claim (take a task: worktree + "
-              "claim), uak_ship (done → review), uak_wait (block until approve/integrated/message, never poll), "
+              "claim), uak_red (the test fails first, on its assertion), uak_ship (done → review), uak_wait (block until approve/integrated/message, never poll), "
               "uak_review, uak_merge, uak_message/uak_inbox, uak_map (code graph), uak_memory (lessons), "
               "uak_checkpoint, uak_tokens, uak_cli (any other uak command). In the main checkout pass agent=YOUR_NAME.")
 
@@ -162,9 +162,19 @@ TOOLS = [
      obj({"agent": AGENT, "task": TASK, "pr": {"type": "string", "description": "https PR URL (or the compare URL)"},
           "evidence": {"type": "string", "description": "The command you ran and its real result"},
           "to": {"type": "string", "description": "A specific reviewer (agent name)"},
-          "note": {"type": "string", "description": "What changed since the last review"}}, ["task", "pr", "evidence"]),
+          "note": {"type": "string", "description": "What changed since the last review"},
+          "no_red": {"type": "string", "description": "Why no test could fail first (docs, config, styling); instead of uak_red's record"},
+          "no_ui": {"type": "string", "description": "Why a task in UI-Paths changes nothing visible; instead of screenshots"}}, ["task", "pr", "evidence"]),
      ann("Ship for review", False, False),
-     lambda a: ["uak", "done", a["task"], "--pr", a["pr"], "--evidence", a["evidence"]] + (["--to", a["to"]] if a.get("to") else []) + (["--note", a["note"]] if a.get("note") else []), 120, False),
+     lambda a: ["uak", "done", a["task"], "--pr", a["pr"], "--evidence", a["evidence"]] + (["--to", a["to"]] if a.get("to") else []) + (["--note", a["note"]] if a.get("note") else [])
+     + (["--no-red", a["no_red"]] if a.get("no_red") else []) + (["--no-ui", a["no_ui"]] if a.get("no_ui") else []), 120, False),
+    ("uak_red", "Test first: run the task's Verify with its tests written and the code not yet (only a stub). It must fail "
+     "on an assertion: a pass (the test checks nothing new) or a red on a missing module, file or name is refused. The "
+     "red is recorded for uak_ship, which needs it when PROJECT.md says Test-First: yes (and for every bug). Call it "
+     "before implementing a feature or a fix; never edit an existing test to make it pass.",
+     obj({"agent": AGENT, "task": TASK}, ["task"]),
+     ann("Record the red", False, True),
+     lambda a: ["red", a["task"]], 300, False),
     ("uak_wait", "Block until something happens on the claims branch instead of polling: an approve or reject of your task "
      "in review (for=approve), a dependency INTEGRATED (for=integrated), or a new message for you (for=message). "
      "Returns at once when it already happened; on timeout says so and you can call it again.",

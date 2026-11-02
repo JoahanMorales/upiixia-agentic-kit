@@ -61,4 +61,5 @@ Subagent-Burst-Per-Minute: 6
 Max-Worktree-Agents: 6
 Blackbox: on
 Additive-Paths: -
+Test-First: yes
 ```

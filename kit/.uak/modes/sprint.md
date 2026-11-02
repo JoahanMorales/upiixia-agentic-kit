@@ -33,6 +33,11 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 4. Mechanical fixes (lint, types, a failing test with a clear error) go to `uak loop --verify <cmd> --agent <cli> --max 5`.
 5. No free tasks: review PRs → demo-path tests → polish → rehearse.
 
+## Test-first, fast (skill `test-first`)
+1. A feature or bug task lists `Tests:` (2 to 4 behavior names on the demo path). Write them with the stub, `uak red ID` (it must fail on an assertion), then implement. Design lock, docs and pure styling tasks say `Test-First: no (why)`.
+2. Tests only grow: `done` refuses a changed assertion, a skip or a deleted test. A wrong test → `uak msg human`.
+3. Fakes for the model, payments and external APIs (the recorded `demo_data` responses are the Fake), a frozen clock; one integration test on the real DB engine for the demo path.
+
 ## A stunning frontend (what judges see)
 1. The wow moment happens within 90 s of the demo and is fully visible at 1280×720 (projector) without scrolling. Legal or "not a diagnosis" notices stay inside the viewport.
 2. There is one visual direction in `web/DESIGN.md`, and every color comes from CSS tokens. A global redesign after the lock needs a human decision.
@@ -65,4 +70,4 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 - [ ] The demo is deployed (`uak deploy` since T0+2h, on a plan that does not sleep), or reproducible from a clean clone in 5 min or less.
 - [ ] Data and library licenses declared (non-commercial ones explicit).
 - [ ] Submitted on EVERY platform the event requires, with a receipt.
-- [ ] `/uak-retro` within 48 h: lessons improve this file.
+- [ ] `/uak-retro` within 48 h, then `uak garden`: lessons improve this file, and rules nobody needed leave it.

@@ -24,6 +24,8 @@ until the verdict, report it"); it does not name any uak command.
 | `explore_before_map`, `used_map` | the code map before reading many files (only matters in large repos) |
 | `done`, `verdict_reported` | the task reached review and the verdict came back to the human |
 | `tool_calls`, tokens, `cost_usd` | the cost of the session |
+| `test_before_code`, `red_before_code`, `order` | v5.10: the named tests, then `uak red` (a stub chained before it is fine: the red proves it is no implementation), then the code |
+| `tests_weakened`, `named_tests_missing`, `gate_refusals` | done's own checks on the final branch: nothing weakened, every `Tests:` name written, no refusal needed |
 
 **Why this design.** Anthropic's guidance for agent tools is to evaluate them on realistic multi-step tasks and read
 the transcripts. The MLB hackathon showed the gap: 486 status/inbox/board/digest calls, 4 black box notes in 60 h, and
@@ -55,3 +57,16 @@ apart. The contract metric now uses the last `uak done` (one earlier run retried
 arguments, after sending the contract). Raw: `adoption-v51-*.json`.
 Limits: one scenario, one model, a small repo (the code map is not needed for 11 files, so map adoption is not
 measured here); Codex and Cursor were not run. Raw results: `adoption-*.json`.
+
+## v5.10: test-first (Nov 2026)
+HACK-001 now lists `Tests:` (two names) and the project says `Test-First: yes`; the prompt still names no command.
+Two Sonnet sessions per kit, same scenario (`adoption-v510-*.json`, `adoption-v592-control-*.json`):
+
+| Kit | test before code | red seen before the implementation | tests weakened | named tests missing | done, verdict | cost |
+|---|---|---|---|---|---|---|
+| v5.10 | 2/2 | 2/2 (`AssertionError: 108.0 != 107.25`, then the code) | 0 | 0 | 2/2 | $0.14–0.16 |
+| v5.9.2 (control) | 0/2 | 0/2 (the code first, the tests appended after, never seen failing) | – | – | 2/2 | $0.14 |
+
+Both v5.10 sessions wrote the two named tests, added only the signature (`region=None`) as the stub, ran `uak red`
+(RED_OK on the assertion), then implemented; `done` refused nothing. Same cost and calls as the control: the rule
+reached them at session start (`uak next` says TEST FIRST with the names), not through a refusal.

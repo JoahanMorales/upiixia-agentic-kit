@@ -149,7 +149,7 @@ release ID [--expired --read-summary TOKEN] [--cancel MOTIVO]
 log ID [--state CLAIMED|BLOCKED] TEXTO
 checkpoint ID|--session --done TEXT --decision TEXT --why TEXT --fails TEXT --commands TEXT --next TEXT
 handoff ID
-done ID --pr URL --evidence TEXT [--to REVIEWER] [--no-ui "why it changes nothing visible"] [--note "what changed since the last review"] [--integrated COMMIT --reviewer OTRO]
+done ID --pr URL --evidence TEXT [--to REVIEWER] [--no-ui "why it changes nothing visible"] [--no-red "why no test could fail first"] [--note "what changed since the last review"] [--integrated COMMIT --reviewer OTRO]
 digest
 tick
 next
@@ -169,6 +169,8 @@ start [--fix]   install → first claim, in order: what is missing, then the one
 doctor [--fix]   preflight: remote, gh permissions, hooks, freeze, ports
 deploy [--write] [--disk PATH]   how this project deploys (Render Blueprint + Dockerfile, Vercel for Next.js); --write creates the files
 design-gallery [DIR] [--no-open]   the design lock's directions side by side, opened in the human's browser
+red [ID] [-- COMMAND]   the test fails before the code, on its assertion: recorded for done (default: the task's Verify)
+garden [--days N]   prune the harness: instruction budget, stale lessons, docs that name missing commands, unused commands, corrections to mine
 design-lint [SRC]   screens use the design system: no raw palette classes, hex colors or local copies of UI kit components
 graph [--mermaid] [--min-wave1 N] | graph --assign   backlog DAG: waves, critical path, cycles; --assign suggests an idle agent per ready task
 loop --verify CMD [--agent CMD] [--max N] [--task ID]   bounded verify → fix loop
@@ -179,6 +181,7 @@ up N [--tool CMD] [--tmux]   claim the N best tasks into worktrees and launch ag
 demo [--keep]   30-second real 3-agent run in a temp repo
 integrate ID   any agent records a task whose approved SHA is already in main (owner offline)
 allow ID... --reason TEXT | allow --in-flight --reason TEXT   human freeze exception (UAK_HUMAN), audited
+allow ID --tests --reason TEXT   human approval to change or remove existing tests on that task (UAK_HUMAN)
 clock "START" "DEADLINE" [ZONE] [--write]   sprint schedule scaled to the event length (freeze, rehearsal)
 pace [--caps|--json|set USED --resets +3h [--window 5h]]   plan-usage pacing: surge, normal, conserve, critical
 tokens [--team] [--by task|harness|model|scope|agent] [--since DAYS] [--publish]   real token spend from Claude Code/Codex transcripts
@@ -204,7 +207,7 @@ bb_common=$(git rev-parse --git-common-dir 2>/dev/null) || bb_common=
 case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
   [ -z "$bb_common" ] || printf '%s\n' "${UAK_CALLER:+$UAK_CALLER-}$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
 esac
-case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map|dash|start|design-lint|deploy|design-gallery) exec bash "$UAK_BIN/$CMD" "$@";; esac
+case "$CMD" in doctor|graph|loop|board|stats|up|demo|bb|pace|clock|tokens|map|dash|start|design-lint|deploy|design-gallery|red|garden) exec bash "$UAK_BIN/$CMD" "$@";; esac
 case "$CMD" in status|claim|heartbeat|away|pr-sync|release|log|checkpoint|handoff|done|integrate|digest|lint|tick|next|review|register-reviewer|merge|decision|secret-exception|init-smoke|msg|inbox|plan|allow|retire|followup|handover|wait|learn|recall) ;; *) die "Unknown command: $CMD (uak help lists them)";; esac
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac
@@ -219,6 +222,7 @@ source "$ROOT/.uak/bin/lib/security.sh"
 source "$ROOT/.uak/bin/lib/smoke-init.sh"
 source "$ROOT/.uak/bin/lib/messages.sh"
 source "$ROOT/.uak/bin/lib/memory.sh"
+source "$ROOT/.uak/bin/lib/tests.sh"
 source "$ROOT/.uak/bin/lib/github.sh"
 # Reads one section; accepts - **Field:** value, **Field**: value and Field: value.
 task_field() {
@@ -244,7 +248,8 @@ load_task() {
   VERIFY=$(task_field "Verify")
   [ -n "$VERIFY" ] || die "$ID needs Verify."
   DEFAULT_NEXT=$(task_field "Next step")
-  [ -n "$DEFAULT_NEXT" ] || DEFAULT_NEXT="Implement $ID and run: $VERIFY"
+  # Test first in the default step too (v5.10): "Implement X and run" told agents to write the code first.
+  [ -n "$DEFAULT_NEXT" ] || DEFAULT_NEXT="Write its tests, see them fail (uak red $ID), then implement until this passes: $VERIFY"
   normalize_paths "$PATHS" > "$TXROOT/paths-request" || die "Invalid paths in $ID."
 }
 # Globs reserve their whole prefix; a root glob reserves the repo.
@@ -1028,6 +1033,7 @@ mutate() {
         put "$RECORD" Merge-Commit "$merged"; put "$RECORD" Reviewer "$REVIEWER"
       fi
       [ "$STATE" != REVIEW ] || ui_gate "$tip" "$task_worktree"
+      [ "$STATE" != REVIEW ] || test_gate "$tip" "$task_worktree"
       put "$RECORD" Task-Tip "$tip"
       put "$RECORD" State "$STATE"; put "$CLAIM" State "$STATE"
       put "$RECORD" PR "$PR_URL"; put "$CLAIM" PR "$PR_URL"; put "$RECORD" Evidence "$EVIDENCE"
@@ -1243,6 +1249,7 @@ transaction() {
         elif [ "$CMD" = tick ]; then say "OK tick | deadlines reconciled | attempt $ATTEMPT"
         elif [ "$CMD" = plan ] && [ "$PLAN_AMEND" = yes ]; then say "OK plan --amend$(printf ' %s' $plan_ids) | new Paths/Verify/criteria on claims; their owners got one message | attempt $ATTEMPT"
         elif [ "$CMD" = plan ]; then say "OK plan | tasks published on claims | attempt $ATTEMPT"
+        elif [ "$CMD" = allow ] && [ "$ALLOW_TESTS" = yes ]; then say "OK allow --tests${ALLOW_DONE:- (already allowed)} | done accepts changes to its existing tests | attempt $ATTEMPT"
         elif [ "$CMD" = allow ]; then say "OK allow${ALLOW_DONE:- (already allowed)} | claim and merge allowed after the freeze | attempt $ATTEMPT"
         elif [ "$CMD" = register-reviewer ]; then say "OK register-reviewer $REGISTER_REVIEWER | attempt $ATTEMPT"
         elif [ "$CMD" = handover ]; then say "OK handover $ID → $DONE_TO | lease renewed; $DONE_TO continues from the live summary"
@@ -1262,7 +1269,7 @@ transaction() {
                    [ -z "$brief" ] || say "$brief"
                    say "Query, do not open whole files: uak map find NAME · callers NAME · users FILE · recall $ID (lessons)."
                    mem_for_task "$ID"
-                   ui_brief;;
+                   ui_brief; test_brief;;
           esac
         fi
       fi
@@ -1377,6 +1384,21 @@ lint_verify_syntax() {
       say "LINT WARNING: $id's Verify negates rg: where rg is missing (Git Bash on Windows), \`! rg …\` passes for any code. Use \`! grep -rniE …\`." >&2
   done
 }
+# A feature or bug task lists its behaviors as test names: the shortest spec an agent can be given, and done checks
+# each exists. Why (v5.10, test-first): "validate stock and do not charge if it fails" is ambiguous; a test name that
+# says what goes in, what comes out and what must not happen is not.
+lint_tests_named() {
+  [ -s "$BACKLOG" ] || return 0
+  local id t policy
+  policy=$(sed -n 's/^[-* ]*Test-First:[* ]*//p' "$ROOT/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r` ')
+  [ "$policy" = yes ] || return 0
+  for id in $(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG"); do
+    t=$(ID=$id task_field Type | tr -d '`'); case "$t" in feature*|bug*) ;; *) continue;; esac
+    case "$(ID=$id task_field Test-First)" in no*|No*) continue;; esac
+    [ -n "$(ID=$id task_field Tests)" ] ||
+      say "LINT WARNING: $id ($t) lists no Tests: name its behaviors (places_order_when_stock_is_enough, does_not_charge_when_payment_fails); done checks each exists. Nothing to test first? Test-First: no (why)." >&2
+  done
+}
 lint_verify_scaffold() {
   [ -s "$BACKLOG" ] || return 0
   local id v dir need f t tp dep
@@ -1409,6 +1431,17 @@ ui_brief() {
   say "UI TASK: before the first line, read web/DESIGN.md (your row of ## Screens${r:+: $r}), open the locked screen with that recipe in web/public/design-lock/screens/ (Read the PNG), and load the skill product-ui. Build only from web/src/lib/ui."
   say "Before done: capture 1280 and 390 into .uak-shots/$ID/ and run the design-critic subagent; done checks its SHIP verdict."
 }
+# At claim: the task's tests and the red, before the first line of code. Why (v5.10, harness review): the agent heard
+# of the test-first gate only when done refused it, one round trip late; a rule reaches agents at the moment it applies.
+test_brief() {
+  local policy names t
+  case "$(rm_task_value Test-First)" in no*|No*|off*) return 0;; esac
+  policy=$(coord_source_field Test-First warn); t=$(rm_task_value Type)
+  case "$t" in bug*|Bug*|fix*) [ "$policy" = no ] || policy=yes;; esac
+  [ "$policy" != no ] || return 0
+  names=$(rm_task_value Tests); case "$names" in -|none|None) names=;; esac
+  say "TEST FIRST: ${names:+write the tests $names (their names are the spec), }the stub (signature, wrong value), then bash .uak/bin/uak red $ID: it must fail on its assertion; then implement until Verify is green. Never change an existing test to pass: done refuses it (skill test-first)."
+}
 # A task that writes where screens live (UI-Paths in PROJECT.md) ships with what someone saw: screenshots at 1280 and
 # 390 wide and the design critic's verdict on this commit, in <worktree>/.uak-shots/ID/ (git-ignored). Why
 # (Hacktoberfest): approvals said "UI not walked in browser" and "no 390x844 screenshot", the critic ran on a few PRs,
@@ -1427,6 +1460,47 @@ ui_gate() {
     conflict "The design critic said FIX for $ID ($(grep -m 1 '^VERDICT' "$d/critic.txt" 2>/dev/null)). Fix its P1s (.uak-shots/$ID/critic.txt), capture again and rerun it."
   grep -q "$short" "$d/critic.txt" ||
     conflict "critic.txt in .uak-shots/$ID/ is about another commit; this one is $short. Capture again and rerun design-critic on it."
+}
+# Tests only grow, a task's named tests exist, and its test failed before its code. Why (v5.10, test-first): agents
+# optimize toward green; stuck on red they edit the assertion, add a skip or delete the test, and a test written after
+# the code passes by construction. Each rule is a check here, not a line of prose (lib/tests.sh).
+test_gate() { # $1 tip, $2 worktree
+  local range findings policy f names missing red sha reason ttype
+  [ -d "$2" ] || return 0
+  range="origin/$BASE...$1"
+  tf_findings "$2" "$range" "$TXROOT" > "$TXROOT/tf-findings" 2>/dev/null
+  if grep -q '^FAIL' "$TXROOT/tf-findings"; then
+    if [ -f "$TX/backlog/TEST-CHANGES.md" ] && grep -q "^- $ID |" "$TX/backlog/TEST-CHANGES.md"; then
+      EVIDENCE="$EVIDENCE · existing tests changed with a human's approval ($(grep -m 1 "^- $ID |" "$TX/backlog/TEST-CHANGES.md" | cut -d '|' -f 3 | tr -d ' '))"
+    else
+      findings=$(grep '^FAIL' "$TXROOT/tf-findings" | head -n 4 | sed 's/^FAIL /  /')
+      conflict "Tests only grow on $ID: an existing test is a spec, not a suggestion.
+$findings
+Restore them and fix the code. If a test is wrong, do not change it: uak msg human \"$ID · file:test · why it is wrong\"; a human allows it with UAK_HUMAN=NAME bash .uak/bin/uak allow $ID --tests --reason TEXT."
+    fi
+  fi
+  grep '^WARN' "$TXROOT/tf-findings" | head -n 3 | sed 's/^WARN /WARN: /' >&2
+  names=$(rm_task_value Tests)
+  case "$names" in ''|-|none|None) ;; *)
+    missing=$(tf_missing_names "$2" "$range" "$names" | head -n 5 | tr '\n' ',' | sed 's/,$//; s/,/, /g')
+    [ -z "$missing" ] || conflict "$ID names tests the branch does not add: $missing. They are the task's spec: write each one (its name in the test), see it fail (uak red $ID), then implement.";;
+  esac
+  policy=$(coord_source_field Test-First warn)
+  ttype=$(rm_task_value Type)
+  case "$ttype" in bug*|Bug*|fix*) [ "$policy" = no ] || policy=yes;; esac
+  case "$(rm_task_value Test-First)" in no*|No*|off*) policy=no;; esac
+  [ "$policy" != no ] || return 0
+  if [ -n "$NO_RED_TEXT" ]; then EVIDENCE="$EVIDENCE · no red: $NO_RED_TEXT"; return 0; fi
+  red="$(git -C "$2" rev-parse --absolute-git-dir 2>/dev/null)/uak-red/$ID.txt"
+  sha=$(sed -n 's/^SHA: //p' "$red" 2>/dev/null | head -n 1)
+  if [ -n "$sha" ] && git -C "$2" merge-base --is-ancestor "$sha" "$1" 2>/dev/null; then
+    reason=$(sed -n 's/^Reason: //p' "$red" | head -n 1 | cut -c 1-120)
+    EVIDENCE="$EVIDENCE · red at $(printf '%s' "$sha" | cut -c 1-7): $reason"
+    return 0
+  fi
+  f="No red recorded for $ID$([ -z "$sha" ] || printf ' on this branch'): with the test written and the code not yet, run bash .uak/bin/uak red $ID (it must fail on its assertion). Nothing a test can show first (docs, config, styling)? done $ID ... --no-red \"why\"."
+  case "$ttype" in bug*|Bug*|fix*) f="$f A bug starts with the test that reproduces it.";; esac
+  case "$policy" in yes|required) conflict "$f";; *) say "WARN: $f" >&2;; esac
 }
 # The task's acceptance criteria as the backlog has them (amended, plan tasks included): every line of its section
 # that is not one of the keys above. Why (Hacktoberfest): reviewers of 11 tasks published with uak plan judged
@@ -1666,6 +1740,7 @@ EOF_OC
   # scaffold's pyproject; agents verified on local merges of it, stacked branches and clashed with its ruff config.
   lint_verify_scaffold
   lint_verify_syntax
+  lint_tests_named
   lint_design
   # sprint without a freeze = features until the last minute (Hack-Nation: 8 PRs, incl. a product rename, in the last 6 h).
   if [ -f "$ROOT/.uak/PROJECT.md" ] && grep -Eq '^[-* ]*Mode:[* ]*sprint' "$ROOT/.uak/PROJECT.md" &&
@@ -1685,7 +1760,7 @@ PLAN_FILE= PLAN_AMEND=no ID= BRANCH= WORKTREE= NEXT_TEXT= REQUEST_NEXT= TOKEN= N
 MERGE_COMMIT= REVIEWER= CANCEL_REASON=
 REVIEW_LEARN=no WAIT_FOR=message WAIT_TIMEOUT=${UAK_WAIT_TIMEOUT:-540} WAIT_EVERY=${UAK_WAIT_EVERY:-15}
 EXPIRED=no SHOW_SUMMARY=no LINT_SECRETS=no QUIET=no SESSION_ONLY=no ALLOW_INFLIGHT=no ALLOW_IDS= ALLOW_DONE= REVIEW_NOTE= FULL=no REVIEW_START=no REVIEW_STARTED=no
-NO_UI_TEXT= RETIRE_NAMES= DONE_TO= FOLLOWUP_TITLE= REVIEW_STOP=no REVIEW_DECLINE=no NEW_ID= REVIEW_HINT= DONE_HINT=
+NO_UI_TEXT= NO_RED_TEXT= ALLOW_TESTS=no RETIRE_NAMES= DONE_TO= FOLLOWUP_TITLE= REVIEW_STOP=no REVIEW_DECLINE=no NEW_ID= REVIEW_HINT= DONE_HINT=
 REVIEW_SHA= REVIEW_VERDICT= REGISTER_REVIEWER= SMOKE_COMMAND= SECRET_PATH= SECRET_RULE= SECRET_REASON=
 DECISION_OPTION= DECISION_REVERSIBLE=no DECISION_AUTHORIZED=no DECISION_CLASS=routine
 DONE_TEXT= DECISION_TEXT= WHY_TEXT= FAILS_TEXT= COMMANDS_TEXT=
@@ -1700,7 +1775,7 @@ case "$CMD" in
   allow)
     [ "$#" -gt 0 ] || die "Usage: allow ID... --reason TEXT, or allow --in-flight --reason TEXT (UAK_HUMAN)."
     while [ "$#" -gt 0 ]; do
-      case "$1" in --in-flight) ALLOW_INFLIGHT=yes;; --*) break;; *) valid_id "$(norm_id "$1")" || bad_id "$1"; ALLOW_IDS="$ALLOW_IDS $(norm_id "$1")";; esac
+      case "$1" in --in-flight) ALLOW_INFLIGHT=yes;; --tests) ALLOW_TESTS=yes;; --*) break;; *) valid_id "$(norm_id "$1")" || bad_id "$1"; ALLOW_IDS="$ALLOW_IDS $(norm_id "$1")";; esac
       shift
     done
     [ "$ALLOW_INFLIGHT" = yes ] || [ -n "$ALLOW_IDS" ] || die "allow needs an ID or --in-flight."
@@ -1760,7 +1835,7 @@ while [ "$#" -gt 0 ]; do
     --kind)
       [ "$CMD" = msg ] && [ "$#" -gt 0 ] || bad_opt
       MSG_KIND=$1; shift; msg_valid_kind "$MSG_KIND" || die "--kind: info|request|contract|blocker|reply|review|approve|reject|integrated|human";;
-    --task|--branch|--worktree|--next|--read-summary|--state|--done|--decision|--why|--fails|--commands|--pr|--evidence|--integrated|--reviewer|--cancel|--sha|--verdict|--note|--command|--option|--reversible|--authorized|--class|--path|--rule|--reason|--to|--title|--for|--timeout|--forget|--search|--no-ui)
+    --task|--branch|--worktree|--next|--read-summary|--state|--done|--decision|--why|--fails|--commands|--pr|--evidence|--integrated|--reviewer|--cancel|--sha|--verdict|--note|--command|--option|--reversible|--authorized|--class|--path|--rule|--reason|--to|--title|--for|--timeout|--forget|--search|--no-ui|--no-red)
       [ "$#" -gt 0 ] || die "Missing value for $opt."
       value=$1; shift
       case "$opt" in
@@ -1780,6 +1855,7 @@ while [ "$#" -gt 0 ]; do
         --pr) [ "$CMD" = done ] || bad_opt; PR_URL=$value;;
         --evidence) [ "$CMD" = done ] || bad_opt; EVIDENCE=$value;;
         --no-ui) [ "$CMD" = done ] || bad_opt; NO_UI_TEXT=$value;;
+        --no-red) [ "$CMD" = done ] || bad_opt; NO_RED_TEXT=$value;;
         --integrated) case "$CMD" in done|integrate) MERGE_COMMIT=$value;; *) bad_opt;; esac;;
         --reviewer) [ "$CMD" = done ] || bad_opt; REVIEWER=$value;;
         --sha) [ "$CMD" = review ] || bad_opt; REVIEW_SHA=$value;;

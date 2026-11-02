@@ -73,6 +73,7 @@ rd() { RD=; [ -f "$1" ] || return 1; { IFS= read -r RD < "$1"; } 2>/dev/null; re
 # line that has one, the last "KEY": "value" (sed's .* is greedy). sed does it when the key is also past IN_HEAD.
 ID_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-' TOOL_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_'
 json_id() { # $1 key, $2 characters of the value (ID_CHARS or TOOL_CHARS) → ID
+  [ "${BASH_VERSINFO[0]}" -ge 4 ] || { ID=; case "$input" in *"\"$1\""*) json_id_sed "$1" "$2";; esac; return 0; }
   local k="\"$1\"" line re
   ID=
   case "$input" in *"$k"*) ;; *) return 0;; esac
@@ -151,8 +152,9 @@ jdecode_var() {
   [ "$1 ${2:-}" != "${JD_KEY:-}" ] || { JD=$JD_LAST; return 0; }
   jdecode_scan "$@"; JD_KEY="$1 ${2:-}" JD_LAST=$JD
 }
-P_NOBS='[!\\]'
 jdecode_scan() {
+  # Bash 3.2 (macOS): pattern operations are slow and a process is cheap there; awk reads it, as before v5.9.2.
+  [ "${BASH_VERSINFO[0]}" -ge 4 ] || { JD=$(jdecode "$@"); return 0; }
   local s t pre c raw p="\"$1\"" k b cut
   JD=
   case "$input" in *$P_SOH*) JD=$(jdecode "$@"); return 0;; esac
@@ -169,8 +171,8 @@ jdecode_scan() {
   # whole output after the command. A value past the window, or with more than 64 backslashes, goes to awk (one
   # process, linear). Why: an 800-line heredoc took 10 s here, against 0.2 s for the awk it replaced.
   cut=; [ "${#s}" -lt 2100 ] && [ -z "$IN_TAIL" ] || cut=1   # what follows may go on past the window
-  s=${s:0:2100}; b=${s//$P_NOBS/}
-  [ "${#b}" -le 64 ] || { JD=$(jdecode "$@"); return 0; }
+  s=${s:0:2100}; b=${s//"\\"/}; b=$(( ${#s} - ${#b} ))   # backslashes, by a literal pattern (fast on bash 3.2)
+  [ "$b" -le 64 ] || { JD=$(jdecode "$@"); return 0; }
   # sub(/^[[:space:]]*:[[:space:]]*/): all of it or nothing; then the string must open here.
   t=${s#"${s%%[![:space:]]*}"}
   case "$t" in :*) t=${t#:}; s=${t#"${t%%[![:space:]]*}"};; esac

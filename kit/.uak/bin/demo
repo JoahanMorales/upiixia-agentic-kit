@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # uak demo: a real 3-agent run in a temp repo with a local bare remote. No setup, no network, no AI keys.
 #   demo [--keep] [--fast]
-# Shows: graph waves → uak start → parallel claims → an overlapping claim rejected → a bounded fix loop →
+# Shows: graph waves → uak start → parallel claims → an overlapping claim rejected → the red first → a bounded fix loop →
 # PR + review by another agent → gated merge → a dependent task unlocked → board + stats.
 set -u
 LC_ALL=C; export LC_ALL
@@ -62,7 +62,7 @@ cat > "$T/.uak/TASKS.md" <<'EOT'
 EOT
 printf '| Pattern | Owner task |\n|---|---|\n' > "$T/.uak/OWNERS.md"
 printf '#!/usr/bin/env bash\necho "0 results for $1"\n' > "$T/src/api.sh"
-printf '#!/usr/bin/env bash\nout=$(bash src/api.sh pompe)\n[ "$out" = "3 results for pompe" ] || { echo "expected 3 results, got: $out"; exit 1; }\necho "api ok"\n' > "$T/tests/api_test.sh"
+printf '#!/usr/bin/env bash\nout=$(bash src/api.sh pompe)\n[ "$out" = "3 results for pompe" ] || { echo "expected: 3 results for pompe, got: $out"; exit 1; }\necho "api ok"\n' > "$T/tests/api_test.sh"
 (cd "$T" && git_q remote add origin "$D/remote.git" && git_q config core.hooksPath .githooks &&
   bash .uak/bin/uak init-smoke --command "bash -n src/api.sh" >/dev/null 2>&1 &&
   git_q add -A && git_q commit -qm "team: backlog" && git_q push -q -u origin main) || { printf 'demo: setup failed\n' >&2; exit 1; }
@@ -80,6 +80,9 @@ run "$T" cy-1 bash .uak/bin/uak next
 A="$D/team-wt/hack-001"; Bw="$D/team-wt/hack-002"
 for w in "$A" "$Bw"; do git -C "$w" config user.name Demo; git -C "$w" config user.email demo@example.invalid; done
 run "$T" human bash .uak/bin/board
+
+step "ana-1 sees the test fail on its assertion before touching the code (test-first)"
+run "$A" ana-1 bash .uak/bin/uak red HACK-001
 
 step "ana-1 fixes the failing API with a bounded loop (fake agent: no AI key needed)"
 cat > "$D/fake-agent.sh" <<'EOA'
@@ -106,6 +109,6 @@ run "$T" cy-1 bash .uak/bin/wt new HACK-003 --agent cy-1
 step "What the human sees: one board, one set of numbers"
 run "$T" human bash .uak/bin/board
 run "$T" human bash .uak/bin/stats
-printf '\n%s✓ Done: 3 agents, 1 conflict avoided, 1 bounded loop, 1 independent review, 1 gated merge.%s\n' "$G" "$R"
+printf '\n%s✓ Done: 3 agents, 1 conflict avoided, 1 red before the code, 1 bounded loop, 1 independent review, 1 gated merge.%s\n' "$G" "$R"
 [ "$keep" = no ] || printf '  Explore it: cd %s\n' "$T"
 printf '  Use it for real: bash install.sh --mode sprint <your-repo>\n'

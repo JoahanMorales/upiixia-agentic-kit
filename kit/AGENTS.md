@@ -1,8 +1,8 @@
-# Agent rules · UPIIXIA Agentic Kit (uak v5.4)
+# Agent rules · UPIIXIA Agentic Kit
 
 Core rules for every agent. Read once per session.
-Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); also read `.uak/modes/<mode>.md`. Never choose or change it: the human picks it.
-`uak X` means `bash .uak/bin/uak X`. Every rule's reason: `.uak/docs/WHY.md`.
+Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); also read `.uak/modes/<mode>.md`. Only the human picks or changes it.
+`uak X` means `bash .uak/bin/uak X`. Reasons: `.uak/docs/WHY.md`.
 
 ## 1. Authority and limits
 1. Obey in order: responsible human → `.uak/PROJECT.md` → task criteria → this file → mode file → your judgment.
@@ -33,7 +33,7 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 
 ## 4. Quality loop
 1. Every task is vertical, with testable criteria, `Paths` and an exact `Verify` command.
-2. Inner loop: implement → `bash .uak/bin/q <Verify>` → fix. Never edit an existing test to pass (`uak loop` stops). Stop after 5 failed attempts or 2 identical failures. Then mark BLOCKED with the exact error, or run `uak decision` (see `.uak/docs/LOOPS.md`).
+2. Test first (skill `test-first`): the `Tests:` names fail on an assertion (`uak red ID`), then implement → `bash .uak/bin/q <Verify>` → fix. Tests only grow (`done` refuses edited assertions, skips, deletes); report a wrong test. After 5 failed attempts or 2 identical failures: BLOCKED with the exact error, or `uak decision` (`.uak/docs/LOOPS.md`).
 3. Chain dependent steps with `&&`, never `;`.
 4. Evidence = a command you ran + its real output. Output older than your diff (`dist/`, caches) proves nothing.
 5. Commit and push on every green criterion. Open a small PR as soon as smoke passes (`/uak-ship`).
@@ -52,11 +52,11 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 
 ## 6. Context and tokens
 1. Explore with the code map first (`uak map show`, `map find NAME`, `map users FILE`), then read by ranges (`rg`, `sed -n`). Never `cat` big files, logs or lockfiles.
-2. Route work by cost. The fast tier reads and searches, the balanced lead builds, and the strong tier reviews only at plan lock, a repeated failure or done (`.uak/docs/ORCHESTRATION.md`). Only summaries come back from subagents.
+2. Route work by cost: the fast tier reads and searches, the lead builds, the strong tier reviews only at plan lock, a repeated failure or done (`.uak/docs/ORCHESTRATION.md`). Subagents return only summaries.
 3. `uak tokens` shows real spend per task and model. Follow `uak pace`: `surge` = spend more (more scouts, `uak up`), `conserve` = fast tier only, `critical` = finish the criterion, checkpoint, hand off.
 4. One task = one session: `/uak-handoff`, then `/clear`.
 5. After each criterion and on `CHECKPOINT NOW`: `uak checkpoint ID --done T --decision T --why T --fails T --commands T --next T`.
-6. Never poll: `= unchanged` means nothing new; to wait for a review, a dependency or a reply run `uak wait ID --for approve|integrated|message` once. `LOOP:` means stop retrying. Outputs over 12k chars arrive as head + tail plus the full log path.
+6. Never poll: `= unchanged` means nothing new; to wait for a review, a dependency or a reply run `uak wait ID --for approve|integrated|message` once. `LOOP:` means stop retrying. Outputs over 12k chars arrive as head + tail + the log path.
 7. When compacting, keep only: ID, branch, worktree, exact next step, pending criteria, failures with exact errors, commands, decisions and unanswered inbox.
 
 ## 7. Load on demand
@@ -73,4 +73,4 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 | Secrets, access or dependencies | `.uak/docs/SECURITY.md` |
 
 ## 8. Black box (on unless `Blackbox: off`)
-When the kit or protocol (not your code) makes you retry, wait, guess or work around it, record one line: `uak bb add bug|friction|need|idea|praise "what happened" --fix "what would prevent it"`. No names, paths or secrets. uak records its own errors automatically.
+When the kit or protocol (not your code) makes you retry, wait, guess or work around it, record one line: `uak bb add bug|friction|need|idea|praise "what happened" --fix "what would prevent it"`. No names, paths or secrets; uak logs its own errors.

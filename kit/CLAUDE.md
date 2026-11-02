@@ -13,14 +13,14 @@ Load `.uak/docs/` only when `AGENTS.md` §7 or your mode says so. Minimal contex
   - `UserPromptSubmit` blocks pasted secrets.
   - The status line shows task, 5 h/7 d plan usage and `uak pace`; when the pace level changes, a hook tells you once.
 - Commands:
-  - All modes: `/uak-setup`, `/uak-plan`, `/uak-start`, `/uak-loop`, `/uak-advise`, `/uak-ship`, `/uak-review`, `/uak-handoff`, `/uak-secure`, `/uak-retro`.
-  - sprint: `/uak-design-lock`, `/uak-demo`.
+  - All modes: `/uak-setup`, `/uak-plan`, `/uak-start`, `/uak-loop`, `/uak-advise`, `/uak-ship`, `/uak-review`, `/uak-handoff`, `/uak-secure`, `/uak-retro`, `/uak-design-lock`.
+  - sprint: `/uak-demo`.
   - marathon: `/uak-spec`.
 - Subagents (isolated context, summary only):
   - `uak-scout` (Haiku): read-only lookups.
   - `uak-runner` (Haiku): tests, smoke, app.
   - `uak-reviewer`: reviews.
-  - `design-critic`: sprint UI screenshots.
+  - `design-critic`: UI screenshots against DESIGN.md (every mode).
   - `security-reviewer` (Opus): marathon sensitive PRs.
   - `uak-architect` (Opus): checkpoints only.
   - `Explore`: only when uak-scout is not enough (it runs on the lead model, so it is pricier).

@@ -1,0 +1,68 @@
+{
+  "tool_calls": 7,
+  "mcp_calls": 0,
+  "explore_calls": 3,
+  "explore_before_map": 3,
+  "used_map": false,
+  "contract_before_done": true,
+  "done": true,
+  "polls_after_done": 0,
+  "sleeps_after_done": 0,
+  "used_wait": true,
+  "used_red": true,
+  "red_ok_seen": true,
+  "red_before_code": true,
+  "test_before_code": true,
+  "gate_refusals": {
+    "No red recorded": 0,
+    "Tests only grow": 0,
+    "names tests the branch does not add": 0,
+    "RED_WRONG": 0,
+    "RED_PASSED": 0
+  },
+  "verdict_reported": true,
+  "final": "HACK-001: aprobada (APPROVED) por judge. El merge autom\u00e1tico no se hizo porque falta `.uak/bin/smoke-project`; un humano debe fusionar el PR y luego ejecutar `uak integrate HACK-001`.",
+  "input_tokens": 18,
+  "output_tokens": 1362,
+  "cache_read": 294942,
+  "cost_usd": 0.14150620000000003,
+  "uak_commands": [
+    "done",
+    "inbox",
+    "merge",
+    "msg",
+    "red",
+    "wait"
+  ],
+  "map_brief_seen": false,
+  "map_lens_lines": 0,
+  "label": "v510-2",
+  "seconds": 118,
+  "reviewer": [
+    {
+      "t": 1793611466.2440083,
+      "sha": "4a10287",
+      "review": "OK review HACK-001 | REVIEW | attempt 1"
+    }
+  ],
+  "agent": "claude -p --model sonnet",
+  "lens_pushed": 2,
+  "hook_calls": 11,
+  "tests_weakened": [],
+  "mock_only_warnings": [],
+  "named_tests_missing": [],
+  "order": {
+    "test": [
+      2,
+      4
+    ],
+    "red": [
+      2,
+      535
+    ],
+    "code": [
+      3,
+      0
+    ]
+  }
+}

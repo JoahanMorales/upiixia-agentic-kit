@@ -37,8 +37,16 @@ def call(r, cwd, args, payload, env=None):
                  cwd=cwd, env=env or {}, allowed=None)
 
 
+def bash_major(r):
+    out = r.run(["bash", "-c", "echo ${BASH_VERSINFO[0]}"], cwd=r.scratch, allowed=None).stdout.strip()
+    return int(out) if out.isdigit() else 0
+
+
 def processes(r, cwd, args, payload, env=None):
-    """Distinct processes of one hook call (the hook's own bash included)."""
+    """Distinct processes of one hook call (the hook's own bash included). Bash 3.2 (macOS) has no $BASHPID to tell
+    them apart: there the call runs and counts as 0, and the counts are checked on Linux and Windows."""
+    if bash_major(r) < 4:
+        return 0, call(r, cwd, args, payload, env)
     trace = r.scratch / ("v592-trace-%d" % time.monotonic_ns())
     stdin = r.scratch / ("v592-in-%d" % time.monotonic_ns())
     stdin.write_text(payload, encoding="utf-8")

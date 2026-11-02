@@ -1,0 +1,64 @@
+{
+  "tool_calls": 7,
+  "mcp_calls": 0,
+  "explore_calls": 1,
+  "explore_before_map": 1,
+  "used_map": false,
+  "contract_before_done": true,
+  "done": true,
+  "polls_after_done": 0,
+  "sleeps_after_done": 0,
+  "used_wait": true,
+  "used_red": false,
+  "red_ok_seen": false,
+  "red_before_code": false,
+  "test_before_code": false,
+  "order": {
+    "test": [
+      2,
+      386
+    ],
+    "red": null,
+    "code": [
+      2,
+      28
+    ]
+  },
+  "gate_refusals": {
+    "No red recorded": 0,
+    "Tests only grow": 0,
+    "names tests the branch does not add": 0,
+    "RED_WRONG": 0,
+    "RED_PASSED": 0
+  },
+  "verdict_reported": true,
+  "final": "Aprobado por judge (SHA 10fd2a5). No hice el merge, porque la tarea ped\u00eda llegar hasta el veredicto.",
+  "input_tokens": 18,
+  "output_tokens": 1398,
+  "cache_read": 293053,
+  "cost_usd": 0.13999730000000002,
+  "uak_commands": [
+    "done",
+    "inbox",
+    "msg",
+    "status",
+    "wait"
+  ],
+  "map_brief_seen": false,
+  "map_lens_lines": 0,
+  "label": "v592-control-2",
+  "seconds": 94,
+  "reviewer": [
+    {
+      "t": 1793611669.3118758,
+      "sha": "10fd2a5",
+      "review": "OK review HACK-001 | REVIEW | attempt 1"
+    }
+  ],
+  "agent": "claude -p --model sonnet",
+  "lens_pushed": 1,
+  "hook_calls": 10,
+  "tests_weakened": [],
+  "mock_only_warnings": [],
+  "named_tests_missing": []
+}

@@ -5,6 +5,7 @@
 # digest calls, 4 black box notes in 60 h, and the code map, `wait` and `learn` existed only in AGENTS.md.
 card: UAK quick card — when this happens → run this (bash .uak/bin/uak …):
 card: · learning the code, before opening files → map show · map find NAME · map callers NAME · map users FILE
+card: · before the code of a feature or a fix → its Tests: and a stub, then red ID (it must fail on its assertion) · an existing test looks wrong → msg human, never edit it
 card: · you change code another task uses → msg impact:ID --kind contract "what changed · what to do" (before pushing)
 card: · waiting for a review, a dependency or a reply → wait ID --for approve|integrated|message (one call; never poll status)
 card: · a trap the next agent will hit → learn "what bites · where · what to do"

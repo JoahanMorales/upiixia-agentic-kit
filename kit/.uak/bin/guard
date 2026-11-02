@@ -40,16 +40,22 @@ block() { printf 'UAK_GUARD: blocked · %s\n' "$*" >&2; bash "$here/bb" auto gua
 # Parameter expansion, not awk: no process. A doubled delimiter (|| or a lone & next to &&) only adds an empty
 # segment, which no rule matches.
 # The patterns are variables: bash 3.2 misparses ( ) < > & inside ${…}.
+# ${s//…} with many matches costs matches × length on bash 3.2 (macOS): 0.6 s at 1.8 KB, 437 s at 18 KB (a 300-line
+# heredoc outlasted the 5 s hook timeout). There tr always does it (a process is cheap on macOS); on bash 4+ only
+# past 1 KB (a process costs 20-50 ms on Git Bash).
+SHORT=1024; [ "${BASH_VERSINFO[0]}" -ge 4 ] || SHORT=0
 NL=$'\n' P_LT='<' P_AND='&&' P_SEP='[;|]' P_RULE='[;|&()`<>]'
 segments() { # sets SEGS
   local s=$1 bs='\'
-  s=${s//$P_LT/ }; s=${s//"$bs"n/$NL}; s=${s//$P_AND/$NL}; s=${s//$P_SEP/$NL}
+  s=${s//$P_LT/ }; s=${s//"$bs"n/$NL}; s=${s//$P_AND/$NL}
+  if [ "${#s}" -le "$SHORT" ]; then s=${s//$P_SEP/$NL}; else s=$(printf '%s' "$s" | tr ';|' '\n\n'); fi
   SEGS=$s
 }
 # Rule segments also split on ( ) & > and backticks: `(cd x && git push -f)`, `git push --force&`, `…>/dev/null`.
 rule_segments() { # sets SEGS
   local s=$1 bs='\'
-  s=${s//"$bs"n/$NL}; s=${s//$P_RULE/$NL}
+  s=${s//"$bs"n/$NL}
+  if [ "${#s}" -le "$SHORT" ]; then s=${s//$P_RULE/$NL}; else s=$(printf '%s' "$s" | tr ';|&()`<>' '\n\n\n\n\n\n\n\n'); fi
   SEGS=$s
 }
 # The command as the rules read it. JSON escapes the hook payload keeps: a backslash-newline continuation (\\ + \n)
@@ -100,13 +106,14 @@ check_bash() {
   if runs_code "$cmd"; then code=yes; else case "$cmd" in *[\"\']*) rcmd=$(strip_prose "$cmd");; esac; fi
   # envcmd: the .env checks read the command with its prose removed but its quotes kept.
   envcmd=$rcmd
-  rcmd=${rcmd//[\"\']/}
+  if [ "${#rcmd}" -le "$SHORT" ]; then rcmd=${rcmd//[\"\']/}; else rcmd=$(printf '%s' "$rcmd" | tr -d "\"'"); fi
   human_cmd=
   base=${UAK_BASE:-main}
   # Only segments with a risky word go through the rules: a 300-line heredoc took 7.5 s, past the hook's 5 s
   # timeout (and a timed-out hook lets the command run). A command with none of them has no such segment.
   case "$rcmd" in *git*|*rm*|*kill*|*sudo*|*curl*|*wget*|*publish*|*upload*|*gh*|*docker*|*npm*|*pnpm*|*yarn*|*pip*|*uv*|*UAK_*) rule_segments "$rcmd";; *) SEGS=;; esac
-  while IFS= read -r seg; do
+  # No segment, no here-document: Git Bash forks a child to feed one (Windows CI: 4 processes for `ls`).
+  [ -z "$SEGS" ] || while IFS= read -r seg; do
     s=" $seg "
     case "$s" in *git*|*rm*|*kill*|*sudo*|*curl*|*wget*|*publish*|*upload*|*gh*|*docker*|*npm*|*pnpm*|*yarn*|*pip*|*uv*|*UAK_*) ;; *) continue;; esac
     # The clock is the engine's: a lease, a freeze or an offer window read at another time is a lie to everyone.
@@ -214,7 +221,7 @@ UAK_SEGMENTS
   [ -z "$envcmd" ] || ! grep -Eq '<[[:space:]]*["'"'"']?\.env(\.[a-z]+)?["'"'"']?([[:space:]]|$)|:\.env(\.[a-z]+)?([[:space:]]|$)' <<< "$envcmd" ||
     block ".env holds secrets and never enters context. Read .env.example or ask which variable exists."
   SEGS=; [ -z "$envcmd" ] || segments "$envcmd"
-  while IFS= read -r seg; do
+  [ -z "$SEGS" ] || while IFS= read -r seg; do
     # cp only when .env is the source: `cp .env.example .env` is the standard setup step (audit: it was blocked).
     case "$seg" in *.env*) ;; *) continue;; esac
     grep -Eq '(cat|less|more|head|tail|bat|grep|rg|sed|awk|scp|base64|xxd|strings|source|nl|tac|cut|od|hexdump|diff|paste|sort|\.)[[:space:]]([^#]*[[:space:]/"'"'"'])?["'"'"']?\.env(\.(local|production|prod|dev|development|staging|test))?\*?["'"'"']?([[:space:]]|$)|(^|[[:space:]])cp[[:space:]]+(-[A-Za-z]+[[:space:]]+)*["'"'"']?\.env(\.(local|production|prod|dev|development|staging|test))?["'"'"']?[[:space:]]' <<< " $seg " &&
@@ -290,6 +297,8 @@ P_ESC='[\\"]' P_QQ='\\"' P_BB='\\\\' Q='"' B='\' P_SOH=$'\001'
 json_field_var() { # $1 key, $2 JSON → JF
   local s=$2 k="\"$1\"" t pre
   JF=
+  # Bash 3.2 (macOS): its pattern operations are slow and a process is cheap there; awk reads it.
+  [ "${BASH_VERSINFO[0]}" -ge 4 ] || { JF=$(printf '%s' "$s" | json_field "$1"); return 0; }
   if [ "${#s}" -gt 4096 ]; then JF=$(printf '%s' "$s" | json_field "$1"); return 0; fi
   case "$s" in *$P_SOH*) JF=$(printf '%s' "$s" | json_field "$1"); return 0;; esac
   case "$s" in *"$k"*) ;; *) return 0;; esac
