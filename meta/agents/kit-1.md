@@ -1,11 +1,11 @@
 # kit-1
 Agent: kit-1
 Started: 1793649940
-Events: 1
-Events-Since-Checkpoint: 1
-Checkpoints: 0
+Events: 2
+Events-Since-Checkpoint: 0
+Checkpoints: 1
 Sessions: 1
-Last-Checkpoint: 0
+Last-Checkpoint: 1793650134
 Human: JoahanMorales
 Last-Session: kit-1-1793649940
-Updated: 1793649940
+Updated: 1793650134
