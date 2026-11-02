@@ -24,7 +24,8 @@ finish() {
   else printf 'START · %s things to do before the first claim, in this order. Then run uak start again.\n' "$todo"; fi
   exit 1
 }
-from() { sed -n "s/^[-* ]*$1:[* ]*//p" | head -n 1 | tr -d '\r`'; }
+. "$here/lib/config.sh"
+from() { uak_cfg - "$1"; }
 
 root=$(git rev-parse --show-toplevel 2>/dev/null) || {
   need "a Git repository" "git init -b main, then: bash ~/.uak-kit/install.sh --mode sprint|marathon ."; finish; }

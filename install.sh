@@ -50,7 +50,7 @@ top=$(cd "$(git -C "$target" rev-parse --show-toplevel)" && pwd -P)
 # --update keeps the mode the humans chose: another --mode would swap settings and permissions under a PROJECT.md
 # that still says the old one (audit: marathon got sprint's auto-merge permissions).
 if [ "$update" = yes ] && [ -f "$target/.uak/PROJECT.md" ]; then
-  was=$(sed -n 's/^[-* ]*Mode:[* ]*//p' "$target/.uak/PROJECT.md" | head -n 1 | tr -d '\r `')
+  . "$kit/.uak/bin/lib/config.sh"; was=$(uak_cfg "$target/.uak/PROJECT.md" Mode)
   [ -z "$was" ] || [ "$was" = "$mode" ] || { printf '%s\n' "This project is Mode: $was (.uak/PROJECT.md); update with --mode $was. Changing the mode is a human decision: edit PROJECT.md first." >&2; exit 2; }
 fi
 # --update after --no-mcp: an install without any MCP config stays without one (the update added .mcp.json and the

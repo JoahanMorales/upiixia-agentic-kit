@@ -29,7 +29,8 @@ cut_() { cut -c 1-"${1:-160}"; }
 
 # 1. What every session pays for: the instruction files and the descriptions of installed skills.
 printf 'INSTRUCTIONS (read every session; small wins: about 100 lines that point elsewhere)\n'
-mode=$(sed -n 's/^[-* ]*Mode:[* ]*//p' .uak/PROJECT.md 2>/dev/null | head -n 1 | tr -d '\r` ')
+. "$here/lib/config.sh"
+mode=$(uak_cfg .uak/PROJECT.md Mode)
 for f in AGENTS.md CLAUDE.md .claude/CLAUDE.md ".uak/modes/${mode:-none}.md"; do
   [ -f "$f" ] || continue
   l=$(awk 'END {print NR+0}' "$f"); w=$(wc -w < "$f" | tr -d ' ')
@@ -47,11 +48,12 @@ fi
 
 # 2. Docs that name a command, script, doc or skill that does not exist.
 printf '\nDRIFT (docs that name what does not exist)\n'
-cmds=$(bash "$here/uak" help 2>/dev/null | awk 'NF && $1 ~ /^[a-z][a-z-]*$/ {print $1}' | sort -u)
-for f in "$here"/*; do [ -f "$f" ] && cmds="$cmds
+# The commands are the registry's; the scripts and folders are what .uak/bin holds.
+cmds=$(awk -F'\t' '!/^#/ && NF {print $1}' "$here/lib/commands.tsv" | sort -u)
+for f in "$here"/*; do [ -e "$f" ] && cmds="$cmds
 ${f##*/}"; done
-# smoke-project: the project writes it from smoke-project.example.
-printf '%s\nsmoke-project\n' "$cmds" | sort -u > "$tmp/cmds"
+# smoke-project: the project writes it from smoke-project.example. help and version: answered before dispatch.
+printf '%s\nsmoke-project\nhelp\nversion\n' "$cmds" | sort -u > "$tmp/cmds"
 docs=$(ls AGENTS.md CLAUDE.md .uak/modes/*.md .uak/docs/*.md .claude/commands/*.md .claude/agents/*.md .claude/skills/*/SKILL.md 2>/dev/null)
 drift=0
 for f in $docs; do

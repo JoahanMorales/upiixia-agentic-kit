@@ -14,7 +14,8 @@
 set -u
 LC_ALL=C; export LC_ALL
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=.
-cap=$(sed -n 's/^[-* ]*Output-Cap-Chars:[* ]*//p' "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `')
+case $0 in */*) . "${0%/*}/lib/config.sh";; *) . ./lib/config.sh;; esac
+cap=$(uak_cfg "$top/.uak/PROJECT.md" Output-Cap-Chars)
 case "$cap" in off|0) cap=999999999;; ''|*[!0-9]*) cap=12000;; esac
 out_dir() {
   local d

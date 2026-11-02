@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Dogfooding: this repository runs the engine of its own checkout (kit/), so a task worktree uses its branch's engine.
+exec bash "$(dirname "$0")/../../kit/.uak/bin/uak" "$@"

@@ -451,3 +451,8 @@ msg_inbox_run() {
   QUIET=yes; transaction; QUIET=no
   say "INBOX_ACK up to #$MSG_ACK_UPTO"
 }
+# msg: one transaction, then the sent line and its notes (an offline target, a likely typo).
+msg_run() {
+  QUIET=yes; transaction; say "OK msg $MSG_SENT"
+  [ ! -s "$TXROOT/msg-note" ] || sed 's/^/NOTE: /' "$TXROOT/msg-note" | awk '!seen[$0]++'
+}

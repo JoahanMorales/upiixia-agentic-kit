@@ -26,12 +26,13 @@ die() { say "BB_ERROR: $*" >&2; exit 2; }
 enabled() {
   case "${UAK_BLACKBOX:-}" in off|0|no|false) return 1;; esac
   [ -n "$top" ] || return 1
-  v=$(sed -n 's/^[-* ]*Blackbox:[* ]*//p' "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `' | tr 'A-Z' 'a-z')
-  case "$v" in off|no|false|0) return 1;; esac
+  uak_cfg_var "$top/.uak/PROJECT.md" Blackbox
+  case "$CFG" in [Oo][Ff][Ff]|[Nn][Oo]|[Ff][Aa][Ll][Ss][Ee]|0) return 1;; esac
   return 0
 }
 version() { cat "$here/../VERSION" 2>/dev/null | head -n 1 | tr -d '\r\n ' || true; }
-mode() { m=$(sed -n 's/^[-* ]*Mode:[* ]*//p' "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `'); printf '%s' "${m:-sprint}"; }
+. "$here/lib/config.sh"
+mode() { uak_cfg "$top/.uak/PROJECT.md" Mode sprint; }
 harness() {
   [ -z "${UAK_HARNESS:-}" ] || { printf '%s' "$UAK_HARNESS"; return; }
   if [ -n "${CLAUDECODE:-}" ]; then printf claude-code

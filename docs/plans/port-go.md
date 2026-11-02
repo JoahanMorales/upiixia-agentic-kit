@@ -1,6 +1,9 @@
 # Porting the engine to Go (or Rust): an estimate
 
-Status: proposal, Nov 2026. Nothing here is decided; it sizes the work so the owner can.
+Status: decided, Nov 2026: **not porting**. The engine stays in Bash + Python, and the scaling work went into the
+engine's structure instead (v5.11: one config reader, a command registry, result codes and `--json`, `uak` split by
+family, the kit developed with itself; `docs/ARCHITECTURE.md`). The claims redesign below ("The cheaper alternative")
+is the next phase, as tasks in `.uak/TASKS.md`. This estimate stays as the reference if the question comes back.
 
 ## What there is to port (measured on v5.10.0)
 

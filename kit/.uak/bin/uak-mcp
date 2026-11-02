@@ -128,6 +128,20 @@ def instructions():
               "uak_checkpoint, uak_tokens, uak_cli (any other uak command). In the main checkout pass agent=YOUR_NAME.")
 
 
+def registry():
+    """The command registry (lib/commands.tsv): command → how MCP reaches it (a tool, uak_cli, or shell only)."""
+    out = {}
+    try:
+        for line in (Path(__file__).resolve().parent / "lib" / "commands.tsv").read_text(encoding="utf-8").splitlines():
+            c = line.rstrip("\r").split("\t")
+            if line and not line.startswith("#") and len(c) == 6 and c[1] != "-":
+                out.setdefault(c[0], c[4])
+    except OSError:
+        pass
+    return out
+
+
+REGISTRY = registry()
 S = {"type": "string"}
 AGENT = {"type": "string", "description": "Your agent name (ana-1). Needed only outside a task worktree (whose .uak-env sets it)."}
 TASK = {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$", "description": "Task ID as in TASKS.md, e.g. HACK-012"}
@@ -174,7 +188,7 @@ TOOLS = [
      "before implementing a feature or a fix; never edit an existing test to make it pass.",
      obj({"agent": AGENT, "task": TASK}, ["task"]),
      ann("Record the red", False, True),
-     lambda a: ["red", a["task"]], 300, False),
+     lambda a: ["uak", "red", a["task"]], 300, False),
     ("uak_wait", "Block until something happens on the claims branch instead of polling: an approve or reject of your task "
      "in review (for=approve), a dependency INTEGRATED (for=integrated), or a new message for you (for=message). "
      "Returns at once when it already happened; on timeout says so and you can call it again.",
@@ -236,7 +250,8 @@ TOOLS = [
      lambda a: ["uak", "tokens", "--by", a.get("by", "task")] + (["--team"] if a.get("team") else []), 120, False),
     ("uak_cli", "Any other uak command, as arguments: handover ID --to NAME, release ID, followup ID --title T, retire NAME, "
      "decision ID --option … , log ID TEXT, integrate ID, allow ID --reason T (humans), board, digest, graph --assign, "
-     "pace, clock …, start (what still blocks the first claim), design-gallery, bb add friction TEXT --fix IDEA. Same rules and errors as the shell; commands that run a command you pass (loop, init-smoke, deploy, up) go through the shell, where guard checks them.",
+     "pace, clock …, start (what still blocks the first claim), design-gallery, bb add friction TEXT --fix IDEA. Same rules and errors as the shell; commands that run a command you pass (loop, init-smoke, deploy, up) go through the shell, where guard checks them."
+     + (" Its commands: " + ", ".join(sorted(n for n, m in REGISTRY.items() if m == "uak_cli")) + "." if REGISTRY else ""),
      obj({"agent": AGENT, "args": {"type": "array", "items": {"type": "string"}, "minItems": 1}}, ["args"]),
      ann("uak command", False, False), lambda a: cli_args(a), 600, True),
 ]
@@ -375,7 +390,8 @@ def shape(text):
 
 # Subcommands that run a command given as an argument: through MCP, guard (a Bash PreToolUse hook) never sees it.
 # Why (audit, Oct 2026): uak_cli ["loop", "--verify", "git reset --hard …"] ran with no prompt and no guard.
-RUNS_COMMANDS = {"loop", "init-smoke", "deploy", "up", "q", "smoke"}
+# The registry marks them "shell"; q and smoke are scripts, not uak commands.
+RUNS_COMMANDS = {n for n, m in REGISTRY.items() if m == "shell"} | {"loop", "init-smoke", "deploy", "up", "q", "smoke"}
 
 
 def cli_args(a):

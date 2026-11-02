@@ -1,7 +1,7 @@
 # Sourced by .uak/bin/uak; needs no Python or jq.
 secrets_lint() {
   local mode=${1:---tracked}
-  bash "$ROOT/.uak/bin/secret-scan" "$mode" --decisions "$TX/DECISIONS.md"
+  bash "$UAK_BIN/secret-scan" "$mode" --decisions "$TX/DECISIONS.md"
 }
 secret_exception_action() {
   local claim until owner wt branch actual hash line

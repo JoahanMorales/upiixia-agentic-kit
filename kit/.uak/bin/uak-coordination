@@ -37,8 +37,7 @@ coord_yesno() { case "$2" in yes|no) ;; *) die "$1 must be yes or no.";; esac; }
 coord_source_field() {
   # Same reading as lint and doctor: "- **Freeze-Epoch:** N" counts. Why (audit, Oct 2026): written in bold, the
   # freeze passed lint and doctor and did not exist for the engine.
-  coord_v=$(sed -n "s/^[-* ]*$1:[* ]*//p" "$TXROOT/coord-source" | head -n 1 | tr -d '\r`')
-  [ -n "$coord_v" ] || coord_v=$2
+  uak_cfg_var "$TXROOT/coord-source" "$1" "$2"; coord_v=$CFG
   printf '%s\n' "$coord_v"
 }
 # A key whose value is a list on the next lines ("- **Depends on:**" then "  - HACK-001") becomes one line, and IDs
@@ -103,7 +102,7 @@ coord_init() {
   BACKLOG="$TXROOT/canonical-TASKS.md"; OWNERS="$TXROOT/canonical-OWNERS.md"
   coord_source=$(git -C "$TX" rev-parse --verify 'refs/uak/config:.uak/PROJECT.md' 2>/dev/null || printf '%s' '-')
   git -C "$TX" show refs/uak/config:.uak/PROJECT.md > "$TXROOT/coord-source" 2>/dev/null || : > "$TXROOT/coord-source"
-  # One pass, the same reading as coord_source_field. A key with a default is always written (absent from
+  # One pass, the same reading as coord_source_field (lib/config.sh), for the 15 authority keys at once. A key with a default is always written (absent from
   # PROJECT.md = its default, not whatever claims says); the timing keys only when PROJECT.md sets them.
   awk -v keys="Backlog-Approved=no Autonomy=no Auto-Merge=no Freeze-Epoch=0 Events-Per-Session=100 Checkpoint-Percent=60 Review-Mode=auto Merge-Lease-Seconds=1800 Merge-Wait-Seconds=180 Review-Independence=agent Claims-Signing=no Presence-Seconds= Stall-Seconds= Review-Offer-Seconds= Merge-Adopt-Seconds=" '
     BEGIN { n = split(keys, kv, " "); for (i = 1; i <= n; i++) { e = index(kv[i], "="); k[i] = substr(kv[i], 1, e - 1); d[i] = substr(kv[i], e + 1) } }
@@ -282,23 +281,23 @@ coord_remote_task_field() {
     }' "$BACKLOG"
 }
 coord_claim_gate() {
-  [ "$(coord_config Autonomy no)" = yes ] || conflict "Missing explicit Autonomy: yes in remote .uak/PROJECT.md; a timeout does not authorize."
+  [ "$(coord_config Autonomy no)" = yes ] || UAK_CODE=autonomy-off conflict "Missing explicit Autonomy: yes in remote .uak/PROJECT.md; a timeout does not authorize."
   if [ "$(coord_config Backlog-Approved no)" != yes ]; then
     coord_proposed=$(coord_config Backlog-Proposed-Epoch "$NOW")
     # Why (a solo marathon project, Oct 2026): "no eligible candidate" for the first 10 min, and nothing said why.
     coord_left=$(( (coord_proposed + 600 - NOW + 59) / 60 )); [ "$coord_left" -gt 0 ] || coord_left=0
     [ "$NOW" -ge "$((coord_proposed + 600))" ] && [ "$(coord_remote_task_field Priority)" = P0 ] ||
-      conflict "Backlog pending approval: Backlog-Approved is not yes in .uak/PROJECT.md on $BASE, so only P0 tasks, and only after 10 min ($coord_left min left). The human approves the plan: set Backlog-Approved: yes there and push it to $BASE."
+      UAK_CODE=backlog-unapproved conflict "Backlog pending approval: Backlog-Approved is not yes in .uak/PROJECT.md on $BASE, so only P0 tasks, and only after 10 min ($coord_left min left). The human approves the plan: set Backlog-Approved: yes there and push it to $BASE."
   fi
   coord_freeze=$(coord_config Freeze-Epoch 0)
   if [ "$coord_freeze" -gt 0 ] && [ "$NOW" -ge "$coord_freeze" ]; then
-    coord_freeze_allowed || conflict "FREEZE: $ID is not allowed after the freeze. A human can allow it: UAK_HUMAN=NAME bash .uak/bin/uak allow $ID --reason TEXT"
+    coord_freeze_allowed || UAK_CODE=freeze conflict "FREEZE: $ID is not allowed after the freeze. A human can allow it: UAK_HUMAN=NAME bash .uak/bin/uak allow $ID --reason TEXT"
   fi
   coord_af=$(coord_agent_file); coord_since=0
   [ ! -f "$coord_af" ] || coord_since=$(coord_read "$coord_af" Events-Since-Checkpoint)
   # An agent file written by `uak away` or a human command has no counters yet (audit: no claim was ever possible).
   case "$coord_since" in ''|*[!0-9]*) coord_since=0;; esac
-  [ "$coord_since" -lt "$(coord_threshold)" ] || conflict "CHECKPOINT NOW: a recent checkpoint is required before claiming new tasks: bash .uak/bin/uak checkpoint --session --done T --decision T --why T --fails T --commands T --next T (- for none; with a task: checkpoint ID instead of --session)."
+  [ "$coord_since" -lt "$(coord_threshold)" ] || UAK_CODE=checkpoint-now conflict "CHECKPOINT NOW: a recent checkpoint is required before claiming new tasks: bash .uak/bin/uak checkpoint --session --done T --decision T --why T --fails T --commands T --next T (- for none; with a task: checkpoint ID instead of --session)."
 }
 # Freeze exception: `Freeze-Allowed: yes` in the remote TASKS, or a human's `uak allow` on claims.
 # Why (Reap buildathon): with no command, humans opened 3 PRs (#10, #11, #14) just to flip Freeze-Allowed,
@@ -309,7 +308,7 @@ coord_freeze_allowed() {
 }
 coord_allow_mutate() {
   local coord_ids= coord_a coord_c
-  [ -n "$HUMAN" ] || conflict "allow is a human decision: UAK_HUMAN=NAME bash .uak/bin/uak allow ID --reason TEXT."
+  [ -n "$HUMAN" ] || UAK_CODE=human-only conflict "allow is a human decision: UAK_HUMAN=NAME bash .uak/bin/uak allow ID --reason TEXT."
   [ -n "$WHY_TEXT" ] || die "allow needs --reason TEXT (recorded in DECISIONS.md)."
   if [ "$ALLOW_INFLIGHT" = yes ]; then
     for coord_c in "$TX"/claims/*.md; do [ -f "$coord_c" ] && coord_ids="$coord_ids $(coord_read "$coord_c" ID)"; done
@@ -411,6 +410,8 @@ coord_status_budget() {
   if [ -z "$AGENT" ]; then say "Budget: set UAK_AGENT to see events/checkpoint."; return; fi
   coord_af=$(coord_agent_file); coord_since=0 coord_total=0
   if [ -f "$coord_af" ]; then coord_since=$(coord_read "$coord_af" Events-Since-Checkpoint); coord_total=$(coord_read "$coord_af" Events); fi
+  # A human's file (Role: human) has no counters: 0, not blanks ("Events: /90 alert (total )").
+  case "$coord_since" in ''|*[!0-9]*) coord_since=0;; esac; case "$coord_total" in ''|*[!0-9]*) coord_total=0;; esac
   coord_alert=$(coord_threshold); coord_left=$((coord_alert - coord_since)); coord_suffix=
   if [ "$coord_left" -le 0 ]; then coord_left=0; coord_suffix=' | CHECKPOINT NOW: uak checkpoint ID|--session --done T --decision T --why T --fails T --commands T --next T'; fi
   say "Events: $coord_since/$coord_alert alert (total $coord_total); checkpoint required in $coord_left events$coord_suffix"

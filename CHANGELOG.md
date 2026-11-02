@@ -1,5 +1,36 @@
 # Changelog
 
+## v5.11.0 · 2026-11-02 · An engine you can change without breaking it
+The kit stays in Bash and Python: no Go or Rust engine (`docs/plans/port-go.md` keeps the estimate). Its structure
+changed instead, so a change touches one place and a check catches the drift. Each step has a test in `test_v511.py`.
+- **`uak` split by command family.** 1,995 lines with a 255-line `mutate` became a 258-line dispatcher over
+  `lib/core.sh`, `config.sh`, `backlog.sh`, `tx.sh`, `claim.sh`, `done.sh`, `plan.sh`, `status.sh`, `wait.sh`,
+  `lint.sh` and `json.sh`, next to the existing families. Each command's mutation is a function of its own. The 252
+  existing tests pass unchanged; a test keeps `uak` under 300 lines.
+- **One command registry**, `lib/commands.tsv`: per command its route (a script, a transaction, a function), its
+  mutation, its file, its MCP tool and its help line. `uak help`, dispatch and the transaction read it at run time;
+  `scripts/gen_registry.py` writes the command index of CLI.md from it; uak-mcp takes from it which commands
+  `uak_cli` runs and which run only in the shell. `kit_lint` checks that every route exists, every function is in the
+  file named, every tool is real and every command has a prose row. Adding a command is one row plus its code.
+- **One reader of PROJECT.md**, `lib/config.sh` (`uak_cfg FILE KEY [DEFAULT]`), in builtins so guard and hook use it
+  with no process. It replaces 13 copies in `uak`, `uak-coordination`, guard, hook, pace, cap, up, garden, bb, start,
+  doctor and install.sh; bold, backticks, CRLF and trailing spaces read the same everywhere. `kit_lint` refuses a new
+  copy.
+- **`uak --json CMD …`** (or `UAK_JSON=1`): the same command, its result as one JSON object (`ok`, `exit`, `result`,
+  `code`, `message`, `state`, `next`, the text line by line; `status` adds every task). `code` is stable when the
+  wording changes: 40 codes for the refusals agents meet most (`overlap`, `lease-active`, `dependency-pending`,
+  `tests-weakened`, `red-missing`, `push-failed`…), documented in CLI.md and checked by `kit_lint`. The text agents
+  read is unchanged.
+- **The kit is developed with the kit.** The repository has its own `.uak/`: the roadmap as `.uak/TASKS.md` (test-first,
+  `Tests:` per task), `Review-Mode: claims`, `Plan-Channel: claims`, and 3-line shims in `.uak/bin` to the engine in
+  `kit/` of the same checkout. The merge gate runs `kit_lint` and the whole suite on the merged result. The first
+  phase is the claims transaction without the process storm (UAK-001 … UAK-007, `next` ≤ 40 processes). `kit_lint`
+  lints that backlog offline on every push.
+- Fixed: the engine found its libraries and scripts (`graph`, `secret-scan`) under the checkout's `.uak/bin`, not its
+  own folder, so an engine run from another path half-worked (lint skipped the graph silently). `uak` now resolves its
+  folder from `$0` without a subshell (two fewer processes per call).
+- Fixed: a human's `uak next` printed `Events: /90 alert (total )`; it prints 0.
+
 ## v5.10.1 · 2026-11-02 · The kit checks itself
 v5.10.0's CI found two test bugs on Windows and macOS, and the first run of a new lint found a real one.
 - **`scripts/kit_lint.py` in CI: the kit's own rules as checks, not prose.** Portability (bash 4+ syntax, GNU-only

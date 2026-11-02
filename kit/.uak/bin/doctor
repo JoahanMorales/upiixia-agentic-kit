@@ -10,8 +10,9 @@ fails=0 warns=0
 ok()   { printf 'OK    %s\n' "$*"; }
 warn() { printf 'WARN  %s\n' "$*"; warns=$((warns + 1)); }
 bad()  { printf 'FAIL  %s\n' "$*"; fails=$((fails + 1)); }
-field() { sed -n "s/^[-* ]*$1:[* ]*//p" "$project" 2>/dev/null | head -n 1 | tr -d '\r`'; }
 self_d=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)  # before the cd to the top level: $0 may be relative
+. "$self_d/lib/config.sh"
+field() { uak_cfg "$project" "$1"; }
 
 # A checkout's .git marked bare: uak-mcp 5.4.5-5.5.0, started through its git alias in a task worktree, re-initialized
 # the main repository (core.bare=true) and git then refused every command there ("must be run in a work tree").

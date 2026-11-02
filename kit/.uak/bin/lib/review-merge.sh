@@ -61,7 +61,7 @@ review_identity_eligible() {
 }
 register_reviewer_mutate() {
   local who
-  [ -n "$HUMAN" ] || conflict "register-reviewer needs UAK_HUMAN (a human registers agents)."
+  [ -n "$HUMAN" ] || UAK_CODE=human-only conflict "register-reviewer needs UAK_HUMAN (a human registers agents)."
   mkdir -p "$TX/roles/reviewers"
   for who in ${REGISTER_REVIEWER:-$ID}; do
     case "$who" in ''|*[!A-Za-z0-9_.-]*) die "Invalid reviewer identity.";; esac
@@ -165,7 +165,7 @@ review_mutate() {
     MSG_DECLINED="$ID $AGENT"; msg_reoffer_reviews; MSG_DECLINED=
     return 0
   fi
-  [ "$AGENT" != "$(field "$RECORD" Owner)" ] || conflict "The owner cannot approve their own task."
+  [ "$AGENT" != "$(field "$RECORD" Owner)" ] || UAK_CODE=own-review conflict "The owner cannot approve their own task."
   review_identity_eligible "$AGENT" || conflict "The reviewer needs an active own claim or a registered role."
   resolve_task_tip || conflict "$RM_REASON"
   # --start: "I am reviewing this SHA" for a short lease, so a second agent does not review it in parallel.
@@ -188,7 +188,7 @@ review_mutate() {
       who=$(field "$lock" Reviewer); until=$(field "$lock" Until)
       case "$until" in ''|*[!0-9]*) until=0;; esac
       if [ "$who" != "$AGENT" ] && [ "$(field "$lock" SHA)" = "$RM_TIP" ] && [ "$NOW" -lt "$until" ]; then
-        conflict "$who is already reviewing $ID at this SHA ($(((until - NOW + 59) / 60)) min left). Pick another task or review."
+        UAK_CODE=review-locked conflict "$who is already reviewing $ID at this SHA ($(((until - NOW + 59) / 60)) min left). Pick another task or review."
       fi
     fi
     mkdir -p "$TX/reviews"
@@ -205,7 +205,7 @@ review_mutate() {
     if [ -n "$full" ] && rm_main_merges_only "$full" "$RM_TIP"; then
       carried=$full
     elif [ -n "$full" ] && git -C "$TX" merge-base --is-ancestor "$full" "$RM_TIP" 2>/dev/null; then
-      conflict "HEAD moved: ${RM_TIP%"${RM_TIP#???????}"} has $(git -C "$TX" rev-list --count "$full..$RM_TIP") commit(s) after your ${full%"${full#???????}"} ($(git -C "$TX" diff --name-only "$full" "$RM_TIP" | wc -l | tr -d ' ') files). Review the new commits: git diff ${full%"${full#???????}"} ${RM_TIP%"${RM_TIP#???????}"}, then --sha $RM_TIP."
+      UAK_CODE=head-moved conflict "HEAD moved: ${RM_TIP%"${RM_TIP#???????}"} has $(git -C "$TX" rev-list --count "$full..$RM_TIP") commit(s) after your ${full%"${full#???????}"} ($(git -C "$TX" diff --name-only "$full" "$RM_TIP" | wc -l | tr -d ' ') files). Review the new commits: git diff ${full%"${full#???????}"} ${RM_TIP%"${RM_TIP#???????}"}, then --sha $RM_TIP."
     else
       conflict "The review must match the task's current HEAD (${RM_TIP%"${RM_TIP#???????}"}); --sha $REVIEW_SHA is not in its history."
     fi
@@ -225,7 +225,7 @@ review_mutate() {
   # someone else, merged, and the bug surfaced 10 h later in the end-to-end test.
   # Any verdict by someone else: a second reject would take over the record (and its rejecter could then approve).
   if [ "$standing" = yes ] && [ "$RM_REJECTER" != "$AGENT" ]; then
-    conflict "$RM_REJECTER rejected this code of $ID (SHA ${RM_TIP%"${RM_TIP#???????}"} or one it only merges $BASE into); another verdict does not change it. The owner fixes and pushes (a new commit gets a new review), or $RM_REJECTER changes their verdict. Disagree, or more to add? uak msg $ID --kind reply \"…\"."
+    UAK_CODE=standing-reject conflict "$RM_REJECTER rejected this code of $ID (SHA ${RM_TIP%"${RM_TIP#???????}"} or one it only merges $BASE into); another verdict does not change it. The owner fixes and pushes (a new commit gets a new review), or $RM_REJECTER changes their verdict. Disagree, or more to add? uak msg $ID --kind reply \"…\"."
   fi
   rm -f "$TX/reviews/$ID.reviewing"
   # An approval of a SHA that already has one is duplicate work (Reap: HACK-005 got 7 approvals, 3 on one SHA).

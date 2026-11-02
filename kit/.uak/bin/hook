@@ -195,23 +195,13 @@ jdecode_scan() {
   done
   while :; do case "$JD" in *"$NL") JD=${JD%"$NL"};; *) break;; esac; done
 }
-# Output-Cap-Chars (or another "Key:" of PROJECT.md): its first line, after the key, into PV (as sed -n | head -n 1).
-proj_value() {
-  local line v
-  PV=
-  [ -f .uak/PROJECT.md ] || return 0
-  while IFS= read -r line || [ -n "$line" ]; do
-    line=${line#"${line%%[!-* ]*}"}
-    case "$line" in "$1:"*) ;; *) continue;; esac
-    v=${line#"$1:"}; PV=${v#"${v%%[!* ]*}"}
-    return 0
-  done < .uak/PROJECT.md
-}
-P_TRIM=$'[\r` ]'
+# A "Key:" of PROJECT.md into PV, with the one reader (lib/config.sh: builtins, no process). The hook runs at the top
+# level of the checkout (cd above).
+. .uak/bin/lib/config.sh 2>/dev/null || uak_cfg_var() { CFG=${3:-}; }
+proj_value() { uak_cfg_var .uak/PROJECT.md "$1"; PV=$CFG; }
 cap_chars() { # sets CAP
-  local c
-  proj_value Output-Cap-Chars; c=${PV//$P_TRIM/}   # kit-lint: ok (one PROJECT.md value)
-  case "$c" in off|0) CAP=0;; ''|*[!0-9]*) CAP=12000;; *) CAP=$c;; esac
+  proj_value Output-Cap-Chars
+  case "$PV" in off|0) CAP=0;; ''|*[!0-9]*) CAP=12000;; *) CAP=$PV;; esac
 }
 sum() { cksum < "$1" 2>/dev/null | awk '{print $1}'; }
 # Session id: Claude Code and Codex send session_id, Cursor conversation_id (BSD sed has no \| alternation).
@@ -502,8 +492,8 @@ case "${1:-}" in
     # Heartbeat every lease/3 (8..20 min), and the REVIEW tasks of other worktrees at most every 30 min.
     # Why (Reap buildathon): 11 agents heartbeating every 8 min plus a status per beat kept the claims branch
     # busy; approvals then needed up to 14 attempts. A 45-min sprint lease is safe with a 15-min beat.
-    proj_value Lease-Seconds; hb=${PV//[!0123456789]/}   # kit-lint: ok (one PROJECT.md value)
-    hb=$(( ${hb:-2700} / 180 )); [ "$hb" -ge 8 ] || hb=8; [ "$hb" -le 20 ] || hb=20
+    proj_value Lease-Seconds; hb=$PV; case "$hb" in ''|*[!0-9]*) hb=2700;; esac
+    hb=$(( hb / 180 )); [ "$hb" -ge 8 ] || hb=8; [ "$hb" -le 20 ] || hb=20
     # A task handed over (or released) from another machine is no longer this worktree's: one heartbeat says so, then
     # the beats stop and the agent hears it once. Why (Chilangatón): after a Windows → macOS handover the old
     # session kept beating PB-027 ("belongs to", "has no active claim") into the black box.

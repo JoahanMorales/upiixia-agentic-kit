@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""uak v5.11: an engine that is easier to change without breaking it. One reader of PROJECT.md (13 copies disagreed),
+one command registry (help, dispatch, CLI.md and the MCP tools were five hand-kept lists), `uak` split into one file
+per command family (it was 1,995 lines), and `uak --json` with stable result codes for programs that should not parse
+prose. Real Git, local bare remote, separate processes."""
+import argparse
+import concurrent.futures
+import json
+import os
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+from test_hack import Runner, expect, resolve_binary
+
+
+def config_reader_reads_every_form(r):
+    """Bold, a list bullet, backticks, CRLF, trailing spaces, no final newline, stdin: one answer for each."""
+    d = r.scratch / "v511-config"
+    d.mkdir()
+    (d / "P.md").write_bytes(b"# Project\r\n- **Mode:** `marathon`  \r\n* UI-Paths: web/src, app/ \r\nFreeze-Epoch:0\r\n"
+                             b"- **Empty:**\r\nDup: 1\r\nDup: 2\r\nReview-Mode: claims\r\nLast: noeol")
+    script = ('. "$1/.uak/bin/lib/config.sh"; for k in Mode UI-Paths Freeze-Epoch Empty Dup Last Missing; do '
+              'uak_cfg_var "$2" "$k" DEF; printf "%s=[%s]\\n" "$k" "$CFG"; done; '
+              'printf "Mode: sprint\\n" | uak_cfg - Mode; uak_cfg "$2" Review-Mode')
+    out = r.run([r.bash, "-c", script, "_", r.package.as_posix(), (d / "P.md").as_posix()]).stdout
+    want = ["Mode=[marathon]", "UI-Paths=[web/src, app/]", "Freeze-Epoch=[0]", "Empty=[DEF]", "Dup=[1]", "Last=[noeol]",
+            "Missing=[DEF]", "sprint", "claims"]
+    expect(out.split() == " ".join(want).split(), out)
+    # A consumer that used its own copy (up): a bold, backticked Max-Worktree-Agents is the limit.
+    t = r.scratch / "v511-up"
+    t.mkdir()
+    r.g(t, "init", "-q", "-b", "main")
+    (t / ".uak").mkdir()
+    (t / ".uak/PROJECT.md").write_text("- **Mode:** sprint\n- **Max-Worktree-Agents:** `2`\n", encoding="utf-8")
+    up = r.run([r.bash, (r.package / ".uak/bin/up").as_posix(), "3"], cwd=t, env={"UAK_HUMAN": "ana"}, allowed=None)
+    expect(up.returncode == 2 and "exceeds Max-Worktree-Agents (2)" in up.stderr, up.stdout + up.stderr)
+    return {"forms": len(want)}
+
+
+def json_envelope_reports_results_and_codes(r):
+    """A program reads the result, a stable code and the task's state without parsing the text."""
+    j = json
+    f = r.fixture("v511-json", paths={"HACK-001": "src/a/", "HACK-002": "src/a/b.py"}, count=2)
+    f.claim(0, "HACK-001")
+    ok = f.hack(0, "--json", "heartbeat", "HACK-001")
+    o = j.loads(ok.stdout)
+    expect(o["v"] == 1 and o["ok"] is True and o["exit"] == 0 and o["result"] == "OK" and o["code"] == "ok"
+           and o["cmd"] == "heartbeat" and o["id"] == "HACK-001" and o["state"] == "CLAIMED", ok.stdout)
+    clash = f.hack(1, "--json", "claim", "HACK-002", "--branch", f.branches[1], "--worktree", f.worktrees[1].as_posix(), allowed=None)
+    c = j.loads(clash.stdout)
+    expect(clash.returncode == 3 and c["ok"] is False and c["exit"] == 3 and c["result"] == "CONFLICT"
+           and c["code"] == "overlap" and "overlaps HACK-001" in c["message"] and c["stderr"], clash.stdout)
+    # The text a person or an agent reads is unchanged.
+    text = f.claim(1, "HACK-002", allowed=None)
+    expect(text.returncode == 3 and text.stderr.startswith("CONFLICT: HACK-002 overlaps HACK-001"), text.stderr)
+    st = f.hack(1, "--json", "status")
+    s = j.loads(st.stdout)
+    tasks = {t["id"]: t for t in s["tasks"]}
+    expect(tasks["HACK-001"]["state"] == "CLAIMED" and tasks["HACK-001"]["owner"] == "agent-1" and tasks["HACK-001"]["expired"] is False
+           and tasks["HACK-002"]["state"] == "AVAILABLE" and tasks["HACK-002"]["owner"] is None, st.stdout)
+    unknown = f.hack(0, "--json", "bogus", allowed=None)
+    u = j.loads(unknown.stdout)
+    expect(unknown.returncode == 2 and u["code"] == "unknown-command" and u["result"] == "ERROR", unknown.stdout)
+    # Backslashes, quotes, tabs and control characters stay valid JSON with every awk (mawk, gawk, BSD). Windows: no
+    # quote or control character in argv (the command line is re-parsed there).
+    odd = 'bo\\g"us\t\x01x' if os.name != "nt" else 'bo\\gus'
+    weird = f.hack(0, "--json", odd, allowed=None)
+    w = j.loads(weird.stdout)
+    expect(w["code"] == "unknown-command" and odd in w["message"], weird.stdout)
+    # UAK_JSON=1 works for a script of its own too; a command's own --json (after the command) is left alone.
+    env = {"UAK_AGENT": "agent-1", "UAK_JSON": "1"}
+    g = r.run([r.bash, ".uak/bin/uak", "graph", "--file", ".uak/TASKS.md"], cwd=f.worktrees[0], env=env)
+    expect(j.loads(g.stdout)["ok"] is True and any("HACK-001" in l for l in j.loads(g.stdout)["stdout"]), g.stdout)
+    pace = r.run([r.bash, ".uak/bin/uak", "pace", "--json"], cwd=f.worktrees[0], env={"UAK_AGENT": "agent-1"}, allowed=None)
+    expect('"stdout":' not in pace.stdout, pace.stdout)
+    return {"codes": [c["code"], u["code"]]}
+
+
+def registry_drives_help_and_dispatch(r):
+    """One row in lib/commands.tsv is a command: help lists it and uak runs it. Nothing else to edit."""
+    f = r.fixture("v511-registry", paths={"HACK-001": "src/a/"}, count=1)
+    wt = f.worktrees[0]
+    rows = [l.split("\t") for l in (wt / ".uak/bin/lib/commands.tsv").read_text(encoding="utf-8").splitlines() if l and not l.startswith("#")]
+    help_text = f.hack(0, "help").stdout
+    expect(all(row[5] in help_text for row in rows), "help misses a registry row")
+    expect(len({row[0] for row in rows}) >= 50, "registry rows: %d" % len(rows))
+    (wt / ".uak/bin/hello").write_text('#!/usr/bin/env bash\nprintf "HELLO %s\\n" "$*"\n', encoding="utf-8")
+    with open(wt / ".uak/bin/lib/commands.tsv", "a", encoding="utf-8") as fh:
+        fh.write("hello\texec\t-\thello\tuak_cli\thello [NAME]   says hello\n")
+    expect("hello [NAME]   says hello" in f.hack(0, "help").stdout, "a new row reaches help")
+    expect(f.hack(0, "hello", "ana").stdout.strip() == "HELLO ana", "a new row is dispatched")
+    expect(f.hack(0, "hello", "--help").stdout.strip() == "hello [NAME]   says hello", "CMD --help prints its row")
+    return {"rows": len(rows)}
+
+
+def engine_is_split_and_finds_its_libraries(r):
+    """uak is a dispatcher over one file per family, found from wherever uak is run; a missing one says how to fix it."""
+    f = r.fixture("v511-split", paths={"HACK-001": "src/a/"}, count=1)
+    wt = f.worktrees[0]
+    uak = (wt / ".uak/bin/uak").read_text(encoding="utf-8")
+    expect(len(uak.splitlines()) <= 300, "uak grew back to %d lines: put a command's code in its family file" % len(uak.splitlines()))
+    for lib in ("core", "backlog", "tx", "claim", "done", "plan", "status", "wait", "lint", "config", "json"):
+        expect((wt / ".uak/bin/lib" / (lib + ".sh")).is_file(), lib)
+    (wt / "src/a").mkdir(parents=True)
+    env = {"UAK_AGENT": "agent-1", "UAK_REMOTE": "origin", "UAK_NOW": "1000000"}
+    rel = r.run([r.bash, "../../.uak/bin/uak", "status"], cwd=wt / "src/a", env=env)
+    expect(rel.stdout.startswith("uak v"), rel.stdout)
+    absolute = r.run([r.bash, (wt / ".uak/bin/uak").as_posix(), "version"], cwd=wt / "src/a", env=env)
+    expect(absolute.stdout.strip() == (wt / ".uak/VERSION").read_text(encoding="utf-8").strip(), absolute.stdout)
+    (wt / ".uak/bin/lib/plan.sh").unlink()
+    broken = r.run([r.bash, ".uak/bin/uak", "status"], cwd=wt, env=env, allowed=None)
+    expect(broken.returncode == 1 and "lib/plan.sh: reinstall the kit" in broken.stderr, broken.stdout + broken.stderr)
+    return {"lines": len(uak.splitlines())}
+
+
+def an_engine_in_another_folder_runs_whole(r):
+    """Dogfooding: the kit's repo runs the engine of kit/ through 3-line shims in .uak/bin. Every library and script
+    (graph, secret-scan) comes from the engine's folder, not from the checkout's .uak/bin."""
+    t = r.scratch / "v511-shim"
+    (t / ".uak/bin").mkdir(parents=True)
+    r.g(t, "init", "-q", "-b", "main")
+    import shutil
+    shutil.copytree(r.package / ".uak", t / "engine/.uak", ignore=shutil.ignore_patterns("__pycache__", "tests"))
+    (t / ".uak/bin/uak").write_text('#!/usr/bin/env bash\nexec bash "$(dirname "$0")/../../engine/.uak/bin/uak" "$@"\n', encoding="utf-8")
+    (t / "AGENTS.md").write_text("# rules\n", encoding="utf-8")
+    (t / ".uak/PROJECT.md").write_text("Mode: marathon\nTest-First: yes\n", encoding="utf-8")
+    (t / ".uak/OWNERS.md").write_text("# Owners\n", encoding="utf-8")
+    (t / ".github").mkdir()
+    shutil.copy2(r.package / ".github/pull_request_template.md", t / ".github/pull_request_template.md")
+    task = "## T-00%d · t%d\n\n- **Type:** docs\n- **Priority:** P1\n- **Depends on:** T-00%d\n- **Paths:** docs/%d.md\n- **Verify:** `true`\n\n"
+    (t / ".uak/TASKS.md").write_text("# TASKS\n\n" + task % (1, 1, 2, 1) + task % (2, 2, 1, 2), encoding="utf-8")
+    lint = r.run([r.bash, ".uak/bin/uak", "lint"], cwd=t, env={"UAK_AGENT": "a-1", "UAK_REMOTE": "none"}, allowed=None)
+    expect(lint.returncode == 1 and "CYCLE" in lint.stderr and "LINT_FAILED" in lint.stdout, lint.stdout + lint.stderr)
+    return {"lint": "cycle found through the engine's own graph"}
+
+
+def a_human_reads_zero_events_not_blanks(r):
+    """A human's next said "Events: /90 alert (total )": its file on claims has no counters."""
+    f = r.fixture("v511-human", paths={"HACK-001": "src/a/"}, count=1)
+    env = {"UAK_AGENT": "", "UAK_HUMAN": "boss", "UAK_REMOTE": "origin", "UAK_NOW": "1000000", "UAK_DEDUPE": "off"}
+    r.run([r.bash, ".uak/bin/uak", "next"], cwd=f.worktrees[0], env=env)
+    out = r.run([r.bash, ".uak/bin/uak", "next"], cwd=f.worktrees[0], env=env).stdout
+    expect("Events: 0/" in out and "(total 0)" in out, out)
+    return {"events": "0"}
+
+
+TESTS = [config_reader_reads_every_form, json_envelope_reports_results_and_codes, registry_drives_help_and_dispatch,
+         engine_is_split_and_finds_its_libraries, an_engine_in_another_folder_runs_whole, a_human_reads_zero_events_not_blanks]
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("--case", action="append")
+    args = parser.parse_args()
+    tests = [t for t in TESTS if not args.case or t.__name__ in args.case]
+    with tempfile.TemporaryDirectory(prefix="uak-v511-") as tmp:
+        runner = Runner(args.package.resolve(), Path(tmp), resolve_binary("bash"), resolve_binary("git"))
+        def one(test):
+            started = time.monotonic()
+            try:
+                test(runner)
+                return test.__name__, True, "%.2fs" % (time.monotonic() - started)
+            except Exception as exc:  # noqa: BLE001
+                return test.__name__, False, str(exc)[:1500]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            results = list(pool.map(one, tests))
+    for name, ok, info in results:
+        print(("PASS " if ok else "FAIL ") + name + " (" + info + ")")
+    passed = sum(1 for _, ok, _ in results if ok)
+    print("V511_RESULT %s passed=%d failed=%d" % ("PASS" if passed == len(results) else "FAIL", passed, len(results) - passed))
+    return 0 if passed == len(results) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

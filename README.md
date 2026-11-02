@@ -346,6 +346,14 @@ v5.10.1: the kit checks itself (`scripts/kit_lint.py` in CI: its portability and
 fresh install). How it is built and where to change what: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); a Go engine estimate:
 [docs/plans/port-go.md](docs/plans/port-go.md).
 
+**v5.11: an engine you can change without breaking it.** It stays in Bash and Python (no Go or Rust engine), and its
+structure changed instead: `uak` went from 1,995 lines to a 258-line dispatcher over one file per command family; one
+registry (`lib/commands.tsv`) drives help, dispatch, the CLI.md index and the MCP tools; one reader of `PROJECT.md`
+replaces 13 copies; `uak --json CMD` gives programs the result with a stable code (`overlap`, `lease-active`,
+`tests-weakened`…) while agents keep the text. And the kit is now developed with the kit: its roadmap is
+[`.uak/TASKS.md`](.uak/TASKS.md), claimed, reviewed and merged through its own gates. The first phase there is the
+claims transaction without the process storm (`next` ≤ 40 processes).
+
 ## Deploy in one command: `uak deploy`
 
 ```text
@@ -427,6 +435,7 @@ Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and ea
 | HackADA on a Windows laptop ([audit](docs/blackbox/windows-audit-2026-10.md)) | the suite and the product on Git Bash, Node 20.16, the Store's `python3`, no uv or rg | v5.9.1: doctor runs Python and checks `tzdata`, Node `engines` and `envDir`; `start` asks the kit's GitHub; hooks through `git`; LF scripts |
 | The same laptop, timed ([perf](docs/perf-windows.md)) | 140 processes and 5.1 s of hooks around every shell command on Git Bash | v5.9.2: guard and the tick on builtins (35 → 1 and 85 → 3 processes), a heredoc inside the hook timeout |
 | Research on agents gaming tests and on harness design (2026) | agents edit assertions, skip or delete tests to reach green; the best harnesses are small, evidence-based and pruned | v5.10: tests only grow, named tests, `uak red`, skill `test-first`, `uak garden` |
+| The kit's own architecture review (Nov 2026) | a 1,995-line `uak`, 13 copies of the config reader, five hand-kept command lists | v5.11: one file per command family, one registry, one config reader, `uak --json`; the kit developed with the kit |
 | Hacktoberfest 2026 ([autopsy](docs/blackbox/hacktoberfest-2026-10.md)) | ~16 h overnight, 5 humans, 13 identities on Claude Code and Codex, macOS and Windows, 33 of 35 tasks integrated | v5.5: a reject stands until a new commit, no verdict over a held review, no review offers to a human the Mac file system renamed, gate false positives gone (fixtures, carried files, its own port), `.env.example` readable, Codex `--add-dir`, `wt stop` on Windows; plan rules for a contract no task implements and a demo that only replays its recording. v5.6–v5.7: a nine-part audit after it (claims cannot grant authority, the gate runs the backlog's Verify, human-only commands ask the human, no secrets on claims, task threads reach the next owner, the merge lock is renewed) |
 
 Hack-Nation 2026 in detail:
@@ -442,7 +451,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**261 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
+**267 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
 
 ## Works with
 | Tool | How |

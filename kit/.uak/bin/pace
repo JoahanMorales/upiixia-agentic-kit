@@ -19,8 +19,9 @@ top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
 NOW=${UAK_NOW:-$(date +%s)}
 say() { printf '%s\n' "$*"; }
 die() { say "PACE_ERROR: $*" >&2; exit 2; }
-cfg() { v=$(sed -n "s/^[-* ]*$1:[* ]*//p" "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `')
-  case "$v" in ''|*[!0-9A-Za-z]*) printf '%s' "$2";; *) printf '%s' "$v";; esac; }
+case $0 in */*) . "${0%/*}/lib/config.sh";; *) . ./lib/config.sh;; esac
+cfg() { uak_cfg_var "$top/.uak/PROJECT.md" "$1"
+  case "$CFG" in ''|*[!0-9A-Za-z]*) printf '%s' "$2";; *) printf '%s' "$CFG";; esac; }
 secs() { # +3h +45m +2d +90s or epoch → epoch
   case "$1" in
     +*[0-9]h) printf '%s' $((NOW + ${1//[^0-9]/} * 3600));;

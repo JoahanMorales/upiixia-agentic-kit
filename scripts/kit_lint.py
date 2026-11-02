@@ -45,6 +45,8 @@ PORTABILITY = [
     ("awk-gensub", r"\bgensub\s*\(", "gensub is gawk only"),
     ("awk-version-probe", r"awk\s+-W\s+version", "BSD awk -W version waits on stdin and hung doctor on macOS (v5.4.3): run it with < /dev/null"),
     ("echo-e", r"\becho\s+-e\b", "echo -e prints -e under sh and differs across shells: use printf"),
+    # One reader of PROJECT.md keys (v5.11): 13 copies disagreed on spaces, backticks and which file they read.
+    ("config-reader-copy", r"sed\s+-n\s+[\"']s/\^\[-\* \]\*|\$\{line%%\[!-\* \]\*\}", "a copy of the PROJECT.md key reader: use uak_cfg FILE KEY [DEFAULT] from lib/config.sh"),
     # bash 3.2 makes ${s//pattern/…} cost matches × length (437 s at 18 KB): a class pattern on an unbounded string.
     ("bash32-class-subst", r"\$\{[A-Za-z_][A-Za-z0-9_]*//(\[|\$P_)", "a class pattern in ${s//…} is quadratic on bash 3.2 (47 s on a heredoc, v5.10): bound the length (guard's SHORT) or use tr; mark kit-lint: ok when the string is short by construction"),
 ]
@@ -91,6 +93,8 @@ def check_portability(findings):
                     continue
                 if rid == "bash32-class-subst" and "SHORT" in line:
                     continue
+                if rid == "config-reader-copy" and p.name == "config.sh":
+                    continue
                 findings.append("%s:%d · %s · %s" % (rel, n, rid, msg))
             if AWK_INTERVAL.search(line):
                 findings.append("%s:%d · awk-interval · mawk ignores {n} intervals in awk regexes: use grep -E" % (rel, n))
@@ -102,13 +106,10 @@ def check_portability(findings):
 
 
 def check_structure(findings):
-    uak = (BIN / "uak").read_text(encoding="utf-8")
-    usage = uak[uak.index("usage() {"):uak.index("USAGE\n}")]
-    commands = sorted({m.group(1) for m in re.finditer(r"^([a-z][a-z-]+)[ \n]", usage, re.M)} - {"uak"})
-    cli = (ROOT / "kit/.uak/docs/CLI.md").read_text(encoding="utf-8")
-    for c in commands:
-        if not re.search(r"\| `(bash \.uak/bin/)?(uak )?%s\b" % re.escape(c), cli):
-            findings.append("kit/.uak/docs/CLI.md · undocumented · `%s` is in uak help but has no row in CLI.md" % c)
+    # The command registry routes, documents and exposes every command (scripts/gen_registry.py).
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import gen_registry
+    findings.extend("registry · " + x for x in gen_registry.problems())
     smoke = (BIN / "smoke").read_text(encoding="utf-8")
     ci = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
     for t in sorted((ROOT / "kit/.uak/tests").glob("test_*.py")):
@@ -153,6 +154,24 @@ def check_garden(findings):
             shutil.rmtree(d, ignore_errors=True)
 
 
+def check_dogfood(findings):
+    """The kit's own backlog (.uak/ at the root: this repo is developed with the kit) passes `uak lint` offline:
+    budgets, owners, the graph, every Verify parses, every feature names its Tests."""
+    if not (ROOT / ".uak/TASKS.md").is_file():
+        return
+    r = subprocess.run(["bash", ".uak/bin/uak", "lint"], cwd=ROOT, capture_output=True, text=True, errors="replace",
+                       env=dict(__import__("os").environ, UAK_REMOTE="kit-lint-offline", UAK_AGENT="kit-lint", UAK_HUMAN=""))
+    if r.returncode != 0 or "LINT_OK" not in r.stdout:
+        for line in (r.stdout + r.stderr).splitlines():
+            if line.startswith("LINT") and not line.startswith("LINT_"):
+                findings.append(".uak/TASKS.md · dogfood · " + line)
+        if not any(f.startswith(".uak/TASKS.md") for f in findings):
+            findings.append(".uak/TASKS.md · dogfood · uak lint failed: " + (r.stdout + r.stderr).strip()[-200:])
+    for line in r.stderr.splitlines():
+        if line.startswith("LINT WARNING"):
+            findings.append(".uak/TASKS.md · dogfood · " + line)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--list", action="store_true")
@@ -167,6 +186,7 @@ def main():
     check_portability(findings)
     check_structure(findings)
     check_garden(findings)
+    check_dogfood(findings)
     for f in findings:
         print("KIT_LINT " + f)
     print("KIT_LINT_%s %d finding(s)" % ("FAIL" if findings else "PASS", len(findings)))

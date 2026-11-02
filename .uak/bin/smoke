@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# UAK_SMOKE_SCOPE: the kit's rules (scripts/kit_lint.py) + its whole protocol suite (kit/.uak/bin/smoke --package-only).
+# Dogfooding: what the merge gate runs on the merged result of a task of this repository.
+set -eu
+cd "$(dirname "$0")/../.."
+python3 scripts/kit_lint.py
+cd kit && exec bash .uak/bin/smoke --package-only

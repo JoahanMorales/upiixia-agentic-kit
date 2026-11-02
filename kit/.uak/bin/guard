@@ -14,25 +14,19 @@ LC_ALL=C; export LC_ALL
 MSYS2_ARG_CONV_EXCL="refs/;origin/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXCL
 
 # The first "Mode:" line of PROJECT.md, read with builtins (as sed | head | tr did).
-P_TRIM=$'[\r` ]'
 mode_var() { # sets m: sprint or marathon
-  local line v
   m=sprint
   top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
-  [ -f "$top/.uak/PROJECT.md" ] || return 0
-  while IFS= read -r line || [ -n "$line" ]; do
-    line=${line#"${line%%[!-* ]*}"}
-    case "$line" in Mode:*) ;; *) continue;; esac
-    v=${line#Mode:}; v=${v#"${v%%[!* ]*}"}; v=${v//$P_TRIM/}   # kit-lint: ok (one PROJECT.md line)
-    [ "$v" != marathon ] || m=marathon
-    return 0
-  done < "$top/.uak/PROJECT.md"
+  uak_cfg_var "$top/.uak/PROJECT.md" Mode
+  [ "$CFG" != marathon ] || m=marathon
 }
 mode() { mode_var; printf '%s' "$m"; }
 
 # No dirname and no subshell: guard never changes directory, so the relative path works. Why (Windows): a process
 # costs 20-50 ms in Git Bash, and guard runs before every command of the agent.
 case $0 in */*) here=${0%/*};; *) here=.;; esac
+# The one PROJECT.md reader (builtins, no process).
+. "$here/lib/config.sh"
 # Every block also goes to the black box: a rule that fires often is friction worth fixing.
 block() { printf 'UAK_GUARD: blocked · %s\n' "$*" >&2; bash "$here/bb" auto guard guard "$*" >/dev/null 2>&1 || true; exit 2; }
 
@@ -331,8 +325,8 @@ json_field_var() { # $1 key, $2 JSON → JF
 # Why: ultracode is exempt from Claude Code's concurrency cap, and one prompt can fan out dozens of
 # Opus subagents. Budgets come from .uak/PROJECT.md: Max-Parallel-Subagents, Opus-Subagents-Per-Session.
 cfg() { top=$(git rev-parse --show-toplevel 2>/dev/null) || { printf '%s' "$2"; return; }
-  v=$(sed -n "s/^[-* ]*$1:[* ]*//p" "$top/.uak/PROJECT.md" 2>/dev/null | head -n 1 | tr -d '\r `')
-  case "$v" in ''|*[!0-9]*) printf '%s' "$2";; *) printf '%s' "$v";; esac; }
+  uak_cfg_var "$top/.uak/PROJECT.md" "$1"
+  case "$CFG" in ''|*[!0-9]*) printf '%s' "$2";; *) printf '%s' "$CFG";; esac; }
 model_of_agent() { # $1 agent type → model declared by its definition in any harness
   top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
   for f in "$top/.cursor/agents/$1.md" "$top/.claude/agents/$1.md" "$top/.gemini/agents/$1.md"; do

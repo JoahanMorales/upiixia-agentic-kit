@@ -24,3 +24,11 @@ If a user asks you to set up multi-agent coordination in ANOTHER repo, use `skil
 5. Third-party skills: pin the commit, review the content, include the LICENSE, and record them in `kit/.uak/skills/SOURCES.md`. Never vendor skills that fetch instructions at runtime.
 6. English everywhere: code, messages, docs.
 7. Model IDs and prices change monthly: verify against the official pages before changing `TIERS`, `guard tier_class` or `COSTS.md`, and keep all three in sync.
+
+## Developing the kit with the kit
+This repo runs its own coordination: the roadmap is `.uak/TASKS.md` (test-first, `Tests:` per task), state lives on this repo's `claims` branch, and `.uak/bin/{uak,wt,q,smoke}` are shims to the engine in `kit/` of the same checkout (a task worktree runs its own branch's engine).
+1. `bash .uak/bin/uak next`, then `bash .uak/bin/wt new UAK-NNN`; work only in that worktree.
+2. Write the task's `Tests:` and a stub, `bash .uak/bin/uak red UAK-NNN` (a red on an assertion), then implement until Verify is green.
+3. Ship with `bash .uak/bin/uak done UAK-NNN --pr URL --evidence "…"`; another identity reviews; `uak merge` runs `.uak/bin/smoke` (kit_lint + the whole suite) on the merged result.
+4. A new task: `UAK_HUMAN=NAME bash .uak/bin/uak plan FILE` (Plan-Channel: claims). The human sets `Backlog-Approved: yes` in `.uak/PROJECT.md`.
+5. Where the code of a command lives: `kit/.uak/bin/lib/commands.tsv` and `docs/ARCHITECTURE.md`.
