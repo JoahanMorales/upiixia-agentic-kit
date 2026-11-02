@@ -24,9 +24,9 @@ mode() { mode_var; printf '%s' "$m"; }
 
 # No dirname and no subshell: guard never changes directory, so the relative path works. Why (Windows): a process
 # costs 20-50 ms in Git Bash, and guard runs before every command of the agent.
-case $0 in */*) here=${0%/*};; *) here=.;; esac
+case $0 in */*|*\\*) here=${0%[/\\]*};; *) here=.;; esac   # a Windows caller may pass D:\a\…\guard
 # The one PROJECT.md reader (builtins, no process).
-. "$here/lib/config.sh"
+. "$here/lib/config.sh" 2>/dev/null || . "$(dirname "$0")/lib/config.sh"
 # Every block also goes to the black box: a rule that fires often is friction worth fixing.
 block() { printf 'UAK_GUARD: blocked · %s\n' "$*" >&2; bash "$here/bb" auto guard guard "$*" >/dev/null 2>&1 || true; exit 2; }
 

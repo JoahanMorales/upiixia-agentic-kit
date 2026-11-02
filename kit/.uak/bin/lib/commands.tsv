@@ -11,13 +11,13 @@
 #   usage   its line in `uak help`
 #name	run	mutate	file	mcp	usage
 status	status_run	-	status.sh	uak_status	status [ID | --task ID] [--summary] [--full]
-claim	tx	claim_mutate	claim.sh	uak_claim	claim ID --branch RAMA --worktree RUTA [--next TEXTO]
+claim	tx	claim_mutate	claim.sh	uak_claim	claim ID --branch BRANCH --worktree PATH [--next TEXT]
 heartbeat	tx	heartbeat_mutate	claim.sh	uak_cli	heartbeat ID
-release	tx	release_mutate	claim.sh	uak_cli	release ID [--expired --read-summary TOKEN] [--cancel MOTIVO]
-log	tx	log_mutate	claim.sh	uak_cli	log ID [--state CLAIMED|BLOCKED] TEXTO
+release	tx	release_mutate	claim.sh	uak_cli	release ID [--expired --read-summary TOKEN] [--cancel REASON]
+log	tx	log_mutate	claim.sh	uak_cli	log ID [--state CLAIMED|BLOCKED] TEXT
 checkpoint	tx	checkpoint_mutate	claim.sh	uak_checkpoint	checkpoint ID|--session --done TEXT --decision TEXT --why TEXT --fails TEXT --commands TEXT --next TEXT
 handoff	tx	handoff_mutate	claim.sh	uak_cli	handoff ID
-done	tx	done_mutate	done.sh	uak_ship	done ID --pr URL --evidence TEXT [--to REVIEWER] [--no-ui "why it changes nothing visible"] [--no-red "why no test could fail first"] [--note "what changed since the last review"] [--integrated COMMIT --reviewer OTRO]
+done	tx	done_mutate	done.sh	uak_ship	done ID --pr URL --evidence TEXT [--to REVIEWER] [--no-ui "why it changes nothing visible"] [--no-red "why no test could fail first"] [--note "what changed since the last review"] [--integrated COMMIT --reviewer NAME]
 digest	digest_run	-	status.sh	uak_cli	digest
 tick	tick_run	coord_tick_mutate	uak-coordination	uak_cli	tick
 next	status_run	-	status.sh	uak_next	next
@@ -29,9 +29,9 @@ away	tx	away_mutate	claim.sh	uak_cli	away   this identity closed its session (Se
 retire	tx	retire_mutate	claim.sh	uak_cli	retire NAME...   an identity that no longer runs leaves the reviewer rotation (its human or itself)
 register-reviewer	tx	register_reviewer_mutate	review-merge.sh	uak_cli	register-reviewer NAME...  (UAK_HUMAN, from the main checkout)
 merge	merge_run	-	review-merge.sh	uak_merge	merge ID
-decision	tx	coord_decision_mutate	uak-coordination	uak_cli	decision ID --option TEXTO --why TEXTO --reversible yes|no --authorized yes|no --class routine|money|accounts|publish|scope
-secret-exception	tx	secret_exception_action	security.sh	uak_cli	secret-exception ID --path RUTA --rule REGLA --reason TEXTO
-init-smoke	local:init_smoke	-	smoke-init.sh	shell	init-smoke --command COMANDO
+decision	tx	coord_decision_mutate	uak-coordination	uak_cli	decision ID --option TEXT --why TEXT --reversible yes|no --authorized yes|no --class routine|money|accounts|publish|scope
+secret-exception	tx	secret_exception_action	security.sh	uak_cli	secret-exception ID --path PATH --rule RULE --reason TEXT
+init-smoke	local:init_smoke	-	smoke-init.sh	shell	init-smoke --command COMMAND
 lint	lint_run	-	lint.sh	uak_cli	lint [--secrets]
 start	exec	-	start	uak_cli	start [--fix]   install → first claim, in order: what is missing, then the one command that starts the work
 doctor	exec	-	doctor	uak_cli	doctor [--fix]   preflight: remote, gh permissions, hooks, freeze, ports
@@ -56,7 +56,7 @@ tokens	exec	-	tokens	uak_tokens	tokens [--team] [--by task|harness|model|scope|a
 map	exec	-	map	uak_map	map [show|find|callers|calls|deps|users|path|related|impact|notes]   code graph: symbols, imports, calls (+ optional semantic notes)
 bb	exec	-	bb	uak_cli	bb add bug|friction|idea|need|praise TEXT [--fix IDEA] · bb flush · bb show · bb export   black box for kit fixes
 plan	tx	plan_mutate	plan.sh	uak_cli	plan FILE [--amend]   publish new tasks to claims without a PR, or amend published ones before review (Plan-Channel: claims; UAK_HUMAN)
-msg	msg_run	msg_mutate	messages.sh	uak_message	msg DESTINO TEXTO [--kind TIPO] [--task HACK-NNN]   DESTINO: NOMBRE|HACK-NNN|related:HACK-NNN|all|human
+msg	msg_run	msg_mutate	messages.sh	uak_message	msg TO TEXT [--kind KIND] [--task HACK-NNN]   TO: NAME|HACK-NNN|related:HACK-NNN|all|human
 inbox	msg_inbox_run	msg_ack_mutate	messages.sh	uak_inbox	inbox [--ack] [--all] [--peek] [--task HACK-NNN] [--human]
 wait	wait_run	-	wait.sh	uak_wait	wait [ID] --for approve|integrated|message [--timeout S]   one call that returns when it happens (instead of polling)
 learn	tx	learn_mutate	memory.sh	uak_memory	learn "TEXT" [--path P,Q|all] [--task ID] · learn --forget N   a lesson tied to paths; next shows it to the next agent there

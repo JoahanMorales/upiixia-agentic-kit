@@ -30,6 +30,7 @@ changed instead, so a change touches one place and a check catches the drift. Ea
   own folder, so an engine run from another path half-worked (lint skipped the graph silently). `uak` now resolves its
   folder from `$0` without a subshell (two fewer processes per call).
 - Fixed: a human's `uak next` printed `Events: /90 alert (total )`; it prints 0.
+- `uak help` and the CLI.md index name every placeholder in English (`--branch BRANCH`, `msg TO TEXT`).
 
 ## v5.10.1 · 2026-11-02 · The kit checks itself
 v5.10.0's CI found two test bugs on Windows and macOS, and the first run of a new lint found a real one.

@@ -33,13 +33,13 @@ Every command, its usage, where its code lives and the MCP tool that runs it.
 | Command | Usage | Code | MCP tool |
 |---|---|---|---|
 | `status` | `status [ID \| --task ID] [--summary] [--full]` | `lib/status.sh` | `uak_status` |
-| `claim` | `claim ID --branch RAMA --worktree RUTA [--next TEXTO]` | `lib/claim.sh` | `uak_claim` |
+| `claim` | `claim ID --branch BRANCH --worktree PATH [--next TEXT]` | `lib/claim.sh` | `uak_claim` |
 | `heartbeat` | `heartbeat ID` | `lib/claim.sh` | `uak_cli` |
-| `release` | `release ID [--expired --read-summary TOKEN] [--cancel MOTIVO]` | `lib/claim.sh` | `uak_cli` |
-| `log` | `log ID [--state CLAIMED\|BLOCKED] TEXTO` | `lib/claim.sh` | `uak_cli` |
+| `release` | `release ID [--expired --read-summary TOKEN] [--cancel REASON]` | `lib/claim.sh` | `uak_cli` |
+| `log` | `log ID [--state CLAIMED\|BLOCKED] TEXT` | `lib/claim.sh` | `uak_cli` |
 | `checkpoint` | `checkpoint ID\|--session --done TEXT --decision TEXT --why TEXT --fails TEXT --commands TEXT --next TEXT` | `lib/claim.sh` | `uak_checkpoint` |
 | `handoff` | `handoff ID` | `lib/claim.sh` | `uak_cli` |
-| `done` | `done ID --pr URL --evidence TEXT [--to REVIEWER] [--no-ui "why it changes nothing visible"] [--no-red "why no test could fail first"] [--note "what changed since the last review"] [--integrated COMMIT --reviewer OTRO]` | `lib/done.sh` | `uak_ship` |
+| `done` | `done ID --pr URL --evidence TEXT [--to REVIEWER] [--no-ui "why it changes nothing visible"] [--no-red "why no test could fail first"] [--note "what changed since the last review"] [--integrated COMMIT --reviewer NAME]` | `lib/done.sh` | `uak_ship` |
 | `digest` | `digest` | `lib/status.sh` | `uak_cli` |
 | `tick` | `tick` | `uak-coordination` | `uak_cli` |
 | `next` | `next` | `lib/status.sh` | `uak_next` |
@@ -51,9 +51,9 @@ Every command, its usage, where its code lives and the MCP tool that runs it.
 | `retire` | `retire NAME...   an identity that no longer runs leaves the reviewer rotation (its human or itself)` | `lib/claim.sh` | `uak_cli` |
 | `register-reviewer` | `register-reviewer NAME...  (UAK_HUMAN, from the main checkout)` | `lib/review-merge.sh` | `uak_cli` |
 | `merge` | `merge ID` | `lib/review-merge.sh` | `uak_merge` |
-| `decision` | `decision ID --option TEXTO --why TEXTO --reversible yes\|no --authorized yes\|no --class routine\|money\|accounts\|publish\|scope` | `uak-coordination` | `uak_cli` |
-| `secret-exception` | `secret-exception ID --path RUTA --rule REGLA --reason TEXTO` | `lib/security.sh` | `uak_cli` |
-| `init-smoke` | `init-smoke --command COMANDO` | `lib/smoke-init.sh` | shell only (it runs a command you pass) |
+| `decision` | `decision ID --option TEXT --why TEXT --reversible yes\|no --authorized yes\|no --class routine\|money\|accounts\|publish\|scope` | `uak-coordination` | `uak_cli` |
+| `secret-exception` | `secret-exception ID --path PATH --rule RULE --reason TEXT` | `lib/security.sh` | `uak_cli` |
+| `init-smoke` | `init-smoke --command COMMAND` | `lib/smoke-init.sh` | shell only (it runs a command you pass) |
 | `lint` | `lint [--secrets]` | `lib/lint.sh` | `uak_cli` |
 | `start` | `start [--fix]   install → first claim, in order: what is missing, then the one command that starts the work` | `start` | `uak_cli` |
 | `doctor` | `doctor [--fix]   preflight: remote, gh permissions, hooks, freeze, ports` | `doctor` | `uak_cli` |
@@ -77,7 +77,7 @@ Every command, its usage, where its code lives and the MCP tool that runs it.
 | `map` | `map [show\|find\|callers\|calls\|deps\|users\|path\|related\|impact\|notes]   code graph: symbols, imports, calls (+ optional semantic notes)` | `map` | `uak_map` |
 | `bb` | `bb add bug\|friction\|idea\|need\|praise TEXT [--fix IDEA] · bb flush · bb show · bb export   black box for kit fixes` | `bb` | `uak_cli` |
 | `plan` | `plan FILE [--amend]   publish new tasks to claims without a PR, or amend published ones before review (Plan-Channel: claims; UAK_HUMAN)` | `lib/plan.sh` | `uak_cli` |
-| `msg` | `msg DESTINO TEXTO [--kind TIPO] [--task HACK-NNN]   DESTINO: NOMBRE\|HACK-NNN\|related:HACK-NNN\|all\|human` | `lib/messages.sh` | `uak_message` |
+| `msg` | `msg TO TEXT [--kind KIND] [--task HACK-NNN]   TO: NAME\|HACK-NNN\|related:HACK-NNN\|all\|human` | `lib/messages.sh` | `uak_message` |
 | `inbox` | `inbox [--ack] [--all] [--peek] [--task HACK-NNN] [--human]` | `lib/messages.sh` | `uak_inbox` |
 | `wait` | `wait [ID] --for approve\|integrated\|message [--timeout S]   one call that returns when it happens (instead of polling)` | `lib/wait.sh` | `uak_wait` |
 | `learn` | `learn "TEXT" [--path P,Q\|all] [--task ID] · learn --forget N   a lesson tied to paths; next shows it to the next agent there` | `lib/memory.sh` | `uak_memory` |

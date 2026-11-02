@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bash 3.2+; Git y utilidades POSIX. No requiere jq ni Python.
+# Bash 3.2+, Git and POSIX tools; no jq and no Python.
 # Why: works on Git Bash, macOS and Linux with no services.
 set -u
 # Inherited from git (an alias, a hook): uak's temp clones would act on the caller's repository instead. Why: the MCP

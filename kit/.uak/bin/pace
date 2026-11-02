@@ -19,7 +19,8 @@ top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
 NOW=${UAK_NOW:-$(date +%s)}
 say() { printf '%s\n' "$*"; }
 die() { say "PACE_ERROR: $*" >&2; exit 2; }
-case $0 in */*) . "${0%/*}/lib/config.sh";; *) . ./lib/config.sh;; esac
+case $0 in */*|*\\*) cfg_dir=${0%[/\\]*};; *) cfg_dir=.;; esac   # no dirname process; D:\a\…\cap on Windows
+. "$cfg_dir/lib/config.sh" 2>/dev/null || . "$(dirname "$0")/lib/config.sh"
 cfg() { uak_cfg_var "$top/.uak/PROJECT.md" "$1"
   case "$CFG" in ''|*[!0-9A-Za-z]*) printf '%s' "$2";; *) printf '%s' "$CFG";; esac; }
 secs() { # +3h +45m +2d +90s or epoch → epoch

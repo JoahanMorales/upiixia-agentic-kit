@@ -14,7 +14,8 @@
 set -u
 LC_ALL=C; export LC_ALL
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=.
-case $0 in */*) . "${0%/*}/lib/config.sh";; *) . ./lib/config.sh;; esac
+case $0 in */*|*\\*) cfg_dir=${0%[/\\]*};; *) cfg_dir=.;; esac   # no dirname process; D:\a\…\cap on Windows
+. "$cfg_dir/lib/config.sh" 2>/dev/null || . "$(dirname "$0")/lib/config.sh"
 cap=$(uak_cfg "$top/.uak/PROJECT.md" Output-Cap-Chars)
 case "$cap" in off|0) cap=999999999;; ''|*[!0-9]*) cap=12000;; esac
 out_dir() {
