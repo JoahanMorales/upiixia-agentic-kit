@@ -81,7 +81,9 @@ tf_missing_names() {
 tf_red_kind() {
   local log=$1 line
   # pytest prints "FAILED t.py::test_x - NameError: …": a FAILED line that names a missing name is still wrong.
-  line=$(grep -E -- "$TF_RIGHT_RED" "$log" 2>/dev/null | grep -Ev -m 1 -- "$TF_WRONG_RED")
+  # The error line first (AssertionError: …); the `assert x == y` source line Python 3.11+ echoes only after it.
+  line=$(grep -E -- "$TF_RIGHT_RED" "$log" 2>/dev/null | grep -Ev -- "$TF_WRONG_RED" | grep -Ev -m 1 '^[[:space:]]*assert ')
+  [ -n "$line" ] || line=$(grep -E -- "$TF_RIGHT_RED" "$log" 2>/dev/null | grep -Ev -m 1 -- "$TF_WRONG_RED")
   if [ -n "$line" ]; then printf 'right %s\n' "$line"; return 0; fi
   line=$(grep -E -m 1 -- "$TF_WRONG_RED" "$log" 2>/dev/null)
   if [ -n "$line" ]; then printf 'wrong %s\n' "$line"; return 0; fi

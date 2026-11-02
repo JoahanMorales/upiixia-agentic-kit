@@ -11,6 +11,8 @@ v5.10.0's CI found two test bugs on Windows and macOS, and the first run of a ne
 - **guard on a heredoc of HTML or tabs** (found by the lint): `<` and tabs were replaced with `${s//…}`, which costs
   matches × length on bash 3.2. Past 1 KB (always on bash 3.2) the v5.9.1 awk does it; a differential run with the
   long paths forced on short input (3,000 cases, mawk and BSD awk) shows no difference.
+- `uak red` names the error line as the reason (`AssertionError: …`), not the `assert x == y` source line Python 3.11+
+  echoes in its traceback.
 - `uak next` keeps its 15-line budget: TEST FIRST shows there only with `Test-First: yes` (or a bug task) and a live
   lease; the claim always shows it.
 - The adoption eval for v5.10 (`docs/evals/`): with the kit, 2 of 2 Sonnet sessions wrote the named tests, a stub and
