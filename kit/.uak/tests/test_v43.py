@@ -216,7 +216,8 @@ def output_cap_everywhere(r):
     bindir.mkdir()
     (bindir / "uname").write_text("#!/bin/sh\necho MINGW64_NT-10.0\n", encoding="utf-8")
     os.chmod(bindir / "uname", 0o755)
-    winenv = {"PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+    # wrap reads bash's OSTYPE (no process); UAK_TEST_WINDOWS stands in for it off Windows.
+    winenv = {"PATH": str(bindir) + os.pathsep + os.environ.get("PATH", ""), "UAK_TEST_WINDOWS": "1"}
     shell = lambda cmd: {"hook_event_name": "preToolUse", "conversation_id": "c", "tool_name": "Shell",
                          "tool_input": {"command": cmd, "working_directory": str(w)}}
     win = json.loads(hook("wrap", shell("python -m pytest -q"), env=winenv))["updated_input"]["command"]

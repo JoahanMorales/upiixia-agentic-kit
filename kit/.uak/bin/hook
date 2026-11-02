@@ -21,9 +21,17 @@ UAK_CALLER=hook; export UAK_CALLER
 NL=$'\n' CR=$'\r' TAB=$'\t'
 input=''
 if [ ! -t 0 ]; then
-  IFS= read -r -d '' input || true
+  # The first 8 KB by read, the rest by cat: read takes a pipe a byte at a time (0.3 s for a 480 KB output).
+  IFS= read -r -d '' -n 8192 input || true
+  [ "${#input}" -lt 8192 ] || input=$input$(cat 2>/dev/null)
   while :; do case "$input" in *"$NL") input=${input%"$NL"};; *) break;; esac; done   # as $(cat) had it
 fi
+# The builtin readers below look at the payload's first 4 KB only (IN_HEAD), where the harnesses put session_id,
+# tool_name and tool_input; when the answer could lie past it (IN_TAIL), sed or awk read the whole payload, as before.
+# Why: a pattern operation on a long string can cost its length squared (${s#*KEY} took 17 s on 120 KB), and a
+# PostToolUse payload carries the whole output of the command.
+IN_HEAD=$input IN_TAIL=
+[ "${#input}" -le 4096 ] || { IN_HEAD=${input:0:4096} IN_TAIL=${input:4000}; }
 cwd0=$PWD
 rp=$(git rev-parse --show-toplevel --git-dir 2>/dev/null) || exit 0
 top=${rp%%"$NL"*} gd=${rp#*"$NL"}
@@ -62,34 +70,49 @@ stamp() { printf '%s\n' "$NOW" > "$1" 2>/dev/null; }
 # A small file's first line into RD (as $(cat) for the one-line state files); 1 when there is no file.
 rd() { RD=; [ -f "$1" ] || return 1; { IFS= read -r RD < "$1"; } 2>/dev/null; return 0; }
 # What sed -n 's/.*"KEY"[[:space:]]*:[[:space:]]*"\([CHARS]*\)".*/\1/p' | head -n 1 printed, into ID: on the first
-# line that has one, the last "KEY": "value" (sed's .* is greedy). Over 64 KB sed does it: each pattern operation
-# here copies the string.
+# line that has one, the last "KEY": "value" (sed's .* is greedy). sed does it when the key is also past IN_HEAD.
 ID_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-' TOOL_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_'
 json_id() { # $1 key, $2 characters of the value (ID_CHARS or TOOL_CHARS) → ID
-  local k="\"$1\"" line pre rest v re
+  local k="\"$1\"" line re
   ID=
   case "$input" in *"$k"*) ;; *) return 0;; esac
-  if [ "${#input}" -gt 65536 ]; then
-    case "$2" in "$ID_CHARS") re='A-Za-z0-9_.-';; *) re='A-Za-z_';; esac
-    ID=$(printf '%s' "$input" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([$re]*\)\".*/\1/p" | head -n 1)
-    return 0
-  fi
-  while IFS= read -r line; do
-    pre=$line
-    while :; do
-      case "$pre" in *"$k"*) ;; *) break;; esac
-      pre=${pre%"$k"*}
-      rest=${line:$((${#pre} + ${#k}))}
-      rest=${rest#"${rest%%[![:space:]]*}"}
-      case "$rest" in :*) ;; *) continue;; esac
-      rest=${rest#:}; rest=${rest#"${rest%%[![:space:]]*}"}
-      case "$rest" in \"*) ;; *) continue;; esac
-      rest=${rest#\"}; v=${rest%%[!$2]*}
-      case "${rest:${#v}}" in \"*) ID=$v; return 0;; esac
-    done
-  done <<UAK_INPUT
-$input
+  case "$IN_TAIL" in *"$k"*) json_id_sed "$1" "$2"; return 0;; esac
+  case "$IN_HEAD" in
+    *"$NL"*)
+      while IFS= read -r line; do
+        json_id_line "$1" "$2" "$line" && return 0
+        [ $? -eq 1 ] || { json_id_sed "$1" "$2"; return 0; }
+      done <<UAK_INPUT
+$IN_HEAD
 UAK_INPUT
+      ;;
+    *) json_id_line "$1" "$2" "$IN_HEAD" || [ $? -eq 1 ] || json_id_sed "$1" "$2";;
+  esac
+  return 0
+}
+json_id_sed() {
+  local re
+  case "$2" in "$ID_CHARS") re='A-Za-z0-9_.-';; *) re='A-Za-z_';; esac
+  ID=$(printf '%s' "$input" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([$re]*\)\".*/\1/p" | head -n 1)
+}
+# One line: every "KEY", from the first, keeping the last one a value follows (0); 1 when none does; 2 when a value
+# reaches the end of a cut IN_HEAD (sed must read on). Forward, not ${line%KEY*}: that tried every end position
+# against the rest of the line (0.5 s on 40 KB).
+json_id_line() {
+  local k="\"$1\"" s=$3 r v hit=
+  while :; do
+    case "$s" in *"$k"*) ;; *) break;; esac
+    r=${s#*"$k"}
+    s=\"$r   # the next key may start at this one's closing quote, as sed's backtracking would find it
+    # A stretch that runs out at the end of a cut IN_HEAD decides nothing: sed reads on.
+    r=${r#"${r%%[![:space:]]*}"}
+    case "$r" in :*) ;; '') [ -z "$IN_TAIL" ] || return 2; continue;; *) continue;; esac
+    r=${r#:}; r=${r#"${r%%[![:space:]]*}"}
+    case "$r" in \"*) ;; '') [ -z "$IN_TAIL" ] || return 2; continue;; *) continue;; esac
+    r=${r#\"}; v=${r%%[!$2]*}
+    case "${r:${#v}}" in \"*) ID=$v hit=1;; '') [ -z "$IN_TAIL" ] || return 2;; esac
+  done
+  [ -n "$hit" ] || { ID=; return 1; }
 }
 TOOL=unset
 tool_name() { [ "$TOOL" != unset ] || { json_id tool_name "$TOOL_CHARS"; TOOL=$ID; }; }
@@ -124,23 +147,43 @@ jdecode() {
 # or with \001 (awk's record separator).
 P_ESC='[\\"]' P_SOH=$'\001' P_CUT='[;&|]'
 jdecode_var() {
-  local s t pre c raw p="\"$1\"" k
+  # The same field again (coach and lens both read the command): the last answer; the payload does not change.
+  [ "$1 ${2:-}" != "${JD_KEY:-}" ] || { JD=$JD_LAST; return 0; }
+  jdecode_scan "$@"; JD_KEY="$1 ${2:-}" JD_LAST=$JD
+}
+P_NOBS='[!\\]'
+jdecode_scan() {
+  local s t pre c raw p="\"$1\"" k b cut
   JD=
-  if [ "${#input}" -gt 65536 ]; then JD=$(jdecode "$@"); return 0; fi
   case "$input" in *$P_SOH*) JD=$(jdecode "$@"); return 0;; esac
   case "$input" in *"$p"*) ;; *) return 0;; esac
-  s=${input#*"$p"}
-  if [ -n "${2:-}" ]; then k="\"$2\""; case "$s" in *"$k"*) ;; *) return 0;; esac; s=${s#*"$k"}; fi
+  # The first key in IN_HEAD is the first in the payload; one that is not there (or a value cut by its end) is awk's.
+  case "$IN_HEAD" in *"$p"*) ;; *) JD=$(jdecode "$@"); return 0;; esac
+  s=${IN_HEAD#*"$p"}
+  if [ -n "${2:-}" ]; then
+    k="\"$2\""
+    case "$s" in *"$k"*) ;; *) [ -z "$IN_TAIL" ] || JD=$(jdecode "$@"); return 0;; esac
+    s=${s#*"$k"}
+  fi
+  # A window, not the rest of the payload: each step below copies what is left, and a PostToolUse payload carries the
+  # whole output after the command. A value past the window, or with more than 64 backslashes, goes to awk (one
+  # process, linear). Why: an 800-line heredoc took 10 s here, against 0.2 s for the awk it replaced.
+  cut=; [ "${#s}" -lt 2100 ] && [ -z "$IN_TAIL" ] || cut=1   # what follows may go on past the window
+  s=${s:0:2100}; b=${s//$P_NOBS/}
+  [ "${#b}" -le 64 ] || { JD=$(jdecode "$@"); return 0; }
   # sub(/^[[:space:]]*:[[:space:]]*/): all of it or nothing; then the string must open here.
   t=${s#"${s%%[![:space:]]*}"}
   case "$t" in :*) t=${t#:}; s=${t#"${t%%[![:space:]]*}"};; esac
-  case "$s" in \"*) s=${s#\"};; *) return 0;; esac
+  # A first character that is not a quote ends it; a window that runs out first decides nothing (awk reads on).
+  case "$s" in \"*) s=${s#\"};; *[![:space:]]*) return 0;; *) [ -z "$cut" ] || JD=$(jdecode "$@"); return 0;; esac
   # The raw body: up to the first quote no backslash escapes (a lone backslash at the end is not part of it).
   raw=
   while :; do
     pre=${s%%$P_ESC*}; raw=$raw$pre; s=${s:${#pre}}
     case "$s" in \\?*) raw=$raw${s:0:2}; s=${s:2};; *) break;; esac
   done
+  # No closing quote inside the window: the value goes on past it.
+  case "$s" in \"*) ;; *) JD=$(jdecode "$@"); return 0;; esac
   # Decoded as jdecode does: \n \t, \r dropped, \u kept as is, any other escaped character as itself.
   while :; do
     case "$raw" in *\\*) ;; *) JD=$JD$raw; break;; esac
@@ -231,7 +274,8 @@ coach() {
   # 5. An exploration spiral without the code map: 5 reads in a row (twice per session at most).
   # The first word of each line (sed strips the leading space, awk prints $1), joined as $(…) joined them.
   first=
-  if [ -n "$cmd" ]; then
+  if [ "${#cmd}" -gt 4096 ]; then first=$(printf '%s' "$cmd" | sed 's/^[[:space:]]*//' | awk '{print $1}')
+  elif [ -n "$cmd" ]; then   # a loop over a long command copies it at every line: sed and awk read that one
     while IFS= read -r line; do
       line=${line#"${line%%[![:space:]]*}"}; first="$first${line%%[ $TAB]*}$NL"
     done <<UAK_CMD
@@ -292,9 +336,12 @@ lens() {
     Bash|PowerShell|Shell|run_shell_command|shell)
       # Each line up to its first ; & or | (sed 's/[;&|].*//').
       jdecode_var tool_input command; cmd=
-      while IFS= read -r line; do cmd="$cmd${line%%$P_CUT*}$NL"; done <<UAK_CMD
+      if [ "${#JD}" -gt 4096 ]; then cmd=$(printf '%s' "$JD" | sed 's/[;&|].*//')
+      else
+        while IFS= read -r line; do cmd="$cmd${line%%$P_CUT*}$NL"; done <<UAK_CMD
 $JD
 UAK_CMD
+      fi
       set -f; set -- $cmd; set +f
       [ "${1:-}" != git ] || [ "${2:-}" != grep ] || shift
       case "${1:-}" in

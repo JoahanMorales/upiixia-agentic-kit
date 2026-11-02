@@ -103,7 +103,39 @@ def tick_and_output_run_on_builtins(r):
     return {"tick": n}
 
 
-TESTS = [guard_runs_on_builtins, a_long_heredoc_is_read_in_time, tick_and_output_run_on_builtins]
+def tick_stays_fast_on_a_long_payload(r):
+    """The builtin readers copied the rest of the payload at each escape: an 800-line heredoc took tick 10 s on Linux
+    and 40 KB of output 1.3 s (0.2 s for the sed and awk they replaced). Both under 64 KB, where awk took over."""
+    f = r.fixture("v592-long", count=1)
+    w = f.worktrees[0]
+    (w / ".uak-env").write_text("UAK_TASK=HACK-001\nUAK_AGENT=agent-1\n", encoding="utf-8")
+    env = {"UAK_POLL_SECONDS": "100000"}
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    heredoc = "cat > src/big.py <<'PY'\n" + "\n".join('row %d "x" \\ y' % i for i in range(800)) + "\nPY"
+    payloads = {"heredoc": {"session_id": "v592-a", "tool_name": "Bash", "tool_input": {"command": heredoc},
+                            "tool_response": {"stdout": "", "stderr": ""}},
+                "output": {"session_id": "v592-b", "tool_name": "Bash", "tool_input": {"command": "pytest -q"},
+                           "tool_response": {"stdout": 'x "y" \\\n' * 4000, "stderr": ""}}}
+    call(r, w, [".uak/bin/hook", "tick"], json.dumps(payloads["output"]), env)  # beat, drift, pace: now fresh
+    took = {}
+    for name, p in payloads.items():
+        text = json.dumps(p)
+        expect(len(text) < 65536, "under 64 KB: %d" % len(text))
+        started = time.monotonic()
+        out = call(r, w, [".uak/bin/hook", "tick"], text, env)
+        took[name] = round(time.monotonic() - started, 2)
+        expect(out.returncode == 0 and took[name] < 3, "tick on the %s (%d KB): rc %d in %.1f s" % (name, len(text) // 1024, out.returncode, took[name]))
+        expect((gd / "uak-live").read_text(encoding="utf-8").startswith(p["session_id"] + " "), "the session id of the " + name)
+    # A key past the first 4 KB is read by sed, as before.
+    late = json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_response": {"stdout": "x" * 9000},
+                       "session_id": "v592-late"})
+    call(r, w, [".uak/bin/hook", "tick"], late, env)
+    expect((gd / "uak-live").read_text(encoding="utf-8").startswith("v592-late "), "a session id after the output")
+    return took
+
+
+TESTS = [guard_runs_on_builtins, a_long_heredoc_is_read_in_time, tick_and_output_run_on_builtins,
+         tick_stays_fast_on_a_long_payload]
 
 
 def main():
