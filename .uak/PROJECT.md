@@ -18,7 +18,7 @@ Linux. Every change ships with a test that fails without it, on all three.
 ```text
 Mode: marathon
 Backlog-Proposed-Epoch: 0
-Backlog-Approved: no
+Backlog-Approved: yes
 Autonomy: yes
 Auto-Merge: no
 Review-Mode: claims
