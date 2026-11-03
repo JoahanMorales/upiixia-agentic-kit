@@ -5,18 +5,54 @@ On Git Bash a process costs 20-50 ms and `next` started about 220 of them: 4-8 s
 Real Git, a local bare remote, 12 tasks and 3 live claims."""
 import argparse
 import concurrent.futures
+import os
+import re
 import tempfile
 import time
 from pathlib import Path
 
 from test_hack import Failure, Runner, expect, resolve_binary
-from test_v592 import bash_major, processes, shims
+from test_v592 import PROGRAMS, bash_major, call
 
 TARGETS = {"next": 40, "status": 30, "heartbeat": 20}
 # Expected to fail until the redesign lands; UAK-006 empties this set. Strict: a test in it that meets its target
 # fails, so the set never hides a win. Nothing here is skipped: every count runs and is printed.
 XFAIL = {"next_starts_at_most_40_processes", "status_starts_at_most_30_processes", "heartbeat_starts_at_most_20_processes",
          "next_for_an_idle_agent_starts_at_most_40_processes"}
+
+
+def shims(r):
+    """test_v592's traced shims plus ps: next and status call it (the session key). Created once, before the threads."""
+    d = r.scratch / "claims-perf-shims"
+    if not d.exists():
+        d.mkdir()
+        r.run([r.bash, "-c", 'for p in ' + PROGRAMS + ' ps; do real=$(type -P "$p") || continue; '
+               'printf "#!/usr/bin/env bash\\n: shim\\nexec \\"%s\\" \\"\\$@\\"\\n" "$real" > "$1/$p"; chmod +x "$1/$p"; done',
+               "_", d.as_posix()], cwd=r.scratch)
+    return d
+
+
+def unique(r, prefix):
+    """A file name no other call can take: time-based names collide on Windows Python before 3.13 (coarse clock)."""
+    fd, name = tempfile.mkstemp(prefix=prefix, dir=str(r.scratch))
+    os.close(fd)
+    return Path(name)
+
+
+def processes(r, cwd, args, payload, env=None):
+    """Distinct processes of one call, as test_v592 counts them: every program runs through a traced shim, so each
+    leaves its own PID. Bash 3.2 has no $BASHPID: there the call runs and counts 0."""
+    if bash_major(r) < 4:
+        return 0, call(r, cwd, args, payload, env)
+    trace, stdin = unique(r, "perf-trace-"), unique(r, "perf-in-")
+    stdin.write_text(payload, encoding="utf-8")
+    script = ('exec 9>>"$1" < "$3"; PATH="$2:$PATH"; export PATH; shift 3; '
+              "exec env BASH_XTRACEFD=9 'PS4=+$BASHPID ' SHELLOPTS=xtrace \"$@\"")
+    out = r.run([r.bash, "-c", script, "_", trace.as_posix(), shims(r).as_posix(), stdin.as_posix(), "bash"] + args,
+                cwd=cwd, env=env or {}, allowed=None)
+    pids = set(re.findall(r"(?m)^\++([0-9]+) ", trace.read_text(encoding="utf-8", errors="replace")))
+    expect(pids, "the trace counted nothing: " + out.stderr[-300:])
+    return len(pids), out
 
 
 def fixture(r, name):
