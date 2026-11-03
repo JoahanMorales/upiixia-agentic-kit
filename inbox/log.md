@@ -7,3 +7,4 @@ Append-only; use bash .uak/bin/uak msg / inbox. Format: - N | epoch | from | to 
 - 3 | 1793658154 | kit-1 | human | human | UAK-001 | Merge of UAK-001 in human queue: Auto-merge not explicitly authorized
 - 4 | 1793668958 | kit-1 | human | human | UAK-001 | Merge of UAK-001 in human queue: Shared resource/CI needs a human: .github/workflows/test.yml
 - 5 | 1793681793 | JoahanMorales | task:UAK-009 | info | UAK-009 | UAK-009 amended by JoahanMorales: Paths kit/.uak/tests/test_claims_perf.py, scripts/perf_claims.sh · Verify `python3 kit/.uak/tests/test_claims_perf.py`. uak status --task UAK-009; the merge gate checks the new Paths.
+- 6 | 1793681905 | kit-1 | all | review | UAK-009 | UAK-009 ready for review: https://github.com/JoahanMorales/upiixia-agentic-kit/compare/main...feat/uak-009 (SHA 47a9baba336dcd4656ed395da2c1cb81678f91f9). First free agent: /uak-review UAK-009
