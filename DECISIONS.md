@@ -6,3 +6,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1793681696 | UAK-009 | follow-up of UAK-001 by kit-1: The process counter counts ps, measures next for an idle agent too, and names traces uniquely (kit-r1's notes on UAK-001) | Why: same Paths, no scope change
 - 1793681793 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-009 Paths: kit/.uak/tests/test_claims_perf.py, scripts/perf_claims.sh, kit/.uak/bin/smoke, .github/workflows/test.yml → kit/.uak/tests/test_claims_perf.py, scripts/perf_claims.sh; | Why: scope or criteria fixed before review
 - 1793688176 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-010 | Why: backlog without PR (Plan-Channel: claims)
+- 1793737007 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-006 | Why: scope or criteria fixed before review
