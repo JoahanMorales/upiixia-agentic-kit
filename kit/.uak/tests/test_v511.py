@@ -182,7 +182,9 @@ def gate_runs_smoke_and_verify_with_the_callers_ssh_env(r):
     import test_review_merge as rm
     from test_v43 import push_main
     f = rm.fixture(r, "v511-ssh-env", count=2)
-    check = 'if [ -n "${GIT_SSH_COMMAND+x}" ] || [ -n "${GIT_SSH+x}" ]; then echo "the gate leaked GIT_SSH_COMMAND=${GIT_SSH_COMMAND-}"; exit 1; fi\n'
+    check = ('if [ -n "${GIT_SSH_COMMAND+x}" ] || [ -n "${GIT_SSH+x}" ]; then echo "the gate leaked GIT_SSH_COMMAND=${GIT_SSH_COMMAND-}"; exit 1; fi\n'
+             # A uak this smoke starts must save its own caller's settings: none of uak's bookkeeping reaches it.
+             'if [ -n "${UAK_CALLER_SSH_SAVED+x}" ]; then echo "the gate leaked UAK_CALLER_SSH_SAVED"; exit 1; fi\n')
     push_main(f, {".uak/bin/smoke-project": "#!/usr/bin/env bash\n" + check}, "Product smoke: the caller's SSH environment")
     for w in f.worktrees:
         r.g(w, "merge", "--no-edit", "origin/main")
@@ -197,8 +199,10 @@ def gate_runs_smoke_and_verify_with_the_callers_ssh_env(r):
     r.g(f.clones[0], "remote", "set-url", "origin", fake)
     env = {"UAK_AGENT": "agent-1", "UAK_HUMAN": "", "UAK_NOW": "1000030", "UAK_REVIEW_MODE": "claims",
            "GIT_CONFIG_GLOBAL": cfg.as_posix()}
-    env.pop("GIT_SSH_COMMAND", None)
-    out = r.run([r.bash, ".uak/bin/uak", "merge", "HACK-001"], cwd=f.worktrees[0], env=env, allowed=None)
+    # The caller here has no SSH settings of its own, whatever the machine running the suite has (PuTTY's GIT_SSH on
+    # Windows, a GIT_SSH_COMMAND): Runner.env copies os.environ, so they are unset in the command itself.
+    out = r.run([r.bash, "-c", "unset GIT_SSH_COMMAND GIT_SSH UAK_CALLER_SSH_SAVED UAK_CALLER_SSH_HAD UAK_CALLER_GIT_SSH_COMMAND "
+                 "UAK_CALLER_GIT_SSH; exec bash .uak/bin/uak merge HACK-001"], cwd=f.worktrees[0], env=env, allowed=None)
     text = out.stdout + out.stderr
     expect(out.returncode == 0 and "INTEGRATED" in out.stdout,
            "the gate's smoke sees the caller's SSH environment: expected: INTEGRATED, got: " + text[-600:])

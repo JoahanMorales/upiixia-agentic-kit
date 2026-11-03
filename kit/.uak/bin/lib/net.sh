@@ -27,6 +27,8 @@ uak_caller_ssh() {
   [ -n "${UAK_CALLER_SSH_SAVED:-}" ] || return 0
   case "$UAK_CALLER_SSH_HAD" in *c*) GIT_SSH_COMMAND=$UAK_CALLER_GIT_SSH_COMMAND; export GIT_SSH_COMMAND;; *) unset GIT_SSH_COMMAND;; esac
   case "$UAK_CALLER_SSH_HAD" in *s*) GIT_SSH=$UAK_CALLER_GIT_SSH; export GIT_SSH;; *) unset GIT_SSH;; esac
+  # The project's commands start clean: a uak they run saves its own caller's settings, not ours (kit-r1, UAK-010).
+  unset UAK_CALLER_SSH_SAVED UAK_CALLER_SSH_HAD UAK_CALLER_GIT_SSH_COMMAND UAK_CALLER_GIT_SSH
 }
 ssh_mux() {
   uak_save_caller_ssh
