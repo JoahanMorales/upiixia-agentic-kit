@@ -15,7 +15,8 @@ from test_v592 import bash_major, processes, shims
 TARGETS = {"next": 40, "status": 30, "heartbeat": 20}
 # Expected to fail until the redesign lands; UAK-006 empties this set. Strict: a test in it that meets its target
 # fails, so the set never hides a win. Nothing here is skipped: every count runs and is printed.
-XFAIL = {"next_starts_at_most_40_processes", "status_starts_at_most_30_processes", "heartbeat_starts_at_most_20_processes"}
+XFAIL = {"next_starts_at_most_40_processes", "status_starts_at_most_30_processes", "heartbeat_starts_at_most_20_processes",
+         "next_for_an_idle_agent_starts_at_most_40_processes"}
 
 
 def fixture(r, name):
@@ -26,20 +27,22 @@ def fixture(r, name):
     return f
 
 
-def count(r, f, args):
+def count(r, f, args, cwd=None, agent="agent-1"):
     """Processes one uak call starts, with test_v592's counter: every program runs through a traced shim, so each
     process leaves its own PID (bash 3.2 has no $BASHPID: there it counts 0). The second call is measured: the first
     one of a fresh clone also writes its session file."""
-    env = {"UAK_AGENT": "agent-1", "UAK_HUMAN": "", "UAK_REMOTE": "origin", "UAK_NOW": "1000060", "UAK_DEDUPE": "off"}
-    r.run([r.bash, ".uak/bin/uak"] + args, cwd=f.worktrees[0], env=env)
-    n, out = processes(r, f.worktrees[0], [".uak/bin/uak"] + args, "", env)
+    env = {"UAK_AGENT": agent, "UAK_HUMAN": "", "UAK_REMOTE": "origin", "UAK_NOW": "1000060", "UAK_DEDUPE": "off"}
+    cwd = cwd or f.worktrees[0]
+    r.run([r.bash, ".uak/bin/uak"] + args, cwd=cwd, env=env)
+    n, out = processes(r, cwd, [".uak/bin/uak"] + args, "", env)
     expect(out.returncode == 0, "uak %s failed: %s" % (" ".join(args), (out.stdout + out.stderr)[-400:]))
     return n
 
 
-def check(r, name, command, args):
-    f = fixture(r, "perf-" + command)
-    n = count(r, f, args)
+def check(r, name, command, args, idle=False):
+    f = fixture(r, "perf-" + name)
+    # idle: an agent with no claim, in the main checkout, choosing a task (not resuming its own)
+    n = count(r, f, args, cwd=f.clones[0], agent="idle-1") if idle else count(r, f, args)
     if bash_major(r) < 4:
         return "not counted on bash %d (no $BASHPID); Linux and Windows count" % bash_major(r)
     try:
@@ -64,7 +67,21 @@ def heartbeat_starts_at_most_20_processes(r):
     return check(r, "heartbeat_starts_at_most_20_processes", "heartbeat", ["heartbeat", "HACK-001"])
 
 
-TESTS = [next_starts_at_most_40_processes, status_starts_at_most_30_processes, heartbeat_starts_at_most_20_processes]
+def next_for_an_idle_agent_starts_at_most_40_processes(r):
+    return check(r, "next_for_an_idle_agent_starts_at_most_40_processes", "next", ["next"], idle=True)
+
+
+def the_counter_sees_ps(r):
+    """next and status call ps (the session key); a counter without a ps shim was 5 processes short (kit-r1, UAK-001)."""
+    if bash_major(r) < 4:
+        return "not counted on bash %d" % bash_major(r)
+    n, _ = processes(r, r.scratch, ["-c", "ps -o pid= -p $$ >/dev/null"], "", {})
+    expect(n >= 2, "a bash that runs ps: expected: at least 2 processes, got: %d" % n)
+    return "%d processes" % n
+
+
+TESTS = [next_starts_at_most_40_processes, status_starts_at_most_30_processes, heartbeat_starts_at_most_20_processes,
+         next_for_an_idle_agent_starts_at_most_40_processes, the_counter_sees_ps]
 
 
 def main():
