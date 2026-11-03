@@ -729,11 +729,12 @@ rm_prepare_candidate() {
     RM_REASON='Secret gate red'; return 1;
   }
   rm_gate_env
-  (cd "$RM_BUILD" && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash .uak/bin/smoke) > "$TXROOT/gate-smoke.log" 2>&1 ||
+  # The project's commands run with the caller's SSH settings, not uak's (lib/net.sh, uak_caller_ssh).
+  (cd "$RM_BUILD" && { uak_caller_ssh 2>/dev/null || :; } && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash .uak/bin/smoke) > "$TXROOT/gate-smoke.log" 2>&1 ||
     { RM_REASON="Smoke red or product unverified$(rm_gate_log smoke)"; return 1; }
   verify=$(rm_task_value Verify); verify=$(printf '%s\n' "$verify" | sed 's/^`//;s/`$//')
   [ -n "$verify" ] || { RM_REASON='Missing runnable Verify'; return 1; }
-  (cd "$RM_BUILD" && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash -c "$verify" < /dev/null) > "$TXROOT/gate-verify.log" 2>&1 ||
+  (cd "$RM_BUILD" && { uak_caller_ssh 2>/dev/null || :; } && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash -c "$verify" < /dev/null) > "$TXROOT/gate-verify.log" 2>&1 ||
     { RM_REASON="Verify / acceptance red$(rm_gate_log verify)"; rm_gate_stop; return 1; }
   rm_gate_stop
   # Green while a command was missing: a negated check (`! rg …`) passes for any code. Why (HackADA): rg was not on
