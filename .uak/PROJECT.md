@@ -20,7 +20,7 @@ Mode: marathon
 Backlog-Proposed-Epoch: 0
 Backlog-Approved: yes
 Autonomy: yes
-Auto-Merge: no
+Auto-Merge: yes
 Review-Mode: claims
 Plan-Channel: claims
 Freeze-Epoch: 0
