@@ -175,9 +175,43 @@ def secret_scan_reads_every_file_in_one_pass(r):
     return {"processes": n}
 
 
+def gate_runs_smoke_and_verify_with_the_callers_ssh_env(r):
+    """uak exports GIT_SSH_COMMAND (BatchMode, timeouts, ControlMaster) for its own git calls when the remote is SSH.
+    The merge gate ran the project's smoke and Verify as children, so they inherited it. Found by dogfooding: the
+    gate of UAK-009 failed test_v5 latency_paths ("https remotes are left alone") on an SSH remote."""
+    import test_review_merge as rm
+    from test_v43 import push_main
+    f = rm.fixture(r, "v511-ssh-env", count=2)
+    check = ('if [ -n "${GIT_SSH_COMMAND+x}" ] || [ -n "${GIT_SSH+x}" ]; then echo "the gate leaked GIT_SSH_COMMAND=${GIT_SSH_COMMAND-}"; exit 1; fi\n'
+             # A uak this smoke starts must save its own caller's settings: none of uak's bookkeeping reaches it.
+             'if [ -n "${UAK_CALLER_SSH_SAVED+x}" ]; then echo "the gate leaked UAK_CALLER_SSH_SAVED"; exit 1; fi\n')
+    push_main(f, {".uak/bin/smoke-project": "#!/usr/bin/env bash\n" + check}, "Product smoke: the caller's SSH environment")
+    for w in f.worktrees:
+        r.g(w, "merge", "--no-edit", "origin/main")
+    tip = rm.ready(f, 0, "HACK-001")
+    rm.judge(f); rm.approve(f, "HACK-001", tip)
+    # An SSH-looking remote that git maps back to the local bare repository: uak turns its SSH settings on, no
+    # network is touched.
+    fake = "git@example.invalid:team/product.git"
+    cfg = r.scratch / "v511-ssh-env.gitconfig"
+    cfg.write_text('[user]\n\tname = fixture\n\temail = fixture@example.invalid\n[url "%s"]\n\tinsteadOf = %s\n'
+                   % (f.remote.as_posix(), fake), encoding="utf-8")
+    r.g(f.clones[0], "remote", "set-url", "origin", fake)
+    env = {"UAK_AGENT": "agent-1", "UAK_HUMAN": "", "UAK_NOW": "1000030", "UAK_REVIEW_MODE": "claims",
+           "GIT_CONFIG_GLOBAL": cfg.as_posix()}
+    # The caller here has no SSH settings of its own, whatever the machine running the suite has (PuTTY's GIT_SSH on
+    # Windows, a GIT_SSH_COMMAND): Runner.env copies os.environ, so they are unset in the command itself.
+    out = r.run([r.bash, "-c", "unset GIT_SSH_COMMAND GIT_SSH UAK_CALLER_SSH_SAVED UAK_CALLER_SSH_HAD UAK_CALLER_GIT_SSH_COMMAND "
+                 "UAK_CALLER_GIT_SSH; exec bash .uak/bin/uak merge HACK-001"], cwd=f.worktrees[0], env=env, allowed=None)
+    text = out.stdout + out.stderr
+    expect(out.returncode == 0 and "INTEGRATED" in out.stdout,
+           "the gate's smoke sees the caller's SSH environment: expected: INTEGRATED, got: " + text[-600:])
+    return {"merged": True}
+
+
 TESTS = [config_reader_reads_every_form, json_envelope_reports_results_and_codes, registry_drives_help_and_dispatch,
          engine_is_split_and_finds_its_libraries, an_engine_in_another_folder_runs_whole, a_human_reads_zero_events_not_blanks,
-         secret_scan_reads_every_file_in_one_pass]
+         secret_scan_reads_every_file_in_one_pass, gate_runs_smoke_and_verify_with_the_callers_ssh_env]
 
 
 def main():
