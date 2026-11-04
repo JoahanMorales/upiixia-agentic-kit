@@ -12,6 +12,7 @@ Structure checks keep the pieces in step: every command documented, every test f
 installed skill vendored and recorded.
 """
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -105,18 +106,37 @@ def check_portability(findings):
             findings.append("%s · syntax · bash -n: %s" % (rel, r.stderr.strip()[:200]))
 
 
+def ci_tests():
+    """The Windows matrix: one job per kit/.uak/tests/test_*.py (C order), plus the MCP tools of tests/."""
+    return sorted(t.stem for t in (ROOT / "kit/.uak/tests").glob("test_*.py")) + ["mcp_tools"]
+
+
+def check_test_discovery(findings):
+    """smoke and CI find the test files themselves: no hand-kept list to forget (a list made every task that added a
+    test edit the workflow, and the merge gate sends every workflow change to a human)."""
+    smoke = (BIN / "smoke").read_text(encoding="utf-8")
+    ci = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
+    if "ls -1 .uak/tests" not in smoke or "^test_[A-Za-z0-9_]+[.]py$" not in smoke:
+        findings.append("kit/.uak/bin/smoke · no-test-discovery · --package-only must run every .uak/tests/test_*.py it finds")
+    listed = sorted(set(re.findall(r"\.uak/tests/(test_\w+)\.py", smoke)))
+    if listed:
+        findings.append("kit/.uak/bin/smoke · hand-kept-tests · names %s: let the discovery run them" % ", ".join(listed))
+    if "python3 scripts/kit_lint.py --ci-tests" not in ci or "fromJSON(needs.discover.outputs.tests)" not in ci:
+        findings.append(".github/workflows/test.yml · no-test-discovery · the Windows matrix must come from the discover job (kit_lint.py --ci-tests)")
+    named = sorted(set(re.findall(r"\btest_v?\w+\b", ci)) & set(ci_tests()))
+    if named:
+        findings.append(".github/workflows/test.yml · hand-kept-tests · names %s: the discover job lists them" % ", ".join(named))
+    for t in ci_tests()[:-1]:
+        if not re.fullmatch(r"test_[A-Za-z0-9_]+", t):
+            findings.append("kit/.uak/tests/%s.py · test-name · smoke discovers only [A-Za-z0-9_] names" % t)
+
+
 def check_structure(findings):
     # The command registry routes, documents and exposes every command (scripts/gen_registry.py).
     sys.path.insert(0, str(ROOT / "scripts"))
     import gen_registry
     findings.extend("registry · " + x for x in gen_registry.problems())
-    smoke = (BIN / "smoke").read_text(encoding="utf-8")
-    ci = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
-    for t in sorted((ROOT / "kit/.uak/tests").glob("test_*.py")):
-        if t.name not in smoke:
-            findings.append("%s · unregistered · not run by .uak/bin/smoke" % t.relative_to(ROOT))
-        if t.stem not in ci:
-            findings.append("%s · no-windows-job · not in the Windows matrix of .github/workflows/test.yml" % t.relative_to(ROOT))
+    check_test_discovery(findings)
     install = (ROOT / "install.sh").read_text(encoding="utf-8")
     sources = (ROOT / "kit/.uak/skills/SOURCES.md").read_text(encoding="utf-8")
     named = set(re.findall(r"skills=\"([^\"]+)\"", install))
@@ -175,12 +195,16 @@ def check_dogfood(findings):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--ci-tests", action="store_true", help="print the Windows matrix for $GITHUB_OUTPUT")
     a = ap.parse_args()
+    if a.ci_tests:
+        print("tests=" + json.dumps(ci_tests()))
+        return 0
     if a.list:
         for rid, _, msg in PORTABILITY:
             print("%-22s %s" % (rid, msg))
         print("%-22s %s" % ("awk-interval", "mawk ignores {n} intervals in awk regexes"))
-        print("%-22s %s" % ("structure", "commands documented, tests registered in smoke and CI, skills vendored and recorded, scripts executable, AGENTS.md budget"))
+        print("%-22s %s" % ("structure", "commands documented, smoke and CI discover the tests, skills vendored and recorded, scripts executable, AGENTS.md budget"))
         return 0
     findings = []
     check_portability(findings)
