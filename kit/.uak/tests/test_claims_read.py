@@ -134,6 +134,28 @@ def a_raw_record_on_claims_runs_nothing(r):
     return "next and status ran nothing from the records"
 
 
+def a_raw_record_naming_a_task_id_runs_nothing(r):
+    """The same attack aimed at a record that does load (HACK-009, a valid task ID): only sv's own checks stop it.
+    With dfe7949's sv this ran the command; the EVIL-Next variant above is already stopped by state.awk (kit-r1)."""
+    f = r.fixture("read-inject-id", paths={"HACK-001": "src/a/", "HACK-002": "src/b/"}, count=2)
+    f.claim(0, "HACK-001")
+    marker = r.scratch / "read-inject-id-ran"
+    evil = f.base / "raw"
+    r.g(f.base, "clone", "-q", "-b", "claims", f.remote, evil)
+    r.g(evil, "config", "user.name", "raw")
+    r.g(evil, "config", "user.email", "raw@example.invalid")
+    (evil / "claims/AAA-001.md").write_text("# Claim\nID: HACK-001-Worklog:UAK-S-claims-HACK-009\nOwner: agent-2\nState: CLAIMED\nLease-Until: 9999999\n", encoding="utf-8")
+    (evil / "claims/HACK-009.md").write_text("# Claim\nID: HACK-009\nOwner: nobody\nState: INTEGRATED\nWorklog: PATH[$(touch %s)]\n" % marker.as_posix(), encoding="utf-8")
+    r.g(evil, "add", "-A")
+    r.g(evil, "commit", "-qm", "raw records")
+    r.g(evil, "push", "-q", "origin", "claims")
+    for args, index in ((["next"], 1), (["status"], 1)):
+        out = r.run([r.bash, ".uak/bin/uak"] + args, cwd=f.worktrees[index], env=env("agent-%d" % (index + 1)), allowed=None)
+        expect(not marker.exists(), "uak %s ran a command written in a claims record: %s" % (" ".join(args), (out.stdout + out.stderr)[-600:]))
+        expect(out.returncode == 0, "uak %s must still answer: %s" % (" ".join(args), (out.stdout + out.stderr)[-600:]))
+    return "next and status ran nothing from HACK-009's record"
+
+
 def record_names_do_not_collide(r):
     """claims/HACK-001-Lease.md with Until: must not read as HACK-001's Lease-Until: only task IDs (ABC-123) load."""
     d = r.scratch / "state-collide" / "claims"
@@ -209,7 +231,8 @@ def next_and_status_print_the_same_as_before(r):
 
 
 TESTS = [status_reads_the_state_in_one_pass, next_reads_the_state_in_one_pass, a_record_with_crlf_reads_like_lf,
-         next_and_status_print_the_same_as_before, a_raw_record_on_claims_runs_nothing, record_names_do_not_collide]
+         next_and_status_print_the_same_as_before, a_raw_record_on_claims_runs_nothing, record_names_do_not_collide,
+         a_raw_record_naming_a_task_id_runs_nothing]
 
 
 def main():
