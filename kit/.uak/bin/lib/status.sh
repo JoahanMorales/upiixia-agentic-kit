@@ -148,8 +148,11 @@ session_key_var() {
   [ -z "${SESSION_KEY_DONE:-}" ] || return 0
   SESSION_KEY_DONE=1
   SESSION_KEY=$(ps -A -o pid= -o ppid= -o comm= 2>/dev/null | awk -v start="$PPID" '
+    # Only "PID PPID COMM" rows: a ps that ignored -o (a header, other columns) is no table; uak-live keys it then.
+    $1 !~ /^[0-9]+$/ || $2 !~ /^[0-9]+$/ { bad = 1 }
     { pp[$1] = $2; cm[$1] = tolower($3) }
-    END { p = start
+    END { if (bad) exit
+      p = start
       for (i = 0; i < 8; i++) {
         if (p !~ /^[0-9]+$/ || p == 0 || p == 1 || !(p in pp)) break
         if (cm[p] ~ /claude|codex|cursor|gemini|aider/ || cm[p] ~ /^node/ || cm[p] ~ /\/node$/) { printf "%s", p; exit }
