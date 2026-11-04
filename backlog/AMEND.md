@@ -25,3 +25,38 @@ Append-only; the last section of an ID replaces its section in the backlog. Why:
 - **Verify:** `python3 scripts/claims_diff.py && python3 kit/.uak/tests/test_claims_perf.py`
 - **Next step:** reuse the guard differential of v5.9.2 (docs/perf-windows.md)
 
+## UAK-003 · Reads without a subshell per field: status and next load the state in one pass
+
+- **Type:** feature
+- **Priority:** P0
+- **Estimate:** 8 h
+- **Depends on:** UAK-001, UAK-011
+- **Paths:** kit/.uak/bin/lib/status.sh, kit/.uak/bin/lib/core.sh, kit/.uak/bin/lib/state.awk, kit/.uak/bin/uak-coordination, kit/.uak/tests/test_claims_read.py, kit/.uak/tests/test_claims_perf.py
+- **Acceptance:** measured first (UAK-001's counter): about half of the ~210 processes of `next` are subshells, one per `$(field …)` or `$(coord_config …)`; the git calls that a persistent repo would save are fewer than 10, `status`, `next` and `inbox --peek` read `tasks/`, `claims/` and the messages in one awk pass into variables; no `$(field …)` on the read path; the session key (a `ps` walk up to 8 levels) is computed once per session and cached, `next` and `status` start at least half the processes they start today (210 and 192), and print the same output on the protocol fixtures, a target met here leaves the XFAIL set of test_claims_perf.py in this task
+- **Tests:** status_reads_the_state_in_one_pass, next_reads_the_state_in_one_pass, a_record_with_crlf_reads_like_lf, next_and_status_print_the_same_as_before
+- **Verify:** `python3 kit/.uak/tests/test_claims_read.py && python3 kit/.uak/tests/test_claims_perf.py`
+- **Next step:** list every `$(field` and `$(coord_config` on the read path of lib/status.sh and uak-coordination (coord_next)
+
+## UAK-002 · A persistent claims repo per clone
+
+- **Type:** feature
+- **Priority:** P1
+- **Estimate:** 4 h
+- **Depends on:** UAK-003
+- **Paths:** kit/.uak/bin/lib/tx.sh, kit/.uak/tests/test_claims_repo.py
+- **Acceptance:** `<git-common-dir>/uak-claims/` replaces `git init` per call: one `git fetch` refreshes it; its config is set once (it saves network round trips and about 10 git processes per call), a `mkdir` lock serializes the processes of one machine; a stale lock (dead PID, older than the lease) is taken over, a corrupt or locked repo (antivirus, OneDrive) falls back to today's temporary clone and says so once
+- **Tests:** reuses_the_claims_repo_between_calls, serializes_two_processes_on_one_machine, falls_back_to_a_temp_clone_when_the_repo_is_corrupt
+- **Verify:** `python3 kit/.uak/tests/test_claims_repo.py`
+- **Next step:** fresh_state in kit/.uak/bin/lib/tx.sh
+## UAK-006 · Proof of no change, and the targets turned on
+
+- **Type:** integration
+- **Priority:** P0
+- **Estimate:** 4 h
+- **Depends on:** UAK-003, UAK-004, UAK-005, UAK-008, UAK-010, UAK-011, UAK-012
+- **Paths:** scripts/claims_diff.py, kit/.uak/tests/test_claims_perf.py, kit/.uak/bin/lib/, kit/.uak/bin/uak, kit/.uak/bin/uak-coordination, docs/perf-windows.md
+- **Acceptance:** the protocol suites run the old and the new engine side by side on the same fixtures: every command's stdout and the resulting claims tree are identical, the XFAIL set of test_claims_perf.py is empty: next ≤ 40, status ≤ 30, heartbeat ≤ 20 processes, docs/perf-windows.md has the before and after times from `scripts/perf_claims.sh` on Windows
+- **Tests:** old_and_new_engines_print_the_same_and_write_the_same_tree
+- **Verify:** `python3 scripts/claims_diff.py && python3 kit/.uak/tests/test_claims_perf.py`
+- **Next step:** reuse the guard differential of v5.9.2 (docs/perf-windows.md)
+
