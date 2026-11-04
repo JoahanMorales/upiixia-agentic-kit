@@ -112,6 +112,40 @@ def a_record_with_crlf_reads_like_lf(r):
     return "LF and CRLF give the same %d variables" % len(lf)
 
 
+def a_raw_record_on_claims_runs_nothing(r):
+    """A record pushed raw to claims (no uak) is data: an ID with a colon must not reach `${…:offset}` arithmetic,
+    where a field with PATH[$(cmd)] ran cmd in another agent's `uak next` (kit-r1, UAK-003 at dfe7949)."""
+    f = r.fixture("read-inject", paths={"HACK-001": "src/a/", "HACK-002": "src/b/"}, count=2)
+    f.claim(0, "HACK-001")
+    marker = r.scratch / "read-inject-ran"
+    evil = f.base / "raw"
+    r.g(f.base, "clone", "-q", "-b", "claims", f.remote, evil)
+    r.g(evil, "config", "user.name", "raw")
+    r.g(evil, "config", "user.email", "raw@example.invalid")
+    (evil / "claims/AAA-001.md").write_text("# Claim\nID: HACK-001-Worklog:UAK-S-claims-EVIL-Next\nOwner: agent-2\nState: CLAIMED\nLease-Until: 9999999\n", encoding="utf-8")
+    (evil / "claims/EVIL-Next.md").write_text("# Claim\nID: EVIL-Next\nOwner: nobody\nState: INTEGRATED\nWorklog: PATH[$(touch %s)]\n" % marker.as_posix(), encoding="utf-8")
+    r.g(evil, "add", "-A")
+    r.g(evil, "commit", "-qm", "raw records")
+    r.g(evil, "push", "-q", "origin", "claims")
+    for args, index in ((["next"], 1), (["status"], 1), (["next"], 0)):
+        out = r.run([r.bash, ".uak/bin/uak"] + args, cwd=f.worktrees[index], env=env("agent-%d" % (index + 1)), allowed=None)
+        expect(not marker.exists(), "uak %s ran a command written in a claims record: %s" % (" ".join(args), (out.stdout + out.stderr)[-600:]))
+        expect(out.returncode == 0, "uak %s must still answer: %s" % (" ".join(args), (out.stdout + out.stderr)[-600:]))
+    return "next and status ran nothing from the records"
+
+
+def record_names_do_not_collide(r):
+    """claims/HACK-001-Lease.md with Until: must not read as HACK-001's Lease-Until: only task IDs (ABC-123) load."""
+    d = r.scratch / "state-collide" / "claims"
+    d.mkdir(parents=True)
+    (d / "HACK-001.md").write_text("ID: HACK-001\nLease-Until: 5\n", encoding="utf-8")
+    (d / "HACK-001-Lease.md").write_text("ID: HACK-001-Lease\nUntil: 9\n", encoding="utf-8")
+    got = state(r, [d / "HACK-001-Lease.md", d / "HACK-001.md"])
+    expect(got.get("UAK_S_claims_HACK_001_Lease_Until") == "5", "HACK-001's Lease-Until: expected '5', got: %r" % got.get("UAK_S_claims_HACK_001_Lease_Until"))
+    expect(got.get("UAK_S_claims") == "HACK-001", "only task IDs are listed: got %r" % got.get("UAK_S_claims"))
+    return "HACK-001-Lease.md left out"
+
+
 def golden_outputs(r):
     """status, status --task, next (own task, BLOCKED task, idle, nothing eligible) and digest on one fixture."""
     f = r.fixture("read-golden", paths={"HACK-%03d" % i: "src/t%02d/" % i for i in range(1, 7)}, count=4,
@@ -175,7 +209,7 @@ def next_and_status_print_the_same_as_before(r):
 
 
 TESTS = [status_reads_the_state_in_one_pass, next_reads_the_state_in_one_pass, a_record_with_crlf_reads_like_lf,
-         next_and_status_print_the_same_as_before]
+         next_and_status_print_the_same_as_before, a_raw_record_on_claims_runs_nothing, record_names_do_not_collide]
 
 
 def main():

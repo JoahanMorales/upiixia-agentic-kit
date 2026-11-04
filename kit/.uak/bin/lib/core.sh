@@ -85,7 +85,13 @@ state_load() {
 }
 sv() {
   SV=
-  case "$1:$2:$3" in *[!A-Za-z0-9:-]*|:*|*::*|*:) return 0;; esac
+  # Each part checked on its own: the name is UAK_S_<kind>_<ID>_<Key> and nothing else. An ID from a record with a
+  # colon reached ${…:offset}, whose arithmetic ran PATH[$(cmd)] (kit-r1, UAK-003). IDs are task IDs (ABC-123).
+  case "$1" in tasks|claims|reviews|queue|reviewing) ;; *) return 0;; esac
+  case "$2" in [A-Z]*-[0-9]*) ;; *) return 0;; esac
+  case "$2" in *[!A-Z0-9-]*|*-*-*|*-*[!0-9]*) return 0;; esac
+  case "$3" in [A-Za-z]*) ;; *) return 0;; esac
+  case "$3" in *[!A-Za-z0-9-]*) return 0;; esac
   [ "${UAK_S_TX:-}" = "$TX" ] || state_load
   eval "SV=\${UAK_S_$1_${2//-/_}_${3//-/_}-}"
 }

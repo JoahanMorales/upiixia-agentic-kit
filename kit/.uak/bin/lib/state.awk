@@ -1,5 +1,6 @@
 # The claims state in one pass: every "Key: value" line of the records on claims, as shell assignments.
 #   eval "$(awk -v backlog=FILE -f state.awk TX/tasks/*.md TX/claims/*.md TX/reviews/*.md TX/queue/*.md ...)"
+# Only task IDs (ABC-123) load: one dash, so a name never collides (HACK-001-Lease + Until is not HACK-001 + Lease-Until).
 # A record TX/<kind>/<ID>.md (kind: tasks, claims, reviews, queue; reviews/<ID>.reviewing is kind "reviewing")
 # gives UAK_S_<kind>_<ID>_<Key>='value' (dashes become underscores) for the first line of each key, the same line
 # `field` reads; UAK_S_<kind> lists the IDs in argument order. The backlog file (-v backlog) gives UAK_S_backlog:
@@ -21,7 +22,7 @@ FNR == 1 {
     m = split(FILENAME, p, "/"); b = p[m]; d = (m > 1 ? p[m - 1] : "")
     if (b ~ /\.reviewing$/ && d == "reviews") { kind = "reviewing"; sub(/\.reviewing$/, "", b) }
     else if (b ~ /\.md$/ && (d == "tasks" || d == "claims" || d == "reviews" || d == "queue")) { kind = d; sub(/\.md$/, "", b) }
-    if (kind != "" && b ~ /^[A-Za-z0-9][A-Za-z0-9-]*$/) { id = b; ids[kind] = ids[kind] (ids[kind] == "" ? "" : " ") id }
+    if (kind != "" && b ~ /^[A-Z][A-Z0-9]*-[0-9]+$/) { id = b; ids[kind] = ids[kind] (ids[kind] == "" ? "" : " ") id }
     else kind = ""
   }
 }
