@@ -56,6 +56,51 @@ field() {
     case "$line" in "$prefix"*) printf '%s\n' "${line#"$prefix"}"; return 0;; esac
   done < "$1"
 }
+# The read path without a subshell per field (UAK-003). `$(field F K)` is a fork: `next` paid about 100 of them.
+#   fv FILE KEY       the first "KEY: value" of FILE into FV (empty when absent), like field, no process
+#   state_load        every record on claims (tasks, claims, reviews, queue) and the backlog's IDs, one awk pass
+#   sv KIND ID KEY    a field of that load into SV, no process (state_load first when TX changed)
+#   git_dir_var DIR   the absolute git dir of a checkout into GD: .git read directly, git only when that fails
+fv() {
+  local line prefix="$2: "
+  FV=
+  [ -f "$1" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    case "$line" in "$prefix"*) FV=${line#"$prefix"}; return 0;; esac
+  done < "$1"
+}
+state_load() {
+  local k f
+  [ -z "${UAK_S_VARS:-}" ] || unset $UAK_S_VARS
+  set --
+  for k in tasks claims reviews queue; do
+    for f in "$TX/$k"/*.md; do [ ! -f "$f" ] || set -- "$@" "$f"; done
+  done
+  for f in "$TX"/reviews/*.reviewing; do [ ! -f "$f" ] || set -- "$@" "$f"; done
+  [ ! -f "${BACKLOG:-}" ] || set -- "$@" "$BACKLOG"
+  UAK_S_tasks= UAK_S_claims= UAK_S_reviews= UAK_S_queue= UAK_S_reviewing= UAK_S_backlog= UAK_S_VARS=
+  [ "$#" -eq 0 ] || eval "$(awk -v backlog="${BACKLOG:-}" -f "$UAK_BIN/lib/state.awk" "$@")"
+  UAK_S_TX=$TX
+}
+sv() {
+  SV=
+  case "$1:$2:$3" in *[!A-Za-z0-9:-]*|:*|*::*|*:) return 0;; esac
+  [ "${UAK_S_TX:-}" = "$TX" ] || state_load
+  eval "SV=\${UAK_S_$1_${2//-/_}_${3//-/_}-}"
+}
+git_dir_var() {
+  local line=
+  GD=
+  if [ -d "$1/.git" ]; then GD=$1/.git
+  elif [ -f "$1/.git" ]; then
+    IFS= read -r line < "$1/.git" || :
+    line=${line%$'\r'}
+    case "$line" in "gitdir: "?*) GD=${line#gitdir: };; esac
+    case "$GD" in ''|/*|[A-Za-z]:[\\/]*) ;; *) GD=$1/$GD;; esac
+  fi
+  [ -n "$GD" ] && [ -d "$GD" ] || GD=$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null) || GD=
+}
 clock_now() {
   NOW=${UAK_NOW:-$(date +%s)}
   case "$NOW" in ''|*[!0-9]*) die "UAK_NOW must be epoch seconds.";; esac
