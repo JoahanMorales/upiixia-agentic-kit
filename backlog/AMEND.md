@@ -95,3 +95,15 @@ Append-only; the last section of an ID replaces its section in the backlog. Why:
 - **Verify:** `python3 kit/.uak/tests/test_claims_read.py && python3 kit/.uak/tests/test_claims_perf.py`
 - **Next step:** the builtin reads of VERSION and smoke in lib/status.sh and uak-coordination
 
+## UAK-013 · The merge redirect parses on bash 3.2
+
+- **Type:** fix
+- **Priority:** P0
+- **Estimate:** 30 min
+- **Depends on:** UAK-012
+- **Paths:** kit/.uak/bin/uak, kit/.uak/bin/doctor, kit/.uak/tests/test_v511.py
+- **Acceptance:** bash 3.2 (macOS) parses kit/.uak/bin/uak: no `case` with a bare `pattern)` inside a `$( … )` (CI 7b37537: "line 27: syntax error near unexpected token `;;'"), a static test reads every command substitution of the engine like bash 3.2 does (inside double quotes too, past heredocs and $'…') and finds a `case` it would cut short: caught on Linux too, doctor's Verify hint (`"$(case … *" uv "*) …)"`) uses `(pat)`: on macOS it printed the rest of the case as text (kit-r1)
+- **Tests:** the_dispatcher_parses_on_bash_3_2
+- **Verify:** `python3 kit/.uak/tests/test_v511.py --case the_dispatcher_parses_on_bash_3_2 --case merge_runs_the_main_checkouts_engine_not_the_branchs`
+- **Next step:** the redirect block at the top of kit/.uak/bin/uak
+
