@@ -71,3 +71,27 @@ Append-only; the last section of an ID replaces its section in the backlog. Why:
 - **Tests:** old_and_new_engines_print_the_same_and_write_the_same_tree
 - **Verify:** `python3 scripts/claims_diff.py && python3 kit/.uak/tests/test_claims_perf.py`
 - **Next step:** reuse the guard differential of v5.9.2 (docs/perf-windows.md)
+## UAK-013 · The merge redirect parses on bash 3.2
+
+- **Type:** fix
+- **Priority:** P0
+- **Estimate:** 30 min
+- **Depends on:** UAK-012
+- **Paths:** kit/.uak/bin/uak, kit/.uak/tests/test_v511.py
+- **Acceptance:** bash 3.2 (macOS) parses kit/.uak/bin/uak: no `case` with a bare `pattern)` inside a `$( … )` (CI 7b37537: "line 27: syntax error near unexpected token `;;'"), a static test finds a `case` whose `esac` falls outside the naive paren match of its `$(`: what bash 3.2 misparses, caught on Linux too
+- **Tests:** the_dispatcher_parses_on_bash_3_2
+- **Verify:** `python3 kit/.uak/tests/test_v511.py --case the_dispatcher_parses_on_bash_3_2 --case merge_runs_the_main_checkouts_engine_not_the_branchs`
+- **Next step:** the redirect block at the top of kit/.uak/bin/uak
+
+## UAK-014 · status and next print no carriage return from a CRLF checkout
+
+- **Type:** fix
+- **Priority:** P0
+- **Estimate:** 30 min
+- **Depends on:** UAK-003
+- **Paths:** kit/.uak/bin/lib/status.sh, kit/.uak/bin/lib/core.sh, kit/.uak/bin/lib/state.awk, kit/.uak/bin/uak-coordination, kit/.uak/tests/test_claims_read.py, kit/.uak/tests/test_claims_perf.py
+- **Acceptance:** a VERSION or smoke file checked out with CRLF (Git for Windows) prints `uak v5.11.0`, not `uak v5.11.0\r` (CI e5957e5: test_v52 audit_small_fixes, test_v55 claims_read_on_a_crlf_machine, test_claims_read golden), the golden test reads macOS's /private/var as /var (CI e5957e5: "Worktree: /private<base>/worktree-1")
+- **Tests:** a_crlf_checkout_prints_no_carriage_return
+- **Verify:** `python3 kit/.uak/tests/test_claims_read.py && python3 kit/.uak/tests/test_claims_perf.py`
+- **Next step:** the builtin reads of VERSION and smoke in lib/status.sh and uak-coordination
+
