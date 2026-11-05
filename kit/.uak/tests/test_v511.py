@@ -209,9 +209,35 @@ def gate_runs_smoke_and_verify_with_the_callers_ssh_env(r):
     return {"merged": True}
 
 
+def merge_runs_the_main_checkouts_engine_not_the_branchs(r):
+    """`uak merge` run from a task worktree ran that branch's engine: the gate a branch must pass was the branch's own
+    code, so a branch could rewrite its gate and merge itself. Found by dogfooding (UAK-012): the kit's shims run the
+    checkout's kit/, so a merge from a worktree ran the engine under review. From a linked worktree, merge runs the
+    main checkout's engine; from the main checkout nothing changes."""
+    f = r.fixture("v511-merge-engine", paths={"HACK-001": "src/a/"}, count=1)
+    wt, clone = f.worktrees[0], f.clones[0]
+    lib = wt / ".uak/bin/lib/review-merge.sh"
+    lib.write_text(lib.read_text(encoding="utf-8") + "\nmerge_run() { echo BRANCH_ENGINE; exit 7; }\n", encoding="utf-8")
+    env = {"UAK_AGENT": "agent-1", "UAK_HUMAN": "", "UAK_REMOTE": "origin", "UAK_NOW": "1000000"}
+    note = "the gate runs the main checkout's engine"
+    for args in (["merge", "HACK-001"], ["--json", "merge", "HACK-001"]):
+        out = r.run([r.bash, ".uak/bin/uak", *args], cwd=wt, env=env, allowed=None)
+        text = out.stdout + out.stderr
+        expect("BRANCH_ENGINE" not in text and out.returncode != 7,
+               "uak %s from a worktree ran the branch's own engine: %s" % (" ".join(args), text[-600:]))
+        expect(note in out.stderr, "uak %s: no note that the main engine runs: %s" % (" ".join(args), text[-600:]))
+    # The branch's other commands still run its own engine: only the gate moves.
+    status = r.run([r.bash, ".uak/bin/uak", "status"], cwd=wt, env=env, allowed=None)
+    expect(note not in status.stderr, status.stderr)
+    main = r.run([r.bash, ".uak/bin/uak", "merge", "HACK-001"], cwd=clone, env=env, allowed=None)
+    expect(note not in main.stderr and "BRANCH_ENGINE" not in main.stdout, main.stdout + main.stderr)
+    return {"engine": "main checkout"}
+
+
 TESTS = [config_reader_reads_every_form, json_envelope_reports_results_and_codes, registry_drives_help_and_dispatch,
          engine_is_split_and_finds_its_libraries, an_engine_in_another_folder_runs_whole, a_human_reads_zero_events_not_blanks,
-         secret_scan_reads_every_file_in_one_pass, gate_runs_smoke_and_verify_with_the_callers_ssh_env]
+         secret_scan_reads_every_file_in_one_pass, gate_runs_smoke_and_verify_with_the_callers_ssh_env,
+         merge_runs_the_main_checkouts_engine_not_the_branchs]
 
 
 def main():
