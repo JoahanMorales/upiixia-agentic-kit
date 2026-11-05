@@ -47,3 +47,15 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Tests:** merge_runs_the_main_checkouts_engine_not_the_branchs
 - **Verify:** `python3 kit/.uak/tests/test_v511.py --case merge_runs_the_main_checkouts_engine_not_the_branchs`
 - **Next step:** the dispatch of `merge` in kit/.uak/bin/uak (registry route merge_run)
+
+## UAK-013 · The merge redirect parses on bash 3.2 (no case pattern) inside a command substitution (follow-up of UAK-012)
+
+- **Type:** follow-up
+- **Priority:** P1
+- **Depends on:** UAK-012
+- **Follow-up of:** UAK-012
+- **Paths:** kit/.uak/bin/uak, kit/.uak/tests/test_v511.py
+- **Freeze-Allowed:** no
+- **Acceptance:**
+  - The merge redirect parses on bash 3.2 (no case pattern) inside a command substitution
+- **Verify:** `python3 kit/.uak/tests/test_v511.py --case merge_runs_the_main_checkouts_engine_not_the_branchs`
