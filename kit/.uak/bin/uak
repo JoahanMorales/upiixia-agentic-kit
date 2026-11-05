@@ -16,6 +16,22 @@ export MSYS2_ARG_CONV_EXCL
 # comes from here, so a uak always runs with its own version's libraries.
 case $0 in /*|[A-Za-z]:[\\/]*) UAK_BIN=${0%[\\/]*};; */*) UAK_BIN=$PWD/${0%/*};; *) UAK_BIN=$PWD;; esac
 [ -f "$UAK_BIN/lib/core.sh" ] || UAK_BIN=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# The merge gate always runs the main checkout's engine. Why (UAK-012): from a task worktree, `uak merge` ran the
+# branch's own engine, so a branch could rewrite the gate it must pass (the kit's own shims run the checkout's kit/).
+case "${1:-}" in --json) hack_cmd=${2:-};; *) hack_cmd=${1:-};; esac
+if [ "$hack_cmd" = merge ] && [ -z "${UAK_MERGE_ENGINE:-}" ]; then
+  hack_main=$(CDPATH= cd -- "$UAK_BIN" 2>/dev/null || exit 0; bin=$(pwd -P)
+    top=$(git rev-parse --show-toplevel 2>/dev/null) && top=$(CDPATH= cd -- "$top" && pwd -P) || exit 0
+    gd=$(git rev-parse --absolute-git-dir 2>/dev/null) && gd=$(CDPATH= cd -- "$gd" && pwd -P) || exit 0
+    common=$(git rev-parse --git-common-dir 2>/dev/null) && common=$(CDPATH= cd -- "$common" && pwd -P) || exit 0
+    case $bin in "$top"/*) ;; *) exit 0;; esac
+    [ "$gd" != "$common" ] && case $common in */.git) printf '%s' "${common%/.git}/${bin#"$top"/}/uak";; esac)
+  if [ -n "$hack_main" ] && [ -f "$hack_main" ]; then
+    printf "uak merge: the gate runs the main checkout's engine (%s), never the branch's own.\n" "$hack_main" >&2
+    UAK_MERGE_ENGINE=1 exec bash "$hack_main" "$@"
+  fi
+fi
+unset UAK_MERGE_ENGINE hack_cmd hack_main
 . "$UAK_BIN/lib/net.sh" 2>/dev/null && ssh_mux
 # Per-worktree identity: .uak-env (written by .uak/bin/wt, git-ignored) only fills empty variables.
 # Why: every terminal or agent in the worktree inherits its identity without manual exports.
