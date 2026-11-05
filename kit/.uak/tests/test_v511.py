@@ -234,10 +234,73 @@ def merge_runs_the_main_checkouts_engine_not_the_branchs(r):
     return {"engine": "main checkout"}
 
 
+def comsub_case_misparses(text):
+    """The `$( … )` whose naive paren match (how bash 3.2 reads a command substitution) cuts a `case` in two: a bare
+    `pattern)` closes the substitution early. Quotes, escapes and comments are skipped like the shell does."""
+    import re
+    found, i, n = [], 0, len(text)
+    def skip(j):
+        c = text[j]
+        if c == "\\":
+            return j + 2
+        if c == "'":
+            return text.find("'", j + 1) + 1 or n
+        if c == '"':
+            k = j + 1
+            while k < n and text[k] != '"':
+                k += 2 if text[k] == "\\" else 1
+            return k + 1
+        if c == "#" and (j == 0 or text[j - 1] in " \t\n;"):
+            return text.find("\n", j) % (n + 1) if text.find("\n", j) >= 0 else n
+        return None
+    while i < n:
+        k = skip(i)
+        if k is not None:
+            i = k
+            continue
+        if text.startswith("$(", i) and not text.startswith("$((", i):
+            j, depth, body = i + 2, 1, []
+            while j < n and depth:
+                k = skip(j)
+                if k is not None:
+                    j = k
+                    body.append(" ")
+                    continue
+                depth += {"(": 1, ")": -1}.get(text[j], 0)
+                body.append(text[j] if depth else "")
+                j += 1
+            words = re.findall(r"\b(case|esac)\b", "".join(body))
+            if words.count("case") > words.count("esac"):
+                found.append(text.count("\n", 0, i) + 1)
+        i += 1
+    return found
+
+
+def the_dispatcher_parses_on_bash_3_2(r):
+    """bash 3.2 (macOS) reads `$( … )` by counting parens: `case $x in pat) …;; esac` inside one ends the
+    substitution at `pat)`, a syntax error for the whole file ("line 27: syntax error near unexpected token `;;'", CI
+    on 7b37537). bash 5 parses it, so Linux never saw it. The engine writes such patterns as `(pat)`."""
+    sample = 'x=$(case $a in b) echo 1;; esac)\ny=$(case $a in (b) echo 1;; esac)\nz=$(echo "(a)" \'(\' # )\n)\n'
+    expect(comsub_case_misparses(sample) == [1], "the checker itself: " + str(comsub_case_misparses(sample)))
+    bad, checked = {}, 0
+    for f in sorted((r.package / ".uak/bin").rglob("*")):
+        if not f.is_file() or f.suffix not in ("", ".sh"):
+            continue
+        text = f.read_text(encoding="utf-8", errors="replace")
+        if f.suffix == "" and not text.startswith("#!"):
+            continue
+        checked += 1
+        lines = comsub_case_misparses(text)
+        if lines:
+            bad[f.relative_to(r.package).as_posix()] = lines
+    expect(checked > 20 and not bad, "a case pattern without its ( inside $( … ): bash 3.2 fails to parse it: " + str(bad))
+    return {"checked": checked}
+
+
 TESTS = [config_reader_reads_every_form, json_envelope_reports_results_and_codes, registry_drives_help_and_dispatch,
          engine_is_split_and_finds_its_libraries, an_engine_in_another_folder_runs_whole, a_human_reads_zero_events_not_blanks,
          secret_scan_reads_every_file_in_one_pass, gate_runs_smoke_and_verify_with_the_callers_ssh_env,
-         merge_runs_the_main_checkouts_engine_not_the_branchs]
+         merge_runs_the_main_checkouts_engine_not_the_branchs, the_dispatcher_parses_on_bash_3_2]
 
 
 def main():
