@@ -9,3 +9,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1793737007 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-006 | Why: scope or criteria fixed before review
 - 1793739442 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-011 UAK-012 | Why: backlog without PR (Plan-Channel: claims)
 - 1793753501 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-003 Paths: kit/.uak/bin/lib/status.sh, kit/.uak/bin/lib/state.awk, kit/.uak/tests/test_claims_read.py → kit/.uak/bin/lib/status.sh, kit/.uak/bin/lib/core.sh, kit/.uak/bin/lib/state.awk, kit/.uak/bin/uak-coordination, kit/.uak/tests/test_claims_read.py, kit/.uak/tests/test_claims_perf.py; Verify changed; UAK-002 UAK-006 | Why: scope or criteria fixed before review
+- 1793906635 | deadline lease/UAK-002/1793874851 | REQUIRES_RECOVERY | Claim kept; read the summary and use release --expired --read-summary. No work is deleted.
