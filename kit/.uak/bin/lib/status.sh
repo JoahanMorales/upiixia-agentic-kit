@@ -45,7 +45,8 @@ print_status() {
   local state count id n=0 version= until expiry scope= line
   state_load
   [ -z "${UAK_JSON_DATA:-}" ] || status_data
-  IFS= read -r version 2>/dev/null < "$UAK_BIN/../VERSION" || version=${version:-?}
+  # A CRLF checkout (Git for Windows) keeps the \r on a builtin read (UAK-014: "uak v5.11.0\r").
+  IFS= read -r version 2>/dev/null < "$UAK_BIN/../VERSION" || version=${version:-?}; version=${version%$'\r'}
   say "uak v$version | remote claims | epoch $NOW | lease ${LEASE}s"
   for state in AVAILABLE CLAIMED BLOCKED REVIEW INTEGRATED CANCELLED; do
     count=0
@@ -65,7 +66,7 @@ print_status() {
     say "$line$SV | $expiry | until $until"
   done
   while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in "# UAK_SMOKE_SCOPE: "*) scope=${line#"# UAK_SMOKE_SCOPE: "}; break;; esac
+    case "$line" in "# UAK_SMOKE_SCOPE: "*) scope=${line#"# UAK_SMOKE_SCOPE: "}; scope=${scope%$'\r'}; break;; esac
   done 2>/dev/null < "$ROOT/.uak/bin/smoke"
   say "Smoke: ${scope:-scope not declared; check .uak/bin/smoke}"
   say "Next: run uak next."
