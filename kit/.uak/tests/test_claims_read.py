@@ -176,12 +176,12 @@ def golden_outputs(r):
         f.claim(i, "HACK-%03d" % (i + 1))
     f.hack(2, "log", "HACK-003", "--state", "BLOCKED", "the fixture API returns 500")
     base = f.base.as_posix()
-    real = f.base.resolve().as_posix()
+    # The path as the engine records it (pwd -P): /private/var/… on macOS, /c/Users/… under Git Bash (kit-r1, UAK-014).
+    real = r.run([r.bash, "-c", 'cd "$1" && pwd -P', "_", f.base.as_posix()]).stdout.strip() or base
     outs = {}
 
     def run(key, index, args, agent=None, cwd=None):
         out = r.run([r.bash, ".uak/bin/uak"] + args, cwd=cwd or f.worktrees[index], env=env(agent or "agent-%d" % (index + 1)), allowed=None)
-        # macOS: the fixture's /var/folders/… is /private/var/folders/… once resolved (pwd -P), as the claim records it.
         text = (out.stdout + ("\n[stderr]\n" + out.stderr if out.stderr.strip() else "")).replace(real, "<base>").replace(base, "<base>")
         # What differs between runs or machines, not between engines: the version, a worklog's random suffix, the
         # read token, and PREFLIGHT (whether this machine's gh is logged in).
