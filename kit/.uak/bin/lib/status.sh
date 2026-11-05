@@ -2,34 +2,38 @@
 # Sourced by .uak/bin/uak (docs/ARCHITECTURE.md: where to change what). Bash 3.2+, POSIX tools.
 
 print_task() {
-  RECORD=$(task_file)
+  # Direct reads (fv), no state cache: handoff prints this inside its own transaction, after writing.
+  local away updated
+  RECORD="$TX/tasks/$ID.md"
   if [ -f "$RECORD" ]; then
-    WL=$(field "$RECORD" Worklog)
-    say "$ID | $(field "$RECORD" State) | $(field "$RECORD" Owner)"
-    say "Branch: $(field "$RECORD" Branch)"
-    say "Worktree: $(field "$RECORD" Worktree)"
+    fv "$RECORD" Worklog; WL=$FV
+    fv "$RECORD" State; local st=$FV; fv "$RECORD" Owner; say "$ID | $st | $FV"
+    fv "$RECORD" Branch; say "Branch: $FV"
+    fv "$RECORD" Worktree; say "Worktree: $FV"
     # What a reviewer needs, tasks published with uak plan included (they are not in main's TASKS.md). Why (audit,
     # Oct 2026): uak-reviewer is told to read PR, SHA, Verify and Paths here, and none of them was printed.
-    [ -z "$(field "$RECORD" PR)" ] || say "PR: $(field "$RECORD" PR)"
-    [ -z "$(field "$RECORD" Task-Tip)" ] || say "Task-Tip: $(field "$RECORD" Task-Tip)"
+    fv "$RECORD" PR; [ -z "$FV" ] || say "PR: $FV"
+    fv "$RECORD" Task-Tip; [ -z "$FV" ] || say "Task-Tip: $FV"
     if [ -f "$BACKLOG" ] && awk -v id="$ID" '/^## / && $2==id {f=1} END {exit !f}' "$BACKLOG"; then
       say "Paths: $(task_field Paths)"; say "Verify: $(task_field Verify)"
       task_criteria
     fi
-    say "Next: $(field "$RECORD" Next)"
-    [ -z "$(field "$RECORD" Progress)" ] || say "Progress: $(field "$RECORD" Progress)"
-    [ -z "$(field "$RECORD" Away)" ] || [ "$(field "$RECORD" Away)" -lt "$(field "$RECORD" Updated)" ] 2>/dev/null ||
-      say "Away: its session closed $(( (NOW - $(field "$RECORD" Away)) / 60 )) min ago (uak away); the lease still runs"
+    fv "$RECORD" Next; say "Next: $FV"
+    fv "$RECORD" Progress; [ -z "$FV" ] || say "Progress: $FV"
+    fv "$RECORD" Away; away=$FV; fv "$RECORD" Updated; updated=$FV
+    [ -z "$away" ] || [ "$away" -lt "$updated" ] 2>/dev/null ||
+      say "Away: its session closed $(( (NOW - away) / 60 )) min ago (uak away); the lease still runs"
     say "Worklog: $WL (claims branch)"
     if [ "$SHOW_SUMMARY" = yes ] || [ "$CMD" = handoff ]; then
       say "Live summary:"; summary_text
-      [ ! -f "$(claim_file)" ] || say "Read-token: $(read_token)"
+      [ ! -f "$TX/claims/$ID.md" ] || say "Read-token: $(read_token)"
     fi
     [ "$CMD" != handoff ] || coord_handoff
-  elif [ -f "$(claim_file)" ]; then
+  elif [ -f "$TX/claims/$ID.md" ]; then
     # A claim without its task record yet (a claim in flight): never AVAILABLE. Why (Hacktoberfest): status said
     # AVAILABLE, wt new then failed with CONFLICT on the other agent's claim.
-    say "$ID | $(field "$(claim_file)" State) | $(field "$(claim_file)" Owner)"; say "Next: pick another task (uak next)"
+    fv "$TX/claims/$ID.md" State; local cst=$FV; fv "$TX/claims/$ID.md" Owner
+    say "$ID | $cst | $FV"; say "Next: pick another task (uak next)"
   else
     load_task; say "$ID | AVAILABLE | $PRIORITY"; say "Next: $DEFAULT_NEXT"; say "Paths: $PATHS"; say "Verify: $VERIFY"
     task_criteria
@@ -37,30 +41,32 @@ print_task() {
 }
 print_status() {
   [ -z "$ID" ] || { print_task; coord_status_budget; say "$CLOCK_NOTE"; return; }
+  # One awk pass loads every record (lib/state.awk); the loops below read variables, no process per field.
+  local state count id n=0 version= until expiry scope= line
+  state_load
   [ -z "${UAK_JSON_DATA:-}" ] || status_data
-  say "uak v$(cat "$UAK_BIN/../VERSION" 2>/dev/null || printf '?') | remote claims | epoch $NOW | lease ${LEASE}s"
+  IFS= read -r version 2>/dev/null < "$UAK_BIN/../VERSION" || version=${version:-?}
+  say "uak v$version | remote claims | epoch $NOW | lease ${LEASE}s"
   for state in AVAILABLE CLAIMED BLOCKED REVIEW INTEGRATED CANCELLED; do
     count=0
-    for f in "$TX"/tasks/*.md; do
-      [ -f "$f" ] || continue
-      [ "$(field "$f" State)" != "$state" ] || count=$((count + 1))
-    done
+    for id in $UAK_S_tasks; do sv tasks "$id" State; [ "$SV" != "$state" ] || count=$((count + 1)); done
     if [ "$state" = AVAILABLE ] && [ -f "$BACKLOG" ]; then
-      extra=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG" | while IFS= read -r id; do
-        [ -f "$TX/tasks/$id.md" ] || say "$id"
-      done | awk 'END {print NR+0}')
-      count=$((count + extra))
+      for id in $UAK_S_backlog; do [ -f "$TX/tasks/$id.md" ] || count=$((count + 1)); done
     fi
     printf '%s=%s ' "$state" "$count"
   done
   printf '\n'; say "Claims (max 12; use --task ID):"
-  for f in "$TX"/claims/*.md; do
-    [ -f "$f" ] || continue
-    until=$(field "$f" Lease-Until); expiry=active
+  for id in $UAK_S_claims; do
+    [ "$n" -lt 12 ] || break
+    n=$((n + 1))
+    sv claims "$id" Lease-Until; until=$SV; expiry=active
     [ "$NOW" -lt "$until" ] || expiry=EXPIRED
-    say "$(field "$f" ID) | $(field "$f" State) | $(field "$f" Owner) | $expiry | until $until"
-  done | head -n 12
-  scope=$(sed -n 's/^# UAK_SMOKE_SCOPE: //p' "$ROOT/.uak/bin/smoke" 2>/dev/null | head -n 1)
+    sv claims "$id" ID; line="$SV | "; sv claims "$id" State; line="$line$SV | "; sv claims "$id" Owner
+    say "$line$SV | $expiry | until $until"
+  done
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in "# UAK_SMOKE_SCOPE: "*) scope=${line#"# UAK_SMOKE_SCOPE: "}; break;; esac
+  done 2>/dev/null < "$ROOT/.uak/bin/smoke"
   say "Smoke: ${scope:-scope not declared; check .uak/bin/smoke}"
   say "Next: run uak next."
   coord_status_budget; say "$CLOCK_NOTE"
@@ -116,15 +122,15 @@ print_digest() {
 }
 # `uak --json status`: one row per task (records on claims, then backlog tasks nobody claimed yet) for lib/json.sh.
 status_data() {
-  local f id st lu exp
+  local id rid st lu exp
   printf 'data\ttasks\n' >> "$UAK_JSON_META"
-  { for f in "$TX"/tasks/*.md; do
-      [ -f "$f" ] || continue
-      id=$(field "$f" ID); st=$(field "$f" State); lu=$(field "$f" Lease-Until); case "$lu" in ''|*[!0-9]*) lu=0;; esac
+  { for id in $UAK_S_tasks; do
+      sv tasks "$id" ID; rid=$SV; sv tasks "$id" State; st=$SV
+      sv tasks "$id" Lease-Until; lu=$SV; case "$lu" in ''|*[!0-9]*) lu=0;; esac
       exp=no; is_reserved "$st" && [ "$st" != REVIEW ] && [ "$lu" -gt 0 ] && [ "$NOW" -ge "$lu" ] && exp=yes
-      printf 'task\t%s\t%s\t%s\t%s\t%s\n' "$id" "$st" "$(field "$f" Owner)" "$lu" "$exp"
+      sv tasks "$id" Owner; printf 'task\t%s\t%s\t%s\t%s\t%s\n' "$rid" "$st" "$SV" "$lu" "$exp"
     done
-    [ ! -f "$BACKLOG" ] || awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG" | while IFS= read -r id; do
+    for id in $UAK_S_backlog; do
       [ -f "$TX/tasks/$id.md" ] || printf 'task\t%s\tAVAILABLE\t-\t0\tno\n' "$id"
     done; } >> "$UAK_JSON_DATA"
 }
@@ -134,49 +140,89 @@ status_data() {
 # every copy stayed in context for the rest of the session ("reading the same thing over and over").
 # Session key: the nearest ancestor that is the agent harness (claude, codex, cursor, gemini, aider, node),
 # else the grandparent. Every tool call is a new shell, but the harness process lives as long as the session.
-session_key() {
-  local pid=$PPID i=0 line ppid comm
-  while [ "$i" -lt 8 ]; do
-    case "$pid" in ''|*[!0-9]*|0|1) break;; esac
-    line=$(ps -o ppid= -o comm= -p "$pid" 2>/dev/null) || break
-    ppid=$(printf '%s\n' "$line" | awk '{print $1}'); comm=$(printf '%s\n' "$line" | awk '{print $2}' | tr '[:upper:]' '[:lower:]')
-    case "$comm" in *claude*|*codex*|*cursor*|*gemini*|*aider*|node*|*/node) printf '%s' "$pid"; return 0;; esac
-    pid=$ppid; i=$((i + 1))
-  done
-  # Git Bash has no `ps -o` and the harness is a native Windows process: use the session id that the
-  # session-start hook wrote (Why, MLB hackathon: 4 Windows laptops never got "= unchanged").
-  line=$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d ' ')
-  case "$line" in ''|*[!0-9]*)
-    line=$(awk '{print $1; exit}' "$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null)/uak-live" 2>/dev/null)
-    [ -z "$line" ] || line=$(printf '%s' "$line" | cksum | awk '{print $1}');;
+session_key() { session_key_var; printf '%s' "$SESSION_KEY"; }
+# One ps for the whole process table, walked in awk, once per call (UAK-003): a ps, two awks and a tr per level were
+# up to 40 processes. Same answer: the nearest harness ancestor, else the grandparent, else (Git Bash: no ps -o)
+# the session id the session-start hook wrote to <git dir>/uak-live.
+session_key_var() {
+  [ -z "${SESSION_KEY_DONE:-}" ] || return 0
+  SESSION_KEY_DONE=1
+  SESSION_KEY=$(ps -A -o pid= -o ppid= -o comm= 2>/dev/null | awk -v start="$PPID" '
+    # Only "PID PPID COMM" rows: a ps that ignored -o (a header, other columns) is no table; uak-live keys it then.
+    $1 !~ /^[0-9]+$/ || $2 !~ /^[0-9]+$/ { bad = 1 }
+    { pp[$1] = $2; cm[$1] = tolower($3) }
+    END { if (bad) exit
+      p = start
+      for (i = 0; i < 8; i++) {
+        if (p !~ /^[0-9]+$/ || p == 0 || p == 1 || !(p in pp)) break
+        if (cm[p] ~ /claude|codex|cursor|gemini|aider/ || cm[p] ~ /^node/ || cm[p] ~ /\/node$/) { printf "%s", p; exit }
+        p = pp[p] }
+      if ((start in pp) && pp[start] ~ /^[0-9]+$/) printf "%s", pp[start] }')
+  case "$SESSION_KEY" in ''|*[!0-9]*)
+    SESSION_KEY=
+    git_dir_var "$ROOT"
+    if [ -n "$GD" ] && [ -f "$GD/uak-live" ]; then
+      local first=
+      IFS=' 	' read -r first _ < "$GD/uak-live" || :
+      [ -z "$first" ] || SESSION_KEY=$(printf '%s' "$first" | cksum | awk '{print $1}')
+    fi;;
   esac
-  printf '%s' "$line"
 }
+# The output with what changes on every call taken out (epoch, clock lines), into SEEN_TEXT: builtins only.
+seen_normal() {
+  local line pre rest
+  SEEN_TEXT=
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in Clock*|'Remote clock'*|CLOCK_SKEW*) continue;; esac
+    case "$line" in *"epoch "[0-9]*)
+      pre=${line%%epoch [0-9]*}; rest=${line#"$pre"epoch }
+      while :; do case "$rest" in [0-9]*) rest=${rest#?};; *) break;; esac; done
+      line=$pre$rest;;
+    esac
+    SEEN_TEXT="$SEEN_TEXT$line
+"
+  done <<EOF_SEEN
+$1
+EOF_SEEN
+}
+# seen_print KEY TEXT: TEXT, or "= unchanged" when this session already saw the same TEXT in the last 30 min.
+# <git dir>/uak-seen.KEY holds "SESSION EPOCH" and the normalized text it saw (read back with builtins, no cksum).
 seen_print() {
-  local out key=$1 gd gp sum prev
-  out=$(cat)
-  gp=$(session_key)
-  gd=$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null) || gd=
-  case "$gp" in ''|*[!0-9]*) gp=;; esac
-  if [ "$FULL" = yes ] || [ -z "$gp" ] || [ -z "$gd" ] || [ "${UAK_DEDUPE:-on}" = off ]; then
-    printf '%s\n' "$out"; [ -z "$gd" ] || rm -f "$gd/uak-seen.$key" 2>/dev/null; return 0
+  local key=$1 out=$2 gp prev line t=0
+  git_dir_var "$ROOT"
+  if [ "$FULL" = yes ] || [ "${UAK_DEDUPE:-on}" = off ] || [ -z "$GD" ]; then
+    printf '%s\n' "$out"; [ -z "$GD" ] || [ ! -e "$GD/uak-seen.$key" ] || rm -f "$GD/uak-seen.$key" 2>/dev/null; return 0
   fi
-  sum=$(printf '%s\n' "$out" | sed 's/epoch [0-9][0-9]*//' | grep -Ev '^(Clock|Remote clock|CLOCK_SKEW)' | cksum | awk '{print $1}')
-  prev=$(cat "$gd/uak-seen.$key" 2>/dev/null) || prev=
-  set -- $prev
-  if [ "${1:-}" = "$gp" ] && [ "${3:-}" = "$sum" ] && [ "$((NOW - ${2:-0}))" -lt 1800 ]; then
+  session_key_var; gp=$SESSION_KEY
+  case "$gp" in ''|*[!0-9]*) printf '%s\n' "$out"; [ ! -e "$GD/uak-seen.$key" ] || rm -f "$GD/uak-seen.$key" 2>/dev/null; return 0;; esac
+  seen_normal "$out"
+  prev=
+  if [ -f "$GD/uak-seen.$key" ]; then
+    { IFS= read -r line || :; while IFS= read -r t || [ -n "$t" ]; do prev="$prev$t
+"; done; } < "$GD/uak-seen.$key"
+    set -- $line
+  else set --; fi
+  if [ "${1:-}" = "$gp" ] && [ "$prev" = "$SEEN_TEXT" ] && [ "$((NOW - ${2:-0}))" -lt 1800 ]; then
     say "= unchanged since $(((NOW - $2) / 60)) min ago (uak $key). Nothing new. Waiting for something? bash .uak/bin/uak wait ID --for approve|integrated|message (one call). --full reprints."
     return 0
   fi
   printf '%s\n' "$out"
-  printf '%s %s %s\n' "$gp" "$NOW" "$sum" > "$gd/uak-seen.$key" 2>/dev/null || true
+  printf '%s %s\n%s' "$gp" "$NOW" "$SEEN_TEXT" > "$GD/uak-seen.$key" 2>/dev/null || true
 }
-# Once per 12 h per checkout: say early when PRs cannot be opened by the agent.
+# Once per 12 h per checkout: say early when PRs cannot be opened by the agent. The file holds the real epoch it ran,
+# read with builtins (bash 4.2+ printf %()T); bash 3.2 keeps the find -mmin check.
 # Why (Reap buildathon): a new checkout reached claims and reviews before finding out gh was missing.
 preflight_note() {
-  local gd; gd=$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null) || return 0
-  [ ! -f "$gd/uak-preflight" ] || [ -z "$(find "$gd/uak-preflight" -mmin -720 2>/dev/null)" ] || return 0
-  touch "$gd/uak-preflight" 2>/dev/null
+  local at= real=
+  git_dir_var "$ROOT"; [ -n "$GD" ] || return 0
+  printf -v real '%(%s)T' -1 2>/dev/null || real=
+  case "$real" in
+    ''|*[!0-9]*) [ ! -f "$GD/uak-preflight" ] || [ -z "$(find "$GD/uak-preflight" -mmin -720 2>/dev/null)" ] || return 0
+      touch "$GD/uak-preflight" 2>/dev/null;;
+    *) [ ! -f "$GD/uak-preflight" ] || { IFS= read -r at < "$GD/uak-preflight" || :; }
+      case "$at" in ''|*[!0-9]*) ;; *) [ $((real - at)) -ge 43200 ] || [ "$at" -gt "$real" ] || return 0;; esac
+      printf '%s\n' "$real" > "$GD/uak-preflight" 2>/dev/null;;
+  esac
   if ! command -v gh >/dev/null 2>&1; then
     say "PREFLIGHT: gh is not installed; the agent cannot open PRs. bash .uak/bin/wt pr prints the URL for the human."
   elif ! gh auth status >/dev/null 2>&1; then
@@ -186,7 +232,7 @@ preflight_note() {
 # 30 min before the freeze, every next/digest says it once. Why (Reap buildathon): 6 PRs were still open at
 # the extended deadline; nobody had been told that unfinished work would not get in.
 freeze_warning() {
-  local f; f=$(coord_config Freeze-Epoch 0 2>/dev/null); case "$f" in ''|*[!0-9]*) return 0;; esac
+  local f; coord_cfg Freeze-Epoch 0 2>/dev/null; f=$coord_v; case "$f" in ''|*[!0-9]*) return 0;; esac
   [ "$f" -gt 0 ] && [ "$NOW" -lt "$f" ] && [ $((f - NOW)) -le 1800 ] || return 0
   say "FREEZE in $(((f - NOW + 59) / 60)) min: finish the criterion and run uak done, or release; after the freeze a task needs a human uak allow."
 }
@@ -194,18 +240,25 @@ freeze_warning() {
 # The reconcile is housekeeping: if it fails, status/next still answer from a plain read. Why (MLB hackathon): a failed
 # tick made `uak status` and `uak next` exit with GIT_ERROR on Cursor/Windows.
 status_run() {
-  local saved_cmd=$CMD saved_id=$ID
+  local saved_cmd=$CMD saved_id=$ID out rc=0 line
   CMD=tick; ID=; QUIET=yes
-  if ( transaction; printf '%s\n' "$TX" > "$TXROOT/tick-tx" ) 2> "$TXROOT/tick-error"; then
-    TX=$(cat "$TXROOT/tick-tx")
+  # The tick's subshell also hands back what its coord_init read (lease, backlog, owners): the read below runs on the
+  # same clone, so a second coord_init (6 git calls and 4 awks) read the same files again.
+  if ( transaction; printf '%s\n' "$TX" "${COORD_INITIALIZED_TX:-}" "${LEASE:-}" "${REVIEW_LEASE:-}" "${BACKLOG:-}" "${OWNERS:-}" > "$TXROOT/tick-tx" ) 2> "$TXROOT/tick-error"; then
+    { IFS= read -r TX; IFS= read -r line; IFS= read -r LEASE; IFS= read -r REVIEW_LEASE; IFS= read -r BACKLOG; IFS= read -r OWNERS; } < "$TXROOT/tick-tx"
+    COORD_INITIALIZED_TX=; [ "$line" != "$TX" ] || [ ! -f "$BACKLOG" ] || COORD_INITIALIZED_TX=$TX
   else
     # No remote at all: an explicit read-only mode (the fetch already proved it, no extra ls-remote).
     if grep -q 'Remote unreachable' "$TXROOT/tick-error"; then CMD=$saved_cmd; coord_degraded_status; exit 0; fi
-    CMD=$saved_cmd; ATTEMPT=read; fresh_state
+    CMD=$saved_cmd; ATTEMPT=read; fresh_state; COORD_INITIALIZED_TX=
     say "NOTE: deadline reconcile skipped ($(grep -m 1 -E 'ERROR|CONFLICT' "$TXROOT/tick-error" | cut -c 1-160)); showing the remote state." >&2
   fi
-  CMD=$saved_cmd; ID=$saved_id; QUIET=no; COORD_INITIALIZED_TX=; coord_init
+  CMD=$saved_cmd; ID=$saved_id; QUIET=no; coord_init
   coord_clock
-  case "$CMD" in status) print_status | seen_print "status${ID:+-$ID}";; next) coord_next | seen_print next; preflight_note;; esac
+  # The output is taken whole, then deduplicated in this shell: a pipe into seen_print was two more subshells.
+  case "$CMD" in
+    status) out=$(print_status) || rc=$?; seen_print "status${ID:+-$ID}" "$out"; return "$rc";;
+    next) out=$(coord_next) || rc=$?; seen_print next "$out"; preflight_note;;
+  esac
 }
-digest_run() { ATTEMPT=1; fresh_state; print_digest | seen_print digest; }
+digest_run() { local out rc=0; ATTEMPT=1; fresh_state; out=$(print_digest) || rc=$?; seen_print digest "$out"; return "$rc"; }
