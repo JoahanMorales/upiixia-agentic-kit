@@ -153,7 +153,7 @@ if [ -s .uak/TASKS.md ]; then
   rm -f "${TMPDIR:-/tmp}/uak-doctor-verify.$$"
   if [ -z "$lacking" ]; then ok "the tools the plan's Verify commands run are on PATH"
   else
-    warn "Verify commands run$lacking, missing on this machine: install them before claiming$(case " $lacking " in *" uv "*) printf ' (uv on Windows: winget install astral-sh.uv, then open a new terminal)';; esac)$(case " $lacking " in *" rg "*) printf '; a negated rg (! rg) passes when rg is missing';; esac)"
+    warn "Verify commands run$lacking, missing on this machine: install them before claiming$(case " $lacking " in (*" uv "*) printf ' (uv on Windows: winget install astral-sh.uv, then open a new terminal)';; esac)$(case " $lacking " in (*" rg "*) printf '; a negated rg (! rg) passes when rg is missing';; esac)"
   fi
 fi
 # The product's own setup, which install.sh --update never touches. Why (Windows audit of HackADA, Oct 2026): the

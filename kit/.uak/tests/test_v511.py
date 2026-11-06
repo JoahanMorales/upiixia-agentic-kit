@@ -234,10 +234,155 @@ def merge_runs_the_main_checkouts_engine_not_the_branchs(r):
     return {"engine": "main checkout"}
 
 
+def comsub_case_misparses(text):
+    """Lines of the `$( … )` that bash 3.2 cuts short at a bare case pattern `pat)`. bash 3.2 reads a command
+    substitution by counting parens (parse_matched_pair), with no idea of `case`, inside double quotes too. This walks
+    the script the same way: quotes, $'…', escapes, backticks, comments and heredocs are skipped like the shell
+    does; each substitution's own unquoted words must open and close their case (nested substitutions apart)."""
+    import re
+    n, found = len(text), []
+    word = re.compile(r"(?<![\w$#{}/.:=-])(case|esac)(?![\w-])")
+    heredoc = re.compile(r"<<(-?)[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
+    pending = []
+
+    def skip_heredocs(i):
+        # i is just past a newline: skip the bodies of the heredocs opened on the line before.
+        while pending:
+            strip, delim = pending.pop(0)
+            while i < n:
+                end = text.find("\n", i)
+                end = n if end < 0 else end
+                line = text[i:end]
+                i = end + 1
+                if (line.lstrip("\t") if strip else line) == delim:
+                    break
+        return i
+
+    def single(i):  # i at the opening quote
+        k = text.find("'", i + 1)
+        return n if k < 0 else k + 1
+
+    def ansi(i):  # i at the quote of $'…'
+        k = i + 1
+        while k < n and text[k] != "'":
+            k += 2 if text[k] == "\\" else 1
+        return k + 1
+
+    def backtick(i):
+        k = i + 1
+        while k < n and text[k] != "`":
+            k += 2 if text[k] == "\\" else 1
+        return k + 1
+
+    def dq(i):  # i at the opening quote; returns past the closing one
+        k = i + 1
+        while k < n and text[k] != '"':
+            if text[k] == "\\":
+                k += 2
+            elif text.startswith("$((", k):
+                k = code(k + 3, arith=True)
+            elif text.startswith("$(", k):
+                k = comsub(k)
+            elif text[k] == "`":
+                k = backtick(k)
+            else:
+                k += 1
+        return k + 1
+
+    def comsub(i):  # i at `$(`; returns past bash 3.2's matching `)`
+        out = []
+        k = code(i + 2, out=out)
+        if word.findall("".join(out)).count("case") > word.findall("".join(out)).count("esac"):
+            found.append(text.count("\n", 0, i) + 1)
+        return k
+
+    def code(k, out=None, arith=False, top=False):
+        depth = 1
+        while k < n:
+            c = text[k]
+            if c == "\\":
+                k += 2
+                continue
+            if c == "\n":
+                if out is not None:
+                    out.append(c)
+                k = skip_heredocs(k + 1)
+                continue
+            if c == "'" and not arith:
+                k = single(k); out is not None and out.append(" "); continue
+            if text.startswith("$'", k):
+                k = ansi(k + 1); out is not None and out.append(" "); continue
+            if c == '"':
+                k = dq(k); out is not None and out.append(" "); continue
+            if c == "`":
+                k = backtick(k); out is not None and out.append(" "); continue
+            if c == "#" and not arith and (k == 0 or text[k - 1] in " \t\n;|&("):
+                e = text.find("\n", k)
+                k = n if e < 0 else e
+                continue
+            if text.startswith("$((", k):
+                k = code(k + 3, arith=True); continue
+            if text.startswith("$(", k):
+                k = comsub(k); out is not None and out.append(" "); continue
+            m = heredoc.match(text, k) if not arith and c == "<" and not text.startswith("<<<", k) else None
+            if m:
+                pending.append((m.group(1) == "-", m.group(3)))
+                k = m.end(); continue
+            if not top:
+                if c == "(":
+                    depth += 1
+                elif c == ")":
+                    depth -= 1
+                    if depth == 0:
+                        return k + 1
+            if out is not None:
+                out.append(c)
+            k += 1
+        return k
+
+    code(0, top=True)
+    return found
+
+
+def the_dispatcher_parses_on_bash_3_2(r):
+    """bash 3.2 (macOS) reads `$( … )` by counting parens: `case $x in pat) …;; esac` inside one ends the
+    substitution at `pat)`, a syntax error for the whole file ("line 27: syntax error near unexpected token `;;'", CI
+    on 7b37537). bash 5 parses it, so Linux never saw it. The engine writes such patterns as `(pat)`."""
+    # The checker itself, on what bash 3.2 cuts (bare, in double quotes, after a heredoc, after $'…', after a comment)
+    # and on what it reads whole. kit-r1 (UAK-013): a "$(case … pat) …)" in doctor went unseen by a first version.
+    samples = {
+        'x=$(case $a in b) echo 1;; esac)\n': [1],
+        'y=$(case $a in (b) echo 1;; esac)\n': [],
+        'v="$(case $x in a) echo 1;; esac)"\n': [1],
+        'w="$(case " $l " in *" uv "*) printf x;; esac)"\n': [1],
+        'z=$(echo "(a)" \'(\' # )\n)\n': [],
+        'cat <<EOF\nit\'s (\nEOF\nq=$(case $a in b) :;; esac)\n': [4],
+        "s=$'it\\'s'; q=$(case $a in b) :;; esac)\n": [1],
+        'q=$(# it\'s\ncase $a in b) :;; esac)\n': [1],
+        'q=$(echo lower-case ${x#case})\n': [],
+        'q=$((1 + (2)))\n': [],
+    }
+    for sample, want in samples.items():
+        expect(comsub_case_misparses(sample) == want, "the checker itself on %r: %s" % (sample, comsub_case_misparses(sample)))
+    bad, checked = {}, 0
+    for f in sorted((r.package / ".uak/bin").rglob("*")):
+        if not f.is_file() or f.suffix not in ("", ".sh"):
+            continue
+        text = f.read_text(encoding="utf-8", errors="replace")
+        if f.suffix == "" and not text.startswith("#!"):
+            continue
+        checked += 1
+        lines = comsub_case_misparses(text)
+        if lines:
+            bad[f.relative_to(r.package).as_posix()] = lines
+    expect(checked > 20 and not bad, "a case pattern without its ( inside $( … ): bash 3.2 fails to parse it: " + str(bad))
+    return {"checked": checked}
+
+
 TESTS = [config_reader_reads_every_form, json_envelope_reports_results_and_codes, registry_drives_help_and_dispatch,
          engine_is_split_and_finds_its_libraries, an_engine_in_another_folder_runs_whole, a_human_reads_zero_events_not_blanks,
          secret_scan_reads_every_file_in_one_pass, gate_runs_smoke_and_verify_with_the_callers_ssh_env,
-         merge_runs_the_main_checkouts_engine_not_the_branchs]
+         merge_runs_the_main_checkouts_engine_not_the_branchs, the_dispatcher_parses_on_bash_3_2]
 
 
 def main():
