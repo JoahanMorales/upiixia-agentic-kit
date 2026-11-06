@@ -19,3 +19,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1793930986 | UAK-002 | Paused: about 5 processes saved per call (next 93->88) does not justify the concurrency risk before the hackathon. | Why: CI on git 2.56 (ubuntu) still lets two processes into uak-claims: the lock event log shows 2 of 6 calls working there with no acquire event, one hit an existing .git/shallow.lock. Not reproducible locally (git 2.34).
 - 1793931936 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-005 | Why: scope or criteria fixed before review
 - 1793932634 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-006 | Why: scope or criteria fixed before review
+- 1793933304 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-016 | Why: backlog without PR (Plan-Channel: claims)
