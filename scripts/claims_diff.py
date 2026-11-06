@@ -68,7 +68,7 @@ def path_forms(base):
     return sorted(forms, key=len, reverse=True)
 
 
-# The fixture's folder as Git Bash may spell it when Python saw another form (Windows: C:\\Users\\RUNNER~1\\… for
+# The fixture's folder as Git Bash may spell it when Python saw another form (Windows: C:\Users\RUNNER~1\… for
 # Python, /c/Users/runneradmin/… in the records): the run's own folder name is unique, so match on it.
 BASE = re.compile(r"[^\s'\"`]*uak-claims-diff-[A-Za-z0-9_]+[/\\][on][/\\]diff(?![A-Za-z0-9_])")
 
