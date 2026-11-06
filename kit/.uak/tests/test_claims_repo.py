@@ -25,9 +25,17 @@ def env_for(index, **extra):
     return env
 
 
-def uak(r, f, index, args, allowed=(0,), bash_flags=(), **extra):
-    return r.run([r.bash, *bash_flags, ".uak/bin/uak", *args], cwd=f.worktrees[index], env=env_for(index, **extra),
-                 allowed=allowed)
+def with_shim(r, shim, command):
+    """The shim goes first on PATH inside bash, as test_v592 does: a PATH built in Python (Windows form) never put it
+    before Git Bash's own git (the Windows CI job saw no fetch through it)."""
+    if shim is None:
+        return command
+    return [r.bash, "-c", 'PATH="$1:$PATH"; export PATH; shift; exec "$@"', "_", shim.as_posix()] + command
+
+
+def uak(r, f, index, args, allowed=(0,), bash_flags=(), shim=None, **extra):
+    return r.run(with_shim(r, shim, [r.bash, *bash_flags, ".uak/bin/uak", *args]), cwd=f.worktrees[index],
+                 env=env_for(index, **extra), allowed=allowed)
 
 
 def claim_args(f, index, task):
@@ -103,16 +111,16 @@ def serializes_two_processes_on_one_machine(r):
     f = r.fixture("repo-lock", count=4, shared_repo=True)
     f.claim(0, "HACK-001")
     order = r.scratch / "repo-lock-order.log"
-    path = slow_git(r, "lock").as_posix() + os.pathsep + os.environ.get("PATH", "")
+    shim = slow_git(r, "lock")
     results = {}
 
     def slow():
-        results["A"] = uak(r, f, 0, ["heartbeat", "HACK-001"], allowed=None,
-                           PATH=path, UAK_TEST_LABEL="A", UAK_TEST_ORDER=order.as_posix())
+        results["A"] = uak(r, f, 0, ["heartbeat", "HACK-001"], allowed=None, shim=shim,
+                           UAK_TEST_LABEL="A", UAK_TEST_ORDER=order.as_posix())
     a = threading.Thread(target=slow)
     a.start()
     wait_for(order, "A-begin")
-    b = uak(r, f, 1, claim_args(f, 1, "HACK-002"), allowed=None, PATH=path, UAK_TEST_LABEL="B", UAK_TEST_ORDER=order.as_posix())
+    b = uak(r, f, 1, claim_args(f, 1, "HACK-002"), allowed=None, shim=shim, UAK_TEST_LABEL="B", UAK_TEST_ORDER=order.as_posix())
     a.join(120)
     logged = order.read_text(encoding="utf-8").split()
     expect(results["A"].returncode == 0, "expected: the first call succeeds, got: %s" % (results["A"].stdout + results["A"].stderr)[-600:])
@@ -134,8 +142,8 @@ def serializes_two_processes_on_one_machine(r):
     expect(all("claims/HACK-%03d.md" % i in files for i in range(1, 5)), "expected: 4 claims on the remote, got: %s" % files)
     # A holder that dies with the lock (kill -9, a closed terminal): the next call takes it over at once.
     env = r.env.copy()
-    env.update(env_for(0, PATH=path, UAK_TEST_LABEL="C", UAK_TEST_ORDER=order.as_posix()))
-    holder = subprocess.Popen([r.bash, ".uak/bin/uak", "heartbeat", "HACK-001"], cwd=str(f.worktrees[0]), env=env,
+    env.update(env_for(0, UAK_TEST_LABEL="C", UAK_TEST_ORDER=order.as_posix()))
+    holder = subprocess.Popen(with_shim(r, shim, [r.bash, ".uak/bin/uak", "heartbeat", "HACK-001"]), cwd=str(f.worktrees[0]), env=env,
                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                               start_new_session=(os.name != "nt"))
     try:
@@ -185,8 +193,37 @@ def falls_back_to_a_temp_clone_when_the_repo_is_corrupt(r):
     return "corrupt and locked: temporary clone, said once, repo rebuilt"
 
 
+def a_dead_holder_is_taken_over_by_one_process(r):
+    """kit-r1 (UAK-002): a takeover by rename left a moment with no lock, and a third waiter ran beside the new holder
+    in the same repo (a false "no active claim", an empty owner, git walking up into the checkout). Six calls at once
+    on a lock whose holder is dead, several rounds: every call lands, and no lock directory is left behind."""
+    n = 6
+    f = r.fixture("repo-reap", paths={"HACK-%03d" % (i + 1): "src/f%d.txt" % i for i in range(n)}, count=n, shared_repo=True)
+    for i in range(n):
+        f.claim(i, "HACK-%03d" % (i + 1))
+    lock = common(f) / LOCK
+    for rnd in range(4):
+        dead = r.run([r.bash, "-c", "echo $$"]).stdout.strip()   # a PID that no longer runs, as bash sees PIDs
+        lock.mkdir(exist_ok=True)
+        (lock / "owner").write_text(dead + "\n", encoding="utf-8")
+        barrier = threading.Barrier(n)
+
+        def one(i):
+            barrier.wait(timeout=30)
+            return uak(r, f, i, ["log", "HACK-%03d" % (i + 1), "marker-r%d-a%d" % (rnd, i)], allowed=None)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=n) as pool:
+            results = list(pool.map(one, range(n)))
+        for i, out in enumerate(results):
+            expect(out.returncode == 0, "round %d, call %d: expected: it succeeds, got: %s" % (rnd, i, (out.stdout + out.stderr)[-500:]))
+            log = f.show(f.worklog("HACK-%03d" % (i + 1)))
+            expect("marker-r%d-a%d" % (rnd, i) in log, "round %d, call %d: expected: its line in the worklog, got it lost" % (rnd, i))
+        left = sorted(p.name for p in common(f).iterdir() if p.name.startswith(LOCK))
+        expect(not left, "round %d: expected: no lock directory left, got: %s" % (rnd, left))
+    return "4 rounds of 6 calls on a dead holder's lock"
+
+
 TESTS = [reuses_the_claims_repo_between_calls, serializes_two_processes_on_one_machine,
-         falls_back_to_a_temp_clone_when_the_repo_is_corrupt]
+         falls_back_to_a_temp_clone_when_the_repo_is_corrupt, a_dead_holder_is_taken_over_by_one_process]
 
 
 def main():
