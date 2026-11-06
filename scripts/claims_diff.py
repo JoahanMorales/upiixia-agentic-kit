@@ -73,21 +73,33 @@ def path_forms(base):
 BASE = re.compile(r"[^\s'\"`]*uak-claims-diff-[A-Za-z0-9_]+[/\\][on][/\\]diff(?![A-Za-z0-9_])")
 
 
-def normalize(text, base):
+def normalize(text, base, shas=()):
     for form in path_forms(base):
         text = text.replace(form, "<BASE>")
     text = BASE.sub("<BASE>", text)
+    # The fixture's own commits, full or abbreviated: a short SHA can be all digits (5403068, macOS CI on 141aad2),
+    # which the pattern below leaves alone so as not to take an epoch for a SHA.
+    for sha in shas:
+        text = re.sub(r"(?<![0-9a-f])%s[0-9a-f]{0,33}(?![0-9A-Za-z])" % sha[:7], "<SHA>", text)
     return SHA.sub("<SHA>", TOKEN.sub("<CKSUM>", AGO.sub("(<AGO>)", TEMP.sub("<TMP>", text.replace("\r\n", "\n")))))
 
 
-def claims_tree(r, f):
+def fixture_shas(r, f):
+    """Every commit the fixture has made: the remote's branches and each worktree's HEAD."""
+    shas = set(git_bytes(r, f.remote, "rev-list", "--all").decode().split())
+    for wt in f.worktrees:
+        shas.update(git_bytes(r, wt, "rev-parse", "HEAD").decode().split())
+    return sorted(shas)
+
+
+def claims_tree(r, f, shas):
     """path -> normalized content of every file on the remote's claims branch."""
     data = git_bytes(r, f.remote, "archive", "--format=tar", "claims")
     tree = {}
     with tarfile.open(fileobj=io.BytesIO(data)) as tar:
         for m in tar.getmembers():
             if m.isfile():
-                tree[normalize(m.name, f.base)] = normalize(tar.extractfile(m).read().decode("utf-8", "replace"), f.base)
+                tree[normalize(m.name, f.base, shas)] = normalize(tar.extractfile(m).read().decode("utf-8", "replace"), f.base, shas)
     return tree
 
 
@@ -105,8 +117,9 @@ def scenario(r):
             env = {"UAK_AGENT": "agent-%d" % (index + 1), "UAK_NOW": str(now[0]), "UAK_REMOTE": "origin",
                    "UAK_HUMAN": "human-fixture" if human else ""}
             out = r.run([r.bash, ".uak/bin/uak", *args], cwd=cwd, env=env, allowed=None)
-        tree = claims_tree(r, f) if r.g(f.remote, "rev-parse", "-q", "--verify", "refs/heads/claims", allowed=None).returncode == 0 else {}
-        steps.append((label, out.returncode, normalize(out.stdout, f.base), tree))
+        shas = fixture_shas(r, f)
+        tree = claims_tree(r, f, shas) if r.g(f.remote, "rev-parse", "-q", "--verify", "refs/heads/claims", allowed=None).returncode == 0 else {}
+        steps.append((label, out.returncode, normalize(out.stdout, f.base, shas), tree))
 
     step("status before any claim", 0, "status")
     step("next before any claim", 0, "next")
