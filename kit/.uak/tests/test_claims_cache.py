@@ -19,7 +19,9 @@ HARNESS = r'''# $1 the engine's .uak/bin, $2 the mode, $3 ROOT (a checkout of th
 #   bare TXROOT CLAIMS BASE    cache_get of the state alone with an empty PATH: a hit starts no process
 #   drop                       cache_drop
 # Prints PUT / NOPUT why / HIT / MISS why, then the state: S name=value, L claim lease, A task min ago, F freeze.
-set -u  # as .uak/bin/uak runs
+set -u  # as .uak/bin/uak runs, with its Git for Windows setting: refs/uak/config:.uak/PROJECT.md is a git object
+# name, not a path list (without it coord_init read an empty PROJECT.md there and the freeze was 0).
+MSYS2_ARG_CONV_EXCL="refs/;origin/;${UAK_REMOTE:-origin}/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXCL
 UAK_BIN=$1 MODE=$2 ROOT=$3; shift 3
 for l in lib/core.sh uak-coordination lib/config.sh lib/backlog.sh lib/status.sh lib/cache.sh; do . "$UAK_BIN/$l" || exit 9; done
 LEASE=1800 BASE=main CMD=status ID= AGENT=agent-1 REG_MUTATE=${H_MUTATE:--}
