@@ -65,7 +65,24 @@ def closed_tasks_are_never_offered(r):
     return out.splitlines()[0]
 
 
-TESTS = [a_dependency_listed_later_is_still_offered, the_dependent_still_waits, closed_tasks_are_never_offered]
+def a_task_in_review_is_never_offered(r):
+    """REVIEW too (kit-r1 on d8abec4: the tests left it out): HACK-002 waits on its review, and HACK-001, listed
+    first, depends on it; next offers neither and moves on to HACK-003."""
+    f = r.fixture("prefilter-review", paths={"HACK-001": "src/a/", "HACK-002": "src/b/", "HACK-003": "src/c/"},
+                  count=2, dependencies={"HACK-001": "HACK-002"})
+    f.claim(1, "HACK-002")
+    f.hack(1, "done", "HACK-002", "--pr", "https://example.invalid/pull/2", "--evidence", "fixture",
+           "--no-red", "fixture task", now=NOW)
+    expect("State: REVIEW" in f.show("tasks/HACK-002.md"), "HACK-002 must be in REVIEW: %s" % f.show("tasks/HACK-002.md")[:400])
+    out = next_for(f, 0)
+    for task in ("HACK-001", "HACK-002"):
+        expect("%s | AVAILABLE" % task not in out, "%s must not be offered; got:\n%s" % (task, out[:800]))
+    expect("HACK-003 | AVAILABLE | P0" in out, "next must offer HACK-003; got:\n%s" % out[:800])
+    return out.splitlines()[0]
+
+
+TESTS = [a_dependency_listed_later_is_still_offered, the_dependent_still_waits, closed_tasks_are_never_offered,
+         a_task_in_review_is_never_offered]
 
 
 def main():
