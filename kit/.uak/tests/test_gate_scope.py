@@ -7,13 +7,14 @@ Processes are counted as test_claims_perf.py counts them (a traced shim per prog
 no $BASHPID, so there the results are checked and the counts are not. Real Git."""
 import argparse
 import concurrent.futures
+import os
+import re
 import tempfile
 import time
 from pathlib import Path
 
-from test_hack import Runner, expect, resolve_binary
-from test_v592 import bash_major
-from test_claims_perf import processes, shims
+from test_hack import Failure, Runner, expect, resolve_binary
+from test_claims_perf import shims, unique
 
 # The whole check for a 200-file branch, the harness's own bash included. Independent of the file count.
 LIMIT_ACCEPT = 25
@@ -36,6 +37,30 @@ NEW_OUTSIDE = ("New file outside Paths: %s. Move it into the task's Paths, or a 
                "PROJECT.md (new files there need no reservation)")
 EDIT_OUTSIDE = ("Edits a file outside Paths: %s%s. Revert that file on the branch (git checkout origin/main -- %s), "
                 "or the human merges the PR")
+
+
+class Unbuildable(Exception):
+    """Git for Windows refuses a name in the index ("error: Invalid path"): a newline or a carriage return."""
+
+
+def bash_major(r):
+    """The major version of the bash the tests run (r.bash). test_v592's runs a bare `bash` from PATH, which on Windows
+    is not Git Bash: there it read 0 and nothing was counted (kit-r1, UAK-008)."""
+    out = r.run([r.bash, "-c", "echo ${BASH_VERSINFO[0]}"], cwd=r.scratch, allowed=None).stdout.strip()
+    return int(out) if out.isdigit() else 0
+
+
+def processes(r, cwd, args):
+    """Distinct processes of one call, as test_claims_perf counts them (a traced shim per program, distinct $BASHPID),
+    called only when this file's bash_major(r) is 4 or more."""
+    trace, stdin = unique(r, "gate-trace-"), unique(r, "gate-in-")
+    script = ('exec 9>>"$1" < "$3"; PATH="$2:$PATH"; export PATH; shift 3; '
+              "exec env BASH_XTRACEFD=9 'PS4=+$BASHPID ' SHELLOPTS=xtrace \"$@\"")
+    out = r.run([r.bash, "-c", script, "_", trace.as_posix(), shims(r).as_posix(), stdin.as_posix(), "bash"] + args,
+                cwd=cwd, allowed=None)
+    pids = set(re.findall(r"(?m)^\++([0-9]+) ", trace.read_text(encoding="utf-8", errors="replace")))
+    expect(pids, "the trace counted nothing: " + out.stderr[-300:])
+    return len(pids), out
 
 
 def harness(r):
@@ -74,7 +99,12 @@ def scene(r, name, files=None, index=None):
         blob = d / ("blob-%d" % i)
         blob.write_text(text, encoding="utf-8", newline="\n")
         sha = r.g(repo, "hash-object", "-w", blob.as_posix()).stdout.strip()
-        r.g(repo, "update-index", "--add", "--cacheinfo", "100644,%s,%s" % (sha, rel))
+        staged = r.run([r.git, "update-index", "--add", "--cacheinfo", "100644,%s,%s" % (sha, rel)], cwd=repo, allowed=None)
+        # Only on Windows, only for this refusal: Linux and macOS build every case.
+        if staged.returncode and os.name == "nt" and "Invalid path" in staged.stderr:
+            raise Unbuildable(rel)
+        if staged.returncode:
+            raise Failure("git update-index %r failed: %s" % (rel, staged.stderr[-300:]))
     bindir = r.package / ".uak" / "bin"
     return d, [harness(r).as_posix(), bindir.as_posix(), repo.as_posix(), base, tx.as_posix(),
                (d / "TASKS.md").as_posix(), tmp.as_posix()]
@@ -83,7 +113,7 @@ def scene(r, name, files=None, index=None):
 def scope(r, d, args, count=False):
     """rm_gate_scope's verdict, and the processes it started when count (None on bash 3.2)."""
     if count and bash_major(r) >= 4:
-        n, out = processes(r, d, args, "")
+        n, out = processes(r, d, args)
     else:
         n, out = None, r.run([r.bash] + args, cwd=d, allowed=None)
     text = out.stdout.strip()
@@ -155,14 +185,21 @@ def the_same_reasons_for_new_and_edited_files_outside_paths(r):
     fixture, accents and a space, case folding, a newline: the verdicts and reason texts of the per-file loop."""
     def one(case):
         name, files, index, want = case
-        d, args = scene(r, "reasons-" + name, files, index)
+        try:
+            d, args = scene(r, "reasons-" + name, files, index)
+        except Unbuildable:
+            return name, want, None
         _, verdict = scope(r, d, args)
         return name, want, verdict
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(one, CASES))
-    wrong = ["%s: expected: %r, got: %r" % (name, want, got) for name, want, got in results if got != want]
+    wrong = ["%s: expected: %r, got: %r" % (name, want, got) for name, want, got in results if got is not None and got != want]
     expect(not wrong, "\n".join(wrong))
-    return "%d cases" % len(results)
+    skipped = [name for name, _, got in results if got is None]
+    note = "%d cases" % (len(results) - len(skipped))
+    if skipped:
+        note += "; skipped %s: Git for Windows refuses the name in the index (Invalid path)" % ", ".join(skipped)
+    return note
 
 
 def a_file_name_is_not_a_paths_pattern(r):
