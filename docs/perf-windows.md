@@ -152,8 +152,8 @@ about 8x as many on Windows (next: 0.19 s there, 1.5 s here). To measure again, 
       cp scripts/perf_claims.sh "$TMP/uak-old/scripts/" && bash "$TMP/uak-old/scripts/perf_claims.sh" 5
     bash scripts/perf_claims.sh 5
 
-A heartbeat still takes 5 s on this PC, and the hooks send one every 10 minutes in the background; `next` and `status`
-are what an agent waits for, and they are 1.5 s faster each.
+A mutation still takes about 5 s on this PC (heartbeat is the cheapest one): its clone, commit and push are what is
+left. `next` and `status`, the reads an agent waits on, are 1.5 s faster each.
 
 ### Targets dropped, and why
 
