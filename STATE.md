@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1793979926
+Updated: 1793979994
 AVAILABLE: UAK-006 UAK-007 UAK-015 UAK-016 
 CLAIMED: -
 BLOCKED: -
@@ -13,11 +13,11 @@ Claims (first 24; status --task ID shows detail):
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1793924778 | UAK-015 | follow-up of UAK-013 by kit-2: The bash 3.2 comsub checker counts $(( )) inside $( ) as one paren level: y=$(case $a in (b) echo $((1));; esac) is a false 
 - 1793930986 | UAK-002 | Paused: about 5 processes saved per call (next 93->88) does not justify the concurrency risk before the hackathon. | Why: CI on git 2.56 (ubuntu) still let
 - 1793931936 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-005 | Why: scope or criteria fixed before review
 - 1793932634 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-006 | Why: scope or criteria fixed before review
 - 1793933304 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-016 | Why: backlog without PR (Plan-Channel: claims)
+- 1793979994 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-006 | Why: scope or criteria fixed before review
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.
