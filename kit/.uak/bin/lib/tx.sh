@@ -18,7 +18,115 @@ remote_setup() {
   [ -n "$USER_NAME" ] || USER_NAME=${AGENT:-uak}
   [ -n "$USER_EMAIL" ] || USER_EMAIL=uak@localhost
 }
+# The claims repo: one per clone, in <git-common-dir>/uak-claims/, refreshed by one fetch per call instead of a
+# `git init`, 4 `git config` and a `git remote add` in a new temp dir. Why (UAK-002): every process costs 20-50 ms on
+# Git Bash, and status/next/heartbeat start one of these per call. A mkdir lock (uak-claims.lock, the holder's $$
+# inside, so the status tick's subshell holds it for its parent) serializes the processes of one clone; the main
+# shell's EXIT trap releases it. bb_common is uak's own `git rev-parse --git-common-dir` (relative to $PWD), read
+# before the libraries load: no extra process.
+CLAIMS_CMD=$CMD CLAIMS_LOCK_WAIT=${UAK_CLAIMS_LOCK_WAIT:-20} CLAIMS_BROKEN=
+case "${bb_common:-}" in
+  '') CLAIMS_DIR=;;
+  /*|[A-Za-z]:*) CLAIMS_DIR="$bb_common/uak-claims";;
+  *) CLAIMS_DIR="$PWD/$bb_common/uak-claims";;
+esac
+trap 'claims_unlock; cleanup' EXIT
+claims_note() { # once per call, the status tick's subshell included (TXROOT is shared)
+  [ ! -f "$TXROOT/claims-noted" ] || return 0
+  : > "$TXROOT/claims-noted"
+  say "NOTE: the claims repo $CLAIMS_DIR is not usable ($1); this call uses a temporary clone." >&2
+}
+claims_lock_stale() { # $1 lock, $2 holder PID, $3 tries, $4 tries without an owner file
+  if [ -n "$2" ]; then kill -0 "$2" 2>/dev/null || return 0
+  else [ "$4" -lt 10 ] || return 0   # 2 s with no owner: the holder died between mkdir and its PID
+  fi
+  # A live holder older than the lease (a push stuck on a credential prompt), checked every 5 s.
+  [ $(( $3 % 25 )) -eq 24 ] && [ -n "$(find "$1" -prune -mmin +$(( LEASE / 60 )) 2>/dev/null)" ]
+}
+claims_lock() { # → 0 held by this call ($$); 1 still held by another after CLAIMS_LOCK_WAIT s; 2 cannot be created
+  local lock="$CLAIMS_DIR.lock" pid= moved= tries=0 orphan=0
+  { IFS= read -r pid; } 2>/dev/null < "$lock/owner"
+  [ "$pid" != "$$" ] || return 0
+  until mkdir "$lock" 2>/dev/null; do
+    [ -d "$lock" ] || return 2
+    pid=; { IFS= read -r pid; } 2>/dev/null < "$lock/owner"
+    [ -n "$pid" ] && orphan=0 || orphan=$((orphan + 1))
+    if claims_lock_stale "$lock" "$pid" "$tries" "$orphan"; then
+      # Taken over by a rename: of two processes that saw the same dead holder, only one renames it. One that
+      # renamed a lock taken in between (another PID inside) puts it back.
+      if mv "$lock" "$lock.$$" 2>/dev/null; then
+        moved=; { IFS= read -r moved; } 2>/dev/null < "$lock.$$/owner"
+        if [ "$moved" = "$pid" ]; then rm -rf "$lock.$$" "$CLAIMS_DIR/.git/refs/uak" "$CLAIMS_DIR/.git/packed-refs"
+        elif [ ! -e "$lock" ]; then mv "$lock.$$" "$lock" 2>/dev/null || true
+        fi
+      fi
+      orphan=0; continue
+    fi
+    tries=$((tries + 1)); [ "$tries" -le $(( CLAIMS_LOCK_WAIT * 5 )) ] || return 1
+    sleep 0.2 2>/dev/null || sleep 1
+  done
+  printf '%s\n' "$$" > "$lock/owner"
+}
+claims_unlock() {
+  local pid=
+  [ -n "$CLAIMS_DIR" ] || return 0
+  { IFS= read -r pid; } 2>/dev/null < "$CLAIMS_DIR.lock/owner"
+  [ "$pid" = "$$" ] || return 0
+  # The refs this call fetched go with the lock: a stale refs/uak/base or refs/uak/task would answer for the next call.
+  rm -rf "$CLAIMS_DIR/.git/refs/uak" "$CLAIMS_DIR/.git/packed-refs" "$CLAIMS_DIR.lock"
+}
+claims_repo_create() {
+  [ ! -e "$CLAIMS_DIR" ] || rm -rf "$CLAIMS_DIR" || return 1
+  git -c init.defaultRefFormat=files init -q "$CLAIMS_DIR" 2> "$TXROOT/git-error" || return 1
+  # Claims files are data read line by line: never CRLF (see the temp clone below). gc runs in the foreground, under
+  # the lock: a detached gc would outlive it and race the next call.
+  git --git-dir="$CLAIMS_DIR/.git" config core.autocrlf false && git --git-dir="$CLAIMS_DIR/.git" config core.eol lf &&
+    git --git-dir="$CLAIMS_DIR/.git" config gc.autoDetach false && git --git-dir="$CLAIMS_DIR/.git" config maintenance.autoDetach false
+}
+claims_identity() { # user.name, user.email and the remote URL, written only when they change
+  local g="$CLAIMS_DIR/.git" n= e= u=
+  { IFS= read -r n; IFS= read -r e; IFS= read -r u; } 2>/dev/null < "$g/uak-identity"
+  [ "$n" != "$USER_NAME" ] || [ "$e" != "$USER_EMAIL" ] || [ "$u" != "$REMOTE_URL" ] || return 0
+  [ "$n" = "$USER_NAME" ] || git --git-dir="$g" config user.name "$USER_NAME" || return 1
+  [ "$e" = "$USER_EMAIL" ] || git --git-dir="$g" config user.email "$USER_EMAIL" || return 1
+  [ "$u" = "$REMOTE_URL" ] || git --git-dir="$g" config remote.origin.url "$REMOTE_URL" 2> "$TXROOT/git-error" || return 1
+  printf '%s\n' "$USER_NAME" "$USER_EMAIL" "$REMOTE_URL" > "$g/uak-identity"
+}
+# → 0 with TX on the claims repo; 1 for the temporary clone (CLAIMS_BROKEN: the repo failed, drop it after).
+claims_repo_state() {
+  local g="$CLAIMS_DIR/.git"
+  case "${UAK_CLAIMS_REPO:-on}" in off|0|no|false) return 1;; esac
+  # done/integrate/merge prove ancestry on the whole base: the shallow grafts that earlier depth-1 fetches leave in a
+  # shared repo would cut that history. merge and wait also hold their state for minutes. They keep the temp clone.
+  case "$CLAIMS_CMD" in done|integrate|merge|wait) return 1;; esac
+  [ -n "$CLAIMS_DIR" ] && [ -f "${CLAIMS_DIR%/uak-claims}/HEAD" ] || return 1
+  claims_lock || { [ "$?" -eq 2 ] && claims_note "cannot create $CLAIMS_DIR.lock" ||
+    claims_note "another process has held $CLAIMS_DIR.lock for over $CLAIMS_LOCK_WAIT s"; return 1; }
+  # Explicit --git-dir: a broken .git is an error here, never a walk up into the checkout's own repository.
+  if [ ! -f "$g/HEAD" ] && ! claims_repo_create; then
+    CLAIMS_BROKEN=$CLAIMS_DIR; claims_note "git init failed: $(head -n 1 "$TXROOT/git-error" 2>/dev/null)"; return 1
+  fi
+  : > "$TXROOT/git-error"
+  if claims_identity && git --git-dir="$g" fetch -q --depth 2 origin "+refs/heads/claims:refs/uak/claims" "+refs/heads/$BASE:refs/uak/config" 2> "$TXROOT/git-error" &&
+     git --git-dir="$g" --work-tree="$CLAIMS_DIR" checkout -q -f -B claims refs/uak/claims 2> "$TXROOT/git-error" &&
+     git --git-dir="$g" --work-tree="$CLAIMS_DIR" clean -q -f -f -d -x 2> "$TXROOT/git-error"; then
+    TX=$CLAIMS_DIR HAS_REMOTE=yes
+    [ -d "$TX/tasks" ] && [ -d "$TX/claims" ] && [ -d "$TX/worklog" ] || mkdir -p "$TX/tasks" "$TX/claims" "$TX/worklog"
+    return 0
+  fi
+  # No claims branch yet (the first claim): the temporary clone starts it, and the repo stays.
+  ! grep -qi "couldn't find remote ref refs/heads/claims" "$TXROOT/git-error" || return 1
+  CLAIMS_BROKEN=$CLAIMS_DIR; claims_note "$(head -n 1 "$TXROOT/git-error")"; return 1
+}
 fresh_state() {
+  # A new state: coord_init reads it again (the claims repo keeps one path across tries and reads).
+  COORD_INITIALIZED_TX=
+  claims_repo_state && return 0
+  tx_temp_state
+  # The temporary clone reached the remote: the repo was the problem. Rebuilt by the next call, under its lock.
+  [ -z "$CLAIMS_BROKEN" ] || { rm -rf "$CLAIMS_BROKEN" 2>/dev/null; CLAIMS_BROKEN=; }
+}
+tx_temp_state() {
   TX="$TXROOT/try-$ATTEMPT"
   mkdir "$TX" || gitfail "Cannot create transaction."
   # Windows (antivirus, OneDrive, indexers) can lock a just-created directory for a moment: 3 tries, and the
