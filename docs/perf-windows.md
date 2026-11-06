@@ -137,19 +137,23 @@ STATE.md alone went from 130 processes on 12 task records and 346 on 48 to 4 for
 
 ### Time
 
-`bash scripts/perf_claims.sh 7` (median of 7 runs after a warm call), old and new back to back:
+`bash scripts/perf_claims.sh RUNS` (the median of RUNS calls after a warm one), old and new back to back:
 
 | machine | `next` | `status` | `heartbeat` |
 |---|---|---|---|
-| Linux, aarch64 (Jetson), bash 5.1, mawk | 0.68 → 0.49 s | 0.63 → 0.44 s | 0.78 → 0.65 s |
-| Windows 11, Git Bash | pending: the human runs it (below) | | |
+| Windows 11 Pro 26200, Git for Windows 2.45.2 (bash 5.2.26), 2 rounds of 5 | 5.1 → 3.6 s (−30%) | 4.5 → 2.9 s (−36%) | 6.3 → 5.0 s (−20%) |
+| Linux, aarch64 (Jetson), bash 5.1, mawk, 7 runs | 0.68 → 0.49 s | 0.63 → 0.44 s | 0.78 → 0.65 s |
 
-On Windows a process costs 20-50 ms instead of about 2, so the processes saved weigh 10-25x more there than on Linux.
-To fill the Windows row, in Git Bash at the root of this repository:
+Windows: the medians of the two rounds were within 0.1 s of each other (next 5.12 and 5.08 → 3.64 and 3.53 s, status
+4.55 and 4.54 → 2.98 and 2.89 s, heartbeat 6.26 and 6.25 → 5.06 and 4.95 s). The same seconds saved on Linux are
+about 8x as many on Windows (next: 0.19 s there, 1.5 s here). To measure again, in Git Bash at the repository's root:
 
     git archive c949f90 kit | (mkdir -p "$TMP/uak-old/scripts" && tar -x -C "$TMP/uak-old") &&
       cp scripts/perf_claims.sh "$TMP/uak-old/scripts/" && bash "$TMP/uak-old/scripts/perf_claims.sh" 5
     bash scripts/perf_claims.sh 5
+
+A heartbeat still takes 5 s on this PC, and the hooks send one every 10 minutes in the background; `next` and `status`
+are what an agent waits for, and they are 1.5 s faster each.
 
 ### Targets dropped, and why
 
