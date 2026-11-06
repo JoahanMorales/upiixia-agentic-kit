@@ -48,6 +48,10 @@ def stop_reads_the_inbox_from_the_cache(r):
     marker = r.scratch / "hook-stop-engine.log"
     wrap_engine(r, w, marker)
     gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    # stop also publishes this machine's token spend to claims every 30 min, in the background: a commit that moves
+    # the tip (and rightly costs a read). Published just now, so only the messages below move it.
+    common = Path(r.g(w, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip())
+    (common / "uak-tokens.published").write_text("%d\n" % int(time.time()), encoding="utf-8")
     f.hack(1, "msg", "HACK-001", "src/one.txt · one line · the spec", "--kind", "request", now=int(time.time()))
     # Cold: nothing kept yet, so the full read; the message blocks the stop.
     out = hook(r, w, [".uak/bin/hook", "stop"], STOP)
@@ -71,10 +75,16 @@ def stop_reads_the_inbox_from_the_cache(r):
             os.utime(str(gd / name), (old, old))
     hook(r, w, [".uak/bin/hook", "stop"], STOP)
     expect(len(peeks(marker)) == 3, "a stale copy is read again: %s" % peeks(marker))
-    # session-start reads through the same copy: fresh and the tip unchanged, no full read.
+    # session-start reads through the same copy. Its own `uak next` may commit a tick to claims first (the tip moves:
+    # one read); a second session start with nothing new on claims reads nothing.
+    start = json.dumps({"session_id": "hook-claims-2", "hook_event_name": "SessionStart"})
+    hook(r, w, [".uak/bin/hook", "session-start"], start)
     before = len(peeks(marker))
-    hook(r, w, [".uak/bin/hook", "session-start"], json.dumps({"session_id": "hook-claims-2", "hook_event_name": "SessionStart"}))
+    tip = r.g(f.remote, "rev-parse", "claims").stdout.strip()
+    out = hook(r, w, [".uak/bin/hook", "session-start"], start)
+    expect(r.g(f.remote, "rev-parse", "claims").stdout.strip() == tip, "the second session start committed to claims")
     expect(len(peeks(marker)) == before, "session-start with a fresh copy must not read the inbox again: %s" % peeks(marker))
+    expect("#2 " in out.stdout, "session-start still shows the inbox from the kept copy: %r" % out.stdout[-500:])
     return "%d full reads for 6 stops and a session start" % len(peeks(marker))
 
 
