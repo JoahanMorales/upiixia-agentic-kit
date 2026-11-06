@@ -30,7 +30,9 @@ def with_shim(r, shim, command):
     before Git Bash's own git (the Windows CI job saw no fetch through it)."""
     if shim is None:
         return command
-    return [r.bash, "-c", 'PATH="$1:$PATH"; export PATH; shift; exec "$@"', "_", shim.as_posix()] + command
+    # The inner call is `bash` from PATH, as in test_v592: Git for Windows' bin\bash.exe is a launcher that puts
+    # /mingw64/bin first on PATH again, before the shim (the Windows job still saw no fetch through it).
+    return [r.bash, "-c", 'PATH="$1:$PATH"; export PATH; shift; exec "$@"', "_", shim.as_posix(), "bash"] + command[1:]
 
 
 def uak(r, f, index, args, allowed=(0,), bash_flags=(), shim=None, **extra):
