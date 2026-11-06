@@ -297,7 +297,8 @@ def comsub_case_misparses(text):
         return k
 
     def code(k, out=None, arith=False, top=False):
-        depth = 1
+        # $(( … )) is entered past both of its parens and ends past both: bash 3.2 counts them as two (UAK-015).
+        depth = 2 if arith else 1
         while k < n:
             c = text[k]
             if c == "\\":
