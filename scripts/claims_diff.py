@@ -68,9 +68,15 @@ def path_forms(base):
     return sorted(forms, key=len, reverse=True)
 
 
+# The fixture's folder as Git Bash may spell it when Python saw another form (Windows: C:\\Users\\RUNNER~1\\… for
+# Python, /c/Users/runneradmin/… in the records): the run's own folder name is unique, so match on it.
+BASE = re.compile(r"[^\s'\"`]*uak-claims-diff-[A-Za-z0-9_]+[/\\][on][/\\]diff(?![A-Za-z0-9_])")
+
+
 def normalize(text, base):
     for form in path_forms(base):
         text = text.replace(form, "<BASE>")
+    text = BASE.sub("<BASE>", text)
     return SHA.sub("<SHA>", TOKEN.sub("<CKSUM>", AGO.sub("(<AGO>)", TEMP.sub("<TMP>", text.replace("\r\n", "\n")))))
 
 
@@ -171,7 +177,7 @@ def compare(old, new):
 
 def run(keep=False):
     """Both engines through the scenario; returns (steps, problems)."""
-    tmp = Path(tempfile.mkdtemp(prefix="uak-claims-diff-"))
+    tmp = Path(tempfile.mkdtemp(prefix="uak-claims-diff-")).resolve()
     try:
         bash, git = resolve_binary("bash"), resolve_binary("git")
         probe = Runner(ROOT / "kit", tmp, bash, git)
