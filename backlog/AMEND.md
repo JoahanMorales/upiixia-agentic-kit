@@ -107,3 +107,14 @@ Append-only; the last section of an ID replaces its section in the backlog. Why:
 - **Verify:** `python3 kit/.uak/tests/test_v511.py --case the_dispatcher_parses_on_bash_3_2 --case merge_runs_the_main_checkouts_engine_not_the_branchs`
 - **Next step:** the redirect block at the top of kit/.uak/bin/uak
 
+## UAK-005 · Mutations on a reused worktree of the claims repo
+
+- **Type:** feature
+- **Priority:** P1
+- **Estimate:** 4 h
+- **Depends on:** ninguna
+- **Paths:** kit/.uak/bin/lib/tx.sh, kit/.uak/tests/test_claims_write.py
+- **Acceptance:** `checkout -f refs/uak/claims`, write, commit, push in the persistent repo; a rejected push retries on the new tip, each retry keeps today's semantics: a fresh clock, the secret check before the commit, the append-only lint on `HEAD^`
+- **Tests:** a_rejected_push_retries_on_the_new_tip, every_retry_reads_a_fresh_clock, a_secret_is_refused_before_the_commit
+- **Verify:** `python3 kit/.uak/tests/test_claims_write.py`
+- **Next step:** to be cancelled: it builds on UAK-002 (the persistent claims repo), which was cancelled
