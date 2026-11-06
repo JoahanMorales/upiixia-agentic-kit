@@ -118,3 +118,14 @@ Append-only; the last section of an ID replaces its section in the backlog. Why:
 - **Tests:** a_rejected_push_retries_on_the_new_tip, every_retry_reads_a_fresh_clock, a_secret_is_refused_before_the_commit
 - **Verify:** `python3 kit/.uak/tests/test_claims_write.py`
 - **Next step:** to be cancelled: it builds on UAK-002 (the persistent claims repo), which was cancelled
+## UAK-006 · Proof of no change, and the measured gains
+
+- **Type:** integration
+- **Priority:** P0
+- **Estimate:** 4 h
+- **Depends on:** UAK-003, UAK-004, UAK-008, UAK-010, UAK-011, UAK-012, UAK-013, UAK-014
+- **Paths:** scripts/claims_diff.py, kit/.uak/tests/test_claims_perf.py, kit/.uak/bin/lib/, kit/.uak/bin/uak, kit/.uak/bin/uak-coordination, docs/perf-windows.md
+- **Acceptance:** the protocol suites run the old and the new engine side by side on the same fixtures: every command's stdout and the resulting claims tree are identical, test_claims_perf.py's XFAIL set keeps only the targets the redesign does not reach (UAK-002 and UAK-005, the persistent claims repo, were cancelled: about 5 processes per call for a lock shared between processes); a target that is met leaves the set, docs/perf-windows.md has the before and after process counts and times from `scripts/perf_claims.sh` on Windows, and says which targets were dropped and why
+- **Tests:** old_and_new_engines_print_the_same_and_write_the_same_tree
+- **Verify:** `python3 scripts/claims_diff.py && python3 kit/.uak/tests/test_claims_perf.py`
+- **Next step:** reuse the guard differential of v5.9.2 (docs/perf-windows.md)
