@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1793980454
+Updated: 1793980612
 AVAILABLE: UAK-006 UAK-007 UAK-015 UAK-016 
 CLAIMED: UAK-017 
 BLOCKED: -
@@ -10,15 +10,15 @@ INTEGRATED: UAK-001 UAK-003 UAK-004 UAK-008 UAK-009 UAK-010 UAK-011 UAK-012 UAK-
 CANCELLED: UAK-002 UAK-005 
 
 Claims (first 24; status --task ID shows detail):
-UAK-017 | CLAIMED | kit-4 | until 1793994854
+UAK-017 | CLAIMED | kit-4 | until 1793995012
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1793932634 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-006 | Why: scope or criteria fixed before review
 - 1793933304 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-016 | Why: backlog without PR (Plan-Channel: claims)
 - 1793979994 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-006 | Why: scope or criteria fixed before review
 - 1793980175 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-017 | Why: backlog without PR (Plan-Channel: claims)
 - 1793980444 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-006 | Why: scope or criteria fixed before review
+- 1793980612 | UAK-017 | (x in st) before st[x] in the dependency loop | Why: awk creates keys on read
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.
