@@ -533,12 +533,8 @@ rm_path_owner() {
   done
 }
 rm_gate_scope() {
-  local path allowed reserve owner_t
+  local code path additive owner_t added
   normalize_paths "$(rm_task_value Paths)" > "$TXROOT/merge-allowed" || { RM_REASON='Invalid claim Paths'; return 1; }
-  # Scope = what this merge changes in the CURRENT base (the staged candidate vs RM_BASE_TIP), not Task-Base..tip.
-  # Why (Reap buildathon, 6 of 13 merged tasks): a branch that merged origin/main inherited other tasks' files
-  # (.env.example, workflows, PROJECT.md) and every one of them was sent to the human queue as "outside Paths".
-  git -C "$RM_BUILD" diff --cached --no-renames --name-only -z "$RM_BASE_TIP" > "$TXROOT/merge-files" || return 1
   # Additive-Paths (PROJECT.md, e.g. `e2e/, tests/`): NEW files there need no reservation; edits still do.
   # Why (UpiixSol): 4 of 11 decisions were "this task adds a new test file outside its Paths", 15 min each.
   : > "$TXROOT/merge-additive"
@@ -546,56 +542,87 @@ rm_gate_scope() {
   if [ -n "$additive" ] && [ "$additive" != - ]; then
     normalize_paths "$additive" > "$TXROOT/merge-additive" 2>/dev/null || : > "$TXROOT/merge-additive"
   fi
-  # Names as they are (no "se\303\261al.txt" quoting), so they match the -z list. Why (audit): a new src/señal.txt was
-  # taken for an edit and its exemptions (empty file, Additive-Paths) never applied.
-  git -C "$RM_BUILD" -c core.quotePath=false diff --cached --no-renames --diff-filter=A --name-only "$RM_BASE_TIP" > "$TXROOT/merge-added" || return 1
-  while IFS= read -r -d '' path; do
-    case "$path" in *$'\n'*|*$'\r'*) RM_REASON='Path with newline not supported'; return 1;; esac
-    # Shared resources first, so the reason says what it really is (MLB: the smoke provenance file, written by
-    # init-smoke, was reported as "outside Paths").
-    # Test data is not a shared resource (Hacktoberfest: a fixture repo's migrations/*.sql went to the human).
-    # Only when the fixture directory holds the shared-looking path, not the other way round: db/migration/fixtures/
-    # V9__x.sql is still a migration (Flyway scans db/migration recursively). Why (audit, Oct 2026).
-    local lp fx pre fixture=no
-    lp="/$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')/"
-    for fx in /fixtures/ /testdata/ /__fixtures__/ /test-fixtures/; do
-      case "$lp" in *"$fx"*) pre="${lp%%"$fx"*}/"
-        case "$pre" in */contracts/*|*/types/*|*/shared-types/*|*/migrations/*|*/db/migration/*|*/.github/*|*/.uak/*) ;; *) fixture=yes;; esac;; esac
-    done
-    [ "$fixture" = yes ] || case "$lp" in
-      */contracts/*|*/types/*|*/shared-types/*|*/migrations/*|*/db/migration/*|*/gradle.lockfile/*|*/.github/workflows/*|*/.gitlab-ci.yml/*|*/azure-pipelines.yml/*|*/package-lock.json/*|*/pnpm-lock.yaml/*|*/*.lock/*|*/*.lockb/*|*/go.sum/*|*/.uak/bin/smoke/*|*/.uak/bin/smoke-project/*|*/.uak/bin/.smoke-project.provenance/*|*/.uak/bin/secret-scan/*|*/.uak/bin/uak/*|*/.uak/bin/lib/*|*/.uak/bin/uak-coordination/*|*/.githooks/*|*/hackathon.md/*|*/.uak/project.md/*)
-        RM_REASON="Shared resource/CI needs a human: $path"; return 1;;
-    esac
-    normalize_paths "$path" > "$TXROOT/merge-path" || { RM_REASON='Invalid diff path'; return 1; }
-    allowed=no
-    while IFS= read -r reserve; do
-      printf '%s\n' "$reserve" > "$TXROOT/merge-reserve"
-      overlaps "$TXROOT/merge-path" "$TXROOT/merge-reserve" && allowed=yes
-    done < "$TXROOT/merge-allowed"
-    added=no; ! grep -qxF -- "$path" "$TXROOT/merge-added" 2>/dev/null || added=yes
-    if [ "$allowed" = no ] && [ "$added" = yes ] && [ -s "$TXROOT/merge-additive" ] &&
-       overlaps "$TXROOT/merge-path" "$TXROOT/merge-additive"; then allowed=yes; fi
-    # A new EMPTY file (package marker such as __init__.py, .gitkeep) changes no behavior of other tasks.
-    # Why (MLB hackathon): an empty app/__init__.py and analysis/__init__.py sent two merges to the human.
-    if [ "$allowed" = no ] && [ "$added" = yes ] && [ "$(git -C "$RM_BUILD" cat-file -s ":$path" 2>/dev/null)" = 0 ]; then allowed=yes; fi
-    if [ "$allowed" = no ]; then
-      if printf '%s' "$path" | grep -Eq '(^|/)(__pycache__|node_modules|\.pytest_cache|\.next|dist|build|target|\.gradle)/|\.pyc$|\.class$|(^|/)\.DS_Store$'; then
-        RM_REASON="Generated file committed: $path. Remove it from the branch (git rm -r --cached $path), add the pattern to .gitignore, push, and ask for review again"
-      elif [ "$added" = yes ] && owner_t=$(rm_path_owner "$path") && [ -n "$owner_t" ] &&
-           case "$(field "$TX/tasks/$(printf '%s' "$owner_t" | sed "s/^ (Paths of //;s/)\$//").md" State)" in INTEGRATED|CANCELLED) false;; *) true;; esac; then
-        # Only while that task is still to merge: "merge it first" for an integrated task loops (audit, Oct 2026).
-        # A stacked branch carries a dependency's new file. Why (Hacktoberfest): HACK-010 and HACK-021 merged their
-        # dependency's branch, and its fixture went to the human queue as this task's file.
-        owner_t=${owner_t#' (Paths of '}; owner_t=${owner_t%')'}
-        RM_REASON="New file outside Paths: $path belongs to $owner_t (its Paths), carried by a branch merge. Merge $owner_t first, then git merge --no-edit origin/$BASE here and uak merge $ID again"
-      elif [ "$added" = yes ]; then
-        RM_REASON="New file outside Paths: $path. Move it into the task's Paths, or a human adds its dir to Additive-Paths in PROJECT.md (new files there need no reservation)"
-      else
-        RM_REASON="Edits a file outside Paths: $path$(rm_path_owner "$path"). Revert that file on the branch (git checkout origin/$BASE -- $path), or the human merges the PR"
-      fi
-      return 1
-    fi
-  done < "$TXROOT/merge-files"
+  # Scope = what this merge changes in the CURRENT base (the staged candidate vs RM_BASE_TIP), not Task-Base..tip.
+  # Why (Reap buildathon, 6 of 13 merged tasks): a branch that merged origin/main inherited other tasks' files
+  # (.env.example, workflows, PROJECT.md) and every one of them was sent to the human queue as "outside Paths".
+  # One raw listing gives each file's status (A = new) and staged blob (the empty blob = an empty file), names as
+  # they are (-z, no "se\303\261al.txt" quoting). Why (audit): a quoted new src/señal.txt was taken for an edit.
+  git -C "$RM_BUILD" diff --cached --no-renames --raw --no-abbrev -z "$RM_BASE_TIP" > "$TXROOT/merge-files" || return 1
+  # NUL ends a name; a newline inside one becomes \001, so awk reads one name per line and refuses it below (a name
+  # with a \001 of its own is refused the same way).
+  tr '\n\000' '\001\n' < "$TXROOT/merge-files" > "$TXROOT/merge-list" || return 1
+  # One awk pass over the diff: every file against Paths, Additive-Paths, the shared resources and the fixture rule;
+  # the first one out of scope (diff order) is printed as its kind, then its name. Why (UAK-008): the loop ran
+  # normalize_paths and one overlaps per reserved path for each file, 1,836 processes for a 200-file branch.
+  # A changed file's name is compared as it is (case and accented capitals folded, as Paths are), never read as a
+  # Paths pattern. Why (UAK-008): src/app,x.txt was split at its comma and src/app[1].txt cut at its glob, and both
+  # passed as inside src/app/.
+  # The lists by ENVIRON: awk -v would read the backslashes of a path as escapes.
+  UAK_SCOPE_ALLOWED="$TXROOT/merge-allowed" UAK_SCOPE_ADDITIVE="$TXROOT/merge-additive" awk '
+    function load(f, list,   n, l) { n = 0; while ((getline l < f) > 0) if (l != "") list[++n] = l; close(f); return n }
+    function fold(p) {
+      gsub("Á", "á", p); gsub("É", "é", p); gsub("Í", "í", p); gsub("Ó", "ó", p); gsub("Ú", "ú", p); gsub("Ü", "ü", p)
+      gsub("Ñ", "ñ", p); gsub("À", "à", p); gsub("È", "è", p); gsub("Ì", "ì", p); gsub("Ò", "ò", p); gsub("Ù", "ù", p)
+      gsub("Â", "â", p); gsub("Ê", "ê", p); gsub("Î", "î", p); gsub("Ô", "ô", p); gsub("Û", "û", p); gsub("Ç", "ç", p)
+      gsub("Ã", "ã", p); gsub("Õ", "õ", p); return tolower(p)
+    }
+    # overlaps: either one is a prefix directory of the other, or a reserve is the whole repo (.).
+    function under(p, list, n,   i) {
+      for (i = 1; i <= n; i++) if (list[i] == "." || list[i] == p || index(list[i], p "/") == 1 || index(p, list[i] "/") == 1) return 1
+      return 0
+    }
+    function has(s, list, n,   i) { for (i = 1; i <= n; i++) if (index(s, list[i])) return 1; return 0 }
+    BEGIN {
+      na = load(ENVIRON["UAK_SCOPE_ALLOWED"], allow); nd = load(ENVIRON["UAK_SCOPE_ADDITIVE"], add)
+      nfx = split("/fixtures/ /testdata/ /__fixtures__/ /test-fixtures/", fx, " ")
+      nkeep = split("/contracts/ /types/ /shared-types/ /migrations/ /db/migration/ /.github/ /.uak/", keep, " ")
+      # Each is a "*/name/*" pattern on "/path/": "*/*.lock/*" is any ".lock/" (the path starts with a slash).
+      nsh = split("/contracts/ /types/ /shared-types/ /migrations/ /db/migration/ /gradle.lockfile/ /.github/workflows/ " \
+        "/.gitlab-ci.yml/ /azure-pipelines.yml/ /package-lock.json/ /pnpm-lock.yaml/ .lock/ .lockb/ /go.sum/ " \
+        "/.uak/bin/smoke/ /.uak/bin/smoke-project/ /.uak/bin/.smoke-project.provenance/ /.uak/bin/secret-scan/ " \
+        "/.uak/bin/uak/ /.uak/bin/lib/ /.uak/bin/uak-coordination/ /.githooks/ /hackathon.md/ /.uak/project.md/", shared, " ")
+    }
+    NR % 2 == 1 { n = split($0, m, " "); st = m[n]; blob = m[4]; next }
+    {
+      path = $0
+      if (index(path, "\001") || index(path, "\r")) { print "newline"; print ""; exit }
+      # Shared resources first, so the reason says what it really is (MLB: the smoke provenance file, written by
+      # init-smoke, was reported as "outside Paths"). Test data is not a shared resource (Hacktoberfest: a fixture
+      # repo migrations/*.sql went to the human), only when the fixture directory holds the shared-looking path:
+      # db/migration/fixtures/V9__x.sql is still a migration (Flyway scans db/migration recursively). Why (audit, Oct 2026).
+      lp = "/" tolower(path) "/"; fixture = 0
+      for (i = 1; i <= nfx; i++) if ((k = index(lp, fx[i])) && !has(substr(lp, 1, k - 1) "/", keep, nkeep)) fixture = 1
+      if (!fixture && has(lp, shared, nsh)) { print "shared"; print path; exit }
+      p = fold(path)
+      if (under(p, allow, na)) next
+      # A new EMPTY file (package marker such as __init__.py, .gitkeep) changes no behavior of other tasks: the empty
+      # blob, SHA-1 or SHA-256. Why (MLB hackathon): an empty app/__init__.py and analysis/__init__.py sent two merges to the human.
+      if (st == "A" && (under(p, add, nd) || blob == "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391" ||
+          blob == "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813")) next
+      print (st == "A" ? "added" : "edit"); print path; exit
+    }' "$TXROOT/merge-list" > "$TXROOT/merge-verdict" || { RM_REASON='Scope check failed'; return 1; }
+  { IFS= read -r code; IFS= read -r path; } < "$TXROOT/merge-verdict"
+  case "$code" in
+    '') return 0;;
+    newline) RM_REASON='Path with newline not supported'; return 1;;
+    shared) RM_REASON="Shared resource/CI needs a human: $path"; return 1;;
+  esac
+  added=no; [ "$code" != added ] || added=yes
+  if printf '%s' "$path" | grep -Eq '(^|/)(__pycache__|node_modules|\.pytest_cache|\.next|dist|build|target|\.gradle)/|\.pyc$|\.class$|(^|/)\.DS_Store$'; then
+    RM_REASON="Generated file committed: $path. Remove it from the branch (git rm -r --cached $path), add the pattern to .gitignore, push, and ask for review again"
+  elif [ "$added" = yes ] && owner_t=$(rm_path_owner "$path") && [ -n "$owner_t" ] &&
+       case "$(field "$TX/tasks/$(printf '%s' "$owner_t" | sed "s/^ (Paths of //;s/)\$//").md" State)" in INTEGRATED|CANCELLED) false;; *) true;; esac; then
+    # Only while that task is still to merge: "merge it first" for an integrated task loops (audit, Oct 2026).
+    # A stacked branch carries a dependency's new file. Why (Hacktoberfest): HACK-010 and HACK-021 merged their
+    # dependency's branch, and its fixture went to the human queue as this task's file.
+    owner_t=${owner_t#' (Paths of '}; owner_t=${owner_t%')'}
+    RM_REASON="New file outside Paths: $path belongs to $owner_t (its Paths), carried by a branch merge. Merge $owner_t first, then git merge --no-edit origin/$BASE here and uak merge $ID again"
+  elif [ "$added" = yes ]; then
+    RM_REASON="New file outside Paths: $path. Move it into the task's Paths, or a human adds its dir to Additive-Paths in PROJECT.md (new files there need no reservation)"
+  else
+    RM_REASON="Edits a file outside Paths: $path$(rm_path_owner "$path"). Revert that file on the branch (git checkout origin/$BASE -- $path), or the human merges the PR"
+  fi
+  return 1
 }
 # The candidate is a fresh clone: no .venv, no node_modules, no git-ignored data. The gate puts the worktree's
 # (or the main checkout's) virtualenv first on PATH and exports UAK_MAIN_CHECKOUT for project scripts.
