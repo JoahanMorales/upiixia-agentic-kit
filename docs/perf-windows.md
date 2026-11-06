@@ -113,3 +113,66 @@ payloads too, old (5.9.1) and new on the same machine (aarch64, bash 5.1, mawk, 
   2 KB window on 1,500; the hybrid stdin read against `$(cat)` at the 8 KB boundary (ASCII, `é`, `日`, trailing
   newlines, C and UTF-8); the old and new guard on 3,000 more random cases with mawk: no difference.
   `test_v592.tick_stays_fast_on_a_long_payload` fails on the branch as pushed (10.6 s) and passes on 5.9.1 and here.
+
+## The claims commands: next, status, heartbeat (UAK-001 … UAK-017, Nov 2026)
+
+The row "uak next / uak status · unchanged" above was left for a design change of its own. This is that change:
+the claims state is read in one awk pass instead of a `$(field …)` subshell per field (UAK-003), the merge gate's
+scope check is one awk pass (UAK-008), and STATE.md, which every mutation rewrites, is one awk pass too (UAK-016).
+
+### Processes
+
+Counted by `kit/.uak/tests/test_claims_perf.py` (UAK-001's counter: distinct PIDs in an xtrace, a traced shim in
+front of each program, `ps` included) on its fixture: 12 tasks, 3 live claims, a local bare remote. Old is `main` at
+c949f90, the last commit before UAK-003; new is 0ec9f2f. Same machine, back to back.
+
+| command | old → new | target | what is left |
+|---|---|---|---|
+| `uak next` (an agent with a claim) | 208 → 93 | 40 | the claims transaction: a fresh shallow clone, its config fetch |
+| `uak next` (an idle agent choosing) | 258 → 122 | 40 | the same, plus one gate probe per candidate |
+| `uak status` | 190 → 61 | 30 | the clone and the base's PROJECT.md |
+| `uak heartbeat` | 240 → 139 | 20 | clone, commit, secret check, push: a mutation's whole transaction |
+
+STATE.md alone went from 130 processes on 12 task records and 346 on 48 to 4 for any number (test_snapshot.py).
+
+### Time
+
+`bash scripts/perf_claims.sh 7` (median of 7 runs after a warm call), old and new back to back:
+
+| machine | `next` | `status` | `heartbeat` |
+|---|---|---|---|
+| Linux, aarch64 (Jetson), bash 5.1, mawk | 0.68 → 0.49 s | 0.63 → 0.44 s | 0.78 → 0.65 s |
+| Windows 11, Git Bash | pending: the human runs it (below) | | |
+
+On Windows a process costs 20-50 ms instead of about 2, so the processes saved weigh 10-25x more there than on Linux.
+To fill the Windows row, in Git Bash at the root of this repository:
+
+    git archive c949f90 kit | (mkdir -p "$TMP/uak-old/scripts" && tar -x -C "$TMP/uak-old") &&
+      cp scripts/perf_claims.sh "$TMP/uak-old/scripts/" && bash "$TMP/uak-old/scripts/perf_claims.sh" 5
+    bash scripts/perf_claims.sh 5
+
+### Targets dropped, and why
+
+The targets (`next` ≤ 40, `status` ≤ 30, `heartbeat` ≤ 20) stay in test_claims_perf.py's XFAIL set: none is met.
+What is left is mostly the claims transaction itself, one fresh shallow clone of the claims branch per call (and a
+commit and a push per mutation). UAK-002 and UAK-005 were to keep a persistent claims repository per clone and reuse
+it; they were cancelled: the cut was about 5 processes per call, for a lock shared between processes (two agents of
+one clone) that raced on CI. The tip-keyed cache of the parsed state (UAK-004) is merged but not wired: with the
+clone still paid on every call it saves one awk, and a put after a commit could store an old state under the new tip
+(`uak learn` #1 on kit/.uak/bin/lib/).
+
+### How we know the answers did not change
+
+`python3 scripts/claims_diff.py` runs the old engine (c949f90, from this repository's history) and the new one through
+the same 31 protocol steps on the same fixture and clock (`UAK_NOW`): status and next before any claim, claims (one
+taken, one before its dependency), heartbeat, status (`--full`, `--task`, `--summary`), next with a claim and for an
+idle agent, a request message, inbox and its ack, log and BLOCKED, checkpoint, decision, release and a claim again,
+done, a reviewer registered, review start and approve, next while in REVIEW, digest. After every step the exit code,
+stdout and the whole claims tree are identical once these are written the same way: the fixture's folder, commit
+SHAs, the transaction's temp-folder suffix in worklog names, the read token's checksum (it covers that worklog name;
+its length is still compared) and git's "N seconds ago". A one-character change to STATE.md's text makes it fail at
+the first step. test_claims_perf.py runs it as `old_and_new_engines_print_the_same_and_write_the_same_tree`.
+
+Left out on purpose, because they changed output to fix a bug: `uak merge` from a task worktree (UAK-012), a CRLF
+checkout (UAK-014), bash 3.2 (UAK-013), and a task listed before a dependency nobody has claimed (UAK-017).
+The merge gate's scope check (UAK-008) has its own differential in test_gate_scope.py.
