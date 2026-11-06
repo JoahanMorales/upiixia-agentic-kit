@@ -3,7 +3,8 @@
 next; UAK-008: the merge gate's scope in one pass; UAK-016: STATE.md in one pass), not what it says or writes.
 This runs the engine from before it (main at OLD, just before UAK-003) and today's side by side: the same fixture, the
 same protocol commands in the same order, the same clock (UAK_NOW). After every command the exit code, stdout and the
-whole claims tree must be identical, once the fixture's own paths and commit SHAs are written as <BASE> and <SHA>.
+whole claims tree must be identical, once the fixture's own folder is written as <BASE> and each of its commits by
+what it is (<SHA main:Fixture main#1>): a SHA is compared, by commit, not hidden.
 
     python3 scripts/claims_diff.py [--keep]
 
@@ -29,7 +30,6 @@ OLD = "c949f9057dc8a691b1dcb5f0e821f8ae21a67606"  # Merge UAK-011, the last main
 TASKS = {"HACK-001": "src/one/", "HACK-002": "src/two/", "HACK-003": "src/three/", "HACK-004": "src/four/",
          "HACK-005": "src/five/", "HACK-006": "src/six/"}
 DEPENDS = {"HACK-005": "HACK-001"}
-SHA = re.compile(r"(?<![0-9A-Za-z])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![0-9A-Za-z])")
 # A worklog's name ends with its transaction's temp folder (mktemp hack.XXXXXX): random on every run, either engine.
 TEMP = re.compile(r"(?<=-hack\.)[A-Za-z0-9]{6}(?=\.md)")
 # status --summary's read token is the cksum of the claim record, which names that worklog: the sum differs, the
@@ -50,11 +50,13 @@ def old_package(r, dest):
     probe = subprocess.run([r.git, "cat-file", "-e", OLD + "^{commit}"], cwd=str(ROOT), env=r.env,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if probe.returncode:
+        # Only a shallow clone (CI's checkout) lacks it; there one more shallow commit changes nothing.
         git_bytes(r, ROOT, "fetch", "-q", "--depth", "1", "origin", OLD)
     data = git_bytes(r, ROOT, "archive", "--format=tar", OLD, "kit")
     with tarfile.open(fileobj=io.BytesIO(data)) as tar:
         for m in tar.getmembers():
             expect(not m.name.startswith(("/", "..")) and ".." not in Path(m.name).parts, "unsafe path in archive: " + m.name)
+            expect(m.isfile() or m.isdir(), "a link or device in the archive: " + m.name)
         tar.extractall(str(dest))
     return dest / "kit"
 
@@ -73,23 +75,34 @@ def path_forms(base):
 BASE = re.compile(r"[^\s'\"`]*uak-claims-diff-[A-Za-z0-9_]+[/\\][on][/\\]diff(?![A-Za-z0-9_])")
 
 
-def normalize(text, base, shas=()):
+def normalize(text, base, shas=None):
     for form in path_forms(base):
         text = text.replace(form, "<BASE>")
     text = BASE.sub("<BASE>", text)
-    # The fixture's own commits, full or abbreviated: a short SHA can be all digits (5403068, macOS CI on 141aad2),
-    # which the pattern below leaves alone so as not to take an epoch for a SHA.
-    for sha in shas:
-        text = re.sub(r"(?<![0-9a-f])%s[0-9a-f]{0,33}(?![0-9A-Za-z])" % sha[:7], "<SHA>", text)
-    return SHA.sub("<SHA>", TOKEN.sub("<CKSUM>", AGO.sub("(<AGO>)", TEMP.sub("<TMP>", text.replace("\r\n", "\n")))))
+    # Each of the fixture's commits, full or abbreviated (a short SHA can be all digits: 5403068), by its label: an
+    # engine that recorded another commit (HEAD~1 for HEAD, kit-r1 on 7d8d7db) shows up as another label.
+    for sha, label in (shas or {}).items():
+        text = re.sub(r"(?<![0-9a-f])%s[0-9a-f]{0,33}(?![0-9A-Za-z])" % sha[:7], "<SHA %s>" % label, text)
+    return TOKEN.sub("<CKSUM>", AGO.sub("(<AGO>)", TEMP.sub("<TMP>", text.replace("\r\n", "\n"))))
 
 
 def fixture_shas(r, f):
-    """Every commit the fixture has made: the remote's branches and each worktree's HEAD."""
-    shas = set(git_bytes(r, f.remote, "rev-list", "--all").decode().split())
-    for wt in f.worktrees:
-        shas.update(git_bytes(r, wt, "rev-parse", "HEAD").decode().split())
-    return sorted(shas)
+    """sha -> a label the same on both engines: the branch, the commit's subject and its place among the commits of
+    that subject (oldest first, first parents). Both engines make the same commits in the same order; only their
+    SHAs differ (the seed holds a different kit)."""
+    labels, seen = {}, {}
+    refs = git_bytes(r, f.remote, "for-each-ref", "--format=%(refname:short)", "refs/heads").decode().split()
+    sources = [(f.remote, ref) for ref in sorted(refs)] + [(wt, "HEAD") for wt in f.worktrees]
+    for repo, ref in sources:
+        log = git_bytes(r, repo, "log", "--first-parent", "--reverse", "--format=%H %s", ref).decode("utf-8", "replace")
+        for line in log.splitlines():
+            sha, _, subject = line.partition(" ")
+            if sha in labels:
+                continue
+            key = (ref if repo == f.remote else "worktree", subject)
+            seen[key] = seen.get(key, 0) + 1
+            labels[sha] = "%s:%s#%d" % (key[0], subject, seen[key])
+    return labels
 
 
 def claims_tree(r, f, shas):
@@ -106,7 +119,7 @@ def claims_tree(r, f, shas):
 def scenario(r):
     """The protocol, step by step: (label, exit code, stdout, claims tree) after each command."""
     f = r.fixture("diff", paths=TASKS, count=3, dependencies=DEPENDS)
-    steps = []
+    steps, raw = [], []
     now = [1000000]
 
     def step(label, index, *args, human=False, cwd=None):
@@ -119,6 +132,7 @@ def scenario(r):
             out = r.run([r.bash, ".uak/bin/uak", *args], cwd=cwd, env=env, allowed=None)
         shas = fixture_shas(r, f)
         tree = claims_tree(r, f, shas) if r.g(f.remote, "rev-parse", "-q", "--verify", "refs/heads/claims", allowed=None).returncode == 0 else {}
+        raw.append(out.stdout)
         steps.append((label, out.returncode, normalize(out.stdout, f.base, shas), tree))
 
     step("status before any claim", 0, "status")
@@ -162,6 +176,18 @@ def scenario(r):
     step("review approve", 1, "review", "HACK-001", "--sha", tip, "--verdict", "approve", "--note", "a.txt:1 · fine")
     step("next of the author in REVIEW", 0, "next")
     step("digest", 0, "digest", human=True)
+    # Ten days later every lease has expired (claims, and REVIEW's longer one): what status and next say about it,
+    # and the recovery of an expired claim with its summary's read token.
+    now[0] += 10 * 86400
+    step("status with expired leases", 0, "status")
+    step("status --full with expired leases", 1, "status", "--full")
+    step("next with an expired claim", 2, "next")
+    step("next of the reviewer", 1, "next")
+    step("summary of an expired claim", 1, "status", "--task", "HACK-002", "--summary")
+    token = re.search(r"Read-token: (\S+)", raw[-1])
+    expect(token is not None, "no read token in: " + raw[-1][-400:])
+    step("release --expired", 1, "release", "HACK-002", "--expired", "--read-summary", token.group(1))
+    step("claim after an expired release", 1, "claim", "HACK-002", "--branch", f.branches[1], "--worktree", f.worktrees[1].as_posix())
     step("status at the end", 2, "status", "--full")
     return steps
 

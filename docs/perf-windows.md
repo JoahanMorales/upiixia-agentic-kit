@@ -141,7 +141,7 @@ STATE.md alone went from 130 processes on 12 task records and 346 on 48 to 4 for
 
 | machine | `next` | `status` | `heartbeat` |
 |---|---|---|---|
-| Windows 11 Pro 26200, Git for Windows 2.45.2 (bash 5.2.26), 2 rounds of 5 | 5.1 → 3.6 s (−30%) | 4.5 → 2.9 s (−36%) | 6.3 → 5.0 s (−20%) |
+| Windows 11 Pro 26200, Git for Windows 2.45.2 (bash 5.2.26), 2 rounds of 5 | 5.1 → 3.6 s (−30%) | 4.5 → 2.9 s (−35%) | 6.3 → 5.0 s (−20%) |
 | Linux, aarch64 (Jetson), bash 5.1, mawk, 7 runs | 0.68 → 0.49 s | 0.63 → 0.44 s | 0.78 → 0.65 s |
 
 Windows: the medians of the two rounds were within 0.1 s of each other (next 5.12 and 5.08 → 3.64 and 3.53 s, status
@@ -153,7 +153,7 @@ about 8x as many on Windows (next: 0.19 s there, 1.5 s here). To measure again, 
     bash scripts/perf_claims.sh 5
 
 A heartbeat still takes about 5 s on this PC: the clone, commit and push of its transaction are what is
-left. `next` and `status`, the reads an agent waits on, are 1.5 s faster each.
+left. `next` and `status`, the reads an agent waits on, are 1.5 s and 1.6 s faster.
 
 ### Targets dropped, and why
 
@@ -168,14 +168,18 @@ clone still paid on every call it saves one awk, and a put after a commit could 
 ### How we know the answers did not change
 
 `python3 scripts/claims_diff.py` runs the old engine (c949f90, from this repository's history) and the new one through
-the same 31 protocol steps on the same fixture and clock (`UAK_NOW`): status and next before any claim, claims (one
+the same 38 protocol steps on the same fixture and clock (`UAK_NOW`): status and next before any claim, claims (one
 taken, one before its dependency), heartbeat, status (`--full`, `--task`, `--summary`), next with a claim and for an
 idle agent, a request message, inbox and its ack, log and BLOCKED, checkpoint, decision, release and a claim again,
-done, a reviewer registered, review start and approve, next while in REVIEW, digest. After every step the exit code,
-stdout and the whole claims tree are identical once these are written the same way: the fixture's folder, commit
-SHAs, the transaction's temp-folder suffix in worklog names, the read token's checksum (it covers that worklog name;
-its length is still compared) and git's "N seconds ago". A one-character change to STATE.md's text makes it fail at
-the first step. test_claims_perf.py runs it as `old_and_new_engines_print_the_same_and_write_the_same_tree`.
+done, a reviewer registered, review start and approve, next while in REVIEW, digest; then ten days later, with every
+lease expired: status, next, the summary's read token and `release --expired` with it, and a claim again. After every
+step the exit code, stdout and the whole claims tree are identical once these are written the same way: the fixture's
+folder (however it is spelled), each of the fixture's commits by branch, subject and order (`<SHA main:Fixture
+main#1>`: a SHA is compared commit for commit, not hidden), the transaction's temp-folder suffix in worklog names, the
+read token's checksum (it covers that worklog name; its length is still compared) and git's "N seconds ago".
+It catches a one-character change to STATE.md's text, to status's output, to the EXPIRED note, and a done that
+records HEAD~1 as the task's tip (kit-r1's mutations on 7d8d7db, the last two missed by the first version).
+test_claims_perf.py runs it as `old_and_new_engines_print_the_same_and_write_the_same_tree`.
 
 Left out on purpose, because they changed output to fix a bug: `uak merge` from a task worktree (UAK-012), a CRLF
 checkout (UAK-014), bash 3.2 (UAK-013), and a task listed before a dependency nobody has claimed (UAK-017).
