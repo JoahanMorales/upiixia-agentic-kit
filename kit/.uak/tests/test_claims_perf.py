@@ -15,8 +15,11 @@ from test_hack import Failure, Runner, expect, resolve_binary
 from test_v592 import PROGRAMS, bash_major, call
 
 TARGETS = {"next": 40, "status": 30, "heartbeat": 20}
-# Expected to fail until the redesign lands; UAK-006 empties this set. Strict: a test in it that meets its target
-# fails, so the set never hides a win. Nothing here is skipped: every count runs and is printed.
+# Targets the redesign does not reach (UAK-006, measured on 0ec9f2f: next 93, 122 for an idle agent, status 61,
+# heartbeat 139). Most of what is left is the claims transaction itself (a fresh clone, a commit, a push per call):
+# UAK-002 and UAK-005, a persistent claims repo, were cancelled (about 5 processes saved per call for a lock shared
+# between processes). Strict: a test in it that meets its target fails, so the set never hides a win. Nothing here is
+# skipped: every count runs and is printed.
 XFAIL = {"next_starts_at_most_40_processes", "status_starts_at_most_30_processes", "heartbeat_starts_at_most_20_processes",
          "next_for_an_idle_agent_starts_at_most_40_processes"}
 
@@ -116,8 +119,26 @@ def the_counter_sees_ps(r):
     return "%d processes" % n
 
 
+def old_and_new_engines_print_the_same_and_write_the_same_tree(r):
+    """The redesign changed how the claims branch is read and written, not what uak says or writes:
+    scripts/claims_diff.py runs the engine from before it and today's through the same protocol commands, and every
+    exit code, stdout and claims tree must match. It needs the kit's source repository (its history holds the old
+    engine): in an installed project there is none, and this says so."""
+    script = Path(__file__).resolve().parents[3] / "scripts" / "claims_diff.py"
+    if not script.is_file() or not (script.parents[1] / ".git").exists():
+        return "no kit source repository here: run scripts/claims_diff.py in the kit's repository"
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("claims_diff", str(script))
+    diff = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(diff)
+    steps, problems = diff.run()
+    expect(not problems, "the old and the new engine differ on %d of %d steps:\n%s" % (len(problems), steps, "\n".join(problems)[:2500]))
+    return "%d steps identical (old %s)" % (steps, diff.OLD[:7])
+
+
 TESTS = [next_starts_at_most_40_processes, status_starts_at_most_30_processes, heartbeat_starts_at_most_20_processes,
-         next_for_an_idle_agent_starts_at_most_40_processes, the_counter_sees_ps]
+         next_for_an_idle_agent_starts_at_most_40_processes, the_counter_sees_ps,
+         old_and_new_engines_print_the_same_and_write_the_same_tree]
 
 
 def main():
