@@ -94,3 +94,14 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Tests:** state_md_is_identical_to_before, heartbeat_does_not_grow_with_tasks, a_hostile_record_runs_nothing
 - **Verify:** `python3 kit/.uak/tests/test_snapshot.py`
 - **Next step:** the per-state `for record in "$TX"/tasks/*.md` loop of snapshot in kit/.uak/bin/lib/tx.sh
+## UAK-017 · next shows every AVAILABLE task, even one an earlier task depends on
+
+- **Type:** bug
+- **Priority:** P0
+- **Estimate:** 1 h
+- **Depends on:** UAK-003
+- **Paths:** kit/.uak/bin/uak-coordination, kit/.uak/tests/test_next_prefilter.py
+- **Acceptance:** the prefilter awk of `coord_next` (kit/.uak/bin/uak-coordination) reads a dependency's state without creating its key (`(x in st) ? st[x] : ""`), so a task with no claims record stays a candidate when a task listed before it depends on it, on a fixture where A (listed first) depends on B and B has no record, `uak next` offers B, and says A waits on B (AVAILABLE), the other refusals are unchanged: a task with an un-integrated dependency still waits, and a CLAIMED, REVIEW, INTEGRATED or CANCELLED task is never offered
+- **Tests:** a_dependency_listed_later_is_still_offered, the_dependent_still_waits, closed_tasks_are_never_offered
+- **Verify:** `python3 kit/.uak/tests/test_next_prefilter.py`
+- **Next step:** line 672 of kit/.uak/bin/uak-coordination: `st[x]` in the dependency loop
