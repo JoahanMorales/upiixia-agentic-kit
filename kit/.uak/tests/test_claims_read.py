@@ -176,11 +176,13 @@ def golden_outputs(r):
         f.claim(i, "HACK-%03d" % (i + 1))
     f.hack(2, "log", "HACK-003", "--state", "BLOCKED", "the fixture API returns 500")
     base = f.base.as_posix()
+    # The path as the engine records it (pwd -P): /private/var/… on macOS, /c/Users/… under Git Bash (kit-r1, UAK-014).
+    real = r.run([r.bash, "-c", 'cd "$1" && pwd -P', "_", f.base.as_posix()]).stdout.strip() or base
     outs = {}
 
     def run(key, index, args, agent=None, cwd=None):
         out = r.run([r.bash, ".uak/bin/uak"] + args, cwd=cwd or f.worktrees[index], env=env(agent or "agent-%d" % (index + 1)), allowed=None)
-        text = (out.stdout + ("\n[stderr]\n" + out.stderr if out.stderr.strip() else "")).replace(base, "<base>")
+        text = (out.stdout + ("\n[stderr]\n" + out.stderr if out.stderr.strip() else "")).replace(real, "<base>").replace(base, "<base>")
         # What differs between runs or machines, not between engines: the version, a worklog's random suffix, the
         # read token, and PREFLIGHT (whether this machine's gh is logged in).
         text = re.sub(r"uak v[0-9][^ ]*", "uak vX", text)
@@ -230,9 +232,29 @@ def next_and_status_print_the_same_as_before(r):
     return "%d outputs identical" % len(outs)
 
 
+def a_crlf_checkout_prints_no_carriage_return(r):
+    """Git for Windows checks files out with CRLF (core.autocrlf=true). The one-pass read took VERSION and the smoke
+    scope with a builtin read, which keeps the \\r: status printed "uak v5.11.0\\r" (CI on e5957e5, Windows:
+    test_v52 audit_small_fixes, test_v55 claims_read_on_a_crlf_machine)."""
+    f = r.fixture("read-crlf-checkout", paths={"HACK-001": "src/a/"}, count=1)
+    f.claim(0, "HACK-001")
+    wt = f.worktrees[0]
+    version = (wt / ".uak/VERSION").read_text(encoding="utf-8").strip()
+    (wt / ".uak/VERSION").write_bytes((version + "\r\n").encode())
+    smoke = (wt / ".uak/bin/smoke").read_bytes().split(b"\n", 1)
+    (wt / ".uak/bin/smoke").write_bytes(smoke[0] + b"\n# UAK_SMOKE_SCOPE: crlf scope\r\n" + smoke[1])
+    for args in (["status"], ["next"], ["status", "--task", "HACK-001"]):
+        out = r.run([r.bash, ".uak/bin/uak"] + args, cwd=wt, env=env("agent-1"), allowed=None)
+        expect(out.returncode == 0 and "\r" not in out.stdout,
+               "uak %s printed a carriage return from the CRLF checkout: %r" % (" ".join(args), out.stdout[:400]))
+        if args == ["status"]:
+            expect("uak v%s |" % version in out.stdout and "Smoke: crlf scope\n" in out.stdout, out.stdout[:400])
+    return {"version": version}
+
+
 TESTS = [status_reads_the_state_in_one_pass, next_reads_the_state_in_one_pass, a_record_with_crlf_reads_like_lf,
          next_and_status_print_the_same_as_before, a_raw_record_on_claims_runs_nothing, record_names_do_not_collide,
-         a_raw_record_naming_a_task_id_runs_nothing]
+         a_raw_record_naming_a_task_id_runs_nothing, a_crlf_checkout_prints_no_carriage_return]
 
 
 def main():
