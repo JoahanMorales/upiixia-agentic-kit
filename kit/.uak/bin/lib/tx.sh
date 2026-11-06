@@ -120,38 +120,72 @@ refresh_lease() {
   put "$RECORD" Lease-Until "$UNTIL"; put "$RECORD" Updated "$NOW"
   put "$CLAIM" Lease-Until "$UNTIL"; put "$CLAIM" Updated "$NOW"
 }
+# STATE.md after every mutation. One awk pass reads the records (lib/state.awk's rule: the first "KEY: " line, one
+# trailing \r dropped); the shell only formats. Why (UAK-016): `$(field ...)` per record and per state was about 90 of
+# heartbeat's 152 processes and grew with every task ever claimed. The output is byte-identical to that version
+# (tests/test_snapshot.py runs both); values are printed as text, never evaluated.
 snapshot() {
   [ -f "$TX/DECISIONS.md" ] || {
     printf '# DECISIONS\n\nCoordination decisions on the claims branch.\nWhy: a reversible option after 15 min keeps work moving.\n' > "$TX/DECISIONS.md"
   }
+  local coord_v phase freeze state ids n_ids snap_f snap_l snap_k snap_nt=0 snap_nc=0 snap_hb=0 snap_x lu
+  local -a snap_files snap_st snap_bl snap_c
+  snap_files=(); snap_st=(); snap_bl=(); snap_c=()
+  for snap_f in "$TX"/tasks/*.md; do [ -f "$snap_f" ] || continue; snap_files[${#snap_files[@]}]=$snap_f; snap_nt=$((snap_nt + 1)); done
+  for snap_f in "$TX"/claims/*.md; do [ -f "$snap_f" ] || continue; snap_files[${#snap_files[@]}]=$snap_f; snap_nc=$((snap_nc + 1)); done
+  if [ -f "$BACKLOG" ]; then snap_files[${#snap_files[@]}]=$BACKLOG; snap_hb=1; fi
+  # /dev/null last: with no record and no backlog awk would read stdin.
+  awk -v nt="$snap_nt" -v nc="$snap_nc" -v hb="$snap_hb" '
+    BEGIN { split("ID State Owner Lease-Until", K, " "); split("AVAILABLE CLAIMED BLOCKED REVIEW INTEGRATED CANCELLED", ST, " ")
+            for (i = 1; i <= nt + nc + hb; i++) pos[ARGV[i]] = i }
+    { i = pos[FILENAME] }
+    i > nt + nc { if (hb && i == nt + nc + 1 && /^## [A-Z][A-Z0-9]*-[0-9]/) bl[++nb] = $2; next }
+    { line = $0; sub(/\r$/, "", line)
+      for (k = 1; k <= 4; k++) if (!((i, K[k]) in v) && index(line, K[k] ": ") == 1) v[i, K[k]] = substr(line, length(K[k]) + 3) }
+    END { for (s = 1; s <= 6; s++) { ids = ""
+            for (j = 1; j <= nt; j++) if (((j, "State") in v) && v[j, "State"] == ST[s] && ((j, "ID") in v)) ids = ids v[j, "ID"] " "
+            print "S" ids }
+          for (b = 1; b <= nb; b++) print "B" bl[b]
+          for (j = nt + 1; j <= nt + nc; j++) for (k = 1; k <= 4; k++) print "C" (((j, K[k]) in v) ? v[j, K[k]] : "") }
+  ' ${snap_files[@]+"${snap_files[@]}"} /dev/null > "$TXROOT/snapshot-records" || return 1
+  while IFS= read -r snap_l || [ -n "$snap_l" ]; do
+    case $snap_l in
+      S*) snap_st[${#snap_st[@]}]=${snap_l#S};;
+      B*) snap_bl[${#snap_bl[@]}]=${snap_l#B};;
+      C*) snap_c[${#snap_c[@]}]=${snap_l#C};;
+    esac
+  done < "$TXROOT/snapshot-records"
   {
     phase='execution'
-    freeze=$(coord_config Freeze-Epoch 0)
+    coord_cfg Freeze-Epoch 0; freeze=$coord_v
     if [ "$freeze" -gt 0 ] && [ "$NOW" -ge "$freeze" ]; then phase='feature freeze; authorized fixes, rehearsal and submission only'; fi
     printf '# STATE\n\nPhase: %s\nUpdated: %s\n' "$phase" "$NOW"
+    snap_k=0
     for state in AVAILABLE CLAIMED BLOCKED REVIEW INTEGRATED CANCELLED; do
-      ids=$(for record in "$TX"/tasks/*.md; do
-        [ -f "$record" ] || continue
-        [ "$(field "$record" State)" != "$state" ] || field "$record" ID
-      done | tr '\n' ' ')
-      if [ "$state" = AVAILABLE ] && [ -f "$BACKLOG" ]; then
-        ids=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$BACKLOG" | while IFS= read -r id; do
-          [ -f "$TX/tasks/$id.md" ] || printf '%s ' "$id"
-        done; printf '%s' "$ids")
+      ids=${snap_st[$snap_k]}; snap_k=$((snap_k + 1))
+      # AVAILABLE: the backlog's IDs with no record, then the records released back to AVAILABLE.
+      if [ "$state" = AVAILABLE ] && [ "$snap_hb" = 1 ]; then
+        snap_x=
+        for snap_f in ${snap_bl[@]+"${snap_bl[@]}"}; do [ -f "$TX/tasks/$snap_f.md" ] || snap_x="$snap_x$snap_f "; done
+        ids=$snap_x$ids
       fi
       # Why (UpiixSol): a silent cut at 120 chars made INTEGRATED look stuck at UPS-015 with 26 done.
-      n_ids=$(printf '%s' "$ids" | wc -w | tr -d ' ')
-      [ "${#ids}" -le 120 ] || ids="($n_ids; last 12) ... $(printf '%s' "$ids" | awk '{for(i=(NF>12?NF-11:1);i<=NF;i++) printf "%s ", $i}')"
+      if [ "${#ids}" -gt 120 ]; then
+        n_ids=$(printf '%s' "$ids" | wc -w | tr -d ' ')
+        ids="($n_ids; last 12) ... $(printf '%s' "$ids" | awk '{for(i=(NF>12?NF-11:1);i<=NF;i++) printf "%s ", $i}')"
+      fi
       printf '%s: %s\n' "$state" "${ids:--}"
     done
     printf '\nClaims (first 24; status --task ID shows detail):\n'
-    for c in "$TX"/claims/*.md; do
-      [ -f "$c" ] || continue
+    snap_k=0
+    while [ "$snap_k" -lt "${#snap_c[@]}" ] && [ "$snap_k" -lt 96 ]; do
       # An expired lease says so (Hacktoberfest: STATE.md showed a stale Lease-Until as if the claim were live).
-      lu=$(field "$c" Lease-Until); case "$lu" in ''|*[!0-9]*) lu=0;; esac
-      printf '%s | %s | %s | until %s%s\n' "$(field "$c" ID)" "$(field "$c" State)" "$(field "$c" Owner)" "$lu" \
-        "$( [ "$(field "$c" State)" = REVIEW ] || [ "$lu" -eq 0 ] || [ "$NOW" -lt "$lu" ] || printf ' (EXPIRED: release --expired --read-summary TOKEN)')"
-    done | head -n 24
+      lu=${snap_c[$((snap_k + 3))]}; case "$lu" in ''|*[!0-9]*) lu=0;; esac
+      snap_x=
+      [ "${snap_c[$((snap_k + 1))]}" = REVIEW ] || [ "$lu" -eq 0 ] || [ "$NOW" -lt "$lu" ] || snap_x=' (EXPIRED: release --expired --read-summary TOKEN)'
+      printf '%s | %s | %s | until %s%s\n' "${snap_c[$snap_k]}" "${snap_c[$((snap_k + 1))]}" "${snap_c[$((snap_k + 2))]}" "$lu" "$snap_x"
+      snap_k=$((snap_k + 4))
+    done
     printf '\nBlockers: BLOCKED tasks; use status --task ID --summary.\nCurrent decisions (last 5):\n'
     grep '^-' "$TX/DECISIONS.md" | tail -n 5 | cut -c 1-180
     printf '\nGlobal next step: available P0; else review PRs, tests, demo, rehearsal.\nWhy: bounded snapshot to resume without rereading history.\n'
