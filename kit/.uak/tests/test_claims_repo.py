@@ -32,7 +32,9 @@ def with_shim(r, shim, command):
         return command
     # The inner call is `bash` from PATH, as in test_v592: Git for Windows' bin\bash.exe is a launcher that puts
     # /mingw64/bin first on PATH again, before the shim (the Windows job still saw no fetch through it).
-    return [r.bash, "-c", 'PATH="$1:$PATH"; export PATH; shift; exec "$@"', "_", shim.as_posix(), "bash"] + command[1:]
+    # A Windows path (C:/…) has a colon that splits PATH: cygpath makes it /c/… first.
+    script = 'd=$1; case $d in ([A-Za-z]:*) d=$(cygpath -u "$d");; esac; PATH="$d:$PATH"; export PATH; shift; exec "$@"'
+    return [r.bash, "-c", script, "_", shim.as_posix(), "bash"] + command[1:]
 
 
 def uak(r, f, index, args, allowed=(0,), bash_flags=(), shim=None, **extra):
@@ -204,6 +206,7 @@ def a_dead_holder_is_taken_over_by_one_process(r):
     for i in range(n):
         f.claim(i, "HACK-%03d" % (i + 1))
     lock = common(f) / LOCK
+    events = r.scratch / "repo-reap-events.log"   # UAK_CLAIMS_LOG: who held, reaped and released the lock, on failure
     for rnd in range(4):
         dead = r.run([r.bash, "-c", "echo $$"]).stdout.strip()   # a PID that no longer runs, as bash sees PIDs
         lock.mkdir(exist_ok=True)
@@ -212,15 +215,21 @@ def a_dead_holder_is_taken_over_by_one_process(r):
 
         def one(i):
             barrier.wait(timeout=30)
-            return uak(r, f, i, ["log", "HACK-%03d" % (i + 1), "marker-r%d-a%d" % (rnd, i)], allowed=None)
+            return uak(r, f, i, ["log", "HACK-%03d" % (i + 1), "marker-r%d-a%d" % (rnd, i)], allowed=None,
+                       UAK_CLAIMS_LOG=events.as_posix())
         with concurrent.futures.ThreadPoolExecutor(max_workers=n) as pool:
             results = list(pool.map(one, range(n)))
+        def everything():
+            calls = "\n".join("call %d (rc %d): %s" % (j, o.returncode, (o.stdout + o.stderr).strip()[-300:]) for j, o in enumerate(results))
+            return "\n%s\nlock events (pid subshell event):\n%s" % (calls, events.read_text(encoding="utf-8")[-3000:] if events.exists() else "-")
         for i, out in enumerate(results):
-            expect(out.returncode == 0, "round %d, call %d: expected: it succeeds, got: %s" % (rnd, i, (out.stdout + out.stderr)[-500:]))
+            expect(out.returncode == 0, "round %d, call %d: expected: it succeeds, got: %s%s" % (rnd, i, (out.stdout + out.stderr)[-500:], everything()))
             log = f.show(f.worklog("HACK-%03d" % (i + 1)))
-            expect("marker-r%d-a%d" % (rnd, i) in log, "round %d, call %d: expected: its line in the worklog, got it lost" % (rnd, i))
+            expect("marker-r%d-a%d" % (rnd, i) in log, "round %d, call %d: expected: its line in the worklog, got it lost%s" % (rnd, i, everything()))
         left = sorted(p.name for p in common(f).iterdir() if p.name.startswith(LOCK))
-        expect(not left, "round %d: expected: no lock directory left, got: %s" % (rnd, left))
+        expect(not left, "round %d: expected: no lock directory left, got: %s%s" % (rnd, left, everything()))
+        if events.exists():
+            events.unlink()
     return "4 rounds of 6 calls on a dead holder's lock"
 
 

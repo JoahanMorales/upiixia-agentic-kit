@@ -36,28 +36,36 @@ claims_note() { # once per call, the status tick's subshell included (TXROOT is 
   : > "$TXROOT/claims-noted"
   say "NOTE: the claims repo $CLAIMS_DIR is not usable ($1); this call uses a temporary clone." >&2
 }
+claims_trace() { # UAK_CLAIMS_LOG=FILE: one line per lock event (a builtin append, no process); tests read it on failure
+  [ -z "${UAK_CLAIMS_LOG:-}" ] || printf '%s %s %s\n' "$$" "${BASH_SUBSHELL:-0}" "$*" >> "$UAK_CLAIMS_LOG" 2>/dev/null || true
+}
 claims_lock_stale() { # $1 lock, $2 its holder's PID (empty: no owner file), $3 tries → 0 when nobody can hold it
   # A dead holder (kill -9, a closed terminal). Never a live one, however old: one that resumes would push the next
   # holder's HEAD and report its own change as done (kit-r1, UAK-002). A lock with no owner file at all (a holder
   # killed between mkdir and its PID) is stale once older than the lease, checked every 5 s.
   if [ -n "$2" ]; then ! kill -0 "$2" 2>/dev/null
-  else [ $(( $3 % 25 )) -eq 24 ] && [ -n "$(find "$1" -prune -mmin +$(( LEASE / 60 )) 2>/dev/null)" ]
+  else [ $(( $3 % 25 )) -eq 24 ] && claims_lock_old "$1"
   fi
 }
+claims_lock_old() { [ -n "$(find "$1" -prune -mmin +$(( LEASE / 60 )) 2>/dev/null)" ]; }
 claims_lock() { # → 0 held by this call ($$); 1 still held by another after CLAIMS_LOCK_WAIT s; 2 cannot be created
   local lock="$CLAIMS_DIR.lock" pid= again= tries=0
   { IFS= read -r pid; } 2>/dev/null < "$lock/owner"
-  [ "$pid" != "$$" ] || return 0
+  [ "$pid" != "$$" ] || { claims_trace reenter; return 0; }
   until mkdir "$lock" 2>/dev/null; do
-    [ -d "$lock" ] || return 2
+    # Released between the mkdir and this test: try again. Only a folder that refuses a new directory is "cannot".
+    [ -d "$lock" ] || { tries=$((tries + 1)); [ -w "${lock%/*}" ] && [ "$tries" -le $(( CLAIMS_LOCK_WAIT * 5 )) ] && continue; return 2; }
     pid=; { IFS= read -r pid; } 2>/dev/null < "$lock/owner"
     # The takeover is serialized (lock.reap) and checks again before it deletes: the lock is removed only while it
     # still names the dead holder. Why (kit-r1, UAK-002): a takeover by rename left a moment with no lock at all, and
     # a third process's mkdir then ran beside the new holder in the same repo (17 of 60 rounds, 6 waiters).
     if claims_lock_stale "$lock" "$pid" "$tries" && mkdir "$lock.reap" 2>/dev/null; then
       again=; { IFS= read -r again; } 2>/dev/null < "$lock/owner"
-      if [ -d "$lock" ] && [ "$again" = "$pid" ]; then
-        rm -rf "$lock" "$CLAIMS_DIR/.git/refs/uak" "$CLAIMS_DIR/.git/packed-refs" "$lock.reap"
+      # An ownerless lock is checked for age again: a new holder between its mkdir and its PID is ownerless too.
+      if [ -d "$lock" ] && [ "$again" = "$pid" ] && { [ -n "$pid" ] || claims_lock_old "$lock"; }; then
+        claims_trace "reap ${pid:-ownerless}"
+        # The refs first, the lock last: while it still exists nobody else is in the repo.
+        rm -rf "$CLAIMS_DIR/.git/refs/uak" "$CLAIMS_DIR/.git/packed-refs" "$lock" "$lock.reap"
       else rmdir "$lock.reap" 2>/dev/null
       fi
       continue
@@ -68,12 +76,14 @@ claims_lock() { # → 0 held by this call ($$); 1 still held by another after CL
     sleep 0.2 2>/dev/null || sleep 1
   done
   printf '%s\n' "$$" 2>/dev/null > "$lock/owner" || { rmdir "$lock" 2>/dev/null; return 2; }
+  claims_trace "acquire after $tries"
 }
 claims_unlock() {
   local pid=
   [ -n "$CLAIMS_DIR" ] || return 0
   { IFS= read -r pid; } 2>/dev/null < "$CLAIMS_DIR.lock/owner"
   [ "$pid" = "$$" ] || return 0
+  claims_trace release
   # The refs this call fetched go with the lock: a stale refs/uak/base or refs/uak/task would answer for the next call.
   rm -rf "$CLAIMS_DIR/.git/refs/uak" "$CLAIMS_DIR/.git/packed-refs" "$CLAIMS_DIR.lock"
 }
@@ -112,14 +122,14 @@ claims_repo_state() {
   if claims_identity && git --git-dir="$g" fetch -q --depth 2 origin "+refs/heads/claims:refs/uak/claims" "+refs/heads/$BASE:refs/uak/config" 2> "$TXROOT/git-error" &&
      git --git-dir="$g" --work-tree="$CLAIMS_DIR" checkout -q -f -B claims refs/uak/claims 2> "$TXROOT/git-error" &&
      git --git-dir="$g" --work-tree="$CLAIMS_DIR" clean -q -f -f -d -x 2> "$TXROOT/git-error"; then
-    TX=$CLAIMS_DIR HAS_REMOTE=yes
+    TX=$CLAIMS_DIR HAS_REMOTE=yes; claims_trace "in $CMD"
     [ -d "$TX/tasks" ] && [ -d "$TX/claims" ] && [ -d "$TX/worklog" ] || mkdir -p "$TX/tasks" "$TX/claims" "$TX/worklog"
     return 0
   fi
   # No claims branch yet (the first claim), no base, or the network: the temporary clone retries and reports it; the
   # repo stays (kit-r1, UAK-002: a dropped connection deleted it).
   ! grep -Eqi "couldn't find remote ref|unable to access|could not read from remote|could not resolve|connection|timed out|early eof|hung up" "$TXROOT/git-error" || return 1
-  CLAIMS_BROKEN=$CLAIMS_DIR; claims_note "$(head -n 1 "$TXROOT/git-error")"; return 1
+  CLAIMS_BROKEN=$CLAIMS_DIR; claims_trace "broken $(head -n 1 "$TXROOT/git-error")"; claims_note "$(head -n 1 "$TXROOT/git-error")"; return 1
 }
 fresh_state() {
   # A new state: coord_init and state_load read it again (the claims repo keeps one path across tries and reads).
