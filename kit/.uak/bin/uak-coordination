@@ -660,6 +660,8 @@ coord_next() {
     # Cheap prefilter before the full gates: skip tasks that are taken or done, and tasks whose dependencies are
     # not INTEGRATED. Why: `next` probed every task of the backlog in a subshell (4.5 s of CPU on 36 tasks).
     # Each candidate comes with its Priority (read like task_field): a probe runs only in its own priority's pass.
+    # A dependency's state is read with `(x in st)` first: in awk `st[x]` alone creates the key, and a task with no
+    # record yet, listed after a task that depends on it, then failed `t in st` and vanished from next (UAK-017).
     for coord_id in $UAK_S_tasks; do sv tasks "$coord_id" State; printf '%s %s\n' "$coord_id" "$SV"; done > "$TXROOT/next-states"
     awk -v sf="$TXROOT/next-states" '
       BEGIN { while ((getline l < sf) > 0) { split(l, a, " "); st[a[1]] = a[2] } }
@@ -669,7 +671,7 @@ coord_next() {
         if (!(id in pr) && index(p, "Priority:") == 1) { sub(/^[^:]*:[[:space:]]*/, "", p); pr[id] = p }
         if (s ~ /^Depends on:/) { gsub(/\([^)]*\)/, "", s); d[id] = s } }
       END { for (i = 1; i <= n; i++) { t = order[i]; if (t in st && st[t] != "AVAILABLE") continue
-              ok = 1; w = ""; s = d[t]; while (match(s, /[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+/)) { x = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH); if (st[x] != "INTEGRATED") { ok = 0; if (w == "") w = x " " (st[x] != "" ? st[x] : "AVAILABLE") } }
+              ok = 1; w = ""; s = d[t]; while (match(s, /[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+/)) { x = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH); xs = (x in st) ? st[x] : ""; if (xs != "INTEGRATED") { ok = 0; if (w == "") w = x " " (xs != "" ? xs : "AVAILABLE") } }
               if (ok) print t, (pr[t] ~ /^P[012]$/ ? pr[t] : "any"); else print t, w > wf } }' wf="$TXROOT/next-waiting" "$BACKLOG" > "$TXROOT/next-candidates"
     : >> "$TXROOT/next-waiting"
     while IFS=' ' read -r coord_id coord_pri || [ -n "$coord_id" ]; do coord_ids="$coord_ids $coord_id:$coord_pri"; done < "$TXROOT/next-candidates"
