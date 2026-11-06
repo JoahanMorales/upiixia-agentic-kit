@@ -15,7 +15,7 @@ from test_hack import Failure, Runner, expect, resolve_binary
 from test_v592 import PROGRAMS, bash_major, call
 
 TARGETS = {"next": 40, "status": 30, "heartbeat": 20}
-# Targets the redesign does not reach (UAK-006, measured on 0ec9f2f: next 122 for an idle agent, status 61,
+# Targets the redesign does not reach (UAK-006, measured on 0ec9f2f: next 93, 122 for an idle agent, status 61,
 # heartbeat 139). Most of what is left is the claims transaction itself (a fresh clone, a commit, a push per call):
 # UAK-002 and UAK-005, a persistent claims repo, were cancelled (about 5 processes saved per call for a lock shared
 # between processes). Strict: a test in it that meets its target fails, so the set never hides a win. Nothing here is

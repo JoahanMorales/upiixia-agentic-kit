@@ -175,4 +175,6 @@ the first step. test_claims_perf.py runs it as `old_and_new_engines_print_the_sa
 
 Left out on purpose, because they changed output to fix a bug: `uak merge` from a task worktree (UAK-012), a CRLF
 checkout (UAK-014), bash 3.2 (UAK-013), and a task listed before a dependency nobody has claimed (UAK-017).
-The merge gate's scope check (UAK-008) has its own differential in test_gate_scope.py.
+`uak merge` itself is not in the scenario (its gate runs the fixture's smoke); the scope check UAK-008 rewrote is
+tested on its own in test_gate_scope.py (the same verdicts and reasons, 200 files, file names that look like
+patterns), not against the old engine.
