@@ -361,6 +361,10 @@ def the_dispatcher_parses_on_bash_3_2(r):
         'q=$(# it\'s\ncase $a in b) :;; esac)\n': [1],
         'q=$(echo lower-case ${x#case})\n': [],
         'q=$((1 + (2)))\n': [],
+        # $(( … )) opens two parens and closes two: a checker that took one ")" for it ended the outer $( … ) one
+        # paren early (UAK-015): a false positive on the first, a false negative on the second.
+        'y=$(case $a in (b) echo $((1));; esac)\n': [],
+        'y=$(echo $((1+1)); case $a in b) :;; esac)\n': [1],
     }
     for sample, want in samples.items():
         expect(comsub_case_misparses(sample) == want, "the checker itself on %r: %s" % (sample, comsub_case_misparses(sample)))
