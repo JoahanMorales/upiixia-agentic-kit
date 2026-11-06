@@ -146,11 +146,13 @@ def recomputes_leases_from_the_clock(r):
     claims, base = tips(r, f)
     state_bytes = (entry(f, claims, base) / "state").read_bytes()
     until = int([l for l in fresh if l.startswith("S UAK_S_claims_HACK_001_Lease_Until=")][0].split("=", 1)[1])
-    seen = {}
+    seen, why = {}, {}
     for label, now in (("before", until - 60), ("after", until + 60)):
-        head, rest, _ = call(r, f, "get", [f.base / ("read-" + label), claims, base], now=now)
+        head, rest, out = call(r, f, "get", [f.base / ("read-" + label), claims, base], now=now)
         expect(head == "HIT", "%s the lease: expected: HIT, got: %r" % (label, head))
         seen[label] = rest
+        auth = f.base / ("read-" + label) / "coord-auth"
+        why[label] = "coord-auth %r, stderr %r" % (auth.read_bytes() if auth.exists() else None, out.stderr[-600:])
     want = {"before": "L HACK-001 active", "after": "L HACK-001 EXPIRED"}
     for label, line in want.items():
         expect(line in seen[label], "the lease %s Lease-Until, from the same cache: expected: %r, got: %r" % (label, line, seen[label]))
@@ -161,7 +163,7 @@ def recomputes_leases_from_the_clock(r):
     for label, now in (("before", until - 60), ("after", until + 60)):
         mins = (FREEZE - now + 59) // 60
         expect(len(freeze[label]) == 1 and freeze[label][0].startswith("F FREEZE in %d min" % mins),
-               "the freeze %s: expected: FREEZE in %d min, got: %r" % (label, mins, freeze[label]))
+               "the freeze %s: expected: FREEZE in %d min, got: %r (%s)" % (label, mins, freeze[label], why[label]))
     # Nothing in the cache comes from the clock: a put at another time writes the same bytes.
     r.run([r.bash, harness(r).as_posix(), (r.package / ".uak/bin").as_posix(), "drop", f.worktrees[0].as_posix()], cwd=f.base)
     put(r, f, "read-2", now=T0 + 999)
