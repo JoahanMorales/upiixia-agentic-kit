@@ -4,19 +4,28 @@ permissions:
   contents: read
 jobs:
   discover:
-    # The Windows matrix is every kit/.uak/tests/test_*.py: a new test file runs there with no edit here.
+    # The Windows matrix is every kit/.uak/tests/test_*.py, and the suite's shards split the same list: a new test file
+    # runs in both with no edit here.
     runs-on: ubuntu-latest
     outputs:
       tests: ${{ steps.list.outputs.tests }}
+      shards: ${{ steps.list.outputs.shards }}
     steps:
       - uses: actions/checkout@v4
       - id: list
-        run: python3 scripts/kit_lint.py --ci-tests >> "$GITHUB_OUTPUT"
+        run: |
+          python3 scripts/kit_lint.py --ci-tests >> "$GITHUB_OUTPUT"
+          python3 scripts/kit_lint.py --ci-shards 4 >> "$GITHUB_OUTPUT"
   suite:
+    # 4 shards per OS, balanced by each file's measured seconds (UAK-018): one sequential macOS job took 15.6 min.
+    # The checks that are not test files run once per OS, in shard 1.
+    needs: discover
+    name: suite (${{ matrix.os }}, ${{ matrix.shard.n }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        shard: ${{ fromJSON(needs.discover.outputs.shards) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60   # a hang fails in an hour, not six (a Windows job once hung 84 min)
     steps:
@@ -29,13 +38,18 @@ jobs:
       - name: Git identity for fixtures
         run: git config --global user.name ci && git config --global user.email ci@example.invalid
       - name: Codex/Cursor/Gemini subagents are generated from .claude/agents
+        if: matrix.shard.n == 1
         run: python3 scripts/gen_harness.py --check
       - name: The kit's own rules as checks (portability, structure)
+        if: matrix.shard.n == 1
         run: python3 scripts/kit_lint.py
       - name: install --update recognizes every kit version ever shipped
+        if: matrix.shard.n == 1
         run: python3 scripts/kit_hashes.py --check
-      - name: Protocol suite (real Git, local bare remotes)
+      - name: Protocol suite (real Git, local bare remotes), this shard's files
         working-directory: kit
+        env:
+          UAK_SMOKE_TESTS: ${{ matrix.shard.tests }}
         # stdin held open, as in a terminal: a command that reads it (BSD awk -W version did) hangs here, not on a laptop
         run: |
           mkfifo "$RUNNER_TEMP/stdin"; sleep 7200 > "$RUNNER_TEMP/stdin" 2>/dev/null & holder=$!
@@ -44,8 +58,10 @@ jobs:
           rc=0; bash .uak/bin/smoke --package-only < "$RUNNER_TEMP/stdin" || rc=$?
           kill "$holder"; exit "$rc"
       - name: MCP tools, one by one (tests/)
+        if: matrix.shard.n == 1
         run: python3 tests/test_mcp_tools.py
       - name: Installer
+        if: matrix.shard.n == 1
         run: |
           t=$(mktemp -d) && git -C "$t" init -q -b main && bash install.sh --mode marathon "$t" && test -f "$t/.uak/PROJECT.md"
   windows:

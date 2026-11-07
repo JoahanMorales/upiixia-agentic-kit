@@ -111,6 +111,34 @@ def ci_tests():
     return sorted(t.stem for t in (ROOT / "kit/.uak/tests").glob("test_*.py")) + ["mcp_tools"]
 
 
+# Seconds each test file took in the macOS suite (run 42310349789 on 4854882, Nov 2026), the slowest CI runner for the
+# sequential suite. Only the balance of the shards depends on them: a file not listed counts 60 s and still runs.
+CI_SECONDS = {
+    "test_review_merge": 84, "test_v54": 75, "test_claims_perf": 75, "test_v57": 59, "test_next_prefilter": 58,
+    "test_hack": 55, "test_v51": 54, "test_v5": 53, "test_v55": 45, "test_v42": 40, "test_coordination": 38,
+    "test_v43": 37, "test_v3": 35, "test_v41": 29, "test_v571": 25, "test_hook_claims": 25, "test_v53": 20,
+    "test_v21_security": 19, "test_claims_read": 19, "test_v52": 18, "test_ci_shards": 15, "test_v59": 14,
+    "test_v57_tools": 13, "test_v511": 11, "test_v510": 11, "test_v58": 9, "test_claims_cache": 9, "test_v591": 7,
+    "test_v57_install": 6, "test_v592": 5, "test_snapshot": 2, "test_gate_scope": 2, "test_policy": 1,
+}
+
+
+def ci_seconds(test):
+    return CI_SECONDS.get(test, 60)
+
+
+def ci_shards(n):
+    """The suite's test files in n shards for the CI matrix, [{"n": 1, "tests": "test_a test_b"}, …]: longest first,
+    each to the shard with the least seconds so far (ties to the lower shard), so every file is in exactly one."""
+    tests = [t for t in ci_tests() if t != "mcp_tools"]
+    load, picked = [0] * n, [[] for _ in range(n)]
+    for t in sorted(tests, key=lambda x: (-ci_seconds(x), x)):
+        i = min(range(n), key=lambda k: (load[k], k))
+        load[i] += ci_seconds(t)
+        picked[i].append(t)
+    return [{"n": i + 1, "tests": " ".join(sorted(picked[i]))} for i in range(n)]
+
+
 def check_test_discovery(findings):
     """smoke and CI find the test files themselves: no hand-kept list to forget (a list made every task that added a
     test edit the workflow, and the merge gate sends every workflow change to a human)."""
@@ -123,6 +151,12 @@ def check_test_discovery(findings):
         findings.append("kit/.uak/bin/smoke · hand-kept-tests · names %s: let the discovery run them" % ", ".join(listed))
     if "python3 scripts/kit_lint.py --ci-tests" not in ci or "fromJSON(needs.discover.outputs.tests)" not in ci:
         findings.append(".github/workflows/test.yml · no-test-discovery · the Windows matrix must come from the discover job (kit_lint.py --ci-tests)")
+    # The macOS and Linux suites run in shards (UAK-018): their lists come from --ci-shards, and smoke must run only them.
+    if "python3 scripts/kit_lint.py --ci-shards" not in ci or "fromJSON(needs.discover.outputs.shards)" not in ci \
+            or "UAK_SMOKE_TESTS: ${{ matrix.shard.tests }}" not in ci:
+        findings.append(".github/workflows/test.yml · no-test-shards · the suite's shards must come from the discover job (kit_lint.py --ci-shards) into UAK_SMOKE_TESTS")
+    if "UAK_SMOKE_TESTS" not in smoke:
+        findings.append("kit/.uak/bin/smoke · no-test-shards · smoke must run only the files UAK_SMOKE_TESTS names when it is set")
     named = sorted(set(re.findall(r"\btest_v?\w+\b", ci)) & set(ci_tests()))
     if named:
         findings.append(".github/workflows/test.yml · hand-kept-tests · names %s: the discover job lists them" % ", ".join(named))
@@ -196,9 +230,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--ci-tests", action="store_true", help="print the Windows matrix for $GITHUB_OUTPUT")
+    ap.add_argument("--ci-shards", type=int, metavar="N", help="print the suite's N shards for $GITHUB_OUTPUT")
     a = ap.parse_args()
     if a.ci_tests:
         print("tests=" + json.dumps(ci_tests()))
+        return 0
+    if a.ci_shards:
+        print("shards=" + json.dumps(ci_shards(a.ci_shards)))
         return 0
     if a.list:
         for rid, _, msg in PORTABILITY:
