@@ -165,7 +165,11 @@ review_mutate() {
     MSG_DECLINED="$ID $AGENT"; msg_reoffer_reviews; MSG_DECLINED=
     return 0
   fi
-  [ "$AGENT" != "$(field "$RECORD" Owner)" ] || UAK_CODE=own-review conflict "The owner cannot approve their own task."
+  if [ "$AGENT" = "$(field "$RECORD" Owner)" ]; then
+    # In the author's worktree its .uak-env wins over the shell's UAK_AGENT: say so, and where a review runs from.
+    [ -z "${UAK_ENV_SHELL_AGENT:-}" ] || UAK_CODE=own-review conflict "The owner cannot approve their own task. This worktree's .uak-env names $AGENT (the shell had $UAK_ENV_SHELL_AGENT): review from the main checkout or your own clone, not the author's worktree."
+    UAK_CODE=own-review conflict "The owner cannot approve their own task."
+  fi
   review_identity_eligible "$AGENT" || conflict "The reviewer needs an active own claim or a registered role."
   resolve_task_tip || conflict "$RM_REASON"
   # --start: "I am reviewing this SHA" for a short lease, so a second agent does not review it in parallel.
