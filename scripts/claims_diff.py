@@ -37,6 +37,8 @@ TEMP = re.compile(r"(?<=-hack\.)[A-Za-z0-9]{6}(?=\.md)")
 TOKEN = re.compile(r"(?<=Read-token: )[0-9]+(?=-[0-9]+)")
 # Git's relative date of the last commit ("6 seconds ago") follows the wall clock, not UAK_NOW.
 AGO = re.compile(r"\([0-9]+ (?:second|minute|hour)s? ago\)")
+# The kit's version (`status` prints "uak v6.0.0 | remote claims …"): a release changes it, the engine does not.
+VERSION = re.compile(r"(?<=^uak v)[0-9]+\.[0-9]+\.[0-9]+(?= \|)", re.M)
 
 
 def git_bytes(r, cwd, *args):
@@ -83,7 +85,8 @@ def normalize(text, base, shas=None):
     # engine that recorded another commit (HEAD~1 for HEAD, kit-r1 on 7d8d7db) shows up as another label.
     for sha, label in (shas or {}).items():
         text = re.sub(r"(?<![0-9a-f])%s[0-9a-f]{0,33}(?![0-9A-Za-z])" % sha[:7], "<SHA %s>" % label, text)
-    return TOKEN.sub("<CKSUM>", AGO.sub("(<AGO>)", TEMP.sub("<TMP>", text.replace("\r\n", "\n"))))
+    text = TOKEN.sub("<CKSUM>", AGO.sub("(<AGO>)", TEMP.sub("<TMP>", text.replace("\r\n", "\n"))))
+    return VERSION.sub("<VERSION>", text)
 
 
 def fixture_shas(r, f):
