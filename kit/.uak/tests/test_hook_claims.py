@@ -98,7 +98,9 @@ def tick_runs_pace_in_the_background(r):
     env = {"UAK_POLL_SECONDS": "100000"}
     # The warm-up tick does its beat and drift; its pace check is marked done so no real pace runs in the background
     # while the fake one below is put in place (on Windows a slow one ran the fake and set the level first).
-    (gd / "uak-pace.seen").write_text("%d\n" % int(time.time()), encoding="utf-8")
+    # write_bytes: Windows' write_text writes CRLF, and a seen file reading "1794…\r" is no epoch to the hook, which
+    # then goes by its mtime (just written: fresh), so the check never ran (Windows CI on e570732 and 5095ed5).
+    (gd / "uak-pace.seen").write_bytes(b"%d\n" % int(time.time()))
     hook(r, w, [".uak/bin/hook", "tick"], tick, env)
     # A pace that takes 8 s and moves from steady to surge; the last check is made 10 minutes old.
     log = r.scratch / "hook-pace-calls.log"
@@ -107,7 +109,7 @@ def tick_runs_pace_in_the_background(r):
         'if [ "${1:-}" = --caps ]; then sleep 8; echo "surge 4 2"; else echo "PACE-NOTE surge: spend more"; fi\n'
         % log.as_posix()).encode("utf-8"))
     (gd / "uak-pace.level").write_bytes(b"steady")
-    (gd / "uak-pace.seen").write_text("%d\n" % (int(time.time()) - 600), encoding="utf-8")
+    (gd / "uak-pace.seen").write_bytes(b"%d\n" % (int(time.time()) - 600))
     started = time.monotonic()
     out = hook(r, w, [".uak/bin/hook", "tick"], tick, env)
     took = time.monotonic() - started
