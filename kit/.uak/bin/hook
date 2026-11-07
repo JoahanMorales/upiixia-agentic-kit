@@ -64,6 +64,7 @@ fresh() {
   local v=
   [ -f "$1" ] || return 1
   { IFS= read -r v < "$1"; } 2>/dev/null
+  v=${v%$'\r'}  # written with CRLF it is still an epoch, not "no epoch, go by mtime" (UAK-021)
   case "$v" in ''|*[!0-9]*) [ -n "$(find "$1" -mmin "-$2" 2>/dev/null)" ];; *) [ $((NOW - v)) -lt $(($2 * 60)) ];; esac
 }
 stamp() { printf '%s\n' "$NOW" > "$1" 2>/dev/null; }
