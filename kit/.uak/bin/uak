@@ -37,6 +37,7 @@ unset UAK_MERGE_ENGINE hack_cmd hack_main
 # Per-worktree identity: .uak-env (written by .uak/bin/wt, git-ignored) only fills empty variables.
 # Why: every terminal or agent in the worktree inherits its identity without manual exports.
 hack_env_file="$(git rev-parse --show-toplevel 2>/dev/null)/.uak-env"
+UAK_ENV_SHELL_AGENT=  # set below only when .uak-env replaced the shell's UAK_AGENT; never inherited
 if [ -f "$hack_env_file" ]; then
   while IFS='=' read -r hack_key hack_value || [ -n "$hack_key" ]; do
     hack_value=${hack_value%$'\r'}  # a .uak-env saved with CRLF (Windows editors) kept the identity out
@@ -53,6 +54,8 @@ if [ -f "$hack_env_file" ]; then
         if [ -z "$hack_current" ] || { [ "$hack_current" != "$hack_value" ] && [ "${UAK_ENV_OVERRIDE:-}" != 1 ] &&
              case "$hack_key" in UAK_AGENT|UAK_TASK|UAK_SESSION) true;; *) false;; esac; }; then
           [ -z "$hack_current" ] || printf 'uak: using %s=%s from .uak-env (the shell had %s)\n' "$hack_key" "$hack_value" "$hack_current" >&2
+          # Kept for a refusal that this swap explains (UAK-020: a reviewer in the author's worktree became the author).
+          [ "$hack_key" != UAK_AGENT ] || [ -z "$hack_current" ] || UAK_ENV_SHELL_AGENT=$hack_current
           export "$hack_key=$hack_value"
         fi;;
     esac
