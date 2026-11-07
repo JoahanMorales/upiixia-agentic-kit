@@ -116,3 +116,38 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Tests:** shards_cover_every_test_once, smoke_runs_only_its_shard, a_name_that_is_not_a_test_fails_the_shard
 - **Verify:** `python3 kit/.uak/tests/test_ci_shards.py && python3 scripts/kit_lint.py`
 - **Next step:** `ci_tests()` in scripts/kit_lint.py, then the test-file loop of kit/.uak/bin/smoke
+## UAK-019 · plan's owner checks match claim's: no false "never claimed", and an amend checks only the Paths it adds
+
+- **Type:** bug
+- **Priority:** P1
+- **Estimate:** 2 h
+- **Depends on:** None
+- **Paths:** kit/.uak/bin/lib/backlog.sh, kit/.uak/bin/lib/plan.sh, kit/.uak/tests/test_plan_owners.py
+- **Acceptance:** `uak plan` no longer warns "can never be claimed" for a path whose OWNERS row belongs to a task already INTEGRATED: `owner_conflicts` (lib/backlog.sh) skips it as `check_owners` does for claim (black box, Nov 7: UAK-018 got the warning and claimed fine), it still warns for an owner that is not INTEGRATED and does not depend on the task, `plan FILE --amend` checks the other live claims only against the Paths the amend adds: an amend that keeps a task's Paths (only Depends or criteria change) passes while a claim sits under them (black box, Nov 6: UAK-006's Depends waited for UAK-008 to integrate); a newly added path that overlaps a live claim is still refused
+- **Tests:** plan_does_not_warn_for_an_integrated_owner, plan_still_warns_for_a_live_owner, amend_with_the_same_paths_passes_a_live_claim, amend_adding_a_claimed_path_is_refused
+- **Verify:** `python3 kit/.uak/tests/test_plan_owners.py`
+- **Next step:** the `owner_waits_on_me` line of owner_conflicts in kit/.uak/bin/lib/backlog.sh
+
+## UAK-020 · A review run in the author's worktree says where to review from
+
+- **Type:** bug
+- **Priority:** P1
+- **Estimate:** 1 h
+- **Depends on:** None
+- **Paths:** kit/.uak/bin/uak, kit/.uak/bin/lib/review-merge.sh, kit/.uak/tests/test_review_identity.py
+- **Acceptance:** when the worktree's .uak-env replaced the shell's UAK_AGENT and the resulting identity owns the task, `uak review ID` refuses as today ("The owner cannot approve their own task") and adds: this worktree's .uak-env names AGENT (the shell had X); review from the main checkout or your own clone (black box, Nov 6: the only way out a reviewer found was UAK_ENV_OVERRIDE), the refusal does not suggest UAK_ENV_OVERRIDE, the same review from the main checkout with UAK_AGENT=X is accepted as before
+- **Tests:** review_in_the_authors_worktree_names_the_way_out, review_from_the_main_checkout_still_works
+- **Verify:** `python3 kit/.uak/tests/test_review_identity.py`
+- **Next step:** the .uak-env loop in kit/.uak/bin/uak, then the own-review conflict in kit/.uak/bin/lib/review-merge.sh
+
+## UAK-021 · Windows-proof timing: a slow runner is measured twice, and the hook reads a CRLF epoch
+
+- **Type:** bug
+- **Priority:** P2
+- **Estimate:** 1 h
+- **Depends on:** None
+- **Paths:** kit/.uak/tests/test_v592.py, kit/.uak/bin/hook, kit/.uak/tests/test_hook_claims.py
+- **Acceptance:** test_v592's `a_long_heredoc_is_read_in_time` measures again when the first call is over its limit and fails only when both are (black box, Nov 6: 5.2 s once on a Windows runner, a commit that did not touch guard; the rerun passed); its assertion is unchanged, the hook's `fresh` reads an epoch followed by `\r` (a state file written with CRLF) as that epoch, instead of falling back to the file's mtime (black box, Nov 7: a CRLF seen file made the pace check never run)
+- **Tests:** fresh_reads_a_crlf_epoch
+- **Verify:** `python3 kit/.uak/tests/test_hook_claims.py && python3 kit/.uak/tests/test_v592.py --case a_long_heredoc_is_read_in_time`
+- **Next step:** `fresh()` in kit/.uak/bin/hook
