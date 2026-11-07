@@ -67,6 +67,20 @@ fresh() {
   case "$v" in ''|*[!0-9]*) [ -n "$(find "$1" -mmin "-$2" 2>/dev/null)" ];; *) [ $((NOW - v)) -lt $(($2 * 60)) ];; esac
 }
 stamp() { printf '%s\n' "$NOW" > "$1" 2>/dev/null; }
+# The inbox as tick keeps it: uak-inbox.txt, read at the claims tip in uak-claims.tip. One ls-remote of claims; the full
+# `uak inbox --peek` (a fresh clone, 19 git calls) only when the tip moved or the copy is over 5 min old. The tip is
+# taken before the read: a read that saw a newer state is redone next time, never kept under a tip it was not read at.
+# Why (UAK-007): stop paid the full read at the end of every turn, 3-5 s on Git Bash, for an inbox tick already had.
+inbox_kept() {
+  local tip=
+  . .uak/bin/lib/net.sh 2>/dev/null && ssh_mux
+  tip=$(git ls-remote "${UAK_REMOTE:-origin}" refs/heads/claims 2>/dev/null); tip=${tip%%[[:space:]]*}
+  if [ -n "$tip" ] && [ -f "$gd/uak-inbox.txt" ] && fresh "$gd/uak-inbox.txt" 5 && rd "$gd/uak-claims.tip" && [ "$RD" = "$tip" ]; then
+    return 0
+  fi
+  bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.tmp" 2>/dev/null && mv "$gd/uak-inbox.tmp" "$gd/uak-inbox.txt" &&
+    { [ -z "$tip" ] || printf '%s' "$tip" > "$gd/uak-claims.tip"; }
+}
 # A small file's first line into RD (as $(cat) for the one-line state files); 1 when there is no file.
 rd() { RD=; [ -f "$1" ] || return 1; { IFS= read -r RD < "$1"; } 2>/dev/null; return 0; }
 # What sed -n 's/.*"KEY"[[:space:]]*:[[:space:]]*"\([CHARS]*\)".*/\1/p' | head -n 1 printed, into ID: on the first
@@ -428,7 +442,7 @@ case "${1:-}" in
     nohup bash .uak/bin/map build > /dev/null 2>&1 &
     # The quick card (Superpowers-style bootstrap): WHEN to use which part of the harness, at session start.
     tmpl card
-    bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.txt" 2>/dev/null
+    inbox_kept
     if [ -s "$gd/uak-inbox.txt" ]; then
       # What was printed is what was shown: a cut list leaves the rest for the next tick (audit, Oct 2026: 15 messages,
       # 10 printed, all 15 marked seen and never injected).
@@ -530,15 +544,23 @@ case "${1:-}" in
         fi ) > /dev/null 2>&1 &
     fi
     # Pace check every ~5 min; speak only when the level changes. Why: the agent can't see /usage.
+    # In the background like the poll (UAK-007: about 40 processes the agent waited for); a level change leaves its
+    # note in uak-pace.note, said once by the next tick.
     pace_note=
     if ! fresh "$gd/uak-pace.seen" 5; then
       net_once
       stamp "$gd/uak-pace.seen"
-      lvl=$(bash .uak/bin/pace --caps 2>/dev/null | awk '{print $1}')
-      if [ -n "$lvl" ] && { rd "$gd/uak-pace.level"; [ "$lvl" != "$RD" ]; }; then
-        printf '%s' "$lvl" > "$gd/uak-pace.level"
-        case "$lvl" in surge|conserve|critical) pace_note=$(bash .uak/bin/pace 2>/dev/null);; esac
-      fi
+      ( lvl=$(bash .uak/bin/pace --caps 2>/dev/null | awk '{print $1}')
+        if [ -n "$lvl" ] && { rd "$gd/uak-pace.level"; [ "$lvl" != "$RD" ]; }; then
+          printf '%s' "$lvl" > "$gd/uak-pace.level"
+          case "$lvl" in
+            (surge|conserve|critical) bash .uak/bin/pace > "$gd/uak-pace.tmp" 2>/dev/null && mv -f "$gd/uak-pace.tmp" "$gd/uak-pace.note";;
+          esac
+        fi ) > /dev/null 2>&1 &
+    fi
+    if [ -s "$gd/uak-pace.note" ]; then
+      while IFS= read -r pace_l || [ -n "$pace_l" ]; do pace_note="${pace_note}${pace_note:+$NL}$pace_l"; done < "$gd/uak-pace.note"
+      : > "$gd/uak-pace.note"
     fi
     [ -z "$coach_note" ] || pace_note="${pace_note}${pace_note:+
 }$coach_note"
@@ -601,7 +623,7 @@ $act"
     fi
     [ -n "$agent" ] || exit 0
     case "$input" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) exit 0;; esac
-    bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.tmp" 2>/dev/null && mv "$gd/uak-inbox.tmp" "$gd/uak-inbox.txt"
+    inbox_kept
     [ -s "$gd/uak-inbox.txt" ] || exit 0
     # The batch is its message numbers, not the text: "#3 · 5m ago" changes every minute and blocked again each time
     # (audit, Oct 2026).
