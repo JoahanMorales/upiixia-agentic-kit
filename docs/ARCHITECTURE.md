@@ -88,7 +88,7 @@ another OS.
 | 1. One config reader (`lib/config.sh`); `kit_lint` refuses a new copy | v5.11 |
 | 2. Stable result codes and `uak --json` | v5.11 |
 | 3. One command registry for help, dispatch, the CLI.md index and the MCP tools | v5.11 |
-| 4. `uak` split into one file per command family (1,995 → 258 lines) | v5.11 |
+| 4. `uak` split into one file per command family (1,995 → under 300 lines) | v5.11 |
 | 5. The kit developed with the kit | v5.11 |
-| 6. The claims transaction without the process storm (`next` ≤ 40 processes) | next: `.uak/TASKS.md`, UAK-001 … UAK-008 |
+| 6. The claims transaction without the process storm (`next` ≤ 40 processes) | v6.0 (93 processes; the transaction itself is what is left) |
 | Tests regrouped by area (`test_done.py`, `test_guard.py`…) | open: today they are grouped by release |

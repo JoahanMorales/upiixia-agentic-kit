@@ -4,6 +4,7 @@ For a team on its way to an event. Every command is real. The full rules are in 
 Lessons from past events: `docs/blackbox/reap-2026-10.md` (4 h, 12 agents) and `docs/blackbox/mlb-2026-10.md` (10 days, 4 Windows laptops).
 
 ## Before you arrive (10 min, each laptop)
+- [ ] Git knows who you are: `git config --global user.name "Your Name"` and `git config --global user.email you@example.com` (a fresh laptop has neither; `wt new` and the first commit fail without them).
 - [ ] Claude Code v2.1.293 or later, Codex or Cursor, Git, and `gh auth login`. Use a token with **Pull requests: write**, or every PR will need a human click (`wt pr` prints the URL).
 - [ ] Windows: use Git Bash, and keep the repo **outside OneDrive/Dropbox** (sync locks files git writes; `doctor` warns).
 - [ ] Python projects: create `.venv` in the main checkout; the merge gate uses it.

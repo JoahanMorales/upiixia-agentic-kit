@@ -1,5 +1,49 @@
 # Changelog
 
+## v6.0.0 · 2026-11-07 · The claims engine without the process storm, built with the kit itself
+
+The first release the kit planned, reviewed and merged through its own gates: 19 tasks (UAK-001 … UAK-021) on the
+claims branch, each test-first, reviewed by an agent that was not its author, merged after every CI run of its SHA
+was green on Linux, macOS and Windows. It is a major version because the claims reads, STATE.md and the merge gate's
+scope check were rewritten, and `uak merge` now always runs the main checkout's engine; the commands, their output and
+the claims format are unchanged, and a differential check proves it (`scripts/claims_diff.py`).
+
+Claims engine and speed
+- **`uak next`, `uak status` and `uak heartbeat` read the claims state in one awk pass**, not a subshell per field.
+  Processes on a 12-task fixture: `next` 208 → 93 (idle agent 258 → 122), `status` 190 → 61, `heartbeat` 240 → 139.
+  Time on a Windows 11 laptop (Git Bash): `next` 5.1 → 3.6 s, `status` 4.5 → 2.9 s, `heartbeat` 6.3 → 5.0 s
+  ([docs/perf-windows.md](docs/perf-windows.md)).
+- **STATE.md in one pass**: 4 processes for any number of tasks (130 on 12 records and 346 on 48 before), the same
+  bytes as before over six fixtures.
+- **The merge gate's scope check is one awk pass**, and a cache of the parsed claims state is keyed on the claims tip.
+- **The old and new engines print the same and write the same claims tree**: `scripts/claims_diff.py` runs a 38-step
+  scenario (claims, conflicts, reviews, merges, expired leases, `release --expired`) on both and compares exit codes,
+  output and the tree after every step, in CI.
+- The hook reuses its last inbox while it is recent and the claims tip has not moved, and runs the pace check in the
+  background: fewer round trips per tool call.
+- A process counter for `next`, `status` and `heartbeat` (`test_claims_perf.py`), so a regression shows as a number.
+
+Plans, claims and reviews
+- Fixed: `uak next` hid an AVAILABLE task with no claims record when an earlier task depended on it; a test also pins
+  that a task in REVIEW or closed is never offered.
+- Fixed: `uak plan` warned "can never be claimed" for a path whose OWNERS row belongs to an INTEGRATED task (claim
+  allows it); `plan --amend` now checks the live claims only against the Paths it adds, so changing a task's
+  dependencies no longer waits for every claim under its Paths.
+- `uak merge` runs the main checkout's engine, never the branch's own copy.
+- A review refused in the author's worktree says why (that worktree's `.uak-env` names the author) and where to review
+  from, instead of leaving `UAK_ENV_OVERRIDE` as the only way out.
+
+CI and tests
+- The suite runs in 4 shards per OS, balanced by measured time (`kit_lint --ci-shards`): about 7 minutes instead of
+  15.6. CI and smoke find the test files themselves; a shard naming an unknown test fails.
+- The merge gate runs smoke and Verify with the caller's own SSH settings.
+- 283 integration tests on Linux, macOS and Windows.
+
+Windows and portability
+- The engine parses on bash 3.2 (macOS), including `$(( ))` inside `$( )`; `status` and `next` print no carriage
+  return from a CRLF checkout; the hook reads an epoch written with CRLF.
+- Timing tests measure a slow runner twice before failing; their limits are unchanged.
+
 ## v5.11.0 · 2026-11-02 · An engine you can change without breaking it
 The kit stays in Bash and Python: no Go or Rust engine (`docs/plans/port-go.md` keeps the estimate). Its structure
 changed instead, so a change touches one place and a check catches the drift. Each step has a test in `test_v511.py`.

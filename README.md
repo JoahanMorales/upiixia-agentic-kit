@@ -347,12 +347,22 @@ fresh install). How it is built and where to change what: [docs/ARCHITECTURE.md]
 [docs/plans/port-go.md](docs/plans/port-go.md).
 
 **v5.11: an engine you can change without breaking it.** It stays in Bash and Python (no Go or Rust engine), and its
-structure changed instead: `uak` went from 1,995 lines to a 258-line dispatcher over one file per command family; one
+structure changed instead: `uak` went from 1,995 lines to a dispatcher under 300 lines over one file per command family; one
 registry (`lib/commands.tsv`) drives help, dispatch, the CLI.md index and the MCP tools; one reader of `PROJECT.md`
 replaces 13 copies; `uak --json CMD` gives programs the result with a stable code (`overlap`, `lease-active`,
 `tests-weakened`…) while agents keep the text. And the kit is now developed with the kit: its roadmap is
 [`.uak/TASKS.md`](.uak/TASKS.md), claimed, reviewed and merged through its own gates. The first phase there is the
 claims transaction without the process storm (`next` ≤ 40 processes).
+
+**v6.0: the claims engine without the process storm, built with the kit itself.** 19 tasks planned, claimed,
+reviewed by an agent that was not the author and merged through the kit's own gates, each after every CI run of its
+SHA was green on Linux, macOS and Windows. `next`, `status`, `heartbeat`, STATE.md and the merge gate's scope check
+read the claims in one awk pass: on a Windows laptop `next` went from 5.1 to 3.6 s, `status` from 4.5 to 2.9 s, and
+STATE.md costs 4 processes for any number of tasks ([measured](docs/perf-windows.md#the-claims-commands-next-status-heartbeat-uak-001--uak-017-nov-2026)).
+The old and new engines print the same and write the same claims tree over a 38-step scenario
+(`scripts/claims_diff.py`, in CI). The 40-process target for `next` is not met (93 now): what is left is the claims
+transaction itself. Also: `uak plan` no longer warns about OWNERS rows of integrated tasks, a review refused in the
+author's worktree says where to review from, and CI runs in balanced shards (15.6 → about 7 minutes).
 
 ## Deploy in one command: `uak deploy`
 
@@ -451,7 +461,7 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**268 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
+**283 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
 
 ## Works with
 | Tool | How |
