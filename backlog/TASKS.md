@@ -105,3 +105,14 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Tests:** a_dependency_listed_later_is_still_offered, the_dependent_still_waits, closed_tasks_are_never_offered
 - **Verify:** `python3 kit/.uak/tests/test_next_prefilter.py`
 - **Next step:** line 672 of kit/.uak/bin/uak-coordination: `st[x]` in the dependency loop
+## UAK-018 · CI in about 7 minutes: the macOS and Linux suites in balanced shards
+
+- **Type:** feature
+- **Priority:** P1
+- **Estimate:** 3 h
+- **Depends on:** None
+- **Paths:** .github/workflows/test.yml, kit/.uak/bin/smoke, scripts/kit_lint.py, kit/.uak/tests/test_ci_shards.py
+- **Acceptance:** measured on 4854882 (run 42310349789): the run takes 15.6 min, all of it waiting on `suite (macos-latest)`, which runs the 31 test files one after another (about 14.5 min of tests); Windows (one job per file) ends by 7 min, Linux at 6.5, `python3 scripts/kit_lint.py --ci-shards 4` prints the suite's shards as JSON: every discovered `kit/.uak/tests/test_*.py` in exactly one shard, balanced by each file's measured seconds on macOS (longest first); a file with no measured time counts 60 s, so a new test is never left out, only weighed by guess, the `suite` job runs per OS and shard (4 each): `smoke --package-only` with `UAK_SMOKE_TESTS` set to the shard's files runs only those; a name in it that is not a discovered test fails the shard (a typo never skips a test); without the variable smoke runs every test as today (the merge gate, a laptop), the checks that are not test files (gen_harness, kit_lint, kit_hashes, MCP tools, installer) run once per OS, in shard 1, kit_lint fails when the workflow's suite does not come from `--ci-shards` or smoke ignores `UAK_SMOKE_TESTS`, the CI run of this task's last commit takes under 9 minutes wall clock, every job green (the run's id and time in the done evidence)
+- **Tests:** shards_cover_every_test_once, smoke_runs_only_its_shard, a_name_that_is_not_a_test_fails_the_shard
+- **Verify:** `python3 kit/.uak/tests/test_ci_shards.py && python3 scripts/kit_lint.py`
+- **Next step:** `ci_tests()` in scripts/kit_lint.py, then the test-file loop of kit/.uak/bin/smoke
