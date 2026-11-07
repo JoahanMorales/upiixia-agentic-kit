@@ -550,13 +550,17 @@ case "${1:-}" in
     if ! fresh "$gd/uak-pace.seen" 5; then
       net_once
       stamp "$gd/uak-pace.seen"
-      ( lvl=$(bash .uak/bin/pace --caps 2>/dev/null | awk '{print $1}')
-        if [ -n "$lvl" ] && { rd "$gd/uak-pace.level"; [ "$lvl" != "$RD" ]; }; then
-          printf '%s' "$lvl" > "$gd/uak-pace.level"
-          case "$lvl" in
-            (surge|conserve|critical) bash .uak/bin/pace > "$gd/uak-pace.tmp" 2>/dev/null && mv -f "$gd/uak-pace.tmp" "$gd/uak-pace.note";;
-          esac
-        fi ) > /dev/null 2>&1 &
+      # nohup bash, like the heartbeat: on Git Bash a `( … ) &` subshell died with the hook (Windows CI on e570732:
+      # pace never ran).
+      nohup bash -c 'gd=$1 old=
+        lvl=$(bash .uak/bin/pace --caps 2>/dev/null | awk "{print \$1}")
+        [ -n "$lvl" ] || exit 0
+        [ ! -f "$gd/uak-pace.level" ] || IFS= read -r old < "$gd/uak-pace.level"
+        [ "$lvl" != "$old" ] || exit 0
+        printf "%s" "$lvl" > "$gd/uak-pace.level"
+        case "$lvl" in
+          (surge|conserve|critical) bash .uak/bin/pace > "$gd/uak-pace.tmp" 2>/dev/null && mv -f "$gd/uak-pace.tmp" "$gd/uak-pace.note";;
+        esac' _ "$gd" > /dev/null 2>&1 &
     fi
     if [ -s "$gd/uak-pace.note" ]; then
       while IFS= read -r pace_l || [ -n "$pace_l" ]; do pace_note="${pace_note}${pace_note:+$NL}$pace_l"; done < "$gd/uak-pace.note"
