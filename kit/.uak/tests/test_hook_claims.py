@@ -129,13 +129,38 @@ def tick_runs_pace_in_the_background(r):
     return "tick %.1f s with an 8 s pace" % took
 
 
-TESTS = [stop_reads_the_inbox_from_the_cache, tick_runs_pace_in_the_background]
+def fresh_reads_a_crlf_epoch(r):
+    """A state file whose epoch ends in \r (written with CRLF) is that epoch, not "no epoch, go by mtime": a seen file
+    from 10 minutes ago, just written with CRLF, read as fresh and the pace check never ran (UAK-021)."""
+    f = r.fixture("hook-crlf", count=1)
+    w = f.worktrees[0]
+    (w / ".uak-env").write_text("UAK_TASK=HACK-001\nUAK_AGENT=agent-1\n", encoding="utf-8")
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    tick = json.dumps({"session_id": "hook-crlf", "tool_name": "Bash", "tool_input": {"command": "ls"},
+                       "tool_response": {"stdout": "", "stderr": "", "interrupted": False}})
+    env = {"UAK_POLL_SECONDS": "100000"}
+    (gd / "uak-pace.seen").write_bytes(b"%d\n" % int(time.time()))
+    hook(r, w, [".uak/bin/hook", "tick"], tick, env)
+    log = r.scratch / "hook-crlf-calls.log"
+    (w / ".uak" / "bin" / "pace").write_bytes(('#!/usr/bin/env bash\nprintf \'%%s\\n\' "${1:-note}" >> "%s"\necho "steady 4 2"\n'
+                                               % log.as_posix()).encode("utf-8"))
+    (gd / "uak-pace.seen").write_bytes(b"%d\r\n" % (int(time.time()) - 600))
+    hook(r, w, [".uak/bin/hook", "tick"], tick, env)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline and not log.exists():
+        time.sleep(1)
+    expect(log.exists() and "--caps" in log.read_text(encoding="utf-8"),
+           "a seen file of 10 minutes ago, written with CRLF, must let the pace check run")
+    return "pace checked"
+
+
+TESTS = [stop_reads_the_inbox_from_the_cache, tick_runs_pace_in_the_background, fresh_reads_a_crlf_epoch]
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument("--jobs", type=int, default=2)
+    parser.add_argument("--jobs", type=int, default=3)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="uak-hook-claims-") as tmp:
         runner = Runner(args.package.resolve(), Path(tmp), resolve_binary("bash"), resolve_binary("git"))
