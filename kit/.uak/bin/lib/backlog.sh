@@ -145,7 +145,10 @@ owner_conflicts() { # [ID...] (default: every task of the backlog)
         [ -n "$pat" ] && [ "$owner" != "$id" ] || continue
         normalize_paths "$pat" > "$TXROOT/oc-owner" 2>/dev/null || continue
         overlaps "$TXROOT/oc-paths" "$TXROOT/oc-owner" || continue
-        owner_is_self "$owner" || owner_waits_on_me "$owner" || printf '%s|%s|%s\n' "$id" "$pat" "$owner"
+        owner_is_self "$owner" || owner_waits_on_me "$owner" && continue
+        # An owner already INTEGRATED: its row is advice and claim allows the path (check_owners), so no warning.
+        # Why (UAK-019): plan said "can never be claimed" for UAK-018, which claimed fine.
+        [ "$(field "$TX/tasks/$owner.md" State)" = INTEGRATED ] || printf '%s|%s|%s\n' "$id" "$pat" "$owner"
       done < "$TXROOT/oc-owners" )
   done
 }

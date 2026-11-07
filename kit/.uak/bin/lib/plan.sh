@@ -34,13 +34,19 @@ plan_amend_mutate() {
     esac
     new_p=$(ID=$id BACKLOG=$PLAN_FILE task_field Paths); new_v=$(ID=$id BACKLOG=$PLAN_FILE task_field Verify)
     old_p=$(ID=$id task_field Paths); old_v=$(ID=$id task_field Verify)
-    # New Paths must not take files of other live claims or of OWNERS rows (same checks as a claim).
+    # New Paths must not take files of other live claims or of OWNERS rows (same checks as a claim). Only the Paths
+    # the amend adds are checked against the claims: an amend that keeps them (Depends, criteria) passes a claim under
+    # them. Why (UAK-019): UAK-006's new Depends waited for UAK-008, claimed under the same Paths, to integrate.
     ( ID=$id; normalize_paths "$new_p" > "$TXROOT/paths-request" || die "Invalid Paths for $id."
       check_owners
+      normalize_paths "$old_p" > "$TXROOT/paths-old" 2>/dev/null || : > "$TXROOT/paths-old"
+      grep -vxF -f "$TXROOT/paths-old" "$TXROOT/paths-request" > "$TXROOT/paths-added" || :
+      [ ! -s "$TXROOT/paths-old" ] || [ -s "$TXROOT/paths-added" ] || exit 0
+      [ -s "$TXROOT/paths-old" ] || cp "$TXROOT/paths-request" "$TXROOT/paths-added"
       for c in "$TX"/claims/*.md; do
         [ -f "$c" ] && [ "$(field "$c" ID)" != "$id" ] || continue
         normalize_paths "$(field "$c" Paths)" > "$TXROOT/other-paths" || continue
-        ! overlaps "$TXROOT/paths-request" "$TXROOT/other-paths" || conflict "The new Paths of $id overlap $(field "$c" ID) (claimed by $(field "$c" Owner)): split the work or ask them."
+        ! overlaps "$TXROOT/paths-added" "$TXROOT/other-paths" || conflict "The new Paths of $id overlap $(field "$c" ID) (claimed by $(field "$c" Owner)): split the work or ask them."
       done ) || exit $?
     if [ -f "$TX/tasks/$id.md" ] && [ "$st" != AVAILABLE ]; then
       put "$TX/tasks/$id.md" Paths "$(one_line "$new_p")"; put "$TX/tasks/$id.md" Verify "$(one_line "$new_v")"

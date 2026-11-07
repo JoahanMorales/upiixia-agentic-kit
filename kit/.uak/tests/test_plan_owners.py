@@ -30,12 +30,14 @@ def plan(f, body, *extra, allowed=None):
 
 
 def set_state(r, f, tid, state):
-    """A raw edit of a task record on claims (what a merge leaves): State becomes `state`."""
+    """A raw edit of claims (what a merge leaves): the task record's State becomes `state`; INTEGRATED drops its claim."""
     clone = f.base / ("raw-%d" % time.monotonic_ns())
     r.g(f.base, "clone", "-q", "-b", "claims", f.remote, clone)
     rec = clone / "tasks" / (tid + ".md")
     rec.write_text("".join(("State: %s\n" % state) if l.startswith("State: ") else l
                            for l in rec.read_text(encoding="utf-8").splitlines(True)), encoding="utf-8")
+    if state == "INTEGRATED" and (clone / "claims" / (tid + ".md")).exists():
+        r.g(clone, "rm", "-q", "claims/%s.md" % tid)  # integration releases the claim's files
     r.g(clone, "-c", "user.name=raw", "-c", "user.email=raw@example.invalid", "commit", "-qam", "raw state")
     r.g(clone, "push", "-q", "origin", "claims")
 
