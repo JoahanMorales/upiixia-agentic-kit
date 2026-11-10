@@ -1,11 +1,11 @@
 # joahanmorales-1
 Agent: joahanmorales-1
 Started: 1794341966
-Events: 1
-Events-Since-Checkpoint: 1
-Checkpoints: 0
+Events: 2
+Events-Since-Checkpoint: 0
+Checkpoints: 1
 Sessions: 1
-Last-Checkpoint: 0
+Last-Checkpoint: 1794342121
 Human: JoahanMorales
 Last-Session: joahanmorales-1-1794341966
-Updated: 1794341966
+Updated: 1794342121
