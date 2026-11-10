@@ -57,7 +57,7 @@ cat > "$dir/index.html" <<EOF
 <title>Design lock · $project</title>
 <style>
 :root {
-  --wall: #c9ccc6; --wall-2: #bfc3bc; --mat: #fbfbf9; --ink: #1d1f1c; --ink-2: #4e534c; --rule: #a9aea6; --dot: #d63a2f;
+  --wall: #c9ccc6; --wall-2: #bfc3bc; --mat: #fbfbf9; --ink: #1d1f1c; --ink-2: #4e534c; --rule: #a9aea6; --dot: #d63a2f; --mat-ink: #1d1f1c;
   --hang: 0 2px 3px rgb(30 32 28 / .18), 0 18px 34px -12px rgb(30 32 28 / .45);
 }
 @media (prefers-color-scheme: dark) {
@@ -86,7 +86,7 @@ figcaption { display: grid; grid-template-columns: auto 1fr; gap: 2px 16px; max-
 .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--dot); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 22%, transparent); }
 .intent { color: var(--ink-2); }
 .say { color: var(--ink-2); font-size: 14px; margin-top: 8px; }
-kbd { font: 600 13px ui-monospace, Menlo, Consolas, monospace; color: var(--ink); background: var(--mat); border-radius: 4px; padding: 2px 7px; box-shadow: 0 1px 0 var(--rule); }
+kbd { font: 600 13px ui-monospace, Menlo, Consolas, monospace; color: var(--mat-ink); background: var(--mat); border-radius: 4px; padding: 2px 7px; box-shadow: 0 1px 0 var(--rule); }
 .pick .say { color: var(--ink); }
 .more h2 { margin-top: 72px; font-size: 18px; font-weight: 600; padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
 .more div { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 28px; margin-top: 24px; }
