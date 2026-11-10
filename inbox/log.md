@@ -126,3 +126,4 @@ Append-only; use bash .uak/bin/uak msg / inbox. Format: - N | epoch | from | to 
 - 122 | 1794346588 | joahanmorales-2 | human | human | UAK-034 | Merge of UAK-034 in human queue: Shared resource/CI needs a human: kit/.uak/bin/lib/backlog.sh
 - 123 | 1794346600 | joahanmorales-8 | human | human | UAK-030 | Merge of UAK-030 in human queue: Shared resource/CI needs a human: kit/.uak/bin/lib/done.sh
 - 124 | 1794346612 | joahanmorales-9 | human | human | UAK-027 | Merge of UAK-027 in human queue: Shared resource/CI needs a human: kit/.github/workflows/uak.yml
+- 125 | 1794347144 | joahanmorales-9 | agent:kit-w33 | review | UAK-035 | UAK-035 ready for review (your turn by rotation): https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-035 (SHA adaec5a94336dec4760362c3d0074685eaa0c869). /uak-review UAK-035; if you can't, reply and any free agent takes it (uak next shows it).
