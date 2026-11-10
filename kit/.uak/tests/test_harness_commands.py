@@ -20,6 +20,11 @@ def phases(r):
     return sorted(p.stem for p in (r.package / ".claude/commands").glob("uak-*.md"))
 
 
+def rd(path):
+    expect(path.is_file(), "missing: %s" % path.name)
+    return path.read_text(encoding="utf-8")
+
+
 def install(r, name, *args):
     d = r.scratch / ("hc-" + name)
     d.mkdir(parents=True)
@@ -58,10 +63,10 @@ def every_phase_command_reaches_every_harness(r):
 def phase_skills_are_not_model_invoked(r):
     for n in phases(r):
         base = r.package / ".agents/skills" / n
-        skill = (base / "SKILL.md").read_text(encoding="utf-8")
+        skill = rd(base / "SKILL.md")
         head = skill.split("---")[1]
         expect(re.search(r"^disable-model-invocation: true$", head, re.M), "%s: Cursor needs disable-model-invocation: true" % n)
-        yaml = (base / "agents/openai.yaml").read_text(encoding="utf-8")
+        yaml = rd(base / "agents/openai.yaml")
         expect(re.search(r"^policy:\n  allow_implicit_invocation: false$", yaml, re.M), "%s: Codex needs allow_implicit_invocation: false" % n)
         # Gemini CLI skills have no such switch: the text itself says to run only when asked.
         expect("only when the user" in skill.lower(), "%s: the skill text says it runs only when the user asks (Gemini)" % n)
@@ -80,10 +85,10 @@ def generated_commands_match_their_source(r):
     expect(ok.returncode == 0, "fresh output is not stale: " + ok.stdout)
     src = tmp / "kit/.claude/commands/uak-plan.md"
     text = src.read_text(encoding="utf-8")
-    skill = (tmp / "kit/.agents/skills/uak-plan/SKILL.md").read_text(encoding="utf-8")
+    skill = rd(tmp / "kit/.agents/skills/uak-plan/SKILL.md")
     first = [l for l in text.split("---\n", 2)[2].splitlines() if l.strip()][0]
     expect(first in skill, "the script's body is in the skill")
-    expect(first in (tmp / "kit/.gemini/commands/uak-plan.toml").read_text(encoding="utf-8"), "and in the Gemini command")
+    expect(first in rd(tmp / "kit/.gemini/commands/uak-plan.toml"), "and in the Gemini command")
     src.write_text(text + "A new last step.\n", encoding="utf-8")
     bad = gen("--check")
     expect(bad.returncode == 1 and "uak-plan" in bad.stdout, "an edited source makes --check fail: rc %d %s" % (bad.returncode, bad.stdout))
