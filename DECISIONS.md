@@ -37,3 +37,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794342600 | UAK-037 | Gitleaks-Exception line in claims DECISIONS.md, turned into a temp .gitleaksignore (plus the project's own) via --gitleaks-ignore-path; path of fingerprint must be in task scope | Why: no index blob exists for history findings
 - 1794342753 | UAK-027 | one step, hashFiles guard over all lockfiles, shell loop per dir; yarn via corepack too | Why: tsc not found in CI
 - 1794342895 | UAK-032 | wt checks only an empty derived human (no --human, UAK_HUMAN or user.name); doctor FAILs on missing name or email | Why: spec
+- 1794347142 | UAK-035 | direct = non-merge first-parent commit on origin/main; backlog = a TASKS.md task heading without '<'; override logged in git-common-dir/uak-direct-main.log | Why: spec
