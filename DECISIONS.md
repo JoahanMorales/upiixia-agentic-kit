@@ -29,3 +29,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794341851 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-027 UAK-028 UAK-029 UAK-030 UAK-031 UAK-032 UAK-033 UAK-034 UAK-035 UAK-036 UAK-037 UAK-038 UAK-039 UAK-040 UAK-041 UAK-042 | Why: backlog without PR (Plan-Channel: claims)
 - 1794342121 | UAK-029 | case on space/shell operator chars | Why: exit 127 on quoted Verify
 - 1794342189 | UAK-028 | var(--ink), same value in light mode | Why: design-lint refused gallery
+- 1794342308 | UAK-040 | phase skills in kit/.agents/skills real dir; .agents/skills no longer a symlink; Gemini toml + skill; no .cursor/commands | Why: Cursor reads .agents/skills so commands would duplicate
