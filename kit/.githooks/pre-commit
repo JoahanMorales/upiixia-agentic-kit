@@ -15,7 +15,8 @@ if [ -n "$gd" ] && git rev-parse -q --verify HEAD >/dev/null 2>&1 &&
    # Only product work is refused: a commit of the backlog, the project file or a kit install/update (all of it under
    # the kit's own paths) stays on main. Why (v6.0.1 CI): the solo marathon flow commits its plan on main.
    git diff --cached --name-only | awk '
-     /^(\.uak|\.claude|\.agents|\.codex|\.cursor|\.gemini|\.githooks|\.github)\// { next }
+     /^(\.uak|\.claude|\.agents|\.codex|\.cursor|\.gemini|\.githooks)\// { next }
+     /^\.github\/(workflows\/uak\.yml|pull_request_template\.md)$/ { next }
      /^(AGENTS\.md|CLAUDE\.md|GEMINI\.md|\.mcp\.json|\.gitignore|\.gitattributes)$/ { next }
      { found = 1; exit } END { exit !found }'; then
   if [ "${UAK_DIRECT_MAIN:-}" = 1 ]; then
