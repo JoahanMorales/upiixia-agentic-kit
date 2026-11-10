@@ -41,6 +41,21 @@ if [ -f "$log" ]; then
       if (kind["integrated"] > 0 && n > 0) printf "noise: %d%% of messages were integrated notices\n", 100 * kind["integrated"] / n
     }' "$log"
 fi
+# Commits on the base branch that no task merge brought in. Why (deus-ex-machina): 120 of 155 first-parent commits on
+# main were agents committing in the main checkout; no task, review or tokens behind them. A task merge has two parents.
+sroot=$(git rev-parse --show-toplevel 2>/dev/null) || sroot=
+if [ -n "$sroot" ]; then
+  bref=refs/remotes/${UAK_REMOTE:-origin}/${UAK_BASE:-main}
+  git -C "$sroot" rev-parse -q --verify "$bref" >/dev/null 2>&1 || bref=refs/heads/${UAK_BASE:-main}
+  if git -C "$sroot" rev-parse -q --verify "$bref" >/dev/null 2>&1; then
+    fp_all=$(git -C "$sroot" rev-list --first-parent --count "$bref" 2>/dev/null || printf 0)
+    # Not direct: merges, the root commit, and a squash-merged task PR (subject starts with a task ID or ends with (#N)).
+    fp_direct=$(git -C "$sroot" log --first-parent --format='%P|%s' "$bref" 2>/dev/null | awk -F'|' '{
+      n = split($1, p, " "); s = substr($0, length($1) + 2)
+      if (n == 1 && s !~ /^[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+/ && s !~ /\(#[0-9]+\)$/) d++ } END { print d + 0 }')
+    [ "${fp_all:-0}" -eq 0 ] || printf 'Direct to main: %s of %s first-parent commits\n' "$fp_direct" "$fp_all"
+  fi
+fi
 rec=$(grep -c 'REQUIRES_RECOVERY' "$dir/DECISIONS.md" 2>/dev/null || true)
 printf 'lease recoveries: %s\n' "${rec:-0}"
 if ls "$dir"/queue/*.md >/dev/null 2>&1; then
