@@ -91,7 +91,7 @@ else
 $fails
 EOF
   printf '%s\n' "$fails" | grep -Eq 'only collaborator|core.hooksPath is not set|not executable' &&
-    set -- "$@" "uak start --fix does the hooks and, alone on the repo, Review-Mode: claims"
+    set -- "$@" "uak start --fix does the hooks, the skills folders and, alone on the repo, Review-Mode: claims"
   need "preflight: doctor found $(printf '%s\n' "$fails" | grep -c .) failure(s)" "$@"
 fi
 

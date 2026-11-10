@@ -202,9 +202,20 @@ done
 # Cursor had no /uak-*; (portability audit, Oct 2026): Codex and Cursor kept stale skills after --update on Windows.
 if has codex || has cursor || has gemini; then
   # An older install linked it (and .cursor/skills) to ../.claude/skills: the link goes, the real directory takes its place.
+  # A link checked out on Windows (core.symlinks=false) is a one-line text file: it goes too.
   for link in .agents/skills .cursor/skills; do
-    if [ -L "$target/$link" ]; then rm -f "$target/$link"; say "  - $link (a link to .claude/skills) replaced by a real directory"; fi
+    if [ -L "$target/$link" ] || [ -f "$target/$link" ]; then rm -f "$target/$link"; say "  - $link (a link to .claude/skills, or its text-file checkout) replaced by a real directory"; fi
   done
+  # .cursor/skills holding only copies of the kit's skills (a Windows install of an older kit) goes: Cursor reads
+  # .agents/skills and .claude/skills, and the stale copy would shadow them. A skill of the team's own stays.
+  if [ -d "$target/.cursor/skills" ]; then
+    own=no
+    for e in "$target/.cursor/skills"/* "$target/.cursor/skills"/.[!.]*; do
+      [ -e "$e" ] || continue
+      [ -e "$target/.claude/skills/$(basename "$e")" ] || own=yes
+    done
+    [ "$own" = yes ] || { rm -rf "$target/.cursor/skills"; say "  - .cursor/skills (a stale copy of the kit's skills; Cursor reads .agents/skills)"; }
+  fi
   mkdir -p "$target/.agents/skills"
   cp -R "$target/.claude/skills/." "$target/.agents/skills/" 2>/dev/null || true
   say "  + .agents/skills (the skills and the /uak-* phase skills, refreshed)"

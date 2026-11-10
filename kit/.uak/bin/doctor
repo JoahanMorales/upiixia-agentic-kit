@@ -81,6 +81,41 @@ case "$cur_hooks" in
     if [ "$fix" = yes ]; then git config core.hooksPath "$hooks_dir" && ok "core.hooksPath=$hooks_dir (fixed)"
     else bad "core.hooksPath is not set: commits skip the scanner (doctor --fix)"; fi;;
 esac
+# Skills for Codex, Cursor and Gemini: .agents/skills is a real folder with a copy of .claude/skills. A link checked out
+# on Windows (core.symlinks=false) is a one-line text file, and a copy can go stale. Why (DevDay and deus-ex-machina,
+# v6.0.0): both committed .agents/skills and .cursor/skills as symlinks; a Windows teammate's Codex had no skills.
+if [ -d .claude/skills ]; then
+  kit_home=${UAK_KIT_HOME:-$HOME/.uak-kit}
+  skills_refresh() { # $1 = folder; phase skills come from the kit clone when there is one
+    mkdir -p "$1" || return 1   # the team's own skills in it stay
+    for s in .claude/skills/*/; do s=${s%/}; rm -rf "$1/$(basename "$s")"; cp -R "$s" "$1/" || return 1; done
+    for c in .claude/commands/uak-*.md; do
+      [ -f "$c" ] || continue; n=$(basename "$c" .md)
+      [ ! -d "$kit_home/kit/.agents/skills/$n" ] || cp -R "$kit_home/kit/.agents/skills/$n" "$1/"
+    done
+  }
+  skills_stale() { # $1 = folder: a kit skill missing or different
+    for s in .claude/skills/*/; do
+      s=${s%/}; diff -r -q --strip-trailing-cr "$s" "$1/$(basename "$s")" >/dev/null 2>&1 || return 0
+    done
+    return 1
+  }
+  for link in .agents/skills .cursor/skills; do
+    if [ -f "$link" ] || { [ -L "$link" ] && [ ! -d "$link" ]; }; then
+      if [ "$fix" = yes ]; then
+        if [ "$link" = .agents/skills ]; then rm -f "$link" && skills_refresh "$link" && ok "$link is a real folder again (fixed; commit it)"
+        else rm -f "$link" && ok "$link removed (fixed; Cursor reads .agents/skills)"; fi
+      else bad "$link is a text file or a broken link (a clone with core.symlinks=false, Windows): skills do not load. Fix: bash .uak/bin/doctor --fix"; fi
+    elif [ "$link" = .agents/skills ] && [ -d "$link" ] && [ ! -L "$link" ] && skills_stale "$link"; then
+      if [ "$fix" = yes ]; then skills_refresh "$link" && ok "$link refreshed from .claude/skills (fixed; commit it)"
+      else bad "$link is a stale copy of .claude/skills: Codex, Cursor and Gemini read old skills. Fix: bash .uak/bin/doctor --fix (or install.sh --update)"; fi
+    fi
+  done
+  if [ ! -e .agents/skills ] && [ ! -L .agents/skills ] && { [ -d .codex ] || [ -d .gemini ] || [ -d .cursor ]; }; then
+    if [ "$fix" = yes ]; then skills_refresh .agents/skills && ok ".agents/skills created (fixed; commit it)"
+    else warn ".agents/skills is missing: Codex, Cursor and Gemini load no skills. Fix: bash .uak/bin/doctor --fix (or install.sh --update)"; fi
+  fi
+fi
 # Kit files an update could not replace because the team edited them.
 newfiles=$(git ls-files --others --exclude-standard 2>/dev/null | grep '\.uak-new$' | head -n 6 | tr '\n' ' ')
 [ -z "$newfiles" ] || warn "kit files to merge by hand (yours differ from the kit's): ${newfiles% } — merge each into its file, then delete the .uak-new"
