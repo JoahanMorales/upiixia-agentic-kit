@@ -18,7 +18,7 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 2. New task: `bash .uak/bin/wt new ID`. It creates branch, worktree, identity, port and claim. Work only inside that worktree. One identity = one live task.
 3. New session in the same worktree: `bash .uak/bin/wt session`.
 4. Don't ask what `next`, the task or the code already answers. Ask only for authorization.
-5. Codex, Cursor, Gemini: `/uak-X` means follow `.claude/commands/uak-X.md`.
+5. Phase scripts: `/uak-X`; in Codex `$uak-X`.
 
 ## 3. Parallel work
 1. State lives only on the `claims` branch. `.uak/TASKS.md` is a stateless backlog.
