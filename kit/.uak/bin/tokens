@@ -7,8 +7,9 @@
 #   Cursor       no local token log: read the Cursor dashboard (uak pace set covers plan pacing)
 # A transcript belongs to this project when its cwd is the main checkout or a worktree under <repo>-wt/ (where
 # `wt new` puts them), so a removed worktree still counts. The task is the worktree name (hack-016 → HACK-016).
-# --publish writes this machine's totals to claims:tokens/<machine>.md (one file per machine, replaced);
-# --team adds every machine's file, and the agent column comes from the task owner on claims.
+# --publish writes this machine's totals to claims:tokens/<machine>.md (one file per machine, replaced); a failed
+# publish leaves one black box line with the reason. --team adds every machine's file (the agent column comes from the
+# task owner on claims), names the machines that worked but never published, and shows the main checkout's share.
 # Why: "it burns tokens reading the same stuff again and again" was the top complaint at Reap and MLB, and the
 # kit could only count calls; tiers, the output cap and dedupe are only real if the bill shows it.
 set -u
@@ -33,6 +34,7 @@ top=$(git rev-parse --show-toplevel 2>/dev/null) || die "not a Git repository"
 common=$(git -C "$top" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common="$top/.git"
 main=$(cd "$common/.." && pwd -P)
 REMOTE=${UAK_REMOTE:-origin}
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-tokens.XXXXXX") || exit 2
 trap 'rm -rf "$tmp"' EXIT
 # The transcript directory name is the cwd with every non-alphanumeric character turned into "-", counted the
@@ -107,35 +109,82 @@ fold() { awk -F'|' '{k = $1 "|" $2 "|" $3 "|" $4; s[k] += $5; i[k] += $6; w[k] +
 machine() { (hostname 2>/dev/null || uname -n) | cksum | awk '{print $1 % 100000}'; }
 publish_rows() {
   local url ok=1 rel attempt
-  url=$(git -C "$top" config --get "remote.$REMOTE.url") || return 1
+  PUB_WHY=
+  url=$(git -C "$top" config --get "remote.$REMOTE.url") || { PUB_WHY="no remote $REMOTE"; return 1; }
   case "$url" in /*|[A-Za-z]:*|*://*|*@*:*) ;; *) url="$main/$url";; esac
   rel="tokens/$(machine).md"
   git -C "$tmp" init -q repo && git -C "$tmp/repo" remote add origin "$url" &&
-    git -C "$tmp/repo" config user.name "${UAK_AGENT:-uak}" && git -C "$tmp/repo" config user.email uak@localhost || return 1
+    git -C "$tmp/repo" config user.name "${UAK_AGENT:-uak}" && git -C "$tmp/repo" config user.email uak@localhost || { PUB_WHY="git init failed"; return 1; }
   for attempt in 1 2 3 4; do
     if git -C "$tmp/repo" ls-remote --exit-code --heads origin claims >/dev/null 2>&1; then
-      git -C "$tmp/repo" fetch -q --depth 1 origin refs/heads/claims && git -C "$tmp/repo" checkout -q -B claims FETCH_HEAD || return 1
+      git -C "$tmp/repo" fetch -q --depth 1 origin refs/heads/claims 2> "$tmp/pub-err" && git -C "$tmp/repo" checkout -q -B claims FETCH_HEAD || { PUB_WHY="fetch of claims failed: $(head -n 1 "$tmp/pub-err" 2>/dev/null)"; return 1; }
     else
-      git -C "$tmp/repo" checkout -q --orphan claims 2>/dev/null || return 1
+      git -C "$tmp/repo" checkout -q --orphan claims 2>/dev/null || { PUB_WHY="no claims branch to publish to"; return 1; }
     fi
     mkdir -p "$tmp/repo/tokens"
     { printf '# Tokens · machine %s · updated %s · last %s days\n\n' "$(machine)" "$(date -u +%Y-%m-%dT%H:%MZ)" "$since"
+      printf 'Root: %s\nRoot: %s-wt\n' "$main" "$main"
       printf 'task | harness | model | scope | sessions | input | cache_write | cache_read | output\n\n'
       sed 's/|/ | /g; s/^/- /' "$1"; } > "$tmp/repo/$rel"
     git -C "$tmp/repo" add "$rel"
     git -C "$tmp/repo" diff --cached --quiet && { ok=0; break; }
-    git -C "$tmp/repo" commit -q -m "uak: tokens $(machine)" || return 1
-    if git -C "$tmp/repo" push -q origin HEAD:refs/heads/claims 2>/dev/null; then ok=0; break; fi
+    git -C "$tmp/repo" commit -q -m "uak: tokens $(machine)" || { PUB_WHY="git commit failed"; return 1; }
+    if git -C "$tmp/repo" push -q origin HEAD:refs/heads/claims 2> "$tmp/pub-err"; then ok=0; break; fi
+    PUB_WHY="push to claims failed: $(grep -v '^[[:space:]]*$' "$tmp/pub-err" 2>/dev/null | head -n 1)"
     sleep "$attempt"
   done
   return "$ok"
 }
 team_rows() {
   git -C "$top" fetch -q "$REMOTE" claims 2>/dev/null || die "no remote claims branch"
-  git -C "$top" archive FETCH_HEAD tokens tasks 2>/dev/null | tar -x -C "$tmp" 2>/dev/null
+  git -C "$top" archive FETCH_HEAD tokens tasks blackbox 2>/dev/null | tar -x -C "$tmp" 2>/dev/null || git -C "$top" archive FETCH_HEAD tokens tasks 2>/dev/null | tar -x -C "$tmp" 2>/dev/null
   [ -d "$tmp/tokens" ] || die "no machine has published yet: bash .uak/bin/tokens --publish (the Stop hook does it every 30 min)"
   cat "$tmp"/tokens/*.md | sed -n 's/^- //p' | sed 's/ | /|/g' | fold
   for f in "$tmp"/tasks/*.md; do [ -f "$f" ] && printf '%s %s\n' "$(sed -n 's/^ID: //p' "$f" | head -n 1)" "$(sed -n 's/^Owner: //p' "$f" | head -n 1)"; done > "$tmp/owners"
+}
+# Machines that worked on the project (a black box file per day and machine; a task worktree outside every root a
+# published file lists) without a tokens file of their own. Why (deus-ex-machina and DevDay, Nov 2026): tokens came
+# from 1 of 3 Macs and read 100 % "main"; nobody could tell the other two had never published.
+# Sets COV_PUBLISHED, COV_TOTAL and COV_TEXT (empty when every machine reported).
+coverage() {
+  local f h legacy=no pubs=' ' unrep_hosts= unrep_dirs= w d npub=0 nh=0 nd=0
+  COV_PUBLISHED=0 COV_TOTAL=0 COV_TEXT=; : > "$tmp/roots"
+  for f in "$tmp"/tokens/*.md; do
+    [ -f "$f" ] || continue
+    h=${f##*/}; pubs="$pubs${h%.md} "; npub=$((npub + 1))
+    if grep -q '^Root: ' "$f"; then sed -n 's/^Root: //p' "$f" >> "$tmp/roots"; else legacy=yes; fi
+  done
+  for f in "$tmp"/blackbox/*.md; do
+    [ -f "$f" ] || continue
+    h=${f##*-}; h=${h%.md}
+    case "$pubs$unrep_hosts" in *" $h "*) ;; *) unrep_hosts="$unrep_hosts$h "; nh=$((nh + 1));; esac
+  done
+  if [ "$legacy" = no ] && [ "$npub" -gt 0 ]; then
+    for f in "$tmp"/tasks/*.md; do
+      [ -f "$f" ] || continue
+      w=$(sed -n 's/^Worktree: //p' "$f" | head -n 1); case "$w" in ''|-) continue;; esac
+      case "$w" in /*|[A-Za-z]:*) ;; *) continue;; esac
+      while IFS= read -r d; do case "$w" in "$d"|"$d"/*) continue 2;; esac; done < "$tmp/roots"
+      d=${w%/*}
+      case "$unrep_dirs|" in *"|$d|"*) ;; *) unrep_dirs="$unrep_dirs|$d"; nd=$((nd + 1));; esac
+    done
+  fi
+  COV_PUBLISHED=$npub
+  COV_TOTAL=$((npub + (nd > nh ? nd : nh)))
+  [ "$COV_TOTAL" -gt "$npub" ] || return 0
+  COV_TEXT="NOT REPORTED: $((COV_TOTAL - npub)) machine(s)"
+  [ -z "$unrep_dirs" ] || COV_TEXT="$COV_TEXT (worktrees under $(printf '%s' "$unrep_dirs" | sed 's/^|//; s/|/, /g')$([ -z "$unrep_hosts" ] || printf '; black box hosts %s' "$(printf '%s' "$unrep_hosts" | sed 's/ $//; s/ /, /g')"))"
+  [ -n "$unrep_dirs" ] || COV_TEXT="$COV_TEXT (black box hosts $(printf '%s' "$unrep_hosts" | sed 's/ $//; s/ /, /g'))"
+  COV_TEXT="$COV_TEXT: run bash .uak/bin/tokens --publish there. Totals are from $COV_PUBLISHED of $COV_TOTAL machines."
+}
+# The main checkout's share of the spend: coordination and work outside tasks. Above 50 % the per-task cost is not
+# measurable. Why (DevDay): 406 M tokens, 78 % in "main", one coordinator session alone 178 M cache reads.
+main_share() { # view file
+  awk -F'|' '{ t = $6 + $7 + $8 + $9; T += t; if ($1 == "main") M += t }
+    END { if (T > 0 && M > 0) { p = int(100 * M / T + 0.5)
+      printf "main (coordination and work outside tasks) %d%%", p
+      if (p > 50) printf "\nWARNING: %d%% of the spend is not attributed to any task: start tasks with wt new ID so each has its own worktree, and keep the coordinator session short.", p
+      printf "\n" } }' "$1"
 }
 report() {
   local col
@@ -167,10 +216,15 @@ else
   scan_local; fold < "$tmp/rows" > "$tmp/view"
   if [ "$publish" = yes ]; then
     if publish_rows "$tmp/view"; then [ "$quiet" = yes ] || say "TOKENS: published to claims:tokens/$(machine).md"
-    else [ "$quiet" = yes ] || say "TOKENS: could not publish (offline?)" >&2; fi
+    else
+      [ "$quiet" = yes ] || say "TOKENS: could not publish: ${PUB_WHY:-unknown reason}" >&2
+      # A silent background failure left a whole machine out of the bill. Why (deus-ex-machina): 1 of 3 Macs published.
+      bash "$here/bb" add friction "tokens publish failed: ${PUB_WHY:-unknown reason}" --fix "tokens --publish must reach claims from every machine; check the remote and the claims branch permissions" --cmd "uak tokens --publish" > /dev/null 2>&1 || true
+    fi
     [ "$quiet" = no ] || exit 0
   fi
 fi
 [ "$quiet" = yes ] && exit 0
 report "$tmp/view"
+[ "$json" = yes ] || { main_share "$tmp/view"; [ "$team" != yes ] || { coverage; [ -z "$COV_TEXT" ] || say "$COV_TEXT"; }; }
 [ "$team" = yes ] || [ "$json" = yes ] || say "(this machine; --team adds every machine; Cursor keeps no local token log)"
