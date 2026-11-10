@@ -52,6 +52,7 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 6. Animations respect `prefers-reduced-motion`. UI checks run with reduced motion, so a slow GPU never fakes a failure.
 7. On the demo path: AA contrast, visible focus, fully keyboard-operable.
 8. Every number on screen has a source (tooltip or footnote). Judges ask "where does that number come from?".
+9. A measure that was not measured is `null` with "not measured", never 0: cost, tokens, latency or any score you did not instrument. The pitch and README say which measures are real.
 
 ## AI products
 - Pin model IDs in one config file and check with a spike that they exist.
