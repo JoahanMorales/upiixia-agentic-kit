@@ -35,3 +35,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794342433 | UAK-034 | fallback only on a miss, so hot paths add no process | Why: read paths without coord_init saw only main's TASKS.md
 - 1794342559 | UAK-030 | reuse code ui-shots-missing (new code would need CLI.md); exact N.png wins | Why: critic approved prefixed names
 - 1794342600 | UAK-037 | Gitleaks-Exception line in claims DECISIONS.md, turned into a temp .gitleaksignore (plus the project's own) via --gitleaks-ignore-path; path of fingerprint must be in task scope | Why: no index blob exists for history findings
+- 1794342753 | UAK-027 | one step, hashFiles guard over all lockfiles, shell loop per dir; yarn via corepack too | Why: tsc not found in CI
