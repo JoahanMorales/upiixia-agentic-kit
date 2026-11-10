@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1794342310
+Updated: 1794342321
 AVAILABLE: UAK-027 UAK-030 UAK-032 UAK-033 UAK-035 UAK-036 UAK-037 UAK-038 UAK-039 UAK-041 UAK-042 
 CLAIMED: UAK-031 UAK-034 
 BLOCKED: -
@@ -12,17 +12,17 @@ CANCELLED: UAK-002 UAK-005
 Claims (first 24; status --task ID shows detail):
 UAK-028 | REVIEW | joahanmorales-4 | until 1794428603
 UAK-029 | REVIEW | joahanmorales-1 | until 1794428523
-UAK-031 | CLAIMED | joahanmorales-5 | until 1794356615
+UAK-031 | CLAIMED | joahanmorales-5 | until 1794356721
 UAK-034 | CLAIMED | joahanmorales-2 | until 1794356378
 UAK-040 | REVIEW | joahanmorales-3 | until 1794428710
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1794013247 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-019 UAK-020 UAK-021 | Why: backlog without PR (Plan-Channel: claims)
 - 1794341851 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-027 UAK-028 UAK-029 UAK-030 UAK-031 UAK-032 UAK-033 UAK-034 UAK-035 UAK-036 UAK-037 UAK-038 UAK-039 UAK-040 UAK
 - 1794342121 | UAK-029 | case on space/shell operator chars | Why: exit 127 on quoted Verify
 - 1794342189 | UAK-028 | var(--ink), same value in light mode | Why: design-lint refused gallery
 - 1794342308 | UAK-040 | phase skills in kit/.agents/skills real dir; .agents/skills no longer a symlink; Gemini toml + skill; no .cursor/commands | Why: Cursor reads .agents/skill
+- 1794342321 | UAK-031 | sentence appended after the allow line | Why: 7 retries
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.
