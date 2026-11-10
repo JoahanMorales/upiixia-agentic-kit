@@ -6,7 +6,7 @@
 - Why: no index blob exists for history findings
 - Failing: none
 - Commands: python3 kit/.uak/tests/test_gitleaks_exception.py
-- Next: Another agent reviews https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-037; run .uak/bin/smoke
+- Next: Integrated in main: 457f4731966a4a472e4fdea6b526735bebf29ce7 (recorded by joahanmorales-7)
 
 ## History
 - 1794342375 | CLAIMED | joahanmorales-7 | claim; next: the SECRET_EXTERNAL branch of kit/.uak/bin/secret-scan
@@ -15,3 +15,4 @@
 - 1794343891 | REVIEW | kit-r1 | review; reject; SHA 5ca70cb24675d4c1b0f0ed5c935735b7a2d33885; reviewer kit-r1
 - 1794353982 | REVIEW | joahanmorales-7 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-037; evidence: python3 kit/.uak/tests/test_gitleaks_exception.py exit 0; criteria met · red at 7e9012a: exit 1 (no assertion line recognized: the reviewer reads the log) · red at 7e9012a: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: -
 - 1794354025 | REVIEW | kit-r1 | review; approve; SHA 5ca70cb24675d4c1b0f0ed5c935735b7a2d33885; reviewer kit-r1
+- 1794354342 | INTEGRATED | joahanmorales-7 | integrate; recorded by joahanmorales-7; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-037; merged 457f4731966a4a472e4fdea6b526735bebf29ce7; proof ancestry
