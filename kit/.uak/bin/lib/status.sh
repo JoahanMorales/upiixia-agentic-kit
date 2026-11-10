@@ -111,12 +111,25 @@ print_digest() {
     [ "$avail" -eq 1 ] && wait_word="1 task waits" || wait_word="$avail tasks wait"
     say "Capacity: $wait_word, $idle idle agent(s) online: uak graph --assign suggests who takes which."
   fi
-  # The bill, from what every machine published (uak tokens --publish; the Stop hook does it every 30 min).
+  # The bill, from what every machine published (uak tokens --publish; the Stop, session-start and Codex hooks do it
+  # every 30 min), with how many machines that is and what share nobody's task owns.
+  # Why (deus-ex-machina, DevDay): tokens from 1 of 3 Macs, 100 % and 78 % in "main"; the line gave no hint of either.
   if ls "$TX"/tokens/*.md >/dev/null 2>&1; then
-    sed -n 's/^- //p' "$TX"/tokens/*.md | awk -F' [|] ' '{t = $6 + $7 + $8 + $9; T += t; R += $8; k[$1] += t}
+    local th=' ' npub=0 nall h f
+    for f in "$TX"/tokens/*.md; do [ -f "$f" ] || continue; h=${f##*/}; th="$th${h%.md} "; npub=$((npub + 1)); done
+    nall=$npub
+    for f in "$TX"/blackbox/*.md; do
+      [ -f "$f" ] || continue; h=${f##*-}; h=${h%.md}
+      case "$th" in *" $h "*) ;; *) th="$th$h "; nall=$((nall + 1));; esac
+    done
+    sed -n 's/^- //p' "$TX"/tokens/*.md | awk -F' [|] ' -v npub="$npub" -v nall="$nall" '{t = $6 + $7 + $8 + $9; T += t; R += $8; k[$1] += t}
       function M(n) { return n >= 1e6 ? sprintf("%.1fM", n / 1e6) : sprintf("%.0fk", n / 1e3) }
       END { if (!T) exit; b = ""; for (x in k) if (x != "main" && (b == "" || k[x] > k[b])) b = x
-            printf "Tokens: %s, cache hit %d%%%s · detail: uak tokens --team\n", M(T), 100 * R / T, (b != "" ? sprintf(", top task %s %s", b, M(k[b])) : "") }'
+            printf "Tokens: %s, cache hit %d%%%s", M(T), 100 * R / T, (b != "" ? sprintf(", top task %s %s", b, M(k[b])) : "")
+            if (nall > npub) printf ", from %d of %d machines", npub, nall
+            if (k["main"] > 0) { p = int(100 * k["main"] / T + 0.5); printf " · main (coordination and work outside tasks) %d%%", p
+              if (p > 50) printf " WARNING: above 50%%, per-task cost is not measurable (start tasks with wt new)" }
+            printf " · detail: uak tokens --team\n" }'
   fi
   say "Rule: no answer in 15 min → recorded reversible decision, take another task."
   say "Everything on one page (progress, agents, conversation, reviews, black box): bash .uak/bin/uak dash --watch --open"

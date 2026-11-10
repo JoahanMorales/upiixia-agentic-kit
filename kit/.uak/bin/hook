@@ -68,6 +68,20 @@ fresh() {
   case "$v" in ''|*[!0-9]*) [ -n "$(find "$1" -mmin "-$2" 2>/dev/null)" ];; *) [ $((NOW - v)) -lt $(($2 * 60)) ];; esac
 }
 stamp() { printf '%s\n' "$NOW" > "$1" 2>/dev/null; }
+# This machine's token totals to claims:tokens/, at most every 30 min, in background. From the Claude Code Stop hook,
+# the session start (the previous sessions' transcripts are complete by then) and the Codex hooks, which have no
+# reliable Stop. Why (deus-ex-machina, DevDay): tokens came from 1 of 3 Macs; a Mac that never reached Stop never published.
+tokens_publish() {
+  local c=$gd l=
+  # The common git dir without a process: a worktree's git dir names it in "commondir" (as cache.sh reads it).
+  if [ -f "$c/commondir" ]; then
+    { IFS= read -r l < "$c/commondir"; } 2>/dev/null; l=${l%$'\r'}
+    case "$l" in '') ;; /*|[A-Za-z]:[\\/]*) c=$l;; *) c=$c/$l;; esac
+  fi
+  [ -n "$c" ] && ! fresh "$c/uak-tokens.published" 30 || return 0
+  stamp "$c/uak-tokens.published"
+  nohup bash .uak/bin/tokens --publish --quiet > /dev/null 2>&1 &
+}
 # The inbox as tick keeps it: uak-inbox.txt, read at the claims tip in uak-claims.tip. One ls-remote of claims; the full
 # `uak inbox --peek` (a fresh clone, 19 git calls) only when the tip moved or the copy is over 5 min old. The tip is
 # taken before the read: a read that saw a newer state is redone next time, never kept under a tip it was not read at.
@@ -412,6 +426,7 @@ case "${1:-}" in
     [ -z "$h" ] || printf '%s\n' "$h" > "$gd/uak-harness" 2>/dev/null
     # Lines left pending by a crashed or offline session are published now, in background.
     common=$(git rev-parse --git-common-dir 2>/dev/null)
+    tokens_publish
     [ -z "$common" ] || [ ! -s "$common/uak-blackbox.pending" ] || nohup bash .uak/bin/bb flush --quiet > /dev/null 2>&1 &
     # Two live sessions in one worktree overwrite each other (Reap buildathon: two Codex terminals on HACK-006).
     case "$input" in *'"source":"clear"'*|*'"source":"compact"'*|*'"source":"resume"'*|*'"source": "clear"'*|*'"source": "compact"'*|*'"source": "resume"'*) same_agent=yes;; *) same_agent=no;; esac
@@ -465,6 +480,11 @@ case "${1:-}" in
     fi
     # Gemini's AfterTool takes the same additionalContext under its own event name.
     evname=PostToolUse; [ "${2:-}" != gemini ] || evname=AfterTool
+    # Codex: no Stop hook that always runs, so its tick also publishes the tokens (the 30 min stamp makes it one stat).
+    if [ -f "$gd/uak-harness" ]; then
+      { IFS= read -r h < "$gd/uak-harness"; } 2>/dev/null
+      [ "$h" != codex ] || tokens_publish
+    fi
     # Called, not run in $(…): a subshell is a fork. Their stderr is silenced as it was.
     coach 2>/dev/null; coach_note=$NOTE
     lens 2>/dev/null; lens_note=$NOTE
@@ -618,10 +638,7 @@ $act"
       nohup bash .uak/bin/bb flush --quiet > /dev/null 2>&1 &
     fi
     # Token spend of this machine (Claude Code and Codex transcripts) to claims:tokens/, at most every 30 min.
-    if [ -n "$common" ] && ! fresh "$common/uak-tokens.published" 30; then
-      stamp "$common/uak-tokens.published"
-      nohup bash .uak/bin/tokens --publish --quiet > /dev/null 2>&1 &
-    fi
+    tokens_publish
     [ -n "$agent" ] || exit 0
     case "$input" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) exit 0;; esac
     inbox_kept
