@@ -52,6 +52,17 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: stable
+      # The smoke runs the web build; a runner has no node_modules. Why (DevDay hackathon, 2026-11-08): main failed 9 times
+      # and every PR with "tsc: not found" until the team patched this file by hand.
+      - name: Web dependencies
+        if: hashFiles('package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'web/package-lock.json', 'web/pnpm-lock.yaml', 'web/yarn.lock', 'frontend/package-lock.json', 'frontend/pnpm-lock.yaml', 'frontend/yarn.lock', 'client/package-lock.json', 'client/pnpm-lock.yaml', 'client/yarn.lock') != ''
+        run: |
+          for d in . web frontend client; do
+            if [ -f "$d/package-lock.json" ]; then npm --prefix "$d" ci --no-audit --no-fund
+            elif [ -f "$d/pnpm-lock.yaml" ]; then corepack enable && (cd "$d" && pnpm install --frozen-lockfile)
+            elif [ -f "$d/yarn.lock" ]; then corepack enable && (cd "$d" && yarn install --frozen-lockfile)
+            fi
+          done
       - name: Product smoke
         run: |
           if [ -f .uak/bin/smoke-project ]; then bash .uak/bin/smoke-project
