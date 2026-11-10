@@ -23,6 +23,10 @@ if [ "$(git rev-parse --is-bare-repository 2>/dev/null)" = true ] && [ "$(basena
 fi
 root=$(git rev-parse --show-toplevel 2>/dev/null) || { bad "not a Git repository"; exit 1; }
 cd "$root" || exit 1
+# Why (v6.0 review): a fresh laptop could not commit, and wt answered about a flag it never passed.
+if [ -z "$(git config user.name 2>/dev/null)" ] || [ -z "$(git config user.email 2>/dev/null)" ]; then
+  bad "git has no user.name or user.email: git config --global user.name \"Your Name\" && git config --global user.email you@example.com"
+else ok "git identity: $(git config user.name)"; fi
 project=.uak/PROJECT.md
 remote=${UAK_REMOTE:-origin}
 
