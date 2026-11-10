@@ -52,7 +52,7 @@ Every command, its usage, where its code lives and the MCP tool that runs it.
 | `register-reviewer` | `register-reviewer NAME...  (UAK_HUMAN, from the main checkout)` | `lib/review-merge.sh` | `uak_cli` |
 | `merge` | `merge ID` | `lib/review-merge.sh` | `uak_merge` |
 | `decision` | `decision ID --option TEXT --why TEXT --reversible yes\|no --authorized yes\|no --class routine\|money\|accounts\|publish\|scope` | `uak-coordination` | `uak_cli` |
-| `secret-exception` | `secret-exception ID --path PATH --rule RULE --reason TEXT` | `lib/security.sh` | `uak_cli` |
+| `secret-exception` | `secret-exception ID (--path PATH --rule RULE \| --fingerprint FP) --reason TEXT` | `lib/security.sh` | `uak_cli` |
 | `init-smoke` | `init-smoke --command COMMAND` | `lib/smoke-init.sh` | shell only (it runs a command you pass) |
 | `lint` | `lint [--secrets]` | `lib/lint.sh` | `uak_cli` |
 | `start` | `start [--fix]   install → first claim, in order: what is missing, then the one command that starts the work` | `start` | `uak_cli` |
@@ -147,6 +147,7 @@ Every command, its usage, where its code lives and the MCP tool that runs it.
 | `tick` | Evaluates deadlines (backlog, decisions, leases, freeze, queue). `next` and `status` run it. |
 | `init-smoke --command CMD` | Builds `.uak/bin/smoke-project` from your real product check. |
 | `secret-exception ID --path P --rule R --reason T` | A non-owner reviewer approves one exact index blob. |
+| `secret-exception ID --fingerprint FP --reason T` | The same for a gitleaks finding: its fingerprint (printed by secret-scan) goes through `.gitleaksignore`. |
 | `lint [--secrets]` | Checks budgets, the PR template, states, history, owners, the sprint freeze and graph cycles, and names tasks that can never be claimed (Paths under another task's OWNERS row, with no dependency between them). `plan` warns about those when it publishes them. |
 
 ## Result codes and `--json`
