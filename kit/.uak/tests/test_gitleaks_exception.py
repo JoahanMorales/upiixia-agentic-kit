@@ -102,7 +102,8 @@ def fingerprint_exception_clears_only_that_finding(r):
     still = scan(f)
     expect(still.returncode == 1, "an exception outside the task's scope does not clear: " + (still.stdout + still.stderr)[-300:])
     ign = f.worktrees[0] / ".gitleaksignore"
-    ign.write_text(FP_B + "\n", encoding="utf-8")
+    # CRLF and no final newline, as a Windows editor leaves it (UAK-044: CI on Windows failed here, Linux did not).
+    ign.write_bytes(("# fixtures\r\n" + FP_B).encode("utf-8"))
     own = scan(f)
     expect(own.returncode == 0, "the project's own .gitleaksignore still works with the exception: " + (own.stdout + own.stderr)[-400:])
     return "one finding cleared"
