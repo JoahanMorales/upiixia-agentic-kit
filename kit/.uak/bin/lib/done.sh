@@ -97,15 +97,68 @@ Restore them and fix the code. If a test is wrong, do not change it: uak msg hum
   case "$policy" in yes|required) UAK_CODE=red-missing conflict "$f";; *) say "WARN: $f" >&2;; esac
 }
 # integrate: any identity records a merged PR of a task in REVIEW (the proof is verifiable). A no-op (MUTATE_NOOP) when
-# the task is already INTEGRATED.
+# the task is already INTEGRATED. Work that reached main outside the gate (squash, a PR merged after more commits, base
+# merges in the branch, equivalent content, a task never claimed) is recorded with Integrated-Outside: yes when its own
+# diff is on main (integrated_outside_check); the normal proof is tried first and `uak merge` is untouched.
+# Why (deus-ex-machina, 2026-11-09): 11 integrate refusals and 6 of 23 integrated while the product had shipped.
+integrate_normal() { # TIP: the approval and the proof of the reviewed content; INT_WHY says what failed
+  INT_WHY=
+  if ! approval_check "$1" "$PR_URL"; then
+    [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ] || {
+      INT_WHY="$RM_REASON. Approve the merged SHA first: uak review $ID --sha ${1:-SHA} --verdict approve. A human merged it? That human records it: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID"; return 1; }
+    APPROVED_BY="human:$HUMAN"
+    # A human merge over a reject that still covers this code is a decision: it says why, it is logged, and the
+    # rejecter hears it. Why (Hacktoberfest): a task rejected for files outside its Paths was merged on GitHub a
+    # minute later and recorded as human-approved; the reject stayed on record and nobody was told.
+    if rm_standing_reject; then
+      [ -n "$WHY_TEXT" ] || conflict "$RM_REJECTER rejected this code of $ID. A human who merged it anyway records why: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID --reason \"why the reject does not apply\""
+      [ -f "$TX/DECISIONS.md" ] || printf "# DECISIONS\n" > "$TX/DECISIONS.md"
+      printf '%s\n' "- $NOW | $ID | merged by $HUMAN over the reject of $RM_REJECTER | Why: $(one_line "$WHY_TEXT")" >> "$TX/DECISIONS.md"
+      msg_append "agent:$RM_REJECTER,task:$ID" info "$ID" "$ID was merged by $HUMAN over your reject at ${1%"${1#???????}"}: $(one_line "$WHY_TEXT")"
+    fi
+  fi
+  if [ -n "$MERGE_COMMIT" ]; then
+    merged=$(git -C "$TX" rev-parse --verify "$MERGE_COMMIT^{commit}" 2>/dev/null) || conflict "COMMIT not in the remote history of $BASE."
+  elif [ "$RM_REVIEW_MODE" = gh ] && [ -n "$RM_GH_MERGE" ]; then merged=$RM_GH_MERGE
+  else merged=$(git -C "$TX" rev-parse refs/uak/base); fi
+  integrated_check "$1" "$merged" || { INT_WHY="$RM_REASON (squash merge: pass --integrated COMMIT)"; return 1; }
+}
+# A task nobody claimed (or whose claim never reached REVIEW) gets its record here, from the backlog and the branch
+# feat/<id> by the kit's own naming; the claim, if any, is released below with the rest.
+integrate_new_record() {
+  local pri paths
+  load_task; pri=$PRIORITY; paths=$PATHS
+  WL="worklog/WL-$NOW-$AGENT-$ID-$(basename "$TXROOT").md"
+  BRANCH=feat/$(printf '%s' "$ID" | tr '[:upper:]' '[:lower:]')
+  {
+    printf '# %s\n' "$ID"
+    printf '%s\n' "ID: $ID" "State: AVAILABLE" "Owner: $AGENT" "Branch: $BRANCH" "Worktree: -" "Worklog: $WL" "Priority: $pri" \
+      "Paths: $(one_line "$paths")" "Depends: $(one_line "$DEPENDS")" "Verify: $(one_line "$VERIFY")" "Lease-Until: 0" "Updated: $NOW" \
+      "Next: recorded outside the gate" "PR: -" "Evidence: -"
+  } > "$RECORD"
+  DONE_TEXT="Recorded by integrate; the work reached $BASE outside the gate"; DECISION_TEXT="Integrated-Outside"
+  WHY_TEXT="The task's own diff is on $BASE"; FAILS_TEXT="-"; COMMANDS_TEXT="-"; NEXT_TEXT="Integrated"
+  set_summary
+}
 integrate_mutate() {
+  local st= outside=no approval=none owner
   # Why (UpiixSol): a human merged on GitHub while the owner agent was offline; the task sat in REVIEW and
   # blocked its dependents for hours. The proof is verifiable, so any identity may record it.
-  if [ -f "$RECORD" ] && [ "$(field "$RECORD" State)" = INTEGRATED ]; then
+  [ ! -f "$RECORD" ] || st=$(field "$RECORD" State)
+  if [ "$st" = INTEGRATED ]; then
     say "OK integrate $ID | already INTEGRATED ($(field "$RECORD" Merge-Commit | cut -c 1-7)); nothing to do"; MUTATE_NOOP=yes; return 0
   fi
-  [ -f "$RECORD" ] && [ "$(field "$RECORD" State)" = REVIEW ] ||
-    conflict "$ID is $(st=$(field "$RECORD" State); printf '%s' "${st:-AVAILABLE}"), not REVIEW; integrate records the merged PR of a task under review (INTEGRATED needs nothing)."
+  case "$st" in
+    REVIEW) ;;
+    CLAIMED|BLOCKED)
+      owner=$(field "$RECORD" Owner)
+      [ "$owner" = "$AGENT" ] || { [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ]; } ||
+        conflict "$ID is $st, held by $owner: only its owner or a human records work that reached $BASE outside the gate.";;
+    ''|AVAILABLE)
+      awk -v id="$ID" '/^## / && $2==id {f=1} END {exit !f}' "$BACKLOG" || conflict "$ID is not a task (uak status lists them)."
+      integrate_new_record;;
+    *) conflict "$ID is $st, not REVIEW; integrate records the merged work of a task under review, claimed or not yet claimed.";;
+  esac
   WL=$(field "$RECORD" Worklog); valid_worklog "$WL" || die "Invalid worklog path."
   [ -f "$TX/$WL" ] || die "Missing worklog $WL."
   PR_URL=$(field "$RECORD" PR)
@@ -116,33 +169,31 @@ integrate_mutate() {
   # A human who merged it on the forge is the approval: from the shell, under UAK_HUMAN, it is recorded as theirs.
   # Why (Chilangatón): PB-027 was merged on GitHub with no approval on claims; integrate refused, and the task stayed
   # in REVIEW after the event.
-  if ! approval_check "$tip" "$PR_URL"; then
-    [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ] ||
-      conflict "$RM_REASON. Approve the merged SHA first: uak review $ID --sha ${tip:-SHA} --verdict approve. A human merged it? That human records it: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID"
-    APPROVED_BY="human:$HUMAN"
-    # A human merge over a reject that still covers this code is a decision: it says why, it is logged, and the
-    # rejecter hears it. Why (Hacktoberfest): a task rejected for files outside its Paths was merged on GitHub a
-    # minute later and recorded as human-approved; the reject stayed on record and nobody was told.
-    if rm_standing_reject; then
-      [ -n "$WHY_TEXT" ] || conflict "$RM_REJECTER rejected this code of $ID. A human who merged it anyway records why: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID --reason \"why the reject does not apply\""
-      [ -f "$TX/DECISIONS.md" ] || printf "# DECISIONS\n" > "$TX/DECISIONS.md"
-      printf '%s\n' "- $NOW | $ID | merged by $HUMAN over the reject of $RM_REJECTER | Why: $(one_line "$WHY_TEXT")" >> "$TX/DECISIONS.md"
-      msg_append "agent:$RM_REJECTER,task:$ID" info "$ID" "$ID was merged by $HUMAN over your reject at ${tip%"${tip#???????}"}: $(one_line "$WHY_TEXT")"
+  if [ "$st" = REVIEW ] && integrate_normal "$tip"; then :
+  else
+    integrated_outside_check "$tip" || conflict "${INT_WHY:+$INT_WHY. }${INT_WHY:+Not on $BASE either: }$RM_REASON"
+    outside=yes
+    if [ -f "$TX/reviews/$ID.md" ] && [ "$(field "$TX/reviews/$ID.md" Verdict)" = approve ]; then
+      approval="$(field "$TX/reviews/$ID.md" Reviewer)@$(field "$TX/reviews/$ID.md" SHA | cut -c 1-7)"
     fi
+    # Unreviewed work under review is a human's to record, as before (v5.x); an approval of any earlier SHA, or a task
+    # whose owner records its own claim, or one nobody claimed, needs no human.
+    [ "$st" != REVIEW ] || [ "$approval" != none ] || { [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ]; } || conflict "${INT_WHY:-No approval on claims}"
+    if [ -n "$MERGE_COMMIT" ]; then
+      merged=$(git -C "$TX" rev-parse --verify "$MERGE_COMMIT^{commit}" 2>/dev/null) || conflict "COMMIT not in the remote history of $BASE."
+    else merged=$(git -C "$TX" rev-parse refs/uak/base); fi
+    APPROVED_BY=
   fi
-  if [ -n "$MERGE_COMMIT" ]; then
-    merged=$(git -C "$TX" rev-parse --verify "$MERGE_COMMIT^{commit}" 2>/dev/null) || conflict "COMMIT not in the remote history of $BASE."
-  elif [ "$RM_REVIEW_MODE" = gh ] && [ -n "$RM_GH_MERGE" ]; then merged=$RM_GH_MERGE
-  else merged=$(git -C "$TX" rev-parse refs/uak/base); fi
-  integrated_check "$tip" "$merged" || conflict "$RM_REASON (squash merge: pass --integrated COMMIT)"
   STATE=INTEGRATED
   put "$RECORD" Integration-Proof "$RM_PROOF"; put "$RECORD" Merge-Commit "$merged"
-  put "$RECORD" Reviewer "$APPROVED_BY"; put "$RECORD" Task-Tip "$tip"; put "$RECORD" State INTEGRATED
+  if [ "$outside" = yes ]; then put "$RECORD" Integrated-Outside yes; put "$RECORD" Approval "$approval"; put "$RECORD" Recorded-By "$AGENT"
+  else put "$RECORD" Reviewer "$APPROVED_BY"; fi
+  put "$RECORD" Task-Tip "$tip"; put "$RECORD" State INTEGRATED
   put "$RECORD" Next "Integrated in $BASE: $merged; claim next P0"
   put "$RECORD" Lease-Until 0; put "$RECORD" Updated "$NOW"
   update_summary_field Next "Integrated in $BASE: $merged (recorded by $AGENT)"
   rm -f "$CLAIM"
-  event "integrate; recorded by $AGENT; PR $PR_URL; merged $merged; proof $RM_PROOF"
+  event "integrate; recorded by $AGENT; PR $PR_URL; merged $merged; proof $RM_PROOF$([ "$outside" != yes ] || printf '; outside the gate, approval %s' "$approval")"
   msg_notify_related "$ID" integrated "$ID integrated in $BASE ($merged), recorded by $AGENT. If you depend on it: git fetch origin && git merge --no-edit origin/$BASE"
 }
 # done: REVIEW with the PR and evidence after the gates (UI shots, test-first), and one reviewer asked; or, with

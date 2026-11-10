@@ -139,7 +139,7 @@ def build(c, backlog_text, repo):
         t = tasks.setdefault(tid, {"id": tid, "title": "", "priority": r.get("Priority", ""), "paths": r.get("Paths", ""), "depends": ""})
         t.update(state=r.get("State", "AVAILABLE"), owner=r.get("Owner", ""), pr=r.get("PR", ""), progress=r.get("Progress", ""),
                  progress_changed=num(r.get("Progress-Changed")), updated=num(r.get("Updated")), lease=num(r.get("Lease-Until")),
-                 next=r.get("Next", ""), away=num(r.get("Away")))
+                 next=r.get("Next", ""), away=num(r.get("Away")), outside=r.get("Integrated-Outside") == "yes")
         if not t.get("paths"):
             t["paths"] = r.get("Paths", "")
         stall = num(cfg.get("Stall-Seconds"), STALL)
@@ -275,7 +275,8 @@ def build(c, backlog_text, repo):
     weight = {"INTEGRATED": 1.0, "REVIEW": 0.8, "CLAIMED": 0.4, "BLOCKED": 0.3}
     progress = {"done": round(100 * states.get("INTEGRATED", 0) / max(1, len(live))),
                 "weighted": round(100 * sum(weight.get(t["state"], 0) for t in live) / max(1, len(live))),
-                "total": len(live), "states": states}
+                "total": len(live), "states": states,
+                "outside": sum(1 for t in live if t["state"] == "INTEGRATED" and t.get("outside"))}
     freeze = num(cfg.get("Freeze-Epoch"))
     return {"repo": repo, "generated": now, "mode": cfg.get("Mode", ""), "freeze": freeze, "progress": progress,
             "tasks": sorted(tasks.values(), key=lambda t: t["id"]), "agents": agents, "messages": msgs[-600:],
