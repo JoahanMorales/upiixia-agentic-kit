@@ -340,3 +340,15 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Acceptance:** the TIERS table (codex gpt-6-luna / gpt-6.1-sol / gpt-6-astra, cursor composer-2.5, gemini 3 preview IDs; last verified 2026-10-09) is checked against the official model pages of OpenAI, Cursor and Google, and every ID is one the harness accepts today; the date and sources in the docstring are updated; regenerated files pass `gen_harness.py --check`, why: the Gemini 3.1 and 3.5 IDs exist now, while the kit still pins the 3.0 previews
 - **Verify:** `python3 scripts/gen_harness.py --check`
 - **Next step:** the TIERS table in scripts/gen_harness.py
+
+## UAK-043 · tokens publish: no race with an explicit publish; the Codex tick publishes on Windows (follow-up of UAK-036)
+
+- **Type:** follow-up
+- **Priority:** P1
+- **Depends on:** UAK-036
+- **Follow-up of:** UAK-036
+- **Paths:** kit/.uak/bin/tokens, kit/.uak/bin/hook, kit/.uak/bin/lib/status.sh, kit/.uak/tests/test_tokens_coverage.py
+- **Freeze-Allowed:** no
+- **Acceptance:**
+  - tokens publish: no race with an explicit publish; the Codex tick publishes on Windows
+- **Verify:** `python3 kit/.uak/tests/test_tokens_coverage.py`

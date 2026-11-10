@@ -40,3 +40,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794347142 | UAK-035 | direct = non-merge first-parent commit on origin/main; backlog = a TASKS.md task heading without '<'; override logged in git-common-dir/uak-direct-main.log | Why: spec
 - 1794348016 | UAK-033 | normal proof first; unreviewed REVIEW work stays a human's | Why: deus 11 refusals
 - 1794348501 | UAK-036 | Root: header in tokens files to match worktrees | Why: 1 of 3 Macs
+- 1794351772 | UAK-043 | follow-up of UAK-036 by kit-w36: tokens publish: no race with an explicit publish; the Codex tick publishes on Windows | Why: same Paths, no scope change
