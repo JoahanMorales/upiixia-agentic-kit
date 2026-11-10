@@ -31,3 +31,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794342189 | UAK-028 | var(--ink), same value in light mode | Why: design-lint refused gallery
 - 1794342308 | UAK-040 | phase skills in kit/.agents/skills real dir; .agents/skills no longer a symlink; Gemini toml + skill; no .cursor/commands | Why: Cursor reads .agents/skills so commands would duplicate
 - 1794342321 | UAK-031 | sentence appended after the allow line | Why: 7 retries
+- 1794342379 | UAK-039 | rule 9 after the demo number-source rule | Why: zeros not a measurement
