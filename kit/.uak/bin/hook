@@ -483,6 +483,7 @@ case "${1:-}" in
     # Codex: no Stop hook that always runs, so its tick also publishes the tokens (the 30 min stamp makes it one stat).
     if [ -f "$gd/uak-harness" ]; then
       { IFS= read -r h < "$gd/uak-harness"; } 2>/dev/null
+      h=${h%$'\r'}   # a file written on Windows ends in CRLF (UAK-043: the Codex tick did not publish there)
       [ "$h" != codex ] || tokens_publish
     fi
     # Called, not run in $(…): a subshell is a fork. Their stderr is silenced as it was.
