@@ -327,6 +327,36 @@ approval_check() {
   esac
   return 0
 }
+# Work that is on the base without passing the gate. The task's own diff is its commits that the base does not have
+# (merge commits and the base's commits that a "merge main into the branch" brought in are not its own), and each
+# file those commits touched must read on the base as the branch tip has it (mode and content, or absent in both):
+# never the whole tree hash, which any other change on the base or any base merge in the branch breaks.
+# Why (deus-ex-machina, 2026-11-09): squash merges, a PR merged after more commits, base merges in the branch and
+# equal content from another commit each ended in "tree hash does not match" or "changes no task file". Limits: a
+# file the base changed again after the merge no longer matches, and nothing is proven for an own diff with no files.
+integrated_outside_check() { # TIP; sets RM_PROOF, RM_REASON
+  local tip=$1 task_base base=refs/uak/base path n=0 a b
+  RM_PROOF= RM_REASON=
+  task_base=$(field "$RECORD" Task-Base); case "$task_base" in -|*[!0-9a-f]*) task_base=;; esac
+  git -C "$TX" cat-file -e "$tip^{commit}" 2>/dev/null || { RM_REASON='Task branch tip not available'; return 1; }
+  [ "$tip" != "$task_base" ] || { RM_REASON='TIP equals base; nothing implemented'; return 1; }
+  if git -C "$TX" merge-base --is-ancestor "$tip" "$base"; then
+    # The branch is in the history of the base: real work only if it is not just a point the base passed through.
+    if [ -n "$task_base" ]; then git -C "$TX" diff --quiet "$task_base" "$tip" && { RM_REASON='The task has no diff against its base'; return 1; }
+    elif git -C "$TX" rev-list --first-parent "$base" | grep -qx "$tip"; then RM_REASON="The branch tip is a commit $BASE passed through, not task work"; return 1; fi
+    RM_PROOF=ancestry; return 0
+  fi
+  git -C "$TX" log --no-merges --no-renames --name-only --format= -z "$tip" --not "$base" > "$TXROOT/outside-paths" || { RM_REASON='Could not read the task branch'; return 1; }
+  sort -zu "$TXROOT/outside-paths" > "$TXROOT/outside-paths.u" 2>/dev/null || cp "$TXROOT/outside-paths" "$TXROOT/outside-paths.u"
+  while IFS= read -r -d '' path; do
+    [ -n "$path" ] || continue
+    n=$((n + 1))
+    a=$(git -C "$TX" ls-tree "$tip" -- "$path" | cut -f 1); b=$(git -C "$TX" ls-tree "$base" -- "$path" | cut -f 1)
+    [ "$a" = "$b" ] || { RM_REASON="$path is not on $BASE as the task branch has it: the work did not land (or $BASE changed it again; merge it with uak merge or record it as a human)"; return 1; }
+  done < "$TXROOT/outside-paths.u"
+  [ "$n" -gt 0 ] || { RM_REASON='The task branch has no commits of its own to find on the base'; return 1; }
+  RM_PROOF="outside:content:$n"
+}
 integrated_check() {
   local tip=$1 merged=$2 task_base parent expected actual path entry mode type blob changed=no
   RM_PROOF= RM_REASON=

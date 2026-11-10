@@ -21,6 +21,9 @@ log="$dir/inbox/log.md"
 printf 'UAK STATS · claims commits %s\n' "$commits"
 states=$(for f in "$dir"/tasks/*.md; do [ -f "$f" ] && sed -n 's/^State: //p' "$f" | head -n 1; done | sort | uniq -c | awk '{printf "%s %s · ", $2, $1}')
 printf 'tasks: %s\n' "${states% · }"
+# Work recorded by `uak integrate` after it reached the base outside the gate, apart from the gated merges.
+outside=$(for f in "$dir"/tasks/*.md; do [ -f "$f" ] && grep -l '^Integrated-Outside: yes' "$f"; done 2>/dev/null | wc -l | tr -d ' ')
+[ "${outside:-0}" -eq 0 ] || printf 'integrated outside the gate: %s (the rest went through uak merge)\n' "$outside"
 if [ -f "$log" ]; then
   awk -F' [|] ' '/^- [0-9]/ {
       n++; kind[$5]++; from[$3]++; if (first == "" || $2 < first) first = $2; if ($2 > last) last = $2
