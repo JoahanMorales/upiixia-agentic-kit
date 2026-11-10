@@ -151,3 +151,27 @@ Append-only; the last section of an ID replaces its section in the backlog. Why:
 - **Tests:** old_and_new_engines_print_the_same_and_write_the_same_tree
 - **Verify:** `python3 scripts/claims_diff.py && python3 kit/.uak/tests/test_claims_perf.py`
 - **Next step:** reuse the guard differential of v5.9.2 (docs/perf-windows.md)
+## UAK-033 · A PR merged outside the gate can still be recorded, so claims match main
+
+- **Type:** bug
+- **Priority:** P0
+- **Estimate:** 3 h
+- **Depends on:** None
+- **Paths:** kit/.uak/bin/lib/review-merge.sh, kit/.uak/bin/lib/done.sh, kit/.uak/bin/stats, kit/.uak/bin/lib/dash.py, kit/.uak/docs/PROTOCOL.md, kit/.uak/tests/test_integrate_outside.py
+- **Acceptance:** `uak integrate ID` records INTEGRATED when main already contains the task's work, in each case seen: a squash merge, a PR merged after more commits than the approved SHA, a task branch that carried unrelated base merges, and identical content that landed on main by another commit. The check compares the task's own diff (merge-base..tip, base merges dropped) by patch-id or by final file content on main, never the whole tree hash, a task still AVAILABLE or CLAIMED whose `feat/<id>` PR is merged (gh, or the branch tip reachable from main) can be recorded by its owner or a human; the record says `Integrated-Outside: yes` and the approval it had (or `none`), and `uak stats`/`dash` count it apart from gated merges, its dependents become claimable at once; its file reservations are released, why (deus-ex-machina, OpenAI x Kavak hackathon, 1st place, 2026-11-09): 11 `integrate` refusals ("tree hash does not match", "changes no task file", "is AVAILABLE, not REVIEW") and 5 agent reports. At the end claims said 6 of 23 integrated, with 6 stuck in REVIEW and 3 expired claims, while the product had shipped and won
+- **Tests:** squash_merged_pr_is_recorded, pr_merged_after_extra_commits_is_recorded, base_merges_in_the_task_branch_are_ignored, equivalent_content_on_main_is_recorded, merged_branch_of_an_available_task_unblocks_its_dependents, outside_merges_are_counted_apart
+- **Verify:** `python3 kit/.uak/tests/test_integrate_outside.py`
+- **Next step:** the tree-hash comparison of the integrate path in kit/.uak/bin/lib/review-merge.sh
+
+## UAK-040 · The `/uak-*` phase commands exist natively in Codex, Cursor and Gemini CLI
+
+- **Type:** bug
+- **Priority:** P0
+- **Estimate:** 3 h
+- **Depends on:** None
+- **Paths:** kit/.claude/commands/, kit/.uak/skills/, kit/.agents/skills/, kit/.gemini/commands/, kit/.cursor/rules/uak.mdc, README.md, install.sh, scripts/gen_harness.py, kit/AGENTS.md, kit/.uak/tests/test_harness_commands.py
+- **Acceptance:** the 13 phase scripts (uak-setup, uak-plan, uak-ship, uak-review, uak-handoff, uak-demo, …) come from one source and reach every harness the team installed:, Claude Code: `/uak-X`, as today;, Codex: an Agent Skill under `.agents/skills/uak-X/SKILL.md`, invoked as `$uak-X` or from `/skills` (Codex deprecated custom prompts);, Cursor: `/uak-X`, as a skill or from `.cursor/commands/uak-X.md`;, Gemini CLI: `/uak-X`, as a skill from `.agents/skills` or from `.gemini/commands/uak-X.toml`, a skill made from a phase script is only run when asked (`disable-model-invocation: true` or the harness's equivalent), so no agent starts `/uak-demo` on its own; Claude Code shows no duplicate `/uak-X`, `gen_harness.py --check` fails when a generated copy is stale (CI already runs it); the AGENTS.md line "Codex, Cursor, Gemini: `/uak-X` means follow `.claude/commands/uak-X.md`" changes to the native call, why (user's teammate, 2026-11-10): in Codex and Cursor the kit's commands "were not up to date". Codex and Cursor had no `/uak-*` at all, and Codex no longer reads custom prompts
+- **Tests:** every_phase_command_reaches_every_harness, phase_skills_are_not_model_invoked, generated_commands_match_their_source
+- **Verify:** `python3 kit/.uak/tests/test_harness_commands.py`
+- **Next step:** the command → skill writer in scripts/gen_harness.py
+
