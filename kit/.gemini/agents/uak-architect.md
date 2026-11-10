@@ -9,7 +9,7 @@ tools:
   - glob
   - list_directory
   - run_shell_command
-model: gemini-3-pro-preview
+model: gemini-3.1-pro-preview
 max_turns: 8
 timeout_mins: 10
 ---
