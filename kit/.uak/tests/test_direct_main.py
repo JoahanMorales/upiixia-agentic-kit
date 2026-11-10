@@ -40,6 +40,10 @@ def commit_on_main_with_a_backlog_is_refused(r):
     expect(r.g(clone, "rev-parse", "HEAD").stdout == head, "no commit was made")
     ok = commit_in(r, f.worktrees[0], "src/value-1.txt", "work\n", env={"UAK_DIRECT_MAIN": ""})
     expect(ok.returncode == 0, "a task worktree commits freely: " + (ok.stdout + ok.stderr)[-300:])
+    # The backlog and the kit's own files are not product work: a plan or a kit update still commits on main.
+    r.g(clone, "reset", "-q", "HEAD", "--", "notes.txt")   # the refused commit left it staged
+    plan =commit_in(r, clone, ".uak/TASKS.md", r.g(clone, "show", "HEAD:.uak/TASKS.md").stdout + "\n<!-- next wave -->\n", env={"UAK_DIRECT_MAIN": ""})
+    expect(plan.returncode == 0, "a plan commit on main is not refused: " + (plan.stdout + plan.stderr)[-300:])
     # No backlog yet (the template's example task only): main is open, as before.
     r.g(clone, "reset", "-q", "--soft", "HEAD")
     (clone / ".uak/TASKS.md").write_text("# TASKS\n\n## HACK-001 · <one visible result>\n", encoding="utf-8")

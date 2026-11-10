@@ -11,7 +11,13 @@ if [ -n "$gd" ] && git rev-parse -q --verify HEAD >/dev/null 2>&1 &&
    [ "$(cd "$gd" && pwd -P)" = "$(cd "$common" && pwd -P)" ] &&
    [ ! -f "$gd/MERGE_HEAD" ] && [ ! -f "$gd/CHERRY_PICK_HEAD" ] && [ ! -d "$gd/rebase-merge" ] && [ ! -d "$gd/rebase-apply" ] &&
    [ -f "$root/.uak/TASKS.md" ] &&
-   grep -E '^## [A-Z][A-Z0-9]*-[0-9]{3,} ' "$root/.uak/TASKS.md" | grep -qv '<'; then
+   grep -E '^## [A-Z][A-Z0-9]*-[0-9]{3,} ' "$root/.uak/TASKS.md" | grep -qv '<' &&
+   # Only product work is refused: a commit of the backlog, the project file or a kit install/update (all of it under
+   # the kit's own paths) stays on main. Why (v6.0.1 CI): the solo marathon flow commits its plan on main.
+   git diff --cached --name-only | awk '
+     /^(\.uak|\.claude|\.agents|\.codex|\.cursor|\.gemini|\.githooks|\.github)\// { next }
+     /^(AGENTS\.md|CLAUDE\.md|GEMINI\.md|\.mcp\.json|\.gitignore|\.gitattributes)$/ { next }
+     { found = 1; exit } END { exit !found }'; then
   if [ "${UAK_DIRECT_MAIN:-}" = 1 ]; then
     printf '%s %s %s\n' "$(date +%s 2>/dev/null)" "${UAK_AGENT:-${UAK_HUMAN:-human}}" "${UAK_BASE:-main}" >> "$common/uak-direct-main.log" 2>/dev/null || true
   else
