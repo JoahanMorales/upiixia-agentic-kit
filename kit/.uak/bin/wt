@@ -255,6 +255,8 @@ elif [ "$agent_flag" = yes ] && ! wt_machine_agents "$(main_root)" | grep -qxF -
   [ "$WT_PICK_REUSE" != yes ] || say "wt: $WT_PICKED on this machine holds no claim; reusing it keeps one inbox: wt new $id (or --agent $WT_PICKED)." >&2
 fi
 [ "$agent_flag" = yes ] || [ -z "${UAK_AGENT:-}" ] || say "wt: no --agent given; using UAK_AGENT=$UAK_AGENT from your shell. A subagent needs its own: --agent NAME." >&2
+# Why (v6.0 review): a fresh laptop got "--human: letters, digits..." about a flag it never passed.
+[ -n "$human" ] || die "git has no identity: git config --global user.name \"Your Name\" && git config --global user.email you@example.com"
 clean_id "$agent" || die "--agent: letters, digits, dot, dash or underscore only."
 clean_id "$human" || die "--human: letters, digits, dot, dash or underscore only."
 
