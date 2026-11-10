@@ -10,7 +10,17 @@ mkdir -p "$gd/uak-out" 2>/dev/null || true
 log="$gd/uak-out/q-$(date +%s)-$$.log"
 ls -t "$gd"/uak-out/q-*.log 2>/dev/null | tail -n +21 | while IFS= read -r old; do rm -f "$old"; done
 start=$(date +%s)
-"$@" > "$log" 2>&1 < /dev/null  # a TTY puts vitest/jest in watch mode: the log never ends
+# One argument with a space or a shell operator is a whole command line, not a program name: run it with bash -c.
+# Why (DevDay hackathon, 2026-11-08): an agent passed the task's Verify quoted and got exit 127. Several arguments stay "$@".
+one_line=0
+if [ "$#" -eq 1 ]; then
+  case "$1" in *[[:space:]\;\&\|\<\>\(\)\$\`\"\'\\]*) one_line=1 ;; esac
+fi
+if [ "$one_line" -eq 1 ]; then
+  bash -c "$1" > "$log" 2>&1 < /dev/null  # a TTY puts vitest/jest in watch mode: the log never ends
+else
+  "$@" > "$log" 2>&1 < /dev/null  # same reason as above
+fi
 code=$?
 secs=$(( $(date +%s) - start ))
 # The same failure twice in a row (same command, same last lines with numbers blanked): say LOOP once, here,
