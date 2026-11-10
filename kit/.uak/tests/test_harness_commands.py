@@ -25,11 +25,11 @@ def rd(path):
     return path.read_text(encoding="utf-8")
 
 
-def install(r, name, *args):
+def install(r, name, *args, mode="sprint"):
     d = r.scratch / ("hc-" + name)
     d.mkdir(parents=True)
     r.g(d, "init", "-q", "-b", "main")
-    out = subprocess.run([r.bash, str(r.package.parent / "install.sh"), "--mode", "sprint", *args, str(d)], capture_output=True,
+    out = subprocess.run([r.bash, str(r.package.parent / "install.sh"), "--mode", mode, *args, str(d)], capture_output=True,
                          text=True, errors="replace", env=r.env, timeout=180, stdin=subprocess.DEVNULL)
     expect(out.returncode == 0, "install failed: " + out.stdout[-300:] + out.stderr[-300:])
     return d
@@ -39,11 +39,14 @@ def every_phase_command_reaches_every_harness(r):
     names = phases(r)
     expect(len(names) == 13, "13 phase scripts, found %d" % len(names))
     d = install(r, "all")
-    for n in names:
-        expect((d / ".claude/commands" / (n + ".md")).is_file(), "Claude Code: /%s" % n)
+    # Sprint has no uak-spec (marathon's), marathon no uak-demo: every harness follows .claude/commands.
+    here = [n for n in names if (d / ".claude/commands" / (n + ".md")).is_file()]
+    expect(len(here) == 12 and "uak-spec" not in here, "sprint installs 12 phase scripts: %s" % here)
+    expect(not (d / ".agents/skills/uak-spec").exists() and not (d / ".gemini/commands/uak-spec.toml").exists(), "no uak-spec for sprint on Codex, Cursor, Gemini")
+    for n in here:
         expect((d / ".agents/skills" / n / "SKILL.md").is_file(), "Codex and Cursor: .agents/skills/%s/SKILL.md" % n)
         toml = d / ".gemini/commands" / (n + ".toml")
-        expect(toml.is_file() and 'prompt = """' in toml.read_text(encoding="utf-8"), "Gemini CLI: .gemini/commands/%s.toml" % n)
+        expect(toml.is_file() and "prompt = '''" in toml.read_text(encoding="utf-8"), "Gemini CLI: .gemini/commands/%s.toml" % n)
         expect(not (d / ".claude/skills" / n).exists(), "Claude Code would show /%s twice (command and skill)" % n)
         text = (d / ".agents/skills" / n / "SKILL.md").read_text(encoding="utf-8")
         expect(re.search(r"^name: %s$" % n, text, re.M) and re.search(r"^description: \S", text, re.M), "%s has name and description" % n)
@@ -57,6 +60,8 @@ def every_phase_command_reaches_every_harness(r):
     expect((gem / ".gemini/commands/uak-plan.toml").is_file(), "--harness gemini: its commands")
     claude = install(r, "claude", "--harness", "claude")
     expect(not (claude / ".agents").exists() and not (claude / ".gemini").exists(), "--harness claude: .claude only")
+    mar = install(r, "marathon", mode="marathon")
+    expect((mar / ".agents/skills/uak-spec/SKILL.md").is_file() and not (mar / ".agents/skills/uak-demo").exists(), "marathon: uak-spec yes, uak-demo no")
     return {"phases": len(names)}
 
 

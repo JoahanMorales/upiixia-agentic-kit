@@ -195,17 +195,30 @@ for h in codex cursor gemini; do # the same subagents as .claude/agents, minus t
     put "$f" "$target/.$h/agents/$(basename "$f")"
   done
 done
-for link in .agents/skills .cursor/skills; do # Codex, Cursor and others read the same skills
-  case "$link" in .agents/*) has codex || continue;; .cursor/*) has cursor || continue;; esac
-  mkdir -p "$target/$(dirname "$link")"
-  # Git Bash: ln -s makes a copy (no native symlinks without developer mode), and a copy never refreshes. There the
-  # skills are copied again on every install and update. Why (portability audit, Oct 2026): Codex and Cursor kept
-  # stale skills after --update on Windows.
-  case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*)
-    if [ ! -L "$target/$link" ]; then mkdir -p "$target/$link" && cp -R "$target/.claude/skills/." "$target/$link/" && say "  + $link (a copy of .claude/skills, refreshed: Windows)"; fi
-    continue;;
-  esac
-  [ -e "$target/$link" ] || [ -L "$target/$link" ] || { ln -s ../.claude/skills "$target/$link"; say "  + $link → .claude/skills"; }
+# Codex, Cursor and Gemini CLI read Agent Skills from .agents/skills: a real directory with a copy of .claude/skills and
+# the generated /uak-* phase skills (Codex: $uak-X; Cursor: /uak-X). Not a symlink to .claude/skills: the phase skills
+# would then land in .claude/skills and Claude Code would show every /uak-X twice, and Windows checks a symlink out as a
+# text file. Copied again on every install and update, so it never goes stale. Why (a teammate, 2026-11-10): Codex and
+# Cursor had no /uak-*; (portability audit, Oct 2026): Codex and Cursor kept stale skills after --update on Windows.
+if has codex || has cursor || has gemini; then
+  # An older install linked it (and .cursor/skills) to ../.claude/skills: the link goes, the real directory takes its place.
+  for link in .agents/skills .cursor/skills; do
+    if [ -L "$target/$link" ]; then rm -f "$target/$link"; say "  - $link (a link to .claude/skills) replaced by a real directory"; fi
+  done
+  mkdir -p "$target/.agents/skills"
+  cp -R "$target/.claude/skills/." "$target/.agents/skills/" 2>/dev/null || true
+  say "  + .agents/skills (the skills and the /uak-* phase skills, refreshed)"
+fi
+# Phase skills and Gemini commands follow .claude/commands: the other mode's script (uak-spec in sprint, uak-demo in
+# marathon) is not installed for any harness.
+for f in "$kit/.claude/commands/"uak-*.md; do
+  n=$(basename "$f" .md)
+  if [ -f "$target/.claude/commands/$n.md" ]; then
+    if has codex || has cursor || has gemini; then mkdir -p "$target/.agents/skills"; cp -R "$kit/.agents/skills/$n" "$target/.agents/skills/"; fi
+    if has gemini; then mkdir -p "$target/.gemini/commands"; cp "$kit/.gemini/commands/$n.toml" "$target/.gemini/commands/"; fi
+  else
+    rm -rf "$target/.agents/skills/$n" "$target/.gemini/commands/$n.toml"
+  fi
 done
 # The pre-commit secret scanner lives in .uak/githooks (engine, refreshed by --update). An older install's
 # .githooks/pre-commit that is the kit's own is removed; a changed one stays and keeps working until you move it.
