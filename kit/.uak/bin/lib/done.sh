@@ -36,7 +36,19 @@ ui_gate() {
   overlaps "$TXROOT/ui-task" "$TXROOT/ui-paths" || return 0
   if [ -n "$NO_UI_TEXT" ]; then EVIDENCE="$EVIDENCE · no visible change: $NO_UI_TEXT"; return 0; fi
   d="$2/.uak-shots/$ID"; short=$(printf '%s' "$1" | cut -c 1-7)
-  for f in 1280.png 390.png critic.txt; do [ -s "$d/$f" ] || missing="$missing $f"; done
+  # 1280.png / 390.png, or exactly one <screen>-1280.png / <screen>-390.png. Why (DevDay hackathon, 2026-11-08): the critic
+  # approved landing-1280.png and voz-1280.png and done refused twice for the exact name; two candidates stay ambiguous.
+  for f in 1280 390; do
+    [ ! -s "$d/$f.png" ] || continue
+    cand=; ncand=0
+    for c in "$d"/*-"$f".png; do [ -s "$c" ] || continue; cand="$cand ${c##*/}"; ncand=$((ncand + 1)); done
+    [ "$ncand" -eq 1 ] && continue
+    if [ "$ncand" -gt 1 ]; then
+      UAK_CODE=ui-shots-missing conflict "$ID has several $f shots in .uak-shots/$ID/:$cand and no $f.png. Which is the main screen? Save it as $f.png (copy it) and run done again."
+    fi
+    missing="$missing $f.png"
+  done
+  [ -s "$d/critic.txt" ] || missing="$missing critic.txt"
   [ -z "$missing" ] || UAK_CODE=ui-shots-missing conflict "$ID writes UI ($ui): it ships with what was seen. Missing in .uak-shots/$ID/:$missing. Capture the screens it changed at 1280x720 and 390x844 there (skill webapp-testing), then run the design-critic subagent on them: it writes critic.txt. No visible change? done $ID ... --no-ui \"why\"."
   grep -q '^VERDICT: SHIP' "$d/critic.txt" ||
     UAK_CODE=critic-fix conflict "The design critic said FIX for $ID ($(grep -m 1 '^VERDICT' "$d/critic.txt" 2>/dev/null)). Fix its P1s (.uak-shots/$ID/critic.txt), capture again and rerun it."
