@@ -30,7 +30,7 @@ retire	tx	retire_mutate	claim.sh	uak_cli	retire NAME...   an identity that no lo
 register-reviewer	tx	register_reviewer_mutate	review-merge.sh	uak_cli	register-reviewer NAME...  (UAK_HUMAN, from the main checkout)
 merge	merge_run	-	review-merge.sh	uak_merge	merge ID
 decision	tx	coord_decision_mutate	uak-coordination	uak_cli	decision ID --option TEXT --why TEXT --reversible yes|no --authorized yes|no --class routine|money|accounts|publish|scope
-secret-exception	tx	secret_exception_action	security.sh	uak_cli	secret-exception ID --path PATH --rule RULE --reason TEXT
+secret-exception	tx	secret_exception_action	security.sh	uak_cli	secret-exception ID (--path PATH --rule RULE | --fingerprint FP) --reason TEXT
 init-smoke	local:init_smoke	-	smoke-init.sh	shell	init-smoke --command COMMAND
 lint	lint_run	-	lint.sh	uak_cli	lint [--secrets]
 start	exec	-	start	uak_cli	start [--fix]   install → first claim, in order: what is missing, then the one command that starts the work

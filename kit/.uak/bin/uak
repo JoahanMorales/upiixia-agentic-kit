@@ -123,7 +123,7 @@ MERGE_COMMIT= REVIEWER= CANCEL_REASON=
 REVIEW_LEARN=no WAIT_FOR=message WAIT_TIMEOUT=${UAK_WAIT_TIMEOUT:-540} WAIT_EVERY=${UAK_WAIT_EVERY:-15}
 EXPIRED=no SHOW_SUMMARY=no LINT_SECRETS=no QUIET=no SESSION_ONLY=no ALLOW_INFLIGHT=no ALLOW_IDS= ALLOW_DONE= REVIEW_NOTE= FULL=no REVIEW_START=no REVIEW_STARTED=no
 NO_UI_TEXT= NO_RED_TEXT= ALLOW_TESTS=no RETIRE_NAMES= DONE_TO= FOLLOWUP_TITLE= REVIEW_STOP=no REVIEW_DECLINE=no NEW_ID= REVIEW_HINT= DONE_HINT=
-REVIEW_SHA= REVIEW_VERDICT= REGISTER_REVIEWER= SMOKE_COMMAND= SECRET_PATH= SECRET_RULE= SECRET_REASON=
+REVIEW_SHA= REVIEW_VERDICT= REGISTER_REVIEWER= SMOKE_COMMAND= SECRET_PATH= SECRET_RULE= SECRET_FP= SECRET_REASON=
 DECISION_OPTION= DECISION_REVERSIBLE=no DECISION_AUTHORIZED=no DECISION_CLASS=routine
 DONE_TEXT= DECISION_TEXT= WHY_TEXT= FAILS_TEXT= COMMANDS_TEXT=
 case "$CMD" in
@@ -197,7 +197,7 @@ while [ "$#" -gt 0 ]; do
     --kind)
       [ "$CMD" = msg ] && [ "$#" -gt 0 ] || bad_opt
       MSG_KIND=$1; shift; msg_valid_kind "$MSG_KIND" || die "--kind: info|request|contract|blocker|reply|review|approve|reject|integrated|human";;
-    --task|--branch|--worktree|--next|--read-summary|--state|--done|--decision|--why|--fails|--commands|--pr|--evidence|--integrated|--reviewer|--cancel|--sha|--verdict|--note|--command|--option|--reversible|--authorized|--class|--path|--rule|--reason|--to|--title|--for|--timeout|--forget|--search|--no-ui|--no-red)
+    --task|--branch|--worktree|--next|--read-summary|--state|--done|--decision|--why|--fails|--commands|--pr|--evidence|--integrated|--reviewer|--cancel|--sha|--verdict|--note|--command|--option|--reversible|--authorized|--class|--path|--rule|--fingerprint|--reason|--to|--title|--for|--timeout|--forget|--search|--no-ui|--no-red)
       [ "$#" -gt 0 ] || die "Missing value for $opt."
       value=$1; shift
       case "$opt" in
@@ -237,6 +237,7 @@ while [ "$#" -gt 0 ]; do
         --search) [ "$CMD" = recall ] || bad_opt; MEM_SEARCH=$value;;
         --forget) [ "$CMD" = learn ] || bad_opt; case "$value" in ''|*[!0-9]*) die "--forget takes a lesson number";; esac; MEM_FORGET=$value;;
         --rule) [ "$CMD" = secret-exception ] || bad_opt; SECRET_RULE=$value;;
+        --fingerprint) [ "$CMD" = secret-exception ] || bad_opt; SECRET_FP=$value;;
         --reason) case "$CMD" in secret-exception) SECRET_REASON=$value;; allow|integrate) WHY_TEXT=$value;; *) bad_opt;; esac;;
         --cancel) [ "$CMD" = release ] || bad_opt; CANCEL_REASON=$value;;
       esac
