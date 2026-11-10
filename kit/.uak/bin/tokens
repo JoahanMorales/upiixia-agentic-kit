@@ -136,8 +136,15 @@ publish_rows() {
   return "$ok"
 }
 team_rows() {
+  local d
   git -C "$top" fetch -q "$REMOTE" claims 2>/dev/null || die "no remote claims branch"
-  git -C "$top" archive FETCH_HEAD tokens tasks blackbox 2>/dev/null | tar -x -C "$tmp" 2>/dev/null || git -C "$top" archive FETCH_HEAD tokens tasks 2>/dev/null | tar -x -C "$tmp" 2>/dev/null
+  # Each directory on its own: a pathspec that matches nothing makes git archive fail and print nothing, and a claims
+  # branch with no blackbox/ yet (or no tokens/ on an older one) must not take the others with it. bsdtar (macOS)
+  # exits 0 on empty input, so the failure could not be told by the pipeline's status. Why (UAK-043, CI macos).
+  for d in tokens tasks blackbox; do
+    git -C "$top" cat-file -e "FETCH_HEAD:$d" 2>/dev/null || continue
+    git -C "$top" archive FETCH_HEAD "$d" 2>/dev/null | tar -x -C "$tmp" 2>/dev/null
+  done
   [ -d "$tmp/tokens" ] || die "no machine has published yet: bash .uak/bin/tokens --publish (the Stop hook does it every 30 min)"
   cat "$tmp"/tokens/*.md | sed -n 's/^- //p' | sed 's/ | /|/g' | fold
   for f in "$tmp"/tasks/*.md; do [ -f "$f" ] && printf '%s %s\n' "$(sed -n 's/^ID: //p' "$f" | head -n 1)" "$(sed -n 's/^Owner: //p' "$f" | head -n 1)"; done > "$tmp/owners"

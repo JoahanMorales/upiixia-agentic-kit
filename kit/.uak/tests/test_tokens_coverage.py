@@ -122,13 +122,23 @@ def hooks_publish_from_session_start_and_codex(r):
     expect(stamp.exists(), "session-start publishes (tried now)")
     stamp.unlink()
     gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
-    (gd / "uak-harness").write_text("codex\n")
+    (gd / "uak-harness").write_bytes(b"codex\r\n")  # as Windows writes it
     r.run([r.bash, "-c", "echo '{}' | bash .uak/bin/hook tick"], cwd=w, env=e, allowed=None)
     expect(stamp.exists(), "the Codex tick publishes")
     return "session-start and codex tick"
 
 
-TESTS = [publish_failure_is_recorded, team_view_names_machines_that_never_reported, main_share_is_reported_and_warned,
+def team_view_without_black_box_files_still_reads_the_tokens(r):
+    """claims with tokens/ and tasks/ but no blackbox/ (the common case early on): --team reads them (macOS CI, bsdtar)."""
+    f = with_claims(r, "tk-noblackbox")
+    cfg = spend(r, f, "tk-noblackbox", 800000, 100000)
+    expect(tokens(r, f, cfg, "--publish", "--quiet").returncode == 0, "publish")
+    out = tokens(r, f, cfg, "--team", "--by", "agent", "--json")
+    expect(out.returncode == 0 and '"main"' in out.stdout and "agent-1" in out.stdout, "team view: rc %d %s%s" % (out.returncode, out.stdout, out.stderr))
+    return "team view"
+
+
+TESTS = [team_view_without_black_box_files_still_reads_the_tokens, publish_failure_is_recorded, team_view_names_machines_that_never_reported, main_share_is_reported_and_warned,
          hooks_publish_from_session_start_and_codex]
 
 
