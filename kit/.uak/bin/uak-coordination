@@ -308,7 +308,8 @@ coord_claim_gate() {
   fi
   coord_cfg Freeze-Epoch 0; coord_freeze=$coord_v
   if [ "$coord_freeze" -gt 0 ] && [ "$NOW" -ge "$coord_freeze" ]; then
-    coord_freeze_allowed || UAK_CODE=freeze conflict "FREEZE: $ID is not allowed after the freeze. A human can allow it: UAK_HUMAN=NAME bash .uak/bin/uak allow $ID --reason TEXT"
+    # Why (DevDay hackathon, 2026-11-08): an agent retried this same refusal 7 times; say it cannot change by retrying.
+    coord_freeze_allowed || UAK_CODE=freeze conflict "FREEZE: $ID is not allowed after the freeze. A human can allow it: UAK_HUMAN=NAME bash .uak/bin/uak allow $ID --reason TEXT. Do not retry: the answer only changes when a human runs it. Take other work: uak next."
   fi
   coord_af="$TX/meta/agents/$AGENT.md"; coord_since=0
   [ ! -f "$coord_af" ] || { coord_rv "$coord_af" Events-Since-Checkpoint; coord_since=$coord_r; }
