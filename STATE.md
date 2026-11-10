@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1794351780
+Updated: 1794351939
 AVAILABLE: UAK-038 UAK-041 UAK-042 
 CLAIMED: UAK-043 
 BLOCKED: -
@@ -13,15 +13,15 @@ Claims (first 24; status --task ID shows detail):
 UAK-033 | REVIEW | kit-w33 | until 1794434472
 UAK-037 | REVIEW | joahanmorales-7 | until 1794429003
 UAK-040 | REVIEW | joahanmorales-3 | until 1794428731
-UAK-043 | CLAIMED | kit-w36 | until 1794366180
+UAK-043 | CLAIMED | kit-w36 | until 1794366339
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1794342895 | UAK-032 | wt checks only an empty derived human (no --human, UAK_HUMAN or user.name); doctor FAILs on missing name or email | Why: spec
 - 1794347142 | UAK-035 | direct = non-merge first-parent commit on origin/main; backlog = a TASKS.md task heading without '<'; override logged in git-common-dir/uak-direct-main.log
 - 1794348016 | UAK-033 | normal proof first; unreviewed REVIEW work stays a human's | Why: deus 11 refusals
 - 1794348501 | UAK-036 | Root: header in tokens files to match worktrees | Why: 1 of 3 Macs
 - 1794351772 | UAK-043 | follow-up of UAK-036 by kit-w36: tokens publish: no race with an explicit publish; the Codex tick publishes on Windows | Why: same Paths, no scope change
+- 1794351939 | UAK-043 | per-dir archive; strip CR | Why: CI macos+windows
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.

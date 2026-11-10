@@ -41,3 +41,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794348016 | UAK-033 | normal proof first; unreviewed REVIEW work stays a human's | Why: deus 11 refusals
 - 1794348501 | UAK-036 | Root: header in tokens files to match worktrees | Why: 1 of 3 Macs
 - 1794351772 | UAK-043 | follow-up of UAK-036 by kit-w36: tokens publish: no race with an explicit publish; the Codex tick publishes on Windows | Why: same Paths, no scope change
+- 1794351939 | UAK-043 | per-dir archive; strip CR | Why: CI macos+windows
