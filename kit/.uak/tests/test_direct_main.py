@@ -16,6 +16,7 @@ import test_review_merge as rm
 
 def with_hook(r, name, count=2):
     f = rm.fixture(r, name, count=count)
+    r.g(f.clones[0], "pull", "-q", "--ff-only", "origin", "main")   # the fixture rewrote main after the clone
     r.g(f.clones[0], "config", "core.hooksPath", ".githooks")
     return f
 
@@ -73,6 +74,7 @@ def uak_merge_still_commits(r):
 def stats_counts_direct_commits(r):
     f = with_hook(r, "dm-stats")
     clone = f.clones[0]
+    f.claim(1, "HACK-002")   # stats reads the claims branch, which exists once something is claimed
     pat = re.compile(r"Direct to main: (\d+) of (\d+) first-parent commits")
     stats = lambda: pat.search(r.run([r.bash, ".uak/bin/uak", "stats"], cwd=clone, env={"UAK_AGENT": "agent-1", "UAK_REMOTE": "origin"}, allowed=None).stdout)
     before = stats()

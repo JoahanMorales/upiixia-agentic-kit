@@ -1,5 +1,22 @@
 #!/usr/bin/env bash
-# Scans exactly the index; authorizes and publishes nothing.
+# Scans exactly the index; authorizes and publishes nothing. In a repo with a backlog it also keeps agents from
+# committing on the base branch in the main checkout (tasks work in worktrees; `uak merge` builds its commit elsewhere).
+# Why (deus-ex-machina): 120 of 155 first-parent commits on main came from agents working in the main checkout; the
+# guard blocked one push, but the commits were made, so none of that work had a task, review, tokens or black box line.
 set -u
 root=$(git rev-parse --show-toplevel) || exit 2
+gd=$(git rev-parse --git-dir 2>/dev/null) && common=$(git rev-parse --git-common-dir 2>/dev/null) || gd=
+if [ -n "$gd" ] && git rev-parse -q --verify HEAD >/dev/null 2>&1 &&
+   [ "$(git symbolic-ref -q --short HEAD 2>/dev/null)" = "${UAK_BASE:-main}" ] &&
+   [ "$(cd "$gd" && pwd -P)" = "$(cd "$common" && pwd -P)" ] &&
+   [ ! -f "$gd/MERGE_HEAD" ] && [ ! -f "$gd/CHERRY_PICK_HEAD" ] && [ ! -d "$gd/rebase-merge" ] && [ ! -d "$gd/rebase-apply" ] &&
+   [ -f "$root/.uak/TASKS.md" ] &&
+   grep -E '^## [A-Z][A-Z0-9]*-[0-9]{3,} ' "$root/.uak/TASKS.md" | grep -qv '<'; then
+  if [ "${UAK_DIRECT_MAIN:-}" = 1 ]; then
+    printf '%s %s %s\n' "$(date +%s 2>/dev/null)" "${UAK_AGENT:-${UAK_HUMAN:-human}}" "${UAK_BASE:-main}" >> "$common/uak-direct-main.log" 2>/dev/null || true
+  else
+    printf '%s\n' "main takes work through tasks: bash .uak/bin/wt new ID (or a human: UAK_DIRECT_MAIN=1 git commit … for a hotfix)" >&2
+    exit 1
+  fi
+fi
 bash "$root/.uak/bin/secret-scan" --staged
