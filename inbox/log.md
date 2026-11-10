@@ -125,3 +125,4 @@ Append-only; use bash .uak/bin/uak msg / inbox. Format: - N | epoch | from | to 
 - 121 | 1794344164 | joahanmorales-5 | human | human | UAK-031 | Merge of UAK-031 in human queue: Shared resource/CI needs a human: kit/.uak/bin/uak-coordination
 - 122 | 1794346588 | joahanmorales-2 | human | human | UAK-034 | Merge of UAK-034 in human queue: Shared resource/CI needs a human: kit/.uak/bin/lib/backlog.sh
 - 123 | 1794346600 | joahanmorales-8 | human | human | UAK-030 | Merge of UAK-030 in human queue: Shared resource/CI needs a human: kit/.uak/bin/lib/done.sh
+- 124 | 1794346612 | joahanmorales-9 | human | human | UAK-027 | Merge of UAK-027 in human queue: Shared resource/CI needs a human: kit/.github/workflows/uak.yml
