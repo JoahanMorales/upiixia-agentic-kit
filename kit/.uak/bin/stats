@@ -49,7 +49,10 @@ if [ -n "$sroot" ]; then
   git -C "$sroot" rev-parse -q --verify "$bref" >/dev/null 2>&1 || bref=refs/heads/${UAK_BASE:-main}
   if git -C "$sroot" rev-parse -q --verify "$bref" >/dev/null 2>&1; then
     fp_all=$(git -C "$sroot" rev-list --first-parent --count "$bref" 2>/dev/null || printf 0)
-    fp_direct=$(git -C "$sroot" rev-list --first-parent --no-merges --count "$bref" 2>/dev/null || printf 0)
+    # Not direct: merges, the root commit, and a squash-merged task PR (subject starts with a task ID or ends with (#N)).
+    fp_direct=$(git -C "$sroot" log --first-parent --format='%P|%s' "$bref" 2>/dev/null | awk -F'|' '{
+      n = split($1, p, " "); s = substr($0, length($1) + 2)
+      if (n == 1 && s !~ /^[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+/ && s !~ /\(#[0-9]+\)$/) d++ } END { print d + 0 }')
     [ "${fp_all:-0}" -eq 0 ] || printf 'Direct to main: %s of %s first-parent commits\n' "$fp_direct" "$fp_all"
   fi
 fi

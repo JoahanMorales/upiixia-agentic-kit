@@ -82,16 +82,23 @@ def stats_counts_direct_commits(r):
     d0, m0 = int(before.group(1)), int(before.group(2))
     for i in range(2):
         commit_in(r, clone, "direct-%d.txt" % i, "x\n", env={"UAK_DIRECT_MAIN": "1"})
+    # A squash-merged task PR is not direct, and neither is the root commit.
+    commit_in(r, clone, "squash.txt", "x\n", env={"UAK_DIRECT_MAIN": "1"})
+    r.run([r.git, "commit", "-q", "--amend", "-m", "HACK-018 · x (#80)"], cwd=clone, env={"UAK_DIRECT_MAIN": "1"})
+    commit_in(r, clone, "plain.txt", "x\n", env={"UAK_DIRECT_MAIN": "1"})
+    r.run([r.git, "commit", "-q", "--amend", "-m", "fix: y"], cwd=clone, env={"UAK_DIRECT_MAIN": "1"})
+    commit_in(r, clone, "pr.txt", "x\n", env={"UAK_DIRECT_MAIN": "1"})
+    r.run([r.git, "commit", "-q", "--amend", "-m", "tidy the docs (#81)"], cwd=clone, env={"UAK_DIRECT_MAIN": "1"})
     r.g(clone, "push", "-q", "origin", "main")
     after = stats()
-    expect(after and (int(after.group(1)), int(after.group(2))) == (d0 + 2, m0 + 2), "two direct commits counted: %s" % (after and after.group(0)))
+    expect(after and (int(after.group(1)), int(after.group(2))) == (d0 + 3, m0 + 5), "2 direct and 1 plain counted, 2 squash PRs not: %s" % (after and after.group(0)))
     tip = rm.ready(f, 0, "HACK-001")
     rm.judge(f)
     rm.approve(f, "HACK-001", tip, now=1000021)
     f.hack(0, "merge", "HACK-001", now=1000023)
     r.g(clone, "fetch", "-q", "origin")
     merged = stats()
-    expect(merged and (int(merged.group(1)), int(merged.group(2))) == (d0 + 2, m0 + 3), "a task merge is not direct: %s" % (merged and merged.group(0)))
+    expect(merged and (int(merged.group(1)), int(merged.group(2))) == (d0 + 3, m0 + 6), "a task merge is not direct: %s" % (merged and merged.group(0)))
     return "counted"
 
 
