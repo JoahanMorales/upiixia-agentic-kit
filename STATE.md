@@ -1,17 +1,17 @@
 # STATE
 
 Phase: execution
-Updated: 1794354615
+Updated: 1794354686
 AVAILABLE: UAK-038 
-CLAIMED: UAK-042 
+CLAIMED: -
 BLOCKED: -
-REVIEW: UAK-041 
+REVIEW: UAK-041 UAK-042 
 INTEGRATED: (33; last 12) ... UAK-029 UAK-030 UAK-031 UAK-032 UAK-033 UAK-034 UAK-035 UAK-036 UAK-037 UAK-039 UAK-040 UAK-043 
 CANCELLED: UAK-002 UAK-005 
 
 Claims (first 24; status --task ID shows detail):
 UAK-041 | REVIEW | joahanmorales-9 | until 1794440999
-UAK-042 | CLAIMED | joahanmorales-4 | until 1794369015
+UAK-042 | REVIEW | joahanmorales-4 | until 1794441086
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
