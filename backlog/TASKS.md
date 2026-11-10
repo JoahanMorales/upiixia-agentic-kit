@@ -352,3 +352,15 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Acceptance:**
   - tokens publish: no race with an explicit publish; the Codex tick publishes on Windows
 - **Verify:** `python3 kit/.uak/tests/test_tokens_coverage.py`
+
+## UAK-044 · gitleaks exceptions combine with .gitleaksignore on Windows (follow-up of UAK-037)
+
+- **Type:** follow-up
+- **Priority:** P1
+- **Depends on:** UAK-037
+- **Follow-up of:** UAK-037
+- **Paths:** kit/.uak/bin/secret-scan, kit/.uak/bin/lib/security.sh, kit/.uak/bin/uak, kit/.uak/bin/lib/commands.tsv, kit/.uak/docs/CLI.md, kit/.uak/tests/test_gitleaks_exception.py
+- **Freeze-Allowed:** no
+- **Acceptance:**
+  - gitleaks exceptions combine with .gitleaksignore on Windows
+- **Verify:** `python3 kit/.uak/tests/test_gitleaks_exception.py`
