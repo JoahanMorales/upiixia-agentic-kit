@@ -13,10 +13,34 @@ task_field() {
       }
     }' "$BACKLOG"
 }
+# The canonical backlog into $1: main's .uak/TASKS.md (refs/uak/config of the clone $TX; else the file $2) + what
+# `uak plan` published on claims (backlog/TASKS.md) with `plan --amend` (backlog/AMEND.md) applied, Depends folded.
+# One builder for the transaction (coord_init) and every read path. Why (UAK-034, deus-ex-machina and DevDay, Nov 2026):
+# `status ID` of a task planned minutes before died "ID is not in TASKS.md" when the read had only main's file.
+backlog_canonical() {
+  git -C "$TX" show refs/uak/config:.uak/TASKS.md > "$1" 2>/dev/null || { : > "$1"; [ -z "${2:-}" ] || [ ! -f "$2" ] || cat "$2" > "$1"; }
+  # Backlog published with `uak plan` on claims is appended to main's, no PR.
+  # Why: at Hack-Nation 8 PRs only added tasks and 3 merges fell to the human queue over TASKS.md.
+  [ ! -f "$TX/backlog/TASKS.md" ] || { printf '\n'; cat "$TX/backlog/TASKS.md"; } >> "$1"
+  # `plan --amend`: the last amended section of an ID replaces its section, in place.
+  if [ -f "$TX/backlog/AMEND.md" ]; then
+    awk 'FNR == NR { if ($0 ~ /^## [A-Z][A-Z0-9]*-[0-9]/) { id = $2; sec[id] = "" } else if ($0 ~ /^# /) id = ""
+                     if (id != "") sec[id] = sec[id] $0 "\n"; next }
+         /^## [A-Z][A-Z0-9]*-[0-9]/ { skip = 0; if ($2 in sec) { if (!($2 in done)) { printf "%s", sec[$2]; done[$2] = 1 }; skip = 1; next } }
+         /^# / { skip = 0 }
+         !skip { print }' "$TX/backlog/AMEND.md" "$1" > "$1.amended" &&
+      mv "$1.amended" "$1"
+  fi
+  coord_fold_backlog "$1"
+}
+# Not in the backlog this command holds (main's file, when it opened no transaction and ran no coord_init): the task may
+# be one planned on claims. Rebuilt once from the clone it already has, no new process unless the ID is missing.
+backlog_has() { [ -f "$BACKLOG" ] && awk -v id="$ID" '/^## / && $2==id {found=1} END {exit !found}' "$BACKLOG"; }
 load_task() {
+  backlog_has || { [ -z "${TX:-}" ] || [ ! -d "$TX/.git" ] || [ "$BACKLOG" = "${TXROOT:-}/read-TASKS.md" ] || [ "$BACKLOG" = "${TXROOT:-}/canonical-TASKS.md" ] ||
+    { backlog_canonical "$TXROOT/read-TASKS.md" "$BACKLOG" && BACKLOG=$TXROOT/read-TASKS.md; }; } 2>/dev/null
   [ -f "$BACKLOG" ] || die "Missing .uak/TASKS.md."
-  awk -v id="$ID" '/^## / && $2==id {found=1} END {exit !found}' "$BACKLOG" ||
-    UAK_CODE=not-in-backlog die "$ID is not in TASKS.md."
+  backlog_has || UAK_CODE=not-in-backlog die "$ID is not in TASKS.md."
   PRIORITY=$(task_field Priority)
   case "$PRIORITY" in P0|P1|P2) ;; *) die "$ID needs Priority P0/P1/P2.";; esac
   PATHS=$(task_field "Paths")
