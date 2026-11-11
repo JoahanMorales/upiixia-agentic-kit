@@ -30,6 +30,50 @@ Tests and docs
   needs this machine's new totals on claims and reports a recorded publish failure first. The engine is unchanged.
 - **Journey tests and docs** (UI-003): `test_dashboard_journey.py`; `docs/DASHBOARD.md`; the spec with the test behind
   each guarantee in `docs/specs/dashboard-onboarding/spec.md`.
+## v6.2.0 · 2026-11-11 · Landings people want to look at
+
+The human scored the six frontends the kit had built (F0, [docs/design/failures.md](docs/design/failures.md)): **2.8 of
+5**. Two scored 1. What they marked was not the tells the gates already ban (centered hero, emoji icons and "template"
+were marked zero times) but giant type (168 and 207 px on the two called "giant"; the one scored 5 tops out at 36 px),
+plain pages with nothing to look at, and palettes without a reason. The kit's own skills asked for "bigger" and "the most
+saturated". So the landing becomes a tournament the human judges, built from real material. Eight tasks (UAK-054 …
+UAK-061), each test-first, reviewed by an agent that was not its author, and merged through the kit's own gate.
+
+The landing tournament
+- **`uak design round`** (UAK-057): N variants of the same landing (6–8, at most 20), each with a design genome of 8
+  genes (type, scale, color, layout, components, imagery, motion, voice) and a recipe; no two share more than 3 genes;
+  the same seed gives the same round. `brief.md` takes the story beats from IDEA.md and lists a missing one as missing.
+  It prints the cost (variants × tokens) and writes nothing without `--yes`. `uak design shoot` captures 1280 and 390.
+- **`uak design pick`** (UAK-058): every variant at 1280 and 390 with its genome in the human's browser (also over
+  Tailscale), keyboard picking, a note per pick, saved to `picks.json` by a server bound to 127.0.0.1 and the Tailscale
+  address only, with Host, Origin and content-type checks.
+- **`uak design round --from R<k>`** (UAK-059): the next round is bred from the picks (one-gene mutations, crossovers of
+  two picks, two wildcards); each genome records its parents; the human's notes reach the children; it says when the
+  direction has converged.
+- **`/uak-design-lock` starts with a landing round** (UAK-060): 6 variants (8 for 24 h or more), one agent each, the human
+  sees the cost first, picks 2, one bred round of 4, and makes the final pick; under 6 h, one round of 4. The winner's
+  genome fills DESIGN.md and the landing is rebuilt for real in the first hours.
+
+Building each landing
+- **`landing-story` follows the MotionSites workflow** (UAK-056): material first (the team's logo, mascot, photos, map or
+  real product screen; it asks once), the closest examples, a precise spec, build, and a look-and-fix loop until its
+  rubric clears 8/10. Without that skill, the same order with the kit's screenshots. Bounds from F0 override any example:
+  hero ≤ 96 px at 1280 and ≤ 48 px at 390, body 16–18 px, buttons 40–52 px, at most 6 palette colors. `product-ui` asks
+  whether the hero is the most important thing, not the biggest.
+- **The installer brings the MotionSites skill** (UAK-055), pinned to a commit and checked against its git tree hash,
+  into `.claude/skills` and `.agents/skills`; never committed to the kit (its examples and media are © MotionSites).
+  Offline or refused: the install goes on and says so; `doctor` reports it. Its promotional block is not shown in kit runs.
+- **`design-lint` warns on giant type and controls** (UAK-061): font sizes over 96 px (px, rem, Tailwind, the max of a
+  `clamp()`), over 12vw, and controls over 56 px tall; `--strict` fails on them.
+
+The gate
+- **The merge gate runs the suite in parallel shards** (UAK-054): `--jobs N|auto` or `Smoke-Jobs:` in `.uak/PROJECT.md`,
+  the split CI already uses, a private TMPDIR and HOME per shard: 749 → 333 s on the Jetson. The kit's own gate uses it
+  (its dogfood shim passes `Smoke-Jobs` on).
+- **`kit_lint` refuses an argparse test without `--package`**: smoke runs every test with it, and one that lacked it
+  turned the gate red for every later task.
+- Fixed while integrating: tests that split a TMPDIR with a space and an accent, a shell-script stub Windows could not
+  run, and Windows output lines ending in CR.
 
 ## v6.1.1 · 2026-11-10 · The risks v6.1.0's reviews left open, and the frictions of building it
 
