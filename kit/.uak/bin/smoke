@@ -64,12 +64,12 @@ if [ "$mode" != product ]; then
   # The shard list and the gate's none-signal are this run's choice, not the tests': a test that starts its own smoke
   # inherited them and looked for files its package does not have. Why (v6.1.1 CI, the second time after lesson #4).
   unset UAK_SMOKE_TESTS UAK_SMOKE_GATE_NONE
-  # UAK-054 parallel shards: --jobs N, else `Smoke-Jobs: N` in PROJECT.md (the kit's one reader), else 1. N = auto is the
+  # UAK-054 parallel shards: --jobs N, else `Smoke-Jobs: N` in .uak/PROJECT.md (the kit's one reader), else 1. N = auto is the
   # CPU count minus one, at most 4. Why (v6.1.0, v6.1.1): the whole suite ran serially on every merge, 10+ min.
   if [ -z "$jobs" ] && [ -f ".uak/bin/lib/config.sh" ]; then
     # shellcheck disable=SC1091
     . ".uak/bin/lib/config.sh"
-    uak_cfg_var "$root/PROJECT.md" Smoke-Jobs 1; jobs=$CFG
+    uak_cfg_var "$root/.uak/PROJECT.md" Smoke-Jobs 1; jobs=$CFG
   fi
   [ -n "$jobs" ] || jobs=1
   if [ "$jobs" = auto ]; then

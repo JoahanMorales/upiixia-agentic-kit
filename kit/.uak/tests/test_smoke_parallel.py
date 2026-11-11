@@ -31,7 +31,7 @@ def package(r, name, failing=None, project=None):
         body = FAILING % n if n == failing else PROBE
         (pkg / ".uak" / "tests" / (n + ".py")).write_text(body, encoding="utf-8")
     if project is not None:
-        (pkg / "PROJECT.md").write_text(project, encoding="utf-8")
+        (pkg / ".uak" / "PROJECT.md").write_text(project, encoding="utf-8")
     return pkg
 
 
@@ -59,8 +59,6 @@ def jobs_split_runs_every_file_once(r):
     expect(len(tmps) >= 2 and all(t and "shard" in t for t in tmps), "each shard has its own TMPDIR: %s" % tmps)
     expect(len({e[2] for e in envs}) == len(tmps) and all(e[2] for e in envs), "each shard has its own HOME: %s" % envs)
     # Also through PROJECT.md, and a list from UAK_SMOKE_TESTS is split too.
-    out = smoke(r, package(r, "sp-split-md", project="# P\n\n- **Smoke-Jobs:** 2\n"))
-    expect(out.returncode == 0 and sorted(ran(out)) == NAMES and "2 shards" in out.stdout, "Smoke-Jobs: 2 in PROJECT.md: %s" % (out.stdout + out.stderr)[-500:])
     out = smoke(r, pkg, "--jobs", "2", env={"UAK_SMOKE_TESTS": "test_a test_c test_e"})
     expect(out.returncode == 0 and sorted(ran(out)) == ["test_a", "test_c", "test_e"], "a CI shard split again: %s" % (out.stdout + out.stderr)[-500:])
     out = smoke(r, pkg, "--jobs", "auto")
@@ -96,7 +94,20 @@ def default_is_serial(r):
     return "serial by default"
 
 
-TESTS = [jobs_split_runs_every_file_once, a_failing_shard_fails_the_run, default_is_serial]
+def smoke_jobs_read_from_uak_project_md(r):
+    """Projects keep PROJECT.md at .uak/PROJECT.md (guard, pace, bb read it there); the root-level file is not read."""
+    out = smoke(r, package(r, "sp-md", project="# P\n\n- **Smoke-Jobs:** 2\n"))
+    expect(out.returncode == 0 and sorted(ran(out)) == NAMES and "Jobs: 2 shards" in out.stdout, "Smoke-Jobs: 2 in .uak/PROJECT.md: %s" % (out.stdout + out.stderr)[-500:])
+    out = smoke(r, package(r, "sp-md-sel", project="- **Smoke-Jobs:** 2\n"), env={"UAK_SMOKE_TESTS": "test_a test_b"})
+    expect("Jobs: 2 shards of 2" in out.stdout, "with a CI shard list too: " + out.stdout[-400:])
+    pkg = package(r, "sp-md-root")
+    (pkg / "PROJECT.md").write_text("- **Smoke-Jobs:** 2\n", encoding="utf-8")
+    out = smoke(r, pkg)
+    expect("Jobs:" not in out.stdout, "a root-level PROJECT.md is not the project file: " + out.stdout[-300:])
+    return "read from .uak/PROJECT.md"
+
+
+TESTS = [jobs_split_runs_every_file_once, a_failing_shard_fails_the_run, default_is_serial, smoke_jobs_read_from_uak_project_md]
 
 
 def main():

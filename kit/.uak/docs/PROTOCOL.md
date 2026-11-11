@@ -39,7 +39,7 @@ Deadlines run when any agent calls `next` or `status` (or cron or a GitHub Actio
    - the secret scan;
    - `smoke` and Verify, with no tracked file modified.
      With `Merge-Smoke: affected` in PROJECT.md the smoke gets only the test files that name a changed file or changed themselves; a change under `.uak/bin` (the engine) or to `test_hack.py` runs them all. The record says `Smoke: affected N of M test files`. Default `full`; CI runs every test.
-     `Smoke-Jobs: N` in PROJECT.md (or `smoke --package-only --jobs N`; `auto` = CPUs minus one, at most 4) runs the test files in N parallel shards balanced by the CI timings, each with its own TMPDIR and HOME; any failing shard fails the smoke and prints its last 40 lines. Default 1 (serial).
+     `Smoke-Jobs: N` in .uak/PROJECT.md (or `smoke --package-only --jobs N`; `auto` = CPUs minus one, at most 4) runs the test files in N parallel shards balanced by the CI timings, each with its own TMPDIR and HOME; any failing shard fails the smoke and prints its last 40 lines. Default 1 (serial).
 
    Then it pushes base and claims atomically. If anything fails, the task goes to the human queue (`digest`) and the agent moves on.
 4. Human merges: `done ID --pr URL --evidence "human merge" --integrated COMMIT`, verified by ancestry or a rebuilt tree hash, so squash and rebase merges work.
