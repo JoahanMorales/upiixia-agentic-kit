@@ -110,7 +110,7 @@ def engine_core_change_runs_everything(r):
     out = scope(["docs/guide.md"])
     expect("NOTE=affected 1 of 2 test files TESTS=test_names_it" in out, "a non-engine file is affected-mode: " + out)
     out = scope(["docs/other.md"])
-    expect("NOTE=affected 0 of 2 test files TESTS=UNSET NONE=affected-none" in out, "nothing affected: the internal sentinel, no test list: " + out)
+    expect("NOTE=affected 0 of 2 test files TESTS=UNSET NONE=" in out and "smoke-none-token" in out, "nothing affected: the internal sentinel, no test list: " + out)
     return "full on engine, affected otherwise"
 
 
@@ -122,7 +122,35 @@ def default_is_full(r):
     return "full by default"
 
 
-TESTS = [affected_mode_runs_only_matching_tests, engine_core_change_runs_everything, default_is_full]
+def a_stale_none_signal_in_the_users_env_runs_the_tests(r):
+    """kit-r1: UAK_SMOKE_GATE_NONE=affected-none left in a user's env made a full gate and a plain smoke run 0 tests."""
+    f, log = affected_fixture(r, "stale")
+    stale = {"UAK_SMOKE_GATE_NONE": "affected-none"}
+    f.claim(0, "HACK-001")
+    tip = rm.publish(f, 0, "HACK-001")
+    f.hack(0, "done", "HACK-001", "--pr", "https://example.test/pull/1", "--evidence", "x", "--no-red", "fixture", now=1000010)
+    rm.judge(f)
+    rm.approve(f, "HACK-001", tip)
+    out = r.run([r.bash, ".uak/bin/uak", "merge", "HACK-001"], cwd=f.clones[0], env={
+        "UAK_AGENT": "agent-1", "UAK_HUMAN": "", "UAK_NOW": "1000030", "UAK_REVIEW_MODE": "claims", **stale}, allowed=None)
+    expect(out.returncode == 0, "full gate merges: " + (out.stdout + out.stderr)[-400:])
+    expect("SET=UNSET" in log.read_text(encoding="utf-8"), "the project smoke saw no none-signal: " + log.read_text(encoding="utf-8"))
+    # A plain smoke in a tiny package with one test file: the stale export must not skip it.
+    import shutil
+    pkg = Path(tempfile.mkdtemp(prefix="ma-plain-", dir=str(r.scratch)))
+    shutil.copytree(r.package / ".uak" / "bin", pkg / ".uak" / "bin")
+    (pkg / ".uak" / "tests").mkdir()
+    (pkg / ".uak" / "tests" / "test_one.py").write_text("print('ONE_RAN')\n", encoding="utf-8")
+    plain = r.run([r.bash, ".uak/bin/smoke", "--package-only"], cwd=pkg, env=stale, allowed=None)
+    expect("ONE_RAN" in plain.stdout and "Shard: 0" not in plain.stdout, "a plain smoke ignores a stale none-signal: " + (plain.stdout + plain.stderr)[-400:])
+    token = pkg / "token"
+    token.write_text("affected-none\n", encoding="utf-8")
+    gate = r.run([r.bash, ".uak/bin/smoke", "--package-only"], cwd=pkg, env={"UAK_SMOKE_GATE_NONE": token.as_posix()}, allowed=None)
+    expect("Shard: 0 of 1" in gate.stdout and "ONE_RAN" not in gate.stdout, "the gate's token file skips the tests: " + (gate.stdout + gate.stderr)[-400:])
+    return "stale env ignored"
+
+
+TESTS = [a_stale_none_signal_in_the_users_env_runs_the_tests, affected_mode_runs_only_matching_tests, engine_core_change_runs_everything, default_is_full]
 
 
 def main():

@@ -789,7 +789,8 @@ rm_smoke_scope() {
   fi
   RM_SMOKE_TESTS=$(sed 's@.*/@@;s@\.py$@@' "$hit" | sort -u | tr '\n' ' ' | sed 's@ $@@')
   n=0; [ -z "$RM_SMOKE_TESTS" ] || n=$(printf '%s\n' $RM_SMOKE_TESTS | wc -l | tr -d ' ')
-  [ -n "$RM_SMOKE_TESTS" ] || RM_SMOKE_NONE=affected-none
+  # The none-signal is a token file only the gate creates; smoke ignores any other value (a stale export of the user's).
+  [ -n "$RM_SMOKE_TESTS" ] || { printf 'affected-none\n' > "$TXROOT/smoke-none-token" && RM_SMOKE_NONE=$TXROOT/smoke-none-token; }
   RM_SMOKE_NOTE="affected $n of $total test files"
 }
 rm_prepare_candidate() {
@@ -822,7 +823,7 @@ rm_prepare_candidate() {
   rm_gate_env
   rm_smoke_scope
   # The project's commands run with the caller's SSH settings, not uak's (lib/net.sh, uak_caller_ssh).
-  (cd "$RM_BUILD" && { uak_caller_ssh 2>/dev/null || :; } && { [ -z "${RM_SMOKE_TESTS:-}" ] || export UAK_SMOKE_TESTS="$RM_SMOKE_TESTS"; } && { [ -z "${RM_SMOKE_NONE:-}" ] || export UAK_SMOKE_GATE_NONE="$RM_SMOKE_NONE"; } && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash .uak/bin/smoke) > "$TXROOT/gate-smoke.log" 2>&1 ||
+  (cd "$RM_BUILD" && { uak_caller_ssh 2>/dev/null || :; } && unset UAK_SMOKE_TESTS UAK_SMOKE_GATE_NONE && { [ -z "${RM_SMOKE_TESTS:-}" ] || export UAK_SMOKE_TESTS="$RM_SMOKE_TESTS"; } && { [ -z "${RM_SMOKE_NONE:-}" ] || export UAK_SMOKE_GATE_NONE="$RM_SMOKE_NONE"; } && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash .uak/bin/smoke) > "$TXROOT/gate-smoke.log" 2>&1 ||
     { RM_REASON="Smoke red or product unverified$(rm_gate_log smoke)"; return 1; }
   verify=$(rm_task_value Verify); verify=$(printf '%s\n' "$verify" | sed 's/^`//;s/`$//')
   [ -n "$verify" ] || { RM_REASON='Missing runnable Verify'; return 1; }
