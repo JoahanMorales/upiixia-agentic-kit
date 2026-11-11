@@ -70,3 +70,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794431872 | UAK-066 | html inside <style> only; pass line counts pages when no code files | Why: AXIA R1 skip
 - 1794433420 | UAK-065 | relax order: fewest alternatives first, recorded in wildcard because; last resort ignore named genes | Why: kit-r1 rejection
 - 1794433571 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-070 | Why: backlog without PR (Plan-Channel: claims)
+- 1794435392 | UAK-068 | old 8-gene picks get a non-still stage by pick order (complete_genes in design_breed) | Why: AXIA R1-R2
