@@ -374,6 +374,17 @@ those reviews left open: an unapproved one-file match needs a human, `doctor` an
 edited skills, `plan --amend` checks overlaps like claims do, lint hints when a task points outside its Paths, and
 `Merge-Smoke: affected` runs only the tests a change touches (engine changes still run everything).
 
+**v6.2: landings people want to look at.** The human scored the six frontends the kit had built: 2.8 of 5, and what they
+marked was not the tells the gates already ban but giant type (168–207 px), plain pages with nothing to look at, and
+palettes without a reason ([F0 catalog](docs/design/failures.md)). So the landing is now a tournament the human judges:
+`uak design round` writes 6–8 variants of the same landing, each a different design genome (type, scale, color,
+layout, components, imagery, motion, voice; no two share more than 3 genes), `uak design pick` shows them at 1280 and
+390 in the human's browser, `uak design round --from` breeds the next round from the picks, and `/uak-design-lock`
+runs it in the first hours of a sprint. `landing-story` builds each one from the team's own material with the
+[MotionSites](https://github.com/Motionsites-AI/claude-skill) workflow (the installer fetches it pinned and verified),
+inside the F0 bounds; `design-lint` warns on giant type. The merge gate runs the suite in parallel shards
+(`Smoke-Jobs`, 749 → 333 s on our slowest machine).
+
 ## Deploy in one command: `uak deploy`
 
 ```text
