@@ -45,7 +45,7 @@ def smoke(r, pkg, *args, env=None):
 
 
 def ran(out):
-    return re.findall(r"(?m)^PROBE_RAN (\S+)$", out.stdout)
+    return re.findall(r"(?m)^PROBE_RAN (\S+)\r?$", out.stdout)  # Windows: Git Bash relays the probes' CRLF
 
 
 def probe_envs(out):
