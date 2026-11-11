@@ -428,7 +428,7 @@ def task_text(rnd, i, genome, screen):
               "  devicePixelRatio at most 2, pause rendering when the tab is hidden, a designed still when WebGL is missing, no branded 3D models",
               "  (build from primitives or the team's own assets), no network fetches but that CDN and fonts.",
               "- Glows, neon blurs and soft gradient haze are tells (the human: \"AI slop\"); light comes from the scene itself.",
-              "- `shoot` also writes `1920.png`; check it first, then 1280 and 390.", "",
+              "- Check the page at 1920x1080 (the projector): `1920.png` if the capture wrote one, else open index.html at that size; then 1280 and 390.", "",
               "## Start from material",
               "Use the team's own material first: logo, mascot, photos, map, the real product screen. List what exists (`web/public`, `assets/`,",
               "links in IDEA.md) before designing, and build around it. Then generated material. Only then the MotionSites media shelf.",
