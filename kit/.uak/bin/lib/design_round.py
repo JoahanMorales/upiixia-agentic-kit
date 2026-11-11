@@ -36,10 +36,10 @@ GENES = {
     "motion": ["still", "entrance", "scroll", "pointer"],
     "voice": ["plain", "bold claim", "numbers first"],
 }
-SCALE_BOUNDS = {  # max display px on a landing hero; body 14-16 px and controls 36-48 px in all
-    "restrained": "display type 56 px at most",
-    "standard": "display type 72 px at most",
-    "bold": "display type 96 px at most (the F0 ceiling for a landing hero)",
+SCALE_BOUNDS = {  # max hero display px at 1280 wide (landing-story: 96 px ceiling, 48 px at 390)
+    "restrained": "hero display at most 56 px",
+    "standard": "hero display at most 72 px",
+    "bold": "hero display at most 96 px",
 }
 RECIPES = ["motionsites", "landing-story", "frontend-design", "design-taste-frontend"]
 MAX_SHARED = 3
@@ -240,9 +240,15 @@ def task_text(rnd, i, genome, screen):
              "Only the design changes. Your design is this genome (`genome.json`); follow every gene:", ""]
     lines += ["- %s: **%s**" % (g, genes[g]) for g in GENES]
     lines += ["- recipe: **%s** (use that skill's method for the look)" % genome["recipe"], "",
-              "Bounds (F0): %s; body text 14-16 px; controls 36-48 px; at most 6 colors. Define colors as tokens in `:root`." % SCALE_BOUNDS[genes["scale"]],
-              "Imagery that is not in the product is a drawing or type, never a div-built fake screenshot. Real fonts via a system stack or one web font link.",
-              "It must read at 1280x720 (the hero above the fold) and at 390 px wide with no horizontal scroll.", "",
+              "## Bounds (same as landing-story; they override any size in MotionSites examples or craft.md)",
+              "- Hero display type: at most 96 px at 1280 wide and at most 48 px at 390 wide. Your scale gene picks inside that: %s at 1280." % SCALE_BOUNDS[genes["scale"]],
+              "- Body text 16-18 px. Primary buttons 40-52 px tall. At most 6 palette colors besides media. Colors are tokens in `:root`.",
+              "- It must read at 1280x720 (the hero above the fold) and at 390 px wide with no horizontal scroll.", "",
+              "## Start from material",
+              "Use the team's own material first: logo, mascot, photos, map, the real product screen. List what exists (`web/public`, `assets/`,",
+              "links in IDEA.md) before designing, and build around it. Then generated material. Only then the MotionSites media shelf.",
+              "Imagery %s: a \"product screenshot\" is a real capture of the running product's screen, never a fake built from divs." % ("gene is **%s**" % genes["imagery"]),
+              "If the product cannot be captured yet, pick another imagery treatment and say so at the top of index.html in a comment.", "",
               "When done run `bash .uak/bin/uak design shoot %s v%d` and look at `1280.png` and `390.png`; fix what looks generic or broken." % (rnd, i)]
     return "\n".join(lines) + "\n"
 
@@ -359,16 +365,24 @@ def find_capture(root):
 
 
 def capture_one(cmd, html, vdir):
-    if cmd[-1] == "@shoot.py":  # MotionSites' shoot.py writes desktop*/mobile* PNGs (1440 wide): rename them
+    if cmd[-1] == "@shoot.py":  # MotionSites' shoot.py has VIEWS hardcoded at 1440x900 and writes desktop*/mobile* PNGs
         tmp = Path(tempfile.mkdtemp(prefix="uak-shoot-"))
         try:
-            r = subprocess.run(cmd[:-1] + [str(html), str(tmp)], capture_output=True, text=True, timeout=300)
-            pngs = sorted(p for p in tmp.rglob("*.png"))
+            src = Path(cmd[-2])
+            text = src.read_text(encoding="utf-8")
+            exact = '("desktop", 1440, 900)' in text
+            patched = tmp / "shoot.py"  # a copy at 1280x720, so 1280.png is really 1280 wide (no Pillow needed)
+            patched.write_text(text.replace('("desktop", 1440, 900)', '("desktop", 1280, 720)'), encoding="utf-8")
+            out = tmp / "out"
+            r = subprocess.run([cmd[0], str(patched), str(html), str(out)], capture_output=True, text=True, timeout=300)
+            pngs = sorted(out.rglob("*.png"))
             for want, key in (("1280.png", "desktop"), ("390.png", "mobile")):
-                src = [p for p in pngs if key in p.name.lower() and "early" not in p.name.lower()]
-                if src:
-                    shutil.copyfile(str(src[0]), str(vdir / want))
-            return r.returncode == 0 and (vdir / "1280.png").is_file() and (vdir / "390.png").is_file(), (r.stderr or r.stdout)[-200:]
+                hit = [p for p in pngs if key in p.name.lower() and "early" not in p.name.lower()]
+                if hit:
+                    # Not patchable (script changed): keep the real width in the name instead of lying with 1280.png.
+                    shutil.copyfile(str(hit[0]), str(vdir / (want if exact or key == "mobile" else "desktop.png")))
+            ok = r.returncode == 0 and (vdir / "1280.png").is_file() and (vdir / "390.png").is_file()
+            return ok, (r.stderr or r.stdout)[-200:] if ok or exact else "shoot.py has other viewports than 1440x900; saved as desktop.png, not 1280.png"
         finally:
             shutil.rmtree(str(tmp), ignore_errors=True)
     r = subprocess.run(cmd + [str(html), str(vdir)], capture_output=True, text=True, timeout=300)

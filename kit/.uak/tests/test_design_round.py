@@ -95,6 +95,11 @@ def round_writes_brief_and_genomes(e):
         expect(g.get("recipe") in ("motionsites", "landing-story", "frontend-design", "design-taste-frontend"), "recipe")
         task = (rnd / ("v%d" % i) / "TASK.md").read_text(encoding="utf-8")
         expect("index.html" in task and "../brief.md" in task and "genome.json" in task, "TASK.md points to brief, genome and index.html")
+    t1 = (rnd / "v1" / "TASK.md").read_text(encoding="utf-8")
+    for needle in ("96 px at 1280", "48 px at 390", "16-18 px", "40-52 px", "6 palette colors", "override any size in MotionSites",
+                   "Start from material", "logo, mascot, photos, map", "web/public", "MotionSites media shelf", "never a fake built from divs"):
+        expect(needle in t1, "TASK.md lacks %r:\n%s" % (needle, t1))
+    expect("14-16" not in t1 and "36-48" not in t1, "old bounds gone")
     expect(len({g["recipe"] for g in gs}) >= 3, "recipes rotate: %s" % [g["recipe"] for g in gs])
     again = e.run(d, "round", "--n", "2", "--seed", "7", "--yes")
     expect((d / ".uak/design/rounds/R2").is_dir(), "second round is R2")
@@ -182,6 +187,18 @@ def shoot_reports_missing_captures(e):
     expect("v3" in text and "v4" in text and out.returncode != 0, "lists v3 (tool failed) and v4 (no index.html) as not captured: " + text)
     nostub = e.run(d, "shoot", "R1", env={"UAK_DESIGN_SHOOT": "none"}, ok=None)
     expect(nostub.returncode != 0 and "no capture tool" in (nostub.stdout + nostub.stderr).lower(), "says no tool is installed: " + nostub.stdout + nostub.stderr)
+    # MotionSites shoot.py: run from a copy patched to 1280x720, so 1280.png is really 1280 wide
+    home = d / "home"
+    sd = home / ".claude/skills/motionsites-web-builder/scripts"
+    sd.mkdir(parents=True)
+    (sd / "shoot.py").write_text('import sys\nfrom pathlib import Path\nVIEWS = [("desktop", 1440, 900), ("mobile", 390, 844)]\n'
+                                 'o = Path(sys.argv[2]); o.mkdir(parents=True, exist_ok=True)\n'
+                                 'for n, w, h in VIEWS: (o / (n + ".png")).write_text("%dx%d" % (w, h))\n', encoding="utf-8")
+    (rnd / "v3" / "index.html").write_text("<title>x</title>", encoding="utf-8")
+    e.run(d, "shoot", "R1", "v3", env={"HOME": str(home), "USERPROFILE": str(home), "PATH": os.environ["PATH"], "UAK_DESIGN_SHOOT": ""}, ok=None)
+    if not (rnd / "v3" / "1280.png").exists():  # Playwright or another tool may win on a developer machine
+        return "captured v2, listed v3 v4 (shoot.py path skipped)"
+    expect((rnd / "v3" / "1280.png").read_text(encoding="utf-8") in ("1280x720",), "1280.png is 1280 wide")
     return "captured v2, listed v3 v4"
 
 
