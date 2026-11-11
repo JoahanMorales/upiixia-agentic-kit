@@ -78,7 +78,7 @@ UAK_BIN=$1
 coord_source_field() { printf '%s\n' affected; }
 RM_BUILD=$2 TXROOT=$(mktemp -d)
 rm_smoke_scope
-printf 'NOTE=%s TESTS=%s\n' "$RM_SMOKE_NOTE" "${RM_SMOKE_TESTS-UNSET}"
+printf 'NOTE=%s TESTS=%s NONE=%s\n' "$RM_SMOKE_NOTE" "${RM_SMOKE_TESTS:-UNSET}" "${RM_SMOKE_NONE-}"
 '''
 
 
@@ -89,7 +89,7 @@ def engine_core_change_runs_everything(r):
     r.g(repo, "init", "-q")
     r.g(repo, "config", "user.name", "t"); r.g(repo, "config", "user.email", "t@example.test")
     for rel, text in ((".uak/bin/lib/core.sh", "# core\n"), (".uak/bin/lib/tx.sh", "# tx\n"), (".uak/bin/uak-coordination", "# coord\n"),
-                      (".uak/bin/lib/plan.sh", "# plan\n"), (".uak/tests/test_names_it.py", "# plan.sh core.sh\n"),
+                      (".uak/bin/lib/plan.sh", "# plan\n"), ("docs/guide.md", "# guide\n"), ("docs/other.md", "# other\n"), (".uak/bin/lib/claim.sh", "# claim\n"), (".uak/tests/test_names_it.py", "# docs/guide.md\n"),
                       (".uak/tests/test_other.py", "# nothing\n")):
         (repo / rel).parent.mkdir(parents=True, exist_ok=True)
         (repo / rel).write_text(text, encoding="utf-8")
@@ -104,12 +104,14 @@ def engine_core_change_runs_everything(r):
             (repo / rel).write_text((repo / rel).read_text(encoding="utf-8") + "# changed\n", encoding="utf-8")
             r.g(repo, "add", rel)
         return r.run([r.bash, h.as_posix(), bindir, repo.as_posix()], cwd=base, allowed=None).stdout
-    for core in (".uak/bin/lib/core.sh", ".uak/bin/lib/tx.sh", ".uak/bin/uak-coordination"):
-        out = scope([core, ".uak/bin/lib/plan.sh"])
-        expect("NOTE=full (engine core changed) TESTS=UNSET" in out, "%s runs everything: %s" % (core, out))
-    out = scope([".uak/bin/lib/plan.sh"])
-    expect("NOTE=affected 1 of 2 test files TESTS=test_names_it" in out, "a non-core engine file is affected-mode: " + out)
-    return "full on core, affected otherwise"
+    for core in (".uak/bin/lib/core.sh", ".uak/bin/lib/tx.sh", ".uak/bin/uak-coordination", ".uak/bin/lib/claim.sh"):
+        out = scope([core, "docs/guide.md"])
+        expect("NOTE=full (engine changed) TESTS=UNSET" in out, "%s runs everything: %s" % (core, out))
+    out = scope(["docs/guide.md"])
+    expect("NOTE=affected 1 of 2 test files TESTS=test_names_it" in out, "a non-engine file is affected-mode: " + out)
+    out = scope(["docs/other.md"])
+    expect("NOTE=affected 0 of 2 test files TESTS=UNSET NONE=affected-none" in out, "nothing affected: the internal sentinel, no test list: " + out)
+    return "full on engine, affected otherwise"
 
 
 def default_is_full(r):

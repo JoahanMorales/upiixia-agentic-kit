@@ -765,17 +765,19 @@ rm_gate_log() {
 }
 # Merge-Smoke: affected (PROJECT.md on the base): the gate hands the project's smoke only the test files that name a changed
 # file or were changed themselves (UAK_SMOKE_TESTS, honoured by .uak/bin/smoke); lint, the project smoke and Verify still
-# run. A change to the engine's shared files, to the smoke or to the test harness runs everything. Default: full.
+# run. A change under .uak/bin (the engine) or to the test harness runs everything. Default: full.
 # Sets RM_SMOKE_NOTE (the merge record's Smoke line) and RM_SMOKE_TESTS (set only when a list is handed over).
 # Why (v6.1.0 session): each `uak merge` ran the whole suite on the maintainer's machine, over 10 minutes per task; CI
 # runs every test on every push anyway.
 rm_smoke_scope() {
   local changed="$TXROOT/smoke-changed" tests="$TXROOT/smoke-tests" pats="$TXROOT/smoke-pats" hit="$TXROOT/smoke-hit" total n
-  RM_SMOKE_NOTE=full; unset RM_SMOKE_TESTS
+  RM_SMOKE_NOTE=full; unset RM_SMOKE_TESTS RM_SMOKE_NONE
   [ "$(coord_source_field Merge-Smoke full)" = affected ] || return 0
   git -C "$RM_BUILD" diff --cached --name-only HEAD > "$changed" 2>/dev/null || { RM_SMOKE_NOTE='full (changed files not readable)'; return 0; }
-  if grep -Eq '(^|/)(\.uak/bin/(lib/core\.sh|lib/tx\.sh|uak-coordination|smoke)|\.uak/tests/test_hack\.py)$' "$changed"; then
-    RM_SMOKE_NOTE='full (engine core changed)'; return 0; fi
+  # Any change under .uak/bin is the engine: every test sources its libs, and no test names lib/claim.sh by file name.
+  # Why (review of UAK-052): basename matching ran 0 of 52 tests for a change to lib/claim.sh.
+  if grep -Eq '(^|/)\.uak/bin/|(^|/)\.uak/tests/test_hack\.py$' "$changed"; then
+    RM_SMOKE_NOTE='full (engine changed)'; return 0; fi
   git -C "$RM_BUILD" ls-files | grep -E '(^|/)\.uak/tests/test_[A-Za-z0-9_]+\.py$' > "$tests" || :
   total=$(sed 's@.*/@@' "$tests" | sort -u | wc -l | tr -d ' ')
   [ "${total:-0}" -gt 0 ] || { RM_SMOKE_NOTE='full (no test files)'; return 0; }
@@ -787,7 +789,7 @@ rm_smoke_scope() {
   fi
   RM_SMOKE_TESTS=$(sed 's@.*/@@;s@\.py$@@' "$hit" | sort -u | tr '\n' ' ' | sed 's@ $@@')
   n=0; [ -z "$RM_SMOKE_TESTS" ] || n=$(printf '%s\n' $RM_SMOKE_TESTS | wc -l | tr -d ' ')
-  [ -n "$RM_SMOKE_TESTS" ] || RM_SMOKE_TESTS=-
+  [ -n "$RM_SMOKE_TESTS" ] || RM_SMOKE_NONE=affected-none
   RM_SMOKE_NOTE="affected $n of $total test files"
 }
 rm_prepare_candidate() {
@@ -820,7 +822,7 @@ rm_prepare_candidate() {
   rm_gate_env
   rm_smoke_scope
   # The project's commands run with the caller's SSH settings, not uak's (lib/net.sh, uak_caller_ssh).
-  (cd "$RM_BUILD" && { uak_caller_ssh 2>/dev/null || :; } && { [ -z "${RM_SMOKE_TESTS+x}" ] || export UAK_SMOKE_TESTS="$RM_SMOKE_TESTS"; } && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash .uak/bin/smoke) > "$TXROOT/gate-smoke.log" 2>&1 ||
+  (cd "$RM_BUILD" && { uak_caller_ssh 2>/dev/null || :; } && { [ -z "${RM_SMOKE_TESTS:-}" ] || export UAK_SMOKE_TESTS="$RM_SMOKE_TESTS"; } && { [ -z "${RM_SMOKE_NONE:-}" ] || export UAK_SMOKE_GATE_NONE="$RM_SMOKE_NONE"; } && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash .uak/bin/smoke) > "$TXROOT/gate-smoke.log" 2>&1 ||
     { RM_REASON="Smoke red or product unverified$(rm_gate_log smoke)"; return 1; }
   verify=$(rm_task_value Verify); verify=$(printf '%s\n' "$verify" | sed 's/^`//;s/`$//')
   [ -n "$verify" ] || { RM_REASON='Missing runnable Verify'; return 1; }
