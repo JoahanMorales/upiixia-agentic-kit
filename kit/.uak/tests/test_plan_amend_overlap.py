@@ -65,8 +65,28 @@ def claimed_task_amend_overlap_is_still_refused(r):
     return "refused"
 
 
+def plan_prints_hints_but_publishes(r):
+    """The lead's note (UAK-051 on the base): `uak plan FILE` prints the Paths hints and never fails on them."""
+    f = r.fixture("pa-hint", count=1)
+    config(f, Plan_Channel="claims")
+    w = f.worktrees[0]
+    (w / "src").mkdir(exist_ok=True)
+    (w / "src/api.py").write_text("def handler():\n    return 1\n", encoding="utf-8")
+    (w / "src/coord.py").write_text("def coord_next():\n    return 2\n", encoding="utf-8")
+    r.g(w, "add", "src"); r.g(w, "commit", "-q", "-m", "code")
+    r.run([r.bash, ".uak/bin/uak", "map"], cwd=w, env={"UAK_AGENT": "agent-1"})
+    body = section("HACK-007", "src/api.py").replace("- **Verify:**", "- **Next step:** change coord_next to skip released tasks\n- **Verify:**")
+    path = w / "plan-hint.md"
+    path.write_text("# Wave\n\n" + body, encoding="utf-8")
+    out = hack(f, 0, "plan", path, UAK_HUMAN="joahan", allowed=None)
+    text = out.stdout + out.stderr
+    expect(out.returncode == 0 and "OK plan" in out.stdout, "it publishes: rc %d %s" % (out.returncode, text[-500:]))
+    expect("LINT HINT: HACK-007 mentions coord_next (src/coord.py), outside its Paths" in text, "it prints the hint: " + text[-500:])
+    return "hint printed, published"
+
+
 TESTS = [available_task_amend_overlap_warns_and_publishes, one_file_amend_uses_the_new_paths_of_the_others,
-         claimed_task_amend_overlap_is_still_refused]
+         claimed_task_amend_overlap_is_still_refused, plan_prints_hints_but_publishes]
 
 
 def main():
