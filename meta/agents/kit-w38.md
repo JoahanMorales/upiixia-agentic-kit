@@ -1,11 +1,11 @@
 # kit-w38
 Agent: kit-w38
 Started: 1794356234
-Events: 2
-Events-Since-Checkpoint: 0
+Events: 3
+Events-Since-Checkpoint: 1
 Checkpoints: 1
 Sessions: 1
 Last-Checkpoint: 1794356618
 Human: JoahanMorales
 Last-Session: kit-w38-1794356234
-Updated: 1794356618
+Updated: 1794356620
