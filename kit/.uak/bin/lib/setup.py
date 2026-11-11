@@ -6,6 +6,7 @@ never publishes a plan, approves a backlog, registers identities, or changes a r
 """
 import argparse
 import hmac
+import importlib.util
 import json
 import os
 import re
@@ -227,15 +228,15 @@ class SetupHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass  # Requests and tokens never appear in the terminal log.
 
-    def reply(self, code, payload, html=False):
-        data = payload.encode("utf-8") if html else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    def reply(self, code, payload, html=False, javascript=False):
+        data = payload.encode("utf-8") if html or javascript else json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
-        self.send_header("Content-Type", "text/html; charset=utf-8" if html else "application/json; charset=utf-8")
+        self.send_header("Content-Type", "text/html; charset=utf-8" if html else "text/javascript; charset=utf-8" if javascript else "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'nonce-%s'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" % self.server.nonce)
+        self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'nonce-%s'; style-src 'unsafe-inline'; connect-src 'self'; frame-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors %s" % (self.server.nonce, "'self'" if self.path == "/dashboard" else "'none'"))
         try:
             self.end_headers()
             self.wfile.write(data)
@@ -258,6 +259,39 @@ class SetupHandler(BaseHTTPRequestHandler):
         if self.path == "/":
             html = Path(__file__).with_name("setup.html").read_text(encoding="utf-8")
             self.reply(200, html.replace("__NONCE__", self.server.nonce), html=True)
+        elif self.path == "/workspace.js":
+            self.reply(200, Path(__file__).with_name("workspace.js").read_text(encoding="utf-8"), javascript=True)
+        elif self.path == "/dashboard":
+            html = Path(__file__).with_name("dash.html").read_text(encoding="utf-8")
+            bridge = ('<script nonce="%s">window.UAK_EMBEDDED=true;'
+                      'window.addEventListener("message",function(e){'
+                      'if(e.source!==window.parent||!e.data||e.data.type!=="uak:dashboard")return;'
+                      'window.UAK_DATA=e.data.snapshot;'
+                      'window.UAK_DASH_LANGUAGE=e.data.language;'
+                      'window.UAK_DASH_THEME=e.data.theme;'
+                      'document.dispatchEvent(new Event("uak:state"));});</script>') % self.server.nonce
+            html = html.replace('<script src="data.js"></script>', bridge)
+            html = html.replace('<script src="workspace.js">', '<script nonce="%s" src="workspace.js">' % self.server.nonce)
+            html = html.replace('<script>', '<script nonce="%s">' % self.server.nonce)
+            self.reply(200, html, html=True)
+        elif self.path == "/api/dashboard":
+            try:
+                with self.server.lock:
+                    root = self.server.target
+                    busy = self.server.worker and self.server.worker.is_alive()
+                if not root:
+                    raise ValueError("Choose a project first.")
+                if busy:
+                    self.reply(409, {"error": "An operation is running. Wait for it to finish."})
+                    return
+                spec = importlib.util.spec_from_file_location("uak_dashboard", Path(__file__).with_name("dash.py"))
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                data = module.workspace_data(root)
+                data["mode"] = read_config(root).get("Mode", "")
+                self.reply(200, data)
+            except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                self.reply(400, {"error": redact(exc)})
         elif self.path == "/api/status":
             try:
                 with self.server.lock:

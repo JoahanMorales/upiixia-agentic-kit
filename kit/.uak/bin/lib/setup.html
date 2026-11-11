@@ -490,6 +490,164 @@
       .advanced-only {
         display: none;
       }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #111b18;
+        --paper: #1a2722;
+        --ink: #e5eee9;
+        --secondary: #b7c8be;
+        --muted: #a2b6aa;
+        --line: #34483d;
+        --accent: #a3d8bc;
+        --accent-hover: #b7e8cd;
+        --wash: #243c30;
+        --error: #ffc2b8;
+        --error-bg: #442a27;
+      }
+      :root[data-theme="dark"] .primary {
+        color: #10291e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]):not([data-theme="dark"]) {
+          color-scheme: dark;
+          --bg: #111b18;
+          --paper: #1a2722;
+          --ink: #e5eee9;
+          --secondary: #b7c8be;
+          --muted: #a2b6aa;
+          --line: #34483d;
+          --accent: #a3d8bc;
+          --accent-hover: #b7e8cd;
+          --wash: #243c30;
+          --error: #ffc2b8;
+          --error-bg: #442a27;
+        }
+        :root:not([data-theme="light"]):not([data-theme="dark"]) .primary {
+          color: #10291e;
+        }
+      }
+      .header {
+        flex-wrap: wrap;
+      }
+      .workspace-nav {
+        display: flex;
+        gap: 6px;
+      }
+      .workspace-nav button {
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 16px;
+        background: transparent;
+        min-height: 44px;
+      }
+      .workspace-nav button[aria-pressed="true"] {
+        background: var(--wash);
+        color: var(--accent);
+        font-weight: 650;
+      }
+      .actions {
+        flex-wrap: wrap;
+      }
+      .dashboard-shell {
+        max-width: 1240px;
+        margin: auto;
+        padding: 0 40px 24px;
+      }
+      .dashboard-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin: 16px 0;
+      }
+      .dashboard-bar h1 {
+        font-size: 32px;
+      }
+      #dashboard-frame {
+        width: 100%;
+        min-height: 560px;
+        border: 0;
+        border-radius: 20px;
+        background: var(--paper);
+      }
+      #beginner-dashboard {
+        padding: 32px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--paper);
+      }
+      .dashboard-metrics {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 32px;
+        margin: 24px 0;
+      }
+      .dashboard-metrics strong {
+        display: block;
+        font-size: 40px;
+        line-height: 1.2;
+        font-variant-numeric: tabular-nums;
+      }
+      .dashboard-metrics span {
+        color: var(--secondary);
+      }
+      #simple-next {
+        padding-top: 24px;
+        border-top: 1px solid var(--line);
+      }
+      #simple-next h3 {
+        margin: 12px 0;
+      }
+      #simple-tasks {
+        list-style: none;
+        padding: 0;
+      }
+      #simple-tasks li {
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 14px 0;
+        border-top: 1px solid var(--line);
+      }
+      #simple-tasks li > span:first-child {
+        overflow-wrap: anywhere;
+      }
+      .running-review {
+        margin: 0 0 24px;
+      }
+      @media (max-width: 600px) {
+        .dashboard-shell {
+          padding: 0 16px 20px;
+        }
+        .header {
+          gap: 12px;
+        }
+        .workspace-nav {
+          order: 3;
+          width: 100%;
+        }
+        .workspace-nav button {
+          flex: 1;
+          padding: 8px;
+        }
+        .profile {
+          margin-left: auto;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+        .dashboard-bar {
+          flex-wrap: wrap;
+        }
+        #beginner-dashboard {
+          padding: 24px 20px;
+        }
+        .dashboard-metrics {
+          gap: 20px;
+        }
+        .dashboard-metrics strong {
+          font-size: 32px;
+        }
+      }
       body[data-profile="advanced"] .advanced-only {
         display: block;
       }
@@ -618,14 +776,41 @@
         <span class="muted">/ setup</span>
       </div>
       <div class="profile">
+        <label for="language" data-i18n-aria="Language">Language</label>
+        <select
+          id="language"
+          aria-label="Language"
+          data-i18n-aria="Language"
+          data-no-i18n
+        >
+          <option value="es">Español</option>
+          <option value="en">English</option>
+        </select>
         <label for="profile">View</label
-        ><select id="profile" aria-label="Interface profile">
+        ><select
+          id="profile"
+          aria-label="Interface profile"
+          data-i18n-aria="Interface profile"
+        >
           <option value="beginner">Beginner</option>
           <option value="advanced">Advanced</option>
         </select>
+        <select id="workspace-theme" aria-label="Theme" data-i18n-aria="Theme">
+          <option value="">Auto</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
       </div>
+      <nav class="workspace-nav" aria-label="Workspace">
+        <button type="button" id="open-setup" aria-pressed="true">
+          Configuration
+        </button>
+        <button type="button" id="open-dashboard" aria-pressed="false">
+          Dashboard
+        </button>
+      </nav>
     </header>
-    <div class="shell">
+    <div class="shell" id="setup-shell">
       <div class="layout">
         <aside class="sidebar" aria-label="Setup progress">
           <p>
@@ -661,6 +846,24 @@
           </div>
         </aside>
         <main class="surface" id="content" tabindex="-1">
+          <div
+            class="notice running-review"
+            id="running-review"
+            hidden
+            role="status"
+          >
+            <p>
+              An operation is running. You can review earlier steps; editing is
+              available when it finishes.
+            </p>
+            <button
+              type="button"
+              class="secondary-button"
+              id="back-to-progress"
+            >
+              Return to progress
+            </button>
+          </div>
           <section id="welcome">
             <div class="eyeline">
               <span class="dot" aria-hidden="true"></span> A workspace for your
@@ -742,7 +945,7 @@
           </section>
           <section id="workflow" hidden>
             <h2>How will your team work?</h2>
-            <p class="secondary" id="selected-project"></p>
+            <p class="secondary" id="selected-project" data-no-i18n></p>
             <form id="workflow-form">
               <fieldset>
                 <legend>Choose your goal</legend>
@@ -931,6 +1134,13 @@
               <pre id="output"></pre>
             </details>
             <div class="actions">
+              <button
+                class="secondary-button"
+                type="button"
+                id="back-from-finish"
+              >
+                Back
+              </button>
               <button class="secondary-button" id="repair" hidden>
                 Repair or update kit</button
               ><button class="secondary-button" id="change-project">
@@ -942,6 +1152,53 @@
         </main>
       </div>
     </div>
+    <main
+      class="dashboard-shell"
+      id="dashboard-shell"
+      hidden
+      aria-label="Dashboard"
+      tabindex="-1"
+    >
+      <div class="dashboard-bar">
+        <div>
+          <h1>Your project at a glance</h1>
+          <p class="secondary" id="dashboard-project" data-no-i18n></p>
+        </div>
+        <button class="secondary-button" id="refresh-dashboard">
+          Refresh dashboard
+        </button>
+      </div>
+      <p class="notice" id="dashboard-status" role="status">
+        Loading your project dashboard…
+      </p>
+      <p class="notice error" id="dashboard-freeze" role="status" hidden></p>
+      <button class="primary" id="dashboard-choose-project" hidden>
+        Choose another project
+      </button>
+      <section id="beginner-dashboard" hidden>
+        <div class="dashboard-metrics">
+          <div>
+            <strong id="simple-completed">0</strong><span>Completed</span>
+          </div>
+          <div><strong id="simple-working">0</strong><span>Working</span></div>
+          <div>
+            <strong id="simple-review">0</strong><span>Waiting for review</span>
+          </div>
+        </div>
+        <div id="simple-next">
+          <p class="secondary">Your next step</p>
+          <h3 id="next-heading"></h3>
+          <p id="next-description"></p>
+        </div>
+        <ul id="simple-tasks"></ul>
+      </section>
+      <iframe
+        id="dashboard-frame"
+        title="Project dashboard"
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+        hidden
+      ></iframe>
+    </main>
     <footer class="footer">
       <span>UPIIXIA Agentic Kit · Your coding team, coordinated.</span
       ><span
@@ -949,6 +1206,7 @@
         finish.</span
       >
     </footer>
+    <script nonce="__NONCE__" src="/workspace.js"></script>
     <script nonce="__NONCE__">
       (function () {
         "use strict";
@@ -964,10 +1222,199 @@
           timer = null,
           requestBusy = false;
         var panels = ["welcome", "project", "workflow", "review", "finish"];
+        var latestDashboard = null,
+          dashboardTimer = null,
+          currentSection = "setup",
+          dashboardLoading = false;
         function el(id) {
           return document.getElementById(id);
         }
+        function operationRunning() {
+          return state.phase === "installing" || state.phase === "checking";
+        }
+        function syncRunningControls() {
+          var busy = operationRunning();
+          document
+            .querySelectorAll(
+              "#project-form input,#workflow-form input,#workflow-form select",
+            )
+            .forEach(function (input) {
+              if (busy && !input.hasAttribute("data-job-disabled")) {
+                input.dataset.jobDisabled = input.disabled ? "true" : "false";
+                input.disabled = true;
+              } else if (!busy && input.hasAttribute("data-job-disabled")) {
+                input.disabled = input.dataset.jobDisabled === "true";
+                delete input.dataset.jobDisabled;
+              }
+            });
+          document
+            .querySelectorAll(
+              "#project-form button[type=submit],#workflow-form button[type=submit],#install",
+            )
+            .forEach(function (button) {
+              button.disabled = busy;
+            });
+          el("running-review").hidden = !busy || step === 4;
+        }
+        function openSection(section) {
+          currentSection = section;
+          el("setup-shell").hidden = section !== "setup";
+          el("dashboard-shell").hidden = section !== "dashboard";
+          el("open-setup").setAttribute(
+            "aria-pressed",
+            String(section === "setup"),
+          );
+          el("open-dashboard").setAttribute(
+            "aria-pressed",
+            String(section === "dashboard"),
+          );
+          document.querySelector(".skip").href =
+            section === "dashboard" ? "#dashboard-shell" : "#content";
+          if (section === "setup" && dashboardTimer)
+            clearTimeout(dashboardTimer);
+        }
+        function sendDashboard() {
+          el("dashboard-frame").title = UAKWorkspace.t("Dashboard");
+          if (latestDashboard && el("dashboard-frame").contentWindow)
+            el("dashboard-frame").contentWindow.postMessage(
+              {
+                type: "uak:dashboard",
+                snapshot: latestDashboard,
+                language: UAKWorkspace.language(),
+                theme: el("workspace-theme").value,
+              },
+              "*",
+            );
+        }
+        function drawDashboard(data) {
+          latestDashboard = data;
+          el("dashboard-project").textContent = state.target || "";
+          el("dashboard-status").textContent = UAKWorkspace.t(
+            data.warning || "Your project at a glance",
+          );
+          var p = data.progress,
+            states = p.states;
+          el("simple-completed").textContent =
+            (states.INTEGRATED || 0) + " / " + p.total;
+          el("simple-working").textContent = states.CLAIMED || 0;
+          el("simple-review").textContent = states.REVIEW || 0;
+          var frozen =
+            !!data.freeze &&
+            data.freeze <=
+              Math.max(data.generated, Math.floor(Date.now() / 1000));
+          el("dashboard-freeze").hidden = !data.freeze;
+          el("dashboard-freeze").classList.toggle("error", frozen);
+          el("dashboard-freeze").textContent =
+            UAKWorkspace.t(
+              frozen
+                ? "Project changes are frozen. A human must authorize any new work."
+                : "A project freeze is scheduled. Check the deadline before taking new work.",
+            ) +
+            (data.freeze
+              ? " · " +
+                new Date(data.freeze * 1000).toLocaleString(
+                  UAKWorkspace.language(),
+                )
+              : "");
+          var next = frozen
+            ? [
+                "Project changes are frozen",
+                "The change window has closed. Review the project with the responsible human before starting new work.",
+              ]
+            : data.source === "local"
+              ? [
+                  "Connect your repository",
+                  "Only the local plan is available. Complete the connection checks in Configuration before starting agents.",
+                ]
+              : !p.total
+                ? [
+                    "Create your first plan",
+                    "Open your coding tool in this project and describe what you want to build. Its planning workflow will help you create the first tasks.",
+                  ]
+                : states.BLOCKED
+                  ? [
+                      "Resolve the blocked work",
+                      "Review the tasks marked as blocked to see what the team needs.",
+                    ]
+                  : states.REVIEW
+                    ? [
+                        "Review changes before they ship",
+                        "The team has work waiting for an independent review.",
+                      ]
+                    : states.CLAIMED
+                      ? [
+                          "Your team is working",
+                          "Follow progress here. Open Advanced to see conversations, reviews and technical activity.",
+                        ]
+                      : p.done === 100
+                        ? [
+                            "The current plan is complete",
+                            "All active tasks are integrated. Review the result with your team before planning more work.",
+                          ]
+                        : [
+                            "Start the next task",
+                            "Your plan has available work. Continue in your coding tool to claim a task.",
+                          ];
+          el("next-heading").textContent = UAKWorkspace.t(next[0]);
+          el("next-description").textContent = UAKWorkspace.t(next[1]);
+          el("simple-tasks").replaceChildren();
+          var labels = {
+            AVAILABLE: "Available",
+            CLAIMED: "In progress",
+            BLOCKED: "Blocked",
+            REVIEW: "In review",
+            INTEGRATED: "Integrated",
+          };
+          data.tasks.slice(0, 8).forEach(function (task) {
+            var row = document.createElement("li"),
+              title = document.createElement("span"),
+              status = document.createElement("span");
+            title.dataset.noI18n = "";
+            title.textContent = task.id + " · " + task.title;
+            status.textContent = UAKWorkspace.t(
+              labels[task.state] || task.state,
+            );
+            row.append(title, status);
+            el("simple-tasks").append(row);
+          });
+          var advanced = document.body.dataset.profile === "advanced";
+          el("beginner-dashboard").hidden = advanced;
+          el("dashboard-frame").hidden = !advanced;
+          if (advanced && !el("dashboard-frame").getAttribute("src"))
+            el("dashboard-frame").src = "/dashboard";
+          sendDashboard();
+        }
+        async function loadDashboard() {
+          if (dashboardLoading) return;
+          if (dashboardTimer) clearTimeout(dashboardTimer);
+          if (!state.target || state.phase === "welcome") {
+            el("dashboard-status").textContent = UAKWorkspace.t(
+              "Choose a project to see its dashboard.",
+            );
+            el("dashboard-choose-project").hidden = false;
+            return;
+          }
+          el("dashboard-choose-project").hidden = true;
+          el("dashboard-status").textContent = UAKWorkspace.t(
+            "Loading your project dashboard…",
+          );
+          el("refresh-dashboard").disabled = true;
+          dashboardLoading = true;
+          var target = state.target;
+          try {
+            var data = await api("dashboard");
+            if (state.target === target) drawDashboard(data);
+          } catch (e) {
+            el("dashboard-status").textContent = UAKWorkspace.t(e.message);
+          } finally {
+            dashboardLoading = false;
+            el("refresh-dashboard").disabled = false;
+            if (currentSection === "dashboard")
+              dashboardTimer = setTimeout(loadDashboard, 20000);
+          }
+        }
         function show(index, focus) {
+          openSection("setup");
           step = index;
           panels.forEach(function (id, n) {
             el(id).hidden = n !== index;
@@ -978,10 +1425,11 @@
             else node.removeAttribute("aria-current");
           });
           el("error").hidden = true;
+          syncRunningControls();
           if (focus !== false) el("content").focus();
         }
         function error(message) {
-          el("error").textContent = message;
+          el("error").textContent = UAKWorkspace.t(message);
           el("error").hidden = false;
         }
         async function api(path, data) {
@@ -1023,6 +1471,7 @@
           try {
             localStorage.setItem("uak-profile", value);
           } catch (e) {}
+          if (latestDashboard) drawDashboard(latestDashboard);
         }
         var saved = "beginner";
         try {
@@ -1032,6 +1481,61 @@
         el("profile").addEventListener("change", function () {
           profile(this.value);
         });
+        UAKWorkspace.start(document.body);
+        function workspaceTheme(value) {
+          if (value) document.documentElement.dataset.theme = value;
+          else delete document.documentElement.dataset.theme;
+          try {
+            localStorage.setItem("uak-dash-theme", value);
+          } catch (e) {}
+          sendDashboard();
+        }
+        try {
+          var savedTheme = localStorage.getItem("uak-dash-theme");
+          if (savedTheme === "dark" || savedTheme === "light")
+            el("workspace-theme").value = savedTheme;
+        } catch (e) {}
+        workspaceTheme(el("workspace-theme").value);
+        el("workspace-theme").onchange = function () {
+          workspaceTheme(this.value);
+        };
+        el("language").value = UAKWorkspace.language();
+        el("language").onchange = function () {
+          UAKWorkspace.setLanguage(this.value);
+        };
+        window.addEventListener("uak:language", function () {
+          if (latestDashboard) drawDashboard(latestDashboard);
+        });
+        el("open-setup").onclick = function () {
+          openSection("setup");
+        };
+        el("open-dashboard").onclick = function () {
+          openSection("dashboard");
+          loadDashboard();
+        };
+        el("refresh-dashboard").onclick = loadDashboard;
+        el("dashboard-choose-project").onclick = function () {
+          show(1);
+        };
+        el("dashboard-frame").onload = sendDashboard;
+        window.addEventListener("message", function (event) {
+          if (
+            event.source !== el("dashboard-frame").contentWindow ||
+            !event.data ||
+            event.data.type !== "uak:dashboard-size"
+          )
+            return;
+          var height = Number(event.data.height);
+          if (Number.isFinite(height))
+            el("dashboard-frame").style.height =
+              Math.min(6000, Math.max(560, height)) + "px";
+        });
+        el("back-from-finish").onclick = function () {
+          show(Object.keys(choices).length ? 3 : 1);
+        };
+        el("back-to-progress").onclick = function () {
+          show(4);
+        };
         el("begin").onclick = function () {
           show(1);
           el("target").focus();
@@ -1046,15 +1550,24 @@
           el("target-error").textContent = "";
           action(this.querySelector("button[type=submit]"), async function () {
             try {
+              var previousTarget = state.target;
               state = await api("inspect", { target: el("target").value });
+              if (previousTarget !== state.target) {
+                latestDashboard = null;
+                el("dashboard-frame").removeAttribute("src");
+                el("beginner-dashboard").hidden = true;
+                el("dashboard-frame").hidden = true;
+              }
               if (state.installed || state.can_repair) {
                 show(4);
                 render(state);
               } else {
-                document.querySelectorAll("input[name=mode]").forEach(function (input) {
-                  input.disabled = false;
-                  input.checked = false;
-                });
+                document
+                  .querySelectorAll("input[name=mode]")
+                  .forEach(function (input) {
+                    input.disabled = false;
+                    if (previousTarget !== state.target) input.checked = false;
+                  });
                 el("install").textContent = "Install into this project";
                 el("selected-project").textContent = state.target;
                 show(2);
@@ -1114,6 +1627,7 @@
               value = document.createElement("dd");
             term.textContent = row[0];
             value.textContent = row[1];
+            if (row[0] === "Project") value.dataset.noI18n = "";
             wrap.append(term, value);
             el("summary").append(wrap);
           });
@@ -1136,7 +1650,10 @@
             });
           el("selected-project").textContent =
             state.target +
-            " · Repair preserves the existing workflow and project configuration.";
+            " · " +
+            UAKWorkspace.t(
+              "Repair preserves the existing workflow and project configuration.",
+            );
           el("install").textContent = "Repair or update this project";
           show(2);
         };
@@ -1247,12 +1764,13 @@
               "Open your coding tool in this project. The exact next action is available in Technical details.";
             el("checks").append(li);
           }
+          syncRunningControls();
         }
         async function refresh() {
           if (timer) clearTimeout(timer);
           try {
             var data = await api("status");
-            if (step === 4) render(data);
+            render(data);
             if (data.phase === "installing" || data.phase === "checking")
               timer = setTimeout(refresh, 1200);
           } catch (e) {
