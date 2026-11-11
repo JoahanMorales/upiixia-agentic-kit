@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased · The visual setup
+
+The human of this project found the terminal-only setup hard to follow. Now the terminal starts a local page and stays
+in the background; installing, the next step, planning and progress happen in the browser. The CLI path is unchanged.
+Guide: [docs/DASHBOARD.md](docs/DASHBOARD.md).
+
+The visual setup
+- **`bash install.sh --wizard [PROJECT] [--no-open]`** (UI-001): a page on 127.0.0.1 (random port, session token in
+  the URL fragment, Host/Origin/token checks, a JSON body limit) walks five steps: Welcome, Your project, Your workflow
+  (Hackathon = sprint, Product = marathon, coding tools, solo), Review & install, Get ready. Nothing is written before
+  Install. "Check what's next" runs `uak start`; the workspace has Configuration and Dashboard, in Spanish or English,
+  light, dark or auto. Without Python 3.8+ it says so; `install.sh --mode …` never starts a server.
+- **Beginner and Advanced** (UI-002): a view kept in the browser only, never a permission, mode or gate. Beginner shows
+  one step from the readiness gate, why it matters and what is done, re-checks every minute and on tab focus
+  (Configuration too), and opens progress when ready. Only the exact `bash .uak/bin/wt new ID` gets a Copy button.
+- **"Your app"** (UI-002): a `Live-URL:` key in `.uak/PROJECT.md`, absolute https without credentials, editable in
+  Configuration and shown as a link; a malformed value is treated as absent.
+- **Plan in the page** (UI-004): "What are you building?" saves IDEA.md (overwrite needs confirmation); "Create the
+  plan" runs Claude Code or Codex headless with a fixed argv and constant prompt; the server checks that only
+  `.uak/TASKS.md` and `.uak/OWNERS.md` changed (HEAD, index with flags, Git config, hooks, every file) and runs
+  `uak lint` itself. "Approve and publish" needs the typed folder name and a digest of the four reviewed files, commits
+  exactly those (with `Backlog-Approved: yes`) and pushes the verified SHA to main. Gemini and Cursor say why they
+  cannot plan headless.
+
+Tests and docs
+- **The hooks test waits for its background publish** (UAK-009): `test_tokens_coverage` returned while
+  `tokens --publish` still ran inside the fixture's worktree, and Windows refused to remove it (WinError 32). The wait
+  needs this machine's new totals on claims and reports a recorded publish failure first. The engine is unchanged.
+- **Journey tests and docs** (UI-003): `test_dashboard_journey.py`; `docs/DASHBOARD.md`; the spec with the test behind
+  each guarantee in `docs/specs/dashboard-onboarding/spec.md`.
+
 ## v6.1.1 · 2026-11-10 · The risks v6.1.0's reviews left open, and the frictions of building it
 
 Nine tasks (UAK-045 … UAK-053), the same flow: test first, an independent reviewer, every CI run of the SHA green.

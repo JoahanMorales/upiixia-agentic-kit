@@ -43,6 +43,15 @@ It runs a real 3-agent session in a temp repo with a local Git remote:
 Going to a hackathon? The one-page plan is in **[docs/HACKATHON.md](docs/HACKATHON.md)**. You pick the mode yourself at install. There is no default: `sprint` for a deadline with judges, `marathon` for a product with users after launch.
 
 
+**New to the kit? Start in your browser** (needs Git, Bash 3.2+ or Git Bash, Python 3.8+; no account or API key):
+
+```bash
+git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit
+bash ~/.uak-kit/install.sh --wizard /path/to/project   # a local page: install, next step, plan, progress
+```
+
+The page and what it guarantees: **[docs/DASHBOARD.md](docs/DASHBOARD.md)**. The terminal path below gives the same result.
+
 **1. Install into any Git repo** (30 s; needs Bash 3.2+ and Git):
 
 ```bash
