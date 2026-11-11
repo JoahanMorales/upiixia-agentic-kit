@@ -6,7 +6,7 @@
 - Why: spec
 - Failing: test_plan_owners amend_adding_a_claimed_path_is_refused (outside Paths)
 - Commands: test_plan_amend_overlap
-- Next: Another agent reviews https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-050; run .uak/bin/smoke
+- Next: Integrated in main: f12fdeafdd85326d1d087ce8726b17440d20d95f (recorded by joahanmorales-2)
 
 ## History
 - 1794358499 | CLAIMED | joahanmorales-2 | claim; next: the overlap check of plan_amend_mutate in kit/.uak/bin/lib/plan.sh
@@ -15,3 +15,4 @@
 - 1794359361 | REVIEW | kit-r1 | review; reject; SHA 2391901f384bf298b0816fac17f605a1b689c594; reviewer kit-r1
 - 1794360276 | REVIEW | joahanmorales-2 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-050; evidence: test_plan_amend_overlap exit 0 (4 cases); test_plan_owners, lint_paths_hint, status_planned pass; claims_diff 0 diffs; kit_lint pass · red at 1b3f9a6: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: -
 - 1794360705 | REVIEW | kit-r1 | review; approve; SHA 903e494641535ba42ae91c7764207ed35b1ef19a; reviewer kit-r1
+- 1794360884 | INTEGRATED | joahanmorales-2 | integrate; recorded by joahanmorales-2; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-050; merged f12fdeafdd85326d1d087ce8726b17440d20d95f; proof ancestry
