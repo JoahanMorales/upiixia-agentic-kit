@@ -51,3 +51,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794357639 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-045 UAK-046 UAK-047 UAK-048 UAK-049 UAK-050 UAK-051 UAK-052 UAK-053 | Why: backlog without PR (Plan-Channel: claims)
 - 1794357965 | UAK-046 | per-file path+cksum of CR-stripped content, extra/missing files count as stale | Why: BSD diff <macOS13 lacks --strip-trailing-cr
 - 1794358222 | UAK-047 | CRLF-stripped hash also counts as shipped; extra file = edited; folder rmdir'd when empty | Why: name-only match deleted edited copies
+- 1794358322 | UAK-053 | refusal text lives in backlog_read_note | Why: reviewer could not tell what was read
