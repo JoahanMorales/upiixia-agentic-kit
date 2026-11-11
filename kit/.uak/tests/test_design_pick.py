@@ -39,7 +39,8 @@ class Env:
         return d
 
     def run(self, cwd, *args, path_extra=None):
-        env = dict(os.environ, UAK_NO_OPEN="1", UAK_AGENT="tester")
+        # A save folds the round into a taste profile (UAK-064): keep it in the test's temp dir, never ~/.uak/taste.
+        env = dict(os.environ, UAK_NO_OPEN="1", UAK_AGENT="tester", UAK_TASTE_HOME=str(self.tmp / "taste-home"))
         for k in ("SSH_CONNECTION", "SSH_TTY"):
             env.pop(k, None)
         if path_extra:

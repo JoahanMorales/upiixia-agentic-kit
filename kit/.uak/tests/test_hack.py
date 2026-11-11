@@ -85,6 +85,7 @@ class Runner:
         empty.parent.mkdir(parents=True, exist_ok=True)
         empty.write_text("", encoding="utf-8")
         self.env["UAK_EXTERNAL_SKILLS_TSV"] = str(empty)
+        self.env["UAK_TASTE_HOME"] = str(Path(scratch) / "taste-home")  # design rounds fold picks into a profile (UAK-064)
         for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"):
             self.env.pop(k, None)
         # A user signing default must not make disposable fixture commits interactive.
