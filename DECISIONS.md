@@ -60,3 +60,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794359689 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-047 Paths: install.sh, kit/.uak/tests/test_cursor_skills_keep.py → install.sh, kit/.uak/tests/test_cursor_skills_keep.py, kit/.uak/tests/test_skills_windows_clone.py; UAK-050 Paths: kit/.uak/bin/lib/plan.sh, kit/.uak/tests/test_plan_amend_overlap.py → kit/.uak/bin/lib/plan.sh, kit/.uak/tests/test_plan_amend_overlap.py, kit/.uak/tests/test_plan_owners.py; | Why: scope or criteria fixed before review
 - 1794360406 | UAK-052 | UAK_SMOKE_TESTS reuse; core, smoke, test_hack changes run all | Why: no config file change needed
 - 1794411738 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-054 | Why: backlog without PR (Plan-Channel: claims)
+- 1794414126 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-055 UAK-056 UAK-057 UAK-058 UAK-059 UAK-060 UAK-061 | Why: backlog without PR (Plan-Channel: claims)
