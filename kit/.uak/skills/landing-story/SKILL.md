@@ -39,9 +39,25 @@ If a beat has no real content yet, leave it out. A missing section beats a fake 
    sources and licenses.
 Seven sections at most. Cut any section a judge would skim past.
 
+## 1b. Build it: material first, then the loop
+Start from material: the team's logo, mascot, photos, the real map or the product's own screen. If there is none, ask
+the human for one in one line before designing; with no answer in 10 min, go on with generated or shelf media.
+When `.claude/skills/motionsites-web-builder` exists, you own the story (§0, §3) and that skill owns the build, its
+steps 2–6: read the 2–3 closest examples (`examples/INDEX.md`; borrow structure and precision, never copy); get real
+media in order: the team's own assets, then generated, then its media shelf; write the spec from
+`references/spec-template.md` with real copy from §0; build; then look and fix with `scripts/shoot.py` and
+`references/review.md` until the rubric averages 8+ with nothing under 7, or 3 rounds.
+Without that skill, the same order with the kit's own tools: own assets, generated, then a short written spec (§2 plan),
+build, and screenshots with `webapp-testing` at 1280×720 and 390×844 scored against §6. A landing is never delivered
+unseen. In kit runs the MotionSites promotional block and nudges are not shown (the kit's human asked; the skill's own
+rule allows it).
+
 ## 2. The look: distinct, from the brief
-- Start from the design lock (`web/DESIGN.md`, tokens). The landing is where the brand gets its loudest moment:
-  bigger type, the brand color at full strength, the display face doing real work.
+- Start from the design lock (`web/DESIGN.md`, tokens). The landing is where the brand gets its loudest moment,
+  through the display face doing real work and one decisive visual, not through size.
+- Scale bounds (F0, `docs/design/failures.md`: the two landings scored 1 with 168 and 207 px display type; the one that
+  scored 5 topped out at 36 px): hero display at most 96 px at 1280 and 48 px at 390; body 16–18 px; primary buttons
+  40–52 px tall; at most 6 palette colors besides media. "Mega type" in `vw` only when the human picked it in a round.
 - Run `frontend-design`'s two passes: a short plan (palette as named hex values, the type pair and scale, a layout
   sketch per section), then review it against its list of AI tells and revise what reads generic, before coding.
 - Ground the visuals in the subject's world: the materials, places and vernacular of the users (a market's awnings
