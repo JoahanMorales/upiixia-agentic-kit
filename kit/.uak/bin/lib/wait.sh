@@ -21,11 +21,13 @@ wait_run() {
   fi
   [ "$WAIT_FOR" = message ] || [ -n "$ID" ] || die "wait --for $WAIT_FOR needs an ID."
   say "WAITING ${ID:+$ID }for $WAIT_FOR (up to $WAIT_TIMEOUT s; checks every $WAIT_EVERY s)"
-  local wait_base=
+  local wait_base= wait_rc0= wait_new
   # Unread messages from before the wait are answered now, not by waiting.
   if [ "$WAIT_FOR" = message ]; then
     ATTEMPT=wait-0; fresh_state
     wait_base=$(awk '/^- [0-9]/ { n = $2 + 0; if (n > m) m = n } END { print m + 0 }' "$TX/$MSG_LOG" 2>/dev/null || echo 0)
+    # The reviewable work already waiting is not news: only a task that enters REVIEW after this point wakes the wait.
+    wait_rc0=; [ ! -f "$TX/roles/reviewers/$AGENT.md" ] || { coord_review_candidate; wait_rc0=$coord_rc; }
     c=$(msg_select unread | grep -c '^#' || true)
     [ "${c:-0}" -eq 0 ] || say "($c unread from before this wait: uak inbox shows them; the wait returns only for new ones.)"
   fi
@@ -52,7 +54,14 @@ wait_run() {
           # every wait return in a second, and the agent polled.
           [ -n "$wait_base" ] || wait_base=$(awk '/^- [0-9]/ { n = $2 + 0; if (n > m) m = n } END { print m + 0 }' "$TX/$MSG_LOG" 2>/dev/null || echo 0)
           c=$(msg_select unread | awk -v b="${wait_base:-0}" '/^#[0-9]/ { n = substr($1, 2) + 0; keep = n > b } keep')
-          if [ -n "$c" ]; then say "NEW for $AGENT:"; say "$c"; say "Handle them, then uak inbox --ack."; return 0; fi;;
+          if [ -n "$c" ]; then say "NEW for $AGENT:"; say "$c"; say "Handle them, then uak inbox --ack."; return 0; fi
+          # A registered reviewer also wakes when a task it may review enters REVIEW, whoever was asked (UAK-038, DevDay).
+          if [ -f "$TX/roles/reviewers/$AGENT.md" ] && [ ! -f "$TX/meta/retired/$AGENT.md" ]; then
+            coord_review_candidate
+            if [ -n "$coord_rc" ] && [ "$coord_rc" != "$wait_rc0" ]; then
+              say "REVIEW waiting: ${coord_rc#* } of ${coord_rc%% *}: /uak-review ${coord_rc%% *}"; return 0
+            fi
+          fi;;
       esac
     fi
     left=$((deadline - $(date +%s)))

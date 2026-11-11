@@ -243,6 +243,8 @@ while [ "$#" -gt 0 ]; do
       esac
       ;;
     *) case "$CMD" in
+         # `status --summary HACK-005`: the ID after the options, like `status HACK-005 --summary` (UAK-038).
+         status) if [ -z "$ID" ] && valid_id "$(norm_id "$opt")"; then ID=$(norm_id "$opt"); else die "Unexpected argument: $opt (quote multi-word values: --flag \"two words\")."; fi;;
          log) LOG_TEXT="$LOG_TEXT${LOG_TEXT:+ }$opt";;
          msg) MSG_TEXT="$MSG_TEXT${MSG_TEXT:+ }$opt";;
          learn) MEM_TEXT="$MEM_TEXT${MEM_TEXT:+ }$opt";;
