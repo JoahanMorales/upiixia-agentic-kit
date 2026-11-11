@@ -4,6 +4,7 @@
 shards at once, balanced by the same seconds the CI split uses (scripts/kit_lint.py), each shard with its own TMPDIR and
 HOME. Any failing shard fails the run and its tail is printed. Default 1 = the serial loop. Real bash, probe test files."""
 import argparse
+import os
 import re
 import shutil
 import tempfile
@@ -94,7 +95,9 @@ def default_is_serial(r):
         talk = [l for l in out.stdout.splitlines() if not l.startswith("PROBE_ENV") and "shard" in l.lower() and "UAK_SMOKE_TESTS" not in l]
         expect(not talk, "no shard talk in a serial run: %s" % talk)
         tmps = {e[1] for e in probe_envs(out)}
-        expect(len(probe_envs(out)) == 5 and tmps and not any("uak-smoke-shards" in t for t in tmps), "serial keeps the caller's TMPDIR: %s" % tmps)
+        outer = os.environ.get("TMPDIR", "").count("uak-smoke-shards")  # this test may itself run in a shard
+        expect(len(probe_envs(out)) == 5 and tmps and all(t.count("uak-smoke-shards") == outer for t in tmps),
+               "serial keeps the caller's TMPDIR (no shard dir of its own): %s" % tmps)
     out = smoke(r, package(r, "sp-serial-md", project="- **Smoke-Jobs:** 1\n"))
     expect(ran(out) == NAMES, "Smoke-Jobs: 1 is serial: %s" % ran(out))
     return "serial by default"
