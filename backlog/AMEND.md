@@ -199,3 +199,27 @@ Append-only; the last section of an ID replaces its section in the backlog. Why:
 - **Verify:** `python3 kit/.uak/tests/test_reviewer_next.py`
 - **Next step:** the candidate order of coord_next in kit/.uak/bin/uak-coordination
 
+## UAK-047 · install keeps a team's edited copy of a kit skill in .cursor/skills
+
+- **Type:** bug
+- **Priority:** P1
+- **Estimate:** 1 h
+- **Depends on:** None
+- **Paths:** install.sh, kit/.uak/tests/test_cursor_skills_keep.py, kit/.uak/tests/test_skills_windows_clone.py
+- **Acceptance:** install/--update removes a skill folder from `.cursor/skills` only when its files equal a version the kit shipped (known-files.txt hashes, as the rest of --update decides); an edited copy stays, and install prints "kept .cursor/skills/NAME: edited by the team; Cursor also reads .agents/skills", why (v6.1.0 review of UAK-041): an edited kit skill in .cursor/skills was deleted because only its name was compared
+- **Tests:** unedited_kit_skill_copy_is_removed, edited_kit_skill_copy_is_kept_and_named
+- **Verify:** `python3 kit/.uak/tests/test_cursor_skills_keep.py`
+- **Next step:** the .cursor/skills cleanup in install.sh
+
+## UAK-050 · `plan --amend` checks overlaps the way claims do
+
+- **Type:** bug
+- **Priority:** P1
+- **Estimate:** 1.5 h
+- **Depends on:** None
+- **Paths:** kit/.uak/bin/lib/plan.sh, kit/.uak/tests/test_plan_amend_overlap.py, kit/.uak/tests/test_plan_owners.py
+- **Acceptance:** amending a task that holds no reservation (AVAILABLE) never fails on overlap: it prints "UAK-NNN's new Paths overlap UAK-MMM (CLAIMED/REVIEW): its claim will wait for it" and publishes; the claim gate still refuses the overlapping claim later, amending several tasks in one file checks each task against the others' NEW Paths (an amend that drops a file from one task frees it for another in the same file), a CLAIMED or REVIEW task whose new Paths overlap another live claim is still refused, as today, why (v6.1.0 session): the human had to run four amends in a fixed order; UAK-038 (AVAILABLE) was refused twice for tasks only waiting for review
+- **Tests:** available_task_amend_overlap_warns_and_publishes, one_file_amend_uses_the_new_paths_of_the_others, claimed_task_amend_overlap_is_still_refused
+- **Verify:** `python3 kit/.uak/tests/test_plan_amend_overlap.py`
+- **Next step:** the overlap check of plan_amend_mutate in kit/.uak/bin/lib/plan.sh
+

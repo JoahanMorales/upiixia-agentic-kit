@@ -57,3 +57,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794358586 | UAK-048 | strong=claude-opus-5[effort=high] (only Opus ID shown with effort); fast=composer-2.5[] | Why: claude-opus-5-5[effort=high] not shown by docs
 - 1794358651 | UAK-049 | close as not reproducible | Why: leftover identities held claims
 - 1794358867 | UAK-050 | plan hint call guarded; test_plan_owners case contradicts spec | Why: spec
+- 1794359689 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-047 Paths: install.sh, kit/.uak/tests/test_cursor_skills_keep.py → install.sh, kit/.uak/tests/test_cursor_skills_keep.py, kit/.uak/tests/test_skills_windows_clone.py; UAK-050 Paths: kit/.uak/bin/lib/plan.sh, kit/.uak/tests/test_plan_amend_overlap.py → kit/.uak/bin/lib/plan.sh, kit/.uak/tests/test_plan_amend_overlap.py, kit/.uak/tests/test_plan_owners.py; | Why: scope or criteria fixed before review
