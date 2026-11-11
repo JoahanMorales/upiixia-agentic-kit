@@ -6,7 +6,7 @@
 - Why: spec
 - Failing: none
 - Commands: python3 kit/.uak/tests/test_design_pick.py
-- Next: Humano: Shared resource/CI needs a human: kit/.uak/bin/lib/gallery_pick.py
+- Next: Integrated in main: 27eacb255f2542989101c61086cf74447e1ba6a9 (recorded by joahanmorales-12)
 
 ## History
 - 1794415011 | CLAIMED | joahanmorales-12 | claim; next: the HTML writer in kit/.uak/bin/design-gallery (cards loop) and a `--round` branch beside `--serve`
@@ -18,3 +18,4 @@
 - 1794415910 | REVIEW | joahanmorales-12 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-058; evidence: test_design_pick --package exit 0 · red at 0b73027: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: -
 - 1794415985 | REVIEW | kit-r1 | review; approve; SHA 6b523303a44ed113a2a9cc3268a961ddb89ce43a; reviewer kit-r1
 - 1794417615 | REVIEW | joahanmorales-12 | merge rechazado; Shared resource/CI needs a human: kit/.uak/bin/lib/gallery_pick.py
+- 1794418361 | INTEGRATED | joahanmorales-12 | integrate; recorded by joahanmorales-12; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-058; merged 27eacb255f2542989101c61086cf74447e1ba6a9; proof ancestry
