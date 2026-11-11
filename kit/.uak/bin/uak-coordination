@@ -657,6 +657,18 @@ coord_next() {
     [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"
     return 0
   fi
+  # A registered reviewer with nothing claimed reviews what waits before it starts coding: a REVIEW task nobody has a
+  # verdict on or is reviewing. Plain file tests and the loop coord_review_candidate already is: no process added.
+  # Why (DevDay): a review-only Codex agent was offered coding work while a REVIEW task waited, and missed it.
+  if [ -n "$AGENT" ] && [ -f "$TX/roles/reviewers/$AGENT.md" ] && [ ! -f "$TX/meta/retired/$AGENT.md" ]; then
+    coord_review_candidate
+    if [ -n "$coord_rc" ]; then
+      msg_orphans
+      say "Review first (registered reviewer): ${coord_rc#* } of ${coord_rc%% *}: /uak-review ${coord_rc%% *}"
+      say "Coding work comes after: uak next again once no review waits for you."
+      coord_status_budget; [ -z "${CLOCK_NOTE:-}" ] || say "$CLOCK_NOTE"; return 0
+    fi
+  fi
   if [ -f "$BACKLOG" ]; then
     # Cheap prefilter before the full gates: skip tasks that are taken or done, and tasks whose dependencies are
     # not INTEGRATED. Why: `next` probed every task of the backlog in a subshell (4.5 s of CPU on 36 tasks).
