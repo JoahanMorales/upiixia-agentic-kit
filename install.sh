@@ -206,15 +206,23 @@ if has codex || has cursor || has gemini; then
   for link in .agents/skills .cursor/skills; do
     if [ -L "$target/$link" ] || [ -f "$target/$link" ]; then rm -f "$target/$link"; say "  - $link (a link to .claude/skills, or its text-file checkout) replaced by a real directory"; fi
   done
-  # .cursor/skills holding only copies of the kit's skills (a Windows install of an older kit) goes: Cursor reads
-  # .agents/skills and .claude/skills, and the stale copy would shadow them. A skill of the team's own stays.
+  # A kit skill folder in .cursor/skills goes when every file in it equals a version the kit shipped (Cursor reads
+  # .agents/skills and .claude/skills, and the stale copy would shadow them). An edited copy stays and is named; so
+  # does a skill of the team's own. Why (v6.1.0 review of UAK-041): an edited kit skill was deleted by name alone.
   if [ -d "$target/.cursor/skills" ]; then
-    own=no
-    for e in "$target/.cursor/skills"/* "$target/.cursor/skills"/.[!.]*; do
-      [ -e "$e" ] || continue
-      [ -e "$target/.claude/skills/$(basename "$e")" ] || own=yes
+    for e in "$target/.cursor/skills"/*; do
+      [ -d "$e" ] && [ -d "$target/.claude/skills/$(basename "$e")" ] || continue
+      unedited=yes
+      while IFS= read -r f; do
+        # A CRLF checkout of the kit's file is still the kit's file.
+        known "$f" || grep -qx "$(tr -d '\r' < "$f" | git hash-object --stdin 2>/dev/null)" "$kit/.uak/settings/known-files.txt" 2>/dev/null || { unedited=no; break; }
+      done <<EOF2
+$(find "$e" -type f)
+EOF2
+      if [ "$unedited" = yes ]; then rm -rf "$e"; say "  - .cursor/skills/$(basename "$e") (the kit's own copy; Cursor reads .agents/skills)"
+      else say "  ~ kept .cursor/skills/$(basename "$e"): edited by the team; Cursor also reads .agents/skills"; fi
     done
-    [ "$own" = yes ] || { rm -rf "$target/.cursor/skills"; say "  - .cursor/skills (a stale copy of the kit's skills; Cursor reads .agents/skills)"; }
+    rmdir "$target/.cursor/skills" 2>/dev/null || true
   fi
   mkdir -p "$target/.agents/skills"
   cp -R "$target/.claude/skills/." "$target/.agents/skills/" 2>/dev/null || true
