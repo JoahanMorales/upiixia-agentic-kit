@@ -59,8 +59,8 @@ product judged in 3 seconds on a projector. Use GOV.UK or USWDS only when the hu
 ## 5. The 3-second judge test, before every UI PR
 Screenshot the screen at 1280×720 (`webapp-testing`), look at it for 3 seconds, then answer:
 1. What is this screen and what do I do here?
-2. Is the hero the biggest and most colorful thing?
-3. Is the one memorable element of `DESIGN.md` visible? Is the hero the most saturated thing on screen? Does the
+2. Is the hero the most important thing, and does it read in 3 seconds at 1280 and 390?
+3. Is the one memorable element of `DESIGN.md` visible? Does the
    product's core claim show as a visual (the forecast, the route, the match), not only as a sentence? Any no is a
    P1: fix it before review.
 4. Put it next to one other screen of the product: same product?
