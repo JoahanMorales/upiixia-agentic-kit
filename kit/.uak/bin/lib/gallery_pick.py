@@ -151,7 +151,7 @@ JS = """
       .then(function (r) { return r.json().then(function (j) { return {ok: r.ok && j.ok, j: j}; }); })
       .then(function (x) {
         saving = false;
-        if (x.ok) { status.textContent = 'Saved' + (x.j.warn ? ' (' + x.j.warn + ')' : ''); status.className = 'status ok'; }
+        if (x.ok) { status.textContent = 'Saved' + (x.j.warn ? ' (' + x.j.warn + ')' : '') + (x.j.taste ? ' - ' + x.j.taste : '') + (x.j.taste_error ? ' - ' + x.j.taste_error : ''); status.className = x.j.taste_error ? 'status bad' : 'status ok'; }
         else { status.textContent = 'Not saved: ' + (x.j.error || 'refused'); status.className = 'status bad'; }
       })
       .catch(function () { saving = false; status.textContent = 'Not saved: open this page through the command\\'s URL, not as a file'; status.className = 'status bad'; });
@@ -228,7 +228,17 @@ def save_picks(rnd, data, k):
         f.write("\n")
     os.replace(tmp, str(rnd / "picks.json"))  # a second save replaces the first, never half of it
     warn = "" if len(picked) == k else "picked %d, K is %d" % (len(picked), k)
-    return 200, {"ok": True, "warn": warn}
+    body = {"ok": True, "warn": warn}
+    # Why (v6.2, the human): the kit learns what the human likes from every save, right away. A failure to write the
+    # profile never fails the save: picks.json is already on disk; the page says the profile was not updated.
+    try:
+        import design_taste
+        who = doc["by"].strip() or design_taste.default_human()
+        prof = design_taste.update(rnd.parents[3], who)
+        body["taste"] = "taste profile of %s updated (%d picks, confidence: %s)" % (who, design_taste.pick_count(prof), design_taste.confidence(prof))
+    except Exception as exc:  # noqa: BLE001
+        body["taste_error"] = "taste profile not updated: %s" % str(exc)[:200]
+    return 200, body
 
 
 def make_handler(rnd, k, hosts):
