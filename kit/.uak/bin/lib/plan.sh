@@ -45,8 +45,16 @@ plan_amend_mutate() {
       [ -s "$TXROOT/paths-old" ] || cp "$TXROOT/paths-request" "$TXROOT/paths-added"
       for c in "$TX"/claims/*.md; do
         [ -f "$c" ] && [ "$(field "$c" ID)" != "$id" ] || continue
-        normalize_paths "$(field "$c" Paths)" > "$TXROOT/other-paths" || continue
-        ! overlaps "$TXROOT/paths-added" "$TXROOT/other-paths" || conflict "The new Paths of $id overlap $(field "$c" ID) (claimed by $(field "$c" Owner)): split the work or ask them."
+        # A task amended in the same file counts with its NEW Paths, so an amend that drops a file frees it for another
+        # in the file whatever their order. Why (v6.1.0 session): four amends had to run in a fixed order.
+        other=$(field "$c" ID); other_p=$(field "$c" Paths)
+        if printf '%s\n' "$plan_ids" | grep -qx "$other"; then other_p=$(ID=$other BACKLOG=$PLAN_FILE task_field Paths); fi
+        normalize_paths "$other_p" > "$TXROOT/other-paths" || continue
+        ! overlaps "$TXROOT/paths-added" "$TXROOT/other-paths" || {
+          # An AVAILABLE task holds no reservation: its amend publishes and its claim waits (the claim gate decides).
+          # Why (v6.1.0 session): UAK-038 (AVAILABLE) was refused twice for tasks only waiting for review.
+          [ "$st" != AVAILABLE ] || { say "$id's new Paths overlap $other (CLAIMED/REVIEW): its claim will wait for it"; continue; }
+          conflict "The new Paths of $id overlap $other (claimed by $(field "$c" Owner)): split the work or ask them."; }
       done ) || exit $?
     if [ -f "$TX/tasks/$id.md" ] && [ "$st" != AVAILABLE ]; then
       put "$TX/tasks/$id.md" Paths "$(one_line "$new_p")"; put "$TX/tasks/$id.md" Verify "$(one_line "$new_v")"
@@ -57,6 +65,8 @@ plan_amend_mutate() {
     [ "$old_v" = "$new_v" ] || changes="$changes Verify changed;"
     msg_append "task:$id" info "$id" "$id amended by $HUMAN: Paths $(one_line "$new_p") · Verify $(one_line "$new_v"). uak status --task $id; the merge gate checks the new Paths."
   done
+  # Why (UAK-050): a first amend of tasks that live only in main's TASKS.md found no backlog/ directory and wrote nothing.
+  mkdir -p "$TX/backlog"
   [ -f "$TX/backlog/AMEND.md" ] || printf '%s\n' '# Amended tasks (uak plan --amend)' '' \
     'Append-only; the last section of an ID replaces its section in the backlog. Why: Paths can grow before review.' '' > "$TX/backlog/AMEND.md"
   awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {on=1} /^# / {on=0} on {print}' "$PLAN_FILE" >> "$TX/backlog/AMEND.md"
@@ -76,6 +86,8 @@ plan_mutate() {
     conflict "Plan-Channel is not claims in .uak/PROJECT.md: publish the backlog by PR to $BASE."
   plan_ids=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$PLAN_FILE")
   [ -n "$plan_ids" ] || die "The file has no task sections: each starts with a line \"## PB-030 · Title\" (the ID as in TASKS.md, uppercase), then - **Priority:**, - **Paths:**, - **Verify:**."
+  # Advisory hints (UAK-051): a task's own words that point outside its Paths. Never fails; absent until lint.sh has it.
+  if type lint_paths_hint >/dev/null 2>&1; then lint_paths_hint "$PLAN_FILE" || true; fi
   if [ "$PLAN_AMEND" = yes ]; then plan_amend_mutate; return; fi
   local e
   for ID in $plan_ids; do
