@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1794358679
+Updated: 1794358867
 AVAILABLE: UAK-052 
 CLAIMED: UAK-050 
 BLOCKED: -
@@ -15,17 +15,17 @@ UAK-046 | REVIEW | joahanmorales-1 | until 1794444367
 UAK-047 | REVIEW | joahanmorales-5 | until 1794444624
 UAK-048 | REVIEW | kit-w33 | until 1794444993
 UAK-049 | REVIEW | joahanmorales-9 | until 1794445053
-UAK-050 | CLAIMED | joahanmorales-2 | until 1794372899
+UAK-050 | CLAIMED | joahanmorales-2 | until 1794373267
 UAK-051 | REVIEW | joahanmorales-10 | until 1794445079
 UAK-053 | REVIEW | joahanmorales-8 | until 1794444722
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1794358322 | UAK-053 | refusal text lives in backlog_read_note | Why: reviewer could not tell what was read
 - 1794358440 | UAK-051 | function counts only if it has _ or inner capital; warn only if no defining file is inside Paths; takes optional backlog file arg for plan | Why: avoid pro
 - 1794358486 | UAK-045 | two existing fixtures got a second file | Why: spec says one file unapproved needs human
 - 1794358586 | UAK-048 | strong=claude-opus-5[effort=high] (only Opus ID shown with effort); fast=composer-2.5[] | Why: claude-opus-5-5[effort=high] not shown by docs
 - 1794358651 | UAK-049 | close as not reproducible | Why: leftover identities held claims
+- 1794358867 | UAK-050 | plan hint call guarded; test_plan_owners case contradicts spec | Why: spec
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.

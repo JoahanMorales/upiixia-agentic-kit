@@ -56,3 +56,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794358486 | UAK-045 | two existing fixtures got a second file | Why: spec says one file unapproved needs human
 - 1794358586 | UAK-048 | strong=claude-opus-5[effort=high] (only Opus ID shown with effort); fast=composer-2.5[] | Why: claude-opus-5-5[effort=high] not shown by docs
 - 1794358651 | UAK-049 | close as not reproducible | Why: leftover identities held claims
+- 1794358867 | UAK-050 | plan hint call guarded; test_plan_owners case contradicts spec | Why: spec
