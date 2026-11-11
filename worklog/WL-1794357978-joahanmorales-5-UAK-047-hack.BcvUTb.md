@@ -12,3 +12,4 @@
 - 1794357978 | CLAIMED | joahanmorales-5 | claim; next: the .cursor/skills cleanup in install.sh
 - 1794358222 | CLAIMED | joahanmorales-5 | checkpoint; next: review
 - 1794358224 | REVIEW | joahanmorales-5 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-047; evidence: python3 kit/.uak/tests/test_cursor_skills_keep.py exit 0; edited copy kept+named, unedited/CRLF removed; 13 install-related test files green; test_skills_windows_clone.update_refreshes_copied_skills expectedly red (old behaviour, outside Paths) · red at 1b3f9a6: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: -
+- 1794358892 | REVIEW | kit-r1 | review; reject; SHA 617cfce17d306ff386fba895d0c0e6c2cf5a4409; reviewer kit-r1
