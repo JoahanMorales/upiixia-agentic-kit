@@ -21,9 +21,9 @@ GENES = {"type": "grotesk", "scale": "bold", "color": "dark media", "layout": "s
 
 
 class Env:
-    def __init__(self, tmp, bash):
+    def __init__(self, tmp, bash, package):
         self.tmp, self.bash = Path(tmp), bash
-        self.pkg = Path(__file__).resolve().parents[1]
+        self.pkg = Path(package) / ".uak"  # the candidate under test (smoke passes --package), not this worktree
         self.tool = self.pkg / "bin" / "design-gallery"
 
     def project(self, name, n=3):
@@ -233,12 +233,13 @@ TESTS = [encoded_dotfile_is_refused, cross_origin_save_is_refused, json_content_
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--case")
     args = parser.parse_args()
     tests = [t for t in TESTS if not args.case or t.__name__ == args.case]
     failed = 0
     with tempfile.TemporaryDirectory(prefix="uak-design-pick-") as tmp:
-        e = Env(tmp, resolve_binary("bash"))
+        e = Env(tmp, resolve_binary("bash"), args.package.resolve())
         for t in tests:
             try:
                 print("PASS %s (%s)" % (t.__name__, t(e)))
