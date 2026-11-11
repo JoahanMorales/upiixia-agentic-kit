@@ -627,6 +627,84 @@
         max-width: 520px;
         margin: 4px 0;
       }
+      /* Planning (UI-004): the idea, the proposed plan as cards, and the typed approval. */
+      #planning {
+        margin-top: 26px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+      }
+      #planning textarea,
+      #planning input[type="number"],
+      #approve-name {
+        width: 100%;
+        box-sizing: border-box;
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: var(--small);
+        padding: 10px 14px;
+        font: inherit;
+        color: inherit;
+      }
+      #planning .field-label {
+        display: block;
+        margin: 14px 0 4px;
+      }
+      .field-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .plan-cards {
+        list-style: none;
+        padding: 0;
+        margin: 14px 0;
+        display: grid;
+        gap: 10px;
+      }
+      .plan-cards li {
+        border: 1px solid var(--line);
+        border-radius: var(--small);
+        padding: 12px 14px;
+        overflow-wrap: anywhere;
+      }
+      .plan-cards strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+      .plan-cards span {
+        display: block;
+        font-size: 14px;
+        color: var(--secondary);
+      }
+      .plan-problems {
+        margin: 10px 0;
+        padding-left: 20px;
+        overflow-wrap: anywhere;
+      }
+      #plan-review {
+        margin-top: 28px;
+      }
+      #planning + #preferences {
+        margin-top: 28px;
+      }
+      #approve-project {
+        display: block;
+        margin: 2px 0 10px;
+        overflow-wrap: anywhere;
+      }
+      #idea-saved pre {
+        margin-top: 8px;
+      }
+      #approve-confirm {
+        margin-top: 16px;
+        padding: 16px;
+        border: 1px solid var(--accent);
+        border-radius: var(--small);
+      }
+      #plan-review .actions,
+      #approve-confirm .actions {
+        margin-top: 14px;
+      }
       .next-command,
       .ready-next {
         display: flex;
@@ -1149,6 +1227,107 @@
               aria-live="polite"
             ></p>
             <ul class="checklist" id="checks"></ul>
+            <div id="planning" hidden>
+              <h3>Plan your project</h3>
+              <p class="hint">
+                Describe what you are building. Your coding tool drafts the plan
+                in the background; you review it here, and nothing is published
+                until you approve it.
+              </p>
+              <form id="idea-form" novalidate>
+                <label class="field-label" for="idea-text"
+                  >What are you building? One line.</label
+                ><input type="text" id="idea-text" maxlength="300" autocomplete="off" required />
+                <label class="field-label" for="idea-audience">Who is it for?</label
+                ><input type="text" id="idea-audience" maxlength="300" autocomplete="off" required />
+                <label class="field-label" for="idea-goal" id="idea-goal-label"
+                  >Judging rubric</label
+                ><textarea id="idea-goal" maxlength="1000" rows="3" required></textarea>
+                <div class="field-row">
+                  <div>
+                    <label class="field-label" for="idea-length">Event length</label
+                    ><input type="text" id="idea-length" maxlength="60" placeholder="24 h" required />
+                  </div>
+                  <div>
+                    <label class="field-label" for="idea-team">Team size</label
+                    ><input type="number" id="idea-team" min="1" max="50" value="3" required />
+                  </div>
+                </div>
+                <label class="choice" id="idea-overwrite-row" hidden
+                  ><input type="checkbox" id="idea-overwrite" /><span
+                    ><strong>Replace the existing IDEA.md</strong
+                    ><small
+                      >Your project already has an idea file. Setup replaces it
+                      only with this confirmation.</small
+                    ></span
+                  ></label
+                ><button class="secondary-button" type="submit" id="idea-save">
+                  Save the idea
+                </button>
+                <p class="hint" id="idea-status" role="status"></p>
+                <details id="idea-saved" hidden>
+                  <summary>Your saved idea (IDEA.md)</summary>
+                  <pre id="idea-saved-text"></pre>
+                </details>
+              </form>
+              <fieldset id="planner-choice">
+                <legend>Coding tool that drafts the plan</legend>
+                <div id="planner-options"></div>
+              </fieldset>
+              <button class="primary" type="button" id="plan-create">
+                Create the plan
+              </button>
+              <section id="plan-review" hidden aria-labelledby="plan-review-heading">
+                <h3 id="plan-review-heading">Proposed plan</h3>
+                <div class="notice error" id="plan-violations" role="alert" hidden>
+                  <p>
+                    The planner changed things only you may change. Undo those
+                    changes, then create the plan again.
+                  </p>
+                  <ul class="plan-problems" id="plan-violation-list" data-no-i18n></ul>
+                </div>
+                <div class="notice" id="plan-lint" role="status">
+                  <p id="plan-lint-summary"></p>
+                  <ul class="plan-problems" id="plan-lint-lines" data-no-i18n></ul>
+                </div>
+                <ul class="plan-cards" id="plan-cards"></ul>
+                <details>
+                  <summary>Plan files as written</summary>
+                  <pre id="plan-files"></pre>
+                </details>
+                <label class="field-label" for="plan-note">Ask for changes</label
+                ><textarea id="plan-note" maxlength="4000" rows="3"></textarea>
+                <div class="actions">
+                  <button class="secondary-button" type="button" id="plan-change">
+                    Ask for changes
+                  </button>
+                  <button class="primary" type="button" id="plan-approve">
+                    Approve and publish
+                  </button>
+                </div>
+                <div id="approve-confirm" hidden>
+                  <p>
+                    Publishing sets Backlog-Approved: yes, commits only IDEA.md,
+                    .uak/TASKS.md, .uak/OWNERS.md and .uak/PROJECT.md as your Git
+                    identity, and pushes them to the main branch. Agents can then
+                    claim tasks.
+                  </p>
+                  <label class="field-label" for="approve-name"
+                    >Type the project folder name to confirm:</label
+                  >
+                  <p><strong id="approve-project" data-no-i18n></strong></p>
+                  <input type="text" id="approve-name" autocomplete="off" spellcheck="false" />
+                  <div class="actions">
+                    <button class="secondary-button" type="button" id="approve-cancel">
+                      Cancel
+                    </button>
+                    <button class="primary" type="button" id="approve-publish" disabled>
+                      Publish the plan
+                    </button>
+                  </div>
+                </div>
+              </section>
+            </div>
             <div id="preferences" hidden>
               <h3>Project preferences</h3>
               <p class="hint">
@@ -1323,7 +1502,7 @@
           return document.getElementById(id);
         }
         function operationRunning() {
-          return state.phase === "installing" || state.phase === "checking";
+          return isBusy(state.phase);
         }
         function syncRunningControls() {
           var busy = operationRunning();
@@ -1471,8 +1650,187 @@
         document.addEventListener("visibilitychange", autoCheck);
         setInterval(autoCheck, 60000);
         function operationBusy() {
-          return state.phase === "installing" || state.phase === "checking";
+          return isBusy(state.phase);
         }
+        function isBusy(phase) {
+          return ["installing", "checking", "planning", "approving"].indexOf(phase) >= 0;
+        }
+        // Planning (UI-004). Plan text comes from files an agent wrote: it is shown with textContent only.
+        var planView = null,
+          planFor = "",
+          plannerNames = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", cursor: "Cursor" };
+        function selectedPlanner() {
+          var input = document.querySelector("input[name=planner]:checked");
+          return input ? input.value : "";
+        }
+        function setPlanBusy(busy) {
+          var blocked = busy || !planView;
+          el("plan-create").disabled =
+            blocked || !planView.idea || !selectedPlanner();
+          el("plan-change").disabled = blocked || !selectedPlanner();
+          el("plan-approve").disabled =
+            blocked || !planView.planned || !!planView.violations.length || !planView.lint.ok;
+          el("idea-save").disabled = busy;
+          if (busy) el("approve-confirm").hidden = true;
+        }
+        async function loadPlan() {
+          try {
+            drawPlan(await api("plan"));
+          } catch (e) {
+            error(e.message);
+          }
+        }
+        function drawPlan(view) {
+          var chosen = selectedPlanner();
+          planView = view;
+          el("idea-goal-label").textContent = UAKWorkspace.t(
+            view.mode === "marathon" ? "Spec goal" : "Judging rubric",
+          );
+          el("idea-status").textContent = view.idea
+            ? UAKWorkspace.t("IDEA.md is saved. To replace it, fill in the form and save again.")
+            : "";
+          el("idea-saved").hidden = !view.idea;
+          el("idea-saved-text").textContent = view.idea;
+          el("planner-options").replaceChildren();
+          view.planners.forEach(function (offer) {
+            var label = document.createElement("label"),
+              input = document.createElement("input"),
+              text = document.createElement("span"),
+              name = document.createElement("strong"),
+              why = document.createElement("small");
+            label.className = "choice";
+            input.type = "radio";
+            input.name = "planner";
+            input.value = offer.harness;
+            input.disabled = !offer.available;
+            input.checked = offer.available && (chosen ? chosen === offer.harness : !document.querySelector("input[name=planner]:checked"));
+            input.onchange = function () {
+              setPlanBusy(operationBusy());
+            };
+            name.textContent = plannerNames[offer.harness] || offer.harness;
+            why.textContent = UAKWorkspace.t(offer.available ? "Ready to draft the plan." : offer.reason);
+            text.append(name, why);
+            label.append(input, text);
+            el("planner-options").append(label);
+          });
+          el("plan-review").hidden = !view.planned;
+          el("plan-violations").hidden = !view.violations.length;
+          el("plan-violation-list").replaceChildren();
+          view.violations.forEach(function (line) {
+            var li = document.createElement("li");
+            li.textContent = line;
+            el("plan-violation-list").append(li);
+          });
+          el("plan-lint").classList.toggle("error", !view.lint.ok);
+          el("plan-lint-summary").textContent = UAKWorkspace.t(
+            view.lint.ok
+              ? "The plan passes the kit's checks (uak lint)."
+              : "The kit's checks (uak lint) found problems. Ask for changes:",
+          );
+          el("plan-lint-lines").replaceChildren();
+          view.lint.lines.forEach(function (line) {
+            var li = document.createElement("li");
+            li.textContent = line;
+            el("plan-lint-lines").append(li);
+          });
+          el("plan-cards").replaceChildren();
+          view.cards.forEach(function (card) {
+            var li = document.createElement("li"),
+              title = document.createElement("strong"),
+              meta = document.createElement("span"),
+              tests = document.createElement("span");
+            title.textContent = card.id + " · " + card.title;
+            title.dataset.noI18n = "";
+            meta.textContent = UAKWorkspace.format("Priority {p} · wave {w} · depends on {d}", {
+              p: card.priority || "?",
+              w: card.wave || "?",
+              d: card.depends.length ? card.depends.join(", ") : UAKWorkspace.t("nothing"),
+            });
+            tests.textContent = card.tests.length
+              ? UAKWorkspace.t("Checks it must pass:") + " " + card.tests.join(", ").replace(/_/g, " ")
+              : UAKWorkspace.t("Nothing to test first:") + " " + (card.test_first || "-");
+            tests.dataset.noI18n = "";
+            li.append(title, meta, tests);
+            el("plan-cards").append(li);
+          });
+          el("plan-files").textContent =
+            "# .uak/TASKS.md\n\n" + view.tasks + "\n\n# .uak/OWNERS.md\n\n" + view.owners;
+          el("approve-project").textContent = view.project;
+          el("approve-publish").disabled = el("approve-name").value !== view.project;
+          setPlanBusy(operationBusy());
+        }
+        function ideaFields() {
+          var fields = {
+            idea: el("idea-text").value,
+            audience: el("idea-audience").value,
+            event_length: el("idea-length").value,
+            team_size: parseInt(el("idea-team").value, 10),
+          };
+          fields[planView && planView.mode === "marathon" ? "goal" : "rubric"] = el("idea-goal").value;
+          if (!el("idea-overwrite-row").hidden) fields.overwrite = el("idea-overwrite").checked;
+          return fields;
+        }
+        el("idea-form").onsubmit = function (event) {
+          event.preventDefault();
+          action(el("idea-save"), async function () {
+            try {
+              await api("idea", ideaFields());
+            } catch (e) {
+              if (e.status === 409) {
+                el("idea-overwrite-row").hidden = false;
+                el("idea-overwrite").focus();
+              }
+              throw e;
+            }
+            el("idea-overwrite-row").hidden = true;
+            el("idea-overwrite").checked = false;
+            await loadPlan();
+            el("idea-status").textContent = UAKWorkspace.t("IDEA.md is saved. Next: create the plan.");
+          });
+        };
+        function startPlanning(button, note) {
+          action(button, async function () {
+            var body = { harness: selectedPlanner() };
+            if (note) body.note = note;
+            await api("plan", body);
+            el("approve-confirm").hidden = true;
+            await refresh();
+          });
+        }
+        el("plan-create").onclick = function () {
+          startPlanning(this, "");
+        };
+        el("plan-change").onclick = function () {
+          var note = el("plan-note").value.trim();
+          if (!note) {
+            error("Write what should change in the plan first.");
+            el("plan-note").focus();
+            return;
+          }
+          startPlanning(this, note);
+        };
+        el("plan-approve").onclick = function () {
+          el("approve-confirm").hidden = false;
+          el("approve-name").value = "";
+          el("approve-publish").disabled = true;
+          el("approve-name").focus();
+        };
+        el("approve-name").oninput = function () {
+          el("approve-publish").disabled = !planView || this.value !== planView.project;
+        };
+        el("approve-cancel").onclick = function () {
+          el("approve-confirm").hidden = true;
+          el("plan-approve").focus();
+        };
+        el("approve-publish").onclick = function () {
+          var typed = el("approve-name").value;
+          action(this, async function () {
+            await api("plan/approve", { confirm: typed, digest: planView.digest });
+            el("approve-confirm").hidden = true;
+            el("plan-note").value = "";
+            await refresh();
+          });
+        };
         function drawDashboard(data) {
           latestDashboard = data;
           el("dashboard-project").textContent = state.target || "";
@@ -1611,10 +1969,13 @@
           }
           var response = await fetch("/api/" + path, options);
           var body = await response.json();
-          if (!response.ok)
-            throw Error(
+          if (!response.ok) {
+            var failure = Error(
               body.error || "The action could not finish. Please retry.",
             );
+            failure.status = response.status;
+            throw failure;
+          }
           return body;
         }
         async function action(button, fn) {
@@ -1629,8 +1990,7 @@
           } finally {
             requestBusy = false;
             button.disabled =
-              step === 4 &&
-              (state.phase === "installing" || state.phase === "checking");
+              step === 4 && isBusy(state.phase);
           }
         }
         function profile(value) {
@@ -1913,7 +2273,7 @@
         function render(data) {
           var previous = state.phase;
           state = data;
-          var busy = data.phase === "installing" || data.phase === "checking";
+          var busy = isBusy(data.phase);
           var failed = data.phase === "error";
           el("status-heading").classList.toggle("working", busy);
           el("status-icon").textContent = busy
@@ -1924,9 +2284,11 @@
                 ? "!"
                 : "✓";
           el("result-title").textContent = busy
-            ? data.phase === "installing"
-              ? "Installing your workspace"
-              : "Checking your next steps"
+            ? {
+                installing: "Installing your workspace",
+                planning: "Creating your plan",
+                approving: "Publishing your plan",
+              }[data.phase] || "Checking your next steps"
             : data.ready
               ? "Your workspace is ready"
               : failed
@@ -2020,11 +2382,21 @@
             li.append(text, code, progress);
             el("checks").append(li);
           }
+          // Planning shows while the kit is installed and the project is not ready yet.
+          el("planning").hidden = !data.installed || !!data.ready || data.phase === "installing";
+          if (!el("planning").hidden && !isBusy(data.phase) && (previous === "planning" || planFor !== data.target)) {
+            planFor = data.target;
+            loadPlan();
+          }
+          setPlanBusy(isBusy(data.phase));
           syncRunningControls();
           // A finished readiness check moves on by itself: to project progress when ready, and it refreshes the
           // dashboard's next step when the check was started from there.
           // A fast check can finish before the first poll ever sees "checking": remember that one was asked.
-          if ((previous === "checking" || checkRequested) && data.phase !== "checking") {
+          if (
+            (previous === "checking" || previous === "approving" || checkRequested) &&
+            !isBusy(data.phase)
+          ) {
             checkRequested = false;
             if (data.ready || currentSection === "dashboard") {
               var moved = currentSection !== "dashboard";
@@ -2039,7 +2411,7 @@
           try {
             var data = await api("status");
             render(data);
-            if (data.phase === "installing" || data.phase === "checking")
+            if (isBusy(data.phase))
               timer = setTimeout(refresh, 1200);
           } catch (e) {
             error(
@@ -2060,7 +2432,7 @@
             } else if (data.phase !== "welcome") {
               show(4, false);
               render(data);
-              if (data.phase === "installing" || data.phase === "checking")
+              if (isBusy(data.phase))
                 refresh();
             }
             if (stay) openSection("dashboard");
