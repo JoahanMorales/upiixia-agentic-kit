@@ -3,16 +3,22 @@
 #   design-lint [SRC_DIR]   default: web/src, else src, else app (Next.js); UI kit: SRC/lib/ui, SRC/components/ui, components/ui
 #   design-lint --changed [BASE]   only the lines this branch adds since origin/BASE (uak done runs it)
 #   design-lint --file PATH        one file (the post-edit hook runs it on each UI file an agent writes)
+#   design-lint --strict ...       the scale warnings below fail too
 # Fails on, outside the UI kit: raw Tailwind palette classes (bg-stone-400, text-emerald-900), hex colors in code
 # (#c2410c; a fallback inside var(--x, #fff) is fine), and a local component named like one of the UI kit's.
 # A line with "design-lint: ok" is skipped (say why on that line).
+# Warns (DESIGN_LINT_WARN, exit 0; --strict fails): font size above 96 px (px, rem at 16, Tailwind text-[..], text-8xl/9xl,
+# the max of a clamp()), vw type above 12vw, a button or input taller than 56 px. Why (F0, 2026-11-11, docs/design/
+# failures.md): two landings with 168 and 207 px display type scored 1; the one scored 5 topped out at 36 px.
 # Why (Chilangatón): view agents started before the design system landed; each built its own badge, toggle and boxes
 # from stone-*/emerald-* and a hand-typed orange, and the first UI was redone 3 hours in.
 set -u
 LC_ALL=C; export LC_ALL
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$root" || exit 2
-changed= base=${UAK_BASE:-main} only=
+changed= base=${UAK_BASE:-main} only= strict=no
+for a in "$@"; do [ "$a" != --strict ] || strict=yes; done
+if [ "$strict" = yes ]; then n=$#; while [ "$n" -gt 0 ]; do a=$1; shift; n=$((n - 1)); [ "$a" = --strict ] || set -- "$@" "$a"; done; fi
 if [ "${1:-}" = --changed ]; then changed=yes; shift; [ -z "${1:-}" ] || { base=$1; shift; }; fi
 if [ "${1:-}" = --file ]; then
   only=${2:-}; shift 2 2>/dev/null || shift
@@ -206,6 +212,47 @@ find "$src" "${ui:-$src}" -type f -name '*.css' ! -path '*/node_modules/*' 2>/de
     END { check("--text", "--bg"); check("--text", "--surface"); check("--text-2", "--bg"); check("--text-2", "--surface")
       for (k in def) if (k ~ /-ink$/) { b = k; sub(/-ink$/, "", b); check(k, b) } }' "$f"
 done >> "$out"
+# Scale (F0): sizes above the bounds are warnings. Every stylesheet and component under src, the UI kit and tokens included.
+warn=$(mktemp "${TMPDIR:-/tmp}/uak-dlint.XXXXXX") || exit 2
+trap 'rm -f "$list" "$out" "$warn"' EXIT
+find "$src" -type f \( -name '*.css' -o -name '*.scss' -o -name '*.tsx' -o -name '*.jsx' -o -name '*.ts' -o -name '*.js' -o -name '*.vue' -o -name '*.svelte' -o -name '*.html' \) \
+  ! -name '*.d.ts' ! -name '*.test.*' ! -name '*.spec.*' ! -path '*/node_modules/*' 2>/dev/null | sort |
+  while IFS= read -r f; do
+    [ -z "$only" ] || [ "$f" = "$only" ] || [ "$f" = "./$only" ] || continue
+    awk -v f="$f" '
+      function scan(e) { mpx = -1; mvw = -1
+        while (match(e, /[0-9]*\.?[0-9]+(px|rem|vw)/)) { t = substr(e, RSTART, RLENGTH); e = substr(e, RSTART + RLENGTH)
+          if (t ~ /vw$/) { if (t + 0 > mvw) mvw = t + 0 } else { v = (t ~ /rem$/) ? (t + 0) * 16 : t + 0; if (v > mpx) mpx = v } } }
+      function size(e, n,   capped) { scan(e); capped = (mpx >= 0 && e ~ /(clamp|min)\(/)
+        if (mpx > 96) printf "%s:%d · font size %d px is above the 96 px bound at 1280 (F0, docs/design/failures.md): hero display 96 px at most, 48 px at 390\n", f, n, mpx
+        else if (mvw > 12 && !capped) printf "%s:%d · font size %svw is above 12vw (F0, docs/design/failures.md): mega type only when the human picked it\n", f, n, mvw }
+      function cut(e) { sub(/^[^-0-9a-z.(]+/, "", e)
+        if (e ~ /^(clamp|min|calc)\(/) { i = index(e, ")"); return i ? substr(e, 1, i) : e }
+        sub(/[,;}].*/, "", e); return e }
+      function px_h(n, v, what) { if (v > 56) printf "%s:%d · %s height %d px is above 56 px (F0, docs/design/failures.md): primary buttons are 40-52 px tall\n", f, n, what, v }
+      { line = $0; n = FNR
+        if (line ~ /\{/) { sel = line; sub(/\{.*/, "", sel) }
+        if (line !~ /design-lint: ok/) {
+          rest = line
+          while (match(rest, /font-size[[:space:]]*:[[:space:]]*[^;}]*/)) { e = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH); sub(/^[^:]*:/, "", e); size(cut(e), n) }
+          rest = line
+          while (match(rest, /fontSize[[:space:]]*:[[:space:]]*[^}]*/)) { e = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH); sub(/^[^:]*:/, "", e); e = cut(e)
+            gsub(/[[:space:]]/, "", e); if (e ~ /^[0-9.]+$/) e = e "px"; size(e, n) }
+          rest = line
+          while (match(rest, /--(font|text|fs|type)[a-z0-9-]*[[:space:]]*:[[:space:]]*[^;}]*/)) { e = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH); sub(/^[^:]*:/, "", e); if (e !~ /^[[:space:]]*var\(/) size(cut(e), n) }
+          rest = line
+          while (match(rest, /text-\[[^]]+\]/)) { e = substr(rest, RSTART, RLENGTH); pre = (RSTART > 1) ? substr(rest, RSTART - 1, 1) : " "; rest = substr(rest, RSTART + RLENGTH)
+            if (pre !~ /[A-Za-z0-9-]/) size(e, n) }
+          if (line ~ /(^|[^A-Za-z0-9-])text-(8|9)xl([^A-Za-z0-9-]|$)/) printf "%s:%d · text-8xl or text-9xl is a font size of 96 px or more (F0, docs/design/failures.md): hero display 96 px at most, 48 px at 390\n", f, n
+          # Heights of buttons and inputs: a CSS rule whose selector names one, or a Tailwind class on a line that has one.
+          if (line ~ /(^|[^-A-Za-z])(min-)?height[[:space:]]*:[[:space:]]*[0-9.]+(px|rem)/ && (sel ~ /button|btn|input/ || line ~ /button|btn|input/)) {
+            match(line, /(^|[^-A-Za-z])(min-)?height[[:space:]]*:[[:space:]]*[0-9.]+(px|rem)/); e = substr(line, RSTART, RLENGTH); scan(e); px_h(n, mpx, "button or input") }
+          if (line ~ /<(button|Button|input|Input|textarea)|btn|button|Button/) {
+            rest = line
+            while (match(rest, /(^|[^A-Za-z0-9-])(min-)?h-(\[[0-9.]+(px|rem)\]|[0-9]+)/)) { e = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH)
+              if (e ~ /\[/) { scan(e); px_h(n, mpx, "button or input") } else { sub(/^.*h-/, "", e); px_h(n, (e + 0) * 4, "button or input") } } } }
+        if (line ~ /\}/) sel = "" }' "$f"
+  done > "$warn"
 [ -z "$(printf '%s' "$lock_out" | tr -d '\n')" ] || printf '%s\n' "$lock_out" | grep -v '^$' >> "$out"
 files=$(awk 'END {print NR + 0}' "$list")
 if [ "$changed" = yes ]; then
@@ -216,8 +263,12 @@ if [ "$changed" = yes ]; then
     /^@@/ { h = $3; sub(/^\+/, "", h); n = split(h, a, ","); c = (n > 1) ? a[2] + 0 : 1; for (i = 0; i < c; i++) print f ":" (a[1] + i) }' > "$list.added"
   awk 'NR == FNR { ok[$0] = 1; next } { k = $0; sub(/ · .*/, "", k); if (k in ok) print }' "$list.added" "$out" > "$out.c"
   mv "$out.c" "$out"
+  awk 'NR == FNR { ok[$0] = 1; next } { k = $0; sub(/ · .*/, "", k); if (k in ok) print }' "$list.added" "$warn" > "$warn.c"
+  mv "$warn.c" "$warn"
   files=$(cut -d: -f1 "$list.added" | sort -u | awk 'END {print NR + 0}'); rm -f "$list.added"
 fi
+[ "$strict" != yes ] || { cat "$warn" >> "$out"; : > "$warn"; }
+if [ -s "$warn" ]; then head -n 10 "$warn" | sed 's/^/DESIGN_LINT_WARN /'; fi
 if [ -s "$out" ]; then
   head -n 30 "$out" | sed 's/^/DESIGN_LINT /'
   n=$(awk 'END {print NR + 0}' "$out")
