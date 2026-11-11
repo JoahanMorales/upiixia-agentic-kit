@@ -94,9 +94,16 @@ if [ -d .claude/skills ]; then
       [ ! -d "$kit_home/kit/.agents/skills/$n" ] || cp -R "$kit_home/kit/.agents/skills/$n" "$1/"
     done
   }
-  skills_stale() { # $1 = folder: a kit skill missing or different
+  # One line per file: its path and the checksum of its content without CRs. POSIX tools only. Why (v6.1.0 review of
+  # UAK-041): `diff --strip-trailing-cr` is GNU; BSD diff before macOS 13 fails on it and every run said "stale".
+  skill_sums() { # $1 = skill folder
+    [ -d "$1" ] || return 0
+    (cd "$1" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do printf '%s %s\n' "$f" "$(tr -d '\r' < "$f" | cksum)"; done)
+  }
+  skills_stale() { # $1 = folder: a kit skill missing or different (CRLF-only differences do not count)
     for s in .claude/skills/*/; do
-      s=${s%/}; diff -r -q --strip-trailing-cr "$s" "$1/$(basename "$s")" >/dev/null 2>&1 || return 0
+      s=${s%/}; [ -d "$1/$(basename "$s")" ] || return 0
+      [ "$(skill_sums "$s")" = "$(skill_sums "$1/$(basename "$s")")" ] || return 0
     done
     return 1
   }
