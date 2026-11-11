@@ -1,0 +1,14 @@
+{
+  "scored": "2026-11-11",
+  "by": "JoahanMorales",
+  "scale": "1 Feo · 2 Flojo · 3 Pasable · 4 Bueno · 5 Lo usaría",
+  "frontends": {
+    "upiixsol":  {"score": 5, "tells": [], "note": "esta muy bonito pero se rompían los botones y algunas animaciones pero es de los mejores frontend"},
+    "speedhack": {"score": 4, "tells": ["Texto genérico", "Jerarquía plana"], "note": "bastante simple, y la paleta de colores no tiene mucho sentido"},
+    "colonia":   {"score": 3, "tells": ["Paleta sin carácter", "Gradientes y brillos", "Muy apretado"], "note": "los botones y todo es gigante"},
+    "pasala":    {"score": 3, "tells": [], "note": "esta bien pero simple"},
+    "axia":      {"score": 1, "tells": ["Tarjetas suaves iguales", "Texto genérico", "Paleta sin carácter", "Jerarquía plana", "Mucho vacío"], "note": "EST SUPER SIMPLE"},
+    "devday":    {"score": 1, "tells": ["Fuente de siempre", "Tarjetas suaves iguales", "Paleta sin carácter", "Texto genérico", "Jerarquía plana", "Muy apretado", "Se rompe en móvil"], "note": "cosas super grandes y full ai slop"}
+  },
+  "mean": 2.83
+}
