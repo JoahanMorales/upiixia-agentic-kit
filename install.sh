@@ -179,7 +179,7 @@ for s in $skills; do putdir "$kit/.uak/skills/$s" "$target/.claude/skills/$s"; d
 ext_fetch() { # ext_fetch NAME URL COMMIT SUB TREE: prints the reason on failure
   g=${UAK_EXTERNAL_SKILLS_GIT:-git}
   command -v "$g" >/dev/null 2>&1 || { printf 'git is not installed'; return 1; }
-  ext_tmp=$(mktemp -d 2>/dev/null) || ext_tmp=$(mktemp -d -t uakext 2>/dev/null) || { ext_tmp="$target/.uak/.ext-tmp.$$"; mkdir -p "$ext_tmp" || { printf 'no temp dir'; return 1; }; }
+  [ -d "$ext_tmp" ] || { printf 'no temp dir'; return 1; }
   ( cd "$ext_tmp" && "$g" init -q fetch ) >/dev/null 2>&1 || { printf 'git init failed'; return 1; }
   ( cd "$ext_tmp/fetch" && GIT_TERMINAL_PROMPT=0 "$g" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 fetch -q --depth 1 "$2" "$3" ) >/dev/null 2>&1 \
     || { printf 'could not fetch %s at %s (offline or refused)' "$2" "$(printf %.7s "$3")"; return 1; }
@@ -196,6 +196,8 @@ ext_tsv=${UAK_EXTERNAL_SKILLS_TSV:-$kit/.uak/settings/external-skills.tsv}
 if [ "${UAK_EXTERNAL_SKILLS:-on}" != off ] && [ -f "$ext_tsv" ] && case " $skills " in *" landing-story "*) true;; *) false;; esac; then
   while IFS="$(printf '\t')" read -r en eu ec es et || [ -n "$en" ]; do
     et=$(printf %s "$et" | tr -d '\r'); [ -n "$et" ] || continue
+    # The temp dir is made here, not in ext_fetch: that runs in a subshell and the EXIT trap would never see it.
+    ext_tmp=$(mktemp -d 2>/dev/null) || ext_tmp=$(mktemp -d -t uakext 2>/dev/null) || { ext_tmp="$target/.uak/.ext-tmp.$$"; mkdir -p "$ext_tmp" 2>/dev/null || ext_tmp=; }
     if why=$(ext_fetch "$en" "$eu" "$ec" "$es" "$et"); then say "  + external skill $en (pinned $(printf %.7s "$ec"))"
     else say "  ! external skill $en not installed: $why; landings use landing-story alone"; fi
     rm -rf "$ext_tmp"; ext_tmp=

@@ -94,6 +94,20 @@ def offline_install_still_succeeds(r):
     return "exit 0"
 
 
+def temp_dir_is_removed(r):
+    url, commit, tree = remote(r, "tmp")
+    gone = (r.scratch / "no-such-remote-tmp.git").resolve().as_uri()
+    for label, rw in (("ok", row(url, commit, tree)), ("mismatch", row(url, commit, "0" * 40)), ("offline", row(gone, "a" * 40, "b" * 40))):
+        tmpd = r.scratch / ("tmpdir-" + label)
+        tmpd.mkdir()
+        d = repo(r, "ext-tmp-" + label)
+        out = install(r, d, rw, extra_env={"TMPDIR": str(tmpd)})
+        expect(out.returncode == 0, label + ": install " + out.stdout[-300:])
+        left = [p.name for p in tmpd.iterdir()]
+        expect(not left, "%s leaves nothing in TMPDIR: %s" % (label, left))
+    return "clean"
+
+
 def kit_never_contains_external_skill_files(r):
     kit = r.package
     bad = [str(p.relative_to(kit)) for p in kit.rglob("*")
@@ -127,7 +141,7 @@ def doctor_reports_external_skill(r):
 
 
 TESTS = [fetch_pinned_skill_installs_both_harness_dirs, tree_mismatch_installs_nothing, offline_install_still_succeeds,
-         kit_never_contains_external_skill_files, doctor_reports_external_skill]
+         temp_dir_is_removed, kit_never_contains_external_skill_files, doctor_reports_external_skill]
 
 
 def main():
