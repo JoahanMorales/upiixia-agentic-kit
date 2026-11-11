@@ -141,11 +141,12 @@ def a_stale_none_signal_in_the_users_env_runs_the_tests(r):
     shutil.copytree(r.package / ".uak" / "bin", pkg / ".uak" / "bin")
     (pkg / ".uak" / "tests").mkdir()
     (pkg / ".uak" / "tests" / "test_one.py").write_text("print('ONE_RAN')\n", encoding="utf-8")
-    plain = r.run([r.bash, ".uak/bin/smoke", "--package-only"], cwd=pkg, env=stale, allowed=None)
+    # CI runs this file inside a shard: its UAK_SMOKE_TESTS would leak into these nested smokes (lesson #4).
+    plain = r.run(["env", "-u", "UAK_SMOKE_TESTS", r.bash, ".uak/bin/smoke", "--package-only"], cwd=pkg, env=stale, allowed=None)
     expect("ONE_RAN" in plain.stdout and "Shard: 0" not in plain.stdout, "a plain smoke ignores a stale none-signal: " + (plain.stdout + plain.stderr)[-400:])
     token = pkg / "token"
     token.write_text("affected-none\n", encoding="utf-8")
-    gate = r.run([r.bash, ".uak/bin/smoke", "--package-only"], cwd=pkg, env={"UAK_SMOKE_GATE_NONE": token.as_posix()}, allowed=None)
+    gate = r.run(["env", "-u", "UAK_SMOKE_TESTS", r.bash, ".uak/bin/smoke", "--package-only"], cwd=pkg, env={"UAK_SMOKE_GATE_NONE": token.as_posix()}, allowed=None)
     expect("Shard: 0 of 1" in gate.stdout and "ONE_RAN" not in gate.stdout, "the gate's token file skips the tests: " + (gate.stdout + gate.stderr)[-400:])
     return "stale env ignored"
 
