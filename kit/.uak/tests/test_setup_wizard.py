@@ -5,6 +5,7 @@ import http.client
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -306,11 +307,81 @@ def installer_bash_is_preferred(root, tmp):
     assert not text or "UAK_SETUP_BASH" in text, "install.sh passes its own Bash to setup"
 
 
+def install_with(root, target, options, repair=False):
+    """One install (or repair) through a setup server; returns its final status."""
+    with LiveServer(str(target)) as srv:
+        assert request(srv, "POST", "/api/inspect", {"target": str(target)})[0] == 200
+        assert request(srv, "POST", "/api/repair" if repair else "/api/install", options)[0] == 202
+        srv.worker.join(120)
+        assert not srv.worker.is_alive()
+        return json.loads(request(srv, "GET", "/api/status")[1])
+
+
+def fresh_view(target):
+    """What a NEW setup server (a restarted install.sh --wizard) reports for the folder, and its readiness answer."""
+    with LiveServer(str(target)) as srv:
+        state = json.loads(request(srv, "POST", "/api/inspect", {"target": str(target)})[1])
+        status, body, _ = request(srv, "POST", "/api/check", {})
+        return state, status, json.loads(body)
+
+
+def partial_install_is_not_installed_after_restart(root, tmp):
+    """UAK-010: install.sh copied .uak/ and VERSION, then failed on a file named .claude; a restarted setup server read
+    the files left on disk and reported the project installed (only the first server's memory said otherwise)."""
+    if not (root.parent / "install.sh").is_file():
+        return installer_absent_package_is_explicit(root, tmp)
+    target = repository(tmp / "partial target")
+    (target / ".claude").write_text("Keep this user file", encoding="utf-8")
+    state = install_with(root, target, {"mode": "sprint", "harness": ["claude"], "blackbox": False})
+    assert state["phase"] == "error" and not state["installed"]
+    assert (target / ".uak/VERSION").is_file(), "the failure happens after the engine is copied (the case to cover)"
+    state, status, body = fresh_view(target)
+    assert not state["installed"], "a restarted setup never reports a partial install as installed"
+    assert state.get("can_repair"), "a partial install is offered Repair or update"
+    assert status == 400 and "Repair" in body.get("error", ""), "readiness says how to recover: %r" % body
+    assert (target / ".claude").read_text(encoding="utf-8") == "Keep this user file"
+    (target / ".claude").rename(target / ".claude.saved")
+    state = install_with(root, target, {"mode": "sprint", "harness": ["claude"], "blackbox": False}, repair=True)
+    assert state["phase"] == "installed" and state["installed"]
+    assert fresh_view(target)[0]["installed"], "after the repair a restarted setup sees it installed"
+
+
+def failed_update_stays_incomplete(root, tmp):
+    """An --update that stops halfway leaves the project visibly incomplete, not a mix reported as installed."""
+    if not (root.parent / "install.sh").is_file():
+        return installer_absent_package_is_explicit(root, tmp)
+    target = repository(tmp / "update target")
+    options = {"mode": "sprint", "harness": ["claude"], "blackbox": False}
+    assert install_with(root, target, options)["installed"]
+    shutil.rmtree(str(target / ".claude"))
+    (target / ".claude").write_text("a file where the kit needs a folder", encoding="utf-8")
+    state = install_with(root, target, options, repair=True)
+    assert state["phase"] == "error" and not state["installed"]
+    state, status, body = fresh_view(target)
+    assert not state["installed"] and state.get("can_repair"), "a failed update is incomplete after a restart"
+    assert status == 400 and "Repair" in body.get("error", ""), body
+
+
+def complete_install_is_still_installed(root, tmp):
+    """No regression: a complete install, and one made before this change (no completion stamp at all), are installed."""
+    if (root.parent / "install.sh").is_file():
+        target = repository(tmp / "complete target")
+        assert install_with(root, target, {"mode": "sprint", "harness": ["claude"], "blackbox": False})["installed"]
+        state, status, _ = fresh_view(target)
+        assert state["installed"] and status == 202, "a complete install is installed for a new setup server"
+    legacy = repository(tmp / "legacy target")
+    shutil.copytree(str(root / ".uak"), str(legacy / ".uak"), ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    (legacy / ".uak/PROJECT.md").write_text((root / ".uak/templates/PROJECT.sprint.md").read_text(encoding="utf-8"),
+                                            encoding="utf-8")
+    assert fresh_view(legacy)[0]["installed"], "an install from before the completion stamp is still installed"
+
+
 TESTS = [wizard_starts_before_installation, legacy_install_remains_noninteractive, invalid_requests_cannot_mutate,
          installer_arguments_are_literal, duplicate_install_is_rejected, setup_preserves_unrelated_settings, installed_is_not_ready,
          partial_install_can_recover, ambiguous_settings_are_not_reported_saved, an_older_installed_engine_is_not_ready,
          all_stack_presets_are_selectable, installer_absent_package_is_explicit, nested_json_is_rejected,
-         installer_bash_is_preferred]
+         installer_bash_is_preferred, partial_install_is_not_installed_after_restart, failed_update_stays_incomplete,
+         complete_install_is_still_installed]
 
 
 def main():

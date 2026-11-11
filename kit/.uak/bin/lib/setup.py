@@ -200,8 +200,14 @@ def read_config(target):
     return values
 
 
+def install_unfinished(target):
+    """install.sh writes .uak/INSTALLING first and removes it last (UAK-010): present means it stopped halfway."""
+    return (Path(target) / ".uak/INSTALLING").exists()
+
+
 def kit_present(target):
-    return all((Path(target) / path).is_file() for path in (".uak/PROJECT.md", ".uak/bin/uak", ".uak/VERSION"))
+    return not install_unfinished(target) and \
+        all((Path(target) / path).is_file() for path in (".uak/PROJECT.md", ".uak/bin/uak", ".uak/VERSION"))
 
 
 def readiness(output, code):
@@ -305,6 +311,8 @@ class SetupServer(ThreadingHTTPServer):
 
     def engine(self):
         """The engine shipped with this setup (kit/.uak or an installed .uak), refused when the project's differs."""
+        if self.target and install_unfinished(self.target):
+            raise ValueError("The last install or update did not finish. Choose Repair or update kit to complete it.")
         if not self.target or not kit_present(self.target) or self.failed_target == self.target:
             raise ValueError("Install the kit before planning or checking readiness.")
         project_root(self.target)
