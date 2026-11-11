@@ -6,7 +6,7 @@
 
 `round` writes .uak/design/rounds/R<k>/brief.md (the landing's story beats from IDEA.md; a beat IDEA.md does not
 have is listed as MISSING, never invented) and v<i>/genome.json + v<i>/TASK.md for each of N variants (default 8,
-max 20). A genome is 8 genes with fixed value lists (GENES) plus a recipe; no two variants of a round share more than
+max 20). A genome is 9 genes (8 before UAK-068: older genome.json lack `stage`) with fixed value lists (GENES) plus a recipe; no two variants of a round share more than
 MAX_SHARED genes, and each gene's values all appear before any repeats. The same --seed gives the same round.
 It prints the cost (N x Design-Variant-Tokens from PROJECT.md, default 60k, and the model tier) and writes nothing
 without --yes. `shoot` captures v<i>/1280.png and v<i>/390.png for any variant whose PNGs are missing.
@@ -28,6 +28,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+STILL = "still (no animation)"
 # The genome. Order matters (it is the order of genome.json). Scale values stay inside the F0 bounds
 # (docs/design/failures.md: display type <= 96 px on a landing hero, <= 48 px at 390, body 16-18 px, buttons 40-52 px).
 GENES = {
@@ -39,7 +40,11 @@ GENES = {
     "imagery": ["product screenshot", "video loop", "3D cut-out", "illustration", "type only"],
     "motion": ["still", "entrance", "scroll", "pointer"],
     "voice": ["plain", "bold claim", "numbers first"],
+    # Why (AXIA R1-R2, 2026-11-11): the hero is a stand-by screen for a hackathon projector; how it moves is a choice.
+    "stage": ["three.js scene", "three.js point cloud from the team's own image", "three.js scroll-driven", "canvas 2D generative",
+              "SVG/CSS animation", "real video with a live overlay", STILL],
 }
+AT_MOST_ONCE = {"stage": STILL}  # drawn at most once per round: a room turns its head for motion
 SCALE_BOUNDS = {  # max hero display px at 1280 wide (landing-story: 96 px ceiling, 48 px at 390)
     "restrained": "hero display at most 56 px",
     "standard": "hero display at most 72 px",
@@ -55,7 +60,7 @@ BEATS = ["one line", "proof", "wow", "steps", "users", "ask"]
 
 
 def shared_genes(a, b):
-    """How many of the 8 genes two genomes (dicts with "genes", or the gene dicts) have in common."""
+    """How many of the genes two genomes (dicts with "genes", or the gene dicts) have in common."""
     ga, gb = a.get("genes", a), b.get("genes", b)
     return sum(1 for k in GENES if ga.get(k) == gb.get(k))
 
@@ -104,18 +109,20 @@ def _try_round(n, seed, salt, recipes, ctx):
         for _ in range(400):
             genes, why = {}, {}
             for g in GENES:
+                once = AT_MOST_ONCE.get(g)
                 if taste:
-                    cands = list(GENES[g])
+                    cands = [v for v in GENES[g] if not (v == once and counts[g][v] >= 1)]
                     w = [(TASTE_FLOOR + weights.get(g, {}).get(v, 0.5)) * factors.get(g, {}).get(v, 1.0) for v in cands]
                     pick = rng.weighted(cands, w)
                     why[g] = "taste %.2f" % weights.get(g, {}).get(pick, 0.5)
                 else:
-                    low = min(counts[g].values())  # spread: a value repeats only once all the others appeared
+                    ok = [v for v in GENES[g] if not (v == once and counts[g][v] >= 1)]
+                    low = min(counts[g][v] for v in ok)  # spread: a value repeats only once all the others appeared
                     if g in factors:  # the project's material: all values stay possible, the unseen and the available likelier
-                        cands = list(GENES[g])
+                        cands = ok
                         pick = rng.weighted(cands, [factors[g].get(v, 1.0) * (1.0 if counts[g][v] == low else REPEAT_PENALTY) for v in cands])
                     else:
-                        pick = rng.pick([v for v in GENES[g] if counts[g][v] == low])
+                        pick = rng.pick([v for v in ok if counts[g][v] == low])
                     why[g] = "wildcard" if weights else "spread"
                 genes[g] = pick
             if not all(shared_genes(genes, o["genes"]) <= MAX_SHARED for o in out):
@@ -410,6 +417,18 @@ def task_text(rnd, i, genome, screen):
               "- Hero display type: at most 96 px at 1280 wide and at most 48 px at 390 wide. Your scale gene picks inside that: %s at 1280." % SCALE_BOUNDS[genes["scale"]],
               "- Body text 16-18 px. Primary buttons 40-52 px tall. At most 6 palette colors besides media. Colors are tokens in `:root`.",
               "- It must read at 1280x720 (the hero above the fold) and at 390 px wide with no horizontal scroll.", "",
+              "## The desktop first, the stage hero (the human's rules from R3; they override anything above)",
+              "- Design for 1440 and 1920 wide first, then 390. The hero is full-bleed. Content containers are at least 1200 px at 1440",
+              "  (a text column may be narrower, the composition fills the screen). No section with wide empty gutters.",
+              "- The hero is a stand-by loop for a projector: it runs with NO interaction in a 10-15 s cycle and tells the project to a",
+              "  stranger: subject, what the product finds, the result, the wow. Your `stage` gene (**%s**) says how. Reduced motion gives a complete still." % genes.get("stage", STILL),
+              "- Never show a raster upscaled. Recreate the subject (3D, points, line art, vector) or show it at or below native size. A real",
+              "  result chart may be rebuilt as live SVG/HTML from its real numbers.",
+              "- three.js: import map pinned to `https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js` (addons under `.../three@0.170.0/examples/jsm/`),",
+              "  devicePixelRatio at most 2, pause rendering when the tab is hidden, a designed still when WebGL is missing, no branded 3D models",
+              "  (build from primitives or the team's own assets), no network fetches but that CDN and fonts.",
+              "- Glows, neon blurs and soft gradient haze are tells (the human: \"AI slop\"); light comes from the scene itself.",
+              "- `shoot` also writes `1920.png`; check it first, then 1280 and 390.", "",
               "## Start from material",
               "Use the team's own material first: logo, mascot, photos, map, the real product screen. List what exists (`web/public`, `assets/`,",
               "links in IDEA.md) before designing, and build around it. Then generated material. Only then the MotionSites media shelf.",
