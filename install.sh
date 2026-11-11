@@ -116,6 +116,10 @@ if [ -d "$target/.uak/bin" ] && [ "$update" = no ]; then
   say "The target already has .uak/. Use --update to refresh the engine." >&2; exit 2
 fi
 mkdir -p "$target/.uak"
+# Until the last step succeeds the install is not complete, and says so on disk: setup reads .uak/INSTALLING after a
+# restart too. Why (UAK-010): a failed install had already copied .uak/ and VERSION, and a restarted setup read
+# those files as "installed". An install from before this stamp has none and stays installed.
+: > "$target/.uak/INSTALLING"
 # The project's own smoke adapter lives in .uak/bin but is project data: an --update keeps it.
 # Why (MLB hackathon): an update deleted .uak/bin/smoke-project and its provenance; the team restored them by hand.
 keep=$(mktemp -d)
@@ -313,6 +317,7 @@ case "$cur_hooks" in
   *) say "  ~ core.hooksPath is $cur_hooks (another hook manager): kept. Add the secret scan to its pre-commit: bash .uak/githooks/pre-commit";;
 esac
 
+rm -f "$target/.uak/INSTALLING"  # every step above succeeded (set -eu stops at the first failure)
 cat <<EOF
 
 Done. Next:

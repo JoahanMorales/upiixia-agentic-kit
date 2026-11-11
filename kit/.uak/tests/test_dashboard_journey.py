@@ -244,11 +244,14 @@ def interrupted_install_can_recover(root, tmp):
         state = status_of(srv)
         assert state["phase"] == "error" and not state["installed"] and not state["ready"], state
         assert ".claude" in state["error"] and "Repair" in state["error"], "the error names the blocking file"
-        assert wizard.MODULE.kit_present(target), "the engine files were copied before the failure"
+        # The engine files were copied before the failure, yet the unfinished install is never taken as installed
+        # (UAK-010: install.sh leaves .uak/INSTALLING until its last step succeeds).
+        assert (target / ".uak/VERSION").is_file() and not wizard.MODULE.kit_present(target), \
+            "the engine files were copied before the failure, and the unfinished install is not installed"
         status, state, _ = post(srv, "/api/inspect", {"target": str(target)})
         assert status == 200 and not state["installed"] and state["can_repair"] and state["phase"] == "error", \
             "files on disk never make a failed installation look installed: %r" % state
-        actionable(post(srv, "/api/check", {}), "Install the kit")
+        actionable(post(srv, "/api/check", {}), "Repair or update")  # how to finish the unfinished install (UAK-010)
         actionable(post(srv, "/api/repair", dict(options, mode="marathon")), "sprint")
         assert post(srv, "/api/repair", options)[0] == 202
         wait(srv)
