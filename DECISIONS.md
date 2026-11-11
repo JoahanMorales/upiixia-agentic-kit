@@ -54,3 +54,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794358322 | UAK-053 | refusal text lives in backlog_read_note | Why: reviewer could not tell what was read
 - 1794358440 | UAK-051 | function counts only if it has _ or inner capital; warn only if no defining file is inside Paths; takes optional backlog file arg for plan | Why: avoid prose false positives
 - 1794358486 | UAK-045 | two existing fixtures got a second file | Why: spec says one file unapproved needs human
+- 1794358586 | UAK-048 | strong=claude-opus-5[effort=high] (only Opus ID shown with effort); fast=composer-2.5[] | Why: claude-opus-5-5[effort=high] not shown by docs
