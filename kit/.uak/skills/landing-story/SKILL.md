@@ -47,6 +47,8 @@ steps 2–6: read the 2–3 closest examples (`examples/INDEX.md`; borrow struct
 media in order: the team's own assets, then generated, then its media shelf; write the spec from
 `references/spec-template.md` with real copy from §0; build; then look and fix with `scripts/shoot.py` and
 `references/review.md` until the rubric averages 8+ with nothing under 7, or 3 rounds.
+The scale bounds of §2 override any size in its examples or `references/craft.md` (their `clamp()` display up to
+160–380 px and 12–28vw mega type are borrowed as structure only; mega type only if the human picked it in a round).
 Without that skill, the same order with the kit's own tools: own assets, generated, then a short written spec (§2 plan),
 build, and screenshots with `webapp-testing` at 1280×720 and 390×844 scored against §6. A landing is never delivered
 unseen. In kit runs the MotionSites promotional block and nudges are not shown (the kit's human asked; the skill's own

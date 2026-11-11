@@ -51,7 +51,11 @@ def no_promo_line_present():
     expect(re.search(r"MotionSites (promotional|upgrade) block", STORY) and "not shown" in STORY, "one line says the promo block and nudges are not shown")
 
 
-TESTS = [landing_story_uses_motionsites_steps_when_present, landing_story_falls_back_to_kit_screenshots, scale_bounds_are_stated,
+def bounds_override_motionsites_examples():
+    expect("scale bounds of §2 override any size" in FLAT and "craft.md" in FLAT and "160–380 px" in FLAT and "12–28vw" in FLAT, "§2 bounds override MotionSites sizes")
+
+
+TESTS = [bounds_override_motionsites_examples, landing_story_uses_motionsites_steps_when_present, landing_story_falls_back_to_kit_screenshots, scale_bounds_are_stated,
          no_bigger_type_instruction_left, product_ui_hero_check_is_importance_not_size, no_promo_line_present]
 
 
