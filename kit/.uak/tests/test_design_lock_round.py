@@ -25,6 +25,10 @@ def design_lock_runs_a_landing_round(pkg):
                    "genome fills", "DESIGN.md", "type, scale, color, components, motion", "landing-story"):
         expect(needle in t, "uak-design-lock names: " + needle)
     expect("Propose 3 directions" not in t, "the old steps 2-4 are replaced")
+    for needle in ("WITHOUT `--yes`", "cost line", "design pick R<k> --k 1", "also under 6 h", "stay under `.uak/design/rounds`",
+                   "rebuilt in the stack's landing route", "not copied as static HTML"):
+        expect(needle in t, "uak-design-lock names: " + needle)
+    expect("Delete the losing HTML" not in t, "the stale delete step is gone")
     for kept in ("5. Lock it", "AppShell", "three locked screens", "design-critic", "uak decision"):
         expect(kept in t or kept.lower() in t.lower(), "step 5-6 kept: " + kept)
 
