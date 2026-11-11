@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Loopback-only visual installation and setup; Python 3.8 standard library.
 
-The existing installer owns installation and `uak start` owns readiness. This service
-never publishes a plan, approves a backlog, registers identities, or changes a remote.
+The existing installer owns installation and `uak start` owns readiness. This service never registers identities
+or changes a remote. Its one act of human authority is approving the plan (planning.py): the person types the
+project name, and only the reviewed plan files are committed and pushed (WHY.md, UI-004).
 """
 import argparse
 import hmac
@@ -12,6 +13,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -61,9 +63,24 @@ def safe_environment():
     return env
 
 
-def run_command(command, cwd=None, timeout=120, **kwargs):
-    return subprocess.run(command, cwd=cwd, timeout=timeout, env=safe_environment(),
-                          capture_output=True, text=True, encoding="utf-8", errors="replace")
+def run_command(command, cwd=None, timeout=120, group=False, **kwargs):
+    if not group:
+        return subprocess.run(command, cwd=cwd, timeout=timeout, env=safe_environment(),
+                              capture_output=True, text=True, encoding="utf-8", errors="replace")
+    # A coding tool starts its own children (shells, tests): on timeout the whole process group stops.
+    extra = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+    proc = subprocess.Popen(command, cwd=cwd, env=safe_environment(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", **extra)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)
+        out, err = proc.communicate()
+        return subprocess.CompletedProcess(command, 124, out, err + "\nThe run took too long and was stopped.")
+    return subprocess.CompletedProcess(command, proc.returncode, out, err)
 
 
 def redact(text):
@@ -205,6 +222,7 @@ def readiness(output, code):
             "next_note": ready_lines[-1] if ready and not claim else ""}
 
 
+BUSY = ("installing", "checking", "planning", "approving")
 # `uak start`'s READY line when a task is free: the command, then the engine's note after spaces.
 CLAIM_COMMAND = re.compile(r"^bash \.uak/bin/wt new ([A-Z][A-Z0-9]*-[0-9]+)(?=\s|$)")
 
@@ -226,7 +244,7 @@ def guidance(state, dashboard=None, now=None):
     def step(kind, title, detail, commands=(), steps=()):
         return {"kind": kind, "title": title, "detail": detail, "commands": list(commands), "steps": list(steps)}
 
-    if state.get("phase") in ("installing", "checking"):
+    if state.get("phase") in BUSY:
         return step("busy", "Working in the background", "Keep this window and the terminal open.")
     if state.get("phase") == "error" and state.get("error"):
         return step("error", "Something needs your attention", state["error"])
@@ -258,10 +276,19 @@ def guidance(state, dashboard=None, now=None):
                 "The readiness check lists what is missing before agents can start, in order.")
 
 
+def planning_module():
+    spec = importlib.util.spec_from_file_location("uak_planning", Path(__file__).with_name("planning.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class SetupServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(self, target, installer, run):
+        self.planning = planning_module()
+        self.plan = None
         self.token = secrets.token_urlsafe(32)
         self.nonce = secrets.token_urlsafe(24)
         self.installer = Path(installer).resolve()
@@ -275,6 +302,108 @@ class SetupServer(ThreadingHTTPServer):
 
     def config(self):
         return read_config(self.target)
+
+    def engine(self):
+        """The engine shipped with this setup (kit/.uak or an installed .uak), refused when the project's differs."""
+        if not self.target or not kit_present(self.target) or self.failed_target == self.target:
+            raise ValueError("Install the kit before planning or checking readiness.")
+        project_root(self.target)
+        package = Path(__file__).resolve().parents[2]
+        installed_version = (Path(self.target) / ".uak/VERSION").read_text(encoding="utf-8").strip()
+        source_version = (package / "VERSION").read_text(encoding="utf-8").strip()
+        if installed_version != source_version:
+            raise ValueError("The installed kit version differs from this setup. Use Repair or update first so the correct engine checks readiness.")
+        return package / "bin/uak"
+
+    def apply_readiness(self, result):
+        output = redact(result.stdout + "\n" + result.stderr)
+        self.state.update(readiness(output, result.returncode))
+        self.state.update(phase="ready" if self.state["ready"] else "setup", details=output)
+        if not self.state["checks"] and not self.state["ready"]:
+            self.state["error"] = "The readiness check could not complete. Check connection and technical details, then retry."
+
+    def plan_run(self, harness, command, note):
+        """The planning run, then the server's own check of what changed and its own lint."""
+        planning, root, uak = self.planning, Path(self.target), self.engine()
+        self.plan = None
+        self.state.update(phase="planning", error="", details="")
+
+        def work():
+            try:
+                note_path = planning.regular_file(root, planning.NOTE_FILE)
+                if note:
+                    planning.write_atomic(note_path, ("# Changes the human asked for\n\n" + note + "\n").encode("utf-8"))
+                before = planning.snapshot(self.run, root)
+                result = self.run(command, cwd=str(root), timeout=planning.PLAN_TIMEOUT, group=True)
+                after = planning.snapshot(self.run, root)
+                if note_path.is_file() and not note_path.is_symlink():
+                    note_path.unlink()
+                found = planning.violations(before, after)
+                tasks = planning.regular_file(root, ".uak/TASKS.md")
+                if not tasks.is_file():
+                    found.append("The planner did not write .uak/TASKS.md.")
+                text = tasks.read_text(encoding="utf-8", errors="replace") if tasks.is_file() else ""
+                checked = planning.lint(self.run, root, uak, bash_binary())
+                plan = {"harness": harness, "violations": found, "lint": checked, "cards": planning.cards(text),
+                        "digest": planning.digest(root), "head": after["head"], "exit": result.returncode}
+                with self.lock:
+                    self.plan = plan
+                    failed = result.returncode != 0
+                    self.state.update(phase="error" if failed else "planned", details=redact(result.stdout + "\n" + result.stderr),
+                                      error="The coding tool stopped with an error. Check Technical details, then try again." if failed else "")
+            except Exception as exc:
+                with self.lock:
+                    self.state.update(phase="error", error="Planning stopped. Correct the issue and retry.", details=redact(exc))
+
+        self.worker = threading.Thread(target=work, daemon=True)
+        self.worker.start()
+
+    def approve_run(self, root, approved, approver, base_head, remote, base):
+        """Commit exactly the reviewed plan files with Backlog-Approved: yes, check the commit, push, re-check."""
+        planning, uak = self.planning, self.engine()
+        self.state.update(phase="approving", error="", details="")
+
+        def git(*args, timeout=60):
+            return planning.git_out(self.run, root, *args, timeout=timeout)
+
+        def work():
+            pushed = False
+            try:
+                with self.lock:
+                    if planning.digest(root) != approved:
+                        raise ValueError("The plan files changed while approving. Nothing was committed; review the plan again.")
+                    planning.approve_config(root)
+                    blobs = {name: git("hash-object", "--path=" + name, "--", name).strip() for name in planning.PLAN_FILES}
+                git("add", "--", *planning.PLAN_FILES)
+                git("commit", "-q", "-m", "plan: backlog v1", "-m",
+                    "Approved-By: %s (local Git identity, unverified) in local setup, with a typed confirmation." % approver,
+                    "--", *planning.PLAN_FILES)
+                commit = git("rev-parse", "HEAD").strip()
+                changed = set(git("diff-tree", "--no-commit-id", "--name-only", "-r", commit).split())
+                if git("rev-parse", commit + "^").strip() != base_head or not changed <= set(planning.PLAN_FILES) or \
+                        any(git("rev-parse", "%s:%s" % (commit, name)).strip() != blob for name, blob in blobs.items()):
+                    raise ValueError("The commit does not match the plan you approved (a Git hook may have changed it). "
+                                     "Nothing was pushed. Undo it with: git reset --soft HEAD^")
+                # The verified commit by its SHA, never HEAD: a commit made meanwhile is not published (review of dce95aa).
+                target_ref = "%s:refs/heads/%s" % (commit, base)
+                result = self.run(list(planning.GIT) + ["-C", str(root), "push", remote, target_ref], cwd=str(root), timeout=120)
+                if result.returncode:
+                    raise ValueError("Your approval is committed here (%s) but %s refused the push: %s Fix the cause, then run: "
+                                     "git push %s %s" % (commit[:7], remote, (result.stderr or result.stdout).strip()[-300:], remote, target_ref))
+                pushed = True
+                check = self.run([bash_binary(), str(uak), "start"], cwd=str(root), timeout=120)
+                with self.lock:
+                    self.plan = None
+                    self.apply_readiness(check)
+            except Exception as exc:
+                with self.lock:
+                    self.state.update(phase="error", ready=False, details=redact(exc),
+                                      error=redact(exc) if isinstance(exc, ValueError) else
+                                      ("The plan was published, but the readiness check stopped. Check again." if pushed else
+                                       "The approval stopped. Correct the issue and retry."))
+
+        self.worker = threading.Thread(target=work, daemon=True)
+        self.worker.start()
 
     def launch(self, operation, command):
         self.state.update(phase=operation, ready=False, checks=[], next_command="", next_note="", details="", error="")
@@ -297,10 +426,7 @@ class SetupServer(ThreadingHTTPServer):
                         self.state.update(phase="installed" if success else "error", installed=success, can_repair=True, ready=False,
                                           error="" if success else error, details=output)
                     else:
-                        self.state.update(readiness(output, result.returncode))
-                        self.state.update(phase="ready" if self.state["ready"] else "setup", details=output)
-                        if not self.state["checks"] and not self.state["ready"]:
-                            self.state["error"] = "The readiness check could not complete. Check connection and technical details, then retry."
+                        self.apply_readiness(result)
             except Exception as exc:
                 with self.lock:
                     if operation == "installing":
@@ -389,6 +515,11 @@ class SetupHandler(BaseHTTPRequestHandler):
                 self.reply(200, data)
             except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
                 self.reply(400, {"error": redact(exc)})
+        elif self.path == "/api/plan":
+            try:
+                self.reply(200, self.plan_view())
+            except (ValueError, OSError, subprocess.SubprocessError) as exc:
+                self.reply(400, {"error": redact(exc)})
         elif self.path == "/api/status":
             try:
                 with self.server.lock:
@@ -399,6 +530,26 @@ class SetupHandler(BaseHTTPRequestHandler):
                 self.reply(400, {"error": redact(exc)})
         else:
             self.reply(404, {"error": "Page not found."})
+
+    def plan_view(self):
+        """The planning page: what can plan here, the idea, and the last proposed plan with its check and lint."""
+        s, planning = self.server, self.server.planning
+        with s.lock:
+            target, plan = s.target, dict(s.plan or {})
+        if not target:
+            raise ValueError("Choose a project first.")
+        root = project_root(target)
+        offers = planning.available_planners(root, s.run)
+
+        def text(name):
+            path = planning.regular_file(root, name)
+            return path.read_text(encoding="utf-8", errors="replace")[:200000] if path.is_file() else ""
+
+        return {"project": root.name, "mode": read_config(root).get("Mode", ""), "planners": offers,
+                "idea": text("IDEA.md"), "violations": plan.get("violations", []),
+                "lint": plan.get("lint", {"ok": False, "lines": []}), "cards": plan.get("cards", []),
+                "digest": plan.get("digest", ""), "tasks": text(".uak/TASKS.md") if plan else "",
+                "owners": text(".uak/OWNERS.md") if plan else "", "planned": bool(plan)}
 
     def do_POST(self):
         if not self.authorized(write=True):
@@ -425,7 +576,13 @@ class SetupHandler(BaseHTTPRequestHandler):
             # Deeply nested JSON: a bad request, never a dropped connection with a traceback in the terminal.
             self.reply(400, {"error": "The request is nested too deeply."})
         except (ValueError, TypeError, UnicodeError, OSError, subprocess.SubprocessError) as exc:
-            self.reply(400, {"error": redact(exc)})
+            # The planning module's Conflict: valid, but it would replace something the person has not confirmed.
+            self.reply(409 if type(exc).__name__ == "Conflict" else 400, {"error": redact(exc)})
+
+    def approve(self, data):
+        root, approver, head, remote, base = approval_checks(self.server, data)
+        self.server.approve_run(root, data["digest"], approver, head, remote, base)
+        self.reply(202, {"phase": "approving"})
 
     def require_installer(self):
         if not self.server.installer.is_file():
@@ -468,21 +625,86 @@ class SetupHandler(BaseHTTPRequestHandler):
         elif self.path == "/api/check":
             if data:
                 raise ValueError("The readiness check accepts no options.")
-            if not s.target or not kit_present(s.target) or s.failed_target == s.target:
-                raise ValueError("Install the kit before checking readiness.")
-            project_root(s.target)
             # The engine that checks readiness is the one shipped with this setup (kit/.uak in the kit's checkout,
             # .uak in an installed project), so the check needs no installer and never certifies another version.
-            package = Path(__file__).resolve().parents[2]
-            installed_version = (Path(s.target) / ".uak/VERSION").read_text(encoding="utf-8").strip()
-            source_version = (package / "VERSION").read_text(encoding="utf-8").strip()
-            if installed_version != source_version:
-                raise ValueError("The installed kit version differs from this setup. Use Repair or update first so the correct engine checks readiness.")
-            cmd = [bash_binary(), str(package / "bin/uak"), "start"]
-            s.launch("checking", cmd)
+            s.launch("checking", [bash_binary(), str(s.engine()), "start"])
             self.reply(202, {"phase": "checking"})
+        elif self.path == "/api/idea":
+            s.engine()
+            root = project_root(s.target)
+            s.planning.save_idea(root, data, read_config(root).get("Mode", ""))
+            s.plan = None
+            self.reply(200, {"saved": True})
+        elif self.path == "/api/plan":
+            if set(data) - {"harness", "note"} or "harness" not in data:
+                raise ValueError("Choose the coding tool that creates the plan.")
+            note = data.get("note", "")
+            if not isinstance(note, str) or len(note) > 4000:
+                raise ValueError("Keep the requested changes under 4000 characters.")
+            s.engine()
+            root = project_root(s.target)
+            if not (root / "IDEA.md").is_file():
+                raise ValueError("Describe what you are building first.")
+            offered = {o["harness"] for o in s.planning.available_planners(root, s.run) if o["available"]}
+            if data["harness"] not in offered:
+                raise ValueError("That coding tool cannot create the plan here. Choose one that setup offers.")
+            s.plan_run(data["harness"], s.planning.planner_command(data["harness"], root), note.strip())
+            self.reply(202, {"phase": "planning"})
+        elif self.path == "/api/plan/approve":
+            self.approve(data)
         else:
             self.reply(404, {"error": "Action not found."})
+
+
+def approval_checks(server, data):
+    """Everything that must hold before the person's approval is committed; each failure says how to recover."""
+    planning, run = server.planning, server.run
+    if set(data) != {"confirm", "digest"} or not all(isinstance(v, str) for v in data.values()):
+        raise ValueError("Type the project name to approve the plan you reviewed.")
+    server.engine()
+    root = project_root(server.target)
+    plan = server.plan
+    if not plan:
+        raise ValueError("Create the plan first, then review it.")
+    if plan["violations"]:
+        raise ValueError("The last planning run changed files it may not change. Undo those changes, then create the plan again.")
+    if data["confirm"] != root.name:
+        raise ValueError("Type the project folder name exactly as shown: %s" % root.name)
+    for name in planning.PLAN_FILES:
+        if not planning.regular_file(root, name).is_file():
+            raise ValueError("%s is missing. Create the plan again." % name)
+    if not hmac.compare_digest(data["digest"], planning.digest(root)):
+        raise ValueError("The plan files changed since you reviewed them. Review the plan again before approving.")
+    checked = planning.lint(run, root, server.engine(), bash_binary())
+    if not checked["ok"]:
+        raise ValueError("The plan does not pass uak lint: %s. Ask for changes." % "; ".join(checked["lines"][:3] or ["see Technical details"]))
+
+    def git(*args, timeout=60):
+        return planning.git(run, root, *args, timeout=timeout)
+
+    approver = git("config", "user.name").stdout.strip()
+    if not approver or not git("config", "user.email").stdout.strip():
+        raise ValueError('Set your Git identity first: git config user.name "Your Name" and git config user.email you@example.com')
+    staged = [n for n in git("diff", "--cached", "--name-only", "-z").stdout.split("\0") if n]
+    if staged:
+        raise ValueError("Other files are staged: %s. Unstage them with git restore --staged -- %s, then approve again."
+                         % (", ".join(staged[:5]), " ".join(staged[:5])))
+    remote, base = os.environ.get("UAK_REMOTE", "origin"), os.environ.get("UAK_BASE", "main")
+    if git("symbolic-ref", "--short", "-q", "HEAD").stdout.strip() != base:
+        raise ValueError("The plan is published on %s. Switch to it first: git switch %s" % (base, base))
+    fetched = git("fetch", "-q", remote, base, timeout=120)
+    if fetched.returncode:
+        raise ValueError("Could not reach %s: %s" % (remote, (fetched.stderr or "").strip()[-300:]))
+    head = git("rev-parse", "HEAD").stdout.strip()
+    upstream = git("rev-parse", "FETCH_HEAD").stdout.strip()
+    if head != upstream:
+        if git("merge-base", "--is-ancestor", head, upstream).returncode == 0:
+            raise ValueError("%s/%s has newer commits. Run git pull --ff-only %s %s, then review the plan again." % (remote, base, remote, base))
+        raise ValueError("This branch has commits that are not on %s/%s. Push or move them first, so the approval "
+                         "publishes only the plan." % (remote, base))
+    if git("diff", "--quiet", "HEAD", "--", ".uak/PROJECT.md").returncode:
+        raise ValueError("You have your own uncommitted changes in .uak/PROJECT.md. Commit or discard them first.")
+    return root, approver, head, remote, base
 
 
 def make_server(target="", installer=None, run=None):
