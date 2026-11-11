@@ -263,10 +263,11 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
 <body>
 <a class="skip" href="#view">Skip to content</a>
 <header class="top"><div class="top-in">
-  <div class="brand"><span id="logo"></span><h1 id="repo">uak dash</h1></div>
+  <div class="brand"><span id="logo"></span><h1 id="repo" data-no-i18n>uak dash</h1></div>
   <span class="pill" id="fresh"><span class="live"></span><span id="freshtxt">loading…</span></span>
   <span class="pill" id="freeze" hidden></span>
   <select class="theme" id="theme" aria-label="Theme"><option value="">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select>
+  <select class="theme" id="dash-language" aria-label="Language" data-no-i18n><option value="es">Español</option><option value="en">English</option></select>
 </div></header>
 <main>
   <section class="overview" aria-label="Overview">
@@ -283,10 +284,15 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
   <section id="view" tabindex="-1"></section>
 </main>
 <div id="tip" role="tooltip"></div>
+<script src="workspace.js"></script>
 <script src="data.js"></script>
 <script>
 (function () {
   "use strict";
+  function T(value) { return window.UAKWorkspace ? UAKWorkspace.t(value) : value; }
+  var languageSelect=document.getElementById("dash-language");
+  if(window.UAKWorkspace)languageSelect.value=UAKWorkspace.language();
+  languageSelect.addEventListener("change",function(){if(window.UAKWorkspace)UAKWorkspace.setLanguage(this.value)});
   var COLUMNS = ["AVAILABLE", "CLAIMED", "BLOCKED", "REVIEW", "INTEGRATED"];
   var BAR = ["INTEGRATED", "REVIEW", "CLAIMED", "AVAILABLE", "BLOCKED"];
   var LABEL = { AVAILABLE: "Available", CLAIMED: "In progress", BLOCKED: "Blocked", REVIEW: "In review", INTEGRATED: "Integrated" };
@@ -375,9 +381,11 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     D = d; lastGen = d.generated;
     AG = {}; d.agents.forEach(function (a) { AG[a.name] = a; });
     var act = document.activeElement, caret = act && act.id === "q" ? act.selectionStart : -1;
+    Object.keys(LABEL).forEach(function(key) { LABEL[key] = T({AVAILABLE:"Available",CLAIMED:"In progress",BLOCKED:"Blocked",REVIEW:"In review",INTEGRATED:"Integrated"}[key]); });
     header(d); overview(d); attention(d); tabs(d);
     var v = document.getElementById("view"); v.innerHTML = "";
     ({ board: board, agents: agents, talk: talk, bb: blackbox, memory: memory, tokens: tokens })[ui.tab](v, d);
+    reportSize();
     if (caret >= 0) { var q = document.getElementById("q"); if (q) { q.focus(); q.setSelectionRange(caret, caret); } }
   }
 
@@ -433,17 +441,17 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
   function pace(d) {
     var box = document.getElementById("pace"); box.innerHTML = "";
     var done = d.tasks.filter(function (t) { return t.state === "INTEGRATED" && t.updated; });
-    if (done.length < 2) { box.appendChild(h("div", { "class": "muted", style: "font-size:12.5px", text: "The pace per day shows up after the first two integrations." })); return; }
+    if (done.length < 2) { box.appendChild(h("div", { "class": "muted", style: "font-size:12.5px", text: T("The pace per day shows up after the first two integrations.") })); return; }
     var start = new Date(Math.max(Math.min.apply(null, done.map(function (t) { return t.updated; })), d.generated - 29 * 86400) * 1000);
     start.setHours(0, 0, 0, 0);
     var t0 = Math.floor(start.getTime() / 1000), n = Math.max(1, Math.ceil((d.generated - t0 + 1) / 86400));
     var bins = []; for (var i = 0; i < n; i++) bins.push(0);
     done.forEach(function (t) { var k = Math.floor((t.updated - t0) / 86400); if (k >= 0 && k < n) bins[k]++; });
     var max = Math.max.apply(null, bins.concat([1])), week = bins.slice(-7).reduce(function (a, b) { return a + b; }, 0);
-    function lbl(k) { return new Date((t0 + k * 86400) * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" }); }
-    box.appendChild(h("div", { "class": "sec-h" }, [h("h2", { text: "Integrated per day" }), h("span", { "class": "muted num", text: week + " in the last 7 days · best day " + max })]));
-    var cols = h("div", { "class": "cols", role: "img", "aria-label": "Integrated per day, best day " + max });
-    bins.forEach(function (c, k) { cols.appendChild(h("span", { style: "height:" + (c ? Math.max(6, 100 * c / max) : 0) + "%", tip: lbl(k) + " · " + c + (c === 1 ? " task" : " tasks") })); });
+    function lbl(k) { return new Date((t0 + k * 86400) * 1000).toLocaleDateString(window.UAKWorkspace ? UAKWorkspace.language() : undefined, { month: "short", day: "numeric" }); }
+    box.appendChild(h("div", { "class": "sec-h" }, [h("h2", { text: T("Integrated per day") }), h("span", { "class": "muted num", text: week + T(" in the last 7 days · best day ") + max })]));
+    var cols = h("div", { "class": "cols", role: "img", "aria-label": T("Integrated per day, best day ") + max });
+    bins.forEach(function (c, k) { cols.appendChild(h("span", { style: "height:" + (c ? Math.max(6, 100 * c / max) : 0) + "%", tip: lbl(k) + " · " + c + (c === 1 ? " task" : T(" tasks")) })); });
     box.appendChild(cols);
     box.appendChild(h("div", { "class": "axis" }, [h("span", { text: lbl(0) }), h("span", { text: lbl(n - 1) })]));
   }
@@ -454,20 +462,20 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     d.offers.slice().sort(function (a, b) { return a.since - b.since; }).forEach(function (o) {
       var to = (o.to || []).map(function (x) { return x.replace(/^(agent|task):/, ""); }).join(", "), late = d.generated - o.since > 3600;
       rows.push(h("div", { "class": "att-row" }, [h("span", { "class": "ico " + (late ? "warn" : "info") }, [icon(I.eye)]),
-        h("div", { "class": "what" }, [h("div", {}, [tid(o.task), " waits for review", h("span", { "class": "muted", text: " · offered to " + (to || "all") })]), h("div", { "class": "muted", style: "font-size:12.5px", text: "owner " + o.owner })]),
+        h("div", { "class": "what" }, [h("div", {}, [tid(o.task), T(" waits for review"), h("span", { "class": "muted", text: T(" · offered to ") + (to || "all") })]), h("div", { "class": "muted", style: "font-size:12.5px", text: T("owner ") + o.owner })]),
         h("span", { "class": "when", text: ago(o.since, d.generated) })]));
     });
     d.tasks.filter(function (t) { return t.stalled; }).forEach(function (t) {
       rows.push(h("div", { "class": "att-row" }, [h("span", { "class": "ico crit" }, [icon(I.pause)]),
-        h("div", { "class": "what" }, [h("div", {}, [tid(t.id), " has not moved in " + t.stalled + " min", h("span", { "class": "muted", text: " · " + (t.owner || "") })]), h("div", { "class": "muted", style: "font-size:12.5px", text: t.progress || t.title })]),
+        h("div", { "class": "what" }, [h("div", {}, [tid(t.id), T(" has not moved in ") + t.stalled + " min", h("span", { "class": "muted", text: " · " + (t.owner || "") })]), h("div", { "class": "muted", style: "font-size:12.5px", text: t.progress || t.title })]),
         h("span", { "class": "when", text: t.away ? "owner away" : "" })]));
     });
     d.queue.filter(function (q) { return q.state === "HUMAN" || q.reason; }).forEach(function (q) {
       rows.push(h("div", { "class": "att-row" }, [h("span", { "class": "ico warn" }, [icon(I.hand)]),
-        h("div", { "class": "what" }, [h("div", {}, [tid(q.task), " needs a human", h("span", { "class": "muted", text: " · " + q.state.toLowerCase() })]), h("div", { "class": "muted", style: "font-size:12.5px", text: q.reason })]),
+        h("div", { "class": "what" }, [h("div", {}, [tid(q.task), T(" needs a human"), h("span", { "class": "muted", text: " · " + q.state.toLowerCase() })]), h("div", { "class": "muted", style: "font-size:12.5px", text: q.reason })]),
         h("span", { "class": "when", text: q.at ? ago(q.at, d.generated) : "" })]));
     });
-    if (!rows.length) { box.appendChild(h("div", { "class": "allclear" }, [h("span", { "class": "ico" }, [icon(I.check)]), "Nothing needs you right now: no review waiting, nothing stalled, nothing for a human."])); return; }
+    if (!rows.length) { box.appendChild(h("div", { "class": "allclear" }, [h("span", { "class": "ico" }, [icon(I.check)]), T("Nothing needs you right now: no review waiting, nothing stalled, nothing for a human.")])); return; }
     rows.forEach(function (r) { box.appendChild(r); });
   }
 
@@ -476,7 +484,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     var t = document.getElementById("tabs"); t.innerHTML = "";
     TABS.forEach(function (x) {
       t.appendChild(h("button", { "class": ui.tab === x[0] ? "on" : "", "aria-current": ui.tab === x[0] ? "page" : null, on: function () { ui.tab = x[0]; save(); render(); } },
-        [x[1], counts[x[0]] !== null ? h("span", { "class": "cnt", text: String(counts[x[0]]) }) : null]));
+        [T(x[1]), counts[x[0]] !== null ? h("span", { "class": "cnt", text: String(counts[x[0]]) }) : null]));
     });
   }
 
@@ -485,7 +493,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     var g = h("div", { "class": "board", style: "grid-template-columns:" + cols.map(function (c) { return c.list.length ? "minmax(0, 1fr)" : "minmax(0, .55fr)"; }).join(" ") });
     cols.forEach(function (c) {
       var col = h("div", { style: "min-width:0" }, [h("div", { "class": "col-h" }, [h("span", { "class": "sw", style: "background:" + color(c.s) }), LABEL[c.s], h("span", { "class": "muted", text: String(c.list.length) })])]);
-      if (!c.list.length) col.appendChild(h("div", { "class": "col-empty", text: c.s === "BLOCKED" ? "Nothing blocked" : c.s === "CLAIMED" ? "Nobody is on a task" : "Empty" }));
+      if (!c.list.length) col.appendChild(h("div", { "class": "col-empty", text: c.s === "BLOCKED" ? "Nothing blocked" : c.s === "CLAIMED" ? "Nobody is on a task" : T("Empty") }));
       else if (c.s === "INTEGRATED") col.appendChild(doneRows(c.list));
       else c.list.forEach(function (t) { col.appendChild(card(t, c.s)); });
       g.appendChild(col);
@@ -501,9 +509,9 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     var prog = t.progress ? t.progress.replace(/ · at \d+$/, "") : "";
     return h("article", { "class": "card" }, [
       h("div", { "class": "card-h" }, [tid(t.id), t.priority ? h("span", { "class": "tag" + (t.priority === "P0" ? " info" : ""), text: t.priority }) : null,
-        t.stalled ? h("span", { "class": "tag crit", text: "stalled " + t.stalled + " min" }) : null, t.away ? h("span", { "class": "tag", text: "owner away" }) : null]),
+        t.stalled ? h("span", { "class": "tag crit", text: T("stalled ") + t.stalled + " min" }) : null, t.away ? h("span", { "class": "tag", text: T("owner away") }) : null]),
       h("div", { "class": "title", text: t.title || t.paths, title: t.title || t.paths }),
-      h("div", { "class": "card-f" }, [t.owner && s !== "AVAILABLE" ? who(t.owner) : h("span", { "class": "muted", text: t.depends && t.depends !== "None" ? "after " + t.depends : "free to claim" }), s !== "AVAILABLE" ? prLink(t) : null]),
+      h("div", { "class": "card-f" }, [t.owner && s !== "AVAILABLE" ? who(t.owner) : h("span", { "class": "muted", text: t.depends && t.depends !== "None" ? T("after ") + t.depends : T("free to claim") }), s !== "AVAILABLE" ? prLink(t) : null]),
       prog && s !== "INTEGRATED" ? h("div", { "class": "prog", text: prog, title: prog }) : null]);
   }
   function doneRows(list) {
@@ -512,13 +520,13 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     sorted.slice(0, cut).forEach(function (t) {
       box.appendChild(h("div", { "class": "row" }, [tid(t.id), h("span", { "class": "t", text: t.title || t.paths, title: t.title }), t.owner ? avatar(t.owner, 18) : h("span")]));
     });
-    if (sorted.length > 12) box.appendChild(h("button", { "class": "more", text: ui.allDone ? "Show the latest 12" : "Show all " + sorted.length, on: function () { ui.allDone = !ui.allDone; render(); } }));
+    if (sorted.length > 12) box.appendChild(h("button", { "class": "more", text: ui.allDone ? "Show the latest 12" : T("Show all ") + sorted.length, on: function () { ui.allDone = !ui.allDone; render(); } }));
     return box;
   }
 
   function agents(v, d) {
-    var groups = [["online", "Online", "active in the last 30 min"], ["recent", "Recently active", "seen in the last 3 h"], ["away", "Away", "session ended"], ["offline", "Offline", "not seen for 3 h or more"], ["retired", "Retired", "identity retired"]];
-    if (!d.agents.length) { v.appendChild(h("div", { "class": "panel empty" }, [h("b", { text: "No agents yet" }), "An agent appears here after its first uak command."])); return; }
+    var groups = [["online", T("Online"), T("active in the last 30 min")], ["recent", T("Recently active"), T("seen in the last 3 h")], ["away", T("Away"), T("session ended")], ["offline", T("Offline"), "not seen for 3 h or more"], ["retired", "Retired", "identity retired"]];
+    if (!d.agents.length) { v.appendChild(h("div", { "class": "panel empty" }, [h("b", { text: T("No agents yet") }), T("An agent appears here after its first uak command.")])); return; }
     groups.forEach(function (gr) {
       var list = d.agents.filter(function (a) { return a.status === gr[0]; }).sort(function (a, b) { return b.last_seen - a.last_seen || a.name.localeCompare(b.name); });
       if (!list.length) return;
@@ -527,8 +535,8 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
       list.forEach(function (a) {
         g.appendChild(h("article", { "class": "agent" }, [avatar(a.name, 46), h("div", { style: "min-width:0" }, [
           h("div", { "class": "nm" }, [a.name, a.is_human ? h("span", { "class": "tag info", text: "human" }) : a.human && a.human !== a.name ? h("span", { "class": "muted", style: "font-weight:400;font-size:12.5px", text: a.human }) : null]),
-          h("div", { "class": "st" }, [pres(a.status), a.status + " · " + ago(a.last_seen, d.generated) + " ago"])]),
-          h("div", { "class": "now" }, a.tasks.length ? a.tasks.map(function (t) { return h("button", { "class": "chip", on: function () { goTask(t.id); } }, [h("span", { "class": "sw", style: "background:" + color(t.state) }), h("span", { "class": "mono", text: t.id }), h("span", { "class": "muted", text: LABEL[t.state].toLowerCase() })]); }) : [h("span", { "class": "muted", text: "No live task" })]),
+          h("div", { "class": "st" }, [pres(a.status), a.status + " · " + ago(a.last_seen, d.generated) + T(" ago")])]),
+          h("div", { "class": "now" }, a.tasks.length ? a.tasks.map(function (t) { return h("button", { "class": "chip", on: function () { goTask(t.id); } }, [h("span", { "class": "sw", style: "background:" + color(t.state) }), h("span", { "class": "mono", text: t.id }), h("span", { "class": "muted", text: LABEL[t.state].toLowerCase() })]); }) : [h("span", { "class": "muted", text: T("No live task") })]),
           h("div", { "class": "stats" }, [h("div", {}, [h("b", { text: String(a.messages) }), "messages"]), h("div", {}, [h("b", { text: String(a.verdicts) }), "verdicts"]), h("div", {}, [h("b", { text: String(a.checkpoints) }), "checkpoints"])])]));
       });
       sec.appendChild(g); v.appendChild(sec);
@@ -556,9 +564,9 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
   function kindEl(k) { return h("span", { "class": "kind", style: "--kc:" + (KC[k] ? color(KC[k]) : "var(--available)"), text: k }); }
   function dayName(t, now) {
     var a = new Date(t * 1000), b = new Date(now * 1000), key = function (x) { return x.getFullYear() + "-" + x.getMonth() + "-" + x.getDate(); };
-    if (key(a) === key(b)) return "Today";
-    if (key(a) === key(new Date(b.getTime() - 86400000))) return "Yesterday";
-    return a.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+    if (key(a) === key(b)) return T("Today");
+    if (key(a) === key(new Date(b.getTime() - 86400000))) return T("Yesterday");
+    return a.toLocaleDateString(window.UAKWorkspace ? UAKWorkspace.language() : undefined, { weekday: "long", month: "short", day: "numeric" });
   }
 
   function talk(v, d) {
@@ -570,12 +578,12 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     var names = {}, tasks = {}, kinds = {};
     d.messages.forEach(function (m) { names[m.from] = 1; if (m.task) tasks[m.task] = 1; kinds[m.kind] = 1; });
     if (ui.task) tasks[ui.task] = 1;
-    f.appendChild(sel("agent", "Every agent", Object.keys(names).sort()));
-    f.appendChild(sel("task", "Every task", Object.keys(tasks).sort()));
-    f.appendChild(sel("kind", "Every kind", Object.keys(kinds).sort()));
-    var q = h("input", { id: "q", type: "search", placeholder: "Search messages", value: ui.q, "aria-label": "Search messages" });
+    f.appendChild(sel("agent", T("Every agent"), Object.keys(names).sort()));
+    f.appendChild(sel("task", T("Every task"), Object.keys(tasks).sort()));
+    f.appendChild(sel("kind", T("Every kind"), Object.keys(kinds).sort()));
+    var q = h("input", { id: "q", type: "search", placeholder: T("Search messages"), value: ui.q, "aria-label": T("Search messages") });
     f.appendChild(q);
-    if (ui.agent || ui.task || ui.kind || ui.q) f.appendChild(h("button", { "class": "clear", text: "Clear filters", on: function () { ui.agent = ui.task = ui.kind = ui.q = ""; save(); render(); } }));
+    if (ui.agent || ui.task || ui.kind || ui.q) f.appendChild(h("button", { "class": "clear", text: T("Clear filters"), on: function () { ui.agent = ui.task = ui.kind = ui.q = ""; save(); render(); } }));
     var count = h("span", { "class": "count" }); f.appendChild(count);
     v.appendChild(f);
     var chart = h("div", { "class": "panel activity" }); v.appendChild(chart);
@@ -589,15 +597,15 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
         if (ql && (m.text + " " + m.from + " " + m.task).toLowerCase().indexOf(ql) < 0) return false;
         return true;
       });
-      count.textContent = all.length + (all.length === 1 ? " message" : " messages");
+      count.textContent = all.length + (all.length === 1 ? " message" : T(" messages"));
       activity(chart, all, d);
       thread.innerHTML = "";
       var t = ui.task && d.tasks.filter(function (x) { return x.id === ui.task; })[0];
       if (t) thread.appendChild(h("div", { "class": "topic" }, [h("span", { "class": "sw", style: "background:" + color(t.state) }), h("b", { text: t.id }), h("span", { text: (t.title || "") + " · " + LABEL[t.state].toLowerCase() + (t.owner ? " · " + t.owner : "") })]));
       var list = all.slice(-300).reverse();
       if (!list.length) {
-        thread.appendChild(d.messages.length ? h("div", { "class": "empty" }, [h("b", { text: "No messages match" }), "Try another agent, task or kind, or clear the filters."])
-          : h("div", { "class": "empty" }, [h("b", { text: "No messages yet" }), "Reviews, contracts and replies between agents show up here as they happen."]));
+        thread.appendChild(d.messages.length ? h("div", { "class": "empty" }, [h("b", { text: T("No messages match") }), T("Try another agent, task or kind, or clear the filters.")])
+          : h("div", { "class": "empty" }, [h("b", { text: T("No messages yet") }), T("Reviews, contracts and replies between agents show up here as they happen.")]));
         return;
       }
       var lastDay = "";
@@ -611,13 +619,13 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
         var long = m.text.length > 200, open = ui.open[m.n];
         thread.appendChild(h("article", { "class": "msg" }, [avatar(m.from, 32), h("div", { style: "min-width:0" }, [
           h("div", { "class": "head" }, [h("b", { text: m.from }), to, kindEl(m.kind), m.task && !toTask ? tid(m.task) : null,
-            h("span", { "class": "meta", title: new Date(m.t * 1000).toLocaleString(), text: "#" + m.n + " · " + ago(m.t, d.generated) + " ago" })]),
+            h("span", { "class": "meta", title: new Date(m.t * 1000).toLocaleString(), text: "#" + m.n + " · " + ago(m.t, d.generated) + T(" ago") })]),
           h("div", { "class": "text" + (long && !open ? " clamp" : "") + (long ? " long" : "") }, [rich(m.text)]),
-          long ? h("button", { "class": "expand", text: open ? "Show less" : "Show more", on: function () { ui.open[m.n] = !ui.open[m.n]; draw(); } }) : null])]));
+          long ? h("button", { "class": "expand", text: open ? "Show less" : T("Show more"), on: function () { ui.open[m.n] = !ui.open[m.n]; draw(); } }) : null])]));
       });
       requestAnimationFrame(unclamp);
     }
-    // "Show more" only where the four-line clamp actually cut something.
+    // T("Show more") only where the four-line clamp actually cut something.
     function unclamp() {
       Array.prototype.forEach.call(thread.querySelectorAll(".text.clamp"), function (el) {
         if (el.scrollHeight <= el.clientHeight + 2) { el.classList.remove("clamp"); if (el.nextSibling) el.nextSibling.remove(); }
@@ -639,11 +647,11 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     var bins = []; for (var i = 0; i < n; i++) bins.push(0);
     msgs.forEach(function (m) { var k = Math.floor((m.t - t0) / step); if (k >= 0 && k < n) bins[k]++; });
     var max = Math.max.apply(null, bins.concat([1])), total = bins.reduce(function (a, b) { return a + b; }, 0);
-    function lbl(k) { var x = new Date((t0 + k * step) * 1000); return hourly ? x.toLocaleString(undefined, { weekday: "short", hour: "numeric" }) : x.toLocaleDateString(undefined, { month: "short", day: "numeric" }); }
-    var title = hourly ? "Messages per hour" : "Messages per day";
-    box.appendChild(h("div", { "class": "sec-h" }, [h("h2", { text: title }), h("span", { "class": "muted num", text: total + " in range · peak " + max })]));
+    function lbl(k) { var x = new Date((t0 + k * step) * 1000); return hourly ? x.toLocaleString(undefined, { weekday: "short", hour: "numeric" }) : x.toLocaleDateString(window.UAKWorkspace ? UAKWorkspace.language() : undefined, { month: "short", day: "numeric" }); }
+    var title = hourly ? "Messages per hour" : T("Messages per day");
+    box.appendChild(h("div", { "class": "sec-h" }, [h("h2", { text: title }), h("span", { "class": "muted num", text: total + T(" in range · peak ") + max })]));
     var cols = h("div", { "class": "cols", role: "img", "aria-label": title + ", peak " + max });
-    bins.forEach(function (c, k) { cols.appendChild(h("span", { style: "height:" + (c ? Math.max(4, 100 * c / max) : 0) + "%", tip: lbl(k) + " · " + c + (c === 1 ? " message" : " messages") })); });
+    bins.forEach(function (c, k) { cols.appendChild(h("span", { style: "height:" + (c ? Math.max(4, 100 * c / max) : 0) + "%", tip: lbl(k) + " · " + c + (c === 1 ? " message" : T(" messages")) })); });
     box.appendChild(cols);
     box.appendChild(h("div", { "class": "axis" }, [h("span", { text: lbl(0) }), h("span", { text: lbl(Math.floor(n / 2)) }), h("span", { text: hourly ? "now" : lbl(n - 1) })]));
   }
@@ -664,41 +672,41 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
   function blackbox(v, d) {
     var g = h("div", { "class": "grid2" });
     var kinds = {}; d.blackbox.forEach(function (r) { var k = label(r); kinds[k] = (kinds[k] || 0) + 1; });
-    g.appendChild(h("div", { "class": "panel box" }, [h("div", { "class": "sec-h" }, [h("h2", { text: "Events by kind" }), h("span", { "class": "muted num", text: d.blackbox.length + " recorded" })]),
-      Object.keys(kinds).length ? hbars(kinds) : h("div", { "class": "empty" }, [h("b", { text: "No events yet" }), "Kit errors and agent notes land here."])]));
-    var t2 = h("table", { "class": "tbl" }, [h("tr", {}, ["Harness", "Claims", "Map / task", "Lens / task", "Wait / done", "Polls / done"].map(function (x, i) { return h("th", { "class": i ? "n" : null, text: x }); }))]);
+    g.appendChild(h("div", { "class": "panel box" }, [h("div", { "class": "sec-h" }, [h("h2", { text: T("Events by kind") }), h("span", { "class": "muted num", text: d.blackbox.length + T(" recorded") })]),
+      Object.keys(kinds).length ? hbars(kinds) : h("div", { "class": "empty" }, [h("b", { text: T("No events yet") }), T("Kit errors and agent notes land here.")])]));
+    var t2 = h("table", { "class": "tbl" }, [h("tr", {}, [T("Harness"), T("Claims"), T("Map / task"), T("Lens / task"), T("Wait / done"), T("Polls / done")].map(function (x, i) { return h("th", { "class": i ? "n" : null, text: x }); }))]);
     Object.keys(d.usage).forEach(function (hn) {
       var u = d.usage[hn], cl = u.claim || 0, dn = u.done || 0;
       function r(x, y) { return y ? (x / y).toFixed(1) : "–"; }
       t2.appendChild(h("tr", {}, [hn, String(cl), r(u.map || 0, cl), r(u.lens || 0, cl), r(u.wait || 0, dn), r((u.status || 0) + (u.inbox || 0) + (u.board || 0) + (u.digest || 0), dn)].map(function (x, i) { return h("td", { "class": i ? "n" : null, text: x }); })));
     });
-    g.appendChild(h("div", { "class": "panel box" }, [h("div", { "class": "sec-h" }, [h("h2", { text: "Harness adoption" }), h("span", { "class": "muted", text: "agent calls per claim and per done" })]),
-      Object.keys(d.usage).length ? h("div", { "class": "scroll" }, [t2]) : h("div", { "class": "empty", text: "No usage recorded yet." })]));
+    g.appendChild(h("div", { "class": "panel box" }, [h("div", { "class": "sec-h" }, [h("h2", { text: T("Harness adoption") }), h("span", { "class": "muted", text: T("agent calls per claim and per done") })]),
+      Object.keys(d.usage).length ? h("div", { "class": "scroll" }, [t2]) : h("div", { "class": "empty", text: T("No usage recorded yet.") })]));
     v.appendChild(g);
-    var notes = h("div", { "class": "panel box", style: "margin-top:16px" }, [h("div", { "class": "sec-h" }, [h("h2", { text: "Agent notes and kit errors" }), h("span", { "class": "muted", text: "newest first" })])]);
-    var t3 = h("table", { "class": "tbl" }, [h("tr", {}, ["Time", "Harness", "Kind", "What happened", "Fix"].map(function (x) { return h("th", { text: x }); }))]);
+    var notes = h("div", { "class": "panel box", style: "margin-top:16px" }, [h("div", { "class": "sec-h" }, [h("h2", { text: T("Agent notes and kit errors") }), h("span", { "class": "muted", text: T("newest first") })])]);
+    var t3 = h("table", { "class": "tbl" }, [h("tr", {}, [T("Time"), T("Harness"), T("Kind"), T("What happened"), T("Fix")].map(function (x) { return h("th", { text: x }); }))]);
     d.blackbox.slice(-150).reverse().forEach(function (r) {
       var k = label(r), err = /error|conflict|guard/.test(k);
       t3.appendChild(h("tr", {}, [h("td", { "class": "nw mono muted", text: r.time.replace(/^\d{4}-/, "").replace("T", " ").replace(/:\d\dZ?$|Z$/, "") }), h("td", { "class": "nw", text: r.harness }),
         h("td", { "class": "nw" }, [h("span", { "class": "tag" + (err ? " crit" : r.source === "agent" ? " info" : ""), text: k })]),
         h("td", {}, [r.command !== "-" ? h("span", { "class": "mono ink2", text: r.command + "  " }) : null, r.what]), h("td", { "class": "ink2", text: r.fix === "-" ? "" : r.fix })]));
     });
-    notes.appendChild(d.blackbox.length ? h("div", { "class": "scroll" }, [t3]) : h("div", { "class": "empty", text: "The black box is empty." }));
+    notes.appendChild(d.blackbox.length ? h("div", { "class": "scroll" }, [t3]) : h("div", { "class": "empty", text: T("The black box is empty.") }));
     v.appendChild(notes);
   }
 
   function memory(v, d) {
     var g = h("div", { "class": "grid2" });
-    var l = h("div", { "class": "panel box" }, [h("div", { "class": "sec-h" }, [h("h2", { text: "Lessons" }), h("span", { "class": "muted mono", text: "uak learn" })])]);
-    if (!d.lessons.length) l.appendChild(h("div", { "class": "empty" }, [h("b", { text: "No lessons yet" }), "What an agent learns the hard way shows up here."]));
+    var l = h("div", { "class": "panel box" }, [h("div", { "class": "sec-h" }, [h("h2", { text: T("Lessons") }), h("span", { "class": "muted mono", text: "uak learn" })])]);
+    if (!d.lessons.length) l.appendChild(h("div", { "class": "empty" }, [h("b", { text: T("No lessons yet") }), T("What an agent learns the hard way shows up here.")]));
     d.lessons.slice().reverse().forEach(function (x) {
       l.appendChild(h("div", { "class": "list-i" }, [avatar(x.agent, 24), h("div", { style: "min-width:0" }, [h("div", {}, [rich(x.text)]),
         h("div", { "class": "sub" }, [x.agent, x.task !== "-" ? " · " : "", x.task !== "-" ? tid(x.task) : null, x.paths ? " · " + x.paths : ""])])]));
     });
-    var dc = h("div", { "class": "panel box" }, [h("div", { "class": "sec-h" }, [h("h2", { text: "Decisions" }), h("span", { "class": "muted mono", text: "DECISIONS.md" })])]);
-    if (!d.decisions.length) dc.appendChild(h("div", { "class": "empty" }, [h("b", { text: "No decisions yet" }), "Agreed contracts and calls land here."]));
+    var dc = h("div", { "class": "panel box" }, [h("div", { "class": "sec-h" }, [h("h2", { text: T("Decisions") }), h("span", { "class": "muted mono", text: "DECISIONS.md" })])]);
+    if (!d.decisions.length) dc.appendChild(h("div", { "class": "empty" }, [h("b", { text: T("No decisions yet") }), T("Agreed contracts and calls land here.")]));
     d.decisions.slice().reverse().forEach(function (x) {
-      dc.appendChild(h("div", { "class": "list-i" }, [avatar(x.who || "?", 24), h("div", { style: "min-width:0" }, [h("div", {}, [rich(x.text)]), h("div", { "class": "sub" }, [h("span", { "class": "tag", text: x.kind }), " " + x.who + " · " + ago(x.t, d.generated) + " ago"])])]));
+      dc.appendChild(h("div", { "class": "list-i" }, [avatar(x.who || "?", 24), h("div", { style: "min-width:0" }, [h("div", {}, [rich(x.text)]), h("div", { "class": "sub" }, [h("span", { "class": "tag", text: x.kind }), " " + x.who + " · " + ago(x.t, d.generated) + T(" ago")])])]));
     });
     g.appendChild(l); g.appendChild(dc); v.appendChild(g);
   }
@@ -706,11 +714,11 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
   function tokens(v, d) {
     var t = d.tokens;
     function M(n) { return n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : Math.round(n / 1e3) + "k"; }
-    v.appendChild(h("div", { "class": "panel box", style: "margin-bottom:16px" }, [h("h2", { text: "Tokens spent" }), h("div", { "class": "total num", text: t.total ? M(t.total) : "–" }),
-      h("div", { "class": "muted", text: t.total ? "published by every machine with uak tokens" : "No machine has published its spend yet: uak tokens --publish" })]));
+    v.appendChild(h("div", { "class": "panel box", style: "margin-bottom:16px" }, [h("h2", { text: T("Tokens spent") }), h("div", { "class": "total num", text: t.total ? M(t.total) : "–" }),
+      h("div", { "class": "muted", text: t.total ? "published by every machine with uak tokens" : T("No machine has published its spend yet: uak tokens --publish") })]));
     if (!t.total) return;
     var g = h("div", { "class": "grid2" });
-    [["By task", t.by_task, 15], ["By harness", t.by_harness], ["By scope", t.by_scope]].forEach(function (x) {
+    [[T("By task"), t.by_task, 15], [T("By harness"), t.by_harness], [T("By scope"), t.by_scope]].forEach(function (x) {
       g.appendChild(h("div", { "class": "panel box" }, [h("div", { "class": "sec-h" }, [h("h2", { text: x[0] })]), hbars(x[1], M, x[2])]));
     });
     v.appendChild(g);
@@ -741,7 +749,13 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     s.onerror = function () { s.remove(); };
     document.body.appendChild(s);
   }
-  setInterval(reload, 1000 * Math.max(5, (window.UAK_DATA && window.UAK_DATA.refresh) || 20));
+  if (!window.UAK_EMBEDDED) setInterval(reload, 1000 * Math.max(5, (window.UAK_DATA && window.UAK_DATA.refresh) || 20));
+  document.addEventListener("uak:state", function () { if (window.UAK_DASH_THEME === "dark" || window.UAK_DASH_THEME === "light" || window.UAK_DASH_THEME === "") {themeSel.value=window.UAK_DASH_THEME;applyTheme(window.UAK_DASH_THEME);} if (window.UAKWorkspace && window.UAK_DASH_LANGUAGE) UAKWorkspace.setLanguage(window.UAK_DASH_LANGUAGE); else render(); });
+  window.addEventListener("uak:language", function () { render(); if(window.UAKWorkspace){UAKWorkspace.apply(document.querySelector(".top"));languageSelect.value=UAKWorkspace.language();} reportSize(); });
+  function reportSize() { if(window.UAK_EMBEDDED)window.parent.postMessage({type:"uak:dashboard-size",height:document.documentElement.scrollHeight},"*"); }
+  if(window.UAKWorkspace)UAKWorkspace.apply(document.querySelector(".top"));
+  if(window.UAK_EMBEDDED)document.querySelector(".top").hidden=true;
+
 })();
 </script>
 </body>
