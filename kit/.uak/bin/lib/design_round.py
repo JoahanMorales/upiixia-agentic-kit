@@ -348,6 +348,15 @@ def find_capture(root):
     if env == "none":
         return None, "disabled by UAK_DESIGN_SHOOT=none"
     if env:
+        # Why (CI, Nov 11 2026): a TMPDIR with a space and an accent split the string, and Windows cannot exec a script.
+        # A value that names a file is ONE argv element, run by its interpreter; anything else is a command line.
+        if os.path.isfile(env):
+            ext = os.path.splitext(env)[1].lower()
+            if ext == ".py":
+                return [sys.executable, env], "UAK_DESIGN_SHOOT"
+            if ext in (".sh", ""):
+                return [shutil.which("bash") or "bash", env], "UAK_DESIGN_SHOOT"
+            return [env], "UAK_DESIGN_SHOOT"
         return shlex.split(env, posix=(os.name != "nt")), "UAK_DESIGN_SHOOT"
     path_tool = shutil.which("uak-design-shoot")
     if path_tool:
