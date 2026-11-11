@@ -58,6 +58,40 @@ def raw_claims(r, f, files):
     r.g(clone, "push", "-q", "origin", "claims")
 
 
+def claims_tip(r, f):
+    return r.g(f.remote, "rev-parse", "-q", "--verify", "refs/heads/claims").stdout.strip()
+
+
+def publish_landed(r, f, common, before, seconds=60):
+    """The hook's background `tokens --publish` reached claims (a new tip with this machine's tokens file)."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if claims_tip(r, f) != before and f.files("tokens/"):
+            return
+        pending = common / "uak-blackbox.pending"
+        if pending.exists() and "tokens publish failed" in pending.read_text(encoding="utf-8", errors="replace"):
+            raise AssertionError("the background publish failed: " + pending.read_text(encoding="utf-8")[-400:])
+        time.sleep(0.25)
+    raise AssertionError("the background publish never reached claims within %d s" % seconds)
+
+
+def released(folder, seconds=60):
+    """Wait until no process works inside folder. The hook also starts `map build` and `bb flush` with nohup, and on
+    Windows a folder that is some process's working directory cannot be renamed or removed: cleaning up then fails with
+    WinError 32 (UAK-009: PR #3 runs 43030820800 and 43036311089). Elsewhere the first rename succeeds."""
+    probe = Path(str(folder) + ".released")
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            os.rename(str(folder), str(probe))
+            os.rename(str(probe), str(folder))
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise AssertionError("background processes still work in %s after %d s" % (folder, seconds))
+            time.sleep(0.25)
+
+
 def with_claims(r, name):
     f = r.fixture(name, count=1)
     f.claim(0, "HACK-001")
@@ -118,13 +152,21 @@ def hooks_publish_from_session_start_and_codex(r):
     e = env(f, cfg)
     stamp = common / "uak-tokens.published"
     expect(not stamp.exists(), "no stamp yet")
+    before = claims_tip(r, f)
     r.run([r.bash, "-c", "echo '{\"session_id\":\"s1\"}' | bash .uak/bin/hook session-start"], cwd=w, env=e, allowed=None)
     expect(stamp.exists(), "session-start publishes (tried now)")
+    # The publish runs in the background: wait for it, so the next hook and the cleanup never race it (UAK-009).
+    publish_landed(r, f, common, before)
     stamp.unlink()
+    # New spend since session-start, so the tick's publish has new totals to push (an identical file pushes nothing).
+    transcript(cfg, enc(Path(f.clones[0]).resolve()), "m2", 5000)
+    before = claims_tip(r, f)
     gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
     (gd / "uak-harness").write_bytes(b"codex\r\n")  # as Windows writes it
     r.run([r.bash, "-c", "echo '{}' | bash .uak/bin/hook tick"], cwd=w, env=e, allowed=None)
     expect(stamp.exists(), "the Codex tick publishes")
+    publish_landed(r, f, common, before)
+    released(w)
     return "session-start and codex tick"
 
 
