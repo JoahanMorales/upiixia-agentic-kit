@@ -6,6 +6,7 @@ commit those links; a Codex teammate on Windows only reported "PowerShell". The 
 refreshed on every update; doctor flags a link checked out as a file, or a stale copy, and --fix / uak start repairs it.
 Real install.sh and real Git; core.symlinks=false is simulated in a clone."""
 import argparse
+import shutil
 import subprocess
 import tempfile
 import time
@@ -122,8 +123,7 @@ def update_refreshes_copied_skills(r):
     (d / ".agents/skills/test-first/SKILL.md").write_text("stale\n", encoding="utf-8")
     cur = d / ".cursor/skills"
     cur.mkdir(parents=True)
-    (cur / "test-first").mkdir()
-    (cur / "test-first/SKILL.md").write_text("stale too\n", encoding="utf-8")
+    shutil.copytree(d / ".claude/skills/test-first", cur / "test-first")   # an unedited copy of the kit's skill (UAK-047)
     run("--update", "--mode", "sprint", d)
     expect((d / ".agents/skills/test-first/SKILL.md").read_text(encoding="utf-8") == (d / ".claude/skills/test-first/SKILL.md").read_text(encoding="utf-8"),
            "--update refreshes .agents/skills")

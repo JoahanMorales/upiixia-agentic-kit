@@ -36,11 +36,19 @@ backlog_canonical() {
 # Not in the backlog this command holds (main's file, when it opened no transaction and ran no coord_init): the task may
 # be one planned on claims. Rebuilt once from the clone it already has, no new process unless the ID is missing.
 backlog_has() { [ -f "$BACKLOG" ] && awk -v id="$ID" '/^## / && $2==id {found=1} END {exit !found}' "$BACKLOG"; }
+# Which backlog a read used, for the "not in TASKS.md" refusal. Why (v6.1.0 review of UAK-034): a reviewer saw the bare
+# refusal four times from a clone on an older commit of main and could not tell what had been read.
+backlog_read_note() {
+  local base=- planned=0
+  [ -z "${TX:-}" ] || base=$(git -C "$TX" rev-parse --short refs/uak/config 2>/dev/null) || base=-
+  [ -z "${TX:-}" ] || [ ! -f "$TX/backlog/TASKS.md" ] || planned=$(grep -c '^## [A-Z][A-Z0-9]*-[0-9]' "$TX/backlog/TASKS.md" 2>/dev/null || true)
+  printf '%s' "Read: .uak/TASKS.md of main (remote commit $base) + the claims branch's backlog/TASKS.md ($planned planned) + backlog/AMEND.md. Refresh: git fetch origin, then ask whoever ran uak plan to confirm it published (uak status lists what the claims branch has)."
+}
 load_task() {
   backlog_has || { [ -z "${TX:-}" ] || [ ! -d "$TX/.git" ] || [ "$BACKLOG" = "${TXROOT:-}/read-TASKS.md" ] || [ "$BACKLOG" = "${TXROOT:-}/canonical-TASKS.md" ] ||
     { backlog_canonical "$TXROOT/read-TASKS.md" "$BACKLOG" && BACKLOG=$TXROOT/read-TASKS.md; }; } 2>/dev/null
   [ -f "$BACKLOG" ] || die "Missing .uak/TASKS.md."
-  backlog_has || UAK_CODE=not-in-backlog die "$ID is not in TASKS.md."
+  backlog_has || UAK_CODE=not-in-backlog die "$ID is not in TASKS.md. $(backlog_read_note)"
   PRIORITY=$(task_field Priority)
   case "$PRIORITY" in P0|P1|P2) ;; *) die "$ID needs Priority P0/P1/P2.";; esac
   PATHS=$(task_field "Paths")

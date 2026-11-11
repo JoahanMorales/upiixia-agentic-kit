@@ -55,11 +55,14 @@ def approve(r, f, task, tip):
     expect(rv.returncode == 0, "approval: " + rv.stdout + rv.stderr)
 
 
-def claimed_with_pushed_work(r, f, text):
-    """HACK-001 CLAIMED by agent-1 (never done), its branch pushed with `text` in src/one.txt."""
+def claimed_with_pushed_work(r, f, text, second=None):
+    """HACK-001 CLAIMED by agent-1 (never done), its branch pushed with `text` in src/one.txt (and `second` in
+    src/two.txt: UAK-045, a single matching file with no approval needs a human)."""
     f.claim(0, "HACK-001")
     w = f.worktrees[0]
     commit_file(r, w, "src/one.txt", text, "HACK-001: the work")
+    if second:
+        commit_file(r, w, "src/two.txt", second, "HACK-001: the second file")
     r.g(w, "push", "-q", "origin", f.branches[0])
 
 
@@ -139,9 +142,10 @@ def base_merges_in_the_task_branch_are_ignored(r):
 
 def equivalent_content_on_main_is_recorded(r):
     f = fx(r, "io-equiv")
-    claimed_with_pushed_work(r, f, "same bytes\n")
+    claimed_with_pushed_work(r, f, "same bytes\n", second="second\n")
     seed_pull(r, f)
     commit_file(r, f.seed, "src/one.txt", "same bytes\n", "landed by another commit")
+    commit_file(r, f.seed, "src/two.txt", "second\n", "landed too")
     seed(r, f, "push", "-q", "origin", "main")
     other = integrate(f, agent=1)
     expect(other.returncode != 0, "only the owner or a human records a claimed task: " + other.stdout)
@@ -188,9 +192,10 @@ def merged_branch_of_an_available_task_unblocks_its_dependents(r):
 
 def outside_merges_are_counted_apart(r):
     f = fx(r, "io-stats")
-    claimed_with_pushed_work(r, f, "stats bytes\n")
+    claimed_with_pushed_work(r, f, "stats bytes\n", second="second\n")
     seed_pull(r, f)
     commit_file(r, f.seed, "src/one.txt", "stats bytes\n", "landed by another commit")
+    commit_file(r, f.seed, "src/two.txt", "second\n", "landed too")
     seed(r, f, "push", "-q", "origin", "main")
     expect(integrate(f, agent=0).returncode == 0, "integrate")
     out = f.hack(0, "stats", allowed=None)
@@ -198,9 +203,41 @@ def outside_merges_are_counted_apart(r):
     return "stats line"
 
 
+def single_file_unapproved_match_needs_a_human(r):
+    """UAK-045 (v6.1.0 review of UAK-033): one file equal on main with nobody's approval may be a coincidence."""
+    f = fx(r, "io-one-unapproved")
+    claimed_with_pushed_work(r, f, "coincidence\n")
+    seed_pull(r, f)
+    commit_file(r, f.seed, "src/one.txt", "coincidence\n", "landed by another commit")
+    seed(r, f, "push", "-q", "origin", "main")
+    out = integrate(f, agent=0)
+    expect(out.returncode != 0 and "only one file matched main and nobody approved it" in out.stdout + out.stderr,
+           "an agent is refused with the reason: rc %d %s" % (out.returncode, out.stdout + out.stderr))
+    expect("UAK_HUMAN=NAME uak integrate HACK-001" in out.stdout + out.stderr, "it names the human command: " + out.stdout + out.stderr)
+    expect("State: INTEGRATED" not in record(f, "HACK-001"), "not recorded: " + record(f, "HACK-001"))
+    out = integrate_human(r, f)
+    expect(out.returncode == 0, "a human may record it: rc %d %s" % (out.returncode, (out.stdout + out.stderr)[-500:]))
+    expect("Integrated-Outside: yes" in record(f, "HACK-001"), "outside: " + record(f, "HACK-001"))
+    return "agent refused, human records"
+
+
+def single_file_match_with_approval_is_recorded(r):
+    f = fx(r, "io-one-approved")
+    tip = task_in_review(r, f)
+    approve(r, f, "HACK-001", tip)
+    commit_file(r, f.worktrees[0], "src/one.txt", "the work, polished\n", "HACK-001: after the approval")
+    r.g(f.worktrees[0], "push", "-q", "origin", f.branches[0])
+    squash_into_main(r, f, f.branches[0])
+    out = integrate(f)
+    expect(out.returncode == 0, "one file with an approval is recorded: rc %d %s" % (out.returncode, (out.stdout + out.stderr)[-500:]))
+    expect("Integrated-Outside: yes" in record(f, "HACK-001") and "Approval: agent-2" in record(f, "HACK-001"), "record: " + record(f, "HACK-001"))
+    return "approval, one file"
+
+
 TESTS = [squash_merged_pr_is_recorded, pr_merged_after_extra_commits_is_recorded, base_merges_in_the_task_branch_are_ignored,
          equivalent_content_on_main_is_recorded, unmerged_work_is_still_refused,
-         merged_branch_of_an_available_task_unblocks_its_dependents, outside_merges_are_counted_apart]
+         merged_branch_of_an_available_task_unblocks_its_dependents, outside_merges_are_counted_apart,
+         single_file_unapproved_match_needs_a_human, single_file_match_with_approval_is_recorded]
 
 
 def main():
