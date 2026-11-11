@@ -38,10 +38,14 @@ For **tenderos**, who **sell online only 7 in 100**, **Pásala** lets them sell 
 | 7 in 100 shops sell online | https://example.invalid/inegi |
 """
 
-STUB = """#!/usr/bin/env bash
-# fake capture tool: CMD index.html OUTDIR -> OUTDIR/1280.png and 390.png; a variant whose path has "v3" fails
-case "$1" in *v3*) echo "stub: cannot render" >&2; exit 1;; esac
-printf 'png' > "$2/1280.png"; printf 'png' > "$2/390.png"
+STUB = """import sys
+from pathlib import Path
+# fake capture tool: STUB index.html OUTDIR -> OUTDIR/1280.png and 390.png; a variant whose path has "v3" fails
+if "v3" in sys.argv[1]:
+    sys.stderr.write("stub: cannot render\\n")
+    sys.exit(1)
+Path(sys.argv[2], "1280.png").write_text("png")
+Path(sys.argv[2], "390.png").write_text("png")
 """
 
 
@@ -177,9 +181,8 @@ def shoot_reports_missing_captures(e):
     (rnd / "v1" / "390.png").write_text("have", encoding="utf-8")
     del_html = rnd / "v4" / "index.html"
     del_html.unlink()
-    stub = d / "stub-shoot.sh"
+    stub = d / "stub shoot é.py"  # a space and an accent on purpose (CI TMPDIR)
     stub.write_text(STUB, encoding="utf-8")
-    stub.chmod(0o755)
     out = e.run(d, "shoot", "R1", env={"UAK_DESIGN_SHOOT": str(stub)}, ok=None)
     text = out.stdout + out.stderr
     expect((rnd / "v2" / "1280.png").exists() and (rnd / "v2" / "390.png").exists(), "v2 captured: " + text)
