@@ -82,8 +82,38 @@ def load_task_reads_the_canonical_backlog_without_a_transaction(r):
     return "planned and main tasks load, unknown refuses"
 
 
+def status_from_an_old_clone_shows_a_planned_task(r):
+    """UAK-053 (v6.1.0 review of UAK-034): the reviewer's clone sat on an older commit of main and saw "not in TASKS.md"
+    for a planned task four times. The read must not depend on the checkout's commit; when a task is truly unknown the
+    message says which backlog it read and how to refresh."""
+    f = planned_fixture(r, "sp-old-clone")
+    seed = f.seed
+    r.g(seed, "fetch", "-q", "origin")
+    r.g(seed, "checkout", "-q", "main")
+    r.g(seed, "merge", "-q", "--ff-only", "origin/main")
+    for i in range(2):
+        (seed / ("newer-%d.txt" % i)).write_text("main moved on\n", encoding="utf-8")
+        r.g(seed, "add", ".")
+        r.g(seed, "commit", "-q", "-m", "main moves on %d" % i)
+    r.g(seed, "push", "-q", "origin", "main")
+    r.g(f.clones[1], "fetch", "-q", "origin", "main")
+    behind = r.g(f.clones[1], "rev-list", "--count", "HEAD..FETCH_HEAD").stdout.strip()
+    expect(behind != "0", "the clone is behind main: " + behind)
+    for args in (["status", "HACK-005"], ["status", "--task", "HACK-005"]):
+        out = f.hack(1, *args, allowed=None)
+        text = out.stdout + out.stderr
+        expect(out.returncode == 0 and "HACK-005 | AVAILABLE | P1" in text and "echo first" in text,
+               "%s from an old clone: rc %d %s" % (args, out.returncode, text[-500:]))
+    out = f.hack(1, "status", "HACK-099", allowed=None)
+    text = out.stdout + out.stderr
+    expect(out.returncode != 0 and "HACK-099 is not in TASKS.md" in text, "an unknown ID refuses: " + text[-400:])
+    expect("claims" in text and "backlog/TASKS.md" in text and "refresh" in text.lower(),
+           "the refusal says which backlog it read (main's file and claims) and how to refresh: " + text[-500:])
+    return "planned task shown, unknown names the backlog read"
+
+
 TESTS = [status_shows_a_task_planned_on_claims, amended_task_shows_its_new_verify,
-         load_task_reads_the_canonical_backlog_without_a_transaction]
+         load_task_reads_the_canonical_backlog_without_a_transaction, status_from_an_old_clone_shows_a_planned_task]
 
 
 def main():
