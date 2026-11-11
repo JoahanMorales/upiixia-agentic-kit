@@ -22,6 +22,11 @@ kit="$here/kit"
 # Keep this opt-in so CI, --update and existing installation commands never launch a server.
 if [ "${1:-}" = --wizard ]; then
   shift
+  # Setup runs the installer and uak start with this same Bash (Git for Windows may live anywhere).
+  UAK_SETUP_BASH=${BASH:-}
+  # Git Bash: Python needs the Windows path (C:/.../bash.exe), not /usr/bin/bash.
+  if command -v cygpath >/dev/null 2>&1 && [ -n "$UAK_SETUP_BASH" ]; then UAK_SETUP_BASH=$(cygpath -m "$UAK_SETUP_BASH"); fi
+  export UAK_SETUP_BASH
   for runtime in python3 python py; do
     if "$runtime" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then
       exec "$runtime" "$kit/.uak/bin/lib/setup.py" "$@"

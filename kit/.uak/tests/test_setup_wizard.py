@@ -36,8 +36,8 @@ def request(server, method, path, data=None, token=True, origin=True, extra=None
 
 
 class LiveServer:
-    def __init__(self, target="", run=None):
-        self.server = MODULE.make_server(target, run=run)
+    def __init__(self, target="", run=None, installer=None):
+        self.server = MODULE.make_server(target, installer=installer, run=run)
         assert self.server is not None, "AssertionError: wizard must provide a loopback server before installation"
 
     def __enter__(self):
@@ -75,6 +75,9 @@ def wizard_starts_before_installation(root, tmp):
 
 def legacy_install_remains_noninteractive(root, tmp):
     installer = root.parent / "install.sh"
+    if not installer.is_file():
+        # An installed project ships the engine without the kit's installer: check what setup says there instead.
+        return installer_absent_package_is_explicit(root, tmp)
     text = installer.read_text(encoding="utf-8")
     assert "--wizard" in text, "AssertionError: installer needs an explicit visual entry point"
     result = subprocess.run([resolve_binary("bash"), str(installer), "--help"], capture_output=True, timeout=15)
@@ -125,7 +128,11 @@ def duplicate_install_is_rejected(root, tmp):
         release.wait(8)
         return subprocess.CompletedProcess(command, 1, "", "Installation failed")
 
-    with LiveServer(str(target), fake_run) as srv:
+    # The fake runner never executes the installer; it only has to exist (an installed project has none).
+    installer = tmp / "kit checkout" / "install.sh"
+    installer.parent.mkdir()
+    installer.write_text("", encoding="utf-8")
+    with LiveServer(str(target), fake_run, installer=installer) as srv:
         assert request(srv, "POST", "/api/inspect", {"target": str(target)})[0] == 200
         try:
             assert request(srv, "POST", "/api/install", {"mode": "sprint", "harness": ["codex"]})[0] == 202
@@ -168,6 +175,8 @@ def installed_is_not_ready(root, tmp):
 
 
 def partial_install_can_recover(root, tmp):
+    if not (root.parent / "install.sh").is_file():
+        return installer_absent_package_is_explicit(root, tmp)
     target = repository(tmp / "recover target")
     (target / ".claude").write_text("Keep this user file", encoding="utf-8")
     with LiveServer(str(target)) as srv:
@@ -247,10 +256,61 @@ def all_stack_presets_are_selectable(root, tmp):
     assert set(parser.values) == set(MODULE.STACKS), "every supported preset must be a real option element"
 
 
+def installer_absent_package_is_explicit(root, tmp):
+    target = repository(tmp / "no installer target")
+    missing = tmp / "kit checkout" / "install.sh"
+    with LiveServer(str(target), installer=missing) as srv:
+        assert request(srv, "POST", "/api/inspect", {"target": str(target)})[0] == 200
+        status, body, _ = request(srv, "POST", "/api/install", {"mode": "sprint", "harness": ["claude"]})
+        assert status == 400 and b"install.sh --wizard" in body, "without the kit's installer, setup names where to run it"
+        assert srv.worker is None and not (target / ".uak").exists(), "nothing starts and nothing is written"
+
+
+def nested_json_is_rejected(root, tmp):
+    with LiveServer() as srv:
+        conn = raw_connection(srv)
+        body = b"[" * 60000
+        conn.request("POST", "/api/inspect", body, {"Host": "127.0.0.1:%d" % srv.server_port, "X-UAK-Token": srv.token,
+                                                    "Origin": "http://127.0.0.1:%d" % srv.server_port,
+                                                    "Content-Type": "application/json"})
+        try:
+            status = conn.getresponse().status
+        except http.client.HTTPException as exc:
+            raise AssertionError("deeply nested JSON must get an answer, not a dropped connection (%s)" % type(exc).__name__)
+        finally:
+            conn.close()
+        assert status == 400, "deeply nested JSON is a bad request"
+        assert request(srv, "GET", "/api/status")[0] == 200, "the server keeps serving"
+
+
+def raw_connection(srv):
+    return http.client.HTTPConnection("127.0.0.1", srv.server_port, timeout=10)
+
+
+def installer_bash_is_preferred(root, tmp):
+    fake = tmp / "Git" / "bin" / ("bash.exe" if os.name == "nt" else "bash")
+    fake.parent.mkdir(parents=True)
+    fake.write_text("", encoding="utf-8")
+    saved = os.environ.get("UAK_SETUP_BASH")
+    try:
+        os.environ["UAK_SETUP_BASH"] = str(fake)
+        assert MODULE.bash_binary() == str(fake), "the Bash that launched install.sh --wizard is used, wherever Git lives"
+        os.environ["UAK_SETUP_BASH"] = str(tmp / "missing" / fake.name)
+        assert MODULE.bash_binary() != os.environ["UAK_SETUP_BASH"], "a Bash path that does not exist is ignored"
+    finally:
+        if saved is None:
+            os.environ.pop("UAK_SETUP_BASH", None)
+        else:
+            os.environ["UAK_SETUP_BASH"] = saved
+    text = (root.parent / "install.sh").read_text(encoding="utf-8") if (root.parent / "install.sh").is_file() else ""
+    assert not text or "UAK_SETUP_BASH" in text, "install.sh passes its own Bash to setup"
+
+
 TESTS = [wizard_starts_before_installation, legacy_install_remains_noninteractive, invalid_requests_cannot_mutate,
          installer_arguments_are_literal, duplicate_install_is_rejected, setup_preserves_unrelated_settings, installed_is_not_ready,
          partial_install_can_recover, ambiguous_settings_are_not_reported_saved, an_older_installed_engine_is_not_ready,
-         all_stack_presets_are_selectable]
+         all_stack_presets_are_selectable, installer_absent_package_is_explicit, nested_json_is_rejected,
+         installer_bash_is_preferred]
 
 
 def main():

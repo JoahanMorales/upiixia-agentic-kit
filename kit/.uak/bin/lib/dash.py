@@ -108,16 +108,17 @@ def workspace_data(root):
         try:
             extracted, backlog = snapshot(root)
             data = build(extracted, backlog, Path(root).name)
-            data.update(source="remote", warning="", refresh=20)
+            data.update(source="remote", connection="ok", warning="", refresh=20)
             return data
         except (OSError, RuntimeError, subprocess.SubprocessError):
+            # A remote that exists but cannot be read is a different problem from no remote at all.
             warning = "Coordination could not refresh. Showing the local plan."
         finally:
             if extracted:
                 shutil.rmtree(extracted, ignore_errors=True)
     with tempfile.TemporaryDirectory(prefix="uak-local-dashboard-") as folder:
         data = build(Path(folder), read(Path(root) / ".uak/TASKS.md"), Path(root).name)
-    data.update(source="local", warning=warning, refresh=20)
+    data.update(source="local", connection="unreachable" if configured else "none", warning=warning, refresh=20)
     return data
 
 

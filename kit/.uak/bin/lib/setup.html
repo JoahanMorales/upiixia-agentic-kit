@@ -598,6 +598,24 @@
       #simple-next h3 {
         margin: 12px 0;
       }
+      .next-command,
+      .ready-next {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        margin: 12px 0;
+      }
+      .next-command code,
+      .ready-next code {
+        flex: 1 1 260px;
+        min-width: 0;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
       #simple-tasks {
         list-style: none;
         padding: 0;
@@ -1189,6 +1207,17 @@
           <p class="secondary">Your next step</p>
           <h3 id="next-heading"></h3>
           <p id="next-description"></p>
+          <ul class="next-steps" id="next-steps" data-no-i18n hidden></ul>
+          <div class="next-command" id="next-command-box" hidden>
+            <code id="next-command" data-no-i18n></code>
+            <button type="button" class="secondary-button" id="copy-next-command">
+              Copy
+            </button>
+          </div>
+          <button type="button" class="primary" id="next-check" hidden>
+            Check what’s next
+          </button>
+          <p class="hint" id="copy-status" role="status"></p>
         </div>
         <ul id="simple-tasks"></ul>
       </section>
@@ -1225,7 +1254,9 @@
         var latestDashboard = null,
           dashboardTimer = null,
           currentSection = "setup",
-          dashboardLoading = false;
+          dashboardLoading = false,
+          dashboardAgain = false,
+          checkRequested = false;
         function el(id) {
           return document.getElementById(id);
         }
@@ -1286,12 +1317,37 @@
               "*",
             );
         }
+        function drawNext(g) {
+          el("next-heading").textContent = UAKWorkspace.t(g.title || "Check what your project needs");
+          el("next-description").textContent = UAKWorkspace.t(g.detail || "");
+          // Only `commands` (the exact claim command) is copyable; the gate's fix lines are text.
+          var command = (g.commands || []).join("\n");
+          el("next-command").textContent = command;
+          el("next-command-box").hidden = !command;
+          el("next-steps").replaceChildren();
+          (g.steps || []).forEach(function (line) {
+            var li = document.createElement("li");
+            li.textContent = line;
+            el("next-steps").append(li);
+          });
+          el("next-steps").hidden = !(g.steps || []).length;
+          el("next-check").hidden = ["check", "todo", "ready", "error"].indexOf(g.kind) < 0;
+          el("next-check").disabled = operationBusy();
+          el("next-check").textContent = UAKWorkspace.t(
+            g.kind === "check" ? "Check what’s next" : "Check again",
+          );
+          el("copy-status").textContent = "";
+        }
+        function operationBusy() {
+          return state.phase === "installing" || state.phase === "checking";
+        }
         function drawDashboard(data) {
           latestDashboard = data;
           el("dashboard-project").textContent = state.target || "";
           el("dashboard-status").textContent = UAKWorkspace.t(
             data.warning || "Your project at a glance",
           );
+          el("dashboard-status").classList.remove("error");
           var p = data.progress,
             states = p.states;
           el("simple-completed").textContent =
@@ -1316,47 +1372,9 @@
                   UAKWorkspace.language(),
                 )
               : "");
-          var next = frozen
-            ? [
-                "Project changes are frozen",
-                "The change window has closed. Review the project with the responsible human before starting new work.",
-              ]
-            : data.source === "local"
-              ? [
-                  "Connect your repository",
-                  "Only the local plan is available. Complete the connection checks in Configuration before starting agents.",
-                ]
-              : !p.total
-                ? [
-                    "Create your first plan",
-                    "Open your coding tool in this project and describe what you want to build. Its planning workflow will help you create the first tasks.",
-                  ]
-                : states.BLOCKED
-                  ? [
-                      "Resolve the blocked work",
-                      "Review the tasks marked as blocked to see what the team needs.",
-                    ]
-                  : states.REVIEW
-                    ? [
-                        "Review changes before they ship",
-                        "The team has work waiting for an independent review.",
-                      ]
-                    : states.CLAIMED
-                      ? [
-                          "Your team is working",
-                          "Follow progress here. Open Advanced to see conversations, reviews and technical activity.",
-                        ]
-                      : p.done === 100
-                        ? [
-                            "The current plan is complete",
-                            "All active tasks are integrated. Review the result with your team before planning more work.",
-                          ]
-                        : [
-                            "Start the next task",
-                            "Your plan has available work. Continue in your coding tool to claim a task.",
-                          ];
-          el("next-heading").textContent = UAKWorkspace.t(next[0]);
-          el("next-description").textContent = UAKWorkspace.t(next[1]);
+          // The next step comes from the server, which derives it from `uak start` (the same gate as
+          // Configuration), so this view never offers work that the gate still blocks.
+          drawNext(data.guidance || state.guidance || {});
           el("simple-tasks").replaceChildren();
           var labels = {
             AVAILABLE: "Available",
@@ -1385,8 +1403,18 @@
           sendDashboard();
         }
         async function loadDashboard() {
-          if (dashboardLoading) return;
+          // A request while one is in flight (e.g. a check just finished) loads again right after it.
+          if (dashboardLoading) {
+            dashboardAgain = true;
+            return;
+          }
           if (dashboardTimer) clearTimeout(dashboardTimer);
+          // Opened before the first status arrived (a fast click after load): ask the server, not the empty page state.
+          if (!state.target) {
+            try {
+              state = await api("status");
+            } catch (e) {}
+          }
           if (!state.target || state.phase === "welcome") {
             el("dashboard-status").textContent = UAKWorkspace.t(
               "Choose a project to see its dashboard.",
@@ -1409,7 +1437,10 @@
           } finally {
             dashboardLoading = false;
             el("refresh-dashboard").disabled = false;
-            if (currentSection === "dashboard")
+            if (dashboardAgain && currentSection === "dashboard") {
+              dashboardAgain = false;
+              loadDashboard();
+            } else if (currentSection === "dashboard")
               dashboardTimer = setTimeout(loadDashboard, 20000);
           }
         }
@@ -1429,6 +1460,12 @@
           if (focus !== false) el("content").focus();
         }
         function error(message) {
+          // The dashboard hides the setup panel: show the failure where the person is looking.
+          if (currentSection === "dashboard") {
+            el("dashboard-status").textContent = UAKWorkspace.t(message);
+            el("dashboard-status").classList.add("error");
+            return;
+          }
           el("error").textContent = UAKWorkspace.t(message);
           el("error").hidden = false;
         }
@@ -1514,6 +1551,36 @@
           loadDashboard();
         };
         el("refresh-dashboard").onclick = loadDashboard;
+        el("next-check").onclick = function () {
+          action(this, async function () {
+            await api("check", {});
+            checkRequested = true; // only once the server accepted it
+            el("dashboard-status").textContent = UAKWorkspace.t(
+              "Checking your next steps",
+            );
+            await refresh();
+          });
+        };
+        el("copy-next-command").onclick = function () {
+          var command = el("next-command").textContent;
+          function done(ok) {
+            el("copy-status").textContent = UAKWorkspace.t(
+              ok
+                ? "Copied. Paste it in your coding tool's terminal."
+                : "Select the command and copy it.",
+            );
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText)
+            navigator.clipboard.writeText(command).then(
+              function () {
+                done(true);
+              },
+              function () {
+                done(false);
+              },
+            );
+          else done(false);
+        };
         el("dashboard-choose-project").onclick = function () {
           show(1);
         };
@@ -1668,6 +1735,7 @@
               return;
             }
             await api("check", {});
+            checkRequested = true; // only once the server accepted it
             await refresh();
           });
         };
@@ -1683,6 +1751,7 @@
           });
         };
         function render(data) {
+          var previous = state.phase;
           state = data;
           var busy = data.phase === "installing" || data.phase === "checking";
           var failed = data.phase === "error";
@@ -1751,6 +1820,7 @@
           el("diagnostics").checked = (data.settings || {}).Blackbox !== "off";
           el("pacing").checked = (data.settings || {}).Pace !== "off";
           el("check").disabled = busy;
+          el("next-check").disabled = busy;
           el("change-project").disabled = busy;
           el("repair").hidden = !data.can_repair || busy;
           el("check").textContent = data.installed
@@ -1759,12 +1829,44 @@
               : "Check what’s next"
             : "Review choices";
           if (data.ready) {
-            var li = document.createElement("li");
-            li.textContent =
-              "Open your coding tool in this project. The exact next action is available in Technical details.";
+            // The next action is visible here, never only in Technical details.
+            var li = document.createElement("li"),
+              text = document.createElement("span"),
+              code = document.createElement("code"),
+              progress = document.createElement("button");
+            li.className = "ready-next";
+            text.textContent = UAKWorkspace.t(
+              "Next: run this in your coding tool's terminal.",
+            );
+            code.dataset.noI18n = "";
+            var ready = data.guidance || {};
+            code.textContent = (ready.commands || []).join("\n");
+            code.hidden = !code.textContent;
+            if (code.hidden)
+              text.textContent = UAKWorkspace.t(ready.detail || "Your project is ready");
+            progress.type = "button";
+            progress.className = "primary";
+            progress.textContent = UAKWorkspace.t("See project progress");
+            progress.onclick = function () {
+              openSection("dashboard");
+              loadDashboard();
+            };
+            li.append(text, code, progress);
             el("checks").append(li);
           }
           syncRunningControls();
+          // A finished readiness check moves on by itself: to project progress when ready, and it refreshes the
+          // dashboard's next step when the check was started from there.
+          // A fast check can finish before the first poll ever sees "checking": remember that one was asked.
+          if ((previous === "checking" || checkRequested) && data.phase !== "checking") {
+            checkRequested = false;
+            if (data.ready || currentSection === "dashboard") {
+              var moved = currentSection !== "dashboard";
+              openSection("dashboard");
+              loadDashboard();
+              if (moved) el("dashboard-shell").focus();
+            }
+          }
         }
         async function refresh() {
           if (timer) clearTimeout(timer);
@@ -1782,6 +1884,8 @@
         }
         api("status")
           .then(function (data) {
+            // The person may already have opened the dashboard: restore setup's step without leaving it.
+            var stay = currentSection === "dashboard";
             state = data;
             el("target").value = data.target || "";
             if (data.phase === "options") {
@@ -1793,6 +1897,7 @@
               if (data.phase === "installing" || data.phase === "checking")
                 refresh();
             }
+            if (stay) openSection("dashboard");
           })
           .catch(function (e) {
             error(e.message);

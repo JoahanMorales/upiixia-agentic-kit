@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -27,6 +28,14 @@ LIMIT = 65536
 
 
 def bash_binary():
+    # install.sh --wizard passes the Bash that runs it: Git for Windows may live anywhere (scoop, another drive),
+    # and a PATH lookup on Windows can find WSL's bash.exe instead.
+    # Only an absolute path to a program named bash; Git Bash reports its own path without ".exe".
+    launched = os.environ.get("UAK_SETUP_BASH", "")
+    for candidate in ((launched, launched + ".exe") if os.name == "nt" else (launched,)):
+        path = Path(candidate)
+        if candidate and path.is_absolute() and path.name.lower() in ("bash", "bash.exe") and path.is_file():
+            return str(path)
     if os.name == "nt":
         for base in (os.environ.get("ProgramFiles", "C:/Program Files"), os.environ.get("LOCALAPPDATA", "")):
             for tail in ("Git/bin/bash.exe", "Programs/Git/bin/bash.exe"):
@@ -161,7 +170,60 @@ def readiness(output, code):
             checks.append({"state": match.group(1).lower(), "text": match.group(2)})
         elif line.startswith("         ") and checks:
             checks[-1]["text"] += "\n" + line.strip()
-    return {"ready": code == 0 and any(line.startswith("START READY · ") for line in lines), "checks": checks}
+    ready_lines = [line[len("START READY · "):].strip() for line in lines if line.startswith("START READY · ")]
+    ready = code == 0 and bool(ready_lines)
+    # Only the exact claim command is ever offered to copy; anything else on the READY line (the engine's note,
+    # "cd <worktree> and open your agent there…") is prose shown as text.
+    claim = CLAIM_COMMAND.match(ready_lines[-1]) if ready else None
+    return {"ready": ready, "checks": checks, "next_command": claim.group(0) if claim else "",
+            "next_note": ready_lines[-1] if ready and not claim else ""}
+
+
+# `uak start`'s READY line when a task is free: the command, then the engine's note after spaces.
+CLAIM_COMMAND = re.compile(r"^bash \.uak/bin/wt new ([A-Z][A-Z0-9]*-[0-9]+)(?=\s|$)")
+
+
+def guidance(state, dashboard=None, now=None):
+    """The one next action. Readiness comes only from `uak start` (the same gate Configuration shows), so the
+    dashboard never offers to start work that the gate still blocks; an active freeze overrides everything.
+    `commands` (copyable) is only ever the exact claim command; the gate's fix lines are `steps`, shown as text,
+    because they are prose that can carry project values (branch names, remote URLs)."""
+    now = time.time() if now is None else now
+    dashboard = dashboard or {}
+
+    def step(kind, title, detail, commands=(), steps=()):
+        return {"kind": kind, "title": title, "detail": detail, "commands": list(commands), "steps": list(steps)}
+
+    if state.get("phase") in ("installing", "checking"):
+        return step("busy", "Working in the background", "Keep this window and the terminal open.")
+    if state.get("phase") == "error" and state.get("error"):
+        return step("error", "Something needs your attention", state["error"])
+    freeze = dashboard.get("freeze") or state.get("freeze") or 0
+    if freeze and freeze <= now:
+        return step("frozen", "Project changes are frozen",
+                    "The change window has closed. Review the project with the responsible human before starting new work.")
+    if not state.get("installed"):
+        return step("install", "Install the kit in this project", "Choose your workflow and coding tools in Configuration.")
+    if state.get("ready"):
+        claim = CLAIM_COMMAND.match(state.get("next_command") or "")
+        tasks = {t.get("id"): t.get("state") for t in dashboard.get("tasks") or []}
+        if claim and tasks.get(claim.group(1), "AVAILABLE") != "AVAILABLE":
+            return step("check", "Check what's next",
+                        "The task suggested by the last check is no longer available.")
+        if claim:
+            return step("ready", "Start the next task",
+                        "Your project passed the readiness checks. Run this in your coding tool's terminal.",
+                        [claim.group(0)])
+        return step("ready", "Your project is ready", state.get("next_note") or
+                    "Your project passed the readiness checks.")
+    for check in state.get("checks") or []:
+        if check.get("state") == "todo":
+            lines = check.get("text", "").split("\n")
+            title = re.sub(r"^\d+\.\s*", "", lines[0])
+            return step("todo", title, "This is the first thing the readiness check needs.",
+                        steps=[l for l in lines[1:] if l])
+    return step("check", "Check what your project needs",
+                "The readiness check lists what is missing before agents can start, in order.")
 
 
 class SetupServer(ThreadingHTTPServer):
@@ -183,7 +245,7 @@ class SetupServer(ThreadingHTTPServer):
         return read_config(self.target)
 
     def launch(self, operation, command):
-        self.state.update(phase=operation, ready=False, checks=[], details="", error="")
+        self.state.update(phase=operation, ready=False, checks=[], next_command="", next_note="", details="", error="")
 
         def work():
             try:
@@ -289,13 +351,17 @@ class SetupHandler(BaseHTTPRequestHandler):
                 spec.loader.exec_module(module)
                 data = module.workspace_data(root)
                 data["mode"] = read_config(root).get("Mode", "")
+                with self.server.lock:
+                    self.server.state["freeze"] = data.get("freeze") or 0
+                    data["guidance"] = guidance(self.server.state, data)
                 self.reply(200, data)
             except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
                 self.reply(400, {"error": redact(exc)})
         elif self.path == "/api/status":
             try:
                 with self.server.lock:
-                    self.reply(200, dict(self.server.state, settings=self.server.config() if self.server.target else {}))
+                    self.reply(200, dict(self.server.state, settings=self.server.config() if self.server.target else {},
+                                         guidance=guidance(self.server.state)))
             except (ValueError, OSError, subprocess.SubprocessError) as exc:
                 self.reply(400, {"error": redact(exc)})
         else:
@@ -322,8 +388,16 @@ class SetupHandler(BaseHTTPRequestHandler):
                     self.reply(409, {"error": "An operation is running. Wait for it to finish."})
                     return
                 self.dispatch(data)
+        except RecursionError:
+            # Deeply nested JSON: a bad request, never a dropped connection with a traceback in the terminal.
+            self.reply(400, {"error": "The request is nested too deeply."})
         except (ValueError, TypeError, UnicodeError, OSError, subprocess.SubprocessError) as exc:
             self.reply(400, {"error": redact(exc)})
+
+    def require_installer(self):
+        if not self.server.installer.is_file():
+            raise ValueError("This copy of setup has no kit installer next to it. Run it from the kit's folder: "
+                             "bash path/to/upiixia-agentic-kit/install.sh --wizard")
 
     def dispatch(self, data):
         s = self.server
@@ -335,9 +409,10 @@ class SetupHandler(BaseHTTPRequestHandler):
             s.target = str(root)
             installed = kit_present(root) and s.failed_target != str(root)
             repair = (root / ".uak").exists()
-            s.state.update(target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], details=previous.get("details", ""), error=previous.get("error", ""))
+            s.state.update(target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], next_command="", next_note="", freeze=0, details=previous.get("details", ""), error=previous.get("error", ""))
             self.reply(200, dict(s.state, settings=s.config()))
         elif self.path in ("/api/install", "/api/repair"):
+            self.require_installer()
             cmd = install_command(s.installer, s.target, data)
             if not s.target:
                 raise ValueError("Check the project folder before installing.")
@@ -355,7 +430,7 @@ class SetupHandler(BaseHTTPRequestHandler):
             if not s.target:
                 raise ValueError("Choose a project first.")
             save_settings(project_root(s.target), data)
-            s.state.update(phase="setup", ready=False, checks=[], details="", error="")
+            s.state.update(phase="setup", ready=False, checks=[], next_command="", next_note="", details="", error="")
             self.reply(200, {"saved": True, "settings": s.config()})
         elif self.path == "/api/check":
             if data:
@@ -363,11 +438,14 @@ class SetupHandler(BaseHTTPRequestHandler):
             if not s.target or not kit_present(s.target) or s.failed_target == s.target:
                 raise ValueError("Install the kit before checking readiness.")
             project_root(s.target)
+            # The engine that checks readiness is the one shipped with this setup (kit/.uak in the kit's checkout,
+            # .uak in an installed project), so the check needs no installer and never certifies another version.
+            package = Path(__file__).resolve().parents[2]
             installed_version = (Path(s.target) / ".uak/VERSION").read_text(encoding="utf-8").strip()
-            source_version = (s.installer.parent / "kit/.uak/VERSION").read_text(encoding="utf-8").strip()
+            source_version = (package / "VERSION").read_text(encoding="utf-8").strip()
             if installed_version != source_version:
                 raise ValueError("The installed kit version differs from this setup. Use Repair or update first so the correct engine checks readiness.")
-            cmd = [bash_binary(), str(s.installer.parent / "kit/.uak/bin/uak"), "start"]
+            cmd = [bash_binary(), str(package / "bin/uak"), "start"]
             s.launch("checking", cmd)
             self.reply(202, {"phase": "checking"})
         else:

