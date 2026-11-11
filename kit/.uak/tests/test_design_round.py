@@ -46,9 +46,9 @@ printf 'png' > "$2/1280.png"; printf 'png' > "$2/390.png"
 
 
 class Env:
-    def __init__(self, tmp, bash):
+    def __init__(self, tmp, bash, package=None):
         self.tmp, self.bash = Path(tmp), bash
-        self.pkg = Path(__file__).resolve().parents[1]
+        self.pkg = (Path(package) / ".uak") if package else Path(__file__).resolve().parents[1]
         self.tool = self.pkg / "bin" / "design"
 
     def project(self, name, idea=IDEA, project_md=""):
@@ -214,12 +214,13 @@ TESTS = [round_writes_brief_and_genomes, no_two_variants_share_more_than_three_g
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[2])  # smoke passes the package
     parser.add_argument("--case")
     args = parser.parse_args()
     tests = [t for t in TESTS if not args.case or t.__name__ == args.case]
     failed = 0
     with tempfile.TemporaryDirectory(prefix="uak-design-round-") as tmp:
-        e = Env(tmp, resolve_binary("bash"))
+        e = Env(tmp, resolve_binary("bash"), args.package)
         for t in tests:
             try:
                 print("PASS %s (%s)" % (t.__name__, t(e)))
