@@ -40,8 +40,9 @@ For **tenderos**, who **sell online only 7 in 100**, **Pásala** lets them sell 
 
 STUB = """import sys
 from pathlib import Path
-# fake capture tool: STUB index.html OUTDIR -> OUTDIR/1280.png and 390.png; a variant whose path has "v3" fails
-if "v3" in sys.argv[1]:
+# fake capture tool: STUB index.html OUTDIR -> OUTDIR/1280.png and 390.png; variant v3 fails. Its folder name, not
+# the whole path: macOS temp dirs (/var/folders/xx/...) can contain "v3" by chance (CI, Nov 11 2026).
+if Path(sys.argv[1]).parent.name == "v3":
     sys.stderr.write("stub: cannot render\\n")
     sys.exit(1)
 Path(sys.argv[2], "1280.png").write_text("png")
