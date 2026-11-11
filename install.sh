@@ -101,7 +101,8 @@ mkdir -p "$target/.uak"
 # The project's own smoke adapter lives in .uak/bin but is project data: an --update keeps it.
 # Why (MLB hackathon): an update deleted .uak/bin/smoke-project and its provenance; the team restored them by hand.
 keep=$(mktemp -d)
-trap 'rm -rf "$keep"' EXIT
+ext_tmp=
+trap 'rm -rf "$keep" "$ext_tmp"' EXIT
 for f in smoke-project .smoke-project.provenance; do [ ! -f "$target/.uak/bin/$f" ] || cp -p "$target/.uak/bin/$f" "$keep/$f"; done
 for part in bin docs modes templates tests settings stacks skills; do
   rm -rf "$target/.uak/$part"
@@ -170,6 +171,36 @@ case ",$extra," in *,tdd,*) case " $skills " in *" test-driven-development "*) ;
 case "$stack" in fastapi-react|nextjs|expo) skills="$skills vercel-react-best-practices"; case " $skills " in *" product-ui "*) ;; *) skills="$skills frontend-design product-ui landing-story";; esac;; esac
 [ "$stack" != ai-agent ] || case " $skills " in *" mcp-builder "*) ;; *) skills="$skills mcp-builder";; esac
 for s in $skills; do putdir "$kit/.uak/skills/$s" "$target/.claude/skills/$s"; done
+# External skills (settings/external-skills.tsv: name, repo URL, commit, subfolder, tree SHA): fetched with git only,
+# the tree SHA checked, never shipped in the kit (MotionSites' examples and media may not be redistributed, its LICENSE
+# section 2). Any failure (offline, no git, a refused fetch, a tree that is not the pinned one) installs nothing, says
+# so in one line and goes on: the install never fails for it. UAK_EXTERNAL_SKILLS=off skips it; the tests point
+# UAK_EXTERNAL_SKILLS_TSV at a local remote. Why (F0, 2026-11-11): the landings need a build-and-look loop that landing-story alone does not carry.
+ext_fetch() { # ext_fetch NAME URL COMMIT SUB TREE: prints the reason on failure
+  g=${UAK_EXTERNAL_SKILLS_GIT:-git}
+  command -v "$g" >/dev/null 2>&1 || { printf 'git is not installed'; return 1; }
+  ext_tmp=$(mktemp -d 2>/dev/null) || ext_tmp=$(mktemp -d -t uakext 2>/dev/null) || { ext_tmp="$target/.uak/.ext-tmp.$$"; mkdir -p "$ext_tmp" || { printf 'no temp dir'; return 1; }; }
+  ( cd "$ext_tmp" && "$g" init -q fetch ) >/dev/null 2>&1 || { printf 'git init failed'; return 1; }
+  ( cd "$ext_tmp/fetch" && GIT_TERMINAL_PROMPT=0 "$g" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 fetch -q --depth 1 "$2" "$3" ) >/dev/null 2>&1 \
+    || { printf 'could not fetch %s at %s (offline or refused)' "$2" "$(printf %.7s "$3")"; return 1; }
+  got=$(cd "$ext_tmp/fetch" && "$g" rev-parse "$3:$4" 2>/dev/null) || got=
+  [ "$got" = "$5" ] || { printf 'tree %s is not the pinned %s' "${got:-missing}" "$5"; return 1; }
+  mkdir -p "$ext_tmp/out"
+  ( cd "$ext_tmp/fetch" && "$g" archive "$3" "$4" | tar -x -C "$ext_tmp/out" ) >/dev/null 2>&1 || { printf 'could not unpack the skill'; return 1; }
+  [ -f "$ext_tmp/out/$4/SKILL.md" ] || { printf 'the folder has no SKILL.md'; return 1; }
+  for base in .claude/skills .agents/skills; do
+    rm -rf "$target/$base/$1"; mkdir -p "$target/$base/$1" && cp -R "$ext_tmp/out/$4/." "$target/$base/$1/" || { printf 'could not copy into %s' "$base"; return 1; }
+  done
+}
+ext_tsv=${UAK_EXTERNAL_SKILLS_TSV:-$kit/.uak/settings/external-skills.tsv}
+if [ "${UAK_EXTERNAL_SKILLS:-on}" != off ] && [ -f "$ext_tsv" ] && case " $skills " in *" landing-story "*) true;; *) false;; esac; then
+  while IFS="$(printf '\t')" read -r en eu ec es et || [ -n "$en" ]; do
+    et=$(printf %s "$et" | tr -d '\r'); [ -n "$et" ] || continue
+    if why=$(ext_fetch "$en" "$eu" "$ec" "$es" "$et"); then say "  + external skill $en (pinned $(printf %.7s "$ec"))"
+    else say "  ! external skill $en not installed: $why; landings use landing-story alone"; fi
+    rm -rf "$ext_tmp"; ext_tmp=
+  done < "$ext_tsv"
+fi
 if [ "$stack" != none ]; then
   putdir "$kit/.uak/stacks/$stack/skills" "$target/.claude/skills"
   [ ! -f "$kit/.uak/stacks/$stack/smoke-project.example" ] || put "$kit/.uak/stacks/$stack/smoke-project.example" "$target/.uak/bin/smoke-project.example"
