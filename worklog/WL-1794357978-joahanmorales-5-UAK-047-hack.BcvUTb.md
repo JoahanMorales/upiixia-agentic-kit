@@ -6,7 +6,7 @@
 - Why: name-only match deleted edited copies
 - Failing: test_skills_windows_clone update_refreshes_copied_skills (UAK-041) asserts the old behaviour, outside Paths
 - Commands: python3 kit/.uak/tests/test_cursor_skills_keep.py
-- Next: Another agent reviews https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-047; run .uak/bin/smoke
+- Next: Integrated in main: b64465d675a16dda02ee449f09193c35222e4b25 (recorded by joahanmorales-5)
 
 ## History
 - 1794357978 | CLAIMED | joahanmorales-5 | claim; next: the .cursor/skills cleanup in install.sh
@@ -15,3 +15,4 @@
 - 1794358892 | REVIEW | kit-r1 | review; reject; SHA 617cfce17d306ff386fba895d0c0e6c2cf5a4409; reviewer kit-r1
 - 1794359740 | REVIEW | joahanmorales-5 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-047; evidence: python3 kit/.uak/tests/test_cursor_skills_keep.py exit 0; test_skills_windows_clone, v57_install, v59, harness_commands green; kit_lint pass · red at 1b3f9a6: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: -
 - 1794359811 | REVIEW | kit-r1 | review; approve; SHA 768af2e57508a20c22dc0b3214f44845fcaddffd; reviewer kit-r1
+- 1794359917 | INTEGRATED | joahanmorales-5 | integrate; recorded by joahanmorales-5; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-047; merged b64465d675a16dda02ee449f09193c35222e4b25; proof ancestry
