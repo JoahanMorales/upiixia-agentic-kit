@@ -4,4 +4,6 @@
 set -eu
 cd "$(dirname "$0")/../.."
 python3 scripts/kit_lint.py
-cd kit && exec bash .uak/bin/smoke --package-only
+# The suite runs inside kit/, which has no .uak/PROJECT.md: this repo's Smoke-Jobs (UAK-054) is passed on as --jobs.
+jobs=$(sed -n 's/^Smoke-Jobs:[[:space:]]*//p' .uak/PROJECT.md 2>/dev/null | head -n 1 | tr -d '\r ')
+cd kit && exec bash .uak/bin/smoke --package-only ${jobs:+--jobs "$jobs"}

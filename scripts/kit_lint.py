@@ -163,6 +163,11 @@ def check_test_discovery(findings):
     for t in ci_tests()[:-1]:
         if not re.fullmatch(r"test_[A-Za-z0-9_]+", t):
             findings.append("kit/.uak/tests/%s.py · test-name · smoke discovers only [A-Za-z0-9_] names" % t)
+        # Why (v6.2, UAK-057): smoke runs every file as `test_x.py --package <candidate>/kit`; an argparse test without
+        # that option dies with "unrecognized arguments" and the merge gate goes red for every later task.
+        src = (ROOT / "kit/.uak/tests" / (t + ".py")).read_text(encoding="utf-8")
+        if "parse_args(" in src and '"--package"' not in src:
+            findings.append("kit/.uak/tests/%s.py · no-package-arg · smoke passes --package; add parser.add_argument(\"--package\", ...)" % t)
 
 
 def check_structure(findings):

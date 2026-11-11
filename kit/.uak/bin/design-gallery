@@ -11,6 +11,15 @@
 # and the design lock is decided by looking (Chilangatón: the look was decided from a sentence).
 set -u
 LC_ALL=C; export LC_ALL
+# A design round's picking page (UAK-058) is its own program: lib/gallery_pick.py gets the whole command line.
+for a in "$@"; do
+  [ "$a" = --round ] || continue
+  here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  for p in python3 python py; do
+    "$p" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null && exec "$p" "$here/lib/gallery_pick.py" "$@"
+  done
+  printf '%s\n' 'design-gallery --round needs Python 3.8+ (python3, python or py).' >&2; exit 2
+done
 dir= open=yes serve=no port=8790 stop=no prev=
 for a in "$@"; do
   if [ "$prev" = --serve ]; then prev=; case "$a" in *[!0-9]*) ;; *) port=$a; continue;; esac; fi

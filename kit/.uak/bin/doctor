@@ -123,6 +123,14 @@ if [ -d .claude/skills ]; then
     else warn ".agents/skills is missing: Codex, Cursor and Gemini load no skills. Fix: bash .uak/bin/doctor --fix (or install.sh --update)"; fi
   fi
 fi
+# External skills (settings/external-skills.tsv, fetched by install.sh): a warning, never a failure; landing-story works alone.
+if [ -d .claude/skills/landing-story ] && [ -f .uak/settings/external-skills.tsv ]; then
+  while IFS="$(printf '\t')" read -r en eu ec es et || [ -n "$en" ]; do
+    [ -n "$en" ] || continue
+    if [ -f ".claude/skills/$en/SKILL.md" ]; then ok "external skills: $en ok ($(printf %.7s "$ec"))"
+    else warn "external skills: $en missing (offline or no git at install); landings use landing-story alone. Install it: bash .uak/bin/uak start --update (or bash install.sh --update TARGET from the kit clone)"; fi
+  done < .uak/settings/external-skills.tsv
+fi
 # Kit files an update could not replace because the team edited them.
 newfiles=$(git ls-files --others --exclude-standard 2>/dev/null | grep '\.uak-new$' | head -n 6 | tr '\n' ' ')
 [ -z "$newfiles" ] || warn "kit files to merge by hand (yours differ from the kit's): ${newfiles% } — merge each into its file, then delete the .uak-new"

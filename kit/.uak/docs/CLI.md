@@ -58,6 +58,7 @@ Every command, its usage, where its code lives and the MCP tool that runs it.
 | `start` | `start [--fix]   install → first claim, in order: what is missing, then the one command that starts the work` | `start` | `uak_cli` |
 | `doctor` | `doctor [--fix]   preflight: remote, gh permissions, hooks, freeze, ports` | `doctor` | `uak_cli` |
 | `deploy` | `deploy [--write] [--disk PATH]   how this project deploys (Render Blueprint + Dockerfile, Vercel for Next.js); --write creates the files` | `deploy` | shell only (it runs a command you pass) |
+| `design` | `design round [--screen landing] [--n N] [--seed S] [--dry-run] [--yes] \| design shoot R<k> \| design pick R<k>   N design variants of the landing from IDEA.md (8 genes each), their captures, and the human's picks` | `design` | `uak_cli` |
 | `design-gallery` | `design-gallery [DIR] [--no-open]   the design lock's directions side by side, opened in the human's browser` | `design-gallery` | `uak_cli` |
 | `red` | `red [ID] [-- COMMAND]   the test fails before the code, on its assertion: recorded for done (default: the task's Verify)` | `red` | `uak_red` |
 | `garden` | `garden [--days N]   prune the harness: instruction budget, stale lessons, docs that name missing commands, unused commands, corrections to mine` | `garden` | `uak_cli` |
