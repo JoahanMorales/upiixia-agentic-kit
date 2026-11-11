@@ -6,10 +6,11 @@
 - Why: Parallel work without touching the main checkout
 - Failing: No validation run yet
 - Commands: `python3 kit/.uak/tests/test_design_taste.py`
-- Next: Humano: Shared resource/CI needs a human: kit/.uak/bin/lib/design_taste.py
+- Next: Integrated in main: 6e289e8a4ec4873bcc8126fded4987f20093ab08 (recorded by kit-taste-1)
 
 ## History
 - 1794429301 | CLAIMED | kit-taste-1 | claim; next: read genome.json / picks.json the way kit/.uak/bin/lib/design_breed.py does (import its readers, do not copy)
 - 1794429977 | REVIEW | kit-taste-1 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-062; evidence: python3 kit/.uak/tests/test_design_taste.py exit 0; kit_lint pass; design_round/breed tests pass; smoke pass; all 5 criteria tests checked · red at f359627: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: -
 - 1794430068 | REVIEW | kit-r1 | review; approve; SHA 1a3b2a08fd09d848fe119c9b67b86e86d88160f4; reviewer kit-r1
 - 1794430133 | REVIEW | kit-taste-1 | merge rechazado; Shared resource/CI needs a human: kit/.uak/bin/lib/design_taste.py
+- 1794431330 | INTEGRATED | kit-taste-1 | integrate; recorded by kit-taste-1; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-062; merged 6e289e8a4ec4873bcc8126fded4987f20093ab08; proof ancestry
