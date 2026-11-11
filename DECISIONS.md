@@ -53,3 +53,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794358222 | UAK-047 | CRLF-stripped hash also counts as shipped; extra file = edited; folder rmdir'd when empty | Why: name-only match deleted edited copies
 - 1794358322 | UAK-053 | refusal text lives in backlog_read_note | Why: reviewer could not tell what was read
 - 1794358440 | UAK-051 | function counts only if it has _ or inner capital; warn only if no defining file is inside Paths; takes optional backlog file arg for plan | Why: avoid prose false positives
+- 1794358486 | UAK-045 | two existing fixtures got a second file | Why: spec says one file unapproved needs human
