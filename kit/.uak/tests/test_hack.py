@@ -79,6 +79,12 @@ class Runner:
         # The kit-version check in uak start reads ~/.uak-kit; fixtures compare against no installed kit.
         self.env["UAK_KIT_HOME"] = str(scratch / "no-kit-home")
         self.env["UAK_KIT_URL"] = str(scratch / "no-kit-remote")  # start asks the kit's GitHub when there is no clone
+        # install.sh fetches external skills (UAK-055) from GitHub; fixtures get an empty list, so no test needs the network.
+        # test_external_skills sets its own list (a local bare repo).
+        empty = Path(scratch) / "no-external-skills.tsv"
+        empty.parent.mkdir(parents=True, exist_ok=True)
+        empty.write_text("", encoding="utf-8")
+        self.env["UAK_EXTERNAL_SKILLS_TSV"] = str(empty)
         for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"):
             self.env.pop(k, None)
         # A user signing default must not make disposable fixture commits interactive.
