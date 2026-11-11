@@ -167,7 +167,68 @@ def server_binds_local_only(e):
     return "loopback only"
 
 
-TESTS = [pick_page_lists_every_variant, save_writes_picks_json, wrong_count_warns_but_saves, server_binds_local_only]
+def raw_request(port, method, path, headers, body=b""):
+    import http.client
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    c.putrequest(method, path, skip_host=("Host" in headers))
+    for k, v in dict(headers, **{"Content-Length": str(len(body))}).items():
+        c.putheader(k, v)
+    c.endheaders(body)
+    r = c.getresponse()
+    out = (r.status, r.read())
+    c.close()
+    return out
+
+
+def encoded_dotfile_is_refused(e):
+    d = e.project("df")
+    port, _ = e.start(d)
+    try:
+        for path in ("/%2epick.pid", "/%2Epick.log", "/.pick.pid", "/v1/%2e%2e/.pick.pid", "/%2e%2e/%2e%2e/etc/passwd", "/v1/..%2f.pick.pid"):
+            st, body = raw_request(port, "GET", path, {"Host": "127.0.0.1:%d" % port})
+            expect(st in (400, 404) and b"python" not in body and not body.strip().isdigit(), "%s must be refused, got %s %r" % (path, st, body[:40]))
+        st, _ = raw_request(port, "GET", "/v1/1280.png", {"Host": "127.0.0.1:%d" % port})
+        expect(st == 200, "a real PNG still served")
+    finally:
+        e.stop(d)
+    return "encoded dotfiles 404"
+
+
+def cross_origin_save_is_refused(e):
+    d = e.project("co")
+    port, _ = e.start(d)
+    try:
+        body = json.dumps({"picked": ["v1"], "notes": {}}).encode("utf-8")
+        for origin in ("http://evil.example", "https://127.0.0.1:%d.evil.example" % port, "null"):
+            st, _ = raw_request(port, "POST", "/save", {"Host": "127.0.0.1:%d" % port, "Origin": origin, "Content-Type": "text/plain"}, body)
+            expect(st in (403, 415), "Origin %s: %s" % (origin, st))
+            st, _ = raw_request(port, "POST", "/save", {"Host": "127.0.0.1:%d" % port, "Origin": origin, "Content-Type": "application/json"}, body)
+            expect(st == 403, "Origin %s with JSON: %s" % (origin, st))
+        expect(not (d / ".uak/design/rounds/R1/picks.json").exists(), "nothing written")
+        st, _ = raw_request(port, "POST", "/save", {"Host": "127.0.0.1:%d" % port, "Origin": "http://127.0.0.1:%d" % port, "Content-Type": "application/json"}, body)
+        expect(st == 200, "the page's own origin works: %s" % st)
+    finally:
+        e.stop(d)
+    return "foreign Origin 403"
+
+
+def json_content_type_required(e):
+    d = e.project("ct")
+    port, _ = e.start(d)
+    try:
+        body = json.dumps({"picked": ["v1"], "notes": {}}).encode("utf-8")
+        for ct in ("text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"):
+            st, _ = raw_request(port, "POST", "/save", {"Host": "127.0.0.1:%d" % port, "Content-Type": ct}, body)
+            expect(st == 415, "%s refused with 415, got %s" % (ct, st))
+        expect(not (d / ".uak/design/rounds/R1/picks.json").exists(), "nothing written")
+        st, _ = raw_request(port, "POST", "/save", {"Host": "127.0.0.1:%d" % port, "Content-Type": "application/json; charset=utf-8"}, body)
+        expect(st == 200, "json with a charset is fine")
+    finally:
+        e.stop(d)
+    return "415 unless JSON"
+
+
+TESTS = [encoded_dotfile_is_refused, cross_origin_save_is_refused, json_content_type_required, pick_page_lists_every_variant, save_writes_picks_json, wrong_count_warns_but_saves, server_binds_local_only]
 
 
 def main():

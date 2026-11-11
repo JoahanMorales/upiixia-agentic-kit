@@ -23,6 +23,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from urllib.parse import unquote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from design_round import GENES, project_root  # noqa: E402
@@ -248,10 +249,14 @@ def make_handler(rnd, k, hosts):
             self.wfile.write(data)
 
         def do_GET(self):
-            path = self.path.split("?", 1)[0]
+            path = unquote(self.path.split("?", 1)[0].split("#", 1)[0])  # decode first: /%2epick.pid is /.pick.pid
             if not self._host_ok():
                 return self.send_error(403, "foreign Host")
-            if any(p.startswith(".") for p in path.split("/")) or (path.endswith("/") and path != "/"):
+            parts = path.replace("\\", "/").split("/")
+            if any(p.startswith(".") or p == ".." for p in parts) or "\x00" in path or (path.endswith("/") and path != "/"):
+                return self.send_error(404)
+            real = os.path.realpath(os.path.join(str(rnd), *[p for p in parts if p]))
+            if path != "/" and not (real == os.path.realpath(str(rnd)) or real.startswith(os.path.realpath(str(rnd)) + os.sep)):
                 return self.send_error(404)
             if path == "/":
                 self.path = "/pick.html"
@@ -262,6 +267,13 @@ def make_handler(rnd, k, hosts):
                 return self._json(403, {"ok": False, "error": "foreign Host"})
             if self.path.split("?", 1)[0] != "/save":
                 return self._json(404, {"ok": False, "error": "not found"})
+            # Why (kit-r1 review, Nov 11 2026): a text/plain cross-origin form POST needs no preflight; require JSON
+            # and, when the browser names an Origin, that it is this very server.
+            origin = self.headers.get("Origin")
+            if origin is not None and origin.split("://", 1)[-1] not in hosts:
+                return self._json(403, {"ok": False, "error": "foreign Origin"})
+            if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+                return self._json(415, {"ok": False, "error": "Content-Type must be application/json"})
             try:
                 n = int(self.headers.get("Content-Length") or 0)
                 if n > 200000:
