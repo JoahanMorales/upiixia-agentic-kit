@@ -66,6 +66,64 @@ lint_tests_named() {
       say "LINT WARNING: $id ($t) lists no Tests: name its behaviors (places_order_when_stock_is_enough, does_not_charge_when_payment_fails); done checks each exists. Nothing to test first? Test-First: no (why)." >&2
   done
 }
+# A task whose Next step or Acceptance names a function or a file that the code map places outside its Paths will
+# need a Paths amend after the first claim. A warning, never an error; no map yet is silent; 5 warnings per task at
+# most. $1 = the backlog to read (uak plan passes the plan file). A function name counts when it looks like code
+# (an underscore or an inner capital): "claim" and "handler" in plain prose are not mentions. Why (v6.1.0 session): 4
+# of 16 tasks needed a Paths amend because the function they changed lived in another file.
+lint_paths_hint() {
+  local bl=${1:-$BACKLOG} mapdir
+  [ -s "$bl" ] || return 0
+  mapdir=$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null)/uak-map
+  [ -s "$mapdir/symbols.tsv" ] && [ -s "$mapdir/files.tsv" ] || return 0
+  awk -v syms="$mapdir/symbols.tsv" -v files="$mapdir/files.tsv" '
+    function flush(   n, a, i, t, k, w, f, cnt, seen) {
+      if (id == "") return
+      n = split(text, a, /[^A-Za-z0-9_.\/-]+/); cnt = 0
+      for (i = 1; i <= n && cnt < 5; i++) {
+        t = a[i]; sub(/^[.-]+/, "", t); sub(/[.-]+$/, "", t)
+        if (t == "" || (id SUBSEP t) in seen) continue
+        seen[id, t] = 1
+        if (t in isfile) {
+          if (!inside(t)) { printf "LINT WARNING: %s mentions %s, outside its Paths\n", id, t; cnt++ }
+        } else if ((t ~ /_/ || t ~ /[a-z][A-Z]/) && (t in def)) {
+          split(def[t], w, "\n"); k = 0
+          for (f in w) if (w[f] != "" && inside(w[f])) k = 1
+          if (!k) { printf "LINT WARNING: %s mentions %s (%s), outside its Paths\n", id, t, w[2]; cnt++ }
+        }
+      }
+    }
+    function inside(f,   i, p, re) {
+      for (i = 1; i <= np; i++) {
+        p = P[i]
+        if (p == f) return 1
+        if (((p ~ /\/$/) ? index(f, p) : index(f, p "/")) == 1) return 1
+        if (p ~ /\*/) { re = p; gsub(/\./, "\\.", re); gsub(/\*\*/, "@@", re); gsub(/\*/, "[^/]*", re); gsub(/@@/, ".*", re); if (f ~ ("^" re "$")) return 1 }
+      }
+      return 0
+    }
+    BEGIN {
+      FS = "\t"
+      while ((getline l < syms) > 0) { split(l, c, "\t"); if (c[1] == "") continue; if (!(c[1] in def)) def[c[1]] = "\n"; if (index(def[c[1]], "\n" c[3] "\n") == 0) def[c[1]] = def[c[1]] c[3] "\n" }
+      while ((getline l < files) > 0) { split(l, c, "\t"); isfile[c[1]] = 1 }
+      FS = " "
+    }
+    /\r$/ { sub(/\r$/, "") }
+    /^## [A-Z][A-Z0-9]*-[0-9]/ { flush(); id = $2; text = ""; np = 0; mode = ""; next }
+    id != "" {
+      s = $0; gsub(/\*\*/, "", s); gsub(/`/, "", s)
+      if (s ~ /^-[ \t]*[A-Za-z][A-Za-z ]*:/) {
+        mode = ""
+        if (s ~ /^-[ \t]*Paths:/) {
+          sub(/^-[ \t]*Paths:[ \t]*/, "", s); n = split(s, q, ",")
+          for (i = 1; i <= n; i++) { x = q[i]; gsub(/^[ \t]+|[ \t]+$/, "", x); sub(/^\.\//, "", x); if (x != "") P[++np] = x }
+        } else if (s ~ /^-[ \t]*Next step:/ || s ~ /^-[ \t]*Acceptance:/) { mode = "t"; sub(/^-[ \t]*[A-Za-z ]+:[ \t]*/, "", s); text = text " " s }
+      } else if (mode == "t" && s ~ /^[ \t]/) text = text " " s
+      else if (s !~ /^[ \t]*$/) mode = ""
+    }
+    END { flush() }
+  ' "$bl" 2>/dev/null | while IFS= read -r line; do say "$line" >&2; done
+}
 lint_verify_scaffold() {
   [ -s "$BACKLOG" ] || return 0
   local id v dir need f t tp dep
@@ -175,6 +233,7 @@ EOF_OC
   lint_verify_scaffold
   lint_verify_syntax
   lint_tests_named
+  lint_paths_hint
   lint_design
   # sprint without a freeze = features until the last minute (Hack-Nation: 8 PRs, incl. a product rename, in the last 6 h).
   if [ -f "$ROOT/.uak/PROJECT.md" ] && case "$(uak_cfg "$ROOT/.uak/PROJECT.md" Mode)" in sprint*) true;; *) false;; esac &&
