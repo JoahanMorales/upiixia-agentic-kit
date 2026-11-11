@@ -82,6 +82,7 @@ def amend_adding_a_claimed_path_is_refused(r):
     f = r.fixture("po-amend-add", paths={"HACK-001": "src/one/", "HACK-002": "src/two/"}, count=2)
     config(f, Plan_Channel="claims")
     f.claim(0, "HACK-001")
+    f.claim(1, "HACK-002")  # UAK-050: only a task holding a reservation is refused; an AVAILABLE one warns and publishes
     out = plan(f, "# Amend\n\n" + task("HACK-002", "src/two/, src/one/"), "--amend")
     expect(out.returncode == 3 and "overlap HACK-001" in out.stderr, "a newly added claimed path is refused: rc %d %s" % (out.returncode, out.stdout + out.stderr))
     return "refused"
