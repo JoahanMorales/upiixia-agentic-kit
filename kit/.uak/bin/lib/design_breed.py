@@ -10,7 +10,7 @@ Two children that are not kin (no parent in common) never share more than MAX_SH
 among them. Each genome.json records "from" (parents as "R1/v3"), "kind", and "mutated" or "taken"; the human's
 notes on the parents land in the child's TASK.md. Stop rule: when the first pick is a child of the previous round's
 first pick, and that one a child of the one before, the direction has converged and the command prints
-`uak design lock R<k>/v<i>` instead of breeding.
+a message naming R<k>/v<i> as the direction instead of breeding.
 Why (roadmap F3, Nov 2026): picking among 20 unrelated designs finds a taste; bred rounds refine it, and a stop rule
 keeps the human from picking the same design for ever. Imports its genome data from design_round.py (UAK-057).
 Same seed, same children. Python 3.8+ standard library only."""
@@ -212,8 +212,7 @@ def run(argv):
         return 1
     done = converged(base, src)
     if done:
-        print("DESIGN_ROUND converged: the first pick has descended from the first pick for two rounds in a row (%s/%s). Breeding more would only reshuffle it." % (src, done))
-        print("Lock it: uak design lock %s/%s" % (src, done))
+        print("DESIGN_ROUND converged: %s/%s is the direction (same line for two rounds). Lock it: /uak-design-lock step 5 fills DESIGN.md from %s/%s/genome.json." % (src, done, src, done))
         return 0
     picks = []
     for pid in sp["picked"]:

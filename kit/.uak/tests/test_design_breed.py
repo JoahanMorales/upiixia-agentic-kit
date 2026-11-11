@@ -150,7 +150,7 @@ def converged_round_stops(e):
     before = sorted(p.name for p in (d / ".uak/design/rounds").iterdir())
     out = e.breed(d, "--from", "R3", "--n", "6", "--seed", "1", "--yes")
     text = out.stdout + out.stderr
-    expect("converged" in text.lower() and "uak design lock R3/%s" % mut3 in text, "says converged and prints the lock command: " + text)
+    expect("DESIGN_ROUND converged: R3/%s is the direction (same line for two rounds)" % mut3 in text and "/uak-design-lock step 5 fills DESIGN.md from R3/%s/genome.json" % mut3 in text and "uak design lock" not in text, "says converged and where to lock it: " + text)
     expect(sorted(p.name for p in (d / ".uak/design/rounds").iterdir()) == before, "breeds nothing")
     # a different first pick breaks the chain
     e.picks(d, "R3", [[k for k in kids3 if k != mut3 and kids3[k]["kind"] == "wildcard"][0]], {})
