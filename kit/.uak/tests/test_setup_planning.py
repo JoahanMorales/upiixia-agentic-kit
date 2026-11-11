@@ -82,12 +82,15 @@ def project(root, tmp, harnesses=("claude",), name="demo plan"):
 class FakePlanner:
     """Stands in for the coding tool: records each command and writes the plan, or misbehaves when told to."""
 
-    def __init__(self, plan=GOOD_PLAN, misbehave=None, gate=None):
-        self.plan, self.misbehave, self.gate, self.calls = plan, misbehave, gate, []
+    def __init__(self, plan=GOOD_PLAN, misbehave=None, gate=None, on_push=None):
+        self.plan, self.misbehave, self.gate, self.calls, self.on_push = plan, misbehave, gate, [], on_push
 
     def __call__(self, command, cwd=None, timeout=120, **kwargs):
         name = Path(command[0]).name.lower().replace(".exe", "").replace(".cmd", "")
         if name not in ("claude", "codex"):
+            if self.on_push and "push" in command:
+                hook, self.on_push = self.on_push, None
+                hook(Path(cwd))  # something else changes the repository between the checks and the push
             return wizard.MODULE.run_command(command, cwd=cwd, timeout=timeout)
         if command[1:3] in (["auth", "status"], ["login", "status"]):
             return subprocess.CompletedProcess(command, 0, "logged in", "")
@@ -105,6 +108,11 @@ class FakePlanner:
             git(root, "commit", "-q", "-m", "plan: approved by the agent")
         if self.misbehave == "edit-other":
             (root / "AGENTS.md").write_text("changed by the planner\n", encoding="utf-8")
+        if self.misbehave == "assume-unchanged":
+            git(root, "update-index", "--assume-unchanged", "AGENTS.md")
+            (root / "AGENTS.md").write_text("hidden from git status by the planner\n", encoding="utf-8")
+        if self.misbehave == "edit-flagged":
+            (root / "AGENTS.md").write_text("hidden from git status by a flag set before the run\n", encoding="utf-8")
         if self.misbehave == "git-config":
             git(root, "config", "core.hooksPath", ".evil-hooks")
         if self.misbehave == "hook":
@@ -247,13 +255,17 @@ def planner_command_is_fixed_and_literal(root, tmp):
 def planner_never_approves_or_pushes(root, tmp):
     target, remote = project(root, tmp)
     pushed = remote_main(remote)
-    for misbehave in ("approve-and-commit", "edit-other", "git-config", "hook", "ignored"):
+    for misbehave in ("approve-and-commit", "edit-other", "git-config", "hook", "ignored", "assume-unchanged",
+                      "edit-flagged"):
+        if misbehave == "edit-flagged":
+            git(target, "update-index", "--skip-worktree", "AGENTS.md")  # set before the run (review of dce95aa)
         with live(target, FakePlanner(misbehave=misbehave)) as srv:
             plan = planned(srv, target)
             assert plan["violations"], "the server notices what the planner did (%s): %r" % (misbehave, plan)
             status, body = post(srv, "/api/plan/approve", {"confirm": target.name, "digest": plan["digest"]})
             assert status in (400, 409), "no approval while the run broke the rules (%s): %r" % (misbehave, body)
         assert remote_main(remote) == pushed, "nothing reaches the remote (%s)" % misbehave
+        git(target, "update-index", "--no-assume-unchanged", "--no-skip-worktree", "AGENTS.md")
         git(target, "reset", "-q", "--hard", pushed)
         git(target, "clean", "-qfdx", "-e", "IDEA.md")
         git(target, "config", "core.hooksPath", str(tmp / "no-hooks"))
@@ -306,7 +318,14 @@ def approval_requires_typed_confirmation(root, tmp):
 def approval_commits_only_plan_files(root, tmp):
     target, remote = project(root, tmp)
     (target / "notes.txt").write_text("my own work in progress\n", encoding="utf-8")
-    with live(target, FakePlanner()) as srv:
+
+    def concurrent_commit(repo):
+        (repo / "unreviewed.py").write_text("print('not reviewed')\n", encoding="utf-8")
+        git(repo, "add", "unreviewed.py")
+        git(repo, "commit", "-q", "-m", "unreviewed work")
+
+    # Review of dce95aa: a commit made between the checks and the push must not be published with the plan.
+    with live(target, FakePlanner(on_push=concurrent_commit)) as srv:
         plan = planned(srv, target)
         cards = {c["id"]: c for c in plan["cards"]}
         assert cards["APP-002"]["title"] == "Show the list of <b>items</b>", "plan text comes back verbatim"
@@ -330,15 +349,17 @@ def approval_commits_only_plan_files(root, tmp):
         wait_idle(srv)
         state = get(srv, "/api/status")[1]
         assert not state.get("error"), state
-    head = git(target, "rev-parse", "HEAD")
-    assert remote_main(remote) == head, "the approval is pushed to the base branch"
+    head = remote_main(remote)
+    assert git(target, "rev-parse", "HEAD^") == head, "the verified approval commit is what reached the base branch"
+    assert subprocess.run([resolve_binary("git"), "-C", str(remote), "cat-file", "-e", "main:unreviewed.py"],
+                          capture_output=True).returncode != 0, "a commit made after the checks is never published"
     changed = sorted(git(target, "diff-tree", "--no-commit-id", "--name-only", "-r", head).splitlines())
     assert changed == [".uak/OWNERS.md", ".uak/PROJECT.md", ".uak/TASKS.md", "IDEA.md"], changed
-    message = git(target, "log", "-1", "--format=%B")
+    message = git(target, "log", "-1", "--format=%B", head)
     assert message.startswith("plan: backlog v1") and "Approved-By: Ana Human" in message, message
     assert "unverified" in message, "the approver is the local Git identity, labelled as such"
-    assert git(target, "rev-parse", "HEAD^") == base, "the approval commit sits on the reviewed base"
-    assert git(target, "log", "-1", "--format=%an") == "Ana Human", "committed as the local Git identity"
+    assert git(target, "rev-parse", head + "^") == base, "the approval commit sits on the reviewed base"
+    assert git(target, "log", "-1", "--format=%an", head) == "Ana Human", "committed as the local Git identity"
     assert "Backlog-Approved: yes" in git(target, "show", "main:.uak/PROJECT.md")
     status = git(target, "status", "--porcelain")
     assert "notes.txt" in status and "staged.txt" in status, "the person's other files stay untouched"

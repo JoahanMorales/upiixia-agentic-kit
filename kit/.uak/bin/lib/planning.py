@@ -198,14 +198,16 @@ def absolute(root, text):
 
 
 def snapshot(run, root):
-    """What a planning run could change: the commit, the index, Git's config and hooks, and every file Git does not
-    consider clean, ignored files included."""
+    """What a planning run could change: the commit, the index with its flags, Git's config and hooks, every tracked
+    file by content, and every untracked or ignored file. Tracked files are hashed directly, never through `git
+    status`, which an --assume-unchanged or --skip-worktree flag silences (review of dce95aa)."""
     root = Path(root)
     git_dir = absolute(root, git_out(run, root, "rev-parse", "--absolute-git-dir"))
     common = absolute(root, git_out(run, root, "rev-parse", "--git-common-dir"))
     hooks = absolute(root, git_out(run, root, "rev-parse", "--git-path", "hooks"))
     head = git(run, root, "rev-parse", "--verify", "-q", "HEAD").stdout.strip()
-    index = hashlib.sha256(git_out(run, root, "ls-files", "--stage", "-z").encode("utf-8", "replace")).hexdigest()
+    # -v tags each entry (h = assume-unchanged, S = skip-worktree): setting a flag changes this hash.
+    index = hashlib.sha256(git_out(run, root, "ls-files", "--stage", "-v", "-z").encode("utf-8", "replace")).hexdigest()
     status = git_out(run, root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored")
     files, skip = {}, False
     for entry in status.split("\0"):
@@ -217,6 +219,9 @@ def snapshot(run, root):
         if entry[0] in "RC":
             skip = True  # the next entry is the rename's source
         files[entry[3:].rstrip("/")] = file_hash(root / entry[3:])
+    for name in git_out(run, root, "ls-files", "-z").split("\0"):
+        if name:
+            files.setdefault(name, file_hash(root / name))
     for name in PLAN_FILES:
         files.setdefault(name, file_hash(root / name))
     config = "".join(file_hash(p) for p in (common / "config", git_dir / "config", git_dir / "config.worktree"))

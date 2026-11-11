@@ -384,10 +384,12 @@ class SetupServer(ThreadingHTTPServer):
                         any(git("rev-parse", "%s:%s" % (commit, name)).strip() != blob for name, blob in blobs.items()):
                     raise ValueError("The commit does not match the plan you approved (a Git hook may have changed it). "
                                      "Nothing was pushed. Undo it with: git reset --soft HEAD^")
-                result = self.run(list(planning.GIT) + ["-C", str(root), "push", remote, "HEAD:" + base], cwd=str(root), timeout=120)
+                # The verified commit by its SHA, never HEAD: a commit made meanwhile is not published (review of dce95aa).
+                target_ref = "%s:refs/heads/%s" % (commit, base)
+                result = self.run(list(planning.GIT) + ["-C", str(root), "push", remote, target_ref], cwd=str(root), timeout=120)
                 if result.returncode:
                     raise ValueError("Your approval is committed here (%s) but %s refused the push: %s Fix the cause, then run: "
-                                     "git push %s HEAD:%s" % (commit[:7], remote, (result.stderr or result.stdout).strip()[-300:], remote, base))
+                                     "git push %s %s" % (commit[:7], remote, (result.stderr or result.stdout).strip()[-300:], remote, target_ref))
                 pushed = True
                 check = self.run([bash_binary(), str(uak), "start"], cwd=str(root), timeout=120)
                 with self.lock:
