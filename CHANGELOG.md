@@ -1,5 +1,33 @@
 # Changelog
 
+## v6.1.1 · 2026-11-10 · The risks v6.1.0's reviews left open, and the frictions of building it
+
+Nine tasks (UAK-045 … UAK-053), the same flow: test first, an independent reviewer, every CI run of the SHA green.
+Four come from risks a reviewer approved but wrote down in v6.1.0; four from what slowed down building v6.1.0 itself.
+
+From the v6.1.0 reviews
+- **Outside the gate, one file and no approval needs a human** (UAK-045): a one-file task whose content equals main by
+  coincidence is no longer credited as integrated by an agent.
+- **`doctor` compares skill copies with POSIX tools only** (UAK-046): `diff --strip-trailing-cr` does not exist on macOS
+  before 13, so every run there called the skills stale. CRLF-only differences are not stale.
+- **An edited kit skill in `.cursor/skills` is kept** (UAK-047): install removes a copy only when it equals a version the
+  kit shipped, and names the ones it keeps.
+- **Cursor IDs from Cursor's own pages** (UAK-048): fast tier `composer-2.5[]` (empty brackets pick the standard
+  variant), strong tier `claude-opus-5[effort=high]`, the only Opus ID with effort that Cursor documents.
+
+From building v6.1.0 with the kit
+- **`plan --amend` checks overlaps the way claims do** (UAK-050): amending a task that holds no reservation warns and
+  publishes; tasks amended in one file are checked against each other's new Paths. (v6.1.0 needed four amends in a fixed
+  order.) The first amend of a task that existed only in main's TASKS.md now writes.
+- **`uak lint` and `uak plan` print a `LINT HINT`** when a task's own words name a function or file the code map places
+  outside its Paths (UAK-051): 4 of 16 tasks in v6.1.0 needed a Paths amend for that.
+- **`Merge-Smoke: affected`** (UAK-052, opt-in in PROJECT.md): the merge gate runs lint, Verify and only the test files
+  that name a changed file; any engine change (`.uak/bin/`) still runs everything; CI always runs all.
+- **A refused `wt new` leaves no identity** (UAK-049): not reproducible on v6.1.0 (the identities we suspected did hold
+  claims); kept as a regression test, one case per refusal kind.
+- **One canonical-backlog builder** (UAK-053): `coord_init` uses `backlog_canonical`; a "not in TASKS.md" refusal says
+  which backlog it read and how to refresh.
+
 ## v6.1.0 · 2026-11-10 · What two hackathons taught: every harness gets the commands, claims match main, and the numbers are real
 
 Built from the black boxes of the first two events on v6.0.0: DevDay-Exchange (37 of 41 tasks through the kit) and

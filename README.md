@@ -369,7 +369,10 @@ first place; [autopsy](docs/blackbox/devday-deus-2026-11.md)): the `/uak-*` phas
 (`$uak-X`), Cursor and Gemini CLI; skills survive a Windows clone; `uak integrate` records work that reached main
 outside the gate (deus ended with 6 of 23 tasks integrated in claims while the product shipped); product commits on
 main are refused by the pre-commit hook; token spend comes from every machine and says which never reported; and a
-metric that was not measured is `null`, never 0. 18 tasks, each through the kit's own flow.
+metric that was not measured is `null`, never 0. 18 tasks, each through the kit's own flow. v6.1.1 closes what
+those reviews left open: an unapproved one-file match needs a human, `doctor` and install work on older Macs and keep
+edited skills, `plan --amend` checks overlaps like claims do, lint hints when a task points outside its Paths, and
+`Merge-Smoke: affected` runs only the tests a change touches (engine changes still run everything).
 
 ## Deploy in one command: `uak deploy`
 
