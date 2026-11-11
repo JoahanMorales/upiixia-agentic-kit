@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1794431369
+Updated: 1794431872
 AVAILABLE: UAK-064 UAK-067 UAK-068 UAK-069 
 CLAIMED: UAK-063 UAK-066 
 BLOCKED: -
@@ -12,15 +12,15 @@ CANCELLED: UAK-002 UAK-005
 Claims (first 24; status --task ID shows detail):
 UAK-063 | CLAIMED | kit-taste-1 | until 1794445769
 UAK-065 | REVIEW | kit-breed-1 | until 1794516571
-UAK-066 | CLAIMED | kit-breed-1 | until 1794444582
+UAK-066 | CLAIMED | kit-breed-1 | until 1794446272
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1794415233 | UAK-058 | entry is design-gallery --round | Why: spec
 - 1794418628 | UAK-059 | kin exempt from 3-shared rule; converged=2-link lineage | Why: spec
 - 1794429245 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-062 UAK-063 UAK-064 UAK-065 UAK-066 UAK-067 | Why: backlog without PR (Plan-Channel: claims)
 - 1794429630 | UAK-065 | negative note on unpicked variant rejects named genes only, or all genes on a verdict (peor/fea/no me gusto); picked values never rejected | Why: AXIA R2: 
 - 1794430207 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-068 UAK-069 | Why: backlog without PR (Plan-Channel: claims)
+- 1794431872 | UAK-066 | html inside <style> only; pass line counts pages when no code files | Why: AXIA R1 skip
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.

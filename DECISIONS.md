@@ -67,3 +67,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794429245 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-062 UAK-063 UAK-064 UAK-065 UAK-066 UAK-067 | Why: backlog without PR (Plan-Channel: claims)
 - 1794429630 | UAK-065 | negative note on unpicked variant rejects named genes only, or all genes on a verdict (peor/fea/no me gusto); picked values never rejected | Why: AXIA R2: notes ignored by breeding
 - 1794430207 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-068 UAK-069 | Why: backlog without PR (Plan-Channel: claims)
+- 1794431872 | UAK-066 | html inside <style> only; pass line counts pages when no code files | Why: AXIA R1 skip
