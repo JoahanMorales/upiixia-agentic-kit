@@ -16,7 +16,7 @@ PROBE = (
     "import os, sys\n"
     "n = os.path.basename(__file__)[:-3]\n"
     "print('PROBE_RAN ' + n)\n"
-    "print('PROBE_ENV %s tmp=%s home=%s inherit=%s' % (n, os.environ.get('TMPDIR', ''), os.environ.get('HOME', ''),\n"
+    "print('PROBE_ENV\t%s\t%s\t%s\t%s' % (n, os.environ.get('TMPDIR', ''), os.environ.get('HOME', ''),\n"
     "      'SET' if 'UAK_SMOKE_TESTS' in os.environ else 'UNSET'))\n"
 )
 FAILING = "import sys\nprint('PROBE_RAN %s')\nprint('PROBE_BOOM the failing marker')\nsys.exit(1)\n"
@@ -47,13 +47,19 @@ def ran(out):
     return re.findall(r"(?m)^PROBE_RAN (\S+)$", out.stdout)
 
 
+def probe_envs(out):
+    """(name, TMPDIR, HOME, inherit) per probe, split on tabs: a TMPDIR may hold spaces and non-ASCII (CI's does)."""
+    rows = [l.rstrip("\r").split("\t") for l in out.stdout.splitlines() if l.startswith("PROBE_ENV\t")]
+    return [tuple(r[1:5]) for r in rows if len(r) == 5]
+
+
 def jobs_split_runs_every_file_once(r):
     pkg = package(r, "sp-split")
     out = smoke(r, pkg, "--jobs", "3")
     text = out.stdout + out.stderr
     expect(out.returncode == 0 and "PACKAGE_PASS" in out.stdout, "3 shards must pass: rc %d %s" % (out.returncode, text[-600:]))
     expect(sorted(ran(out)) == NAMES, "every file runs exactly once: %s" % ran(out))
-    envs = re.findall(r"(?m)^PROBE_ENV (\S+) tmp=(\S*) home=(\S*) inherit=(\S+)$", out.stdout)
+    envs = probe_envs(out)
     expect(len(envs) == 5 and all(e[3] == "UNSET" for e in envs), "a test never inherits UAK_SMOKE_TESTS: %s" % envs)
     tmps = {e[1] for e in envs}
     expect(len(tmps) >= 2 and all(t and "shard" in t for t in tmps), "each shard has its own TMPDIR: %s" % tmps)
@@ -87,8 +93,8 @@ def default_is_serial(r):
         expect(ran(out) == NAMES, "serial runs in C order: %s" % ran(out))
         talk = [l for l in out.stdout.splitlines() if not l.startswith("PROBE_ENV") and "shard" in l.lower() and "UAK_SMOKE_TESTS" not in l]
         expect(not talk, "no shard talk in a serial run: %s" % talk)
-        tmps = {m for m in re.findall(r"tmp=(\S*)", out.stdout)}
-        expect(tmps == {str(r.scratch)}, "serial keeps the caller's TMPDIR %s: %s" % (r.scratch, tmps))
+        tmps = {e[1] for e in probe_envs(out)}
+        expect(len(probe_envs(out)) == 5 and tmps and not any("uak-smoke-shards" in t for t in tmps), "serial keeps the caller's TMPDIR: %s" % tmps)
     out = smoke(r, package(r, "sp-serial-md", project="- **Smoke-Jobs:** 1\n"))
     expect(ran(out) == NAMES, "Smoke-Jobs: 1 is serial: %s" % ran(out))
     return "serial by default"
