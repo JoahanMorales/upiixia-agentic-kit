@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # UPIIXIA Agentic Kit installer.
+#   bash install.sh --wizard [TARGET] [--no-open]   local visual setup, before installation choices
 #   bash install.sh --mode sprint|marathon [--stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|spring-boot|none]
 #                   [--harness claude,codex,cursor,gemini] [--skills ai,tdd,taste] [--no-blackbox] [--no-mcp|--mcp] [--solo] [--update] TARGET
 # Never overwrites your files: if AGENTS.md, CLAUDE.md, settings.json… already exist and differ,
@@ -17,6 +18,18 @@
 set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 kit="$here/kit"
+# Visual setup starts before mode/target validation. The old CLI stays noninteractive.
+# Keep this opt-in so CI, --update and existing installation commands never launch a server.
+if [ "${1:-}" = --wizard ]; then
+  shift
+  for runtime in python3 python py; do
+    if "$runtime" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then
+      exec "$runtime" "$kit/.uak/bin/lib/setup.py" "$@"
+    fi
+  done
+  printf '%s\n' 'Visual setup needs Python 3.8+. Install Python or use install.sh --mode sprint|marathon TARGET.' >&2
+  exit 2
+fi
 mode= stack=none extra= update=no target= blackbox=on mcp=on mcp_flag= harness=claude,codex,cursor,gemini solo=no
 while [ "$#" -gt 0 ]; do
   # An option missing its value (the last argument) said nothing: `shift 2` failed under set -e (audit, Oct 2026).
