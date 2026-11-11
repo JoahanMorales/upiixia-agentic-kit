@@ -138,8 +138,11 @@ def server_binds_local_only(e):
     for ip, name in (("192.168.1.5", "lan"), ("0.0.0.0", "any"), ("100.64.0.9", "ts")):
         sub = fake / name
         sub.mkdir(exist_ok=True)
-        (sub / "tailscale").write_text("#!/bin/sh\necho %s\n" % ip, encoding="utf-8")
-        (sub / "tailscale").chmod(0o755)
+        if os.name == "nt":  # Windows runs no #!/bin/sh file; shutil.which finds a .cmd through PATHEXT
+            (sub / "tailscale.cmd").write_text("@echo %s\r\n" % ip, encoding="utf-8")
+        else:
+            (sub / "tailscale").write_text("#!/bin/sh\necho %s\n" % ip, encoding="utf-8")
+            (sub / "tailscale").chmod(0o755)
     old = os.environ["PATH"]
     try:
         got = {}
