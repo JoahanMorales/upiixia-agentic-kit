@@ -37,7 +37,12 @@ if [ "$mode" != product ]; then
   # CI runs the suite in shards (UAK-018: 15.6 min on one macOS job): UAK_SMOKE_TESTS names this shard's files, as
   # `scripts/kit_lint.py --ci-shards` prints them. Every name must be a test found here, or the shard fails: a typo never
   # runs less quietly. Unset (the merge gate, a laptop), every test runs.
-  if [ -n "${UAK_SMOKE_TESTS+set}" ]; then
+  # Merge-Smoke: affected with no affected test file (UAK-052): the merge gate says so with this internal variable (a token file only the gate creates), never
+  # with a value of UAK_SMOKE_TESTS, so a user's export cannot skip the suite. Lint and the rest of the gate still ran.
+  if [ -f "${UAK_SMOKE_GATE_NONE:-/nonexistent}" ] && [ "$(cat "$UAK_SMOKE_GATE_NONE" 2>/dev/null)" = affected-none ] && [ -z "${UAK_SMOKE_TESTS+set}" ]; then
+    printf 'Shard: 0 of %s test files (merge gate: no test file affected).\n' "$(printf '%s\n' $tests | wc -l | tr -d ' ')"
+    tests=''
+  elif [ -n "${UAK_SMOKE_TESTS+set}" ]; then
     picked='' n_all=0 n_picked=0
     for t in $tests; do n_all=$((n_all + 1)); done
     set -f
