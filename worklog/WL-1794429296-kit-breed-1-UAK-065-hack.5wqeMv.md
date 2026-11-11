@@ -6,7 +6,7 @@
 - Why: kit-r1 rejection
 - Failing: -
 - Commands: python3 kit/.uak/tests/test_design_breed_notes.py
-- Next: Humano: Shared resource/CI needs a human: kit/.uak/bin/lib/design_breed.py
+- Next: Integrated in main: 73b726ff9539aa8dba478d901971d6d6344794a6 (recorded by kit-breed-1)
 
 ## History
 - 1794429296 | CLAIMED | kit-breed-1 | claim; next: the mutation and wildcard choice in kit/.uak/bin/lib/design_breed.py
@@ -17,3 +17,4 @@
 - 1794433424 | REVIEW | kit-breed-1 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-065; evidence: Verify exit 0 (6/6 + test_design_breed 4/4); kit_lint pass; smoke rc 0; real AXIA R2 breeds n=4,6 seeds 1-3; slop and short-stem cases · red at f359627: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: -
 - 1794433533 | REVIEW | kit-r1 | review; approve; SHA e5c701b4eb81f46b8b3080c2e5d963e4fe3c9e8f; reviewer kit-r1
 - 1794433695 | REVIEW | kit-breed-1 | merge rechazado; Shared resource/CI needs a human: kit/.uak/bin/lib/design_breed.py
+- 1794434552 | INTEGRATED | kit-breed-1 | integrate; recorded by kit-breed-1; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-065; merged 73b726ff9539aa8dba478d901971d6d6344794a6; proof ancestry
