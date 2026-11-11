@@ -40,17 +40,21 @@ if [ "$mode" != product ]; then
   if [ -n "${UAK_SMOKE_TESTS+set}" ]; then
     picked='' n_all=0 n_picked=0
     for t in $tests; do n_all=$((n_all + 1)); done
+    # "-" = no test file is affected (Merge-Smoke: affected, UAK-052): lint and the rest of the gate still ran.
+    [ "$UAK_SMOKE_TESTS" != - ] || { printf 'Shard: 0 of %s test files (UAK_SMOKE_TESTS=-).\n' "$n_all"; tests=''; }
     set -f
-    for want in $UAK_SMOKE_TESTS; do
+    for want in $( [ "$UAK_SMOKE_TESTS" = - ] || printf '%s' "$UAK_SMOKE_TESTS" ); do
       found=''
       for t in $tests; do [ "$t" != "$want.py" ] || found=1; done
       [ -n "$found" ] || { set +f; printf 'PACKAGE_UNVERIFIED: UAK_SMOKE_TESTS names %s: no .uak/tests/%s.py here.\n' "$want" "$want" >&2; exit 2; }
       picked="$picked $want.py"; n_picked=$((n_picked + 1))
     done
     set +f
-    [ -n "$picked" ] || { printf '%s\n' 'PACKAGE_UNVERIFIED: UAK_SMOKE_TESTS is set and empty: no test to run.' >&2; exit 2; }
-    printf 'Shard: %s of %s test files (UAK_SMOKE_TESTS).\n' "$n_picked" "$n_all"
-    tests=$picked
+    if [ "$UAK_SMOKE_TESTS" != - ]; then
+      [ -n "$picked" ] || { printf '%s\n' 'PACKAGE_UNVERIFIED: UAK_SMOKE_TESTS is set and empty: no test to run.' >&2; exit 2; }
+      printf 'Shard: %s of %s test files (UAK_SMOKE_TESTS).\n' "$n_picked" "$n_all"
+      tests=$picked
+    fi
   fi
   # Names are [A-Za-z0-9_.] only: plain word splitting, and stdin stays the caller's (a test may read it).
   for t in $tests; do
