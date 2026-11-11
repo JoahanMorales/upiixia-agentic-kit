@@ -59,7 +59,44 @@ def retry_reuses_the_free_identity(r):
     return "same identity " + named.group(1)
 
 
-TESTS = [refused_claim_registers_no_identity, retry_reuses_the_free_identity]
+def freeze_fixture(r, name):
+    f = r.fixture(name, paths={"HACK-001": "src/one.txt", "HACK-002": "src/two.txt"}, count=2)
+    pj = f.seed / ".uak/PROJECT.md"
+    pj.write_text(pj.read_text(encoding="utf-8") + "Freeze-Epoch: 1000\n", encoding="utf-8")
+    r.g(f.seed, "commit", "-qam", "freeze")
+    r.g(f.seed, "push", "-q", "origin", "main")
+    return f
+
+
+def refusal_leaves_nothing(r, f, expect_word):
+    before = agents_on_claims(r, f)
+    out = wt_new(r, f, "HACK-002")
+    text = out.stdout + out.stderr
+    expect(out.returncode != 0 and "WT_CLAIM_FAILED" in text and expect_word in text, "refused (%s): rc %d %s" % (expect_word, out.returncode, text[-500:]))
+    expect(agents_on_claims(r, f) == before, "identities unchanged: %s -> %s" % (before, agents_on_claims(r, f)))
+    expect("hack-002" not in r.g(f.clones[1], "worktree", "list", "--porcelain").stdout, "no worktree left")
+    expect(r.g(f.clones[1], "branch", "--list", "feat/hack-002").stdout.strip() == "", "no branch left")
+
+
+def refused_by_dependency_leaves_nothing(r):
+    f = r.fixture("wr-dep", paths={"HACK-001": "src/one.txt", "HACK-002": "src/two.txt"}, count=2, dependencies={"HACK-002": "HACK-001"})
+    refusal_leaves_nothing(r, f, "depends on")
+    return "nothing left"
+
+
+def refused_by_freeze_leaves_nothing(r):
+    refusal_leaves_nothing(r, freeze_fixture(r, "wr-freeze"), "FREEZE")
+    return "nothing left"
+
+
+def refused_by_owners_leaves_nothing(r):
+    f = r.fixture("wr-own", paths={"HACK-001": "src/one.txt", "HACK-002": "src/two.txt"}, count=2, owners={"src/two.txt": "HACK-001"})
+    refusal_leaves_nothing(r, f, "belongs to")
+    return "nothing left"
+
+
+TESTS = [refused_claim_registers_no_identity, retry_reuses_the_free_identity,
+         refused_by_dependency_leaves_nothing, refused_by_freeze_leaves_nothing, refused_by_owners_leaves_nothing]
 
 
 def main():
