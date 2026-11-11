@@ -1,5 +1,53 @@
 # Changelog
 
+## v6.1.0 · 2026-11-10 · What two hackathons taught: every harness gets the commands, claims match main, and the numbers are real
+
+Built from the black boxes of the first two events on v6.0.0: DevDay-Exchange (37 of 41 tasks through the kit) and
+deus-ex-machina (OpenAI x Kavak, first place; 120 of 155 commits on main made outside tasks, so claims ended at 6 of
+23 integrated and tokens came from 1 of 3 Macs). 18 tasks (UAK-027 … UAK-044), each test-first, reviewed by an agent
+that was not its author and merged through the kit's own flow. A minor version, not a patch: the team's pre-commit hook
+now refuses product commits on main, and Codex, Cursor and Gemini get new files (`.agents/skills/uak-*`,
+`.gemini/commands/`).
+
+Every harness, every platform
+- **The `/uak-*` phase scripts are native in Codex, Cursor and Gemini CLI** (UAK-040). One source generates an Agent
+  Skill per phase in `.agents/skills/uak-X/` (Codex `$uak-X`, Cursor `/uak-X`; never model-invoked) and a
+  `.gemini/commands/uak-X.toml`. Codex no longer reads custom prompts; before this, those harnesses had no `/uak-*`.
+- **Skills survive a Windows clone** (UAK-041). `.agents/skills` is a real folder, not a symlink: Git for Windows
+  checked the committed link out as a one-line text file and Codex and Cursor lost every skill. `doctor` flags a link
+  checked out as a file or a stale copy and `doctor --fix`/`start --fix` repair it; `--harness gemini` alone gets skills.
+- **Model IDs checked against the official pages** (UAK-042): Gemini's strong tier moves to `gemini-3.1-pro-preview`
+  (Google shut down `gemini-3-pro-preview`).
+- **Windows fixes found by CI:** the Codex tick read its harness file as `codex\r` and never published tokens (UAK-043);
+  gitleaks exceptions were lost when `.gitleaksignore` had CRLF or no final newline (UAK-044).
+
+Claims that match main
+- **`uak integrate` records work that reached main outside the gate** (UAK-033): squash merges, PRs merged after more
+  commits, branches that carried base merges, identical content landed by another commit, and a task still AVAILABLE
+  or CLAIMED whose branch was merged. It compares the task's own commits with main file by file, never the whole tree;
+  the record says `Integrated-Outside: yes` and the approval it had, and `stats`/`dash` count it apart. `uak merge` is
+  unchanged.
+- **Product commits on main are refused** (UAK-035): in a team repo with a backlog, the pre-commit hook refuses a commit
+  on the base branch in the main checkout unless it only touches the kit's own files (the plan, PROJECT.md, a kit
+  update); a human hotfix is `UAK_DIRECT_MAIN=1 git commit …` (logged). `uak stats` prints "Direct to main: N of M".
+- **Registered reviewers get the review work first** (UAK-038): `next` offers reviewable REVIEW tasks before coding,
+  `wait --for message` wakes on new review work, and `status --summary ID` works.
+- `status` reads the canonical backlog (main + plan + amendments) on every read path (UAK-034).
+
+Numbers that are real
+- **Token spend from every machine** (UAK-036): published from session start and the Codex hooks too; a failed publish
+  leaves a black box line; `tokens --team` names the machines that never reported, and the main checkout's share is
+  shown and warned above 50 %. On macOS the team view read nothing when the claims had no black box files (UAK-043).
+- **A metric that was not measured is `null`, never 0** (UAK-039, sprint rule 9).
+
+Fixes from the events
+- CI template installs `web/`, `frontend/`, `client/` and root dependencies (npm, pnpm, yarn) before the product smoke
+  (UAK-027): DevDay's main failed 9 times in a row with `tsc: not found`.
+- `q "cmd1 && cmd2"` runs a quoted Verify with `bash -c` (UAK-029); the design gallery's page passes design-lint
+  (UAK-028); `done` accepts one `*-1280.png`/`*-390.png` and the design critic names the files exactly (UAK-030); a
+  FREEZE claim refusal says not to retry (UAK-031); no git identity → `wt` and `doctor` print the `git config` command
+  (UAK-032); a gitleaks finding is cleared by its fingerprint (`secret-exception ID --fingerprint FP`, UAK-037).
+
 ## v6.0.0 · 2026-11-07 · The claims engine without the process storm, built with the kit itself
 
 The first release the kit planned, reviewed and merged through its own gates: 19 tasks (UAK-001 … UAK-021) on the

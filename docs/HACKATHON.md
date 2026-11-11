@@ -6,6 +6,7 @@ Lessons from past events: `docs/blackbox/reap-2026-10.md` (4 h, 12 agents) and `
 ## Before you arrive (10 min, each laptop)
 - [ ] Git knows who you are: `git config --global user.name "Your Name"` and `git config --global user.email you@example.com` (a fresh laptop has neither; `wt new` and the first commit fail without them).
 - [ ] Claude Code v2.1.293 or later, Codex or Cursor, Git, and `gh auth login`. Use a token with **Pull requests: write**, or every PR will need a human click (`wt pr` prints the URL).
+- [ ] Codex users: the phase scripts are skills, `$uak-setup`, `$uak-plan`, `$uak-ship` (Cursor and Gemini: `/uak-…`). On Windows, `bash .uak/bin/uak doctor` checks that `.agents/skills` is a real folder.
 - [ ] Windows: use Git Bash, and keep the repo **outside OneDrive/Dropbox** (sync locks files git writes; `doctor` warns).
 - [ ] Python projects: create `.venv` in the main checkout; the merge gate uses it.
 - [ ] The first time you open Claude Code in the repo, approve the `uak` MCP server (native uak tools; Python 3.8+ needed). The CLI works without it: declining is fine, or install with `--no-mcp`.

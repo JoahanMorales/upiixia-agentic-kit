@@ -65,7 +65,7 @@ It never overwrites your files: a kit file you edited gets its new text beside i
 /uak:setup
 ```
 
-**2. Plan:** open your agent in the repo and run `/uak-setup`, then `/uak-plan`. Codex, Cursor and Gemini read `AGENTS.md` natively. Then `bash .uak/bin/uak start` until it says `START READY`.
+**2. Plan:** open your agent in the repo and run `/uak-setup`, then `/uak-plan`. Codex, Cursor and Gemini read `AGENTS.md` natively (in Codex the phase scripts are `$uak-setup`, `$uak-plan`). Then `bash .uak/bin/uak start` until it says `START READY`.
 
 **3. Start the team:**
 
@@ -364,6 +364,13 @@ The old and new engines print the same and write the same claims tree over a 38-
 transaction itself. Also: `uak plan` no longer warns about OWNERS rows of integrated tasks, a review refused in the
 author's worktree says where to review from, and CI runs in balanced shards (15.6 → about 7 minutes).
 
+**v6.1: what two hackathons taught.** From the black boxes of DevDay-Exchange and deus-ex-machina (OpenAI x Kavak,
+first place; [autopsy](docs/blackbox/devday-deus-2026-11.md)): the `/uak-*` phase scripts are native in Codex
+(`$uak-X`), Cursor and Gemini CLI; skills survive a Windows clone; `uak integrate` records work that reached main
+outside the gate (deus ended with 6 of 23 tasks integrated in claims while the product shipped); product commits on
+main are refused by the pre-commit hook; token spend comes from every machine and says which never reported; and a
+metric that was not measured is `null`, never 0. 18 tasks, each through the kit's own flow.
+
 ## Deploy in one command: `uak deploy`
 
 ```text
@@ -447,6 +454,7 @@ Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and ea
 | Research on agents gaming tests and on harness design (2026) | agents edit assertions, skip or delete tests to reach green; the best harnesses are small, evidence-based and pruned | v5.10: tests only grow, named tests, `uak red`, skill `test-first`, `uak garden` |
 | The kit's own architecture review (Nov 2026) | a 1,995-line `uak`, 13 copies of the config reader, five hand-kept command lists | v5.11: one file per command family, one registry, one config reader, `uak --json`; the kit developed with the kit |
 | Hacktoberfest 2026 ([autopsy](docs/blackbox/hacktoberfest-2026-10.md)) | ~16 h overnight, 5 humans, 13 identities on Claude Code and Codex, macOS and Windows, 33 of 35 tasks integrated | v5.5: a reject stands until a new commit, no verdict over a held review, no review offers to a human the Mac file system renamed, gate false positives gone (fixtures, carried files, its own port), `.env.example` readable, Codex `--add-dir`, `wt stop` on Windows; plan rules for a contract no task implements and a demo that only replays its recording. v5.6–v5.7: a nine-part audit after it (claims cannot grant authority, the gate runs the backlog's Verify, human-only commands ask the human, no secrets on claims, task threads reach the next owner, the merge lock is renewed) |
+| DevDay-Exchange and deus-ex-machina, **first place** ([autopsy](docs/blackbox/devday-deus-2026-11.md)) | two v6.0.0 events: 37 of 41 tasks through the kit; and a win with 120 of 155 commits outside tasks, Codex + Claude Code on 3 Macs | v6.1: claims that match main, native `/uak-*` in every harness, skills on Windows clones, tokens from every machine |
 
 Hack-Nation 2026 in detail:
 
@@ -461,15 +469,15 @@ Hack-Nation 2026 in detail:
 | 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
 | No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
 
-**283 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
+**312 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
 
 ## Works with
 | Tool | How |
 |---|---|
 | **Claude Code** | full support: hooks (guard, prompt guard, heartbeat, inbox, spawn caps, pace), status line, slash commands, subagents, skills, plugin, MCP server (`.mcp.json`, approve once) |
-| **Codex CLI** | `AGENTS.md`, `.codex/config.toml` (Sol lead, Luna swarm), `.codex/agents/*.toml`, `.codex/hooks.json` (guard, spawn caps, inbox, black box), pace from session logs, MCP server (`[mcp_servers.uak]`) |
-| **Cursor** | `.cursor/rules/uak.mdc`, `.cursor/agents/*.md` (Composer swarm, Opus strong), `.cursor/hooks.json` (shell guard, spawn caps, black box), `.cursor/skills`, MCP server (`.cursor/mcp.json`; on Windows the rule sends messages and waits through it) |
-| **Gemini CLI** | `.gemini/settings.json` (reads `AGENTS.md`; hooks: guard, session context, output cap), `.gemini/agents/*.md` (Flash swarm, Pro strong), MCP server (`mcpServers`) |
+| **Codex CLI** | `AGENTS.md`, the `/uak-*` phase scripts as skills (`$uak-plan`, `.agents/skills`), `.codex/config.toml` (Sol lead, Luna swarm), `.codex/agents/*.toml`, `.codex/hooks.json` (guard, spawn caps, inbox, black box), pace from session logs, MCP server (`[mcp_servers.uak]`) |
+| **Cursor** | `.cursor/rules/uak.mdc`, `.cursor/agents/*.md` (Composer swarm, Opus strong), `.cursor/hooks.json` (shell guard, spawn caps, black box), skills and `/uak-*` from `.agents/skills`, MCP server (`.cursor/mcp.json`; on Windows the rule sends messages and waits through it) |
+| **Gemini CLI** | `.gemini/settings.json` (reads `AGENTS.md`; hooks: guard, session context, output cap), `.gemini/agents/*.md` (Flash swarm, Pro strong), `/uak-*` from `.gemini/commands`, skills from `.agents/skills`, MCP server (`mcpServers`) |
 | **Aider, any agent** | `AGENTS.md` + the `uak` CLI; `uak loop --agent '<cli reading stdin>'`; any MCP client: `python3 .uak/bin/uak-mcp` |
 
 Mix them freely: coordination lives in Git, not in any tool.

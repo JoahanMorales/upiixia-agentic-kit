@@ -11,4 +11,4 @@ Read and apply `AGENTS.md` once per session, then `.uak/modes/<mode>.md` (the mo
 - Explore with the code map before opening files: `bash .uak/bin/uak map show`, `map find NAME`, `map users FILE`. A trap the next agent should know: `uak learn "what · where · what to do"`.
 - Plan usage: Cursor has no 5-hour signal. Copy your dashboard once: `bash .uak/bin/uak pace set USED --resets +Nd --window 30d`, then follow `uak pace`.
 - If a guard is not active (hooks off): before any destructive or publishing command run `bash .uak/bin/guard check "<command>"`. Exit 2 means do not run it.
-- Phase scripts live in `.claude/commands/uak-*.md`. Read the one for your phase (start, loop, ship, review, handoff).
+- Phase scripts are skills: `/uak-start`, `/uak-loop`, `/uak-ship`, `/uak-review`, `/uak-handoff` (from `.agents/skills`).
