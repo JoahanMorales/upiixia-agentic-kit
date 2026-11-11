@@ -62,7 +62,8 @@ def live_url_is_https_only(root, tmp):
     assert ok("  https://app.example.com  ") == "https://app.example.com", "surrounding spaces are not part of it"
     for bad in ("http://app.example.com", "javascript:alert(1)", "data:text/html,x", "https://user:pw@app.example.com",
                 "https://", "https:///path", "https://app.example.com/a b", "https://app.example.com/\u0000",
-                "https://a.example.com/" + "x" * 3000, "-", "", None, 42):
+                "https://a.example.com/" + "x" * 3000, "https://[", "https://[::1", "https://app.example.com:99999",
+                "https://app.example.com:port", "-", "", None, 42):
         assert ok(bad) is None, "not a deploy link: %r" % (bad,)
 
 
@@ -104,6 +105,46 @@ def live_url_is_saved_atomically_and_added_when_missing(root, tmp):
         else:
             raise AssertionError("refuse %r" % bad)
         assert config.read_bytes() == snapshot
+
+
+def malformed_live_url_never_blocks_reads(root, tmp):
+    """An optional, malformed Live-URL is ignored: setup and the dashboard keep answering (review of 9dee91e)."""
+    target = project(tmp, "Live-URL: https://[\n")
+    with wizard.LiveServer(str(target)) as server:
+        status, body, _ = wizard.request(server, "POST", "/api/inspect", {"target": str(target)})
+        assert status == 200, "inspect survives a malformed Live-URL: %d %r" % (status, body[:200])
+        status, body, _ = wizard.request(server, "GET", "/api/status")
+        assert status == 200, "status survives a malformed Live-URL: %d %r" % (status, body[:200])
+        assert json.loads(body)["settings"].get("Live-URL") == "", "the malformed link is shown as absent"
+        status, body, _ = wizard.request(server, "GET", "/api/dashboard")
+        assert status == 200, "the dashboard survives a malformed Live-URL: %d %r" % (status, body[:200])
+        assert json.loads(body).get("live_url") is None, "a malformed Live-URL is never a link"
+        status, body, _ = wizard.request(server, "POST", "/api/settings", {"Live-URL": "https://["})
+        assert status == 400, "saving a malformed Live-URL is refused, not a crash: %d" % status
+    assert "Live-URL: https://[\n" in (target / ".uak/PROJECT.md").read_text(encoding="utf-8"), "the file is untouched"
+
+
+def configuration_rechecks_automatically(root, tmp):
+    """Contract: the interval and focus re-check also runs while Configuration shows a blocker (review of 9dee91e).
+    It reads the guidance of the view the person sees, and no longer requires the Dashboard section."""
+    text = page(root)
+    body = re.search(r"function autoCheck\(\) \{(.*?)\n        \}", text, re.S)
+    assert body, "the automatic re-check exists"
+    body = body.group(1)
+    assert 'currentSection !== "dashboard"' not in body, "the re-check is not limited to the Dashboard section"
+    assert "state.guidance" in body, "in Configuration the re-check follows the status guidance"
+    assert re.search(r'addEventListener\("visibilitychange", autoCheck\)', text)
+    assert re.search(r"setInterval\(autoCheck, 60000\)", text)
+
+
+def long_project_path_wraps(root, tmp):
+    """Contract: the project path shown in the workflow step and the dashboard wraps, so a long folder path never
+    scrolls a 390px screen sideways (browser QA of the 9dee91e fixes; Chromium at 390x844 overflowed by 112px)."""
+    text = page(root)
+    rules = re.findall(r"([^{}]+)\{([^{}]*)\}", text)
+    for ident in ("selected-project", "dashboard-project"):
+        assert any("#" + ident in sel and re.search(r"overflow-wrap:\s*anywhere", body) for sel, body in rules), \
+            "the #%s path wraps anywhere" % ident
 
 
 def next_action_matches_real_state(root, tmp):
@@ -195,6 +236,7 @@ def ready_opens_progress(root, tmp):
 
 
 TESTS = [live_url_is_https_only, live_url_link_is_shown_when_set, live_url_is_saved_atomically_and_added_when_missing,
+         malformed_live_url_never_blocks_reads, configuration_rechecks_automatically, long_project_path_wraps,
          next_action_matches_real_state, copy_command_is_exact, beginner_shows_one_action, beginner_profile_persists,
          advanced_profile_preserves_details, hostile_content_is_text, static_dashboard_remains_offline,
          ready_opens_progress]

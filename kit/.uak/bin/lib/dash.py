@@ -113,8 +113,14 @@ def live_url(value):
         return None
     if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in value):
         return None
-    parts = urllib.parse.urlsplit(value)
-    if parts.scheme != "https" or not parts.hostname or "@" in parts.netloc:
+    # The key is optional and hand-edited: a malformed value (an unclosed IPv6 bracket, a bad port) is absent, never
+    # an error that stops setup or the dashboard from reading the project.
+    try:
+        parts = urllib.parse.urlsplit(value)
+        if parts.scheme != "https" or not parts.hostname or "@" in parts.netloc:
+            return None
+        parts.port  # raises ValueError on a non-numeric or out-of-range port
+    except ValueError:
         return None
     return value
 
