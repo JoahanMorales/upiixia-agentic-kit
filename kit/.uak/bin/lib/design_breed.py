@@ -42,8 +42,8 @@ GENE_WORDS = {
     "scale": ("tamano", "escala", "size", "scale"),
 }
 WANT_WORDS = ("mejor", "podria", "deberia", "cambi", "should", "improve", "change", "needs", "quisiera", "falta")
-NEGATIVE_WORDS = ("no me gust", "peor", "lastim", "feo", "fea", "hate", "ugly", "worst", "horrible", "mal", "mala")
-VERDICT_WORDS = ("no me gust", "peor", "feo", "fea", "hate", "ugly", "worst", "horrible")  # the whole variant, not one gene
+NEGATIVE_WORDS = ("no me gust", "peor", "lastim", "feo", "feos", "fea", "feas", "hate", "ugly", "worst", "horri", "ai slop", "slop", "slopp", "mal", "mala")
+VERDICT_WORDS = ("no me gust", "peor", "feo", "feos", "fea", "feas", "hate", "ugly", "worst", "horri", "ai slop", "slop", "slopp")  # the whole variant, not one gene
 
 
 def _plain(text):
@@ -52,7 +52,9 @@ def _plain(text):
 
 
 def _has(plain, words):
-    return any(re.search(r"\b" + re.escape(w), plain) for w in words)
+    """Word-start match; a short stem (4 letters or fewer: fea, mal, font) must also end its word, so "feature",
+    "material" and "malla" do not count. Why (UAK-065 review): "feature" read as "fea"."""
+    return any(re.search(r"\b" + re.escape(w) + (r"\b" if len(w) <= 4 else ""), plain) for w in words)
 
 
 def note_genes(note):
@@ -184,9 +186,43 @@ def _attempt(picks, n, seed, salt, rejected=None):
     return sorted(out, key=lambda c: order[c["kind"]])
 
 
+def _relax_order(picks, rejected):
+    """Genes with rejected values, the one with the fewest alternatives (values neither picked nor rejected) first."""
+    def left(g):
+        return len([v for v in GENES[g] if v not in rejected[g] and v not in {p["genes"][g] for p in picks}])
+    return sorted((g for g in GENES if rejected.get(g)), key=lambda g: (left(g), list(GENES).index(g)))
+
+
 def breed(picks, n, seed, rejected=None):
+    """Never raises because of the notes. Order of give-ups: (1) as the human asked; (2) rejections dropped one gene at a
+    time, fewest alternatives first (wildcards then say so in "because"); (3) the named genes ignored (mutations random
+    again, no "because"), with rejections restored and dropped the same way. Why (AXIA R2, 2026-11-11): two picks that
+    share 5 genes, notes naming colors and animation, and a variant rejected on all 8 genes left no round: a mutation of
+    each pick cannot share 3 genes when the picks differ in 3 and the notes fix the mutated gene to one they differ in."""
+    full = {g: set(v) for g, v in (rejected or {}).items()}
+    plain = [dict(p, chosen=[]) for p in picks]
+    for use, tries in ((picks, TRIES), (plain, TRIES)):
+        rej, dropped = {g: set(v) for g, v in full.items()}, []
+        while True:
+            for salt in range(TRIES if (not dropped and use is picks) else 10):
+                got = _attempt(use, n, seed, salt, rej)
+                if got:
+                    notes = []
+                    if dropped:
+                        notes.append("rejected values allowed for %s" % ", ".join(dropped))
+                    if use is plain and any(p["chosen"] for p in picks):
+                        notes.append("genes named in the notes not honoured")
+                    for c in got:
+                        if c["kind"] == "wildcard" and dropped:
+                            c["because"] = "%s: no round keeps the diversity rule without them" % notes[0]
+                    return got
+            order = _relax_order(use, rej)
+            if not order:
+                break
+            dropped.append(order[0])
+            rej[order[0]] = set()
     for salt in range(TRIES):
-        got = _attempt(picks, n, seed, salt, rejected)
+        got = _attempt(plain, n, seed, salt, {})
         if got:
             return got
     raise RuntimeError("could not breed %d children from %d picks that keep the diversity rule (seed %s)" % (n, len(picks), seed))

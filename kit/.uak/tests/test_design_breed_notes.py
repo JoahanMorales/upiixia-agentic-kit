@@ -130,7 +130,54 @@ def because_is_recorded(e):
     return seen["R1/v6"]
 
 
-TESTS = [note_naming_color_mutates_color, rejected_values_never_reach_wildcards, wildcard_falls_back_to_a_picked_value, because_is_recorded]
+R2_NOTES = {
+    "v1": "Super lindo y explicativo solamente las imagenes se podrian mostrar mejor pq se ven feas, o recrearlas en animaci\u00f3n para q n se vean redimensiondas y feas",
+    "v2": "esta normal",
+    "v3": "igual esta bastante bien pero se ve simple y esos difuminados neon y todo eso parece completamente ai slop",
+    "v4": "el mejor de esta ronda, bonitas guentes colores paletas texto explicativo solamente el mismo comentario con las imagenes",
+    "v5": "horrilble ai slop",
+    "v6": "horrible ai slopp",
+}
+R2_GENOMES = {  # AXIA R2 as the human saw it (picked v4 and v1, which share 5 genes); R1 is not needed to breed from R2
+    "v1": ("serif display", "standard", "dark media", "full-bleed media", "glass", "illustration", "entrance", "numbers first"),
+    "v2": ("mono-led", "bold", "light paper", "editorial column", "solid blocks", "illustration", "scroll", "plain"),
+    "v3": ("grotesk", "standard", "light paper", "editorial column", "soft", "3D cut-out", "pointer", "numbers first"),
+    "v4": ("serif display", "standard", "ink + one accent", "scroll story", "glass", "illustration", "entrance", "plain"),
+    "v5": ("geometric", "restrained", "ink + one accent", "product screen first", "hairline", "product screenshot", "still", "bold claim"),
+    "v6": ("condensed", "standard", "light paper", "split hero", "soft", "type only", "scroll", "numbers first"),
+}
+
+
+def real_r2_still_breeds(e):
+    """The real AXIA R2: two overlapping picks, notes naming colors and animation, a variant rejected on all 8 genes
+    ("horrible ai slopp"). It raised 'could not breed' in the first UAK-065 cut; it must always give N children."""
+    d = e.tmp / "r2"
+    r2 = d / ".uak" / "design" / "rounds" / "R2"
+    r2.mkdir(parents=True)
+    for v, vals in R2_GENOMES.items():
+        (r2 / v).mkdir()
+        (r2 / v / "genome.json").write_text(json.dumps({"id": "R2-" + v, "round": "R2", "genes": dict(zip(KEYS, vals)), "recipe": "landing-story"}), encoding="utf-8")
+    (r2 / "picks.json").write_text(json.dumps({"picked": ["v4", "v1"], "notes": R2_NOTES, "by": "joahan", "at": "2026-11-11T20:39:41Z"}), encoding="utf-8")
+    for n in (4, 6):
+        for seed in (1, 2, 3):
+            r = subprocess.run([sys.executable, str(e.lib / "design_breed.py"), "--from", "R2", "--n", str(n), "--seed", str(seed), "--dry-run"], cwd=str(d), capture_output=True, text=True)
+            expect(r.returncode == 0 and len([l for l in r.stdout.splitlines() if l.startswith("v")]) == n, "n=%d seed=%d: %s" % (n, seed, r.stdout + r.stderr))
+    return "R2 breeds 4 and 6 children for 3 seeds"
+
+
+def slop_and_short_stems(e):
+    sys.path.insert(0, str(e.lib))
+    import design_breed as b
+    allg = set(b.GENES)
+    for note in (R2_NOTES["v3"], R2_NOTES["v5"], R2_NOTES["v6"]):
+        expect(set(b.note_rejects(note)) == allg, "a slop verdict rejects every gene: " + note)
+    for note in ("this feature is fine", "material y malla", "the fonts are fine"):
+        expect(b.note_rejects(note) == [], "no negative word in: " + note)
+    expect(b.note_rejects("muy fea") == list(b.GENES) and b.note_genes("the font should change")[0] == ["type"], "whole short stems still count")
+    return "slop counts, feature/material/malla do not"
+
+
+TESTS = [real_r2_still_breeds, slop_and_short_stems, note_naming_color_mutates_color, rejected_values_never_reach_wildcards, wildcard_falls_back_to_a_picked_value, because_is_recorded]
 
 
 def main():
