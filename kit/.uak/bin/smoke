@@ -57,6 +57,9 @@ if [ "$mode" != product ]; then
     printf 'Shard: %s of %s test files (UAK_SMOKE_TESTS).\n' "$n_picked" "$n_all"
     tests=$picked
   fi
+  # The shard list and the gate's none-signal are this run's choice, not the tests': a test that starts its own smoke
+  # inherited them and looked for files its package does not have. Why (v6.1.1 CI, the second time after lesson #4).
+  unset UAK_SMOKE_TESTS UAK_SMOKE_GATE_NONE
   # Names are [A-Za-z0-9_.] only: plain word splitting, and stdin stays the caller's (a test may read it).
   for t in $tests; do
     # The installer lives next to the kit in the source repository, not in an installed project.

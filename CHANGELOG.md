@@ -27,6 +27,8 @@ From building v6.1.0 with the kit
   claims); kept as a regression test, one case per refusal kind.
 - **One canonical-backlog builder** (UAK-053): `coord_init` uses `backlog_canonical`; a "not in TASKS.md" refusal says
   which backlog it read and how to refresh.
+- **`smoke` does not pass its shard list to the tests it runs**: a test that starts its own smoke inherited
+  `UAK_SMOKE_TESTS` and looked for files its package lacked (it bit twice, the second time in this release's CI).
 
 ## v6.1.0 · 2026-11-10 · What two hackathons taught: every harness gets the commands, claims match main, and the numbers are real
 
