@@ -85,11 +85,11 @@ lint_paths_hint() {
         if (t == "" || (id SUBSEP t) in seen) continue
         seen[id, t] = 1
         if (t in isfile) {
-          if (!inside(t)) { printf "LINT WARNING: %s mentions %s, outside its Paths\n", id, t; cnt++ }
+          if (!inside(t)) { printf "LINT HINT: %s mentions %s, outside its Paths\n", id, t; cnt++ }
         } else if ((t ~ /_/ || t ~ /[a-z][A-Z]/) && (t in def)) {
           split(def[t], w, "\n"); k = 0
           for (f in w) if (w[f] != "" && inside(w[f])) k = 1
-          if (!k) { printf "LINT WARNING: %s mentions %s (%s), outside its Paths\n", id, t, w[2]; cnt++ }
+          if (!k) { printf "LINT HINT: %s mentions %s (%s), outside its Paths\n", id, t, w[2]; cnt++ }
         }
       }
     }

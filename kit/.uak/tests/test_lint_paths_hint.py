@@ -39,7 +39,7 @@ def next_step_function_outside_paths_warns(r):
     expect(not none, "no map yet: silent: " + (out.stdout + out.stderr)[-500:])
     build_map(r, c)
     out, lines = lint(r, c)
-    expect(any(l.startswith("LINT WARNING: HACK-001 mentions coord_next (src/coord.py), outside its Paths") for l in lines),
+    expect(any(l.startswith("LINT HINT: HACK-001 mentions coord_next (src/coord.py), outside its Paths") for l in lines),
            "the Next step function is named with its file: " + (out.stdout + out.stderr)[-800:])
     expect(any("claimNext (src/coord.py)" in l for l in lines), "and so is the Acceptance one: " + str(lines))
     expect("LINT_FAILED" not in out.stdout, "a warning does not fail lint: " + out.stdout[-300:])
