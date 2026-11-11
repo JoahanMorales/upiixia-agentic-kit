@@ -58,21 +58,69 @@ def raw_claims(r, f, files):
     r.g(clone, "push", "-q", "origin", "claims")
 
 
-def claims_tip(r, f):
-    return r.g(f.remote, "rev-parse", "-q", "--verify", "refs/heads/claims").stdout.strip()
+def this_machine(r):
+    """The name `tokens` publishes under (.uak/bin/tokens machine(): the host name's cksum, modulo 100000)."""
+    return r.run([r.bash, "-c", "(hostname 2>/dev/null || uname -n) | cksum | awk '{print $1 % 100000}'"]).stdout.strip()
+
+
+def machine_tokens(r, f):
+    """This machine's tokens file on the remote's claims, or None when it has none yet."""
+    shown = r.g(f.remote, "show", "claims:tokens/%s.md" % this_machine(r), allowed=None)
+    return shown.stdout if shown.returncode == 0 else None
+
+
+def pending_text(common):
+    path = common / "uak-blackbox.pending"
+    return path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+
+
+def publish_baseline(r, f, common):
+    """What a publish must change: this machine's tokens file, judged against the black box as it is now."""
+    return {"tokens": machine_tokens(r, f), "pending": len(pending_text(common))}
 
 
 def publish_landed(r, f, common, before, seconds=60):
-    """The hook's background `tokens --publish` reached claims (a new tip with this machine's tokens file)."""
+    """The background `tokens --publish` replaced THIS machine's tokens file on claims with new totals. A publish
+    failure recorded since the baseline is reported first; another commit on claims is not a publish."""
     deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        if claims_tip(r, f) != before and f.files("tokens/"):
+    while True:
+        recorded = pending_text(common)[before["pending"]:]
+        if "tokens publish failed" in recorded:
+            raise AssertionError("the background publish failed: " + recorded[-400:])
+        now = machine_tokens(r, f)
+        if now is not None and now != before["tokens"]:
             return
-        pending = common / "uak-blackbox.pending"
-        if pending.exists() and "tokens publish failed" in pending.read_text(encoding="utf-8", errors="replace"):
-            raise AssertionError("the background publish failed: " + pending.read_text(encoding="utf-8")[-400:])
+        if time.monotonic() >= deadline:
+            raise AssertionError("the background publish never reached claims within %d s" % seconds)
         time.sleep(0.25)
-    raise AssertionError("the background publish never reached claims within %d s" % seconds)
+
+
+def publish_wait_needs_this_machines_new_totals(r):
+    """The wait itself (review of 9c3888a): an unrelated claims commit while this machine's tokens file is unchanged is
+    not a publish, and a publish failure in the black box is reported before anything else."""
+    f = with_claims(r, "tk-wait")
+    cfg = spend(r, f, "tk-wait", 800000, 100000)
+    w = f.worktrees[0]
+    common = Path(r.g(w, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip())
+    expect(tokens(r, f, cfg, "--publish", "--quiet").returncode == 0, "first publish")
+    before = publish_baseline(r, f, common)
+    raw_claims(r, f, {"notes/other.md": "- another machine's commit\n"})
+    try:
+        publish_landed(r, f, common, before, seconds=2)
+    except AssertionError as exc:
+        expect("never reached" in str(exc), "an unrelated claims commit is not this machine's publish: %s" % exc)
+    else:
+        raise AssertionError("old totals and an unrelated claims commit were taken for a publish")
+    with open(common / "uak-blackbox.pending", "a", encoding="utf-8") as stream:
+        stream.write("- tokens publish failed: push to claims failed: denied\n")
+    raw_claims(r, f, {"notes/again.md": "- x\n"})
+    try:
+        publish_landed(r, f, common, before, seconds=2)
+    except AssertionError as exc:
+        expect("publish failed" in str(exc), "a recorded publish failure is reported: %s" % exc)
+    else:
+        raise AssertionError("a recorded publish failure was taken for a publish")
+    return "unrelated commits and failures are not a publish"
 
 
 def released(folder, seconds=60):
@@ -152,7 +200,7 @@ def hooks_publish_from_session_start_and_codex(r):
     e = env(f, cfg)
     stamp = common / "uak-tokens.published"
     expect(not stamp.exists(), "no stamp yet")
-    before = claims_tip(r, f)
+    before = publish_baseline(r, f, common)
     r.run([r.bash, "-c", "echo '{\"session_id\":\"s1\"}' | bash .uak/bin/hook session-start"], cwd=w, env=e, allowed=None)
     expect(stamp.exists(), "session-start publishes (tried now)")
     # The publish runs in the background: wait for it, so the next hook and the cleanup never race it (UAK-009).
@@ -160,7 +208,7 @@ def hooks_publish_from_session_start_and_codex(r):
     stamp.unlink()
     # New spend since session-start, so the tick's publish has new totals to push (an identical file pushes nothing).
     transcript(cfg, enc(Path(f.clones[0]).resolve()), "m2", 5000)
-    before = claims_tip(r, f)
+    before = publish_baseline(r, f, common)
     gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
     (gd / "uak-harness").write_bytes(b"codex\r\n")  # as Windows writes it
     r.run([r.bash, "-c", "echo '{}' | bash .uak/bin/hook tick"], cwd=w, env=e, allowed=None)
@@ -180,7 +228,7 @@ def team_view_without_black_box_files_still_reads_the_tokens(r):
     return "team view"
 
 
-TESTS = [team_view_without_black_box_files_still_reads_the_tokens, publish_failure_is_recorded, team_view_names_machines_that_never_reported, main_share_is_reported_and_warned,
+TESTS = [publish_wait_needs_this_machines_new_totals, team_view_without_black_box_files_still_reads_the_tokens, publish_failure_is_recorded, team_view_names_machines_that_never_reported, main_share_is_reported_and_warned,
          hooks_publish_from_session_start_and_codex]
 
 
