@@ -25,7 +25,7 @@ import tempfile
 from pathlib import Path
 
 # The genome. Order matters (it is the order of genome.json). Scale values stay inside the F0 bounds
-# (docs/design/failures.md: display type <= 96 px on a landing hero, body 14-16 px, controls 36-48 px).
+# (docs/design/failures.md: display type <= 96 px on a landing hero, <= 48 px at 390, body 16-18 px, buttons 40-52 px).
 GENES = {
     "type": ["grotesk", "geometric", "serif display", "mono-led", "rounded", "condensed"],
     "scale": ["restrained", "standard", "bold"],
@@ -436,11 +436,14 @@ def cmd_shoot(argv):
 
 
 def main(argv):
+    if argv[:1] == ["round"] and "--from" in argv:  # a bred round from the human's picks (UAK-059)
+        import design_breed
+        return design_breed.run(argv[1:])
     if argv[:1] == ["round"]:
         return cmd_round(argv[1:])
     if argv[:1] == ["shoot"]:
         return cmd_shoot(argv[1:])
-    print("Usage: design round [--screen landing] [--n N] [--seed S] [--dry-run] [--yes] | design shoot R<k> [v<i> ...]", file=sys.stderr)
+    print("Usage: design round [--screen landing] [--n N] [--seed S] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] | design pick R<k> [--k N]", file=sys.stderr)
     return 2
 
 
