@@ -179,6 +179,10 @@ integrate_mutate() {
     # Unreviewed work under review is a human's to record, as before (v5.x); an approval of any earlier SHA, or a task
     # whose owner records its own claim, or one nobody claimed, needs no human.
     [ "$st" != REVIEW ] || [ "$approval" != none ] || { [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ]; } || conflict "${INT_WHY:-No approval on claims}"
+    # Why (v6.1.0 review of UAK-033): one file whose content equals main by coincidence, with nobody's approval, would
+    # be credited as integrated. Two or more matching files, or any approval, are proof enough for an agent.
+    [ "$RM_PROOF" != outside:content:1 ] || [ "$approval" != none ] || { [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ]; } ||
+      conflict "only one file matched $BASE and nobody approved it: a human records it (UAK_HUMAN=NAME uak integrate $ID)"
     if [ -n "$MERGE_COMMIT" ]; then
       merged=$(git -C "$TX" rev-parse --verify "$MERGE_COMMIT^{commit}" 2>/dev/null) || conflict "COMMIT not in the remote history of $BASE."
     else merged=$(git -C "$TX" rev-parse refs/uak/base); fi
