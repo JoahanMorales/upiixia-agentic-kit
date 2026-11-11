@@ -24,6 +24,8 @@ from pathlib import Path
 HARNESS = ("claude", "codex", "cursor", "gemini")
 STACKS = ("none", "fastapi-react", "nextjs", "django", "go", "expo", "python-data", "ai-agent", "spring-boot")
 SETTINGS = {"Blackbox": ("on", "off"), "Pace": ("auto", "off")}
+# Keys the browser may also add when an older PROJECT.md lacks them; their values are validated, never free text.
+ADDABLE = ("Live-URL",)
 LIMIT = 65536
 
 
@@ -105,10 +107,24 @@ def install_command(installer, target, options):
     return cmd + [str(target)]
 
 
+def dashboard_module():
+    spec = importlib.util.spec_from_file_location("uak_dashboard", Path(__file__).with_name("dash.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def valid_setting(key, value):
+    if key == "Live-URL":
+        # The deploy link: only what the dashboard would render as a link (https, a host, no credentials).
+        return isinstance(value, str) and dashboard_module().live_url(value) == value
+    return value in SETTINGS[key]
+
+
 def save_settings(target, settings):
-    if not isinstance(settings, dict) or not settings or set(settings) - set(SETTINGS):
-        raise ValueError("Only anonymous diagnostics and usage pacing can be changed here.")
-    if any(value not in SETTINGS[key] for key, value in settings.items()):
+    if not isinstance(settings, dict) or not settings or set(settings) - set(SETTINGS) - set(ADDABLE):
+        raise ValueError("Only anonymous diagnostics, usage pacing and the deploy link can be changed here.")
+    if any(not valid_setting(key, value) for key, value in settings.items()):
         raise ValueError("Invalid project preference.")
     path = Path(target) / ".uak/PROJECT.md"
     if path.is_symlink() or path.parent.is_symlink():
@@ -121,7 +137,13 @@ def save_settings(target, settings):
     block = matches[0]
     content = block.group(1)
     for key, value in settings.items():
-        if len(re.findall(r"(?m)^[-* ]*" + re.escape(key) + r":", text)) != 1:
+        found = len(re.findall(r"(?m)^[-* ]*" + re.escape(key) + r":", text))
+        if found == 0 and key in ADDABLE:
+            # A PROJECT.md from before this key: add it as the block's last line, in the block's line ending.
+            newline = "\r\n" if "\r\n" in content else "\n"
+            content = content + key + ": " + value + newline
+            continue
+        if found != 1:
             raise ValueError("Ambiguous %s setting. Keep a single setting in the executable configuration block." % key)
         pattern = r"(?m)^" + re.escape(key) + r": [^\r\n]*"
         if len(re.findall(pattern, content)) != 1:
@@ -149,12 +171,16 @@ def read_config(target):
     if not path.is_file():
         return {}
     # Use the engine's reader, including its Markdown and first-match semantics.
-    script = '. "$1"; file=$2; for key in Mode Blackbox Pace; do uak_cfg "$file" "$key"; done'
+    keys = ("Mode", "Blackbox", "Pace", "Live-URL")
+    script = '. "$1"; file=$2; for key in %s; do uak_cfg "$file" "$key"; done' % " ".join(keys)
     result = run_command([bash_binary(), "-c", script, "uak-setup-config",
                           str(Path(__file__).with_name("config.sh")), str(path)], timeout=10)
     if result.returncode:
         raise ValueError("Could not read the project configuration. Check technical details in the terminal.")
-    return dict(zip(("Mode", "Blackbox", "Pace"), result.stdout.splitlines()))
+    values = dict(zip(keys, result.stdout.splitlines()))
+    # Only a link the dashboard would render is shown back; "-" or anything invalid reads as no link.
+    values["Live-URL"] = dashboard_module().live_url(values.get("Live-URL")) or ""
+    return values
 
 
 def kit_present(target):
@@ -181,6 +207,12 @@ def readiness(output, code):
 
 # `uak start`'s READY line when a task is free: the command, then the engine's note after spaces.
 CLAIM_COMMAND = re.compile(r"^bash \.uak/bin/wt new ([A-Z][A-Z0-9]*-[0-9]+)(?=\s|$)")
+
+
+def completed_steps(state):
+    """The guided checklist: what the last readiness check passed, as plain text (first line, no number)."""
+    return [re.sub(r"^\d+\.\s*", "", c.get("text", "").split("\n")[0])
+            for c in state.get("checks") or [] if c.get("state") == "ok"]
 
 
 def guidance(state, dashboard=None, now=None):
@@ -361,7 +393,8 @@ class SetupHandler(BaseHTTPRequestHandler):
             try:
                 with self.server.lock:
                     self.reply(200, dict(self.server.state, settings=self.server.config() if self.server.target else {},
-                                         guidance=guidance(self.server.state)))
+                                         guidance=guidance(self.server.state),
+                                         completed=completed_steps(self.server.state)))
             except (ValueError, OSError, subprocess.SubprocessError) as exc:
                 self.reply(400, {"error": redact(exc)})
         else:

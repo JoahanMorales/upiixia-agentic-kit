@@ -106,6 +106,11 @@
       .secondary {
         color: var(--secondary);
       }
+      /* A folder path has no spaces to break at: let it wrap so 390px never scrolls sideways. */
+      #selected-project,
+      #dashboard-project {
+        overflow-wrap: anywhere;
+      }
       .muted {
         color: var(--muted);
       }
@@ -597,6 +602,30 @@
       }
       #simple-next h3 {
         margin: 12px 0;
+      }
+      .beginner-checklist {
+        list-style: none;
+        padding: 0;
+        margin: 4px 0 0;
+        color: var(--secondary);
+      }
+      .beginner-checklist li {
+        padding: 4px 0;
+        overflow-wrap: anywhere;
+      }
+      .your-app {
+        margin-top: 24px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+      }
+      .your-app a {
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+      #live-url-input {
+        width: 100%;
+        max-width: 520px;
+        margin: 4px 0;
       }
       .next-command,
       .ready-next {
@@ -1142,6 +1171,19 @@
                     allowance.</small
                   ></span
                 ></label
+              ><label class="field-label" for="live-url-input"
+                >Deployed app link (optional)</label
+              ><input
+                type="url"
+                id="live-url-input"
+                inputmode="url"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="https://"
+                aria-describedby="live-url-hint"
+              /><small class="hint" id="live-url-hint"
+                >Only an https:// address. The dashboard shows it as a link to
+                your app.</small
               ><button class="secondary-button" id="save">
                 Save preferences
               </button>
@@ -1204,9 +1246,11 @@
           </div>
         </div>
         <div id="simple-next">
+          <div id="beginner-step">
           <p class="secondary">Your next step</p>
           <h3 id="next-heading"></h3>
           <p id="next-description"></p>
+          <p class="hint" id="beginner-why"></p>
           <ul class="next-steps" id="next-steps" data-no-i18n hidden></ul>
           <div class="next-command" id="next-command-box" hidden>
             <code id="next-command" data-no-i18n></code>
@@ -1218,8 +1262,25 @@
             Check what’s next
           </button>
           <p class="hint" id="copy-status" role="status"></p>
+          <p class="secondary" id="beginner-done-label" hidden>Already done</p>
+          <ul class="beginner-checklist" id="beginner-checklist" data-no-i18n hidden></ul>
+          </div>
         </div>
         <ul id="simple-tasks"></ul>
+      </section>
+      <section class="your-app" id="your-app" aria-labelledby="your-app-heading">
+        <h3 id="your-app-heading">Your app</h3>
+        <a
+          id="live-url-link"
+          data-no-i18n
+          target="_blank"
+          rel="noopener noreferrer"
+          hidden
+        ></a>
+        <p class="hint" id="live-url-empty">
+          Not deployed yet. When your app is online, add its link in
+          Configuration, under Project preferences.
+        </p>
       </section>
       <iframe
         id="dashboard-frame"
@@ -1256,7 +1317,8 @@
           currentSection = "setup",
           dashboardLoading = false,
           dashboardAgain = false,
-          checkRequested = false;
+          checkRequested = false,
+          lastStepTitle = "";
         function el(id) {
           return document.getElementById(id);
         }
@@ -1337,7 +1399,77 @@
             g.kind === "check" ? "Check what’s next" : "Check again",
           );
           el("copy-status").textContent = "";
+          // Guided Beginner: why this step matters, and what the readiness check already passed.
+          el("beginner-why").textContent = UAKWorkspace.t(
+            {
+              install:
+                "The kit adds the files your coding tools read to work as a team.",
+              todo: "Agents cannot start until this is done. The check below confirms it for you.",
+              check:
+                "It only reads your project; nothing is changed.",
+              ready:
+                "Your coding tool creates a separate workspace for this task, so agents never overwrite each other.",
+              frozen:
+                "After the deadline, new work needs a person's decision.",
+              error: "Fix this first; the next step appears right after.",
+              busy: "",
+            }[g.kind] || "",
+          );
+          var done = state.completed || [];
+          el("beginner-checklist").replaceChildren();
+          done.forEach(function (line) {
+            var li = document.createElement("li");
+            li.textContent = "✓ " + line;
+            el("beginner-checklist").append(li);
+          });
+          el("beginner-checklist").hidden = !done.length;
+          el("beginner-done-label").hidden = !done.length;
+          // A step that changed after an automatic re-check is announced, politely.
+          if (lastStepTitle && g.title && g.title !== lastStepTitle && g.kind !== "busy")
+            el("copy-status").textContent =
+              UAKWorkspace.t("Step complete. Next:") + " " + UAKWorkspace.t(g.title);
+          if (g.kind !== "busy") lastStepTitle = g.title || "";
         }
+        function drawLiveUrl(url) {
+          var link = el("live-url-link"),
+            valid = typeof url === "string" && url.indexOf("https://") === 0;
+          link.hidden = !valid;
+          el("live-url-empty").hidden = valid;
+          if (valid) {
+            link.href = url;
+            link.textContent = url;
+          } else {
+            link.removeAttribute("href");
+            link.textContent = "";
+          }
+        }
+        // Guided re-check: when the person comes back to the tab, and every minute while a blocker is shown,
+        // in whichever section shows it (Configuration reads the status guidance, the Dashboard its own).
+        function autoCheck() {
+          var g =
+            (currentSection === "dashboard" &&
+              latestDashboard &&
+              latestDashboard.guidance) ||
+            state.guidance ||
+            {};
+          if (
+            document.hidden ||
+            document.body.dataset.profile !== "beginner" ||
+            !state.installed ||
+            operationBusy() ||
+            requestBusy ||
+            g.kind !== "todo"
+          )
+            return;
+          api("check", {})
+            .then(function () {
+              checkRequested = true;
+              return refresh();
+            })
+            .catch(function () {});
+        }
+        document.addEventListener("visibilitychange", autoCheck);
+        setInterval(autoCheck, 60000);
         function operationBusy() {
           return state.phase === "installing" || state.phase === "checking";
         }
@@ -1348,6 +1480,7 @@
             data.warning || "Your project at a glance",
           );
           el("dashboard-status").classList.remove("error");
+          drawLiveUrl(data.live_url);
           var p = data.progress,
             states = p.states;
           el("simple-completed").textContent =
@@ -1672,7 +1805,21 @@
                 ? "Hackathon or prototype"
                 : "Product with real users",
             ],
-            ["Coding tools", tools.join(", ")],
+            [
+              "Coding tools",
+              tools
+                .map(function (tool) {
+                  return (
+                    {
+                      claude: "Claude Code",
+                      codex: "Codex",
+                      cursor: "Cursor",
+                      gemini: "Gemini CLI",
+                    }[tool] || tool
+                  );
+                })
+                .join(", "),
+            ],
             [
               "Team",
               choices.solo
@@ -1680,6 +1827,10 @@
                 : "Multiple collaborators",
             ],
             ["Technology preset", el("stack").selectedOptions[0].textContent],
+            [
+              "Also adds",
+              "Project files for the selected tools and .mcp.json, so they can use the kit's commands directly",
+            ],
             [
               "Kit diagnostics",
               choices.blackbox
@@ -1741,10 +1892,19 @@
         };
         el("save").onclick = function () {
           action(this, async function () {
-            await api("settings", {
+            var settings = {
               Blackbox: el("diagnostics").checked ? "on" : "off",
               Pace: el("pacing").checked ? "auto" : "off",
-            });
+            };
+            var link = el("live-url-input").value.trim();
+            if (link) {
+              if (link.indexOf("https://") !== 0)
+                throw Error(
+                  UAKWorkspace.t("The app link must start with https://"),
+                );
+              settings["Live-URL"] = link;
+            }
+            await api("settings", settings);
             el("save-status").textContent =
               "Preferences saved locally. Run the readiness check again.";
             await refresh();
@@ -1771,11 +1931,13 @@
               ? "Your workspace is ready"
               : failed
                 ? "Let’s resolve this step"
-                : data.installed
-                  ? data.phase === "installed"
-                    ? "The kit is installed. Let’s get ready."
-                    : "Kit files found. Let’s check your project."
-                  : "Continue setting up your project";
+                : data.installed && (data.checks || []).length && data.guidance
+                  ? UAKWorkspace.t(data.guidance.title)
+                  : data.installed
+                    ? data.phase === "installed"
+                      ? "The kit is installed. Let’s get ready."
+                      : "Kit files found. Let’s check your project."
+                    : "Continue setting up your project";
           el("result-description").textContent = busy
             ? "This can take a moment. Keep the terminal and this page open."
             : data.ready
@@ -1792,7 +1954,9 @@
               ? "Working in the background. You can expand technical details below."
               : data.ready
                 ? "Ready for the next task."
-                : "Next: check what your project needs before starting work.");
+                : data.installed && (data.checks || []).length && data.guidance
+                  ? UAKWorkspace.t(data.guidance.detail)
+                  : "Next: check what your project needs before starting work.");
           el("operation-status").classList.toggle("error", !!data.error);
           el("output").textContent = data.details || "No technical output yet.";
           el("checks").replaceChildren();
@@ -1819,6 +1983,8 @@
           el("preferences").hidden = !data.installed || busy;
           el("diagnostics").checked = (data.settings || {}).Blackbox !== "off";
           el("pacing").checked = (data.settings || {}).Pace !== "off";
+          if (document.activeElement !== el("live-url-input"))
+            el("live-url-input").value = (data.settings || {})["Live-URL"] || "";
           el("check").disabled = busy;
           el("next-check").disabled = busy;
           el("change-project").disabled = busy;
