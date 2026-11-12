@@ -67,11 +67,17 @@ def session_start_output_is_unchanged(r):
     env = {"UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_AGENT": "agent-1"}
     expected = r.run([r.bash, ".uak/bin/uak", "next", "--full"], cwd=w, env=env, allowed=None).stdout.splitlines()[:3]
     expect(expected, "uak next prints something for the fixture")
+    # A first start shows the fresh lines when they arrive within the wait, or says where they are (slower machines,
+    # Git Bash on Windows); the second start shows them either way, from the kept copy.
     _, out = start(r, w, "agent-1")
     settle(r, w)
     expect("UAK: agent=agent-1" in out, "the identity line is shown: " + out[:300])
+    expect(all(line in out for line in expected) or "uak next" in out,
+           "a first start shows the `uak next` lines or how to get them: " + out[:600])
+    _, out = start(r, w, "agent-1")
+    settle(r, w)
     for line in expected:
-        expect(line in out, "a fast remote shows the fresh `uak next` lines (%r) at once: %s" % (line, out[:600]))
+        expect(line in out, "a later start shows the `uak next` lines (%r) at once: %s" % (line, out[:600]))
     slow_remote(r, f)
     # A refresh that outlasts the wait (forced here with a 0.1 s wait) still shows the last lines, with a note.
     took, out = start(r, w, "agent-1", UAK_START_WAIT="1")

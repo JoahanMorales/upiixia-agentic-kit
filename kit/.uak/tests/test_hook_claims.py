@@ -35,6 +35,12 @@ def wrap_engine(r, w, marker):
                            % marker.as_posix(), encoding="utf-8")
 
 
+def wait_for_start_refresh(gd, seconds=60):
+    deadline = time.time() + seconds
+    while list(Path(gd).glob("uak-start.*.running")) and time.time() < deadline:
+        time.sleep(0.25)
+
+
 def peeks(marker):
     return [l for l in (marker.read_text(encoding="utf-8").splitlines() if marker.exists() else []) if l.startswith("inbox --peek")]
 
@@ -85,6 +91,9 @@ def stop_reads_the_inbox_from_the_cache(r):
     expect(r.g(f.remote, "rev-parse", "claims").stdout.strip() == tip, "the second session start committed to claims")
     expect(len(peeks(marker)) == before, "session-start with a fresh copy must not read the inbox again: %s" % peeks(marker))
     expect("#2 " in out.stdout, "session-start still shows the inbox from the kept copy: %r" % out.stdout[-500:])
+    # session-start refreshes `uak next` and the inbox in background (UAK-013): let that job end before the worktree is
+    # removed, or Windows cannot delete a folder a process still works in (WinError 32).
+    wait_for_start_refresh(gd)
     return "%d full reads for 6 stops and a session start" % len(peeks(marker))
 
 

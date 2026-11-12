@@ -98,7 +98,9 @@ inbox_kept() {
 }
 # Session start never waits for the network (UAK-013: /doctor measured the kit's SessionStart hook at 9.5 s typical,
 # up to 28 s, blocking every session). Each network step refreshes a cached copy in background; the hook waits at
-# most UAK_START_WAIT tenths of a second in all, then shows what it has: the fresh copy, or the last one with a note.
+# most UAK_START_WAIT tenths of a second in all (default 10: on CI runners and Git Bash the rest of the hook already
+# costs 1.5 s), then shows what it has: the fresh copy, or the last one with a note. A first start on a slow machine
+# may only point at `uak next`; every later start shows the kept copy at once.
 start_bg() { # NAME CMD...: refresh in background unless a refresh is already running (a marker over 2 min is stale)
   local run="$gd/uak-start.$1.running"
   shift
@@ -107,7 +109,7 @@ start_bg() { # NAME CMD...: refresh in background unless a refresh is already ru
   ( trap '' HUP; "$@"; rm -f "$run" ) < /dev/null > /dev/null 2>&1 &
 }
 start_wait() { # NAME...: wait for these refreshes, bounded
-  local n=0 limit=${UAK_START_WAIT:-15} name busy
+  local n=0 limit=${UAK_START_WAIT:-10} name busy
   while [ "$n" -lt "$limit" ]; do
     busy=
     for name in "$@"; do [ ! -f "$gd/uak-start.$name.running" ] || busy=1; done
