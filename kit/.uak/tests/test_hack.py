@@ -89,6 +89,16 @@ class Runner:
         # `uak pace` reads this machine's real Codex session logs; a machine near its usage limit ("critical") cut the
         # fixtures' subagent caps to 1 (UAK-012, Dylan's Mac). Fixtures read no machine usage: tests that need a pace set it.
         self.env["CODEX_HOME"] = str(Path(scratch) / "no-codex-home")
+        # The machine's ~/.gitconfig (a global core.hooksPath, aliases, signing) must not reach the fixtures either: a
+        # global hooksPath made install.sh keep it and skip the kit's scanner hook (UAK-012). Keep only the identity.
+        machine_config = Path(scratch) / "machine-identity.gitconfig"
+        machine_config.parent.mkdir(parents=True, exist_ok=True)
+        machine_config.write_text("", encoding="utf-8")
+        for key in ("user.name", "user.email"):
+            value = subprocess.run([git, "config", "--global", "--get", key], capture_output=True, text=True).stdout.strip()
+            if value:
+                subprocess.run([git, "config", "--file", str(machine_config), key, value], check=True, capture_output=True)
+        self.env["GIT_CONFIG_GLOBAL"] = str(machine_config)
         for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"):
             self.env.pop(k, None)
         # A user signing default must not make disposable fixture commits interactive.
