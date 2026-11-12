@@ -569,7 +569,7 @@ case "${1:-}" in
       elif [ -n "${CODEX_SANDBOX:-}${CODEX_THREAD_ID:-}${CODEX_HOME:-}" ]; then h=codex
       elif [ -n "${CURSOR_TRACE_ID:-}${CURSOR_AGENT:-}${CURSOR_VERSION:-}" ]; then h=cursor
       elif [ -n "${GEMINI_CLI:-}" ]; then h=gemini-cli
-      elif [ -s "$gd/uak-harness" ]; then { IFS= read -r h < "$gd/uak-harness"; } 2>/dev/null; h=${h//[!a-z-]/}
+      elif [ -s "$gd/uak-harness" ]; then { IFS= read -r h < "$gd/uak-harness"; } 2>/dev/null; h=${h:0:32}; h=${h//[!a-z-]/}  # kit-lint: ok (at most 32 characters)
       else h=other; fi
     fi
     if [ "$h" = other ] || [ -z "$h" ]; then
