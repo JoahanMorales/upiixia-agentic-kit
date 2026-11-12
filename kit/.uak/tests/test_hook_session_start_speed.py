@@ -142,13 +142,25 @@ case "$printed" in *'first snapshot request'*)
   fi;;
 esac
 ''')
-    head.chmod(0o755)
+    r.run([r.bash, "-c", 'chmod +x "$1"', "_", head.as_posix()], cwd=w)
     real_head = r.run([r.bash, "-c", "type -P head"], cwd=w).stdout.strip()
-    env = {"PATH": shim.as_posix() + os.pathsep + r.env["PATH"], "UAK_RACE_HEAD": real_head,
+    env = {"UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_AGENT": "agent-1", "UAK_RACE_HEAD": real_head,
            "UAK_RACE_RELEASE": release.as_posix(), "UAK_RACE_RUNNING": (gd / "uak-start.next.running").as_posix(),
            "UAK_START_WAIT": "1"}
-    _, out = start(r, w, "agent-1", source="resume", **env)
+    # Build PATH in Bash from its physical POSIX directory: a native Windows drive/semicolon PATH must not hide the
+    # extensionless shim. Prove selection before a background job waits on that shim's release barrier.
+    prefix = 'shim_dir=$(CDPATH= cd -- "$1" && pwd -P) || exit 1; PATH="$shim_dir:$PATH"; export PATH; '
+    setup = r.run([r.bash, "-c", prefix + 'printf "%s\\n" "$shim_dir/head"; command -v head; '
+                   '[ -d "$(dirname "$UAK_RACE_RELEASE")" ]', "_", shim.as_posix()], cwd=w, env=env)
+    paths = setup.stdout.splitlines()
+    expect(len(paths) == 2 and paths[0] == paths[1], "the inbox race must select its head shim: %r" % paths)
+    out = hook(r, w, ["-c", prefix + 'exec bash .uak/bin/hook session-start', "_", shim.as_posix()],
+               json.dumps({"session_id": "s-resume", "source": "resume"}), env).stdout
+    released = release.is_dir()
+    if not released:
+        release.mkdir()  # unblock cleanup before reporting a failed fault-injection precondition
     settle(r, w)
+    expect(released, "the head shim must release the inbox refresh after printing: " + out[-500:])
     shown = (gd / "uak-inbox.shown-n").read_text(encoding="utf-8").strip()
     expect("#2 " in (gd / "uak-inbox.txt").read_text(encoding="utf-8"), "the real refresh loaded request #2")
     # Keep tick's unrelated network/pace jobs fresh so only the inbox delivery is exercised and Windows can clean up.
