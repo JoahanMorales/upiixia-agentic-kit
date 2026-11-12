@@ -451,11 +451,14 @@ wait
 def session_start_failed_reap_is_closed_and_retryable(r):
     gd, control = refresh_fixture(r, "failed-reap", '''
 rm() {
-  local expected_old= arg
+  local expected_old= arg candidate=
   [ ! -f "$case_dir/old-generation" ] || IFS= read -r expected_old < "$case_dir/old-generation"
   if [ -f "$case_dir/fail-cleanup" ]; then
+    expected_old=$(CDPATH= cd -- "$expected_old" && pwd -P) || return 1
     for arg in "$@"; do
-      if [ "${arg%/}" = "$expected_old" ]; then : > "$case_dir/cleanup-blocked"; return 1; fi
+      candidate=${arg%/}
+      [ ! -d "$candidate" ] || candidate=$(CDPATH= cd -- "$candidate" && pwd -P) || return 1
+      if [ "$candidate" = "$expected_old" ]; then : > "$case_dir/cleanup-blocked"; return 1; fi
     done
   fi
   command rm "$@"
