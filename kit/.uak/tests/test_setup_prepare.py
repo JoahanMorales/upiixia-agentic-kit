@@ -46,7 +46,7 @@ def installed(root, tmp, name="prep project"):
     return target, remote
 
 
-def really_installed(root, tmp, name="real project"):
+def really_installed(root, tmp, name="real project", before=None):
     """A project installed by the real install.sh (empty bare origin), or None in an installed project (no installer)."""
     installer = root.parent / "install.sh"
     if not installer.is_file():
@@ -60,6 +60,9 @@ def really_installed(root, tmp, name="real project"):
     tp.git(target, "config", "user.email", "ana@example.invalid")
     tp.git(target, "config", "core.hooksPath", str(tmp / "no-hooks"))
     tp.git(target, "remote", "add", "origin", str(remote))
+    for rel, text in (before or {}).items():  # the person's own files, there before the kit is installed
+        (target / rel).parent.mkdir(parents=True, exist_ok=True)
+        (target / rel).write_text(text, encoding="utf-8")
     done = subprocess.run([resolve_binary("bash"), str(installer), "--mode", "sprint", "--harness", "claude,codex",
                            "--no-mcp", str(target)], capture_output=True, text=True, timeout=300)
     assert done.returncode == 0, done.stderr[-600:]
@@ -262,7 +265,7 @@ def human_name_is_asked_once(root, tmp):
     with tp.live(target, tp.FakePlanner()) as srv:
         assert tp.post(srv, "/api/inspect", {"target": str(target)})[0] == 200
         assert tp.get(srv, "/api/status")[1].get("human") == "", "no name until the person gives one"
-        for bad in ("", "ana; rm -rf ~", "x" * 60, "Ana Human", "-ana", 7):
+        for bad in ("", "ana; rm -rf ~", "x" * 60, "Ana Human", "-ana", 7, "ana\n", "ana\nPublished-By: root", "an\u0661a"):
             assert tp.post(srv, "/api/human", {"name": bad})[0] == 400, "refused name: %r" % (bad,)
         assert tp.post(srv, "/api/human", {"name": "ana", "extra": 1})[0] == 400
         assert tp.post(srv, "/api/human", {"name": "ana"})[0] == 200
@@ -351,12 +354,65 @@ def schedule_never_follows_links(root, tmp):
         assert tmp_link.is_symlink(), "the stray link is left as it was"
 
 
+PERSONAL = {".github/private-note.txt": "my secret note\n", ".uak/private.json": '{"secret": true}\n',
+            ".claude/my-notes.md": "mine\n", ".cursor/zz-mine.txt": "mine\n", ".github/workflows/my-ci.yml": "on: push\n",
+            ".github/my file.txt": "mine\n"}
+
+
+def publish_ignores_personal_files_present_before_install(root, tmp):
+    """Review of 57ef048 (claude-Dylan-r, P1): files that were there BEFORE the install are not the kit's either. The
+    manifest compared snapshots sorted by name with `comm`, which needs whole-line order, so they leaked into it."""
+    target, remote = really_installed(root, tmp, before=PERSONAL)
+    if target is None:
+        return
+    listed = (target / ".uak/installed-files.txt").read_text(encoding="utf-8").splitlines()
+    for name in PERSONAL:
+        assert name not in listed, "%s was there before the install, so it is not in the manifest" % name
+    with tp.live(target, tp.FakePlanner()) as srv:
+        ready_to_publish(srv, target)
+        preview = publish(srv)
+        for name in PERSONAL:
+            assert name not in preview["files"], "%s is never offered for publishing" % name
+    files = remote_files(remote)
+    for name in PERSONAL:
+        assert name not in files, "%s never reaches main" % name
+
+
+def failed_commit_leaves_index_and_refs_as_before(root, tmp):
+    """Review of 57ef048 (claude-Dylan-r, P2): when the commit itself fails (a pre-commit hook that rejects), nothing
+    stays staged and no ref moves, on an empty repository too; the message says what to do."""
+    target, remote = really_installed(root, tmp)
+    if target is None:
+        return
+    hooks = tmp / "rejecting-hooks"
+    hooks.mkdir()
+    hook = hooks / "pre-commit"
+    hook.write_text("#!/bin/sh\necho 'blocked by a test hook' >&2\nexit 1\n", encoding="utf-8")
+    hook.chmod(0o755)
+    tp.git(target, "config", "core.hooksPath", str(hooks))
+    with tp.live(target, tp.FakePlanner()) as srv:
+        ready_to_publish(srv, target)
+        status, preview = tp.get(srv, "/api/publish-kit")
+        assert status == 200, preview
+        assert tp.post(srv, "/api/publish-kit", {"digest": preview["digest"]})[0] == 202
+        tp.wait_idle(srv)
+        state = tp.get(srv, "/api/status")[1]
+        assert state.get("error") and "hook" in state["error"].lower(), "the failure names the hook: %r" % state.get("error")
+        assert tp.git(target, "diff", "--cached", "--name-only") == "", "nothing stays staged after a failed commit"
+        assert subprocess.run([resolve_binary("git"), "-C", str(target), "rev-parse", "-q", "--verify", "HEAD"],
+                              capture_output=True).returncode != 0, "the empty repository still has no commit"
+        status, again = tp.get(srv, "/api/publish-kit")
+        assert status == 200 and again["files"] == preview["files"], "publishing can be retried as it was"
+    assert remote_head(remote) == "", "nothing reached main"
+
+
 TESTS = [schedule_form_writes_freeze_epoch, publish_kit_excludes_unapproved_plan_files,
          publish_kit_pushes_only_the_verified_commit, terminal_step_is_shown_with_its_command,
          planning_waits_for_the_kit_on_main, lint_failure_reason_reaches_the_page,
          plan_can_be_rechecked_without_the_planner, human_name_is_asked_once,
          publish_never_includes_files_the_installer_did_not_place, publish_verifies_the_whole_committed_tree,
-         schedule_never_follows_links]
+         schedule_never_follows_links, publish_ignores_personal_files_present_before_install,
+         failed_commit_leaves_index_and_refs_as_before]
 
 
 def main():

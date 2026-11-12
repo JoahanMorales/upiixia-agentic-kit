@@ -131,7 +131,7 @@ trap 'rm -rf "$keep" "$ext_tmp"' EXIT
 kit_snapshot() {
   (cd "$target" && for p in .uak .claude .codex .cursor .gemini .agents .githooks .github AGENTS.md CLAUDE.md \
      .gitattributes .gitignore .mcp.json; do [ -e "$p" ] && find "$p" -type f ! -path .uak/INSTALLING -exec cksum {} +; done) |
-    LC_ALL=C sort -k 3
+    LC_ALL=C sort   # whole lines: comm compares whole lines (a sort by name made it report unchanged files)
 }
 kit_snapshot > "$keep/kit-before"
 for f in smoke-project .smoke-project.provenance; do [ ! -f "$target/.uak/bin/$f" ] || cp -p "$target/.uak/bin/$f" "$keep/$f"; done

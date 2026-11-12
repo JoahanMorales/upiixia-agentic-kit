@@ -229,9 +229,11 @@ def readiness(output, code):
 
 
 BUSY = ("installing", "checking", "planning", "approving", "publishing")
-HUMAN_NAME = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
-SCHEDULE_TIME = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
-TIME_ZONE = re.compile(r"^(UTC|[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2})$")
+# Whole-string matches over ASCII only: `$` lets a trailing newline through and \d takes non-ASCII digits (review of
+# 57ef048: "ana\n" could add a line to the Published-By commit message).
+HUMAN_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
+SCHEDULE_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\Z")
+TIME_ZONE = re.compile(r"(UTC|[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2})\Z")
 # `uak start`'s READY line when a task is free: the command, then the engine's note after spaces.
 CLAIM_COMMAND = re.compile(r"^bash \.uak/bin/wt new ([A-Z][A-Z0-9]*-[0-9]+)(?=\s|$)")
 
@@ -444,6 +446,17 @@ class SetupServer(ThreadingHTTPServer):
         def git(*args, timeout=60):
             return planning.git_out(self.run, root, *args, timeout=timeout)
 
+        def restore():
+            """Refs and index as they were before publishing (contract #46; review of 57ef048: a rejected commit left
+            505 files staged on an empty repository)."""
+            head = planning.git(self.run, root, "rev-parse", "-q", "--verify", "HEAD").stdout.strip()
+            if base_head:
+                planning.git(self.run, root, "reset", "-q", "--mixed", base_head)
+            else:
+                if head:
+                    planning.git(self.run, root, "update-ref", "-d", "HEAD")
+                planning.git(self.run, root, "read-tree", "--empty")
+
         def work():
             pushed = False
             try:
@@ -458,26 +471,26 @@ class SetupServer(ThreadingHTTPServer):
                             meta, name = entry.split("\t", 1)
                             mode, blob = meta.split()[:2]
                             expected[name] = (mode, blob)
-                git("commit", "-q", "-m", "chore: uak setup", "-m",
-                    "Published-By: %s (from the setup page; committed as the local Git identity, unverified)" % human,
-                    "--", *files)
+                committed = planning.git(self.run, root, "commit", "-q", "-m", "chore: uak setup", "-m",
+                                         "Published-By: %s (from the setup page; committed as the local Git identity, "
+                                         "unverified)" % human, "--", *files, timeout=120)
+                if committed.returncode:
+                    restore()
+                    raise ValueError("Git did not create the commit (a pre-commit hook or Git refused it): %s Nothing was "
+                                     "published and nothing stays staged. Fix the cause, then publish again."
+                                     % redact((committed.stderr or committed.stdout).strip())[-300:])
                 commit = git("rev-parse", "HEAD").strip()
                 parents = git("rev-list", "--parents", "-n", "1", commit).split()[1:]
                 changed = set(n for n in git("diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z", commit).split("\0") if n)
-                committed = {}
+                tree = {}
                 for entry in git("ls-tree", "-r", "-z", commit, "--", *files).split("\0"):
                     if entry:
                         meta, name = entry.split("\t", 1)
                         mode, kind, blob = meta.split()[:3]
-                        committed[name] = (mode, blob)
+                        tree[name] = (mode, blob)
                 # Every previewed path as approved (blob, type and mode), every deletion absent, nothing else changed.
-                if parents != ([base_head] if base_head else []) or changed != set(files) or committed != expected:
-                    # Leave refs and index as they were before publishing (review of 0386bec, contract #46).
-                    if base_head:
-                        git("reset", "-q", "--mixed", base_head)
-                    else:
-                        git("update-ref", "-d", "HEAD")
-                        git("read-tree", "--empty")
+                if parents != ([base_head] if base_head else []) or changed != set(files) or tree != expected:
+                    restore()  # refs and index as they were before publishing (review of 0386bec, contract #46)
                     raise ValueError("The commit did not match the files you reviewed (a Git hook changed it), so it was "
                                      "undone and nothing was published. Check your pre-commit hooks, then publish again.")
                 ref = "%s:refs/heads/%s" % (commit, base)
@@ -490,6 +503,11 @@ class SetupServer(ThreadingHTTPServer):
                 with self.lock:
                     self.apply_readiness(check)
             except Exception as exc:
+                if not pushed:
+                    try:
+                        restore()
+                    except Exception:  # noqa: BLE001 - the original failure is what the person needs to see
+                        pass
                 with self.lock:
                     self.state.update(phase="error", ready=False, details=redact(exc),
                                       error=redact(exc) if isinstance(exc, ValueError) else
@@ -686,11 +704,11 @@ class SetupHandler(BaseHTTPRequestHandler):
         s = self.server
         if set(data) != {"start", "end", "zone"} or not all(isinstance(v, str) for v in data.values()):
             raise ValueError("Give the event's start, end and time zone.")
-        if not SCHEDULE_TIME.match(data["start"]) or not SCHEDULE_TIME.match(data["end"]):
+        if not SCHEDULE_TIME.fullmatch(data["start"]) or not SCHEDULE_TIME.fullmatch(data["end"]):
             raise ValueError("Write dates as YYYY-MM-DD HH:MM (for example 2026-11-12 10:00).")
         if data["end"] <= data["start"]:
             raise ValueError("The event must end after it starts.")
-        if not TIME_ZONE.match(data["zone"]):
+        if not TIME_ZONE.fullmatch(data["zone"]):
             raise ValueError("Choose a time zone such as America/Mexico_City or UTC.")
         uak = s.engine()
         root = project_root(s.target)
@@ -801,7 +819,7 @@ class SetupHandler(BaseHTTPRequestHandler):
         elif self.path == "/api/plan/approve":
             self.approve(data)
         elif self.path == "/api/human":
-            if set(data) != {"name"} or not isinstance(data["name"], str) or not HUMAN_NAME.match(data["name"]):
+            if set(data) != {"name"} or not isinstance(data["name"], str) or not HUMAN_NAME.fullmatch(data["name"]):
                 raise ValueError("Use a short name in lowercase letters, digits, - or _ (for example: ana).")
             s.state["human"] = data["name"]
             self.reply(200, {"human": s.state["human"]})
@@ -908,8 +926,8 @@ def publish_checks(server):
         upstream = git("rev-parse", "FETCH_HEAD").stdout.strip()
         if head != upstream:
             if not head or git("merge-base", "--is-ancestor", head, upstream).returncode == 0:
-                raise ValueError("%s/%s already has commits this folder lacks. Run git pull origin %s, then publish again."
-                                 % (remote, base, base))
+                raise ValueError("%s/%s already has commits this folder lacks. Run git pull %s %s, then publish again."
+                                 % (remote, base, remote, base))
             raise ValueError("This branch has commits that are not on %s/%s. Push or move them first, so publishing "
                              "sends only the kit." % (remote, base))
     elif head:
