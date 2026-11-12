@@ -4,6 +4,7 @@
 to 28 s: it waited for the network (`uak next --full`, the inbox read, `uak digest`) before every session could start.
 A slow remote is simulated with remote.origin.uploadpack ('sleep N; git-upload-pack'), so no real network is used."""
 import argparse
+import os
 import time
 from pathlib import Path
 
@@ -37,11 +38,21 @@ def settle(r, cwd, seconds=40):
     """Wait, bounded, until no background refresh started by the hook is still running in this checkout."""
     gd = Path(r.g(cwd, "rev-parse", "--absolute-git-dir").stdout.strip())
     deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        if not list(gd.glob("uak-start.*.running")):
-            return
+    while list(gd.glob("uak-start.*.running")):
+        if time.monotonic() >= deadline:
+            raise AssertionError("a background refresh never finished within %d s" % seconds)
         time.sleep(0.25)
-    raise AssertionError("a background refresh never finished within %d s" % seconds)
+    # No process works in the checkout any more (Windows refuses to rename a folder in use; the UAK-009 probe).
+    probe = Path(str(cwd) + ".released")
+    while True:
+        try:
+            os.rename(str(cwd), str(probe))
+            os.rename(str(probe), str(cwd))
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise AssertionError("background processes still work in %s after %d s" % (cwd, seconds))
+            time.sleep(0.25)
 
 
 def session_start_returns_within_budget(r):

@@ -35,10 +35,20 @@ def wrap_engine(r, w, marker):
                            % marker.as_posix(), encoding="utf-8")
 
 
-def wait_for_start_refresh(gd, seconds=60):
+def wait_for_start_refresh(gd, worktree, seconds=60):
+    """The refresh marker is gone and no process works in the worktree any more: on Windows a folder that is some
+    process's working directory cannot be renamed (the probe UAK-009 uses); elsewhere the first rename succeeds."""
     deadline = time.time() + seconds
     while list(Path(gd).glob("uak-start.*.running")) and time.time() < deadline:
         time.sleep(0.25)
+    probe = Path(str(worktree) + ".released")
+    while time.time() < deadline:
+        try:
+            os.rename(str(worktree), str(probe))
+            os.rename(str(probe), str(worktree))
+            return
+        except PermissionError:
+            time.sleep(0.25)
 
 
 def peeks(marker):
@@ -93,7 +103,7 @@ def stop_reads_the_inbox_from_the_cache(r):
     expect("#2 " in out.stdout, "session-start still shows the inbox from the kept copy: %r" % out.stdout[-500:])
     # session-start refreshes `uak next` and the inbox in background (UAK-013): let that job end before the worktree is
     # removed, or Windows cannot delete a folder a process still works in (WinError 32).
-    wait_for_start_refresh(gd)
+    wait_for_start_refresh(gd, w)
     return "%d full reads for 6 stops and a session start" % len(peeks(marker))
 
 
