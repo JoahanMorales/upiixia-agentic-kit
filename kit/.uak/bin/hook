@@ -96,6 +96,40 @@ inbox_kept() {
   bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.tmp" 2>/dev/null && mv "$gd/uak-inbox.tmp" "$gd/uak-inbox.txt" &&
     { [ -z "$tip" ] || printf '%s' "$tip" > "$gd/uak-claims.tip"; }
 }
+# Session start never waits for the network (UAK-013: /doctor measured the kit's SessionStart hook at 9.5 s typical,
+# up to 28 s, blocking every session). Each network step refreshes a cached copy in background; the hook waits at
+# most UAK_START_WAIT tenths of a second in all, then shows what it has: the fresh copy, or the last one with a note.
+start_bg() { # NAME CMD...: refresh in background unless a refresh is already running (a marker over 2 min is stale)
+  local run="$gd/uak-start.$1.running"
+  shift
+  if [ -f "$run" ] && fresh "$run" 2; then return 0; fi
+  printf '%s\n' "$NOW" > "$run" 2>/dev/null || return 0
+  ( trap '' HUP; "$@"; rm -f "$run" ) < /dev/null > /dev/null 2>&1 &
+}
+start_wait() { # NAME...: wait for these refreshes, bounded
+  local n=0 limit=${UAK_START_WAIT:-15} name busy
+  while [ "$n" -lt "$limit" ]; do
+    busy=
+    for name in "$@"; do [ ! -f "$gd/uak-start.$name.running" ] || busy=1; done
+    [ -n "$busy" ] || return 0
+    sleep 0.1; n=$((n + 1))
+  done
+  return 1
+}
+start_show() { # NAME LINES WHAT: the cached copy, and a note when it is still being refreshed
+  local f="$gd/uak-start.$1.txt"
+  [ ! -s "$f" ] || head -n "$2" "$f"
+  if [ -f "$gd/uak-start.$1.running" ]; then
+    if [ -s "$f" ]; then printf '(uak: refreshing %s in the background; the lines above are from the last check)\n' "$3"
+    else printf '(uak: %s is loading in the background; run bash .uak/bin/uak %s for it now)\n' "$3" "$3"; fi
+  fi
+}
+start_next_inbox() { start_capture next bash .uak/bin/uak next --full; inbox_kept; }
+start_capture() { # NAME CMD...: run CMD into the cached copy, replaced atomically
+  local f="$gd/uak-start.$1.txt"
+  shift
+  "$@" > "$f.new" 2>&1; mv -f "$f.new" "$f"
+}
 # A small file's first line into RD (as $(cat) for the one-line state files); 1 when there is no file.
 rd() { RD=; [ -f "$1" ] || return 1; { IFS= read -r RD < "$1"; } 2>/dev/null; return 0; }
 # What sed -n 's/.*"KEY"[[:space:]]*:[[:space:]]*"\([CHARS]*\)".*/\1/p' | head -n 1 printed, into ID: on the first
@@ -439,7 +473,11 @@ case "${1:-}" in
     if [ -z "$agent" ]; then
       printf '%s\n' "UAK: checkout without .uak-env (planning/human). To implement: bash .uak/bin/uak next, then bash .uak/bin/wt new ID."
       # The human sees their queue (merges, decisions, messages) unasked.
-      git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 && bash .uak/bin/uak digest 2>/dev/null | head -n 25
+      if git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1; then
+        start_bg digest start_capture digest bash .uak/bin/uak digest
+        start_wait digest || true
+        start_show digest 25 digest
+      fi
       tmpl card
       exit 0
     fi
@@ -453,12 +491,15 @@ case "${1:-}" in
     esac
     p=$(bash .uak/bin/pace 2>/dev/null); case "$p" in "PACE surge"*|"PACE conserve"*|"PACE critical"*) printf '%s\n' "$p";; esac
     git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 || exit 0
-    bash .uak/bin/uak next --full 2>&1 | head -n 18
+    # One background job, in the old order: `uak next` may commit a tick to claims (the tip moves) before the inbox
+    # read keeps the tip it saw, so the next session start does not read the inbox again (test_hook_claims).
+    start_bg next start_next_inbox
+    start_wait next || true
+    start_show next 18 next
     # The code map is rebuilt in background (0.2 s for ~120 files) so `uak map` queries answer at once.
     nohup bash .uak/bin/map build > /dev/null 2>&1 &
     # The quick card (Superpowers-style bootstrap): WHEN to use which part of the harness, at session start.
     tmpl card
-    inbox_kept
     if [ -s "$gd/uak-inbox.txt" ]; then
       # What was printed is what was shown: a cut list leaves the rest for the next tick (audit, Oct 2026: 15 messages,
       # 10 printed, all 15 marked seen and never injected).
