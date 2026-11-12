@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pathlib import Path  # noqa: E402
@@ -28,6 +29,71 @@ from design_round import (DEFAULT_N, DEFAULT_TIER, GENES, MAX_N, MAX_SHARED, REC
 
 WILDCARDS = 2
 TRIES = 100
+
+# Why (AXIA R2, 2026-11-11): the human annotated all six variants in Spanish and breeding ignored it (it mutated scale
+# where the note asked for colors; both wildcards fell on the colors the human said hurt). Words are matched as prefixes
+# on accent-stripped lowercase text, so "colores", "tipografia", "acomodacion" all hit.
+GENE_WORDS = {
+    "color": ("color", "fondo", "background", "paleta", "palette"),
+    "type": ("tipografia", "letra", "font", "typeface", "typograph"),
+    "layout": ("espacio", "acomodacion", "layout", "flujo", "spacing"),
+    "motion": ("animacion", "movimiento", "animation", "motion"),
+    "voice": ("formal", "divertid", "tono", "tone", "voice"),
+    "scale": ("tamano", "escala", "size", "scale"),
+}
+WANT_WORDS = ("mejor", "podria", "deberia", "cambi", "should", "improve", "change", "needs", "quisiera", "falta")
+NEGATIVE_WORDS = ("no me gust", "peor", "lastim", "feo", "feos", "fea", "feas", "hate", "ugly", "worst", "horri", "ai slop", "slop", "slopp", "mal", "mala")
+VERDICT_WORDS = ("no me gust", "peor", "feo", "feos", "fea", "feas", "hate", "ugly", "worst", "horri", "ai slop", "slop", "slopp")  # the whole variant, not one gene
+
+
+def _plain(text):
+    text = unicodedata.normalize("NFD", str(text)).lower()
+    return "".join(ch for ch in text if not unicodedata.combining(ch))
+
+
+def _has(plain, words):
+    """Word-start match; a short stem (4 letters or fewer: fea, mal, font) must also end its word, so "feature",
+    "material" and "malla" do not count. Why (UAK-065 review): "feature" read as "fea"."""
+    return any(re.search(r"\b" + re.escape(w) + (r"\b" if len(w) <= 4 else ""), plain) for w in words)
+
+
+def note_genes(note):
+    """(genes the note names, the clause that chose them). A clause that asks for a change ("podria mejorar los
+    colores") wins over one that only praises ("la tipografia me gusto"); with no such clause, every gene named."""
+    clauses = [c.strip() for c in re.split(r"[,;.\n]|\b(?:pero|but|y|and)\b", str(note)) if c.strip()]
+    named = [(c, [g for g in GENE_WORDS if _has(_plain(c), GENE_WORDS[g])]) for c in clauses]
+    named = [(c, gs) for c, gs in named if gs]
+    wanting = [(c, gs) for c, gs in named if _has(_plain(c), WANT_WORDS)]
+    use = wanting or named
+    genes = []
+    for _, gs in use:
+        genes += [g for g in gs if g not in genes]
+    return genes, (use[0][0] if use else "")
+
+
+def note_rejects(note):
+    """Genes whose values a negative note on an unpicked variant rejects: the genes it names, or all of them when it is
+    a verdict on the whole variant ("la peor", "muy fea") or names none."""
+    plain = _plain(note)
+    if not _has(plain, NEGATIVE_WORDS):
+        return []
+    named = [g for g in GENE_WORDS if _has(plain, GENE_WORDS[g])]
+    if named and not _has(plain, VERDICT_WORDS):
+        return named
+    return list(GENES)
+
+
+def rejected_values(notes, picked_ids, genomes):
+    """{gene: values} from the negative notes on variants that were not picked; a value a picked variant has stays."""
+    keep = {g: {p["genes"][g] for p in genomes if p["id"] in picked_ids} for g in GENES}
+    out = {g: set() for g in GENES}
+    for vid, note in notes.items():
+        for p in genomes:
+            if p["id"] == vid and vid not in picked_ids:
+                for g in note_rejects(note):
+                    if g in GENES and p["genes"].get(g) not in keep[g]:
+                        out[g].add(p["genes"][g])
+    return out
 
 
 def _count_plan(n, npicks):
@@ -56,19 +122,25 @@ def _fits(child, out):
     return all(shared_genes(child, o) < len(GENES) and (kin(child, o) or shared_genes(child, o) <= MAX_SHARED) for o in out)
 
 
-def _attempt(picks, n, seed, salt):
+def _attempt(picks, n, seed, salt, rejected=None):
     """picks: [{"ref": "R1/v3", "genes": {...}, "recipe": R}] in the human's order. Child by child, each redrawn until
     it fits the ones before; None when a child cannot (the caller restarts with another salt)."""
     rng = Rng(seed, "breed%d" % salt)
+    rejected = rejected or {}
     mut, cross, wild = _count_plan(n, len(picks))
     pairs = list(itertools.combinations(range(len(picks)), 2))
 
     def mutation(i):
         p = picks[i % len(picks)]  # round-robin from the first pick, which the human likes best
-        gene = rng.pick(list(GENES))
+        chosen = [g for g in p.get("chosen", []) if g in GENES]  # genes the human's note on this parent asked to change
+        gene = rng.pick(chosen or list(GENES))
         genes = dict(p["genes"])
-        genes[gene] = rng.pick([v for v in GENES[gene] if v != p["genes"][gene]])
-        return {"kind": "mutation", "from": [p["ref"]], "mutated": gene, "genes": genes, "recipe": p["recipe"]}
+        others = [v for v in GENES[gene] if v != p["genes"][gene]]
+        genes[gene] = rng.pick([v for v in others if v not in rejected.get(gene, ())] or others)
+        out_ = {"kind": "mutation", "from": [p["ref"]], "mutated": gene, "genes": genes, "recipe": p["recipe"]}
+        if chosen:
+            out_["because"] = "note on %s: %s \u2192 %s" % (p["ref"], p["clause"], gene)
+        return out_
 
     def crossover(i):
         a, b = (picks[x] for x in pairs[i % len(pairs)])
@@ -83,17 +155,20 @@ def _attempt(picks, n, seed, salt):
         before = [o["genes"] for o in out if o["kind"] == "wildcard"]
         for g, vals in GENES.items():
             used = {p["genes"][g] for p in picks}
+            bad = set(rejected.get(g, ()))
             seen = {b[g] for b in before}
             # First share nothing with the picks (two wildcards may then share a gene or two, within the rule). If the
             # rule fails 100 times, give up the second wildcard's pick-avoidance where it must differ from the first.
             tiers = [used] if attempt < 100 else [used | seen, seen, set()]
             for avoid in tiers:
-                free = [v for v in vals if v not in avoid]
+                free = [v for v in vals if v not in avoid and v not in bad]
                 if free:
                     break
             else:
-                low = min(sum(1 for p in picks if p["genes"][g] == v) for v in vals)
-                free = [v for v in vals if sum(1 for p in picks if p["genes"][g] == v) == low]
+                # Only picked or rejected values are left: take a picked one (the least used), never a rejected one.
+                ok = [v for v in vals if v not in bad] or list(vals)
+                low = min(sum(1 for p in picks if p["genes"][g] == v) for v in ok)
+                free = [v for v in ok if sum(1 for p in picks if p["genes"][g] == v) == low]
             genes[g] = rng.pick(free)
         return {"kind": "wildcard", "from": [], "genes": genes, "recipe": RECIPES[(i + len(picks)) % len(RECIPES)]}
 
@@ -111,9 +186,43 @@ def _attempt(picks, n, seed, salt):
     return sorted(out, key=lambda c: order[c["kind"]])
 
 
-def breed(picks, n, seed):
+def _relax_order(picks, rejected):
+    """Genes with rejected values, the one with the fewest alternatives (values neither picked nor rejected) first."""
+    def left(g):
+        return len([v for v in GENES[g] if v not in rejected[g] and v not in {p["genes"][g] for p in picks}])
+    return sorted((g for g in GENES if rejected.get(g)), key=lambda g: (left(g), list(GENES).index(g)))
+
+
+def breed(picks, n, seed, rejected=None):
+    """Never raises because of the notes. Order of give-ups: (1) as the human asked; (2) rejections dropped one gene at a
+    time, fewest alternatives first (wildcards then say so in "because"); (3) the named genes ignored (mutations random
+    again, no "because"), with rejections restored and dropped the same way. Why (AXIA R2, 2026-11-11): two picks that
+    share 5 genes, notes naming colors and animation, and a variant rejected on all 8 genes left no round: a mutation of
+    each pick cannot share 3 genes when the picks differ in 3 and the notes fix the mutated gene to one they differ in."""
+    full = {g: set(v) for g, v in (rejected or {}).items()}
+    plain = [dict(p, chosen=[]) for p in picks]
+    for use, tries in ((picks, TRIES), (plain, TRIES)):
+        rej, dropped = {g: set(v) for g, v in full.items()}, []
+        while True:
+            for salt in range(TRIES if (not dropped and use is picks) else 10):
+                got = _attempt(use, n, seed, salt, rej)
+                if got:
+                    notes = []
+                    if dropped:
+                        notes.append("rejected values allowed for %s" % ", ".join(dropped))
+                    if use is plain and any(p["chosen"] for p in picks):
+                        notes.append("genes named in the notes not honoured")
+                    for c in got:
+                        if c["kind"] == "wildcard" and dropped:
+                            c["because"] = "%s: no round keeps the diversity rule without them" % notes[0]
+                    return got
+            order = _relax_order(use, rej)
+            if not order:
+                break
+            dropped.append(order[0])
+            rej[order[0]] = set()
     for salt in range(TRIES):
-        got = _attempt(picks, n, seed, salt)
+        got = _attempt(plain, n, seed, salt, {})
         if got:
             return got
     raise RuntimeError("could not breed %d children from %d picks that keep the diversity rule (seed %s)" % (n, len(picks), seed))
@@ -215,13 +324,21 @@ def run(argv):
         print("DESIGN_ROUND converged: %s/%s is the direction (same line for two rounds). Lock it: /uak-design-lock step 5 fills DESIGN.md from %s/%s/genome.json." % (src, done, src, done))
         return 0
     picks = []
+    pick_notes = sp.get("notes") if isinstance(sp.get("notes"), dict) else {}
     for pid in sp["picked"]:
         g = _read(sdir / pid / "genome.json")
         if not g or "genes" not in g:
             print("design round --from: %s/%s has no genome.json" % (src, pid), file=sys.stderr)
             return 1
-        picks.append({"ref": "%s/%s" % (src, pid), "genes": g["genes"], "recipe": g.get("recipe", RECIPES[0])})
-    children = breed(picks, n, seed)
+        genes, clause = note_genes(pick_notes.get(pid, ""))
+        picks.append({"ref": "%s/%s" % (src, pid), "genes": g["genes"], "recipe": g.get("recipe", RECIPES[0]), "chosen": genes, "clause": clause})
+    everyone = []
+    for d_ in sorted(sdir.glob("v*")):
+        g = _read(d_ / "genome.json")
+        if g and isinstance(g.get("genes"), dict) and all(k in g["genes"] for k in GENES):
+            everyone.append({"id": d_.name, "genes": g["genes"]})
+    rejected = rejected_values(pick_notes, set(sp["picked"]), everyone)
+    children = breed(picks, n, seed, rejected)
     if dry:
         for i, c in enumerate(children, 1):
             via = ("mutated " + c["mutated"]) if c["kind"] == "mutation" else ("from " + " x ".join(c["from"])) if c["kind"] == "crossover" else "no parent"
