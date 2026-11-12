@@ -690,10 +690,19 @@ STARTUP_BEFORE = 41
 RESUME_BEFORE = 42
 
 
+def real_bash(r):
+    """The Bash that runs scripts. On Windows r.bash is Git's bin/bash.exe, a launcher that puts its own folders first
+    on PATH, so a shim that called it would hide the other shims from the hook (UAK-068, Windows verification)."""
+    if os.name != "nt":
+        return r.bash
+    return r.run([r.bash, "-c", 'cygpath -m "$(type -P bash)"']).stdout.strip() or r.bash
+
+
 def shims(r, where):
     where.mkdir(parents=True, exist_ok=True)
+    bash = real_bash(r)
     for name in COUNTED:
-        real = r.bash if name == "bash" else r.git if name == "git" else shutil.which(name, path=r.env.get("PATH"))
+        real = bash if name == "bash" else r.git if name == "git" else shutil.which(name, path=r.env.get("PATH"))
         if not real:
             continue
         shim = where / name
@@ -714,14 +723,25 @@ def counted_start(r, f, w, source, tag):
             "while [ ! -f '%s' ]; do sleep 0.1; done; git-upload-pack" % gate.as_posix())
     log = Path(r.scratch) / ("count-%s.log" % tag)
     log.write_text("", encoding="utf-8")
-    path = str(shims(r, Path(r.scratch) / "count-shims")) + os.pathsep + r.env["PATH"]
+    shim_dir = shims(r, Path(r.scratch) / "count-shims")
     # No machine usage logs (UAK-012): the count is the same on every machine.
-    start(r, w, "agent-1", source=source, UAK_FG_LOG=log.as_posix(), PATH=path, CODEX_HOME=str(Path(r.scratch) / "no-codex"))
-    before = [n for n in log.read_text(encoding="utf-8").split() if n]
-    # Review of cdbb934 (P2): on Git Bash the shims logged nothing and the limits passed with 0. The hook always runs
-    # git (rev-parse), so an empty count means the count is broken, never that the hook is fast.
-    expect("git" in before, "the count saw the hook's own git call (shims on PATH and UAK_FG_LOG work here): %r" % before[:10])
-    gate.write_text("open\n", encoding="utf-8")
+    env = {"UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_AGENT": "agent-1", "UAK_FG_LOG": log.as_posix(),
+           "CODEX_HOME": str(Path(r.scratch) / "no-codex")}
+    payload = '{"session_id":"s-%s","source":"%s"}' % (source, source)
+    # PATH is built inside Bash from the shims' physical POSIX folder, as the inbox race test does: Git Bash's
+    # launcher and a native Windows PATH would otherwise put /ucrt64/bin and /usr/bin first.
+    prefix = 'shim_dir=$(CDPATH= cd -- "$1" && pwd -P) || exit 1; PATH="$shim_dir:$PATH"; export PATH; '
+    try:
+        r.run([r.bash, "-c", prefix + "printf '%s' \"$2\" | bash .uak/bin/hook session-start", "_",
+               shim_dir.as_posix(), payload], cwd=w, env=env, allowed=None)
+        before = [n for n in log.read_text(encoding="utf-8").split() if n]
+        # Review of cdbb934 (P2): on Git Bash the shims logged nothing and the limits passed with 0. The hook always
+        # runs git (rev-parse), so an empty count means the count is broken, never that the hook is fast.
+        expect("git" in before, "the count saw the hook's own git call (shims on PATH and UAK_FG_LOG work here): %r"
+               % before[:10])
+    finally:
+        # Opened whatever happened: a closed gate leaves upload-pack loops behind and Windows cannot clean up.
+        gate.write_text("open\n", encoding="utf-8")
     settle(r, w)
     after = [n for n in log.read_text(encoding="utf-8").split() if n]
     expect(after == before, "no background work is counted (a launcher left UAK_FG_LOG set): %s"
