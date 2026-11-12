@@ -505,9 +505,12 @@ case "${1:-}" in
     if [ -s "$gd/uak-inbox.txt" ]; then
       # What was printed is what was shown: a cut list leaves the rest for the next tick (audit, Oct 2026: 15 messages,
       # 10 printed, all 15 marked seen and never injected).
-      head -n 21 "$gd/uak-inbox.txt"
-      shown=$(head -n 21 "$gd/uak-inbox.txt" | sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' | sort -n | tail -n 1)
-      more=$(sed -n '22,$p' "$gd/uak-inbox.txt" | grep -c '^#[0-9]')
+      # The background refresh can replace the file after printing. Keep one snapshot so an unseen new request is
+      # never marked delivered (UAK-013 review: #1 printed, refresh added #2, shown-n became 2 and tick suppressed it).
+      start_inbox=$(cat "$gd/uak-inbox.txt")
+      head -n 21 <<< "$start_inbox"
+      shown=$(head -n 21 <<< "$start_inbox" | sed -n 's/^#\([0-9][0-9]*\) .*/\1/p' | sort -n | tail -n 1)
+      more=$(sed -n '22,$p' <<< "$start_inbox" | grep -c '^#[0-9]')
       [ "$more" -eq 0 ] || printf '(+%s more: uak inbox)\n' "$more"
       [ -z "$shown" ] || printf '%s\n' "$shown" > "$gd/uak-inbox.shown-n"
     fi

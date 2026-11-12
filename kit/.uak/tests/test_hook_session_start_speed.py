@@ -4,6 +4,7 @@
 to 28 s: it waited for the network (`uak next --full`, the inbox read, `uak digest`) before every session could start.
 A slow remote is simulated with remote.origin.uploadpack ('sleep N; git-upload-pack'), so no real network is used."""
 import argparse
+import json
 import os
 import time
 from pathlib import Path
@@ -101,7 +102,68 @@ def session_start_output_is_unchanged(r):
     return "identity, next and the refresh note"
 
 
-TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged]
+def session_start_marks_only_the_inbox_snapshot_it_prints(r):
+    """A refresh after the first inbox print must leave its unseen request for the next tick."""
+    from test_hook_claims import hook
+
+    f = r.fixture("ss-inbox-snapshot", count=2)
+    f.claim(0, "HACK-001")
+    f.claim(1, "HACK-002")
+    w = f.worktrees[0]
+    (w / ".uak-env").write_bytes(b"UAK_TASK=HACK-001\nUAK_AGENT=agent-1\n")
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    f.hack(1, "msg", "HACK-001", "first snapshot request", "--kind", "request", now=int(time.time()))
+    first = f.hack(0, "inbox", "--peek", now=int(time.time())).stdout
+    (gd / "uak-inbox.txt").write_bytes(first.encode("utf-8"))
+    f.hack(1, "msg", "HACK-001", "second request must reach the next tick", "--kind", "request", now=int(time.time()))
+    # The real inbox read waits until head has printed the old copy. Head then waits for that refresh to finish,
+    # forcing the replacement between printing and recording shown-n without relying on runner speed.
+    release = r.scratch / "ss-inbox-printed"
+    b = w / ".uak/bin"
+    (b / "uak").rename(b / "uak-real")
+    (b / "uak").write_bytes(b'''#!/usr/bin/env bash
+if [ "$1" = next ]; then printf 'Next: fixture task\\n'; exit 0; fi
+if [ "$1" = inbox ]; then
+  n=0
+  while [ ! -e "$UAK_RACE_RELEASE" ] && [ "$n" -lt 400 ]; do sleep 0.1; n=$((n + 1)); done
+fi
+exec bash "$(dirname "$0")/uak-real" "$@"
+''')
+    shim = r.scratch / "ss-inbox-shim"
+    shim.mkdir()
+    head = shim / "head"
+    head.write_bytes(b'''#!/usr/bin/env bash
+printed=$("$UAK_RACE_HEAD" "$@")
+printf '%s\\n' "$printed"
+case "$printed" in *'first snapshot request'*)
+  if mkdir "$UAK_RACE_RELEASE" 2>/dev/null; then
+    n=0
+    while [ -f "$UAK_RACE_RUNNING" ] && [ "$n" -lt 400 ]; do sleep 0.1; n=$((n + 1)); done
+  fi;;
+esac
+''')
+    head.chmod(0o755)
+    real_head = r.run([r.bash, "-c", "type -P head"], cwd=w).stdout.strip()
+    env = {"PATH": shim.as_posix() + os.pathsep + r.env["PATH"], "UAK_RACE_HEAD": real_head,
+           "UAK_RACE_RELEASE": release.as_posix(), "UAK_RACE_RUNNING": (gd / "uak-start.next.running").as_posix(),
+           "UAK_START_WAIT": "1"}
+    _, out = start(r, w, "agent-1", source="resume", **env)
+    settle(r, w)
+    shown = (gd / "uak-inbox.shown-n").read_text(encoding="utf-8").strip()
+    expect("#2 " in (gd / "uak-inbox.txt").read_text(encoding="utf-8"), "the real refresh loaded request #2")
+    # Keep tick's unrelated network/pace jobs fresh so only the inbox delivery is exercised and Windows can clean up.
+    for name in ("uak-inbox.poll", "uak-pace.seen", "uak-heartbeat", "uak-heartbeat.reviews"):
+        (gd / name).write_bytes(b"%d\n" % int(time.time()))
+    tick = hook(r, w, [".uak/bin/hook", "tick"], json.dumps({"session_id": "s-resume", "tool_name": "Bash",
+                "tool_input": {"command": "true"}, "tool_response": {"stdout": "", "stderr": ""}}), env)
+    observed = ("#1 " in out, "#2 " in out, shown, "#2 " in tick.stdout)
+    expect(observed == (True, False, "1", True),
+           "assertion failed: printed #1/#2, shown-n, next tick #2: %r" % (observed,))
+    return "unseen refreshed request delivered on the next tick"
+
+
+TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged,
+         session_start_marks_only_the_inbox_snapshot_it_prints]
 
 
 def main():
