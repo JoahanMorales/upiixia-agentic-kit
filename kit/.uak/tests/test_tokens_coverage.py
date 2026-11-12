@@ -161,6 +161,17 @@ def publish_failure_is_recorded(r):
     return "black box line"
 
 
+def publish_failure_is_recorded_under_a_global_hooks_path(r):
+    """UAK-012: with a global core.hooksPath (Dylan's ~/.gitconfig, 2026-11-11) the test remote still refuses the push
+    and the failure is still recorded. The machine is simulated with its own global config; the test runs unchanged."""
+    gitconfig = Path(r.scratch) / "machine-gitconfig"
+    gitconfig.write_text("[core]\n\thooksPath = %s\n[user]\n\tname = Machine User\n\temail = machine@example.invalid\n"
+                         % (Path(r.scratch) / "machine-hooks").as_posix(), encoding="utf-8")
+    machine = Runner(r.package, Path(r.scratch) / "machine-hooks-path", r.bash, r.git)
+    machine.env["GIT_CONFIG_GLOBAL"] = str(gitconfig)
+    return publish_failure_is_recorded(machine)
+
+
 def team_view_names_machines_that_never_reported(r):
     f = with_claims(r, "tk-team")
     cfg = spend(r, f, "tk-team", 800000, 100000)
@@ -229,7 +240,8 @@ def team_view_without_black_box_files_still_reads_the_tokens(r):
 
 
 TESTS = [publish_wait_needs_this_machines_new_totals, team_view_without_black_box_files_still_reads_the_tokens, publish_failure_is_recorded, team_view_names_machines_that_never_reported, main_share_is_reported_and_warned,
-         hooks_publish_from_session_start_and_codex]
+         hooks_publish_from_session_start_and_codex,
+         publish_failure_is_recorded_under_a_global_hooks_path]
 
 
 def main():
