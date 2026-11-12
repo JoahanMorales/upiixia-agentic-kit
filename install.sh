@@ -264,7 +264,9 @@ done
 # would then land in .claude/skills and Claude Code would show every /uak-X twice, and Windows checks a symlink out as a
 # text file. Copied again on every install and update, so it never goes stale. Why (a teammate, 2026-11-10): Codex and
 # Cursor had no /uak-*; (portability audit, Oct 2026): Codex and Cursor kept stale skills after --update on Windows.
-if has codex || has cursor || has gemini; then
+# External skills also create .agents/skills for Claude-only installs. Refresh that existing directory too: otherwise
+# it contains only the external skill, and doctor rejects it as stale (UAK-011, 2026-11-11).
+if has codex || has cursor || has gemini || [ -d "$target/.agents/skills" ]; then
   # An older install linked it (and .cursor/skills) to ../.claude/skills: the link goes, the real directory takes its place.
   # A link checked out on Windows (core.symlinks=false) is a one-line text file: it goes too.
   for link in .agents/skills .cursor/skills; do
