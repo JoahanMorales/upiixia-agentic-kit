@@ -87,32 +87,121 @@ tokens_publish() {
 # taken before the read: a read that saw a newer state is redone next time, never kept under a tip it was not read at.
 # Why (UAK-007): stop paid the full read at the end of every turn, 3-5 s on Git Bash, for an inbox tick already had.
 inbox_kept() {
-  local tip=
+  local tip= output= private=no result=0
   . .uak/bin/lib/net.sh 2>/dev/null && ssh_mux
   tip=$(git ls-remote "${UAK_REMOTE:-origin}" refs/heads/claims 2>/dev/null); tip=${tip%%[[:space:]]*}
   if [ -n "$tip" ] && [ -f "$gd/uak-inbox.txt" ] && fresh "$gd/uak-inbox.txt" 5 && rd "$gd/uak-claims.tip" && [ "$RD" = "$tip" ]; then
     return 0
   fi
-  bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.tmp" 2>/dev/null && mv "$gd/uak-inbox.tmp" "$gd/uak-inbox.txt" &&
-    { [ -z "$tip" ] || printf '%s' "$tip" > "$gd/uak-claims.tip"; }
+  if [ -n "${1:-}" ]; then output=$1/inbox.new
+  else output=$(mktemp "$gd/uak-inbox.XXXXXX") || return 1; private=yes; fi
+  bash .uak/bin/uak inbox --peek > "$output" 2>/dev/null && mv -f "$output" "$gd/uak-inbox.txt" &&
+    { [ -z "$tip" ] || printf '%s' "$tip" > "$gd/uak-claims.tip"; } || result=$?
+  [ "$private" != yes ] || rm -f "$output"
+  return "$result"
 }
 # Session start never waits for the network (UAK-013: /doctor measured the kit's SessionStart hook at 9.5 s typical,
 # up to 28 s, blocking every session). Each network step refreshes a cached copy in background; the hook waits at
 # most UAK_START_WAIT tenths of a second in all (default 10: on CI runners and Git Bash the rest of the hook already
 # costs 1.5 s), then shows what it has: the fresh copy, or the last one with a note. A first start on a slow machine
 # may only point at `uak next`; every later start shows the kept copy at once.
-start_bg() { # NAME CMD...: refresh in background unless a refresh is already running (a marker over 2 min is stale)
-  local run="$gd/uak-start.$1.running"
+start_pid_ok() {
+  case "$1" in ''|0*|*[!0-9]*) return 1;; esac
+  [ "$1" -gt 0 ] 2>/dev/null
+}
+start_record() { # NAME OID: validate persisted data before deriving any cleanup path
+  local name=$1 record= rest= suffix=
+  record=$(git cat-file blob "$2" 2>/dev/null) || return 1
+  START_STATE=${record%% *}; rest=${record#* }
+  START_PID=${rest%% *}; START_TOKEN=${rest#* }
+  [ "$record" = "$START_STATE $START_PID $START_TOKEN" ] || return 1
+  case "$START_STATE" in STARTING|RUNNING|REAP) ;; *) return 1;; esac
+  start_pid_ok "$START_PID" || return 1
+  case "$START_TOKEN" in "uak-start.$name."*) suffix=${START_TOKEN#"uak-start.$name."};; *) return 1;; esac
+  [ "${#suffix}" -eq 6 ] || return 1
+  case "$suffix" in *[!A-Za-z0-9]*) return 1;; esac
+}
+start_blob() { # STATE PID TOKEN HOOKS: objects carry immutable ownership, refs provide compare-and-swap
+  printf '%s %s %s\n' "$1" "$2" "$3" | git -c core.hooksPath="$4" hash-object -w --stdin 2>/dev/null
+}
+start_cas() {
+  git -c core.hooksPath="$4" -c core.filesRefLockTimeout=0 update-ref --no-deref "$1" "$2" "$3" 2>/dev/null
+}
+start_drop() {
+  git -c core.hooksPath="$3" -c core.filesRefLockTimeout=0 update-ref --no-deref -d "$1" "$2" 2>/dev/null
+}
+start_path_ok() {
+  local actual=
+  [ ! -L "$1" ] || return 1
+  if [ -e "$1" ]; then
+    [ -d "$1" ] || return 1
+    actual=$(CDPATH= cd -- "$1" && pwd -P) || return 1
+    [ "$actual" = "$1" ] || return 1
+  fi
+}
+start_revoke() { # exact validated generation; unlink sources before any replacement can publish
+  start_path_ok "$1" || return 1
+  rm -rf -- "$1" 2>/dev/null || return 1
+  [ ! -e "$1" ] && [ ! -L "$1" ] || return 1
+  rm -f -- "$1.running" 2>/dev/null || return 1
+  [ ! -e "$1.running" ] && [ ! -L "$1.running" ]
+}
+start_bg() { # NAME CMD...: age never revokes a live owner; dead owners first enter fenced REAP
+  local name=$1 root= ref= old= status= old_dir= dir= token= hooks= parent_oid= reap_oid= base=
+  local start_dir= worker_pid= worker_oid= n=0
   shift
-  if [ -f "$run" ] && fresh "$run" 2; then return 0; fi
-  printf '%s\n' "$NOW" > "$run" 2>/dev/null || return 0
-  ( trap '' HUP; "$@"; rm -f "$run" ) < /dev/null > /dev/null 2>&1 &
+  root=$(CDPATH= cd -- "$gd" && pwd -P) || return 0
+  ref=refs/worktree/uak-start/$name
+  if old=$(git rev-parse --verify -q "$ref" 2>/dev/null); then
+    start_record "$name" "$old" || return 0
+    kill -0 "$START_PID" 2>/dev/null && return 0
+    old_dir=$root/$START_TOKEN
+    start_path_ok "$old_dir" || return 0
+  else
+    status=$?; [ "$status" -eq 1 ] || return 0
+  fi
+  dir=$(mktemp -d "$root/uak-start.$name.XXXXXX") || return 0
+  token=${dir##*/}; hooks=$dir/hooks
+  mkdir "$hooks" || { start_revoke "$dir"; return 0; }
+  base=$old
+  if [ -n "$old" ]; then
+    # A reaper owns the old token until all its publication sources are gone. Another reaper must CAS-adopt
+    # this same token after a crash; it must never skip cleanup because a replacement directory was prepared.
+    reap_oid=$(start_blob REAP "$$" "$START_TOKEN" "$hooks") || { start_revoke "$dir"; return 0; }
+    start_cas "$ref" "$reap_oid" "$old" "$hooks" || { start_revoke "$dir"; return 0; }
+    start_revoke "$old_dir" || { start_revoke "$dir"; return 0; }
+    base=$reap_oid
+  fi
+  parent_oid=$(start_blob STARTING "$$" "$token" "$hooks") || { start_revoke "$dir"; return 0; }
+  start_cas "$ref" "$parent_oid" "$base" "$hooks" || { start_revoke "$dir"; return 0; }
+  printf '%s\n' "$NOW" > "$dir.running" || { start_revoke "$dir" && start_drop "$ref" "$parent_oid" "$hooks"; return 0; }
+  start_dir=$dir
+  (
+    trap '' HUP
+    # $$ remains the parent's PID in Bash 3.2 subshells. The parent supplies the actual $! PID and only then opens
+    # the ready gate, so a partial PID file can never become an ownership record.
+    while [ ! -f "$start_dir/ready" ] && [ -d "$start_dir" ] && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+    [ -f "$start_dir/ready" ] || exit 0
+    IFS= read -r worker_pid < "$start_dir/pid" || exit 0
+    start_pid_ok "$worker_pid" || exit 0
+    worker_oid=$(start_blob RUNNING "$worker_pid" "$token" "$hooks") || exit 0
+    start_cas "$ref" "$worker_oid" "$parent_oid" "$hooks" || exit 0
+    # Never release ownership before revoking possible surviving publication children. A failed revocation stays
+    # referenced and is recovered through REAP after this owner exits; a failed handoff never cleans another owner.
+    trap 'if start_revoke "$start_dir"; then start_drop "$ref" "$worker_oid" "$hooks" || :; fi' EXIT
+    "$@"
+  ) < /dev/null > /dev/null 2>&1 &
+  worker_pid=$!
+  printf '%s\n' "$worker_pid" > "$dir/pid" && : > "$dir/ready"
+  return 0
 }
 start_wait() { # NAME...: wait for these refreshes, bounded
-  local n=0 limit=${UAK_START_WAIT:-10} name busy
+  local n=0 limit=${UAK_START_WAIT:-10} name busy marker
   while [ "$n" -lt "$limit" ]; do
     busy=
-    for name in "$@"; do [ ! -f "$gd/uak-start.$name.running" ] || busy=1; done
+    for name in "$@"; do
+      for marker in "$gd"/uak-start."$name".*.running; do [ ! -f "$marker" ] || busy=1; done
+    done
     [ -n "$busy" ] || return 0
     sleep 0.1; n=$((n + 1))
   done
@@ -121,16 +210,18 @@ start_wait() { # NAME...: wait for these refreshes, bounded
 start_show() { # NAME LINES WHAT: the cached copy, and a note when it is still being refreshed
   local f="$gd/uak-start.$1.txt"
   [ ! -s "$f" ] || head -n "$2" "$f"
-  if [ -f "$gd/uak-start.$1.running" ]; then
+  local marker= busy=
+  for marker in "$gd"/uak-start."$1".*.running; do [ ! -f "$marker" ] || busy=1; done
+  if [ -n "$busy" ]; then
     if [ -s "$f" ]; then printf '(uak: refreshing %s in the background; the lines above are from the last check)\n' "$3"
     else printf '(uak: %s is loading in the background; run bash .uak/bin/uak %s for it now)\n' "$3" "$3"; fi
   fi
 }
-start_next_inbox() { start_capture next bash .uak/bin/uak next --full; inbox_kept; }
+start_next_inbox() { start_capture next bash .uak/bin/uak next --full; inbox_kept "$start_dir"; }
 start_capture() { # NAME CMD...: run CMD into the cached copy, replaced atomically
-  local f="$gd/uak-start.$1.txt"
+  local f="$gd/uak-start.$1.txt" output="$start_dir/$1.new"
   shift
-  "$@" > "$f.new" 2>&1; mv -f "$f.new" "$f"
+  "$@" > "$output" 2>&1; mv -f "$output" "$f"
 }
 # A small file's first line into RD (as $(cat) for the one-line state files); 1 when there is no file.
 rd() { RD=; [ -f "$1" ] || return 1; { IFS= read -r RD < "$1"; } 2>/dev/null; return 0; }
@@ -605,11 +696,7 @@ case "${1:-}" in
     if [ $((now_s - last_s)) -ge "${UAK_POLL_SECONDS:-20}" ]; then
       net_once
       printf '%s' "$now_s" > "$gd/uak-inbox.poll" 2>/dev/null
-      ( tip=$(git ls-remote "${UAK_REMOTE:-origin}" refs/heads/claims 2>/dev/null | awk '{print $1; exit}')
-        if [ -n "$tip" ] && { [ "$tip" != "$(cat "$gd/uak-claims.tip" 2>/dev/null)" ] || ! fresh "$gd/uak-inbox.txt" 5; }; then
-          bash .uak/bin/uak inbox --peek > "$gd/uak-inbox.tmp" 2>/dev/null && mv "$gd/uak-inbox.tmp" "$gd/uak-inbox.txt" &&
-            printf '%s' "$tip" > "$gd/uak-claims.tip"
-        fi ) > /dev/null 2>&1 &
+      ( inbox_kept ) > /dev/null 2>&1 &
     fi
     # Pace check every ~5 min; speak only when the level changes. Why: the agent can't see /usage.
     # In the background like the poll (UAK-007: about 40 processes the agent waited for); a level change leaves its
