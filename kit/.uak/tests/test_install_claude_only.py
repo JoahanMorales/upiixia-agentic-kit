@@ -109,6 +109,9 @@ def main():
     parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--case", action="append")
     args = parser.parse_args()
+    if not (args.package.resolve().parent / "install.sh").is_file():
+        print("INSTALL_CLAUDE_ONLY_RESULT SKIP (installer tests run from the kit source checkout)")
+        return 0
     fails = 0
     with tempfile.TemporaryDirectory(prefix="uak-claude-only-") as tmp:
         runner = Runner(args.package.resolve(), Path(tmp), resolve_binary("bash"), resolve_binary("git"))
