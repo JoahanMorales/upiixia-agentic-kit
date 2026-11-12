@@ -95,9 +95,11 @@ def stop_reads_the_inbox_from_the_cache(r):
     # one read); a second session start with nothing new on claims reads nothing.
     start = json.dumps({"session_id": "hook-claims-2", "hook_event_name": "SessionStart"})
     hook(r, w, [".uak/bin/hook", "session-start"], start)
+    wait_for_start_refresh(gd, w)
     before = len(peeks(marker))
     tip = r.g(f.remote, "rev-parse", "claims").stdout.strip()
     out = hook(r, w, [".uak/bin/hook", "session-start"], start)
+    wait_for_start_refresh(gd, w)
     expect(r.g(f.remote, "rev-parse", "claims").stdout.strip() == tip, "the second session start committed to claims")
     expect(len(peeks(marker)) == before, "session-start with a fresh copy must not read the inbox again: %s" % peeks(marker))
     expect("#2 " in out.stdout, "session-start still shows the inbox from the kept copy: %r" % out.stdout[-500:])
