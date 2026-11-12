@@ -4,6 +4,8 @@
 #   design-lint --changed [BASE]   only the lines this branch adds since origin/BASE (uak done runs it)
 #   design-lint --file PATH        one file (the post-edit hook runs it on each UI file an agent writes)
 #   design-lint --strict ...       the scale warnings below fail too
+#   design-lint .uak/design/rounds/R<k>   a round of static pages: every v*/index.html, tokens read from its <style>,
+#                                  each warning names the variant by its path (R2/v3/index.html:44)
 # Fails on, outside the UI kit: raw Tailwind palette classes (bg-stone-400, text-emerald-900), hex colors in code
 # (#c2410c; a fallback inside var(--x, #fff) is fine), and a local component named like one of the UI kit's.
 # A line with "design-lint: ok" is skipped (say why on that line).
@@ -56,7 +58,14 @@ tokfiles=$(find "$src" constants theme -type f \( -iname '*token*' -o -iname 'th
 # After the design lock (web/DESIGN.md exists) a screen with no tokens is a failure, not a skip. Why (frontend audit,
 # Oct 2026): the skip let screens built before or around the tokens pass.
 locked=no; for d in web/DESIGN.md DESIGN.md "$src/../DESIGN.md"; do [ -f "$d" ] && locked=yes; done
-if [ -z "$tokfiles" ] && ! find "$src" "${ui:-$src}" -name '*.css' -type f 2>/dev/null | while IFS= read -r f; do grep -Eq -- '(--[a-z][a-z0-9-]*:|@theme)' "$f" && echo y; done | grep -q y; then
+# Static pages (a design round's v*/index.html) keep their tokens in a <style> block: those count too. Why (AXIA R1,
+# 2026-11-11): design-lint skipped all six variants of the first real round, so its scale warnings never ran on them.
+html_tokens() {
+  find "$src" -type f -name '*.html' ! -path '*/node_modules/*' 2>/dev/null | while IFS= read -r f; do
+    awk '/<[Ss][Tt][Yy][Ll][Ee]/ { ins = 1 } ins && /--[a-z][a-z0-9-]*[[:space:]]*:/ { found = 1; exit } /<\/[Ss][Tt][Yy][Ll][Ee]/ { ins = 0 } END { exit !found }' "$f" && echo y
+  done | grep -q y
+}
+if [ -z "$tokfiles" ] && ! html_tokens && ! find "$src" "${ui:-$src}" -name '*.css' -type f 2>/dev/null | while IFS= read -r f; do grep -Eq -- '(--[a-z][a-z0-9-]*:|@theme)' "$f" && echo y; done | grep -q y; then
   if [ "$locked" = yes ]; then printf 'DESIGN_LINT_FAIL DESIGN.md exists but no stylesheet defines its tokens (CSS custom properties or @theme): write them in the tokens file\n'; exit 1; fi
   printf 'DESIGN_LINT_SKIP: no design tokens yet (CSS custom properties or @theme): the design lock writes them\n'; exit 0
 fi
@@ -255,6 +264,8 @@ find "$src" -type f \( -name '*.css' -o -name '*.scss' -o -name '*.tsx' -o -name
   done > "$warn"
 [ -z "$(printf '%s' "$lock_out" | tr -d '\n')" ] || printf '%s\n' "$lock_out" | grep -v '^$' >> "$out"
 files=$(awk 'END {print NR + 0}' "$list")
+# Why (AXIA R2): a round of static pages has no code files; the pass line counts the pages the scale checks read.
+[ "$files" != 0 ] || files=$(find "$src" -type f -name '*.html' ! -path '*/node_modules/*' 2>/dev/null | awk 'END {print NR + 0}')
 if [ "$changed" = yes ]; then
   # Keep only findings on lines this branch adds (committed or not) since its fork from origin/BASE.
   mb=$(git merge-base HEAD "refs/remotes/${UAK_REMOTE:-origin}/$base" 2>/dev/null) || { printf 'DESIGN_LINT_SKIP: no origin/%s to compare with\n' "$base"; exit 0; }

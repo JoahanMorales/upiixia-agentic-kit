@@ -2,10 +2,30 @@
 # uak design: design rounds. Bash 3.2+; Python 3.8+ standard library (lib/design_round.py).
 #   bash .uak/bin/uak design round [--screen landing] [--n N] [--seed S] [--dry-run] [--yes]
 #   bash .uak/bin/uak design shoot R<k> [VARIANT...]
+#   bash .uak/bin/uak design taste [--human NAME] [--update | --forget PROJECT]   the human's taste profile (UAK-064)
 #   bash .uak/bin/uak design pick R<k> [--k N] [--stop]   the human picks in the browser (design-gallery --round, UAK-058)
 set -u
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if [ "${1:-}" = pick ]; then shift; exec bash "$here/design-gallery" --round "$@"; fi
+if [ "${1:-}" = taste ]; then
+  shift; sub=show; proj=''; hum=''
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --update) sub=update ;;
+      --forget) sub=forget; shift; proj=${1:-} ;;
+      --human) shift; hum=${1:-} ;;
+      *) printf '%s\n' 'Usage: uak design taste [--human NAME] [--update | --forget PROJECT]' >&2; exit 2 ;;
+    esac
+    shift
+  done
+  if [ "$sub" = forget ] && [ -z "$proj" ]; then printf '%s\n' 'uak design taste --forget needs a PROJECT name' >&2; exit 2; fi
+  set -- "$sub"; [ -z "$proj" ] || set -- "$@" "$proj"; [ -z "$hum" ] || set -- "$@" --human "$hum"
+  for p in python3 python py; do
+    "$p" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null && exec "$p" "$here/lib/design_taste.py" "$@"
+  done
+  printf '%s\n' 'uak design needs Python 3.8+ (python3, python or py). The rest of uak works without it.' >&2
+  exit 2
+fi
 for p in python3 python py; do
   "$p" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null && exec "$p" "$here/lib/design_round.py" "$@"
 done

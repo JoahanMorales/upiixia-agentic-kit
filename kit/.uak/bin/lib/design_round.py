@@ -11,6 +11,10 @@ MAX_SHARED genes, and each gene's values all appear before any repeats. The same
 It prints the cost (N x Design-Variant-Tokens from PROJECT.md, default 60k, and the model tier) and writes nothing
 without --yes. `shoot` captures v<i>/1280.png and v<i>/390.png for any variant whose PNGs are missing.
 GENES, RECIPES, MAX_SHARED, make_genomes and shared_genes are importable (UAK-059 reuses them).
+UAK-063: a new project's round is seeded by the human's taste profile (design_taste.py; liked gene values likelier, the last
+2 variants wildcards that ignore it, nothing sharing more than 5 genes with another project's winner unless --allow-repeat), by the project
+(default seed from its name; brand colors from IDEA.md section 0, CSS custom properties and SVG fills go into brief.md; imagery
+values the project has no material for are drawn less) and each genome.json records "why" per gene.
 Why (F0, Nov 11 2026): the kit's frontends scored 2.8 / 5 because every variant of an agent looks alike; variety has to
 be forced by the tool, not hoped for. Python 3.8+ standard library only; no network, no browser unless `shoot`."""
 import hashlib
@@ -68,35 +72,185 @@ class Rng:
         h = hashlib.sha256(("%d:%d" % (self.state, self.n)).encode("utf-8")).digest()
         return items[int.from_bytes(h[:8], "big") % len(items)]
 
+    def weighted(self, items, weights):
+        """One item, each with probability weight / total: a liked value is likelier, never certain."""
+        self.n += 1
+        h = hashlib.sha256(("%d:%d" % (self.state, self.n)).encode("utf-8")).digest()
+        x = int.from_bytes(h[:8], "big") / float(1 << 64) * sum(weights)
+        for it, w in zip(items, weights):
+            x -= w
+            if x < 0:
+                return it
+        return items[-1]
 
-def _try_round(n, seed, salt, recipes):
+
+MAX_PAST_SHARED = 5  # novelty: a new project shares at most 5 of the genes with another project's winner
+TASTE_FLOOR = 0.08  # added to every value's weight so a liked value is likelier, never certain, and the diversity rule stays reachable
+REPEAT_PENALTY = 0.4  # a value already used more than the least-used one is this much less likely
+NO_MATERIAL = 0.4  # imagery values the project has nothing behind are drawn at this fraction of the others
+
+
+def _try_round(n, seed, salt, recipes, ctx):
+    """ctx: {"weights": {gene: {value: w}} or None, "wild": k, "avoid": [gene dicts], "factors": {gene: {value: f}},
+    "stats": dict or None}. The last `wild` variants ignore the weights; a draw is retried until it keeps the diversity
+    rule (<= MAX_SHARED with every other variant) and the novelty rule (<= MAX_PAST_SHARED with every past direction)."""
     rng = Rng(seed, salt)
+    weights, wild, avoid, factors = ctx.get("weights"), ctx.get("wild", 0), ctx.get("avoid") or [], ctx.get("factors") or {}
     counts = {g: {v: 0 for v in vals} for g, vals in GENES.items()}
     out = []
     for i in range(n):
+        taste = bool(weights) and i < n - wild
+        novelty = False
         for _ in range(400):
-            genes = {}
+            genes, why = {}, {}
             for g in GENES:
-                low = min(counts[g].values())  # spread: a value repeats only once all the others appeared
-                genes[g] = rng.pick([v for v in GENES[g] if counts[g][v] == low])
-            if all(shared_genes(genes, o["genes"]) <= MAX_SHARED for o in out):
-                break
+                if taste:
+                    cands = list(GENES[g])
+                    w = [(TASTE_FLOOR + weights.get(g, {}).get(v, 0.5)) * factors.get(g, {}).get(v, 1.0) for v in cands]
+                    pick = rng.weighted(cands, w)
+                    why[g] = "taste %.2f" % weights.get(g, {}).get(pick, 0.5)
+                else:
+                    low = min(counts[g].values())  # spread: a value repeats only once all the others appeared
+                    if g in factors:  # the project's material: all values stay possible, the unseen and the available likelier
+                        cands = list(GENES[g])
+                        pick = rng.weighted(cands, [factors[g].get(v, 1.0) * (1.0 if counts[g][v] == low else REPEAT_PENALTY) for v in cands])
+                    else:
+                        pick = rng.pick([v for v in GENES[g] if counts[g][v] == low])
+                    why[g] = "wildcard" if weights else "spread"
+                genes[g] = pick
+            if not all(shared_genes(genes, o["genes"]) <= MAX_SHARED for o in out):
+                continue
+            if not all(shared_genes(genes, p) <= MAX_PAST_SHARED for p in avoid):
+                novelty = True
+                continue
+            break
         else:
             return None
         for g, v in genes.items():
             counts[g][v] += 1
-        out.append({"genes": genes, "recipe": recipes[i % len(recipes)]})
+        out.append({"genes": genes, "recipe": recipes[i % len(recipes)], "why": why,
+                    "origin": "taste" if taste else ("wildcard" if weights else "spread"), "novelty": novelty})
     return out
 
 
-def make_genomes(n, seed, recipes=None):
-    """n genomes {"genes": {...8...}, "recipe": R}: spread values, pairs share <= MAX_SHARED genes, same seed same list."""
+def make_genomes(n, seed, recipes=None, weights=None, wild=None, avoid=None, factors=None):
+    """n genomes {"genes": {...8...}, "recipe": R, "why": {gene: reason}}: spread values, pairs share <= MAX_SHARED genes,
+    same seed same list. Optional (UAK-063, design_breed.py calls it without them): weights {gene: {value: w}} from the
+    taste profile (liked values likelier; the last `wild` variants, default 2, or 1 when n <= 4, ignore them), avoid
+    [gene dicts of past directions] (no variant shares more than MAX_PAST_SHARED genes with one), factors
+    {gene: {value: f}} (the project's own material scales a value's chance)."""
     recipes = list(recipes or RECIPES)
-    for salt in range(500):  # a dead end (rare) restarts the whole draw with the next salt: still deterministic
-        got = _try_round(n, seed, salt, recipes)
-        if got:
-            return got
+    if wild is None:
+        wild = 1 if n <= 4 else 2
+    base = {"avoid": avoid, "factors": factors, "wild": min(wild, n)}
+    for ctx in ([dict(base, weights=weights)] if weights else []) + [dict(base, weights=None)]:
+        for salt in range(60 if ctx["weights"] else 500):  # a dead end (rare) restarts the whole draw with the next salt: still deterministic
+            got = _try_round(n, seed, salt, recipes, ctx)
+            if got:
+                return got
     raise RuntimeError("no round of %d variants satisfies the diversity rule for seed %s" % (n, seed))
+
+
+# ---- what the project itself says: its seed, brand colors and material (UAK-063) ----
+# Why (v6.2, the human): a new project must start from its own colors and objects, not from the last project's look.
+
+SKIP_DIRS = {".git", ".uak", "node_modules", ".claude", "dist", "build", "__pycache__", ".venv", "venv"}
+HEX_RE = re.compile(r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-zA-Z_-])")
+MAX_SCAN = 4000
+MAX_BRAND = 6
+
+
+def project_seed(name):
+    """A stable default seed from the project's name (the same name gives the same round; another name another round)."""
+    key = re.sub(r"\s+", " ", (name or "").strip().lower())
+    return int(hashlib.sha256(key.encode("utf-8")).hexdigest()[:8], 16) % 100000 + 1
+
+
+def _walk(base, max_files=MAX_SCAN):
+    """Files under base (skipping SKIP_DIRS), at most max_files, sorted so the scan is deterministic."""
+    out = []
+    if not base.is_dir():
+        return out
+    for dp, dns, fns in os.walk(str(base)):
+        dns[:] = sorted(d for d in dns if d not in SKIP_DIRS)
+        for fn in sorted(fns):
+            out.append(Path(dp) / fn)
+            if len(out) >= max_files:
+                return out
+    return out
+
+
+def _norm_hex(h):
+    h = h.lstrip("#").upper()
+    return "#" + (h if len(h) == 6 else "".join(c * 2 for c in h))
+
+
+def _is_color(h):
+    """Not near-white, near-black or grey: a brand color has some chroma."""
+    r, g, b = (int(h[i:i + 2], 16) for i in (1, 3, 5))
+    return max(r, g, b) - min(r, g, b) > 24
+
+
+def _read_text(p, limit=200000):
+    try:
+        with open(str(p), "r", encoding="utf-8", errors="replace") as f:
+            return f.read(limit)
+    except OSError:
+        return ""
+
+
+def brand_colors(root, idea_text=None):
+    """Hex colors the project already has, strongest source first: IDEA.md section 0, CSS custom properties under
+    web/ (and src/, public/), fills in SVGs under assets/ or web/public/. [(hex, source)], at most MAX_BRAND."""
+    root = Path(root)
+    found = []
+
+    def add(text, source, pat=None, strict=True):
+        for m in re.finditer(pat or HEX_RE, text):
+            h = _norm_hex(m.group(1) if pat else m.group(0))
+            # IDEA.md names its colors on purpose (a Midnight or Ice Gray counts); scraped files skip greys and near-black/white
+            if (_is_color(h) or not strict) and h not in [x[0] for x in found]:
+                found.append((h, source))
+
+    idea = idea_text if idea_text is not None else _read_text(root / "IDEA.md")
+    add("\n".join(_sections(idea).get(0, [])), "IDEA.md section 0", strict=False)
+    for d in ("web", "src", "public"):
+        for f in _walk(root / d):
+            if f.suffix.lower() in (".css", ".scss", ".html"):
+                add(_read_text(f), "CSS custom properties", r"--[\w-]+\s*:\s*(#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3}))(?![0-9a-zA-Z_-])")
+    for d in ("assets", "web/public"):
+        for f in _walk(root / d):
+            if f.suffix.lower() == ".svg":
+                add(_read_text(f), "SVG fills", r"fill\s*[=:]\s*[\"']?(#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3}))(?![0-9a-zA-Z_-])")
+    return found[:MAX_BRAND]
+
+
+def project_material(root):
+    """{imagery value: [files]} for what the project really has: screens, video, mascot/photos, a map or drawings."""
+    root = Path(root)
+    mat = {}
+    for d in ("assets", "web", "public", "docs", "screenshots", "media"):
+        for f in _walk(root / d):
+            rel = f.relative_to(root).as_posix()
+            name, ext = f.name.lower(), f.suffix.lower()
+            if ext in (".mp4", ".webm", ".mov", ".gif"):
+                mat.setdefault("video loop", []).append(rel)
+            elif ext in (".png", ".jpg", ".jpeg", ".webp") and re.search(r"screen|captur|shot|dashboard|resultado|result|panel|app|loop|demo|ui", name):
+                mat.setdefault("product screenshot", []).append(rel)
+            elif ext in (".png", ".jpg", ".jpeg", ".webp") and re.search(r"mascot|mascota|cutout|cut-out|vehicle|product|photo|foto|premium|3d", name):
+                mat.setdefault("3D cut-out", []).append(rel)
+            elif ext == ".svg" or re.search(r"map|mapa|illustr|ilustr|draw|icon|logo", name):
+                mat.setdefault("illustration", []).append(rel)
+    if (root / "web").is_dir() and any(f.suffix.lower() in (".html", ".js", ".jsx", ".tsx") for f in _walk(root / "web", 400)):
+        mat.setdefault("product screenshot", []).append("web/ (the running app)")
+    return mat
+
+
+def material_factors(mat):
+    """imagery values with no material behind them are drawn less (NO_MATERIAL); "type only" needs none."""
+    if not mat:
+        return {}
+    return {"imagery": {v: (1.0 if (v in mat or v == "type only") else NO_MATERIAL) for v in GENES["imagery"]}}
 
 
 # ---- IDEA.md -> brief (sections by their "## N." heading, as landing-story reads them) ----
@@ -165,7 +319,7 @@ def read_beats(idea_text):
     return beats
 
 
-def brief_text(beats, screen, product):
+def brief_text(beats, screen, product, brand=None, material=None):
     names = {"one line": "The one line (§1)", "proof": "Proof number, with its source (§10)", "wow": "The wow (§4)",
              "steps": "How it works, steps (§4)", "users": "Who it is for (§2)", "ask": "The ask (`Ask:` line in IDEA.md)"}
     out = ["# Brief · %s · %s" % (product, screen), "",
@@ -179,6 +333,16 @@ def brief_text(beats, screen, product):
             out += ["- **%s:**" % names[b]] + v.split("\n")
         else:
             out.append("- **%s:** %s" % (names[b], v))
+    if brand:
+        out += ["", "## Brand colors (from the project)",
+                "The project already has these colors (%s). The color gene starts from them: use them as the palette's anchors, not a new palette." % brand[0][1],
+                ""] + ["- %s (%s)" % (h, src) for h, src in brand]
+    if material:
+        out += ["", "## Material the project has", ""] + ["- %s: %s" % (k, ", ".join(v[:4]) + (" ..." if len(v) > 4 else "")) for k, v in sorted(material.items())]
+    out += ["", "## Subject world",
+            "The agent building each variant lists 3-5 concrete things from this project's domain (its objects, instruments, units,",
+            "local vernacular) at the top of index.html in a comment, and uses at least one as a visual element (a shape, an",
+            "icon, a unit on a number, a word on a label). Not decoration from the genre: things the people in IDEA.md touch."]
     return "\n".join(out) + "\n"
 
 
@@ -239,6 +403,8 @@ def task_text(rnd, i, genome, screen):
              "Content: the same in every variant, taken only from `../brief.md` (a MISSING beat is left out, never invented).",
              "Only the design changes. Your design is this genome (`genome.json`); follow every gene:", ""]
     lines += ["- %s: **%s**" % (g, genes[g]) for g in GENES]
+    if genome.get("brand"):
+        lines += ["- project colors: %s (`../brief.md` > Brand colors; the color gene is built from them)" % " ".join(genome["brand"])]
     lines += ["- recipe: **%s** (use that skill's method for the look)" % genome["recipe"], "",
               "## Bounds (same as landing-story; they override any size in MotionSites examples or craft.md)",
               "- Hero display type: at most 96 px at 1280 wide and at most 48 px at 390 wide. Your scale gene picks inside that: %s at 1280." % SCALE_BOUNDS[genes["scale"]],
@@ -249,12 +415,41 @@ def task_text(rnd, i, genome, screen):
               "links in IDEA.md) before designing, and build around it. Then generated material. Only then the MotionSites media shelf.",
               "Imagery %s: a \"product screenshot\" is a real capture of the running product's screen, never a fake built from divs." % ("gene is **%s**" % genes["imagery"]),
               "If the product cannot be captured yet, pick another imagery treatment and say so at the top of index.html in a comment.", "",
+              "## Subject world",
+              "Before designing, list 3-5 concrete things from this project's domain (objects, instruments, units, local vernacular; see",
+              "`../brief.md`) in a comment at the top of index.html, and use at least one as a visual element.", "",
               "When done run `bash .uak/bin/uak design shoot %s v%d` and look at `1280.png` and `390.png`; fix what looks generic or broken." % (rnd, i)]
     return "\n".join(lines) + "\n"
 
 
+def _idea_and_product(root):
+    idea = ""
+    try:
+        idea = (root / "IDEA.md").read_text(encoding="utf-8")
+    except OSError:
+        pass
+    m = re.match(r"^#\s*IDEA\s*[·:-]\s*(.+)$", idea.split("\n", 1)[0].strip()) if idea else None
+    return idea, (m.group(1).strip() if m else root.name)
+
+
+def _taste_context(root, human, product, allow_repeat):
+    """(weights or None, avoid list, note) from the human's taste profile. Low confidence or no profile: no weights."""
+    try:
+        import design_taste
+        doc = design_taste.load(human)
+    except Exception:  # noqa: BLE001  a broken profile never blocks a round
+        return None, [], "no taste profile"
+    own = {root.name, product}
+    avoid = [] if allow_repeat else [d["genes"] for d in design_taste.past_directions(doc)
+                                     if isinstance(d.get("genes"), dict) and d.get("project") not in own]
+    if design_taste.confidence(doc) == "low" or not design_taste.weights(doc):
+        return None, avoid, "taste: still learning (%d picks), exploring" % design_taste.pick_count(doc)
+    return design_taste.weights(doc), avoid, "taste: %s (%d picks)" % (human, design_taste.pick_count(doc))
+
+
 def cmd_round(argv):
-    screen, n, seed, dry, yes = "landing", DEFAULT_N, 1, False, False
+    screen, n, seed, dry, yes = "landing", DEFAULT_N, None, False, False
+    human, allow_repeat = None, False
     it = iter(argv)
     try:
         for a in it:
@@ -264,6 +459,10 @@ def cmd_round(argv):
                 n = int(next(it))
             elif a == "--seed":
                 seed = int(next(it))
+            elif a == "--human":
+                human = next(it)
+            elif a == "--allow-repeat":
+                allow_repeat = True
             elif a == "--dry-run":
                 dry = True
             elif a == "--yes":
@@ -271,7 +470,7 @@ def cmd_round(argv):
             else:
                 raise ValueError(a)
     except (StopIteration, ValueError):
-        print("Usage: design round [--screen landing] [--n N] [--seed S] [--dry-run] [--yes]", file=sys.stderr)
+        print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes]", file=sys.stderr)
         return 2
     if screen != "landing":
         print("design round: only --screen landing exists yet", file=sys.stderr)
@@ -281,14 +480,36 @@ def cmd_round(argv):
         return 2
     root = project_root()
     recipes = [r for r in RECIPES if r != "motionsites" or motionsites_installed(root)]
-    genomes = make_genomes(n, seed, recipes)
+    idea, product = _idea_and_product(root)
+    if seed is None:
+        seed = project_seed(product)  # Why (v6.2): seed 1 for everyone made every new project start the same
+    if human is None:
+        import design_taste
+        human = design_taste.default_human()
+    weights, avoid, taste_note = _taste_context(root, human, product, allow_repeat)
+    brand = brand_colors(root, idea)
+    material = project_material(root)
+    genomes = make_genomes(n, seed, recipes, weights=weights, avoid=avoid, factors=material_factors(material))
+    for g in genomes:
+        if brand:
+            g["brand"] = [h for h, _ in brand]
+            g["why"]["color"] += " \u00b7 project colors " + " ".join(g["brand"][:3])
+        if material:
+            have = material.get(g["genes"]["imagery"])
+            g["why"]["imagery"] += " \u00b7 " + ("project has: " + ", ".join(have[:2]) if have else "no material for it" if g["genes"]["imagery"] != "type only" else "needs none")
+    mix = {k: sum(1 for g in genomes if g["origin"] == k) for k in ("taste", "wildcard", "spread")}
+    novel = sum(1 for g in genomes if g["novelty"])
+    mix_line = "DESIGN_ROUND mix: %d from taste, %d wildcards, %d drawn as before; %d redrawn for novelty vs %d past directions (%s)%s" % (
+        mix["taste"], mix["wildcard"], mix["spread"], novel, len(avoid), taste_note, "; seed %d from the project name" % seed)
     if dry:
         for i, g in enumerate(genomes, 1):
-            print("v%d  %s  | recipe %s" % (i, " | ".join("%s=%s" % (k, g["genes"][k]) for k in GENES), g["recipe"]))
+            print("v%d  %s  | recipe %s | %s" % (i, " | ".join("%s=%s" % (k, g["genes"][k]) for k in GENES), g["recipe"], g["origin"]))
+        print(mix_line)
         return 0
     per = parse_tokens(cfg(root, "Design-Variant-Tokens", ""))
     tier = cfg(root, "Design-Variant-Model", DEFAULT_TIER)
     print("DESIGN_ROUND cost: %d variants x %s tokens = %s tokens, model tier %s" % (n, fmt_tokens(per), fmt_tokens(per * n), tier))
+    print(mix_line)
     again = "bash .uak/bin/uak design round --screen %s --n %d --seed %d --yes" % (screen, n, seed)
     if not yes:
         print("DESIGN_ROUND refused: nothing written. Rerun with --yes (or ask the human to run it): %s" % again, file=sys.stderr)
@@ -298,21 +519,14 @@ def cmd_round(argv):
     while (base / ("R%d" % k)).exists():
         k += 1
     rnd = base / ("R%d" % k)
-    idea = ""
-    try:
-        idea = (root / "IDEA.md").read_text(encoding="utf-8")
-    except OSError:
-        pass
-    m = re.match(r"^#\s*IDEA\s*[·:-]\s*(.+)$", idea.split("\n", 1)[0].strip()) if idea else None
-    product = m.group(1).strip() if m else root.name
     rnd.mkdir(parents=True)
     with open(str(rnd / "brief.md"), "w", encoding="utf-8", newline="\n") as f:
-        f.write(brief_text(read_beats(idea), screen, product))
+        f.write(brief_text(read_beats(idea), screen, product, brand, material))
     for i, g in enumerate(genomes, 1):
         v = rnd / ("v%d" % i)
         v.mkdir()
         doc = {"id": "R%d-v%d" % (k, i), "round": "R%d" % k, "variant": i, "seed": seed, "screen": screen,
-               "genes": g["genes"], "recipe": g["recipe"]}
+               "genes": g["genes"], "recipe": g["recipe"], "why": g["why"]}
         with open(str(v / "genome.json"), "w", encoding="utf-8", newline="\n") as f:
             json.dump(doc, f, indent=2, ensure_ascii=False)
             f.write("\n")
@@ -443,7 +657,7 @@ def main(argv):
         return cmd_round(argv[1:])
     if argv[:1] == ["shoot"]:
         return cmd_shoot(argv[1:])
-    print("Usage: design round [--screen landing] [--n N] [--seed S] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] | design pick R<k> [--k N]", file=sys.stderr)
+    print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] | design pick R<k> [--k N]", file=sys.stderr)
     return 2
 
 
