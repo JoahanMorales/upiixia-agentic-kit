@@ -406,13 +406,44 @@ def failed_commit_leaves_index_and_refs_as_before(root, tmp):
     assert remote_head(remote) == "", "nothing reached main"
 
 
+def refused_push_says_nothing_was_published(root, tmp):
+    """Review of f8d5d84 (claude-Dylan-r, P2): when the remote refuses the push (a pre-push hook that exits 1 with no
+    message), the commit is undone, so the page must say nothing was committed or published and offer no push
+    command; nothing stays staged, no ref moves, and publishing works again once the cause is gone."""
+    target, remote = installed(root, tmp)
+    hooks = tmp / "refusing-push-hooks"
+    hooks.mkdir()
+    hook = hooks / "pre-push"
+    hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    hook.chmod(0o755)
+    tp.git(target, "config", "core.hooksPath", str(hooks))
+    with tp.live(target, tp.FakePlanner()) as srv:
+        ready_to_publish(srv, target)
+        status, preview = tp.get(srv, "/api/publish-kit")
+        assert status == 200, preview
+        assert tp.post(srv, "/api/publish-kit", {"digest": preview["digest"]})[0] == 202
+        tp.wait_idle(srv)
+        error = tp.get(srv, "/api/status")[1].get("error") or ""
+        assert "refused the push" in error and "nothing was published" in error.lower(), \
+            "the page says the push was refused and nothing was published: %r" % error
+        assert "git push" not in error, "no push command for a commit that was undone: %r" % error
+        assert "  " not in error and "): " not in error.replace("(no message)", ""), "an empty reason reads as such: %r" % error
+        assert tp.git(target, "diff", "--cached", "--name-only") == "", "nothing stays staged"
+        assert subprocess.run([resolve_binary("git"), "-C", str(target), "rev-parse", "-q", "--verify", "HEAD"],
+                              capture_output=True).returncode != 0, "the commit was undone: the empty repository has none"
+        assert remote_head(remote) == "", "nothing reached main"
+        hook.unlink()
+        publish(srv)
+    assert remote_head(remote), "publishing works again once the remote accepts the push"
+
+
 TESTS = [schedule_form_writes_freeze_epoch, publish_kit_excludes_unapproved_plan_files,
          publish_kit_pushes_only_the_verified_commit, terminal_step_is_shown_with_its_command,
          planning_waits_for_the_kit_on_main, lint_failure_reason_reaches_the_page,
          plan_can_be_rechecked_without_the_planner, human_name_is_asked_once,
          publish_never_includes_files_the_installer_did_not_place, publish_verifies_the_whole_committed_tree,
          schedule_never_follows_links, publish_ignores_personal_files_present_before_install,
-         failed_commit_leaves_index_and_refs_as_before]
+         failed_commit_leaves_index_and_refs_as_before, refused_push_says_nothing_was_published]
 
 
 def main():

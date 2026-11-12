@@ -446,6 +446,11 @@ class SetupServer(ThreadingHTTPServer):
         def git(*args, timeout=60):
             return planning.git_out(self.run, root, *args, timeout=timeout)
 
+        def reason(result):
+            """What Git said, on one line; a hook that exits without a word reads as "(no message)"."""
+            text = " ".join(redact((result.stderr or result.stdout or "").strip()).split())[-300:].rstrip(". ")
+            return text or "(no message)"
+
         def restore():
             """Refs and index as they were before publishing (contract #46; review of 57ef048: a rejected commit left
             505 files staged on an empty repository)."""
@@ -476,9 +481,9 @@ class SetupServer(ThreadingHTTPServer):
                                          "unverified)" % human, "--", *files, timeout=120)
                 if committed.returncode:
                     restore()
-                    raise ValueError("Git did not create the commit (a pre-commit hook or Git refused it): %s Nothing was "
+                    raise ValueError("Git did not create the commit (a pre-commit hook or Git refused it): %s. Nothing was "
                                      "published and nothing stays staged. Fix the cause, then publish again."
-                                     % redact((committed.stderr or committed.stdout).strip())[-300:])
+                                     % reason(committed))
                 commit = git("rev-parse", "HEAD").strip()
                 parents = git("rev-list", "--parents", "-n", "1", commit).split()[1:]
                 changed = set(n for n in git("diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z", commit).split("\0") if n)
@@ -496,8 +501,12 @@ class SetupServer(ThreadingHTTPServer):
                 ref = "%s:refs/heads/%s" % (commit, base)
                 result = self.run(list(planning.GIT) + ["-C", str(root), "push", remote, ref], cwd=str(root), timeout=120)
                 if result.returncode:
-                    raise ValueError("The kit is committed here (%s) but %s refused the push: %s Fix the cause, then run: "
-                                     "git push %s %s" % (commit[:7], remote, (result.stderr or result.stdout).strip()[-300:], remote, ref))
+                    # Review of f8d5d84 (P2): a refused push is a failure before publishing, so the commit is undone
+                    # (contract #46) and the page must not offer a push of a commit that no ref holds any more.
+                    restore()
+                    raise ValueError("%s refused the push: %s. Nothing was published, and nothing stays committed or "
+                                     "staged here. Fix the cause (for example a pre-push hook or a protected branch), "
+                                     "then publish again." % (remote, reason(result)))
                 pushed = True
                 check = self.run([bash_binary(), str(uak), "start"], cwd=str(root), timeout=120)
                 with self.lock:
