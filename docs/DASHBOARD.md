@@ -58,6 +58,28 @@ The page never decides readiness itself: the next step always comes from the las
 the only command offered with a Copy button is the exact claim, `bash .uak/bin/wt new ID`. The gate's fix lines are
 shown as text, because they carry branch names and remote URLs.
 
+## Prepare from the page
+
+After installing, the steps the gate asks for come in order in **Get ready**, and the page does them itself:
+
+1. **Your name**: some steps only a person may do (publishing the kit, approving the plan). Setup records them with
+   this name, so you never type `UAK_HUMAN=...` into a command.
+2. **Event schedule**: start, end and time zone. It writes `Freeze-Epoch` exactly as
+   `uak clock START DEADLINE ZONE --write` does and shows when new work stops and the time of the first claim.
+3. **Publish the kit to main**: *Review the files* lists every kit file that will be committed; *Publish* commits
+   exactly those, as your Git identity, and pushes that verified commit to `main`. `IDEA.md`, `.uak/TASKS.md` and
+   `.uak/OWNERS.md` are never included: they reach `main` only when you approve the plan. It refuses, with the exact
+   recovery, when other files are staged, when `origin/main` has commits this folder lacks, or when the branch has
+   commits that are not on the remote.
+
+When the gate needs something only a terminal can do (for example, adding a remote), the page shows a
+**Do this in a terminal** box: the exact `cd` into your project with a Copy button, the step, and "come back and
+press Check again". The next action is never only in Technical details.
+
+Planning waits until the kit is on `main` (the plan's checks read it from there). If the plan's lint fails for a
+reason that is not a plan problem (no `main` yet, Git, network), the page says so; **Check the plan again** reruns
+the checks on the current files without running your coding tool again.
+
 ## Beginner and Advanced
 
 A choice of presentation, kept in your browser only. It never changes permissions, the mode or any gate.

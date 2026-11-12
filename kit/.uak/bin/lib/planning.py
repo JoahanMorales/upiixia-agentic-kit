@@ -253,7 +253,59 @@ def lint(run, root, uak, bash):
     result = run([bash, str(uak), "lint"], cwd=str(root), timeout=180)
     output = (result.stdout or "") + "\n" + (result.stderr or "")
     lines = [line[len("LINT: "):] for line in output.splitlines() if line.startswith("LINT: ")]
-    return {"ok": result.returncode == 0 and "LINT_OK" in output.splitlines(), "lines": lines[:20]}
+    ok = result.returncode == 0 and "LINT_OK" in output.splitlines()
+    if not ok and not lines:
+        # A failure that is not a LINT: line (Git, network, no main yet) still reaches the page with its reason.
+        # Why (UI-005): the page said "the kit's checks found problems" with an empty list.
+        raw = [line.strip() for line in output.splitlines() if re.search(r"ERROR|fatal|failed|refused", line)]
+        if any("refs/heads/main" in line or "couldn't find remote ref" in line for line in raw):
+            lines.append("The kit is not on main yet: publish the kit to main first, then check the plan again.")
+        lines.extend(raw[:3] or ["uak lint stopped without a reason (exit %d); see Technical details." % result.returncode])
+    return {"ok": ok, "lines": lines[:20]}
+
+
+# What "Publish the kit to main" may commit: the files install.sh writes, never the plan before its approval.
+KIT_PATHS = (".uak", ".claude", ".codex", ".cursor", ".gemini", ".agents", ".githooks", ".github", "AGENTS.md",
+             "CLAUDE.md", ".gitattributes", ".gitignore", ".mcp.json")
+NOT_PUBLISHED = ("IDEA.md", ".uak/TASKS.md", ".uak/OWNERS.md", NOTE_FILE, ".uak/INSTALLING")
+
+
+def publish_files(run, root):
+    """The kit's own files that differ from HEAD (new, changed or deleted), without the unapproved plan files."""
+    root = Path(root)
+    present = [p for p in KIT_PATHS if (root / p).exists() or (root / p).is_symlink()]
+    if not present:
+        return []
+    status = git_out(run, root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", *present)
+    files, skip = [], False
+    for entry in status.split("\0"):
+        if skip:
+            skip = False
+            continue
+        if len(entry) < 4:
+            continue
+        if entry[0] in "RC":
+            skip = True
+        name = entry[3:]
+        if name not in NOT_PUBLISHED and name not in files:
+            files.append(name)
+    return sorted(files)
+
+
+def publish_digest(root, files):
+    """What the person saw in the preview: each listed path and its content (or its absence)."""
+    total = hashlib.sha256()
+    for name in files:
+        total.update(name.encode("utf-8", "replace") + b"\0" + file_hash(Path(root) / name).encode() + b"\0")
+    return total.hexdigest()
+
+
+def kit_on_main(run, root, remote="origin", base="main"):
+    """True when the remote's base branch already has the kit (agents read .uak/ from there)."""
+    fetched = git(run, root, "fetch", "-q", remote, base, timeout=120)
+    if fetched.returncode:
+        return False
+    return git(run, root, "cat-file", "-e", "FETCH_HEAD:.uak/PROJECT.md").returncode == 0
 
 
 ID = re.compile(r"[A-Z][A-Z0-9]*-[0-9]+")

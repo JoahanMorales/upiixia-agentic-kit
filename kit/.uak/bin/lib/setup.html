@@ -628,6 +628,58 @@
         margin: 4px 0;
       }
       /* Planning (UI-004): the idea, the proposed plan as cards, and the typed approval. */
+      /* Prepare (UI-005): the steps a terminal used to do, in order, and the terminal box for the rest. */
+      #prepare {
+        margin-top: 26px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+        display: grid;
+        gap: 18px;
+      }
+      .prepare-step {
+        border: 1px solid var(--line);
+        border-radius: var(--small);
+        padding: 16px;
+        display: grid;
+        gap: 10px;
+      }
+      .prepare-step.current {
+        border-color: var(--accent);
+        background: var(--wash);
+      }
+      .prepare-step h4 {
+        margin: 0;
+        font-size: 16px;
+      }
+      .prepare-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: end;
+      }
+      .prepare-row > div {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+        flex: 1 1 180px;
+      }
+      #prepare input[type="text"],
+      #prepare input[type="datetime-local"] {
+        width: 100%;
+        box-sizing: border-box;
+      }
+      #publish-files {
+        max-height: 220px;
+      }
+      #terminal-step {
+        display: grid;
+        gap: 10px;
+      }
+      #terminal-step ul {
+        margin: 0;
+        padding-left: 20px;
+        overflow-wrap: anywhere;
+      }
       #planning {
         margin-top: 26px;
         padding-top: 22px;
@@ -1227,6 +1279,85 @@
               aria-live="polite"
             ></p>
             <ul class="checklist" id="checks"></ul>
+            <div class="notice" id="terminal-step" hidden>
+              <h3>Do this in a terminal</h3>
+              <p>
+                Open a terminal (any window; no coding agent is needed for
+                this). First go to your project:
+              </p>
+              <div class="next-command">
+                <code id="terminal-cd" data-no-i18n></code>
+                <button type="button" class="secondary-button" id="copy-terminal-cd">Copy</button>
+              </div>
+              <p>Then do this:</p>
+              <ul id="terminal-steps" data-no-i18n></ul>
+              <p>When it is done, come back and press Check again.</p>
+            </div>
+            <div id="prepare" hidden>
+              <h3>Prepare your project</h3>
+              <p class="hint">
+                These steps used to need a terminal. Do them here, in order;
+                the check below confirms each one.
+              </p>
+              <div class="prepare-step" id="name-step">
+                <h4>1. Your name</h4>
+                <p class="hint">
+                  Some steps only a person may do (publishing, approving). Setup
+                  records them with this name.
+                </p>
+                <div class="prepare-row">
+                  <div>
+                    <label class="field-label" for="human-name">Your name (lowercase, for example ana)</label>
+                    <input type="text" id="human-name" maxlength="32" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <button type="button" class="secondary-button" id="human-save">Save name</button>
+                </div>
+                <p class="hint" id="human-status" role="status"></p>
+              </div>
+              <form class="prepare-step" id="schedule-form" novalidate>
+                <h4>2. Event schedule</h4>
+                <p class="hint">
+                  The kit stops new work before the deadline (the freeze), so the
+                  last minutes go to the demo.
+                </p>
+                <div class="prepare-row">
+                  <div>
+                    <label class="field-label" for="schedule-start">Start</label>
+                    <input type="datetime-local" id="schedule-start" required />
+                  </div>
+                  <div>
+                    <label class="field-label" for="schedule-end">End</label>
+                    <input type="datetime-local" id="schedule-end" required />
+                  </div>
+                  <div>
+                    <label class="field-label" for="schedule-zone">Time zone</label>
+                    <input type="text" id="schedule-zone" autocomplete="off" spellcheck="false" />
+                  </div>
+                </div>
+                <button type="submit" class="secondary-button" id="schedule-save">Save schedule</button>
+                <p class="hint" id="schedule-status" role="status"></p>
+              </form>
+              <div class="prepare-step" id="publish-step">
+                <h4>3. Publish the kit to main</h4>
+                <p class="hint">
+                  Your agents read the kit from the main branch on GitHub. This
+                  uploads only the kit's files; your idea and plan wait until you
+                  approve them.
+                </p>
+                <button type="button" class="secondary-button" id="publish-preview">Review the files</button>
+                <div id="publish-confirm" hidden>
+                  <p id="publish-count"></p>
+                  <details>
+                    <summary>Files to publish</summary>
+                    <pre id="publish-files"></pre>
+                  </details>
+                  <div class="actions">
+                    <button type="button" class="secondary-button" id="publish-cancel">Cancel</button>
+                    <button type="button" class="primary" id="publish-kit">Publish the kit to main</button>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div id="planning" hidden>
               <h3>Plan your project</h3>
               <p class="hint">
@@ -1274,6 +1405,10 @@
                 <legend>Coding tool that drafts the plan</legend>
                 <div id="planner-options"></div>
               </fieldset>
+              <p class="notice" id="plan-onmain-note" hidden>
+                Publish the kit to main first (step 3 above): the plan's
+                checks read the kit from main.
+              </p>
               <button class="primary" type="button" id="plan-create">
                 Create the plan
               </button>
@@ -1298,6 +1433,9 @@
                 <label class="field-label" for="plan-note">Ask for changes</label
                 ><textarea id="plan-note" maxlength="4000" rows="3"></textarea>
                 <div class="actions">
+                  <button class="secondary-button" type="button" id="plan-recheck">
+                    Check the plan again
+                  </button>
                   <button class="secondary-button" type="button" id="plan-change">
                     Ask for changes
                   </button>
@@ -1653,7 +1791,7 @@
           return isBusy(state.phase);
         }
         function isBusy(phase) {
-          return ["installing", "checking", "planning", "approving"].indexOf(phase) >= 0;
+          return ["installing", "checking", "planning", "approving", "publishing"].indexOf(phase) >= 0;
         }
         // Planning (UI-004). Plan text comes from files an agent wrote: it is shown with textContent only.
         var planView = null,
@@ -1666,7 +1804,9 @@
         function setPlanBusy(busy) {
           var blocked = busy || !planView;
           el("plan-create").disabled =
-            blocked || !planView.idea || !selectedPlanner();
+            blocked || !planView.idea || !selectedPlanner() || !planView.kit_on_main;
+          el("plan-recheck").disabled = blocked || !planView.planned;
+          el("plan-onmain-note").hidden = !planView || !!planView.kit_on_main;
           el("plan-change").disabled = blocked || !selectedPlanner();
           el("plan-approve").disabled =
             blocked || !planView.planned || !!planView.violations.length || !planView.lint.ok;
@@ -2239,6 +2379,134 @@
           if (timer) clearTimeout(timer);
           show(1);
         };
+        // Prepare (UI-005). The page does the gate's terminal steps itself; anything else gets a terminal box.
+        function storedHuman() {
+          try {
+            return localStorage.getItem("uak-human") || "";
+          } catch (e) {
+            return "";
+          }
+        }
+        function localInput(date) {
+          var pad = function (n) {
+            return (n < 10 ? "0" : "") + n;
+          };
+          return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) + "T" +
+            pad(date.getHours()) + ":" + pad(date.getMinutes());
+        }
+        function drawPrepare(data) {
+          var g = data.guidance || {},
+            show = !!data.installed && !data.ready && data.phase !== "installing";
+          el("prepare").hidden = !show;
+          ["name-step", "schedule-form", "publish-step"].forEach(function (id) {
+            el(id).classList.remove("current");
+          });
+          if (g.action === "schedule") el("schedule-form").classList.add("current");
+          if (g.action === "publish") el("publish-step").classList.add("current");
+          if ((g.action === "schedule" || g.action === "publish") && !data.human) el("name-step").classList.add("current");
+          if (document.activeElement !== el("human-name"))
+            el("human-name").value = data.human || el("human-name").value || storedHuman();
+          el("human-status").textContent = data.human
+            ? UAKWorkspace.format("Saved: {name}.", { name: data.human })
+            : "";
+          if (!el("schedule-start").value) {
+            var start = new Date();
+            start.setMinutes(0, 0, 0);
+            start.setHours(start.getHours() + 1);
+            el("schedule-start").value = localInput(start);
+            el("schedule-end").value = localInput(new Date(start.getTime() + 3 * 3600 * 1000));
+          }
+          if (!el("schedule-zone").value) {
+            try {
+              el("schedule-zone").value = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+            } catch (e) {
+              el("schedule-zone").value = "UTC";
+            }
+          }
+          var box = g.terminal;
+          el("terminal-step").hidden = !box;
+          if (box) {
+            el("terminal-cd").textContent = box.cd;
+            el("terminal-steps").replaceChildren();
+            (box.steps || []).forEach(function (line) {
+              var li = document.createElement("li");
+              li.textContent = line;
+              el("terminal-steps").append(li);
+            });
+          }
+          var busy = isBusy(data.phase);
+          ["human-save", "schedule-save", "publish-preview", "publish-kit"].forEach(function (id) {
+            el(id).disabled = busy;
+          });
+        }
+        el("copy-terminal-cd").onclick = function () {
+          var text = el("terminal-cd").textContent,
+            done = function () {
+              el("copy-terminal-cd").textContent = UAKWorkspace.t("Copied");
+            };
+          try {
+            navigator.clipboard.writeText(text).then(done, function () {});
+          } catch (e) {}
+        };
+        el("human-save").onclick = function () {
+          var name = el("human-name").value.trim().toLowerCase();
+          action(this, async function () {
+            await api("human", { name: name });
+            try {
+              localStorage.setItem("uak-human", name);
+            } catch (e) {}
+            await refresh();
+          });
+        };
+        el("schedule-form").onsubmit = function (event) {
+          event.preventDefault();
+          var body = {
+            start: el("schedule-start").value.replace("T", " "),
+            end: el("schedule-end").value.replace("T", " "),
+            zone: el("schedule-zone").value.trim(),
+          };
+          action(el("schedule-save"), async function () {
+            var result = await api("schedule", body);
+            el("schedule-status").textContent = UAKWorkspace.format(
+              "Saved. New work stops at {freeze}; take the first task by {first}.",
+              { freeze: result.freeze, first: result.first_claim || "-" },
+            );
+            await api("check", {});
+            checkRequested = true;
+            await refresh();
+          });
+        };
+        var publishDigest = "";
+        el("publish-preview").onclick = function () {
+          action(this, async function () {
+            var preview = await api("publish-kit");
+            publishDigest = preview.digest;
+            el("publish-count").textContent = UAKWorkspace.format(
+              "{count} kit files will be committed as your Git identity and uploaded to main. IDEA.md and the plan are not included.",
+              { count: preview.files.length },
+            );
+            el("publish-files").textContent = preview.files.join("\n");
+            el("publish-confirm").hidden = false;
+            el("publish-kit").focus();
+          });
+        };
+        el("publish-cancel").onclick = function () {
+          el("publish-confirm").hidden = true;
+          el("publish-preview").focus();
+        };
+        el("publish-kit").onclick = function () {
+          action(this, async function () {
+            await api("publish-kit", { digest: publishDigest });
+            el("publish-confirm").hidden = true;
+            await refresh();
+          });
+        };
+        el("plan-recheck").onclick = function () {
+          action(this, async function () {
+            await api("plan/check", {});
+            await loadPlan();
+          });
+        };
         el("check").onclick = function () {
           action(this, async function () {
             if (!state.installed) {
@@ -2288,6 +2556,7 @@
                 installing: "Installing your workspace",
                 planning: "Creating your plan",
                 approving: "Publishing your plan",
+                publishing: "Publishing the kit",
               }[data.phase] || "Checking your next steps"
             : data.ready
               ? "Your workspace is ready"
@@ -2384,7 +2653,8 @@
           }
           // Planning shows while the kit is installed and the project is not ready yet.
           el("planning").hidden = !data.installed || !!data.ready || data.phase === "installing";
-          if (!el("planning").hidden && !isBusy(data.phase) && (previous === "planning" || planFor !== data.target)) {
+          drawPrepare(data);
+          if (!el("planning").hidden && !isBusy(data.phase) && (previous === "planning" || previous === "publishing" || planFor !== data.target)) {
             planFor = data.target;
             loadPlan();
           }
