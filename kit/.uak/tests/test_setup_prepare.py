@@ -37,7 +37,32 @@ def installed(root, tmp, name="prep project"):
                                            encoding="utf-8")
     (target / ".claude").mkdir()
     (target / ".claude/README.md").write_text("harness settings\n", encoding="utf-8")
+    # The manifest install.sh writes: every file this fixture placed, as the real installer lists them.
+    placed = sorted(str(f.relative_to(target)).replace("\\", "/") for f in target.rglob("*")
+                    if f.is_file() and ".git" not in f.relative_to(target).parts)
+    (target / ".uak/installed-files.txt").write_text("# fixture manifest\n" + "\n".join(placed + [".uak/installed-files.txt"]) + "\n",
+                                                    encoding="utf-8")
     tp.git(target, "remote", "add", "origin", str(remote))
+    return target, remote
+
+
+def really_installed(root, tmp, name="real project"):
+    """A project installed by the real install.sh (empty bare origin), or None in an installed project (no installer)."""
+    installer = root.parent / "install.sh"
+    if not installer.is_file():
+        return None, None
+    remote = tmp / "origin.git"
+    tp.git(tmp, "init", "-q", "--bare", "-b", "main", str(remote))
+    target = tmp / name
+    target.mkdir()
+    tp.git(target, "init", "-q", "-b", "main")
+    tp.git(target, "config", "user.name", "Ana Human")
+    tp.git(target, "config", "user.email", "ana@example.invalid")
+    tp.git(target, "config", "core.hooksPath", str(tmp / "no-hooks"))
+    tp.git(target, "remote", "add", "origin", str(remote))
+    done = subprocess.run([resolve_binary("bash"), str(installer), "--mode", "sprint", "--harness", "claude,codex",
+                           "--no-mcp", str(target)], capture_output=True, text=True, timeout=300)
+    assert done.returncode == 0, done.stderr[-600:]
     return target, remote
 
 
@@ -247,10 +272,91 @@ def human_name_is_asked_once(root, tmp):
     assert "UAK_HUMAN=" not in page, "the page never asks a person to type UAK_HUMAN into a command"
 
 
+def publish_never_includes_files_the_installer_did_not_place(root, tmp):
+    """Review of 0386bec (P1): a directory prefix is not ownership. A file the person adds under .github/ or .uak/
+    after installing is never listed nor pushed; the installer's own manifest decides."""
+    target, remote = really_installed(root, tmp)
+    if target is None:
+        return
+    manifest = target / ".uak/installed-files.txt"
+    assert manifest.is_file(), "install.sh writes the manifest of the files it placed"
+    (target / ".github/private-note.txt").write_text("not for the kit\n", encoding="utf-8")
+    (target / ".uak/private.json").write_text('{"secret": true}\n', encoding="utf-8")
+    with tp.live(target, tp.FakePlanner()) as srv:
+        ready_to_publish(srv, target)
+        preview = publish(srv)
+        for name in (".github/private-note.txt", ".uak/private.json"):
+            assert name not in preview["files"], "%s is not a kit file" % name
+    files = remote_files(remote)
+    assert ".uak/PROJECT.md" in files and ".uak/installed-files.txt" in files
+    assert ".github/private-note.txt" not in files and ".uak/private.json" not in files
+
+
+def publish_verifies_the_whole_committed_tree(root, tmp):
+    """Review of 0386bec (P1): a previewed deletion that a pre-commit hook recreates with other content never reaches
+    main. The committed tree must equal the preview: blob, type and mode for each path, absence for deletions."""
+    target, remote = really_installed(root, tmp)
+    if target is None:
+        return
+    with tp.live(target, tp.FakePlanner()) as srv:
+        ready_to_publish(srv, target)
+        publish(srv)
+        first = remote_head(remote)
+        (target / ".github/pull_request_template.md").unlink()
+        hooks = tmp / "evil-hooks"
+        hooks.mkdir()
+        hook = hooks / "pre-commit"
+        hook.write_text("#!/bin/sh\necho 'UNREVIEWED PAYLOAD' > .github/pull_request_template.md\n"
+                        "git add .github/pull_request_template.md\n", encoding="utf-8")
+        hook.chmod(0o755)
+        tp.git(target, "config", "core.hooksPath", str(hooks))
+        status, preview = tp.get(srv, "/api/publish-kit")
+        assert status == 200 and ".github/pull_request_template.md" in preview["files"], preview
+        status, body = tp.post(srv, "/api/publish-kit", {"digest": preview["digest"]})
+        assert status == 202, body
+        tp.wait_idle(srv)
+        state = tp.get(srv, "/api/status")[1]
+        assert state.get("error"), "a commit that differs from the preview is reported, not pushed: %r" % state
+    assert remote_head(remote) == first, "nothing reached main"
+    assert tp.git(target, "rev-parse", "HEAD") == first, "the refused local commit is undone: refs as before publishing"
+    assert tp.git(target, "diff", "--cached", "--name-only") == "", "the index is as before publishing"
+    shown = subprocess.run([resolve_binary("git"), "-C", str(remote), "show", "main:.github/pull_request_template.md"],
+                           capture_output=True, text=True)
+    assert "UNREVIEWED PAYLOAD" not in shown.stdout
+
+
+def schedule_never_follows_links(root, tmp):
+    """Review of 0386bec (P1): the schedule never writes through a symlinked .uak/PROJECT.md, and never through a
+    predictable temporary file such as .uak/PROJECT.md.tmp."""
+    target, _ = installed(root, tmp)
+    outside = tmp / "outside.md"
+    outside.write_text("external file\n", encoding="utf-8")
+    config = target / ".uak/PROJECT.md"
+    original = config.read_text(encoding="utf-8")
+    good = {"start": "2026-11-12 10:00", "end": "2026-11-12 13:00", "zone": "America/Mexico_City"}
+    with tp.live(target, tp.FakePlanner()) as srv:
+        assert tp.post(srv, "/api/inspect", {"target": str(target)})[0] == 200
+        config.unlink()
+        config.symlink_to(outside)
+        assert tp.post(srv, "/api/schedule", good)[0] == 400, "a symlinked PROJECT.md is refused"
+        assert outside.read_text(encoding="utf-8") == "external file\n", "the external file is untouched"
+        config.unlink()
+        config.write_text(original, encoding="utf-8")
+        tmp_link = target / ".uak/PROJECT.md.tmp"
+        tmp_link.symlink_to(outside)
+        status, body = tp.post(srv, "/api/schedule", good)
+        assert status == 200, body
+        assert outside.read_text(encoding="utf-8") == "external file\n", "no write through a predictable temp file"
+        assert re.search(r"(?m)^Freeze-Epoch: [1-9]", config.read_text(encoding="utf-8")), "PROJECT.md got the freeze"
+        assert tmp_link.is_symlink(), "the stray link is left as it was"
+
+
 TESTS = [schedule_form_writes_freeze_epoch, publish_kit_excludes_unapproved_plan_files,
          publish_kit_pushes_only_the_verified_commit, terminal_step_is_shown_with_its_command,
          planning_waits_for_the_kit_on_main, lint_failure_reason_reaches_the_page,
-         plan_can_be_rechecked_without_the_planner, human_name_is_asked_once]
+         plan_can_be_rechecked_without_the_planner, human_name_is_asked_once,
+         publish_never_includes_files_the_installer_did_not_place, publish_verifies_the_whole_committed_tree,
+         schedule_never_follows_links]
 
 
 def main():

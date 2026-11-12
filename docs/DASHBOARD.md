@@ -67,7 +67,10 @@ After installing, the steps the gate asks for come in order in **Get ready**, an
 2. **Event schedule**: start, end and time zone. It writes `Freeze-Epoch` exactly as
    `uak clock START DEADLINE ZONE --write` does and shows when new work stops and the time of the first claim.
 3. **Publish the kit to main**: *Review the files* lists every kit file that will be committed; *Publish* commits
-   exactly those, as your Git identity, and pushes that verified commit to `main`. `IDEA.md`, `.uak/TASKS.md` and
+   exactly those, as your Git identity, and pushes that verified commit to `main`. A kit file is one the installer
+   placed: `install.sh` records them in `.uak/installed-files.txt`, so a file of yours under `.github/` or `.uak/` is
+   never published. Before pushing, setup checks that the commit holds exactly what you reviewed (each file's content,
+   type and mode, and every deletion); if a Git hook changed it, the commit is undone and nothing is published. `IDEA.md`, `.uak/TASKS.md` and
    `.uak/OWNERS.md` are never included: they reach `main` only when you approve the plan. It refuses, with the exact
    recovery, when other files are staged, when `origin/main` has commits this folder lacks, or when the branch has
    commits that are not on the remote.

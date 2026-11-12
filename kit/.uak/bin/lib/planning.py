@@ -264,19 +264,33 @@ def lint(run, root, uak, bash):
     return {"ok": ok, "lines": lines[:20]}
 
 
-# What "Publish the kit to main" may commit: the files install.sh writes, never the plan before its approval.
-KIT_PATHS = (".uak", ".claude", ".codex", ".cursor", ".gemini", ".agents", ".githooks", ".github", "AGENTS.md",
-             "CLAUDE.md", ".gitattributes", ".gitignore", ".mcp.json")
+# What "Publish the kit to main" may commit: only files the installer placed (its manifest), never by directory
+# prefix, and never the plan before its approval. Why (UI-005 review): a prefix published .github/private-note.txt.
+MANIFEST = ".uak/installed-files.txt"
 NOT_PUBLISHED = ("IDEA.md", ".uak/TASKS.md", ".uak/OWNERS.md", NOTE_FILE, ".uak/INSTALLING")
 
 
+def manifest_paths(root):
+    path = regular_file(root, MANIFEST)
+    if not path.is_file():
+        raise ValueError("This kit has no list of the files it installed (it predates that list). "
+                         "Choose Repair or update kit, then publish.")
+    paths = set()
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("/") or line.startswith(".git/") or ".." in Path(line).parts or "\\" in line:
+            raise ValueError("The kit's file list (.uak/installed-files.txt) has an invalid entry. Repair or update the kit.")
+        paths.add(line)
+    return paths
+
+
 def publish_files(run, root):
-    """The kit's own files that differ from HEAD (new, changed or deleted), without the unapproved plan files."""
+    """Kit files (from the installer's manifest) that differ from HEAD: new, changed or deleted. Nothing else."""
     root = Path(root)
-    present = [p for p in KIT_PATHS if (root / p).exists() or (root / p).is_symlink()]
-    if not present:
-        return []
-    status = git_out(run, root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", *present)
+    owned = manifest_paths(root) - set(NOT_PUBLISHED)
+    status = git_out(run, root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
     files, skip = [], False
     for entry in status.split("\0"):
         if skip:
@@ -287,9 +301,22 @@ def publish_files(run, root):
         if entry[0] in "RC":
             skip = True
         name = entry[3:]
-        if name not in NOT_PUBLISHED and name not in files:
+        if name in owned and name not in files:
             files.append(name)
     return sorted(files)
+
+
+def set_freeze(root, epoch):
+    """Freeze-Epoch in .uak/PROJECT.md, as `uak clock --write` sets it, but never through a link or a predictable
+    temporary file (UI-005 review): a regular file inside the project, replaced atomically from a random temp name."""
+    path = regular_file(root, ".uak/PROJECT.md")
+    if not path.is_file():
+        raise ValueError(".uak/PROJECT.md is missing. Repair or update the kit.")
+    text = path.read_bytes().decode("utf-8")
+    pattern = re.compile(r"(?m)^([-* ]*)Freeze-Epoch:[^\r\n]*")
+    if not pattern.search(text):
+        raise ValueError(".uak/PROJECT.md has no Freeze-Epoch line. Repair or update the kit.")
+    write_atomic(path, pattern.sub(lambda m: m.group(1) + "Freeze-Epoch: %d" % int(epoch), text).encode("utf-8"))
 
 
 def publish_digest(root, files):

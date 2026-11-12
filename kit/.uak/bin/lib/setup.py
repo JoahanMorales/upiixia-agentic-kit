@@ -450,19 +450,36 @@ class SetupServer(ThreadingHTTPServer):
                 with self.lock:
                     if planning.publish_digest(root, files) != approved:
                         raise ValueError("The kit files changed after the preview. Nothing was committed; open the preview again.")
-                    blobs = {name: git("hash-object", "--path=" + name, "--", name).strip()
-                             for name in files if (root / name).is_file()}
-                git("add", "-A", "--", *files)
+                    git("add", "-A", "--", *files)
+                    # The tree the person approved: mode and blob of each staged path; a deletion is staged as absent.
+                    expected = {}
+                    for entry in git("ls-files", "-s", "-z", "--", *files).split("\0"):
+                        if entry:
+                            meta, name = entry.split("\t", 1)
+                            mode, blob = meta.split()[:2]
+                            expected[name] = (mode, blob)
                 git("commit", "-q", "-m", "chore: uak setup", "-m",
                     "Published-By: %s (from the setup page; committed as the local Git identity, unverified)" % human,
                     "--", *files)
                 commit = git("rev-parse", "HEAD").strip()
                 parents = git("rev-list", "--parents", "-n", "1", commit).split()[1:]
-                changed = set(git("diff-tree", "--root", "--no-commit-id", "--name-only", "-r", commit).split())
-                if parents != ([base_head] if base_head else []) or changed != set(files) or \
-                        any(git("rev-parse", "%s:%s" % (commit, name)).strip() != blob for name, blob in blobs.items()):
-                    raise ValueError("The commit does not match the files you saw (a Git hook may have changed it). "
-                                     "Nothing was pushed. Undo it with: git reset --soft HEAD^")
+                changed = set(n for n in git("diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z", commit).split("\0") if n)
+                committed = {}
+                for entry in git("ls-tree", "-r", "-z", commit, "--", *files).split("\0"):
+                    if entry:
+                        meta, name = entry.split("\t", 1)
+                        mode, kind, blob = meta.split()[:3]
+                        committed[name] = (mode, blob)
+                # Every previewed path as approved (blob, type and mode), every deletion absent, nothing else changed.
+                if parents != ([base_head] if base_head else []) or changed != set(files) or committed != expected:
+                    # Leave refs and index as they were before publishing (review of 0386bec, contract #46).
+                    if base_head:
+                        git("reset", "-q", "--mixed", base_head)
+                    else:
+                        git("update-ref", "-d", "HEAD")
+                        git("read-tree", "--empty")
+                    raise ValueError("The commit did not match the files you reviewed (a Git hook changed it), so it was "
+                                     "undone and nothing was published. Check your pre-commit hooks, then publish again.")
                 ref = "%s:refs/heads/%s" % (commit, base)
                 result = self.run(list(planning.GIT) + ["-C", str(root), "push", remote, ref], cwd=str(root), timeout=120)
                 if result.returncode:
@@ -677,13 +694,17 @@ class SetupHandler(BaseHTTPRequestHandler):
             raise ValueError("Choose a time zone such as America/Mexico_City or UTC.")
         uak = s.engine()
         root = project_root(s.target)
-        result = s.run([bash_binary(), str(uak), "clock", data["start"], data["end"], data["zone"], "--write"],
+        # The engine computes the schedule; setup writes Freeze-Epoch itself, never through a symlinked PROJECT.md or
+        # the engine's predictable PROJECT.md.tmp (UI-005 review).
+        s.planning.regular_file(root, ".uak/PROJECT.md")
+        result = s.run([bash_binary(), str(uak), "clock", data["start"], data["end"], data["zone"]],
                        cwd=str(root), timeout=60)
         output = (result.stdout or "") + "\n" + (result.stderr or "")
         freeze = re.search(r"(?m)^freeze\s+(.+?)\s+Freeze-Epoch: (\d+)", output)
         first = re.search(r"(?m)^first claim by\s+(\S+ \S+)", output)
         if result.returncode or not freeze:
             raise ValueError("The schedule could not be set: %s" % redact(output.strip())[-400:])
+        s.planning.set_freeze(root, int(freeze.group(2)))
         s.state.update(phase="setup", ready=False, checks=[], next_command="", next_note="", error="")
         self.reply(200, {"freeze": freeze.group(1).strip(), "epoch": int(freeze.group(2)),
                          "first_claim": first.group(1) if first else "", "details": redact(output.strip())})
