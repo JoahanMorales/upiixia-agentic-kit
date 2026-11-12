@@ -6,7 +6,9 @@ A slow remote is simulated with remote.origin.uploadpack ('sleep N; git-upload-p
 import argparse
 import json
 import os
+import shutil
 import time
+from collections import Counter
 from pathlib import Path
 
 from test_hack import Runner, expect, resolve_binary
@@ -676,6 +678,131 @@ printf '%s\\n' "$status" > "$case_dir/status"
     return "inbox read failure survives cleanup without replacing cached output"
 
 
+# UAK-068: on GitHub's Windows runners the 3 s budget failed at 3.1-3.2 s (a Git Bash process costs 20-50 ms), while
+# the same SHAs passed elsewhere. The work session-start makes the agent wait for is counted instead of timed: shims
+# on PATH log every external process while UAK_FG_LOG is set; each background launch in the hook clears it.
+COUNTED = ("git", "bash", "awk", "sed", "grep", "head", "tail", "sort", "uniq", "cat", "tr", "cut", "date", "mkdir",
+           "mktemp", "rm", "mv", "sleep", "find", "touch", "wc", "basename", "dirname", "cksum", "ls")
+# At main a5f38f1 (with only the UAK_FG_LOG clears added) the hook launched these counted processes on this fixture
+# before returning, measured on Bash 3.2 (macOS), the most: Bash 4+ reads the payload and the clock with builtins.
+# UAK-068 asks for at most half of each.
+STARTUP_BEFORE = 41
+RESUME_BEFORE = 42
+
+
+def real_bash(r):
+    """The Bash that runs scripts. On Windows r.bash is Git's bin/bash.exe, a launcher that puts its own folders first
+    on PATH, so a shim that called it would hide the other shims from the hook (UAK-068, Windows verification)."""
+    if os.name != "nt":
+        return r.bash
+    return r.run([r.bash, "-c", 'cygpath -m "$(type -P bash)"']).stdout.strip() or r.bash
+
+
+def shims(r, where):
+    where.mkdir(parents=True, exist_ok=True)
+    bash = real_bash(r)
+    for name in COUNTED:
+        real = bash if name == "bash" else r.git if name == "git" else shutil.which(name, path=r.env.get("PATH"))
+        if not real:
+            continue
+        shim = where / name
+        shim.write_text('#!/bin/sh\n[ -z "$UAK_FG_LOG" ] || echo %s >> "$UAK_FG_LOG"\nexec "%s" "$@"\n'
+                        % (name, Path(real).as_posix()), encoding="utf-8")
+        shim.chmod(0o755)
+    return where
+
+
+def counted_start(r, f, w, source, tag):
+    """Processes session-start launches before it returns, by name; the remote answers only after the hook returned,
+    so the bounded wait always runs to its end and the count does not depend on the runner's speed."""
+    gate = Path(r.scratch) / ("gate-" + tag)
+    if gate.exists():
+        gate.unlink()
+    for clone in set(f.clones):
+        r.g(clone, "config", "remote.origin.uploadpack",
+            "while [ ! -f '%s' ]; do sleep 0.1; done; git-upload-pack" % gate.as_posix())
+    log = Path(r.scratch) / ("count-%s.log" % tag)
+    log.write_text("", encoding="utf-8")
+    shim_dir = shims(r, Path(r.scratch) / "count-shims")
+    # No machine usage logs (UAK-012): the count is the same on every machine.
+    env = {"UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_AGENT": "agent-1", "UAK_FG_LOG": log.as_posix(),
+           "CODEX_HOME": str(Path(r.scratch) / "no-codex")}
+    payload = '{"session_id":"s-%s","source":"%s"}' % (source, source)
+    # PATH is built inside Bash from the shims' physical POSIX folder, as the inbox race test does: Git Bash's
+    # launcher and a native Windows PATH would otherwise put /ucrt64/bin and /usr/bin first.
+    prefix = 'shim_dir=$(CDPATH= cd -- "$1" && pwd -P) || exit 1; PATH="$shim_dir:$PATH"; export PATH; '
+    try:
+        r.run([r.bash, "-c", prefix + "printf '%s' \"$2\" | bash .uak/bin/hook session-start", "_",
+               shim_dir.as_posix(), payload], cwd=w, env=env, allowed=None)
+        before = [n for n in log.read_text(encoding="utf-8").split() if n]
+        # Review of cdbb934 (P2): on Git Bash the shims logged nothing and the limits passed with 0. The hook always
+        # runs git (rev-parse), so an empty count means the count is broken, never that the hook is fast.
+        expect("git" in before, "the count saw the hook's own git call (shims on PATH and UAK_FG_LOG work here): %r"
+               % before[:10])
+    finally:
+        # Opened whatever happened: a closed gate leaves upload-pack loops behind and Windows cannot clean up.
+        gate.write_text("open\n", encoding="utf-8")
+    settle(r, w)
+    after = [n for n in log.read_text(encoding="utf-8").split() if n]
+    expect(after == before, "no background work is counted (a launcher left UAK_FG_LOG set): %s"
+           % Counter(after[len(before):]).most_common(6))
+    return before
+
+
+def counted_fixture(r, name):
+    f = r.fixture(name, count=1)
+    f.claim(0, "HACK-001")
+    return f, f.worktrees[0]
+
+
+def session_start_launches_half_the_processes_on_startup(r):
+    f, w = counted_fixture(r, "ss-count-start")
+    calls = counted_start(r, f, w, "startup", "startup")
+    limit = (STARTUP_BEFORE or 0) // 2
+    expect(STARTUP_BEFORE and len(calls) <= limit, "startup launched %d processes before returning (at most %s, half of %s): %s"
+           % (len(calls), limit, STARTUP_BEFORE, Counter(calls).most_common(8)))
+    return "%d processes (limit %d)" % (len(calls), limit)
+
+
+def session_start_launches_half_the_processes_on_resume(r):
+    f, w = counted_fixture(r, "ss-count-resume")
+    counted_start(r, f, w, "startup", "first")
+    calls = counted_start(r, f, w, "resume", "resume")
+    limit = (RESUME_BEFORE or 0) // 2
+    expect(RESUME_BEFORE and len(calls) <= limit, "resume launched %d processes before returning (at most %s, half of %s): %s"
+           % (len(calls), limit, RESUME_BEFORE, Counter(calls).most_common(8)))
+    return "%d processes (limit %d)" % (len(calls), limit)
+
+
+def session_start_keeps_reporting_the_pace_level(r):
+    """Review of cdbb934 (P2): a level that stays critical must still reach the agent when sessions are more than
+    30 min apart. Before UAK-068 session start printed it every time; now it may come from the first tick instead."""
+    f = r.fixture("ss-pace-level", count=1)
+    f.claim(0, "HACK-001")
+    w = f.worktrees[0]
+    (w / ".uak/bin/pace").write_text('#!/usr/bin/env bash\ncase "${1:-}" in --caps) echo "critical 1 0";; '
+                                     '*) echo "PACE critical: stop spending (test)";; esac\n', encoding="utf-8")
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    (gd / "uak-pace.level").write_text("critical", encoding="utf-8")
+    (gd / "uak-pace.start").write_text("%d\nPACE critical: an old reading\n" % (int(time.time()) - 7200), encoding="utf-8")
+    took, out = start(r, w, "agent-1", UAK_START_WAIT="1")
+    settle(r, w)
+    seen = "PACE critical" in out
+    for _ in range(2):
+        if seen:
+            break
+        for name in ("uak-pace.seen", "uak-inbox.poll"):
+            if (gd / name).exists():
+                (gd / name).unlink()
+        tick = r.run([r.bash, "-c", "printf '%s' '{\"session_id\":\"s-pace\"}' | bash .uak/bin/hook tick"], cwd=w,
+                     env={"UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_AGENT": "agent-1"}, allowed=None)
+        seen = "PACE critical" in tick.stdout
+        settle(r, w)
+    expect(seen, "a critical pace level reaches the agent at session start or its first tick: start printed %r"
+           % out[-400:])
+    return "critical level reported"
+
+
 TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged,
          session_start_marks_only_the_inbox_snapshot_it_prints, session_start_coalesces_aged_live_refreshes,
          session_start_recovers_a_dead_refresh_owner, session_start_orphan_output_cannot_change_replacement_cache,
@@ -683,7 +810,8 @@ TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged,
          session_start_finishes_an_interrupted_reap, session_start_failed_reap_is_closed_and_retryable,
          session_start_corrupt_owner_records_cannot_delete_paths, session_start_internal_owner_refs_bypass_user_hooks,
          session_start_concurrent_claims_launch_one_refresh, session_start_abandoned_handoff_cannot_run_or_release,
-         session_start_inbox_failure_preserves_cache_and_status]
+         session_start_inbox_failure_preserves_cache_and_status, session_start_launches_half_the_processes_on_startup,
+         session_start_launches_half_the_processes_on_resume, session_start_keeps_reporting_the_pace_level]
 
 
 def main():
