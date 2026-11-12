@@ -6,7 +6,9 @@ A slow remote is simulated with remote.origin.uploadpack ('sleep N; git-upload-p
 import argparse
 import json
 import os
+import shutil
 import time
+from collections import Counter
 from pathlib import Path
 
 from test_hack import Runner, expect, resolve_binary
@@ -676,6 +678,79 @@ printf '%s\\n' "$status" > "$case_dir/status"
     return "inbox read failure survives cleanup without replacing cached output"
 
 
+# UAK-068: on GitHub's Windows runners the 3 s budget failed at 3.1-3.2 s (a Git Bash process costs 20-50 ms), while
+# the same SHAs passed elsewhere. The work session-start makes the agent wait for is counted instead of timed: shims
+# on PATH log every external process while UAK_FG_LOG is set; each background launch in the hook clears it.
+COUNTED = ("git", "bash", "awk", "sed", "grep", "head", "tail", "sort", "uniq", "cat", "tr", "cut", "date", "mkdir",
+           "mktemp", "rm", "mv", "sleep", "find", "touch", "wc", "basename", "dirname", "cksum", "ls")
+# At main a5f38f1 (with only the UAK_FG_LOG clears added) the hook launched these counted processes on this fixture
+# before returning, measured on Bash 3.2 (macOS), the most: Bash 4+ reads the payload and the clock with builtins.
+# UAK-068 asks for at most half of each.
+STARTUP_BEFORE = 41
+RESUME_BEFORE = 42
+
+
+def shims(r, where):
+    where.mkdir(parents=True, exist_ok=True)
+    for name in COUNTED:
+        real = r.bash if name == "bash" else r.git if name == "git" else shutil.which(name, path=r.env.get("PATH"))
+        if not real:
+            continue
+        shim = where / name
+        shim.write_text('#!/bin/sh\n[ -z "$UAK_FG_LOG" ] || echo %s >> "$UAK_FG_LOG"\nexec "%s" "$@"\n'
+                        % (name, Path(real).as_posix()), encoding="utf-8")
+        shim.chmod(0o755)
+    return where
+
+
+def counted_start(r, f, w, source, tag):
+    """Processes session-start launches before it returns, by name; the remote answers only after the hook returned,
+    so the bounded wait always runs to its end and the count does not depend on the runner's speed."""
+    gate = Path(r.scratch) / ("gate-" + tag)
+    if gate.exists():
+        gate.unlink()
+    for clone in set(f.clones):
+        r.g(clone, "config", "remote.origin.uploadpack",
+            "while [ ! -f '%s' ]; do sleep 0.1; done; git-upload-pack" % gate.as_posix())
+    log = Path(r.scratch) / ("count-%s.log" % tag)
+    log.write_text("", encoding="utf-8")
+    path = str(shims(r, Path(r.scratch) / "count-shims")) + os.pathsep + r.env["PATH"]
+    # No machine usage logs (UAK-012): the count is the same on every machine.
+    start(r, w, "agent-1", source=source, UAK_FG_LOG=str(log), PATH=path, CODEX_HOME=str(Path(r.scratch) / "no-codex"))
+    before = [n for n in log.read_text(encoding="utf-8").split() if n]
+    gate.write_text("open\n", encoding="utf-8")
+    settle(r, w)
+    after = [n for n in log.read_text(encoding="utf-8").split() if n]
+    expect(after == before, "no background work is counted (a launcher left UAK_FG_LOG set): %s"
+           % Counter(after[len(before):]).most_common(6))
+    return before
+
+
+def counted_fixture(r, name):
+    f = r.fixture(name, count=1)
+    f.claim(0, "HACK-001")
+    return f, f.worktrees[0]
+
+
+def session_start_launches_half_the_processes_on_startup(r):
+    f, w = counted_fixture(r, "ss-count-start")
+    calls = counted_start(r, f, w, "startup", "startup")
+    limit = (STARTUP_BEFORE or 0) // 2
+    expect(STARTUP_BEFORE and len(calls) <= limit, "startup launched %d processes before returning (at most %s, half of %s): %s"
+           % (len(calls), limit, STARTUP_BEFORE, Counter(calls).most_common(8)))
+    return "%d processes (limit %d)" % (len(calls), limit)
+
+
+def session_start_launches_half_the_processes_on_resume(r):
+    f, w = counted_fixture(r, "ss-count-resume")
+    counted_start(r, f, w, "startup", "first")
+    calls = counted_start(r, f, w, "resume", "resume")
+    limit = (RESUME_BEFORE or 0) // 2
+    expect(RESUME_BEFORE and len(calls) <= limit, "resume launched %d processes before returning (at most %s, half of %s): %s"
+           % (len(calls), limit, RESUME_BEFORE, Counter(calls).most_common(8)))
+    return "%d processes (limit %d)" % (len(calls), limit)
+
+
 TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged,
          session_start_marks_only_the_inbox_snapshot_it_prints, session_start_coalesces_aged_live_refreshes,
          session_start_recovers_a_dead_refresh_owner, session_start_orphan_output_cannot_change_replacement_cache,
@@ -683,7 +758,8 @@ TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged,
          session_start_finishes_an_interrupted_reap, session_start_failed_reap_is_closed_and_retryable,
          session_start_corrupt_owner_records_cannot_delete_paths, session_start_internal_owner_refs_bypass_user_hooks,
          session_start_concurrent_claims_launch_one_refresh, session_start_abandoned_handoff_cannot_run_or_release,
-         session_start_inbox_failure_preserves_cache_and_status]
+         session_start_inbox_failure_preserves_cache_and_status, session_start_launches_half_the_processes_on_startup,
+         session_start_launches_half_the_processes_on_resume]
 
 
 def main():
