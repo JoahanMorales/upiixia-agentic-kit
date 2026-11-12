@@ -437,13 +437,23 @@ def refused_push_says_nothing_was_published(root, tmp):
     assert remote_head(remote), "publishing works again once the remote accepts the push"
 
 
+def long_messages_wrap_at_390(root, tmp):
+    """Contract (browser QA of the f8d5d84 fix): Git's messages carry long unbroken paths and URLs (a refused push names
+    the remote); the notices that show them wrap anywhere, so a 390 px screen never scrolls sideways (it did by 117 px)."""
+    page = (root / ".uak/bin/lib/setup.html").read_text(encoding="utf-8")
+    rules = re.findall(r"([^{}]+)\{([^{}]*)\}", page)
+    assert any(re.search(r"(^|[\s,])\.notice\s*$", sel.strip()) and re.search(r"overflow-wrap:\s*anywhere", body)
+               for sel, body in rules), "the .notice rule wraps long words"
+
+
 TESTS = [schedule_form_writes_freeze_epoch, publish_kit_excludes_unapproved_plan_files,
          publish_kit_pushes_only_the_verified_commit, terminal_step_is_shown_with_its_command,
          planning_waits_for_the_kit_on_main, lint_failure_reason_reaches_the_page,
          plan_can_be_rechecked_without_the_planner, human_name_is_asked_once,
          publish_never_includes_files_the_installer_did_not_place, publish_verifies_the_whole_committed_tree,
          schedule_never_follows_links, publish_ignores_personal_files_present_before_install,
-         failed_commit_leaves_index_and_refs_as_before, refused_push_says_nothing_was_published]
+         failed_commit_leaves_index_and_refs_as_before, refused_push_says_nothing_was_published,
+         long_messages_wrap_at_390]
 
 
 def main():

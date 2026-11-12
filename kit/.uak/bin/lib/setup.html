@@ -433,6 +433,8 @@
         margin: 22px 0;
         color: var(--accent);
         font-size: 14px;
+        /* Git messages carry long paths and URLs (a refused push names the remote): wrap, never scroll sideways. */
+        overflow-wrap: anywhere;
       }
       .notice.error {
         background: var(--error-bg);
