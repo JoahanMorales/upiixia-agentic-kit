@@ -716,8 +716,11 @@ def counted_start(r, f, w, source, tag):
     log.write_text("", encoding="utf-8")
     path = str(shims(r, Path(r.scratch) / "count-shims")) + os.pathsep + r.env["PATH"]
     # No machine usage logs (UAK-012): the count is the same on every machine.
-    start(r, w, "agent-1", source=source, UAK_FG_LOG=str(log), PATH=path, CODEX_HOME=str(Path(r.scratch) / "no-codex"))
+    start(r, w, "agent-1", source=source, UAK_FG_LOG=log.as_posix(), PATH=path, CODEX_HOME=str(Path(r.scratch) / "no-codex"))
     before = [n for n in log.read_text(encoding="utf-8").split() if n]
+    # Review of cdbb934 (P2): on Git Bash the shims logged nothing and the limits passed with 0. The hook always runs
+    # git (rev-parse), so an empty count means the count is broken, never that the hook is fast.
+    expect("git" in before, "the count saw the hook's own git call (shims on PATH and UAK_FG_LOG work here): %r" % before[:10])
     gate.write_text("open\n", encoding="utf-8")
     settle(r, w)
     after = [n for n in log.read_text(encoding="utf-8").split() if n]
@@ -751,6 +754,35 @@ def session_start_launches_half_the_processes_on_resume(r):
     return "%d processes (limit %d)" % (len(calls), limit)
 
 
+def session_start_keeps_reporting_the_pace_level(r):
+    """Review of cdbb934 (P2): a level that stays critical must still reach the agent when sessions are more than
+    30 min apart. Before UAK-068 session start printed it every time; now it may come from the first tick instead."""
+    f = r.fixture("ss-pace-level", count=1)
+    f.claim(0, "HACK-001")
+    w = f.worktrees[0]
+    (w / ".uak/bin/pace").write_text('#!/usr/bin/env bash\ncase "${1:-}" in --caps) echo "critical 1 0";; '
+                                     '*) echo "PACE critical: stop spending (test)";; esac\n', encoding="utf-8")
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    (gd / "uak-pace.level").write_text("critical", encoding="utf-8")
+    (gd / "uak-pace.start").write_text("%d\nPACE critical: an old reading\n" % (int(time.time()) - 7200), encoding="utf-8")
+    took, out = start(r, w, "agent-1", UAK_START_WAIT="1")
+    settle(r, w)
+    seen = "PACE critical" in out
+    for _ in range(2):
+        if seen:
+            break
+        for name in ("uak-pace.seen", "uak-inbox.poll"):
+            if (gd / name).exists():
+                (gd / name).unlink()
+        tick = r.run([r.bash, "-c", "printf '%s' '{\"session_id\":\"s-pace\"}' | bash .uak/bin/hook tick"], cwd=w,
+                     env={"UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_AGENT": "agent-1"}, allowed=None)
+        seen = "PACE critical" in tick.stdout
+        settle(r, w)
+    expect(seen, "a critical pace level reaches the agent at session start or its first tick: start printed %r"
+           % out[-400:])
+    return "critical level reported"
+
+
 TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged,
          session_start_marks_only_the_inbox_snapshot_it_prints, session_start_coalesces_aged_live_refreshes,
          session_start_recovers_a_dead_refresh_owner, session_start_orphan_output_cannot_change_replacement_cache,
@@ -759,7 +791,7 @@ TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged,
          session_start_corrupt_owner_records_cannot_delete_paths, session_start_internal_owner_refs_bypass_user_hooks,
          session_start_concurrent_claims_launch_one_refresh, session_start_abandoned_handoff_cannot_run_or_release,
          session_start_inbox_failure_preserves_cache_and_status, session_start_launches_half_the_processes_on_startup,
-         session_start_launches_half_the_processes_on_resume]
+         session_start_launches_half_the_processes_on_resume, session_start_keeps_reporting_the_pace_level]
 
 
 def main():

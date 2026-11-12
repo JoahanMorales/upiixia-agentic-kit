@@ -569,7 +569,7 @@ case "${1:-}" in
       elif [ -n "${CODEX_SANDBOX:-}${CODEX_THREAD_ID:-}${CODEX_HOME:-}" ]; then h=codex
       elif [ -n "${CURSOR_TRACE_ID:-}${CURSOR_AGENT:-}${CURSOR_VERSION:-}" ]; then h=cursor
       elif [ -n "${GEMINI_CLI:-}" ]; then h=gemini-cli
-      elif [ -s "$gd/uak-harness" ]; then { IFS= read -r h < "$gd/uak-harness"; } 2>/dev/null; h=${h:0:32}; h=${h//[!a-z-]/}  # kit-lint: ok (at most 32 characters)
+      elif [ -s "$gd/uak-harness" ]; then { IFS= read -r h < "$gd/uak-harness"; } 2>/dev/null; h=${h:0:256}; h=${h//[!a-z-]/}  # kit-lint: ok (at most 256 characters, one line of a state file)
       else h=other; fi
     fi
     if [ "$h" = other ] || [ -z "$h" ]; then
@@ -616,8 +616,14 @@ case "${1:-}" in
       pace_at=${pace_at%$CR}; case "$pace_at" in ''|*[!0-9]*) p=;; *) [ $((NOW - pace_at)) -lt 1800 ] || p=;; esac
     fi
     case "$p" in "PACE surge"*|"PACE conserve"*|"PACE critical"*) printf '%s\n' "$p";; esac
-    ( UAK_FG_LOG=; out=$(bash .uak/bin/pace 2>/dev/null) &&
-        printf '%s\n%s\n' "$NOW" "$out" > "$gd/uak-pace.start.$$" && mv -f "$gd/uak-pace.start.$$" "$gd/uak-pace.start" ) > /dev/null 2>&1 &
+    # When nothing fresh was printed, a surge/conserve/critical reading is left for the first tick (uak-pace.note): a
+    # level that stays the same is never a "change" for tick (review of cdbb934).
+    ( trap '' HUP; UAK_FG_LOG=; out=$(bash .uak/bin/pace 2>/dev/null) &&
+        printf '%s\n%s\n' "$NOW" "$out" > "$gd/uak-pace.start.$$" && mv -f "$gd/uak-pace.start.$$" "$gd/uak-pace.start" &&
+        case "$p:$out" in
+          :"PACE surge"*|:"PACE conserve"*|:"PACE critical"*)
+            printf '%s\n' "$out" > "$gd/uak-pace.note.$$" && mv -f "$gd/uak-pace.note.$$" "$gd/uak-pace.note";;
+        esac ) > /dev/null 2>&1 &
     git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 || exit 0
     # One background job, in the old order: `uak next` may commit a tick to claims (the tip moves) before the inbox
     # read keeps the tip it saw, so the next session start does not read the inbox again (test_hook_claims).
