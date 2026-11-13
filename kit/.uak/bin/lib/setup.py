@@ -63,6 +63,66 @@ def safe_environment():
     return env
 
 
+def windows_job(proc):
+    """A Windows Job Object holding the process, or None (not Windows, or any call failed: the caller falls back to
+    taskkill). `taskkill /T` cannot walk a tree whose parent already exited, a job can (UI-010 review). Descendants
+    created after the assignment join the job by themselves; one spawned in the tiny window between Popen and the
+    assignment is not in it."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class Basic(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                        ("SchedulingClass", wintypes.DWORD)]
+
+        class Counters(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_uint64) for name in (
+                "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+        class Extended(ctypes.Structure):
+            _fields_ = [("BasicLimitInformation", Basic), ("IoInfo", Counters), ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+        kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+        kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        job = kernel.CreateJobObjectW(None, None)
+        if not job:
+            return None
+        info = Extended()
+        info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not kernel.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)) or \
+                not kernel.AssignProcessToJobObject(job, int(proc._handle)):
+            kernel.CloseHandle(job)
+            return None
+        return job
+    except Exception:
+        return None
+
+
+def windows_job_end(job, kill):
+    """Terminate (when `kill`) and close the job; closing it also kills anything left (KILL_ON_JOB_CLOSE)."""
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    if kill:
+        kernel.TerminateJobObject(job, 1)
+    kernel.CloseHandle(job)
+
+
 def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=None, **kwargs):
     """`env` adds a few named variables to the sanitized environment (UI-006: UAK_HUMAN for one human act).
     `on_line` (group runs, UI-010) receives each line of standard output while the process runs."""
@@ -75,6 +135,8 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
     extra = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
     proc = subprocess.Popen(command, cwd=cwd, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", **extra)
+    job = windows_job(proc)
+    holder = [job]  # the job is closed once, by whichever of stop_group or the final cleanup gets there first
     readers, lines, errors = [], [], []
     if on_line:  # both pipes are drained by threads, so a chatty stderr never blocks the tool
         def read_out():
@@ -91,7 +153,11 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
 
     def stop_group():
         if os.name == "nt":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+            if holder[0]:
+                windows_job_end(holder[0], True)
+                holder[0] = None
+            else:
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
         else:
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
@@ -112,12 +178,16 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
         return "".join(lines), "".join(errors)
 
     try:
-        out, err = finish(timeout)
-    except subprocess.TimeoutExpired:
-        stop_group()
-        out, err = finish()
-        return subprocess.CompletedProcess(command, 124, out, err + "\nThe run took too long and was stopped.")
-    return subprocess.CompletedProcess(command, proc.returncode, out, err)
+        try:
+            out, err = finish(timeout)
+        except subprocess.TimeoutExpired:
+            stop_group()
+            out, err = finish()
+            return subprocess.CompletedProcess(command, 124, out, err + "\nThe run took too long and was stopped.")
+        return subprocess.CompletedProcess(command, proc.returncode, out, err)
+    finally:
+        if holder[0]:
+            windows_job_end(holder[0], False)
 
 
 def redact(text):
