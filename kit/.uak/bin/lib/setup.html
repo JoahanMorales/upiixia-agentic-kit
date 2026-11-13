@@ -271,6 +271,44 @@
         height: 1px;
         background: var(--line);
       }
+      .journey-bar {
+        max-width: 1160px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+      .journey-bar ol {
+        list-style: none;
+        margin: 8px 0 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .journey-bar li {
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font-size: 14px;
+        color: var(--secondary);
+        min-width: 0;
+      }
+      .journey-bar li strong {
+        display: block;
+        color: inherit;
+      }
+      .journey-bar li small {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .journey-bar li.done {
+        color: var(--accent);
+      }
+      .journey-bar li[aria-current="step"] {
+        border-color: var(--accent);
+        background: var(--wash);
+        color: var(--accent);
+      }
       .benefit {
         border-top: 1px solid var(--line);
         padding: 20px 0;
@@ -952,6 +990,12 @@
           padding: 16px;
           flex-direction: column;
         }
+        .journey-bar {
+          padding: 0 16px;
+        }
+        .journey-bar ol {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
         .journey {
           gap: 6px;
         }
@@ -1007,6 +1051,15 @@
         </button>
       </nav>
     </header>
+    <nav class="journey-bar" id="journey" aria-label="Your journey">
+      <ol>
+        <li data-step="install"><strong>1. Install</strong><small data-where="page">in this page</small></li>
+        <li data-step="prepare"><strong>2. Prepare</strong><small data-where="page">in this page</small></li>
+        <li data-step="plan"><strong>3. Plan</strong><small data-where="page">in this page</small></li>
+        <li data-step="team"><strong>4. Start the team</strong><small data-where="terminal">in a terminal</small></li>
+        <li data-step="progress"><strong>5. Follow progress</strong><small data-where="agents">your agents do it</small></li>
+      </ol>
+    </nav>
     <div class="shell" id="setup-shell">
       <div class="layout">
         <aside class="sidebar" aria-label="Setup progress">
@@ -1071,18 +1124,10 @@
               Give your coding agents a shared plan, clear responsibilities, and
               a review before changes ship. We’ll help you set it up.
             </p>
-            <div
-              class="journey"
-              aria-label="Your workflow: plan, build, review, ship"
-            >
-              <span class="journey-node">Plan</span
-              ><span class="journey-line" aria-hidden="true"></span
-              ><span class="journey-node">Build</span
-              ><span class="journey-line" aria-hidden="true"></span
-              ><span class="journey-node">Review</span
-              ><span class="journey-line" aria-hidden="true"></span
-              ><span class="journey-node">Ship</span>
-            </div>
+            <p class="intro">
+              This page installs the kit into this project and guides you to the moment your agents start. The kit
+              itself is downloaded only once; each project gets its own copy.
+            </p>
             <div class="benefit">
               <div>
                 <strong>One step at a time</strong
@@ -1320,7 +1365,8 @@
               <p>When it is done, come back and press Check again.</p>
             </div>
             <div id="prepare" hidden>
-              <h3>Prepare your project</h3>
+              <h3 id="prepare-heading" tabindex="-1">Prepare your project</h3>
+              <p class="notice" id="identity-warning" role="status" data-no-i18n hidden></p>
               <p class="hint">
                 These steps used to need a terminal. Do them here, in order;
                 the check below confirms each one.
@@ -1385,7 +1431,7 @@
               </div>
             </div>
             <div id="planning" hidden>
-              <h3>Plan your project</h3>
+              <h3 id="planning-heading" tabindex="-1">Plan your project</h3>
               <p class="hint">
                 Describe what you are building. Your coding tool drafts the plan
                 in the background; you review it here, and nothing is published
@@ -1489,6 +1535,7 @@
                       Publish the plan
                     </button>
                   </div>
+                  <p class="hint" id="approve-hint" data-no-i18n></p>
                 </div>
               </section>
             </div>
@@ -1579,7 +1626,7 @@
         Choose another project
       </button>
       <section id="team-step" class="team-step" hidden aria-labelledby="team-heading" tabindex="-1">
-        <h2 id="team-heading">Start your team</h2>
+        <h2 id="team-heading" tabindex="-1">Start your team</h2>
         <p class="hint">
           Setup steps (install, publish, plan) need no agent; agents start only here.
         </p>
@@ -1791,7 +1838,7 @@
         }
         function drawNext(g) {
           g = teamGuide(g);
-          el("next-heading").textContent = UAKWorkspace.t(g.title || "Check what your project needs");
+          el("next-heading").textContent = UAKWorkspace.gate(UAKWorkspace.t(g.title || "Check what your project needs"));
           el("next-description").textContent = UAKWorkspace.t(g.detail || "");
           // Only `commands` (the exact claim command) is copyable; the gate's fix lines are text.
           var command = (g.commands || []).join("\n");
@@ -1830,7 +1877,7 @@
           el("beginner-checklist").replaceChildren();
           done.forEach(function (line) {
             var li = document.createElement("li");
-            li.textContent = "✓ " + line;
+            li.textContent = "✓ " + UAKWorkspace.gate(line);
             el("beginner-checklist").append(li);
           });
           el("beginner-checklist").hidden = !done.length;
@@ -2043,14 +2090,24 @@
           }
           startPlanning(this, note);
         };
+        // The typed approval says exactly what to type (UI-007): the folder name as placeholder, and under the disabled
+        // button "Type NAME to enable publishing".
+        function approveHint() {
+          var project = (planView && planView.project) || "";
+          el("approve-hint").textContent = UAKWorkspace.format("Type {name} to enable publishing", { name: project });
+          el("approve-hint").hidden = !el("approve-publish").disabled;
+        }
         el("plan-approve").onclick = function () {
           el("approve-confirm").hidden = false;
           el("approve-name").value = "";
+          el("approve-name").placeholder = (planView && planView.project) || "";
           el("approve-publish").disabled = true;
+          approveHint();
           el("approve-name").focus();
         };
         el("approve-name").oninput = function () {
           el("approve-publish").disabled = !planView || this.value !== planView.project;
+          approveHint();
         };
         el("approve-cancel").onclick = function () {
           el("approve-confirm").hidden = true;
@@ -2065,12 +2122,70 @@
             await refresh();
           });
         };
+        // The journey (UI-007): where the person is, from the server's state only; it stays visible above every view.
+        function journeyStep(data) {
+          if (!data || !data.installed) return "install";
+          if (data.ready) return latestDashboard && (latestDashboard.tasks || []).some(function (t) { return t.state !== "AVAILABLE"; }) ? "progress" : "team";
+          if (["planning", "planned", "approving"].indexOf(data.phase) >= 0 || (data.guidance || {}).action === "plan") return "plan";
+          return "prepare";
+        }
+        // Whose identity signs (UI-007): the project's Git name/email and gh's login, as the server parsed them. On someone
+        // else's computer they are not the person's: say so before anything is published under that name.
+        // True when nothing in the Git name, the email's local part or the gh login matches the person's name, in either
+        // direction (ana ↔ "Ana Human", "anagarcia" ↔ ana); a name shorter than 3 letters must match a whole word.
+        function sharedIdentity(ident, human) {
+          var me = String(human || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+          if (!me || !ident) return false;
+          var words = [ident.git_name, String(ident.git_email || "").split("@")[0], ident.gh_login]
+            .join(" ").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+          words.push(String(ident.git_name || "").toLowerCase().replace(/[^a-z0-9]/g, ""));
+          return !words.some(function (w) {
+            return w === me || (me.length >= 3 && w.indexOf(me) >= 0) || (w.length >= 3 && me.indexOf(w) >= 0);
+          });
+        }
+        function drawIdentity(data) {
+          var ident = data.identity || {},
+            box = el("identity-warning");
+          if (!ident.git_name && !ident.gh_login) {
+            box.hidden = true;
+            return;
+          }
+          var git = (ident.git_name || "?") + (ident.git_email ? " <" + ident.git_email + ">" : ""),
+            gh = ident.gh_login ? "@" + ident.gh_login : UAKWorkspace.t("nobody (gh is not signed in)"),
+            text = UAKWorkspace.format("Commits will be signed as {git} and pull requests opened as {gh}.", { git: git, gh: gh }),
+            unnamed = !data.human,
+            other = unnamed || sharedIdentity(ident, data.human);
+          if (unnamed)
+            text += " " + UAKWorkspace.t("Tell setup your name (Your name, below) so it can check that this identity is yours.");
+          else if (other)
+            text += " " + UAKWorkspace.t("This looks like someone else's identity. If this is not your computer, set your own before publishing: git config user.name and user.email, and gh auth login.");
+          box.textContent = text;
+          box.classList.toggle("error", other);
+          box.hidden = false;
+        }
+        function drawJourney() {
+          var current = journeyStep(state),
+            seen = false,
+            items = Array.from(el("journey").querySelectorAll("li"));
+          items.forEach(function (li) {
+            var here = li.dataset.step === current;
+            if (here) li.setAttribute("aria-current", "step");
+            else li.removeAttribute("aria-current");
+            li.classList.toggle("done", !seen && !here);
+            if (here) seen = true;
+          });
+        }
+        // A finished operation moves the person to the heading of the step that comes next (amendment 8).
+        var identityTries = 0;
+        var NEXT_FOCUS = {"installing": "prepare-heading", "publishing": "planning-heading", "approving": "team-heading"};
         function drawDashboard(data) {
           latestDashboard = data;
+          drawJourney();
           el("dashboard-project").textContent = state.target || "";
-          el("dashboard-status").textContent = UAKWorkspace.t(
-            data.warning || "Your project at a glance",
-          );
+          // The notice under the title says only what needs saying (a warning); it never repeats the heading.
+          var warning = data.warning ? UAKWorkspace.t(data.warning) : "";
+          el("dashboard-status").textContent = warning;
+          el("dashboard-status").hidden = !warning;
           el("dashboard-status").classList.remove("error");
           drawLiveUrl(data.live_url);
           var p = data.progress,
@@ -2147,6 +2262,7 @@
             } catch (e) {}
           }
           if (!state.target || state.phase === "welcome") {
+            el("dashboard-status").hidden = false;
             el("dashboard-status").textContent = UAKWorkspace.t(
               "Choose a project to see its dashboard.",
             );
@@ -2154,7 +2270,8 @@
             return;
           }
           el("dashboard-choose-project").hidden = true;
-          el("dashboard-status").textContent = UAKWorkspace.t(
+          el("dashboard-status").hidden = false;
+            el("dashboard-status").textContent = UAKWorkspace.t(
             "Loading your project dashboard…",
           );
           el("refresh-dashboard").disabled = true;
@@ -2164,6 +2281,7 @@
             var data = await api("dashboard");
             if (state.target === target) drawDashboard(data);
           } catch (e) {
+            el("dashboard-status").hidden = false;
             el("dashboard-status").textContent = UAKWorkspace.t(e.message);
           } finally {
             dashboardLoading = false;
@@ -2177,6 +2295,7 @@
         }
         function show(index, focus) {
           openSection("setup");
+          drawJourney();
           step = index;
           panels.forEach(function (id, n) {
             el(id).hidden = n !== index;
@@ -2193,6 +2312,7 @@
         function error(message) {
           // The dashboard hides the setup panel: show the failure where the person is looking.
           if (currentSection === "dashboard") {
+            el("dashboard-status").hidden = false;
             el("dashboard-status").textContent = UAKWorkspace.t(message);
             el("dashboard-status").classList.add("error");
             return;
@@ -2288,6 +2408,7 @@
           action(this, async function () {
             await api("check", {});
             checkRequested = true; // only once the server accepted it
+            el("dashboard-status").hidden = false;
             el("dashboard-status").textContent = UAKWorkspace.t(
               "Checking your next steps",
             );
@@ -2313,7 +2434,7 @@
         function drawAdvancedNext(guide) {
           guide = teamGuide(guide);
           el("advanced-next").hidden = document.body.dataset.profile !== "advanced" || !guide.title;
-          el("advanced-next-heading").textContent = UAKWorkspace.t(guide.title || "");
+          el("advanced-next-heading").textContent = UAKWorkspace.gate(UAKWorkspace.t(guide.title || ""));
           el("advanced-next-description").textContent = UAKWorkspace.t(guide.detail || "");
           el("advanced-next-command").textContent = (guide.commands || []).join("\n");
           el("advanced-next-box").hidden = !(guide.commands || []).length;
@@ -2801,7 +2922,10 @@
                   ? "Action needed"
                   : "Information",
             );
-            text.textContent = check.text;
+            // The gate's first line in the page's language; the commands under it stay as the engine wrote them.
+            var lines = String(check.text || "").split("\n");
+            lines[0] = UAKWorkspace.gate(lines[0]);
+            text.textContent = lines.join("\n");
             li.append(mark, text);
             el("checks").append(li);
           });
@@ -2873,6 +2997,20 @@
               if (moved) el("dashboard-shell").focus();
             }
           }
+          drawJourney();
+          drawIdentity(data);
+          // Who signs is read in the background after choosing the project: ask again until it arrives (a few tries).
+          if (data.target && !data.identity && identityTries < 8 && !isBusy(data.phase)) {
+            identityTries += 1;
+            setTimeout(refresh, 700);
+          } else if (data.identity) identityTries = 0;
+          if (NEXT_FOCUS[previous] && !isBusy(data.phase) && !data.error) {
+            (function wait(id, tries) {
+              var node = el(id);
+              if (node && node.offsetParent !== null) node.focus();
+              else if (tries > 0) setTimeout(function () { wait(id, tries - 1); }, 150);
+            })(NEXT_FOCUS[previous], 20);
+          }
         }
         async function refresh() {
           if (timer) clearTimeout(timer);
@@ -2893,6 +3031,7 @@
             // The person may already have opened the dashboard: restore setup's step without leaving it.
             var stay = currentSection === "dashboard";
             state = data;
+            drawJourney();
             el("target").value = data.target || "";
             if (data.phase === "options") {
               el("selected-project").textContent = data.target;

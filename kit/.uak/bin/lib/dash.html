@@ -371,7 +371,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
   }
   function who(name, size) { return h("span", { "class": "who" }, [avatar(name, size || 18), h("span", { text: name })]); }
   function pres(s) { return h("span", { "class": "pres " + s, "aria-hidden": "true" }); }
-  function tid(id) { return h("button", { "class": "tid", text: id, title: "Conversation about " + id, on: function () { goTask(id); } }); }
+  function tid(id) { return h("button", { "class": "tid", text: id, title: T("Conversation about ") + id, on: function () { goTask(id); } }); }
   function go(tab, extra) { ui.tab = tab; for (var k in (extra || {})) ui[k] = extra[k]; save(); render(); document.getElementById("tabs").scrollIntoView({ block: "start" }); }
   function goTask(id) { go("talk", { task: id, agent: "", kind: "", q: "" }); }
 
@@ -395,7 +395,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     favicon(d.repo);
     var r = document.getElementById("repo"); r.innerHTML = ""; r.appendChild(document.createTextNode(d.repo + " ")); r.appendChild(h("span", { text: "· uak dash" + (d.mode ? " · " + d.mode : "") }));
     var fz = document.getElementById("freeze");
-    if (d.freeze) { fz.hidden = false; fz.textContent = d.freeze > d.generated ? "Freeze in " + ago(d.generated, d.freeze) : "Frozen"; } else fz.hidden = true;
+    if (d.freeze) { fz.hidden = false; fz.textContent = d.freeze > d.generated ? T("Freeze in ") + ago(d.generated, d.freeze) : T("Frozen"); } else fz.hidden = true;
     fresh();
   }
   // Freshness uses the real clock: a page whose data stopped moving says so instead of looking live.
@@ -403,16 +403,16 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     if (!D) return;
     var age = Math.max(0, Math.round(Date.now() / 1000 - D.generated)), stale = age > Math.max(90, 3 * (D.refresh || 20));
     var p = document.getElementById("fresh"); p.className = "pill" + (stale ? " stale" : "");
-    document.getElementById("freshtxt").textContent = (stale ? "Snapshot · " : "Live · ") + ago(D.generated, D.generated + age) + " ago";
-    p.title = stale ? "data.js is not being refreshed: run uak dash --watch" : "Refreshes every " + D.refresh + " s";
+    document.getElementById("freshtxt").textContent = (stale ? T("Snapshot · ") : T("Live · ")) + ago(D.generated, D.generated + age) + T(" ago");
+    p.title = stale ? T("data.js is not being refreshed: run uak dash --watch") : T("Refreshes every ") + D.refresh + " s";
   }
 
   function overview(d) {
     var p = d.progress, integrated = p.states.INTEGRATED || 0;
     var pct = document.getElementById("pct"); pct.innerHTML = ""; pct.appendChild(document.createTextNode(String(p.done))); pct.appendChild(h("small", { text: "%" }));
     var sub = document.getElementById("pctsub"); sub.innerHTML = "";
-    sub.appendChild(h("b", { text: integrated + " of " + p.total + " tasks integrated." }));
-    sub.appendChild(document.createTextNode(" " + p.weighted + "% counting the work in review and in progress."));
+    sub.appendChild(h("b", { text: integrated + T(" of ") + p.total + T(" tasks integrated.") }));
+    sub.appendChild(document.createTextNode(" " + p.weighted + T("% counting the work in review and in progress.")));
     var bar = document.getElementById("bar"), legend = document.getElementById("legend"); bar.innerHTML = ""; legend.innerHTML = "";
     bar.setAttribute("aria-label", BAR.map(function (s) { return LABEL[s] + " " + (p.states[s] || 0); }).join(", "));
     BAR.forEach(function (s) {
@@ -431,8 +431,8 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
       return h("button", { "class": "tile" + (cls ? " " + cls : ""), on: onclick }, [h("span", { "class": "lbl" }, label), h("span", { "class": "val", text: String(value) }), h("span", { "class": "det" }, det)]);
     }
     var faces = h("span", { "class": "faces" }, online.slice(0, 7).map(function (a) { return avatar(a.name, 20); }));
-    tiles.appendChild(tile([pres("online"), "Agents online"], online.length, online.length ? [faces, online.length > 7 ? "+" + (online.length - 7) : null] : ["none in the last 30 min"], "", function () { go("agents"); }));
-    tiles.appendChild(tile(["Reviews waiting"], d.offers.length, [d.offers.length ? "oldest " + ago(oldest, d.generated) : "none waiting"], d.offers.length && d.generated - oldest > 3600 ? "warm" : "", function () { go("board"); }));
+    tiles.appendChild(tile([pres("online"), T("Agents online")], online.length, online.length ? [faces, online.length > 7 ? "+" + (online.length - 7) : null] : ["none in the last 30 min"], "", function () { go("agents"); }));
+    tiles.appendChild(tile(["Reviews waiting"], d.offers.length, [d.offers.length ? T("oldest ") + ago(oldest, d.generated) : "none waiting"], d.offers.length && d.generated - oldest > 3600 ? "warm" : "", function () { go("board"); }));
     tiles.appendChild(tile(["Stalled"], stalled.length, [stalled.length ? stalled.map(function (t) { return t.id; }).join(", ") : "every task is moving"], stalled.length ? "hot" : "", function () { go("board"); }));
     tiles.appendChild(tile(["Needs a human"], human.length, [human.length ? human.map(function (q) { return q.task; }).join(", ") : "nothing for you"], human.length ? "warm" : "", function () { go("talk", { kind: "human", task: "", agent: "", q: "" }); }));
   }
@@ -462,13 +462,13 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     d.offers.slice().sort(function (a, b) { return a.since - b.since; }).forEach(function (o) {
       var to = (o.to || []).map(function (x) { return x.replace(/^(agent|task):/, ""); }).join(", "), late = d.generated - o.since > 3600;
       rows.push(h("div", { "class": "att-row" }, [h("span", { "class": "ico " + (late ? "warn" : "info") }, [icon(I.eye)]),
-        h("div", { "class": "what" }, [h("div", {}, [tid(o.task), T(" waits for review"), h("span", { "class": "muted", text: T(" · offered to ") + (to || "all") })]), h("div", { "class": "muted", style: "font-size:12.5px", text: T("owner ") + o.owner })]),
+        h("div", { "class": "what" }, [h("div", {}, [tid(o.task), T(" waits for review"), h("span", { "class": "muted", text: T(" · offered to ") + (to || T("all")) })]), h("div", { "class": "muted", style: "font-size:12.5px", text: T("owner ") + o.owner })]),
         h("span", { "class": "when", text: ago(o.since, d.generated) })]));
     });
     d.tasks.filter(function (t) { return t.stalled; }).forEach(function (t) {
       rows.push(h("div", { "class": "att-row" }, [h("span", { "class": "ico crit" }, [icon(I.pause)]),
         h("div", { "class": "what" }, [h("div", {}, [tid(t.id), T(" has not moved in ") + t.stalled + " min", h("span", { "class": "muted", text: " · " + (t.owner || "") })]), h("div", { "class": "muted", style: "font-size:12.5px", text: t.progress || t.title })]),
-        h("span", { "class": "when", text: t.away ? "owner away" : "" })]));
+        h("span", { "class": "when", text: t.away ? T("owner away") : "" })]));
     });
     d.queue.filter(function (q) { return q.state === "HUMAN" || q.reason; }).forEach(function (q) {
       rows.push(h("div", { "class": "att-row" }, [h("span", { "class": "ico warn" }, [icon(I.hand)]),
@@ -493,7 +493,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     var g = h("div", { "class": "board", style: "grid-template-columns:" + cols.map(function (c) { return c.list.length ? "minmax(0, 1fr)" : "minmax(0, .55fr)"; }).join(" ") });
     cols.forEach(function (c) {
       var col = h("div", { style: "min-width:0" }, [h("div", { "class": "col-h" }, [h("span", { "class": "sw", style: "background:" + color(c.s) }), LABEL[c.s], h("span", { "class": "muted", text: String(c.list.length) })])]);
-      if (!c.list.length) col.appendChild(h("div", { "class": "col-empty", text: c.s === "BLOCKED" ? "Nothing blocked" : c.s === "CLAIMED" ? "Nobody is on a task" : T("Empty") }));
+      if (!c.list.length) col.appendChild(h("div", { "class": "col-empty", text: c.s === "BLOCKED" ? T("Nothing blocked") : c.s === "CLAIMED" ? T("Nobody is on a task") : T("Empty") }));
       else if (c.s === "INTEGRATED") col.appendChild(doneRows(c.list));
       else c.list.forEach(function (t) { col.appendChild(card(t, c.s)); });
       g.appendChild(col);
@@ -520,12 +520,12 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     sorted.slice(0, cut).forEach(function (t) {
       box.appendChild(h("div", { "class": "row" }, [tid(t.id), h("span", { "class": "t", text: t.title || t.paths, title: t.title }), t.owner ? avatar(t.owner, 18) : h("span")]));
     });
-    if (sorted.length > 12) box.appendChild(h("button", { "class": "more", text: ui.allDone ? "Show the latest 12" : T("Show all ") + sorted.length, on: function () { ui.allDone = !ui.allDone; render(); } }));
+    if (sorted.length > 12) box.appendChild(h("button", { "class": "more", text: ui.allDone ? T("Show the latest 12") : T("Show all ") + sorted.length, on: function () { ui.allDone = !ui.allDone; render(); } }));
     return box;
   }
 
   function agents(v, d) {
-    var groups = [["online", T("Online"), T("active in the last 30 min")], ["recent", T("Recently active"), T("seen in the last 3 h")], ["away", T("Away"), T("session ended")], ["offline", T("Offline"), "not seen for 3 h or more"], ["retired", "Retired", "identity retired"]];
+    var groups = [["online", T("Online"), T("active in the last 30 min")], ["recent", T("Recently active"), T("seen in the last 3 h")], ["away", T("Away"), T("session ended")], ["offline", T("Offline"), T("not seen for 3 h or more")], ["retired", T("Retired"), T("identity retired")]];
     if (!d.agents.length) { v.appendChild(h("div", { "class": "panel empty" }, [h("b", { text: T("No agents yet") }), T("An agent appears here after its first uak command.")])); return; }
     groups.forEach(function (gr) {
       var list = d.agents.filter(function (a) { return a.status === gr[0]; }).sort(function (a, b) { return b.last_seen - a.last_seen || a.name.localeCompare(b.name); });
@@ -534,10 +534,10 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
       var g = h("div", { "class": "agents" });
       list.forEach(function (a) {
         g.appendChild(h("article", { "class": "agent" }, [avatar(a.name, 46), h("div", { style: "min-width:0" }, [
-          h("div", { "class": "nm" }, [a.name, a.is_human ? h("span", { "class": "tag info", text: "human" }) : a.human && a.human !== a.name ? h("span", { "class": "muted", style: "font-weight:400;font-size:12.5px", text: a.human }) : null]),
-          h("div", { "class": "st" }, [pres(a.status), a.status + " · " + ago(a.last_seen, d.generated) + T(" ago")])]),
+          h("div", { "class": "nm" }, [a.name, a.is_human ? h("span", { "class": "tag info", text: T("human") }) : a.human && a.human !== a.name ? h("span", { "class": "muted", style: "font-weight:400;font-size:12.5px", text: a.human }) : null]),
+          h("div", { "class": "st" }, [pres(a.status), T(a.status) + " · " + ago(a.last_seen, d.generated) + T(" ago")])]),
           h("div", { "class": "now" }, a.tasks.length ? a.tasks.map(function (t) { return h("button", { "class": "chip", on: function () { goTask(t.id); } }, [h("span", { "class": "sw", style: "background:" + color(t.state) }), h("span", { "class": "mono", text: t.id }), h("span", { "class": "muted", text: LABEL[t.state].toLowerCase() })]); }) : [h("span", { "class": "muted", text: T("No live task") })]),
-          h("div", { "class": "stats" }, [h("div", {}, [h("b", { text: String(a.messages) }), "messages"]), h("div", {}, [h("b", { text: String(a.verdicts) }), "verdicts"]), h("div", {}, [h("b", { text: String(a.checkpoints) }), "checkpoints"])])]));
+          h("div", { "class": "stats" }, [h("div", {}, [h("b", { text: String(a.messages) }), T("messages")]), h("div", {}, [h("b", { text: String(a.verdicts) }), T("verdicts")]), h("div", {}, [h("b", { text: String(a.checkpoints) }), T("checkpoints")])])]));
       });
       sec.appendChild(g); v.appendChild(sec);
     });
@@ -551,7 +551,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
       if (m[1]) {
         var u = m[1].replace(/[.,;:]+$/, ""), short = u.replace(/^https?:\/\/(www\.)?/, "");
         var gh = u.match(/github\.com\/[^/]+\/[^/]+\/(pull\/\d+|compare\/[^?#]+|actions\/runs\/\d+|commit\/[0-9a-f]+)/);
-        if (gh) short = gh[1].replace(/^compare\/.*?\.\.\.?/, "compare ").replace(/^pull\//, "PR #").replace(/^actions\/runs\//, "CI run ").replace(/^commit\/([0-9a-f]{7}).*/, "commit $1");
+        if (gh) short = gh[1].replace(/^compare\/.*?\.\.\.?/, "compare ").replace(/^pull\//, "PR #").replace(/^actions\/runs\//, T("CI run ")).replace(/^commit\/([0-9a-f]{7}).*/, "commit $1");
         else if (short.length > 48) short = short.slice(0, 45) + "…";
         frag.appendChild(h("a", { href: u, target: "_blank", rel: "noopener", title: u, text: short }));
         if (u.length < m[1].length) frag.appendChild(document.createTextNode(m[1].slice(u.length)));
@@ -621,7 +621,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
           h("div", { "class": "head" }, [h("b", { text: m.from }), to, kindEl(m.kind), m.task && !toTask ? tid(m.task) : null,
             h("span", { "class": "meta", title: new Date(m.t * 1000).toLocaleString(), text: "#" + m.n + " · " + ago(m.t, d.generated) + T(" ago") })]),
           h("div", { "class": "text" + (long && !open ? " clamp" : "") + (long ? " long" : "") }, [rich(m.text)]),
-          long ? h("button", { "class": "expand", text: open ? "Show less" : T("Show more"), on: function () { ui.open[m.n] = !ui.open[m.n]; draw(); } }) : null])]));
+          long ? h("button", { "class": "expand", text: open ? T("Show less") : T("Show more"), on: function () { ui.open[m.n] = !ui.open[m.n]; draw(); } }) : null])]));
       });
       requestAnimationFrame(unclamp);
     }
@@ -650,10 +650,10 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     function lbl(k) { var x = new Date((t0 + k * step) * 1000); return hourly ? x.toLocaleString(undefined, { weekday: "short", hour: "numeric" }) : x.toLocaleDateString(window.UAKWorkspace ? UAKWorkspace.language() : undefined, { month: "short", day: "numeric" }); }
     var title = hourly ? "Messages per hour" : T("Messages per day");
     box.appendChild(h("div", { "class": "sec-h" }, [h("h2", { text: title }), h("span", { "class": "muted num", text: total + T(" in range · peak ") + max })]));
-    var cols = h("div", { "class": "cols", role: "img", "aria-label": title + ", peak " + max });
+    var cols = h("div", { "class": "cols", role: "img", "aria-label": title + T(", peak ") + max });
     bins.forEach(function (c, k) { cols.appendChild(h("span", { style: "height:" + (c ? Math.max(4, 100 * c / max) : 0) + "%", tip: lbl(k) + " · " + c + (c === 1 ? " message" : T(" messages")) })); });
     box.appendChild(cols);
-    box.appendChild(h("div", { "class": "axis" }, [h("span", { text: lbl(0) }), h("span", { text: lbl(Math.floor(n / 2)) }), h("span", { text: hourly ? "now" : lbl(n - 1) })]));
+    box.appendChild(h("div", { "class": "axis" }, [h("span", { text: lbl(0) }), h("span", { text: lbl(Math.floor(n / 2)) }), h("span", { text: hourly ? T("now") : lbl(n - 1) })]));
   }
 
   var KIND = { exit1: "git error", exit2: "usage error", exit3: "conflict", exitguard: "guard block" };
@@ -715,7 +715,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     var t = d.tokens;
     function M(n) { return n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : Math.round(n / 1e3) + "k"; }
     v.appendChild(h("div", { "class": "panel box", style: "margin-bottom:16px" }, [h("h2", { text: T("Tokens spent") }), h("div", { "class": "total num", text: t.total ? M(t.total) : "–" }),
-      h("div", { "class": "muted", text: t.total ? "published by every machine with uak tokens" : T("No machine has published its spend yet: uak tokens --publish") })]));
+      h("div", { "class": "muted", text: t.total ? T("published by every machine with uak tokens") : T("No machine has published its spend yet: uak tokens --publish") })]));
     if (!t.total) return;
     var g = h("div", { "class": "grid2" });
     [[T("By task"), t.by_task, 15], [T("By harness"), t.by_harness], [T("By scope"), t.by_scope]].forEach(function (x) {
@@ -751,9 +751,11 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
   }
   if (!window.UAK_EMBEDDED) setInterval(reload, 1000 * Math.max(5, (window.UAK_DATA && window.UAK_DATA.refresh) || 20));
   document.addEventListener("uak:state", function () { if (window.UAK_DASH_THEME === "dark" || window.UAK_DASH_THEME === "light" || window.UAK_DASH_THEME === "") {themeSel.value=window.UAK_DASH_THEME;applyTheme(window.UAK_DASH_THEME);} if (window.UAKWorkspace && window.UAK_DASH_LANGUAGE) UAKWorkspace.setLanguage(window.UAK_DASH_LANGUAGE); else render(); });
-  window.addEventListener("uak:language", function () { render(); if(window.UAKWorkspace){UAKWorkspace.apply(document.querySelector(".top"));languageSelect.value=UAKWorkspace.language();} reportSize(); });
+  window.addEventListener("uak:language", function () { render(); if(window.UAKWorkspace){UAKWorkspace.apply(document.body);languageSelect.value=UAKWorkspace.language();} reportSize(); });
   function reportSize() { if(window.UAK_EMBEDDED)window.parent.postMessage({type:"uak:dashboard-size",height:document.documentElement.scrollHeight},"*"); }
-  if(window.UAKWorkspace)UAKWorkspace.apply(document.querySelector(".top"));
+  // Every label the dashboard draws goes through the shared catalog, also the ones built without T(): the whole body
+  // is translated as it changes (UI-007: the Spanish Advanced view had English tiles and empty states left).
+  if(window.UAKWorkspace)UAKWorkspace.start(document.body);
   if(window.UAK_EMBEDDED)document.querySelector(".top").hidden=true;
 
 })();

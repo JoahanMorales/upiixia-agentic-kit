@@ -208,6 +208,31 @@ def install_unfinished(target):
     return (Path(target) / ".uak/INSTALLING").exists()
 
 
+GH_LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\Z")
+
+
+def signing_identity(run, root):
+    """Who will sign this project's commits and pull requests (UI-007): the project's Git name and email, and the GitHub
+    login of `gh`. Only those parsed values leave this function; gh's output (it prints token details) never does."""
+    def value(*args):
+        try:
+            result = run(["git", "-C", str(root), "config"] + list(args), cwd=str(root), timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return (result.stdout or "").strip()[:200] if result.returncode == 0 else ""
+
+    # `gh config get user` reads gh's own hosts file: no network (auth status validates the token online and made
+    # inspecting a project wait), and nothing but the login. Anything that is not one login is ignored.
+    login = ""
+    try:
+        shown = run(["gh", "config", "get", "user", "-h", "github.com"], cwd=str(root), timeout=10)
+        text = (shown.stdout or "").strip()
+        login = text if shown.returncode == 0 and GH_LOGIN.fullmatch(text) else ""
+    except (OSError, subprocess.SubprocessError):
+        login = ""
+    return {"git_name": value("user.name"), "git_email": value("user.email"), "gh_login": login}
+
+
 def kit_present(target):
     return not install_unfinished(target) and \
         all((Path(target) / path).is_file() for path in (".uak/PROJECT.md", ".uak/bin/uak", ".uak/VERSION"))
@@ -333,6 +358,9 @@ class SetupServer(ThreadingHTTPServer):
         self.nonce = secrets.token_urlsafe(24)
         self.installer = Path(installer).resolve()
         self.run = run or run_command
+        # Reading who signs (git config, gh's hosts file) is local and read-only: it never goes through the operation
+        # runner, whose callers count and pace their own commands.
+        self.identity_run = run_command
         self.lock = threading.Lock()
         self.worker = None
         self.target = ""
@@ -742,6 +770,9 @@ class SetupHandler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(data, dict):
                 raise ValueError("Expected a settings object.")
+            # Who signs is read before taking the lock (review of 949eca1: it blocked status polling) and synchronously
+            # (a background read kept a process inside the project, and Windows could not delete it: WinError 32).
+            self.identity = self.read_identity(data)
             with self.server.lock:
                 if self.server.worker and self.server.worker.is_alive():
                     self.reply(409, {"error": "An operation is running. Wait for it to finish."})
@@ -753,6 +784,23 @@ class SetupHandler(BaseHTTPRequestHandler):
         except (ValueError, TypeError, UnicodeError, OSError, subprocess.SubprocessError) as exc:
             # The planning module's Conflict: valid, but it would replace something the person has not confirmed.
             self.reply(409 if type(exc).__name__ == "Conflict" else 400, {"error": redact(exc)})
+
+    def read_identity(self, data):
+        """signing_identity() for the project an inspect names, or the current one on a readiness check; None otherwise."""
+        try:
+            if self.path == "/api/inspect" and set(data) == {"target"} and isinstance(data["target"], str):
+                root = project_root(data["target"])
+            elif self.path == "/api/check" and not data:
+                with self.server.lock:
+                    target = self.server.target
+                if not target:
+                    return None
+                root = project_root(target)
+            else:
+                return None
+        except ValueError:
+            return None
+        return signing_identity(self.server.identity_run, root)
 
     def schedule(self, data):
         """The event schedule: what `uak clock START DEADLINE ZONE --write` does, from a form (UI-005)."""
@@ -817,6 +865,8 @@ class SetupHandler(BaseHTTPRequestHandler):
             s.target = str(root)
             installed = kit_present(root) and s.failed_target != str(root)
             repair = (root / ".uak").exists()
+            if self.identity is not None:
+                s.state["identity"] = self.identity
             s.state.update(target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], next_command="", next_note="", freeze=0, details=previous.get("details", ""), error=previous.get("error", ""))
             self.reply(200, dict(s.state, settings=s.config()))
         elif self.path in ("/api/install", "/api/repair"):
@@ -846,6 +896,8 @@ class SetupHandler(BaseHTTPRequestHandler):
             # The engine that checks readiness is the one shipped with this setup (kit/.uak in the kit's checkout,
             # .uak in an installed project), so the check needs no installer and never certifies another version.
             s.launch("checking", [bash_binary(), str(s.engine()), "start"])
+            if self.identity is not None:
+                s.state["identity"] = self.identity
             self.reply(202, {"phase": "checking"})
         elif self.path == "/api/idea":
             s.engine()
