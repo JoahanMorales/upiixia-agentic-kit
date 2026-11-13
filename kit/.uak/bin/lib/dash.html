@@ -412,7 +412,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     var pct = document.getElementById("pct"); pct.innerHTML = ""; pct.appendChild(document.createTextNode(String(p.done))); pct.appendChild(h("small", { text: "%" }));
     var sub = document.getElementById("pctsub"); sub.innerHTML = "";
     sub.appendChild(h("b", { text: integrated + " of " + p.total + " tasks integrated." }));
-    sub.appendChild(document.createTextNode(" " + p.weighted + "% counting the work in review and in progress."));
+    sub.appendChild(document.createTextNode(" " + p.weighted + T("% counting the work in review and in progress.")));
     var bar = document.getElementById("bar"), legend = document.getElementById("legend"); bar.innerHTML = ""; legend.innerHTML = "";
     bar.setAttribute("aria-label", BAR.map(function (s) { return LABEL[s] + " " + (p.states[s] || 0); }).join(", "));
     BAR.forEach(function (s) {
