@@ -1359,7 +1359,10 @@ def unrelated_history(server, root, head, remote, base):
     folded = sys.platform == "darwin" or os.name == "nt"  # case-insensitive file systems
     fold = (lambda p: p.lower()) if folded else (lambda p: p)
     tracked = {fold(p) for p in git("ls-files", "-z").stdout.split("\0") if p} if head else set()
-    collide, unsafe = [], False
+    # Tracked files with uncommitted changes: git pull refuses to merge over them ("Your local changes … would be
+    # overwritten by merge"; Windows QA of 993e112: the installer had changed the committed .gitignore).
+    dirty = {fold(p) for p in git("diff", "--name-only", "-z", "HEAD").stdout.split("\0") if p} if head else set()
+    collide, unsafe, changed, both = [], False, [], []
     for path in [p for p in git("ls-tree", "-r", "--name-only", "-z", SETUP_BASE).stdout.split("\0") if p]:
         parts = path.split("/")
         for depth in range(1, len(parts)):
@@ -1367,14 +1370,17 @@ def unrelated_history(server, root, head, remote, base):
             if parent.is_symlink() or (os.path.lexists(str(parent)) and not parent.is_dir()):
                 unsafe = True  # a file here where the remote has a folder
         local = root.joinpath(*parts)
-        if fold(path) in tracked or not os.path.lexists(str(local)):
+        if fold(path) in tracked:
+            (changed if fold(path) in dirty else both).append(path)
+            continue
+        if not os.path.lexists(str(local)):
             continue
         if local.is_dir() and not local.is_symlink():
             unsafe = True  # a folder here where the remote has a file
         else:
             collide.append(path)
     text = root.as_posix()
-    if unsafe or len(collide) > 8 or not quotable(text) or any(
+    if changed or unsafe or len(collide) > 8 or not quotable(text) or any(
             not SAFE_PATH.fullmatch(p) or ".." in p.split("/") or os.path.lexists(str(root / (p + ".mine")))
             for p in collide):
         command = ""
@@ -1386,6 +1392,14 @@ def unrelated_history(server, root, head, remote, base):
             parts += ["test ! -e " + mine, "test ! -L " + mine, "mv -- %s %s" % (shell_quote(p), mine)]
         command = " && ".join(parts + ["git pull --no-rebase --no-edit --allow-unrelated-histories %s %s" % (remote, base)])
     steps = []
+    if changed:
+        names = " ".join(shell_quote(p) for p in changed[:8])
+        steps.append("You changed files that %s/%s also has and that are not committed yet: %s. Commit them first "
+                     "(git add -- %s && git commit -m 'Keep my changes'), then press Review the files again."
+                     % (remote, base, ", ".join(changed[:8]), names))
+    if command and both:
+        steps.append("%s exist here and on %s/%s, so git pull stops with a conflict in them: keep the lines you need "
+                     "from both, then run git add on them and git commit." % (", ".join(both[:8]), remote, base))
     if command:
         steps.append("If Git reports a conflict, open the files it names, keep what you need from both, then run git add "
                      "on them and git commit.")
@@ -1393,6 +1407,9 @@ def unrelated_history(server, root, head, remote, base):
             steps.append("Your copies are kept with .mine added to their names: %s. Choose Repair or update kit so the kit "
                          "adds its lines to .gitignore again, then compare and delete the .mine files."
                          % ", ".join(p + ".mine" for p in collide))
+        steps.append("Or publish to a new empty repository (no README, no .gitignore, no license): git remote set-url %s "
+                     "<its URL>" % remote)
+    elif changed:
         steps.append("Or publish to a new empty repository (no README, no .gitignore, no license): git remote set-url %s "
                      "<its URL>" % remote)
     else:

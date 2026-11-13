@@ -708,6 +708,37 @@ def unrelated_remote_history_has_a_way_out(root, tmp):
     assert status == 400 and "git pull" in body.get("error", "") and not body.get("way_out"), body
 
 
+def way_out_with_tracked_modified_gitignore(root, tmp):
+    """Windows QA of 993e112 (notes/handoff:qa/windows/UI-009-1549.md, b): a project with commits whose tracked
+    .gitignore the installer changed. The offered `git pull --allow-unrelated-histories` aborted ("Your local changes
+    ... would be overwritten by merge"). Now: no pull while a tracked file the remote also has is uncommitted; a step
+    says to commit it; once committed, the offered command works and the conflict is explained."""
+    target, remote = installed(root, tmp)
+    (target / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+    tp.git(target, "add", ".gitignore", "AGENTS.md")
+    tp.git(target, "commit", "-q", "-m", "my project")
+    (target / ".gitignore").write_text("node_modules/\n# uak\n.uak-env\n", encoding="utf-8")  # the installer's lines
+    remote_commit(remote, tmp, {".gitignore": "dist/\n", "README.md": "# on GitHub\n"}, "gh")
+    before = (target / ".gitignore").read_bytes()
+    with tp.live(target, tp.FakePlanner()) as srv:
+        ready_to_publish(srv, target)
+        out = way_out(srv)
+        assert out["command"] == "", "no pull over an uncommitted tracked file: %r" % out
+        assert any("Commit them first" in s and ".gitignore" in s for s in out["steps"]), out["steps"]
+        assert any("new empty repository" in s for s in out["steps"]), out["steps"]
+        assert (target / ".gitignore").read_bytes() == before
+        tp.git(target, "add", ".gitignore")
+        tp.git(target, "commit", "-q", "-m", "Keep my changes")
+        out = way_out(srv)
+    assert out["command"].endswith("git pull --no-rebase --no-edit --allow-unrelated-histories origin main"), out
+    assert any("conflict in them" in s and ".gitignore" in s for s in out["steps"]), out["steps"]
+    done = bash_line(out["command"], tmp)
+    output = done.stdout + done.stderr
+    assert "would be overwritten" not in output, "the offered command gets past the merge: %s" % output[-600:]
+    assert "CONFLICT" in output and ".gitignore" in output, "the conflict the step explains: %s" % output[-600:]
+    assert b"node_modules/" in (target / ".gitignore").read_bytes(), "nothing of yours is lost"
+
+
 TESTS = [schedule_form_writes_freeze_epoch, publish_kit_excludes_unapproved_plan_files,
          publish_kit_pushes_only_the_verified_commit, terminal_step_is_shown_with_its_command,
          planning_waits_for_the_kit_on_main, lint_failure_reason_reaches_the_page,
@@ -716,7 +747,7 @@ TESTS = [schedule_form_writes_freeze_epoch, publish_kit_excludes_unapproved_plan
          schedule_never_follows_links, publish_ignores_personal_files_present_before_install,
          failed_commit_leaves_index_and_refs_as_before, refused_push_says_nothing_was_published,
          long_messages_wrap_at_390, schedule_is_never_guessed, status_answers_during_network_git,
-         unrelated_remote_history_has_a_way_out]
+         unrelated_remote_history_has_a_way_out, way_out_with_tracked_modified_gitignore]
 
 
 def main():

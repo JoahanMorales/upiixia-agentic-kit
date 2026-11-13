@@ -178,7 +178,9 @@ network commands (30 s each). Offline, the step says setup cannot reach the remo
 license, it shares no history with your folder. Publishing then shows one exact command that keeps both histories
 (`git pull --no-rebase --no-edit --allow-unrelated-histories origin main`); files that exist on both sides are first
 renamed to `NAME.mine` (the command stops if that name is taken). When setup cannot make it safe, it only suggests
-publishing to a new empty repository. Setup never runs it.
+publishing to a new empty repository. A file you track and changed without committing (for example a `.gitignore`
+the installer added lines to) gets no pull: the page asks you to commit it first, because Git would refuse to merge over
+it; a tracked file on both sides ends in a conflict the page tells you how to resolve. Setup never runs it.
 
 ## Your app
 

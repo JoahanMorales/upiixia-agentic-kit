@@ -750,6 +750,8 @@
     ["Setup cannot write a safe command for the files this folder and (.+) both have\\. Publish to a new empty repository instead \\(no README, no \\.gitignore, no license\\): git remote set-url (.+) <its URL>", "La configuración no puede escribir un comando seguro para los archivos que tienen tanto esta carpeta como $1. Publica en un repositorio nuevo y vacío (sin README, sin .gitignore, sin licencia): git remote set-url $2 <su URL>"],
     ["Could not reach (.+): (.+)", "No se pudo conectar con $1: $2"],
     ["Could not run it: (.+)", "No se pudo ejecutar: $1"],
+    ["You changed files that (.+) also has and that are not committed yet: (.+)\\. Commit them first \\(git add -- (.+) && git commit -m 'Keep my changes'\\), then press Review the files again\\.", "Cambiaste archivos que $1 también tiene y que todavía no tienen commit: $2. Haz commit primero (git add -- $3 && git commit -m 'Keep my changes') y luego pulsa Revisar los archivos otra vez."],
+    ["(.+) exist here and on (.+), so git pull stops with a conflict in them: keep the lines you need from both, then run git add on them and git commit\\.", "$1 existen aquí y en $2, así que git pull se detiene con un conflicto en ellos: conserva las líneas que necesites de ambos y luego ejecuta git add sobre ellos y git commit."],
     ["· Waiting on dependencies: (.+) task\\(s\\); (.+) waits on (.+) \\((.*)\\)\\.", "· Esperando dependencias: $1 tarea(s); $2 espera a $3 ($4)."],
     ["· Waiting on (.+)", "· Esperando: $1"],
     ["· Why not (.+): (.+)", "· Por qué no $1: $2"],
