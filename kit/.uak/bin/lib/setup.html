@@ -2263,6 +2263,22 @@
             return w === me || (me.length >= 3 && w.indexOf(me) >= 0) || (w.length >= 3 && me.indexOf(w) >= 0);
           });
         }
+        // UI-012 stubs (red first): replaced by the real per-account check.
+        function plainWords(text) {
+          return [];
+        }
+        function sameName(words, me) {
+          return true;
+        }
+        function identityWarning(ident, human) {
+          return { text: "", git: false, gh: false };
+        }
+        function statusIcon(data) {
+          return "✓";
+        }
+        function statusTitle(data) {
+          return "";
+        }
         function drawIdentity(data) {
           var ident = data.identity || {},
             box = el("identity-warning");
