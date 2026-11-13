@@ -26,7 +26,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from design_round import GENES, project_root  # noqa: E402
+from design_round import GENES, project_root, qa_warnings, read_qa  # noqa: E402
 
 DEFAULT_K = 3
 FIRST_PORT = 8791
@@ -60,7 +60,8 @@ def load_variants(rnd):
         vs.append({"id": v.name, "genes": g.get("genes", {}), "recipe": g.get("recipe", ""),
                    "has1280": (v / "1280.png").is_file(), "has390": (v / "390.png").is_file(),
                    "has1280full": (v / "1280-full.png").is_file(), "has390full": (v / "390-full.png").is_file(),
-                   "hasIndex": (v / "index.html").is_file()})
+                   "hasIndex": (v / "index.html").is_file(), "has1920": (v / "1920.png").is_file(),
+                   "has1920full": (v / "1920-full.png").is_file(), "qa": qa_warnings(read_qa(v))})
     return vs
 
 
@@ -101,6 +102,7 @@ button { background: var(--ink); color: var(--wall); border: 0; border-radius: 6
 .desk, .phone { display: block; background: var(--mat); padding: 10px; box-shadow: var(--hang); }
 .desk img, .phone img { display: block; width: 100%; height: auto; }
 .full .desk, .full .phone { max-height: 85vh; overflow: auto; }
+.qa { list-style: none; font-size: 13px; color: var(--mark); display: grid; gap: 2px; }
 .live { font-size: 14px; color: var(--ink-2); }
 .live a { color: var(--ink); }
 .view { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 14px; }
@@ -198,18 +200,22 @@ def build_page(rnd, name, k, project):
     cards = []
     for v in vs:
         i = v["id"]
-        desk = ('<a class="desk" href="%s/1280.png" target="_blank"><img src="%s/1280.png" data-fold="%s/1280.png" data-full="%s" alt="%s at 1280 by 720"></a>' % (i, i, i, i + "/1280-full.png" if v["has1280full"] else i + "/1280.png", i)
-                if v["has1280"] else '<div class="missing">1280 capture missing<br>bash .uak/bin/uak design shoot %s</div>' % esc(name))
+        # the projector first: the 1920 shot is the main picture when the capture made one, 1280 otherwise
+        big, bigfull = ("1920", "1920-full") if v["has1920"] else ("1280", "1280-full")
+        desk = ('<a class="desk" href="%s/%s.png" target="_blank"><img src="%s/%s.png" data-fold="%s/%s.png" data-full="%s" alt="%s at %s wide"></a>'
+                % (i, big, i, big, i, big, "%s/%s.png" % (i, bigfull if v["has1920full" if v["has1920"] else "has1280full"] else big), i, big)
+                if (v["has1920"] or v["has1280"]) else '<div class="missing">1280 capture missing<br>bash .uak/bin/uak design shoot %s</div>' % esc(name))
         phone = ('<a class="phone" href="%s/390.png" target="_blank"><img src="%s/390.png" data-fold="%s/390.png" data-full="%s" alt="%s at 390 wide"></a>' % (i, i, i, i + "/390-full.png" if v["has390full"] else i + "/390.png", i)) if v["has390"] else ""
         live = ('<p class="live"><a href="%s/index.html" target="_blank" rel="noopener">Open the live page</a> (this server, %s/index.html)</p>' % (i, i)
                 if v["hasIndex"] else "")
+        qa = ('<ul class="qa">%s</ul>' % "".join("<li>%s: %s</li>" % (esc(str(vp)), esc(t)) for vp, t in v["qa"])) if v["qa"] else ""
         genes = "".join("<dt>%s</dt><dd>%s</dd>" % (esc(g), esc(str(v["genes"].get(g, "-")))) for g in GENES)
         cards.append(
             '<article class="card" tabindex="-1" data-id="%s"><div class="wall">%s%s</div>'
             '<div class="head"><span class="plate">%s</span><span class="badge" aria-hidden="true"></span><span class="recipe">recipe %s</span></div>'
-            '%s<dl class="genes">%s</dl><button type="button" class="pick-btn" aria-pressed="false">Pick</button>'
+            '%s%s<dl class="genes">%s</dl><button type="button" class="pick-btn" aria-pressed="false">Pick</button>'
             '<label class="n"><span>Note (optional)</span><input class="note" type="text" maxlength="%d" value="%s"></label></article>'
-            % (i, desk, phone, i, esc(v["recipe"] or "-"), live, genes, MAX_NOTE, esc(str(notes.get(i, "")))))
+            % (i, desk, phone, i, esc(v["recipe"] or "-"), live, qa, genes, MAX_NOTE, esc(str(notes.get(i, "")))))
     init = json.dumps({"ids": [v["id"] for v in vs], "picked": prior.get("picked", []) if isinstance(prior.get("picked"), list) else [], "k": k}).replace("</", "<\\/")
     return ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
             "<title>Pick · %s %s</title><style>%s</style></head><body><main>\n"

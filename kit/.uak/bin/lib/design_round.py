@@ -578,24 +578,119 @@ MEDIA_JS = """async () => {
   return vs.length;
 }"""
 
+# Why (AXIA R1-R3, Nov 11 2026): the lead hand-patched the capture for 1920, http and WebGL, and the human found the narrow
+# pages and stretched images by eye. The probe below measures what the human judges, in the page itself: WebGL, how wide
+# the content (text extents, images, media) is against the viewport, rasters drawn larger than they are, and the frame time.
+QA_JS = """async () => {
+  const W = innerWidth, dpr = window.devicePixelRatio || 1;
+  let gl = false;
+  try { const c = document.createElement('canvas'); gl = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) {}
+  const overflow = document.documentElement.scrollWidth > W + 1;
+  let lo = Infinity, hi = -Infinity, n = 0;
+  const all = document.body ? document.body.querySelectorAll('*') : [];
+  for (let i = 0; i < all.length && i < 4000; i++) {
+    const el = all[i], tag = el.tagName;
+    if (/^(SCRIPT|STYLE|NOSCRIPT|META|LINK|HEAD|TITLE|SOURCE)$/i.test(tag)) continue;
+    let r = null;
+    if (/^(IMG|VIDEO|CANVAS|SVG|PICTURE)$/i.test(tag)) r = el.getBoundingClientRect();
+    else {
+      let text = false;
+      for (const c of el.childNodes) { if (c.nodeType === 3 && c.textContent.trim()) { text = true; break; } }
+      if (!text) continue;
+      const g = document.createRange(); g.selectNodeContents(el); r = g.getBoundingClientRect();  // the text itself, not its box
+    }
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity === 0) continue;
+    if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.top > innerHeight * 3) continue;
+    lo = Math.min(lo, Math.max(0, r.left)); hi = Math.max(hi, Math.min(W, r.right)); n++;
+  }
+  const share = n && hi > lo ? Math.round((hi - lo) / W * 100) : null;
+  const upscaled = [];
+  document.querySelectorAll('img').forEach(im => {
+    const src = im.currentSrc || im.src || '';
+    if (!im.complete || !im.naturalWidth || /\.svg(\?|$)/i.test(src)) return;
+    const r = im.getBoundingClientRect(), cs = getComputedStyle(im);
+    if (r.width < 2 || cs.display === 'none' || cs.visibility === 'hidden') return;
+    if (r.width > im.naturalWidth * dpr * 1.1 + 1) upscaled.push({file: src.split('/').pop().split('?')[0], natural: im.naturalWidth, drawn: Math.round(r.width)});
+  });
+  const frame = await new Promise(res => { const t = []; let last = performance.now(); const t0 = last;
+    const f = now => { t.push(now - last); last = now; if (t.length < 200 && now - t0 < 1200) requestAnimationFrame(f);
+      else res(Math.round(t.reduce((a, b) => a + b, 0) / t.length)); };
+    requestAnimationFrame(f); });
+  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 5), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null};
+}"""
+
 _PLAYWRIGHT = """
-import sys
+import functools, http.server, json, sys, threading
 from pathlib import Path
+from urllib.parse import quote
 from playwright.sync_api import sync_playwright
-MEDIA = %s
+MEDIA = @MEDIA@
+QA = @QA@
 html, out = Path(sys.argv[1]).resolve(), Path(sys.argv[2])
+# Served over http: canvas pixel reads and fetches fail on file://. The root is the round folder (../brief.md, assets/).
+class Quiet(http.server.SimpleHTTPRequestHandler):
+    extensions_map = dict(http.server.SimpleHTTPRequestHandler.extensions_map, **{".glb": "model/gltf-binary", ".woff2": "font/woff2", ".mjs": "text/javascript", ".js": "text/javascript"})
+    def log_message(self, *a): pass
+root = html.parent.parent
+srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(root)))
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+url = "http://127.0.0.1:%d/%s" % (srv.server_address[1], quote(html.relative_to(root).as_posix()))
+report = {}
 with sync_playwright() as p:
-    b = p.chromium.launch()
-    for name, w, h in (("1280", 1280, 720), ("390", 390, 844)):
+    b = p.chromium.launch(args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"])
+    for name, w, h in (("1920", 1920, 1080), ("1280", 1280, 720), ("390", 390, 844)):
         pg = b.new_page(viewport={"width": w, "height": h})
-        pg.goto(html.as_uri()); pg.wait_for_load_state("networkidle"); pg.wait_for_timeout(800)
+        errs = []
+        pg.on("pageerror", lambda e: errs.append(str(e)))
+        try:
+            pg.goto(url, wait_until="networkidle", timeout=60000)
+        except Exception as exc:
+            errs.append("load: " + str(exc)[:120])
+        pg.wait_for_timeout(3200)  # animations are mid-cycle, fonts and media settled
         pg.evaluate(MEDIA)
+        qa = pg.evaluate(QA) or {}
         pg.screenshot(path=str(out / (name + ".png")))
         pg.evaluate(MEDIA)
         pg.screenshot(path=str(out / (name + "-full.png")), full_page=True)
+        qa["errors"], qa["first"] = len(errs), (errs[0][:160] if errs else "")
+        report[name] = qa
+        print("QA %s webgl=%s errors=%d overflow=%s content=%s%% fps=%s upscaled=%d" % (name, qa.get("gl"), len(errs), qa.get("overflow"), qa.get("share"), qa.get("fps"), len(qa.get("upscaled", []))))
         pg.close()
     b.close()
-""" % json.dumps(MEDIA_JS)
+srv.shutdown()
+(out / "qa.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+""".replace("@MEDIA@", json.dumps(MEDIA_JS)).replace("@QA@", json.dumps(QA_JS))
+
+
+NARROW_UNDER = 75  # percent of the viewport the content must span at 1920 and 1440 (the projector and the laptop)
+
+
+def qa_warnings(qa):
+    """[(viewport, text)] from a qa.json report: what the human would notice, said before they look."""
+    out = []
+    for name, q in (qa or {}).items():
+        if not isinstance(q, dict):
+            continue
+        w = q.get("w") or (int(name) if str(name).isdigit() else 0)
+        if q.get("errors"):
+            out.append((name, "page errors: %d (first: %s)" % (q["errors"], q.get("first") or "?")))
+        if q.get("gl") is False:
+            out.append((name, "no WebGL in the capture browser"))
+        if q.get("overflow"):
+            out.append((name, "horizontal overflow at %s px" % w))
+        if q.get("share") is not None and w >= 1440 and q["share"] < NARROW_UNDER:
+            out.append((name, "narrow page, empty gutters: content spans %s%% of %s px" % (q["share"], w)))
+        for u in q.get("upscaled", [])[:3]:
+            out.append((name, "upscaled raster: %s, %s -> %s px" % (u.get("file"), u.get("natural"), u.get("drawn"))))
+    return out
+
+
+def read_qa(vdir):
+    try:
+        return json.loads((Path(vdir) / "qa.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
 
 def find_capture(root):
@@ -650,7 +745,11 @@ def capture_one(cmd, html, vdir):
             return ok, (r.stderr or r.stdout)[-200:] if ok or exact else "shoot.py has other viewports than 1440x900; saved as desktop.png, not 1280.png"
         finally:
             shutil.rmtree(str(tmp), ignore_errors=True)
-    r = subprocess.run(cmd + [str(html), str(vdir)], capture_output=True, text=True, timeout=300)
+    try:
+        (vdir / "qa.json").unlink()  # a QA report belongs to the capture that wrote it
+    except OSError:
+        pass
+    r = subprocess.run(cmd + [str(html), str(vdir)], capture_output=True, text=True, timeout=600)
     ok = r.returncode == 0 and (vdir / "1280.png").is_file() and (vdir / "390.png").is_file()
     return ok, (r.stderr or r.stdout).strip()[-200:]
 
@@ -688,7 +787,16 @@ def cmd_shoot(argv):
     print("DESIGN_SHOOT %s: captured %s; already had %d" % (argv[0], " ".join(done) or "none", len(variants) - len(todo)))
     for name, why in failed:
         print("DESIGN_SHOOT not captured: %s (%s)" % (name, why.replace("\n", " ")), file=sys.stderr)
-    return 1 if failed else 0
+    broken = []
+    for v in variants:
+        warns = qa_warnings(read_qa(v)) if v.name in done else []
+        for vp, text in warns:
+            print("DESIGN_SHOOT QA %s %s: %s" % (v.name, vp, text))
+        if any(t.startswith("page errors") for _, t in warns):
+            broken.append(v.name)
+    if broken:  # Why (AXIA R1-R3): a variant that throws on load is not a design to judge; the shoot fails so it is fixed first
+        print("DESIGN_SHOOT page errors in: %s (see the QA lines above; fix them, delete the variant's PNGs and shoot again)" % " ".join(broken), file=sys.stderr)
+    return 1 if failed or broken else 0
 
 
 def main(argv):

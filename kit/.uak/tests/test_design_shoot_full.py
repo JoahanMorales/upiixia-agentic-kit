@@ -30,11 +30,14 @@ def log(*a):
     with open(LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(list(a)) + "\\n")
 class Page:
-    def __init__(self, w): self.w = w
-    def goto(self, url): log("goto", self.w)
+    def __init__(self, w): self.w = w; self.h = {}
+    def on(self, ev, fn): self.h[ev] = fn
+    def goto(self, url, **kw): log("goto", self.w)
     def wait_for_load_state(self, s): pass
     def wait_for_timeout(self, ms): pass
-    def evaluate(self, js): log("evaluate", self.w, js)
+    def evaluate(self, js):
+        if "innerWidth" in js: return {"w": self.w, "gl": True, "overflow": False, "share": 90, "upscaled": [], "fps": 60}  # the QA probe
+        log("evaluate", self.w, js)
     def screenshot(self, path, full_page=False):
         log("screenshot", self.w, Path(path).name, full_page)
         Path(path).write_bytes(bytes.fromhex("89504e47"))
@@ -43,7 +46,7 @@ class Browser:
     def new_page(self, viewport): return Page(viewport["width"])
     def close(self): pass
 class Chromium:
-    def launch(self): return Browser()
+    def launch(self, **kw): return Browser()
 class P: chromium = Chromium()
 @contextmanager
 def sync_playwright():
@@ -101,7 +104,7 @@ def video_is_not_captured_blank(e):
     d = e.project("vid", n=1)
     e.shoot_fake(d)
     calls = e.calls()
-    for w in (1280, 390):
+    for w in (1920, 1280, 390):
         seq = [c[0] + (":" + c[2] if c[0] == "screenshot" else "") for c in calls if c[1] == w]
         # media is handled before the fold shot and again before the full-page shot
         want = ["goto", "evaluate", "screenshot:%d.png" % w, "evaluate", "screenshot:%d-full.png" % w]
