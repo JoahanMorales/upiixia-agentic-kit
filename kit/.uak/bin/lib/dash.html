@@ -371,7 +371,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
   }
   function who(name, size) { return h("span", { "class": "who" }, [avatar(name, size || 18), h("span", { text: name })]); }
   function pres(s) { return h("span", { "class": "pres " + s, "aria-hidden": "true" }); }
-  function tid(id) { return h("button", { "class": "tid", text: id, title: "Conversation about " + id, on: function () { goTask(id); } }); }
+  function tid(id) { return h("button", { "class": "tid", text: id, title: T("Conversation about ") + id, on: function () { goTask(id); } }); }
   function go(tab, extra) { ui.tab = tab; for (var k in (extra || {})) ui[k] = extra[k]; save(); render(); document.getElementById("tabs").scrollIntoView({ block: "start" }); }
   function goTask(id) { go("talk", { task: id, agent: "", kind: "", q: "" }); }
 
@@ -525,7 +525,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
   }
 
   function agents(v, d) {
-    var groups = [["online", T("Online"), T("active in the last 30 min")], ["recent", T("Recently active"), T("seen in the last 3 h")], ["away", T("Away"), T("session ended")], ["offline", T("Offline"), "not seen for 3 h or more"], ["retired", "Retired", "identity retired"]];
+    var groups = [["online", T("Online"), T("active in the last 30 min")], ["recent", T("Recently active"), T("seen in the last 3 h")], ["away", T("Away"), T("session ended")], ["offline", T("Offline"), T("not seen for 3 h or more")], ["retired", T("Retired"), T("identity retired")]];
     if (!d.agents.length) { v.appendChild(h("div", { "class": "panel empty" }, [h("b", { text: T("No agents yet") }), T("An agent appears here after its first uak command.")])); return; }
     groups.forEach(function (gr) {
       var list = d.agents.filter(function (a) { return a.status === gr[0]; }).sort(function (a, b) { return b.last_seen - a.last_seen || a.name.localeCompare(b.name); });

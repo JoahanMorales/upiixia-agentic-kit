@@ -655,7 +655,67 @@
     ["Use Start your team above: its first command claims this task for Claude Code.", "Usa Arranca tu equipo, arriba: su primer comando toma esta tarea para Claude Code."],
     ["Choose the main project folder in this page (not a task worktree): agents start from there.", "Elige en esta página la carpeta principal del proyecto (no un worktree de tarea): los agentes empiezan desde ahí."],
     ["Publish the kit to main first (Prepare: Publish the kit to main): agents read the kit from there.", "Primero publica el kit en main (Prepara: Publicar el kit en main): los agentes leen el kit desde ahí."],
+    ["Retired", "Retirado"],
+    ["Conversation about ", "Conversación sobre "],
+    ["uak dash", "uak dash"],
+    ["not seen for 3 h or more", "sin verse desde hace 3 h o más"],
+    ["identity retired", "identidad retirada"],
+    ["Type {name} to enable publishing", "Escribe {name} para habilitar la publicación"],
+    ["Your journey", "Tu recorrido"],
+    ["1. Install", "1. Instalar"],
+    ["2. Prepare", "2. Preparar"],
+    ["3. Plan", "3. Planear"],
+    ["4. Start the team", "4. Arrancar el equipo"],
+    ["5. Follow progress", "5. Seguir el avance"],
+    ["Start the team", "Arrancar el equipo"],
+    ["Follow progress", "Seguir el avance"],
+    ["in this page", "en esta página"],
+    ["in a terminal", "en una terminal"],
+    ["your agents do it", "lo hacen tus agentes"],
+    ["This page installs the kit into this project and guides you to the moment your agents start. The kit itself is downloaded only once; each project gets its own copy.", "Esta página instala el kit en este proyecto y te guía hasta que empiezan tus agentes. El kit se descarga una sola vez; cada proyecto recibe su propia copia."],
   ];
+  // The readiness gate's lines (`uak start`, .uak/bin/start), as whole-line patterns: the engine's English stays in
+  // Technical details; the checklist reads in the page's language. $1… are the engine's values, shown as they are.
+  var GATE = [
+    ["a Git repository", "un repositorio de Git"],
+    ["kit installed \\((.+), uak (.+)\\)", "kit instalado ($1, uak $2)"],
+    ["install the kit", "instala el kit"],
+    ["update the kit: this project has uak (.+) and (.+) has (.+)", "actualiza el kit: este proyecto tiene uak $1 y $2 tiene $3"],
+    ["a remote named (.+)", "un remoto llamado $1"],
+    ["reach (.+) \\((.+)\\)", "conectar con $1 ($2)"],
+    ["remote (.+) reachable", "remoto $1 accesible"],
+    ["fixed: Review-Mode: claims in \\.uak/PROJECT\\.md \\(you are the only collaborator; agent identities review each other\\)", "corregido: Review-Mode: claims en .uak/PROJECT.md (eres la única persona colaboradora; las identidades de los agentes se revisan entre sí)"],
+    ["preflight: doctor has no failures \\((.+) warning\\(s\\): bash \\.uak/bin/doctor\\)", "revisión previa: doctor no encontró fallos ($1 aviso(s): bash .uak/bin/doctor)"],
+    ["preflight: doctor clean", "revisión previa: doctor sin problemas"],
+    ["preflight: doctor found (.+) failure\\(s\\)", "revisión previa: doctor encontró $1 fallo(s)"],
+    ["push the kit to (.+): agents read \\.uak/PROJECT\\.md and \\.uak/TASKS\\.md from (.+), and it has none yet", "publica el kit en $1: los agentes leen .uak/PROJECT.md y .uak/TASKS.md desde $2, y todavía no los tiene"],
+    ["push your changes to(.+): the agents still read (.+)'s copy", "sube tus cambios a$1: los agentes todavía leen la copia de $2"],
+    ["\\.uak/ on (.+) matches this checkout(.*)", ".uak/ en $1 coincide con esta copia$2"],
+    ["a plan: no tasks yet", "un plan: todavía no hay tareas"],
+    ["a plan: no tasks in \\.uak/TASKS\\.md on (.+)", "un plan: no hay tareas en .uak/TASKS.md en $1"],
+    ["fix the plan \\((.+) tasks\\): uak lint found problems", "corrige el plan ($1 tareas): uak lint encontró problemas"],
+    ["plan: (.+) task\\(s\\), lint clean", "plan: $1 tarea(s), lint sin problemas"],
+    ["Autonomy: yes on (.+): without it no agent can claim", "Autonomy: yes en $1: sin eso ningún agente puede tomar tareas"],
+    ["approve the plan: Backlog-Approved is not yes on (.+), so nothing can be claimed for 10 min and then only P0", "aprueba el plan: Backlog-Approved no es yes en $1, así que nada se puede tomar durante 10 min y después solo P0"],
+    ["reviews: no reviewer is registered, so the first PR waits until a second agent holds a claim\\. Working alone\\? Register one from this checkout: (.+)", "revisiones: no hay revisor registrado, así que el primer PR espera a que un segundo agente tenga una tarea. ¿Trabajas solo? Registra uno desde esta copia: $1"],
+    ["you already hold (.+) \\((.+)\\)", "ya tienes $1 ($2)"],
+    ["first task: (.+) \\((.*)\\)", "primera tarea: $1 ($2)"],
+    ["a claimable task: uak next offers none", "una tarea disponible: uak next no ofrece ninguna"]
+  ];
+  function gate(line) {
+    var text = String(line),
+      number = (text.match(/^\d+\.\s+/) || [""])[0],
+      rest = text.slice(number.length);
+    if (language !== "es") return text;
+    for (var i = 0; i < GATE.length; i++) {
+      var m = rest.match(new RegExp("^(?:" + GATE[i][0] + ")$"));
+      if (m)
+        return number + GATE[i][1].replace(/\$(\d)/g, function (all, n) {
+          return m[+n] === undefined ? "" : m[+n];
+        });
+    }
+    return text;
+  }
   var es = Object.create(null),
     en = Object.create(null);
   pairs.forEach(function (pair) {
@@ -731,5 +791,6 @@
       return language;
     },
     catalog: es,
+    gate: gate,
   };
 })();
