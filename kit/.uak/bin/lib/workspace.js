@@ -731,6 +731,24 @@
     ["UAK_AGENT gives Claude Code the reviewer's name, so it acts as a second identity: it never reviews as the agent that wrote the code. It waits for work with uak next and reviews with /uak-review. The first time, Claude Code asks whether you trust this folder and to approve this project's uak server (MCP): accept both.", "UAK_AGENT le da a Claude Code el nombre del revisor, así actúa como una segunda identidad: nunca revisa como el agente que escribió el código. Espera trabajo con uak next y revisa con /uak-review. La primera vez, Claude Code pregunta si confías en esta carpeta y pide aprobar el servidor uak de este proyecto (MCP): acepta ambos."],
     ["The remote already has its own history", "El remoto ya tiene su propia historia"],
     ["Run this in a terminal, then press Review the files again:", "Ejecuta esto en una terminal y luego pulsa Revisar los archivos otra vez:"],
+    ["The GitHub login {gh} does not match your name, so it looks like someone else's account: sign in as yourself with gh auth login before publishing.", "El usuario de GitHub {gh} no coincide con tu nombre, así que parece la cuenta de otra persona: inicia sesión con la tuya usando gh auth login antes de publicar."],
+    ["The Git name and email {git} do not match your name, so they look like someone else's: set your own with git config user.name and user.email before publishing.", "El nombre y el correo de Git {git} no coinciden con tu nombre, así que parecen de otra persona: configura los tuyos con git config user.name y user.email antes de publicar."],
+    ["never seen", "nunca visto"],
+    ["reviewer", "revisor"],
+    ["second", "segundo"],
+    ["seconds", "segundos"],
+    ["minute", "minuto"],
+    ["minutes", "minutos"],
+    ["hour", "hora"],
+    ["hours", "horas"],
+    ["day", "día"],
+    ["days", "días"],
+    ["week", "semana"],
+    ["weeks", "semanas"],
+    ["month", "mes"],
+    ["months", "meses"],
+    ["year", "año"],
+    ["years", "años"],
   ];
   // Server notes that carry values (UI-009): whole-string patterns; each value is translated when the catalog has it.
   var NOTES = [
@@ -755,6 +773,30 @@
     ["· Waiting on dependencies: (.+) task\\(s\\); (.+) waits on (.+) \\((.*)\\)\\.", "· Esperando dependencias: $1 tarea(s); $2 espera a $3 ($4)."],
     ["· Waiting on (.+)", "· Esperando: $1"],
     ["· Why not (.+): (.+)", "· Por qué no $1: $2"],
+    ["(.+) commit\\(s\\) since the claim · last: (.*) \\((\\d+) (seconds?|minutes?|hours?|days?|weeks?|months?|years?) ago\\) · (.+) uncommitted tracked file\\(s\\)(?: · at .+)?", "$1 commit(s) desde que se tomó · último: $2 (hace $3 $4) · $5 archivo(s) con seguimiento sin commit"],
+    ["(.+) commit\\(s\\) since the claim · last: (.*) · (.+) uncommitted tracked file\\(s\\)(?: · at .+)?", "$1 commit(s) desde que se tomó · último: $2 · $3 archivo(s) con seguimiento sin commit"],
+    ["· core\\.bare=true on a checkout \\((.+)\\): fix with (.+) \\(or uak doctor --fix\\)", "· core.bare=true en una copia de trabajo ($1): corrígelo con $2 (o uak doctor --fix)"],
+    ["· not a Git repository", "· no es un repositorio de Git"],
+    ["· git has no user\\.name or user\\.email: (.+)", "· git no tiene user.name ni user.email: $1"],
+    ["· bash 3\\.2\\+ required", "· se necesita bash 3.2 o posterior"],
+    ["· grep -E lacks intervals: the secret scanner would miss keys", "· grep -E no admite intervalos: el escáner de secretos no detectaría claves"],
+    ["· PROJECT\\.md lacks Mode: sprint\\|marathon", "· a PROJECT.md le falta Mode: sprint|marathon"],
+    ["· sprint without Freeze-Epoch: (.+) --write sets it \\(dates as YYYY-MM-DD HH:MM\\)", "· sprint sin Freeze-Epoch: $1 --write lo fija (fechas como YYYY-MM-DD HH:MM)"],
+    ["· missing (.+) \\(bash install\\.sh --mode sprint\\|marathon\\)", "· falta $1 (bash install.sh --mode sprint|marathon)"],
+    ["· core\\.hooksPath is not set: commits skip the scanner \\(doctor --fix\\)", "· core.hooksPath no está configurado: los commits se saltan el escáner (doctor --fix)"],
+    ["· (.+) is a text file or a broken link \\(a clone with core\\.symlinks=false, Windows\\): skills do not load\\. Fix: (.+)", "· $1 es un archivo de texto o un enlace roto (un clon con core.symlinks=false, Windows): las skills no se cargan. Solución: $2"],
+    ["· (.+) is a stale copy of \\.claude/skills: Codex, Cursor and Gemini read old skills\\. Fix: (.+) \\(or install\\.sh --update\\)", "· $1 es una copia vieja de .claude/skills: Codex, Cursor y Gemini leen skills antiguas. Solución: $2 (o install.sh --update)"],
+    ["· (.+) is not executable: git skips it \\(doctor --fix\\)", "· $1 no es ejecutable: git lo omite (doctor --fix)"],
+    ["· \\.gitignore does not ignore \\.env", "· .gitignore no ignora .env"],
+    ["· remote (.+) unreachable: no claims possible \\(credentials or network\\)", "· el remoto $1 no responde: no se pueden tomar tareas (credenciales o red)"],
+    ["· push rejected in dry-run: no push means no claims or branches", "· el push de prueba (dry-run) fue rechazado: sin push no se pueden tomar tareas ni crear ramas"],
+    ["· gh has no push on (.+)", "· gh no tiene permiso de push en $1"],
+    ["· gh cannot read PRs of (.+)", "· gh no puede leer los PR de $1"],
+    ["· Review-Mode (.+) needs a GitHub approval from someone else, and you are the only collaborator of (.+): set Review-Mode: claims in \\.uak/PROJECT\\.md and push it to main \\(agent identities review each other; you still merge\\)", "· Review-Mode $1 necesita una aprobación en GitHub de otra persona, y eres la única persona colaboradora de $2: pon Review-Mode: claims en .uak/PROJECT.md y súbelo a main (las identidades de los agentes se revisan entre sí; tú sigues integrando)"],
+    ["· no remote (.+): uak coordinates through the remote claims branch", "· no hay remoto $1: uak se coordina a través de la rama claims del remoto"],
+    ["· (.+): the code uses zoneinfo but tzdata is no dependency; Windows has no time zone database, so imports fail with ZoneInfoNotFoundError\\. Fix: uv add tzdata", "· $1: el código usa zoneinfo pero tzdata no es una dependencia; Windows no tiene base de datos de zonas horarias, así que los imports fallan con ZoneInfoNotFoundError. Solución: uv add tzdata"],
+    ["· Node (.+) is too old for (.+): (.+)\\. npm skips native packages a Node excludes, so the build fails \\((.+)\\)\\. Fix: winget install OpenJS\\.NodeJS\\.LTS \\(Windows\\), brew upgrade node, or nvm install --lts; then rm -rf (.+)/node_modules and npm ci", "· Node $1 es demasiado viejo para $2: $3. npm omite los paquetes nativos que una versión de Node excluye, así que el build falla ($4). Solución: winget install OpenJS.NodeJS.LTS (Windows), brew upgrade node o nvm install --lts; luego rm -rf $5/node_modules y npm ci"],
+    ["uak start --fix does the hooks, the skills folders and, alone on the repo, Review-Mode: claims", "uak start --fix arregla los hooks, las carpetas de skills y, si estás solo en el repositorio, Review-Mode: claims"],
   ];
   // The readiness gate's lines (`uak start`, .uak/bin/start), as whole-line patterns: the engine's English stays in
   // Technical details; the checklist reads in the page's language. $1… are the engine's values, shown as they are.
@@ -797,6 +839,15 @@
         });
     }
     return text;
+  }
+  // The engine's times ("Fri 03:30", uak clock in the event's zone): only the weekday changes language (UI-012, r1).
+  var WEEKDAYS = { Mon: "lun", Tue: "mar", Wed: "mié", Thu: "jue", Fri: "vie", Sat: "sáb", Sun: "dom" };
+  function when(text) {
+    var value = String(text);
+    if (language !== "es") return value;
+    return value.replace(/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/g, function (day) {
+      return WEEKDAYS[day];
+    });
   }
   var es = Object.create(null),
     en = Object.create(null);
@@ -883,5 +934,6 @@
     },
     catalog: es,
     gate: gate,
+    when: when,
   };
 })();
