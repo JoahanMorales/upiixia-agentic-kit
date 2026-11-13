@@ -89,21 +89,32 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
         for thread in readers:
             thread.start()
 
+    def stop_group():
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+
     def finish(wait=None):
         if not readers:
             return proc.communicate(timeout=wait)
         proc.wait(timeout=wait)
         for thread in readers:
             thread.join(10)
+        if any(thread.is_alive() for thread in readers):
+            # A descendant still holds the pipe after the tool exited: stop the group, never leave it running (UI-010 review).
+            stop_group()
+            for thread in readers:
+                thread.join(10)
         return "".join(lines), "".join(errors)
 
     try:
         out, err = finish(timeout)
     except subprocess.TimeoutExpired:
-        if os.name == "nt":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
-        else:
-            os.killpg(proc.pid, signal.SIGKILL)
+        stop_group()
         out, err = finish()
         return subprocess.CompletedProcess(command, 124, out, err + "\nThe run took too long and was stopped.")
     return subprocess.CompletedProcess(command, proc.returncode, out, err)

@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -470,9 +471,42 @@ def planning_shows_progress(root, tmp):
     assert "Planning for {time}. Last output: {line}" in es, "the progress line has Spanish"
 
 
+def run_command_stops_a_descendant_holding_the_pipe(root, tmp):
+    """Review of 31b9a2d (P2): a tool that exits while a child still holds its output must not leave that child running
+    (the same class as the WinError 32 incident); the group is stopped, as on a timeout."""
+    code = ("import subprocess, sys\n"
+            "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+            "print(p.pid, flush=True)\n")
+    seen = []
+    done = wizard.MODULE.run_command([sys.executable, "-c", code], timeout=60, group=True, on_line=seen.append)
+    assert done.returncode == 0 and seen, "the tool exited cleanly and its line was read: %r %r" % (done, seen)
+    pid = int(seen[0].strip())
+
+    def alive():
+        if sys.platform == "win32":
+            listing = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid], capture_output=True, text=True).stdout
+            return str(pid) in listing
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        stat = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        return bool(stat) and not stat.startswith("Z")
+
+    for _ in range(50):
+        if not alive():
+            break
+        threading.Event().wait(0.1)
+    left = alive()
+    if left and sys.platform != "win32":
+        os.kill(pid, 9)  # never leave it behind, whatever the verdict
+    assert not left, "the descendant holding the pipe was left running after run_command returned"
+
+
 TESTS = [idea_is_saved_as_plain_text, planner_command_is_fixed_and_literal, planner_never_approves_or_pushes,
          duplicate_planning_is_rejected, approval_requires_typed_confirmation, approval_commits_only_plan_files,
-         approval_refuses_failing_lint, missing_tasks_file_is_a_failed_plan, planning_shows_progress]
+         approval_refuses_failing_lint, missing_tasks_file_is_a_failed_plan, planning_shows_progress,
+         run_command_stops_a_descendant_holding_the_pipe]
 
 
 def main():
