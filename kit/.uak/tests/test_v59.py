@@ -103,7 +103,35 @@ def a_new_worktree_finds_the_keys(r):
     return {"linked": env.is_symlink()}
 
 
-TESTS = [a_verify_that_does_not_parse_is_refused, a_green_verify_with_a_missing_command_is_red,
+def stale_claims_cache_still_refuses(r):
+    """UAK-079: the suspected cause was a stale cache of the backlog. A status read first fills the clone's cache; the
+    Verify pushed after it must still be read fresh by lint and refused."""
+    f = r.fixture("v59-stale", count=1)
+    hack(f, 0, "status", allowed=None)
+    push_tasks(f, lambda t: t.replace("- **Verify:** .uak/bin/smoke --package-only",
+                                      "- **Verify:** `bash -c '! grep -q old src' && true'`", 1))
+    hack(f, 0, "status", allowed=None)
+    lint = hack(f, 0, "lint", allowed=None)
+    expect(lint.returncode != 0 and "HACK-001's Verify does not parse" in lint.stderr, lint.stdout + lint.stderr)
+    return {"fresh": True}
+
+
+def a_parse_error_survives_pipefail(r):
+    """UAK-079, the real cause: verify_parse_error ended in `printf err | head -n 1 | sed`; under `set -o pipefail` (uak sets
+    it) printf took SIGPIPE when head left first, the function returned non-zero and a broken Verify counted as fine,
+    only under load (the failing runs showed `OK plan | tasks published` for BROKEN, or LINT_OK). 400 calls with a
+    two-line error, each must report it."""
+    script = r.scratch / "pipefail-parse.sh"
+    lint_sh = r.package / ".uak/bin/lib/lint.sh"
+    script.write_text('set -o pipefail\n. "$1"\nbad=0\nfor i in $(seq 400); do\n'
+                      "  e=$(verify_parse_error \"bash -c '! grep -q old src' && test -s x'\") || bad=$((bad + 1))\n"
+                      '  case "$e" in *"unexpected EOF"*) ;; *) bad=$((bad + 1));; esac\ndone\necho bad=$bad\n', encoding="utf-8")
+    out = r.run([r.bash, str(script), str(lint_sh)], cwd=r.scratch, allowed=None)
+    expect("bad=0" in out.stdout, out.stdout + out.stderr)
+    return {"calls": 400}
+
+
+TESTS = [a_verify_that_does_not_parse_is_refused, stale_claims_cache_still_refuses, a_parse_error_survives_pipefail, a_green_verify_with_a_missing_command_is_red,
          doctor_names_the_verify_tools_this_machine_lacks, start_says_the_kit_is_older_than_the_installed_one,
          a_new_worktree_finds_the_keys]
 
