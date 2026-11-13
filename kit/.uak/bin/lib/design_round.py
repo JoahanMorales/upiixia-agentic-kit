@@ -303,20 +303,96 @@ def brand_colors(root, idea_text=None):
     return found[:MAX_BRAND]
 
 
+def image_info(path):
+    """(width, height, transparent_corners) of a PNG or JPEG without Pillow; Nones when it cannot tell. transparent_corners:
+    both top corners have alpha 0 (a cut-out), read from the first scanline of an 8-bit, non-interlaced PNG with alpha."""
+    import struct
+    import zlib
+    try:
+        size = os.path.getsize(str(path))
+        with open(str(path), "rb") as f:
+            head = f.read(32)
+            if head[:8] == b"\x89PNG\r\n\x1a\n":
+                w, h, depth, ctype, _, _, inter = struct.unpack(">IIBBBBB", head[16:29])
+                clear = None
+                if ctype in (4, 6) and depth == 8 and not inter and size <= 12000000:
+                    f.seek(33)
+                    comp = zlib.decompressobj()
+                    bpp, raw = (4 if ctype == 6 else 2), b""
+                    need = 1 + w * bpp
+                    while len(raw) < need:
+                        hdr = f.read(8)
+                        if len(hdr) < 8:
+                            break
+                        n, kind = struct.unpack(">I4s", hdr)
+                        if kind == b"IDAT":
+                            raw += comp.decompress(f.read(n))
+                            f.read(4)
+                        else:
+                            f.seek(n + 4, 1)
+                            if kind == b"IEND":
+                                break
+                    if len(raw) >= need:
+                        ft, row = raw[0], bytearray(raw[1:need])
+                        for i in range(len(row)):  # the first scanline has no row above: the up-neighbour is 0
+                            a = row[i - bpp] if i >= bpp else 0
+                            row[i] = (row[i] + {0: 0, 1: a, 2: 0, 3: a // 2, 4: a}.get(ft, 0)) & 255
+                        alpha = bpp - 1
+                        clear = row[alpha] == 0 and row[(w - 1) * bpp + alpha] == 0
+                return w, h, clear
+            if head[:2] == b"\xff\xd8":
+                f.seek(2)
+                while True:
+                    marker = f.read(4)
+                    if len(marker) < 4 or marker[0] != 0xFF:
+                        return None, None, None
+                    if marker[1] in (0xC0, 0xC1, 0xC2):
+                        d = f.read(5)
+                        return struct.unpack(">H", d[3:5])[0], struct.unpack(">H", d[1:3])[0], False
+                    f.seek(struct.unpack(">H", marker[2:4])[0] - 2, 1)
+    except (OSError, struct.error, zlib.error, ValueError):
+        pass
+    return None, None, None
+
+
+def is_screen_shape(w, h):
+    """Wide enough and 16:9 or 16:10: how a real capture of a product looks (a cut-out or a portrait is not)."""
+    return bool(w and h and w >= 1000 and (1.70 <= w / float(h) <= 1.85 or 1.55 <= w / float(h) <= 1.65))
+
+
+def has_coordinates(path):
+    try:
+        text = _read_text(path, 300000)
+    except OSError:
+        return False
+    return bool(re.search(r"\"coordinates\"|\"(?:lat|latitude)\"\s*:\s*-?\d|\"geometry\"", text))
+
+
 def project_material(root):
-    """{imagery value: [files]} for what the project really has: screens, video, mascot/photos, a map or drawings."""
+    """{imagery value: [files]} for what the project really has, found the way teams keep it: wide 16:9/16:10 captures are
+    product screens, a PNG with a transparent background is a cut-out, .geojson/.json with coordinates is real data (a map),
+    video is video. Why (colonIA R1, Nov 11 2026): four real product screens came out as "3D cut-out" (their file name said
+    "producto") and the real hex.geojson was not found."""
     root = Path(root)
     mat = {}
-    for d in ("assets", "web", "public", "docs", "screenshots", "media"):
+    for d in ("assets", "web", "public", "docs", "screenshots", "media", "data"):
         for f in _walk(root / d):
             rel = f.relative_to(root).as_posix()
             name, ext = f.name.lower(), f.suffix.lower()
             if ext in (".mp4", ".webm", ".mov", ".gif"):
                 mat.setdefault("video loop", []).append(rel)
-            elif ext in (".png", ".jpg", ".jpeg", ".webp") and re.search(r"screen|captur|shot|dashboard|resultado|result|panel|app|loop|demo|ui", name):
-                mat.setdefault("product screenshot", []).append(rel)
-            elif ext in (".png", ".jpg", ".jpeg", ".webp") and re.search(r"mascot|mascota|cutout|cut-out|vehicle|product|photo|foto|premium|3d", name):
-                mat.setdefault("3D cut-out", []).append(rel)
+            elif ext == ".geojson" or (ext == ".json" and has_coordinates(f)):
+                mat.setdefault("real data (map)", []).append(rel)
+            elif ext in (".png", ".jpg", ".jpeg", ".webp"):
+                w, h, clear = image_info(f)
+                if clear:
+                    mat.setdefault("3D cut-out", []).append(rel)
+                elif is_screen_shape(w, h) or re.search(r"screen|captur|shot|dashboard|resultado|result|panel|app|loop|demo|ui|producto?\b|producto?[-_ ]?\d", name):
+                    mat.setdefault("product screenshot", []).append(rel)
+                elif re.search(r"mascot|mascota|cutout|cut-out|vehicle|photo|foto|premium|3d", name):
+                    mat.setdefault("3D cut-out", []).append(rel)
+                elif re.search(r"map|mapa|illustr|ilustr|draw|icon|logo", name):
+                    mat.setdefault("illustration", []).append(rel)
             elif ext == ".svg" or re.search(r"map|mapa|illustr|ilustr|draw|icon|logo", name):
                 mat.setdefault("illustration", []).append(rel)
     if (root / "web").is_dir() and any(f.suffix.lower() in (".html", ".js", ".jsx", ".tsx") for f in _walk(root / "web", 400)):
@@ -328,18 +404,35 @@ def material_factors(mat):
     """imagery values with no material behind them are drawn less (NO_MATERIAL); "type only" needs none."""
     if not mat:
         return {}
-    return {"imagery": {v: (1.0 if (v in mat or v == "type only") else NO_MATERIAL) for v in GENES["imagery"]}}
+    have = set(mat) | ({"illustration"} if "real data (map)" in mat else set())  # a map rebuilt live from real data is vector art
+    return {"imagery": {v: (1.0 if (v in have or v == "type only") else NO_MATERIAL) for v in GENES["imagery"]}}
 
 
 # ---- IDEA.md -> brief (sections by their "## N." heading, as landing-story reads them) ----
 
+# Why (colonIA R1, Nov 11 2026): the team's IDEA.md was in Spanish and the brief said wow and ask MISSING although both were
+# there. A heading counts by its number ("## 4. Flujo de la demo") or, with no number, by its name in English or Spanish.
+HEADINGS = {0: ("name and brand", "nombre y marca", "nombre"), 1: ("one line", "una linea"), 2: ("users", "usuarios"),
+            4: ("demo flow", "flujo de la demo", "flujo"), 10: ("citable facts", "datos citables")}
+
+
+def _plain(text):
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c)).lower().strip()
+
+
 def _sections(text):
     secs, cur = {}, None
     for line in text.replace("\r", "").split("\n"):
-        m = re.match(r"^##\s+(\d+)\.", line)
+        m = re.match(r"^##\s+(?:(\d+)\.\s*)?(.*)$", line)
         if m:
-            cur = int(m.group(1))
-            secs[cur] = []
+            num = int(m.group(1)) if m.group(1) else None
+            if num is None:
+                name = _plain(re.sub(r"\(.*?\)|[*_`]", "", m.group(2)))
+                num = next((k for k, names in HEADINGS.items() if any(name == n or name.startswith(n + " ") for n in names)), None)
+            cur = num  # an unknown unnumbered heading closes the section before it
+            if cur is not None:
+                secs[cur] = []
         elif cur is not None:
             secs[cur].append(line)
     return secs
@@ -359,7 +452,26 @@ def _rows(lines):
     return rows[1:]  # first row is the header
 
 
-def read_beats(idea_text):
+def _clean(s):
+    return _real(s).strip(" *_\"\u201c\u201d")
+
+
+def cta_text(root):
+    """The primary call to action of the live product: its first element classed cta/primary, else its first button."""
+    for rel in ("web/index.html", "index.html", "public/index.html", "web/public/index.html", "app/web/index.html"):
+        html = _read_text(Path(root) / rel, 400000)
+        if not html:
+            continue
+        for pat in (r"<(a|button)\b[^>]*class=[\"'][^\"']*(?:cta|btn-primary|primary)[^\"']*[\"'][^>]*>(.*?)</\1>", r"<(button)\b[^>]*>(.*?)</\1>"):
+            m = re.search(pat, html, re.S | re.I)
+            if m:
+                t = _clean(re.sub(r"<[^>]+>", " ", m.group(2)))
+                if t:
+                    return t + " (the CTA of the live product)"
+    return None
+
+
+def read_beats(idea_text, root=None):
     """{beat: text or None}. None = IDEA.md does not say it (placeholders from the template count as not saying it)."""
     secs = _sections(idea_text or "")
     beats = dict.fromkeys(BEATS)
@@ -376,24 +488,29 @@ def read_beats(idea_text):
                 break
     s4 = secs.get(4, [])
     for l in s4:
-        m = re.search(r"Wow in one sentence:\s*([^·]*)", l)
-        if m and _real(m.group(1)):
-            beats["wow"] = _real(m.group(1))
-    if not beats["wow"]:
+        m = re.search(r"Wow (?:in one sentence|en una frase):\s*([^·]*)", l, re.I)
+        if m and _clean(m.group(1)):
+            beats["wow"] = _clean(m.group(1))
+    if not beats["wow"]:  # a **Wow:** or **Wow 1:** mark inside the flow table
         for r in _rows(s4):
             for c in r:
-                m = re.search(r"\*\*Wow:\*\*\s*(.*)", c)
-                if m and _real(m.group(1)):
-                    beats["wow"] = _real(m.group(1))
+                m = re.search(r"\*\*Wow(?:\s*\d+)?:\*\*\s*(.*)", c)
+                if m and _clean(m.group(1)):
+                    beats["wow"] = _clean(m.group(1))
+                    break
+            if beats["wow"]:
+                break
     steps = ["%s -> %s" % (_real(r[1]), _real(r[2])) for r in _rows(s4) if len(r) > 2 and _real(r[1]) and _real(r[2])]
     beats["steps"] = "\n".join("  %d. %s" % (i, s) for i, s in enumerate(steps[:6], 1)) or None
     users = ["%s: %s" % (_real(r[0]), _real(r[2])) for r in _rows(secs.get(2, [])) if len(r) > 2 and _real(r[0]) and _real(r[2])]
     beats["users"] = "; ".join(users) or None
     for l in (idea_text or "").replace("\r", "").split("\n"):
-        m = re.match(r"^\s*[-*]?\s*(?:\*\*)?Ask(?:\*\*)?:\s*(.+)$", l)
+        m = re.match(r"^\s*[-*]?\s*(?:\*\*)?(?:Ask|Pedido)(?:\*\*)?:\s*(.+)$", l)
         if m and _real(m.group(1)):
             beats["ask"] = _real(m.group(1))
             break
+    if not beats["ask"] and root is not None:
+        beats["ask"] = cta_text(root)
     return beats
 
 
@@ -542,14 +659,28 @@ def task_text(rnd, i, genome, screen):
     return "\n".join(lines) + "\n"
 
 
+def product_name(root, idea):
+    """The project's name: IDEA.md section 0's name line, else the <title> of the live product's index.html, else the IDEA.md
+    heading, else the folder."""
+    for l in _sections(idea).get(0, []):
+        m = re.match(r"^\s*[-*]?\s*(?:\*\*)?(?:Name|Nombre)(?:\*\*)?\s*:\s*(?:\*\*)?([^*\u00b7(\n]+)", l, re.I)
+        if m and _real(m.group(1)):
+            return _real(m.group(1)).strip(" .")
+    for rel in ("web/index.html", "index.html", "public/index.html", "web/public/index.html"):
+        m = re.search(r"<title[^>]*>(.*?)</title>", _read_text(Path(root) / rel, 100000), re.S | re.I)
+        if m and _real(m.group(1)):
+            return re.split(r"\s+[\u00b7|\u2014\u2013-]\s+", _real(m.group(1)))[0].strip()
+    m = re.match(r"^#\s*IDEA\s*[\u00b7:-]\s*(.+)$", idea.split("\n", 1)[0].strip()) if idea else None
+    return m.group(1).strip() if m else Path(root).name
+
+
 def _idea_and_product(root):
     idea = ""
     try:
         idea = (root / "IDEA.md").read_text(encoding="utf-8")
     except OSError:
         pass
-    m = re.match(r"^#\s*IDEA\s*[·:-]\s*(.+)$", idea.split("\n", 1)[0].strip()) if idea else None
-    return idea, (m.group(1).strip() if m else root.name)
+    return idea, product_name(root, idea)
 
 
 def _taste_context(root, human, product, allow_repeat):
@@ -672,7 +803,7 @@ def cmd_round(argv):
     rnd = base / ("R%d" % k)
     rnd.mkdir(parents=True)
     with open(str(rnd / "brief.md"), "w", encoding="utf-8", newline="\n") as f:
-        f.write(brief_text(read_beats(idea), screen, product, brand, material))
+        f.write(brief_text(read_beats(idea, root), screen, product, brand, material))
     for i, g in enumerate(genomes, 1):
         v = rnd / ("v%d" % i)
         v.mkdir()
