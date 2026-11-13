@@ -814,12 +814,68 @@ def offline_team_step_says_offline(root, tmp):
         assert net["timeout"] <= 30 and net["group"] is True, net
 
 
+def claims_reading_ignores_git_config(root, tmp):
+    """Review of 993e112 (claude-Dylan-r, P2): a global grep.lineNumber or grep.column changed `git grep`'s output, so
+    the reviewer showed as not registered, the claimed list was empty and claude-ana was offered twice. Also the
+    review's P3s: the .uak-env note is never hidden by an earlier note, offline planning never says "publish", and the
+    engine's waiting lines read in Spanish."""
+    target, remote = ready_project(root, tmp)
+    home = physical(target)
+    glob = tmp / "global gitconfig"
+    glob.write_text("[grep]\n\tlineNumber = true\n\tcolumn = true\n\tfullName = false\n[color]\n\tgrep = always\n",
+                    encoding="utf-8")
+    saved = os.environ.get("GIT_CONFIG_GLOBAL")
+    os.environ["GIT_CONFIG_GLOBAL"] = str(glob)
+    try:
+        team = Team()
+        stubs, _ = stub_tools(tmp)
+        with tp.live(target, team) as srv:
+            ready(srv, target)
+            assert register(srv)[0] == 202
+            impl = by_id(tp.get(srv, "/api/team")[1])["implement"]
+            done = run_line(impl["command"], stubs, tmp)
+            assert done.returncode == 0, done.stdout[-600:] + done.stderr[-600:]
+            team.ready = READY_OUT.replace("APP-001", "APP-003")
+            check(srv)
+            view = tp.get(srv, "/api/team")[1]
+            assert view["registered"]["registered"] is True, "registered despite grep.lineNumber: %r" % view["registered"]
+            rows = {r["task"]: r for r in view["claimed"]}
+            assert rows.get("APP-001", {}).get("owner") == "claude-ana", "the claimed list is read: %r" % view["claimed"]
+            assert "--agent claude-ana-2 " in by_id(view)["implement"]["command"], "claude-ana is not offered twice"
+            # P3: a claimed task's note and the .uak-env reason are both shown
+            team.ready = READY_OUT
+            check(srv)
+            (target / ".uak-env").write_text("UAK_AGENT=claude-ana\n", encoding="utf-8")
+            view = tp.get(srv, "/api/team")[1]
+            assert "claimed" in view["note"] and ".uak-env" in view.get("review_note", ""), view
+            assert "review" not in by_id(view)
+            spanish_for(dict(view, note=view["review_note"]))
+            (target / ".uak-env").unlink()
+            # P3: offline planning says it cannot reach the remote, never "publish"
+            tp.git(target, "remote", "set-url", "origin", str(tmp / "gone.git"))
+            check(srv)
+            plan = tp.get(srv, "/api/plan")[1]
+            assert plan["kit_on_main"] is False and plan["remote_note"].startswith("Could not reach origin"), plan
+            assert translated(plan["remote_note"])
+            tp.git(target, "remote", "set-url", "origin", str(remote))
+    finally:
+        if saved is None:
+            os.environ.pop("GIT_CONFIG_GLOBAL", None)
+        else:
+            os.environ["GIT_CONFIG_GLOBAL"] = saved
+    # P3: the engine's waiting lines and a probe failure have Spanish
+    for line in ("· Waiting on dependencies: 1 task(s); APP-002 waits on APP-001 (CLAIMED).", "· Waiting on APP-002",
+                 "· Why not APP-002: depends on APP-001", "Could not run it: [Errno 13] Permission denied"):
+        assert translated(line), line
+    assert home.is_dir()
+
+
 TESTS = [reviewer_is_registered_from_the_page, agent_launch_commands_are_exact, advanced_view_shows_the_next_step,
          tool_roles_are_explained, registration_is_idempotent_and_honest, registration_env_is_exact,
          registration_self_grant_is_explained, registration_timeout_reports_remote_truth, team_api_keeps_the_protections,
          concurrent_registration_is_busy, team_step_needs_main_checkout_and_kit_on_main,
          reviewer_state_follows_project_and_name, codex_command_can_write_git, team_step_survives_the_first_claim,
-         offline_team_step_says_offline]
+         offline_team_step_says_offline, claims_reading_ignores_git_config]
 
 
 def main():

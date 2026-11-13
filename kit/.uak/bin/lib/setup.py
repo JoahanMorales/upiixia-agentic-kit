@@ -974,14 +974,19 @@ class SetupHandler(BaseHTTPRequestHandler):
         if not target:
             raise ValueError("Choose a project first.")
         root = project_root(target)
+        remote_note = ""
         if probe:
             offers = planners(s, root)
-            kit = bool(remote_state(s, root).get("kit")) if kit_present(root) else False
+            known = remote_state(s, root) if kit_present(root) else {}
+            kit = bool(known.get("kit"))
+            if known.get("state") == "offline":
+                # Offline is not "publish the kit" (review of 993e112): the same words as POST /api/plan.
+                remote_note = "Could not reach %s: %s" % (remote_and_base()[0], known["detail"])
             with s.lock:
-                s.plan_known[str(root)] = (offers, kit)
+                s.plan_known[str(root)] = (offers, kit, remote_note)
         else:
             with s.lock:
-                offers, kit = s.plan_known.get(str(root), ([], False))
+                offers, kit, remote_note = s.plan_known.get(str(root), ([], False, ""))
 
         def text(name):
             path = planning.regular_file(root, name)
@@ -993,7 +998,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                 "digest": plan.get("digest", ""), "failed": bool(plan.get("failed")),
                 "tasks": text(".uak/TASKS.md") if plan else "",
                 "owners": text(".uak/OWNERS.md") if plan else "", "planned": bool(plan) and not plan.get("failed"),
-                "kit_on_main": kit,
+                "kit_on_main": kit, "remote_note": remote_note,
                 # Only Claude Code has the one-time folder trust (UI-008); a Codex-only project shows no notice.
                 "trust_command": planning.trust_command(root) if (root / ".claude").is_dir() else ""}
 
@@ -1474,26 +1479,25 @@ def read_remote(server, root, remote, base):
         return {"state": "offline", "detail": offline_detail(listed), "at": now}
     heads = heads_of(listed.stdout)
 
-    def mirror(branch, ref):
-        sha = heads.get("refs/heads/" + branch)
-        if not sha:
-            return None
-        if git("rev-parse", "-q", "--verify", ref + "^{commit}").stdout.strip() != sha:
-            got = net_git(server, root, "fetch", "-q", "--no-tags", "--no-write-fetch-head", remote,
-                          "+refs/heads/%s:%s" % (branch, ref))
-            if got.returncode:
-                return got
-        return True
-
     result = {"state": "ok", "detail": "", "kit": False, "reviewers": {}, "retired": [], "claims": {}, "files": [],
               "at": now}
-    for branch, ref in ((base, SETUP_BASE), ("claims", SETUP_CLAIMS)):
-        got = mirror(branch, ref)
-        if got not in (None, True):
+    # What setup already holds in its private refs (one process); one fetch for every branch that moved.
+    held = {}
+    for line in git("for-each-ref", "--format=%(refname) %(objectname)", "refs/uak/").stdout.splitlines():
+        name, _, sha = line.strip().partition(" ")
+        held[name] = sha
+    pairs = [(base, SETUP_BASE), ("claims", SETUP_CLAIMS)]
+    present = [(branch, ref) for branch, ref in pairs if heads.get("refs/heads/" + branch)]
+    moved = ["+refs/heads/%s:%s" % (branch, ref) for branch, ref in present
+             if held.get(ref) != heads["refs/heads/" + branch]]
+    if moved:
+        got = net_git(server, root, "fetch", "-q", "--no-tags", "--no-write-fetch-head", remote, *moved)
+        if got.returncode:
             return {"state": "offline", "detail": offline_detail(got), "at": now}
-        if got and ref == SETUP_BASE:
+    for branch, ref in present:
+        if ref == SETUP_BASE:
             result["kit"] = git("cat-file", "-e", SETUP_BASE + ":.uak/PROJECT.md").returncode == 0
-        if got and ref == SETUP_CLAIMS:
+        else:
             read_claims(git, result)
     return result
 
@@ -1501,8 +1505,10 @@ def read_remote(server, root, remote, base):
 def read_claims(git, result):
     """Reviewer roles, retired identities and claims from setup's copy of the claims branch: two local commands.
     Everything read is data; only files named like NAME.md count, and each line feeds only its own folder's fields."""
-    found = git("grep", "--no-color", "-E", "^(Reviewer|Registered-By|ID|State|Owner): ", SETUP_CLAIMS, "--",
-                "roles/reviewers", "claims")
+    # The person's Git config must not change the output this parses (review of 993e112: grep.lineNumber or
+    # grep.column in a global config turned every line into ref:path:N:Field and nothing was read).
+    found = git("grep", "--no-color", "--no-line-number", "--no-column", "--full-name", "-E",
+                "^(Reviewer|Registered-By|ID|State|Owner): ", SETUP_CLAIMS, "--", "roles/reviewers", "claims")
     records = {}
     prefix = SETUP_CLAIMS + ":"
     for line in (found.stdout or "").splitlines() if found.returncode == 0 else []:
@@ -1606,13 +1612,10 @@ def team_context(server):
 
 def git_dirs(server, root):
     """(this checkout's Git dir, the common Git dir), physical; the main checkout is where they are the same."""
-    def path(*args):
-        text = server.planning.git(server.run, root, "rev-parse", *args).stdout.strip()
-        if not text:
-            return None
-        return (Path(text) if os.path.isabs(text) else root / text).resolve()
-
-    return path("--absolute-git-dir"), path("--git-common-dir")
+    lines = server.planning.git(server.run, root, "rev-parse", "--absolute-git-dir", "--git-common-dir").stdout.splitlines()
+    paths = [(Path(t.strip()) if os.path.isabs(t.strip()) else root / t.strip()).resolve() if t.strip() else None
+             for t in lines[:2]]
+    return tuple(paths + [None] * (2 - len(paths)))
 
 
 def main_checkout(server, root):
@@ -1677,7 +1680,7 @@ def tool_view(server, root):
     this computer, signed in), Claude Code and Codex only."""
     rows = []
     for offer in planners(server, root):
-        if offer["harness"] in TOOL_LABEL:
+        if offer["harness"] in TOOL_LABEL:  # reasons are planning's own texts, each with a Spanish entry
             rows.append({"id": offer["harness"], "label": TOOL_LABEL[offer["harness"]], "available": offer["available"],
                          "reason": offer["reason"], "role": "none"})
     return rows
@@ -1689,8 +1692,8 @@ def save_roles(server, data):
     if set(data) != {"implement", "review"} or not all(isinstance(v, str) and v in tools for v in data.values()):
         raise ValueError("Choose which coding tool implements and which one reviews.")
     root, name, _ = team_context(server)
-    _, common = git_dirs(server, root)
-    if not main_checkout(server, root) or not common:
+    git_dir, common = git_dirs(server, root)
+    if not common or git_dir != common:
         raise ValueError("Choose the main project folder in this page (not a task worktree): agents start from there.")
     rows = {row["id"]: row for row in tool_view(server, root)}
     for tool in (data["implement"], data["review"]):
@@ -1744,7 +1747,7 @@ def team_view(server):
     root, name, phase = team_context(server)
     who = name + "-r"
     view = {"task": "", "human": name, "reviewer": who, "phase": phase, "stale": False,
-            "remote": {"state": "", "detail": ""}, "commands": [], "note": "", "claimed": [], "tools": [],
+            "remote": {"state": "", "detail": ""}, "commands": [], "note": "", "review_note": "", "claimed": [], "tools": [],
             "roles": effective_roles(None, set()), "retry": False, "can_check": False,
             "registered": {"name": who, "registered": False, "registered_by": "", "retired": False, "message": ""}}
     text = root.as_posix()
@@ -1752,10 +1755,11 @@ def team_view(server):
         view["note"] = ("Rename the project folder (no quote mark or control character, and not a drive's root), then "
                         "press Check again: setup only shows commands it can quote exactly.")
         return view
-    if not main_checkout(server, root):
+    git_dir, common = git_dirs(server, root)  # one look at Git (each process costs on Windows)
+    if not (git_dir and common) or git_dir != common:
         view["note"] = ("Choose the main project folder in this page (not a task worktree): agents start from there.")
         return view
-    gitdir = git_dirs(server, root)[1].as_posix()
+    gitdir = common.as_posix()
     if not quotable(gitdir):
         view["note"] = ("The project's Git folder has a quote mark or control character in its path, so setup cannot "
                         "quote the commands exactly. Move it to a path without them, then press Check again.")
@@ -1835,6 +1839,8 @@ def team_view(server):
                             "then press Check what's next." % (tool, name, tool, name))
     env_note = checkout_agent_note(root, who)
     if env_note:
+        # Its own field, so an earlier note never hides it (review of 993e112); the page shows both.
+        view["review_note"] = env_note
         view["note"] = view["note"] or env_note
         view["retry"] = True
     elif not view["registered"]["retired"]:

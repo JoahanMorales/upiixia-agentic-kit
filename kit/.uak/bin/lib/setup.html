@@ -1505,6 +1505,7 @@
                 <legend>Coding tool that drafts the plan</legend>
                 <div id="planner-options"></div>
               </fieldset>
+              <p class="notice error" id="plan-remote-note" role="status" hidden></p>
               <p class="notice" id="plan-onmain-note" hidden>
                 Publish the kit to main first (step 3 above): the plan's
                 checks read the kit from main.
@@ -1681,6 +1682,7 @@
           <p class="hint" id="team-reviewer-status" role="status" aria-live="polite"></p>
         </div>
         <p class="notice" id="team-note" role="status" hidden></p>
+        <p class="notice" id="team-review-note" role="status" hidden></p>
         <div class="actions" id="team-note-actions" hidden>
           <button type="button" class="secondary-button" id="team-retry" hidden>Retry</button>
           <button type="button" class="secondary-button" id="team-check" hidden>Check what's next</button>
@@ -1932,7 +1934,7 @@
           el("next-steps").replaceChildren();
           (g.steps || []).forEach(function (line) {
             var li = document.createElement("li");
-            li.textContent = line;
+            li.textContent = UAKWorkspace.t(line);
             el("next-steps").append(li);
           });
           el("next-steps").hidden = !(g.steps || []).length;
@@ -2032,7 +2034,9 @@
           el("plan-create").disabled =
             blocked || !planView.idea || !selectedPlanner() || !planView.kit_on_main;
           el("plan-recheck").disabled = blocked || !planView.planned;
-          el("plan-onmain-note").hidden = !planView || !!planView.kit_on_main;
+          el("plan-onmain-note").hidden = !planView || !!planView.kit_on_main || !!planView.remote_note;
+          el("plan-remote-note").hidden = !planView || !planView.remote_note;
+          el("plan-remote-note").textContent = planView && planView.remote_note ? UAKWorkspace.t(planView.remote_note) : "";
           el("plan-trust").hidden = !planView || !planView.trust_command;
           el("plan-trust-command").textContent = (planView && planView.trust_command) || "";
           el("plan-change").disabled = blocked || !selectedPlanner();
@@ -2670,6 +2674,8 @@
           (view.commands || []).forEach(function (c) { byId[c.id] = c; });
           el("team-note").hidden = !view.note;
           el("team-note").textContent = UAKWorkspace.t(view.note || "");
+          el("team-review-note").hidden = !view.review_note || view.review_note === view.note;
+          el("team-review-note").textContent = UAKWorkspace.t(view.review_note || "");
           el("team-retry").hidden = !view.retry;
           el("team-check").hidden = !view.can_check;
           el("team-note-actions").hidden = !view.retry && !view.can_check;

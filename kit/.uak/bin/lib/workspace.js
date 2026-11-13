@@ -749,6 +749,10 @@
     ["Or publish to a new empty repository \\(no README, no \\.gitignore, no license\\): git remote set-url (.+) <its URL>", "O publica en un repositorio nuevo y vacío (sin README, sin .gitignore, sin licencia): git remote set-url $1 <su URL>"],
     ["Setup cannot write a safe command for the files this folder and (.+) both have\\. Publish to a new empty repository instead \\(no README, no \\.gitignore, no license\\): git remote set-url (.+) <its URL>", "La configuración no puede escribir un comando seguro para los archivos que tienen tanto esta carpeta como $1. Publica en un repositorio nuevo y vacío (sin README, sin .gitignore, sin licencia): git remote set-url $2 <su URL>"],
     ["Could not reach (.+): (.+)", "No se pudo conectar con $1: $2"],
+    ["Could not run it: (.+)", "No se pudo ejecutar: $1"],
+    ["· Waiting on dependencies: (.+) task\\(s\\); (.+) waits on (.+) \\((.*)\\)\\.", "· Esperando dependencias: $1 tarea(s); $2 espera a $3 ($4)."],
+    ["· Waiting on (.+)", "· Esperando: $1"],
+    ["· Why not (.+): (.+)", "· Por qué no $1: $2"],
   ];
   // The readiness gate's lines (`uak start`, .uak/bin/start), as whole-line patterns: the engine's English stays in
   // Technical details; the checklist reads in the page's language. $1… are the engine's values, shown as they are.

@@ -22,6 +22,24 @@ import test_setup_wizard as wizard
 READY_OUT = team.READY_OUT
 
 
+def timed(call, method, path, *args):
+    """A request that names itself and its time when it fails (the Windows CI once timed out without saying where)."""
+    started = time.monotonic()
+    try:
+        return call(*args)
+    except Exception as exc:
+        raise AssertionError("%s %s failed after %.1f s: %s: %s" % (method, path, time.monotonic() - started,
+                                                                      type(exc).__name__, exc))
+
+
+def get(srv, path):
+    return timed(lambda: tp.get(srv, path), "GET", path)
+
+
+def post(srv, path, data):
+    return timed(lambda: tp.post(srv, path, data), "POST", path)
+
+
 def roles_project(root, tmp, harnesses, name="roles project"):
     """team.ready_project with the coding tools this test chooses (an installed folder per tool)."""
     target, remote = tp.project(root, tmp, harnesses=harnesses, name=name)
@@ -63,7 +81,7 @@ def roles_follow_the_tools_you_have(root, tmp):
     worktree = home.parent / (home.name + "-wt") / "app-001"
     with tp.live(target, team.Team()) as srv:
         team.ready(srv, target)
-        status, view = tp.get(srv, "/api/team")
+        status, view = get(srv, "/api/team")
         assert status == 200, view
         tools = {t["id"]: t for t in view.get("tools") or []}
         assert set(tools) == {"claude", "codex"} and all(t["available"] for t in tools.values()), view.get("tools")
@@ -71,9 +89,9 @@ def roles_follow_the_tools_you_have(root, tmp):
         assert view["roles"]["implement"] == "claude" and view["roles"]["review"] == "codex", view["roles"]
         assert view["roles"]["saved"] is False and view["roles"]["same_tool"] is False, view["roles"]
         before = tp.git(target, "status", "--porcelain")
-        status, body = tp.post(srv, "/api/team/roles", {"implement": "codex", "review": "claude"})
+        status, body = post(srv, "/api/team/roles", {"implement": "codex", "review": "claude"})
         assert status == 200 and body["roles"]["implement"] == "codex" and body["roles"]["saved"] is True, body
-        view = tp.get(srv, "/api/team")[1]
+        view = get(srv, "/api/team")[1]
         commands = team.by_id(view)
         assert commands["implement"]["command"] == expected("implement", "codex", home, worktree, agent="codex-ana"), commands
         assert commands["review"]["command"] == expected("review", "claude", home), commands
@@ -81,16 +99,16 @@ def roles_follow_the_tools_you_have(root, tmp):
         written = roles_file(target).read_bytes()
         for bad in ({"implement": "codex", "review": "claude", "x": 1}, {"implement": "gemini", "review": "claude"},
                     ["codex", "claude"], {"implement": "codex"}, {"implement": 1, "review": "claude"}):
-            status, body = tp.post(srv, "/api/team/roles", bad)
+            status, body = post(srv, "/api/team/roles", bad)
             assert status == 400, (bad, body)
             assert roles_file(target).read_bytes() == written, "a refused pick writes nothing: %r" % (bad,)
         # Another person on the same clone starts from the defaults and keeps her pick apart.
-        assert tp.post(srv, "/api/human", {"name": "bob"})[0] == 200
-        bob = tp.get(srv, "/api/team")[1]["roles"]
+        assert post(srv, "/api/human", {"name": "bob"})[0] == 200
+        bob = get(srv, "/api/team")[1]["roles"]
         assert (bob["implement"], bob["review"], bob["saved"]) == ("claude", "codex", False), bob
-        assert tp.post(srv, "/api/team/roles", {"implement": "claude", "review": "claude"})[0] == 200
-        assert tp.post(srv, "/api/human", {"name": "ana"})[0] == 200
-        ana = tp.get(srv, "/api/team")[1]["roles"]
+        assert post(srv, "/api/team/roles", {"implement": "claude", "review": "claude"})[0] == 200
+        assert post(srv, "/api/human", {"name": "ana"})[0] == 200
+        ana = get(srv, "/api/team")[1]["roles"]
         assert (ana["implement"], ana["review"]) == ("codex", "claude"), "her pick survives bob's: %r" % ana
         assert tp.git(target, "status", "--porcelain") == before, "the choice never shows in git status"
     saved = json.loads(roles_file(target).read_text(encoding="utf-8"))
@@ -98,11 +116,11 @@ def roles_follow_the_tools_you_have(root, tmp):
     # Remembered for the project: a new server on the same folder.
     with tp.live(target, team.Team()) as srv:
         team.ready(srv, target)
-        roles = tp.get(srv, "/api/team")[1]["roles"]
+        roles = get(srv, "/api/team")[1]["roles"]
         assert (roles["implement"], roles["review"], roles["saved"]) == ("codex", "claude", True), roles
         # wt new and a second worktree never change or show it
         stubs, _ = team.stub_tools(tmp)
-        line = team.by_id(tp.get(srv, "/api/team")[1])["implement"]["command"]
+        line = team.by_id(get(srv, "/api/team")[1])["implement"]["command"]
         done = team.run_line(line, stubs, tmp)
         assert done.returncode == 0, done.stdout[-600:] + done.stderr[-600:]
     tp.git(target, "worktree", "add", "-q", "-b", "side", str(tmp / "second tree"))
@@ -116,14 +134,14 @@ def roles_follow_the_tools_you_have(root, tmp):
     tp.git(clone, "config", "user.email", "bob@example.invalid")
     with tp.live(clone, team.Team()) as srv:
         team.ready(srv, clone)
-        roles = tp.get(srv, "/api/team")[1]["roles"]
+        roles = get(srv, "/api/team")[1]["roles"]
         assert (roles["implement"], roles["review"], roles["saved"]) == ("claude", "codex", False), roles
     # An unreadable file is replaced only when it is a regular file in a real folder; a link is refused.
     roles_file(target).write_text("{not json", encoding="utf-8")
     with tp.live(target, team.Team()) as srv:
         team.ready(srv, target)
-        assert tp.get(srv, "/api/team")[1]["roles"]["saved"] is False
-        assert tp.post(srv, "/api/team/roles", {"implement": "claude", "review": "codex"})[0] == 200
+        assert get(srv, "/api/team")[1]["roles"]["saved"] is False
+        assert post(srv, "/api/team/roles", {"implement": "claude", "review": "codex"})[0] == 200
         assert json.loads(roles_file(target).read_text(encoding="utf-8"))["people"]["ana"]["review"] == "codex"
         outside = tmp / "outside.json"
         outside.write_text("{}", encoding="utf-8")
@@ -132,7 +150,7 @@ def roles_follow_the_tools_you_have(root, tmp):
             roles_file(target).symlink_to(outside)
         except OSError:
             return
-        status, body = tp.post(srv, "/api/team/roles", {"implement": "claude", "review": "claude"})
+        status, body = post(srv, "/api/team/roles", {"implement": "claude", "review": "claude"})
         assert status == 400 and outside.read_text(encoding="utf-8") == "{}", body
 
 
@@ -145,7 +163,7 @@ def one_tool_does_both_roles(root, tmp):
         worktree = home.parent / (home.name + "-wt") / "app-001"
         with tp.live(target, team.Team()) as srv:
             team.ready(srv, target)
-            view = tp.get(srv, "/api/team")[1]
+            view = get(srv, "/api/team")[1]
         roles = view.get("roles") or {}
         assert (roles.get("implement"), roles.get("review"), roles.get("same_tool")) == (tool, tool, True), roles
         assert [t["id"] for t in view["tools"] if t["available"]] == [tool], view["tools"]
@@ -179,8 +197,8 @@ def any_tool_can_review(root, tmp):
     with tp.live(target, team.Team()) as srv:
         team.ready(srv, target)
         for impl, rev in (("claude", "codex"), ("codex", "claude"), ("claude", "claude"), ("codex", "codex")):
-            assert tp.post(srv, "/api/team/roles", {"implement": impl, "review": rev})[0] == 200
-            commands = team.by_id(tp.get(srv, "/api/team")[1])
+            assert post(srv, "/api/team/roles", {"implement": impl, "review": rev})[0] == 200
+            commands = team.by_id(get(srv, "/api/team")[1])
             assert commands["implement"]["command"] == expected("implement", impl, home, worktree, agent=impl + "-ana"), commands
             assert commands["review"]["command"] == expected("review", rev, home), commands
             log.write_text("", encoding="utf-8")
@@ -194,7 +212,7 @@ def any_tool_can_review(root, tmp):
             assert run[0] == rev and args == want and "UAK_AGENT=[ana-r]" in run and "UAK_HUMAN=[]" in run, run
         # A .uak-env in the main checkout naming another agent would run the review under that name: no command.
         (target / ".uak-env").write_text("UAK_AGENT=claude-ana\n", encoding="utf-8")
-        view = tp.get(srv, "/api/team")[1]
+        view = get(srv, "/api/team")[1]
         assert "review" not in team.by_id(view) and ".uak-env" in view.get("note", ""), view
         team.spanish_for(view)
         (target / ".uak-env").unlink()
@@ -219,14 +237,14 @@ def unavailable_tool_is_not_offered(root, tmp):
             path.write_text(json.dumps({"version": 1, "people": {"ana": {"implement": "codex", "review": "codex"}}}),
                             encoding="utf-8")
             team.ready(srv, target)
-            view = tp.get(srv, "/api/team")[1]
+            view = get(srv, "/api/team")[1]
             codex = {t["id"]: t for t in view.get("tools") or []}.get("codex") or {}
             assert codex.get("available") is False and codex["reason"] == reason and codex["role"] == "none", codex
             assert not [c for c in view["commands"] if "codex" in c["command"]], view["commands"]
             assert view["roles"]["implement"] == view["roles"]["review"] == "claude", view["roles"]
             assert view["roles"]["note"] == "Your saved choice used a tool that is not available now, so setup chose again."
             team.spanish_for(view)
-            status, body = tp.post(srv, "/api/team/roles", {"implement": "claude", "review": "codex"})
+            status, body = post(srv, "/api/team/roles", {"implement": "claude", "review": "codex"})
             assert status == 400 and reason in body.get("error", ""), body
             assert team.translated("That coding tool is not available here: " + reason), "Spanish for the refusal"
     # Cursor only: nothing setup can start, both reasons named, the bare claim stays in the guide.
@@ -236,7 +254,7 @@ def unavailable_tool_is_not_offered(root, tmp):
     (target / ".cursor").mkdir()
     with tp.live(target, team.Team()) as srv:
         team.ready(srv, target)
-        view = tp.get(srv, "/api/team")[1]
+        view = get(srv, "/api/team")[1]
     assert view["commands"] == [], view
     assert "Claude Code: Not installed in this project." in view["note"] and "Codex: Not installed in this project." \
         in view["note"], view["note"]
