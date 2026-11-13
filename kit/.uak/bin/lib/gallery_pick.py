@@ -27,6 +27,7 @@ from urllib.parse import unquote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import design_metrics  # noqa: E402
+import design_taste  # noqa: E402
 from design_round import GENES, project_root, qa_warnings, read_qa  # noqa: E402
 
 DEFAULT_K = 3
@@ -195,6 +196,18 @@ JS = """
 """
 
 
+def default_name(prior):
+    """The name field: what the last save typed, else UAK_HUMAN, else git user.name (the CLI's own default, so the page and
+    the command fill the same profile), else the account name."""
+    who = str(prior.get("by", "") or "").strip() or os.environ.get("UAK_HUMAN", "").strip()
+    if not who:
+        try:
+            who = subprocess.run(["git", "config", "user.name"], capture_output=True, text=True).stdout.strip()
+        except OSError:
+            who = ""
+    return who or os.environ.get("UAK_AGENT", "") or os.environ.get("USER", "")
+
+
 def build_page(rnd, name, k, project):
     vs = load_variants(rnd)
     prior = load_picks(rnd)
@@ -238,13 +251,13 @@ def build_page(rnd, name, k, project):
     return ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
             "<title>Pick · %s %s</title><style>%s</style></head><body><main>\n"
             "<div class=\"bar\"><h1>%s <em>· %s</em></h1><span id=\"count\" class=\"count\"></span>"
-            "<label class=\"n\"><span>Your name</span><input id=\"by\" class=\"note\" type=\"text\" value=\"%s\"></label>"
+            "<label class=\"n\"><span>Your name</span><input id=\"by\" class=\"note\" type=\"text\" list=\"names\" autocomplete=\"off\" value=\"%s\"><datalist id=\"names\">%s</datalist></label>"
             "<label class=\"view\"><input type=\"checkbox\" id=\"full\">Full page</label>"
             "<span id=\"status\" class=\"status\" role=\"status\"></span><button type=\"button\" id=\"save\">Save picks</button></div>\n"
             "<p class=\"help\">Keys: <b>1-9</b> pick that variant, <b>arrows</b> move, <b>space</b> picks the focused one, <b>s</b> saves. "
             "Pick in order of preference; the first is your favorite. Choose by looking.</p>\n%s"
             "<section class=\"room\">%s</section></main>\n<script type=\"application/json\" id=\"init\">%s</script>\n<script>%s</script></body></html>\n"
-            % (esc(project), esc(name), CSS, esc(project), esc(name), esc(str(prior.get("by", "") or os.environ.get("UAK_AGENT", "") or os.environ.get("USER", ""))),
+            % (esc(project), esc(name), CSS, esc(project), esc(name), esc(default_name(prior)), "".join('<option value="%s">' % esc(n) for n in design_taste.profile_names()),
                totals, "".join(cards), init, JS))
 
 
