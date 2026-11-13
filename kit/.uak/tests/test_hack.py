@@ -86,6 +86,25 @@ class Runner:
         empty.write_text("", encoding="utf-8")
         self.env["UAK_EXTERNAL_SKILLS_TSV"] = str(empty)
         self.env["UAK_TASTE_HOME"] = str(Path(scratch) / "taste-home")  # design rounds fold picks into a profile (UAK-064)
+        # `uak pace` reads this machine's real Codex session logs (${CODEX_HOME:-$HOME/.codex}); a machine near its usage
+        # limit ("critical") cut the fixtures' subagent caps to 1 (UAK-012, Dylan's Mac). Fixtures get an empty home of
+        # their own, and no Codex marker: a non-empty CODEX_HOME also names the harness "codex" (bb harness, the hook),
+        # which hid test_v42's recorded-harness check (review of d53a0eb). Tests that need a pace or a home set them.
+        for k in ("CODEX_HOME", "CODEX_SANDBOX", "CODEX_THREAD_ID"):
+            self.env.pop(k, None)
+        home = Path(scratch) / "fixture-home"
+        home.mkdir(parents=True, exist_ok=True)
+        self.env["HOME"] = str(home)
+        # The machine's ~/.gitconfig (a global core.hooksPath, aliases, signing) must not reach the fixtures either: a
+        # global hooksPath made install.sh keep it and skip the kit's scanner hook (UAK-012). Keep only the identity.
+        machine_config = Path(scratch) / "machine-identity.gitconfig"
+        machine_config.parent.mkdir(parents=True, exist_ok=True)
+        machine_config.write_text("", encoding="utf-8")
+        for key in ("user.name", "user.email"):
+            value = subprocess.run([git, "config", "--global", "--get", key], capture_output=True, text=True).stdout.strip()
+            if value:
+                subprocess.run([git, "config", "--file", str(machine_config), key, value], check=True, capture_output=True)
+        self.env["GIT_CONFIG_GLOBAL"] = str(machine_config)
         for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"):
             self.env.pop(k, None)
         # A user signing default must not make disposable fixture commits interactive.
@@ -128,6 +147,9 @@ class Fixture:
         self.seed = self.base / "seed"
         self.seed.mkdir()
         runner.g(self.base, "init", "--bare", self.remote)
+        # A global core.hooksPath (a person's ~/.gitconfig) also applies to this bare remote and hides its own hooks,
+        # so a test's pre-receive never ran (UAK-012, Dylan's Mac): the remote always runs the hooks in its own folder.
+        runner.g(self.remote, "config", "core.hooksPath", str(self.remote / "hooks"))
         runner.g(self.seed, "init")
         runner.g(self.seed, "symbolic-ref", "HEAD", "refs/heads/main")
         for src in runner.package.iterdir():
