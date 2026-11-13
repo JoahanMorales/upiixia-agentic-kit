@@ -558,21 +558,44 @@ def cmd_round(argv):
 
 # ---- capture ----
 
+# Why (AXIA R1, Nov 11 2026): two variants looked broken in their captures because a <video>'s first frame is empty, and the
+# human judged six landings from that first screen alone. Before each shot every video is paused and seeked to 30% of its
+# length (a video that has no frame to show keeps its poster); the page is then still, so the fold and the full page match.
+MEDIA_JS = """async () => {
+  const vs = Array.prototype.slice.call(document.querySelectorAll('video'));
+  const wait = (el, ev, ms) => new Promise(res => { let done = false; const f = () => { if (!done) { done = true; res(); } };
+    el.addEventListener(ev, f, {once: true}); setTimeout(f, ms); });
+  for (const v of vs) {
+    try {
+      v.muted = true; v.removeAttribute('autoplay'); v.pause();
+      if (v.preload === 'none') { v.preload = 'auto'; v.load(); }
+      if (v.readyState < 1) await wait(v, 'loadedmetadata', 6000);
+      if (isFinite(v.duration) && v.duration > 0) { v.currentTime = v.duration * 0.3; await wait(v, 'seeked', 6000); }
+      v.pause();
+    } catch (e) {}
+  }
+  await new Promise(res => setTimeout(res, 300));
+  return vs.length;
+}"""
+
 _PLAYWRIGHT = """
 import sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+MEDIA = %s
 html, out = Path(sys.argv[1]).resolve(), Path(sys.argv[2])
 with sync_playwright() as p:
     b = p.chromium.launch()
     for name, w, h in (("1280", 1280, 720), ("390", 390, 844)):
         pg = b.new_page(viewport={"width": w, "height": h})
         pg.goto(html.as_uri()); pg.wait_for_load_state("networkidle"); pg.wait_for_timeout(800)
+        pg.evaluate(MEDIA)
         pg.screenshot(path=str(out / (name + ".png")))
+        pg.evaluate(MEDIA)
         pg.screenshot(path=str(out / (name + "-full.png")), full_page=True)
         pg.close()
     b.close()
-"""
+""" % json.dumps(MEDIA_JS)
 
 
 def find_capture(root):
