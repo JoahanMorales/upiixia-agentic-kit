@@ -630,6 +630,9 @@
       .team-block h3 {
         margin-bottom: 6px;
       }
+      .team-block .next-command code {
+        flex-basis: 100%;
+      }
       .your-app {
         margin-top: 24px;
         padding-top: 20px;
@@ -1675,6 +1678,7 @@
       <section id="advanced-next" class="advanced-next" hidden aria-labelledby="advanced-next-heading">
         <p class="secondary">Your next step</p>
         <h3 id="advanced-next-heading"></h3>
+        <p id="advanced-next-description"></p>
         <div class="next-command" id="advanced-next-box" hidden>
           <code id="advanced-next-command" data-no-i18n></code>
           <button type="button" class="secondary-button" id="copy-advanced-next">Copy</button>
@@ -1777,7 +1781,16 @@
               "*",
             );
         }
+        // One way to start a task: once Start your team shows its commands, the bare claim command is not offered
+        // again (two Copy buttons for the same claim confused the simulation's person).
+        var teamReady = false;
+        function teamGuide(g) {
+          return g.kind === "ready" && teamReady
+            ? { kind: g.kind, title: g.title, detail: "Use Start your team above: its first command claims this task for Claude Code.", commands: [], steps: [] }
+            : g;
+        }
         function drawNext(g) {
+          g = teamGuide(g);
           el("next-heading").textContent = UAKWorkspace.t(g.title || "Check what your project needs");
           el("next-description").textContent = UAKWorkspace.t(g.detail || "");
           // Only `commands` (the exact claim command) is copyable; the gate's fix lines are text.
@@ -1872,7 +1885,7 @@
           return isBusy(state.phase);
         }
         function isBusy(phase) {
-          return ["installing", "checking", "planning", "approving", "publishing"].indexOf(phase) >= 0;
+          return ["installing", "checking", "planning", "approving", "publishing", "registering"].indexOf(phase) >= 0;
         }
         // Planning (UI-004). Plan text comes from files an agent wrote: it is shown with textContent only.
         var planView = null,
@@ -2109,11 +2122,7 @@
           });
           var advanced = document.body.dataset.profile === "advanced";
           // Advanced keeps the same next step as Beginner (its guidance), above the dashboard frame.
-          var guide = data.guidance || state.guidance || {};
-          el("advanced-next").hidden = !advanced || !guide.title;
-          el("advanced-next-heading").textContent = UAKWorkspace.t(guide.title || "");
-          el("advanced-next-command").textContent = (guide.commands || []).join("\n");
-          el("advanced-next-box").hidden = !(guide.commands || []).length;
+          drawAdvancedNext(data.guidance || state.guidance || {});
           if (teamFor !== state.target + ":" + state.ready) {
             teamFor = state.target + ":" + state.ready;
             loadTeam();
@@ -2301,6 +2310,14 @@
             );
           else done(false);
         }
+        function drawAdvancedNext(guide) {
+          guide = teamGuide(guide);
+          el("advanced-next").hidden = document.body.dataset.profile !== "advanced" || !guide.title;
+          el("advanced-next-heading").textContent = UAKWorkspace.t(guide.title || "");
+          el("advanced-next-description").textContent = UAKWorkspace.t(guide.detail || "");
+          el("advanced-next-command").textContent = (guide.commands || []).join("\n");
+          el("advanced-next-box").hidden = !(guide.commands || []).length;
+        }
         function drawTeam(view) {
           var reviewer = view.registered || {};
           el("team-step").hidden = false;
@@ -2331,6 +2348,10 @@
             el("team-review-terminal").textContent = UAKWorkspace.t(byId.review.terminal);
             el("team-review-command").textContent = byId.review.command;
           }
+          teamReady = !!byId.implement;
+          var guide = (latestDashboard && latestDashboard.guidance) || state.guidance || {};
+          drawNext(guide);
+          drawAdvancedNext(guide);
         }
         async function loadTeam() {
           if (!state.ready) {
@@ -2729,6 +2750,7 @@
                 planning: "Creating your plan",
                 approving: "Publishing your plan",
                 publishing: "Publishing the kit",
+                registering: "Registering the reviewer…",
               }[data.phase] || "Checking your next steps"
             : data.ready
               ? "Your workspace is ready"

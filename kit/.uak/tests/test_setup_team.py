@@ -275,8 +275,9 @@ def advanced_view_shows_the_next_step(root, tmp):
     shell = html.index('id="dashboard-shell"')
     assert shell < html.index('id="advanced-next"') < html.index('id="dashboard-frame"'), "above the dashboard frame"
     script = html[html.index("<script nonce=\"__NONCE__\">"):]
-    assert re.search(r"advanced-next[\s\S]{0,1200}guidance", script) or re.search(r"guidance[\s\S]{0,1200}advanced-next", script), \
-        "the box is filled from the same guidance as Beginner"
+    filler = re.search(r"function (\w+)\(guide\) \{[\s\S]{0,600}?el\(\"advanced-next-command\"\)", script)
+    assert filler and re.search(r"%s\(\s*data\.guidance" % filler.group(1), script), \
+        "the box is filled from the dashboard's guidance, the same one Beginner draws"
     assert "team-step" in script and "/api/team" in script, "the team step is loaded from /api/team"
 
 
@@ -445,6 +446,8 @@ def concurrent_registration_is_busy(root, tmp):
     with tp.live(target, team) as srv:
         ready(srv, target)
         assert "registering" in MODULE.BUSY
+        busy = re.search(r"function isBusy\(phase\) \{\s*return (\[[^\]]*\])", page())
+        assert busy and '"registering"' in busy.group(1), "the page keeps polling while the reviewer registers: %r" % (busy and busy.group(1))
         first = tp.post(srv, "/api/team/reviewer", {"confirm": "ana-r"})
         assert first[0] == 202, first
         deadline = time.time() + 10

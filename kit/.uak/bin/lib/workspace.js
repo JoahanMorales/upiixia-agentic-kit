@@ -652,6 +652,7 @@
     ["No task is free to start right now. Press Check what's next again in a moment.", "Ahora no hay una tarea libre para empezar. Pulsa Revisar qué sigue otra vez en un momento."],
     ["Rename the project folder (no quote mark or control character, and not a drive's root), then press Check again: setup only shows commands it can quote exactly.", "Cambia el nombre de la carpeta del proyecto (sin comillas ni caracteres de control, y que no sea la raíz de una unidad) y pulsa Revisar otra vez: la configuración solo muestra comandos que puede citar con exactitud."],
     ["Tell setup your name first (Your name, in Prepare): registering the reviewer is a human act.", "Primero dile tu nombre a la configuración (Tu nombre, en Prepara): registrar al revisor es un acto humano."],
+    ["Use Start your team above: its first command claims this task for Claude Code.", "Usa Arranca tu equipo, arriba: su primer comando toma esta tarea para Claude Code."],
   ];
   var es = Object.create(null),
     en = Object.create(null);
