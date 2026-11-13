@@ -77,3 +77,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794534445 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-075 UAK-076 UAK-077 UAK-078 UAK-079 | Why: backlog without PR (Plan-Channel: claims)
 - 1794534633 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-078 Paths: kit/.uak/bin/lib/design_round.py, kit/.uak/bin/lib/design_color.py, kit/.uak/bin/lib/design_taste.py, kit/.uak/tests/test_design_color.py → kit/.uak/bin/lib/design_round.py, kit/.uak/bin/lib/design_color.py, kit/.uak/bin/lib/design_taste.py, kit/.uak/bin/lib/gallery_pick.py, kit/.uak/tests/test_design_color.py; | Why: scope or criteria fixed before review
 - 1794536297 | UAK-079 | fix verify_parse_error (SIGPIPE under pipefail); stale-cache was not the cause | Why: flaky gate
+- 1794601019 | deadline lease/UAK-071/1794553675 | REQUIRES_RECOVERY | Claim kept; read the summary and use release --expired --read-summary. No work is deleted.
