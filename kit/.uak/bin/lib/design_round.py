@@ -102,10 +102,14 @@ def _try_round(n, seed, salt, recipes, ctx):
     rule (<= MAX_SHARED with every other variant) and the novelty rule (<= MAX_PAST_SHARED with every past direction)."""
     rng = Rng(seed, salt)
     weights, wild, avoid, factors = ctx.get("weights"), ctx.get("wild", 0), ctx.get("avoid") or [], ctx.get("factors") or {}
+    prior = ctx.get("prior")
+    import design_prior
+    value_weight = design_prior.blend(weights, prior)  # profile on top of the kit prior; (weight, source, profile w, prior w)
+    learned = bool(weights) or bool(prior)
     counts = {g: {v: 0 for v in vals} for g, vals in GENES.items()}
     out = []
     for i in range(n):
-        taste = bool(weights) and i < n - wild
+        taste = learned and i < n - wild
         novelty = False
         for _ in range(400):
             genes, why = {}, {}
@@ -113,9 +117,10 @@ def _try_round(n, seed, salt, recipes, ctx):
                 once = AT_MOST_ONCE.get(g)
                 if taste:
                     cands = [v for v in GENES[g] if not (v == once and counts[g][v] >= 1)]
-                    w = [(TASTE_FLOOR + weights.get(g, {}).get(v, 0.5)) * factors.get(g, {}).get(v, 1.0) for v in cands]
+                    w = [(TASTE_FLOOR + value_weight(g, v)[0]) * factors.get(g, {}).get(v, 1.0) for v in cands]
                     pick = rng.weighted(cands, w)
-                    why[g] = "taste %.2f" % weights.get(g, {}).get(pick, 0.5)
+                    got_w, src, wp, wr = value_weight(g, pick)
+                    why[g] = {"taste": "taste %.2f" % (wp or 0), "prior": "prior %.2f" % (wr or 0), "both": "taste %.2f, prior %.2f" % (wp or 0, wr or 0)}.get(src, "spread")
                 else:
                     ok = [v for v in GENES[g] if not (v == once and counts[g][v] >= 1)]
                     low = min(counts[g][v] for v in ok)  # spread: a value repeats only once all the others appeared
@@ -124,7 +129,7 @@ def _try_round(n, seed, salt, recipes, ctx):
                         pick = rng.weighted(cands, [factors[g].get(v, 1.0) * (1.0 if counts[g][v] == low else REPEAT_PENALTY) for v in cands])
                     else:
                         pick = rng.pick([v for v in ok if counts[g][v] == low])
-                    why[g] = "wildcard" if weights else "spread"
+                    why[g] = "wildcard" if learned else "spread"
                 genes[g] = pick
             if not all(shared_genes(genes, o["genes"]) <= MAX_SHARED for o in out):
                 continue
@@ -137,23 +142,24 @@ def _try_round(n, seed, salt, recipes, ctx):
         for g, v in genes.items():
             counts[g][v] += 1
         out.append({"genes": genes, "recipe": recipes[i % len(recipes)], "why": why,
-                    "origin": "taste" if taste else ("wildcard" if weights else "spread"), "novelty": novelty})
+                    "origin": ("taste" if weights else "prior") if taste else ("wildcard" if learned else "spread"), "novelty": novelty})
     return out
 
 
-def make_genomes(n, seed, recipes=None, weights=None, wild=None, avoid=None, factors=None, avoid_faces=()):
+def make_genomes(n, seed, recipes=None, weights=None, wild=None, avoid=None, factors=None, avoid_faces=(), prior=None):
     """n genomes {"genes": {...8...}, "recipe": R, "why": {gene: reason}}: spread values, pairs share <= MAX_SHARED genes,
     same seed same list. Optional (UAK-063, design_breed.py calls it without them): weights {gene: {value: w}} from the
     taste profile (liked values likelier; the last `wild` variants, default 2, or 1 when n <= 4, ignore them), avoid
     [gene dicts of past directions] (no variant shares more than MAX_PAST_SHARED genes with one), factors
     {gene: {value: f}} (the project's own material scales a value's chance). Each genome also gets "fonts", an exact Google
-    Fonts pair from design_fonts.py: no display or body face twice in the round, none of avoid_faces (UAK-071)."""
+    Fonts pair from design_fonts.py: no display or body face twice in the round, none of avoid_faces (UAK-071). prior
+    {gene: {value: w}} is the kit's default (design_prior.py): drawn from when there is no profile, under one when there is (UAK-075)."""
     recipes = list(recipes or RECIPES)
     if wild is None:
         wild = 1 if n <= 4 else 2
     base = {"avoid": avoid, "factors": factors, "wild": min(wild, n)}
-    for ctx in ([dict(base, weights=weights)] if weights else []) + [dict(base, weights=None)]:
-        for salt in range(60 if ctx["weights"] else 500):  # a dead end (rare) restarts the whole draw with the next salt: still deterministic
+    for ctx in ([dict(base, weights=weights, prior=prior)] if (weights or prior) else []) + [dict(base, weights=None, prior=None)]:
+        for salt in range(60 if (ctx["weights"] or ctx["prior"]) else 500):  # a dead end (rare) restarts the whole draw with the next salt: still deterministic
             got = _try_round(n, seed, salt, recipes, ctx)
             if got:
                 def _fits(i, genes, got=got):
@@ -713,7 +719,7 @@ def _past_faces(human, product, root, allow_repeat):
 
 def cmd_round(argv):
     screen, n, seed, dry, yes = "landing", DEFAULT_N, None, False, False
-    human, allow_repeat, parallel = None, False, None
+    human, allow_repeat, parallel, no_prior = None, False, None, False
     it = iter(argv)
     try:
         for a in it:
@@ -727,6 +733,8 @@ def cmd_round(argv):
                 human = next(it)
             elif a == "--allow-repeat":
                 allow_repeat = True
+            elif a == "--no-prior":
+                no_prior = True
             elif a == "--parallel":
                 parallel = int(next(it))
             elif a == "--dry-run":
@@ -736,7 +744,7 @@ def cmd_round(argv):
             else:
                 raise ValueError(a)
     except (StopIteration, ValueError):
-        print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes]", file=sys.stderr)
+        print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--no-prior] [--dry-run] [--yes]", file=sys.stderr)
         return 2
     if screen != "landing":
         print("design round: only --screen landing exists yet", file=sys.stderr)
@@ -753,9 +761,15 @@ def cmd_round(argv):
         import design_taste
         human = design_taste.default_human()
     weights, avoid, taste_note = _taste_context(root, human, product, allow_repeat)
+    prior_w, prior_note = (None, "kit prior off (--no-prior)")
+    if not no_prior:
+        import design_prior
+        prior_w, prior_doc = design_prior.load()
+        prior_note = design_prior.describe(prior_doc) if prior_doc and prior_w else "no kit prior shipped"
+        prior_w = prior_w if prior_doc else None
     brand = brand_colors(root, idea)
     material = project_material(root)
-    genomes = make_genomes(n, seed, recipes, weights=weights, avoid=avoid, factors=material_factors(material),
+    genomes = make_genomes(n, seed, recipes, weights=weights, prior=prior_w, avoid=avoid, factors=material_factors(material),
                            avoid_faces=_past_faces(human, product, root, allow_repeat))
     for g in genomes:
         if brand:
@@ -764,10 +778,11 @@ def cmd_round(argv):
         if material:
             have = material.get(g["genes"]["imagery"])
             g["why"]["imagery"] += " \u00b7 " + ("project has: " + ", ".join(have[:2]) if have else "no material for it" if g["genes"]["imagery"] != "type only" else "needs none")
-    mix = {k: sum(1 for g in genomes if g["origin"] == k) for k in ("taste", "wildcard", "spread")}
+    mix = {k: sum(1 for g in genomes if g["origin"] == k) for k in ("taste", "prior", "wildcard", "spread")}
     novel = sum(1 for g in genomes if g["novelty"])
-    mix_line = "DESIGN_ROUND mix: %d from taste, %d wildcards, %d drawn as before; %d redrawn for novelty vs %d past directions (%s)%s" % (
-        mix["taste"], mix["wildcard"], mix["spread"], novel, len(avoid), taste_note, "; seed %d from the project name" % seed)
+    mix_line = "DESIGN_ROUND mix: %d from %s, %d wildcards, %d drawn as before; %d redrawn for novelty vs %d past directions (%s; %s)%s" % (
+        mix["taste"] or mix["prior"], "taste" if mix["taste"] or not mix["prior"] else "the kit prior", mix["wildcard"], mix["spread"], novel, len(avoid),
+        taste_note, prior_note, "; seed %d from the project name" % seed)
     if dry:
         for i, g in enumerate(genomes, 1):
             print("v%d  %s  | recipe %s | %s" % (i, " | ".join("%s=%s" % (k, g["genes"][k]) for k in GENES), g["recipe"], g["origin"]))

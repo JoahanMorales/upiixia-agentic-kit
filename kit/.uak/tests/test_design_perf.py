@@ -50,6 +50,7 @@ PX = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlE
 
 class Env:
     def __init__(self, tmp, bash, package):
+        os.environ.setdefault("UAK_DESIGN_PRIOR", "none")  # these cases are about the profile or the capture, not the kit's default prior (UAK-075)
         self.tmp, self.bash = Path(tmp), bash
         self.pkg = Path(package) / ".uak"  # the candidate under test (smoke passes --package)
         sys.path.insert(0, str(self.pkg / "bin" / "lib"))
