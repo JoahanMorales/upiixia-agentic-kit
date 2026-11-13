@@ -6,7 +6,7 @@
 
 `round` writes .uak/design/rounds/R<k>/brief.md (the landing's story beats from IDEA.md; a beat IDEA.md does not
 have is listed as MISSING, never invented) and v<i>/genome.json + v<i>/TASK.md for each of N variants (default 8,
-max 20). A genome is 8 genes with fixed value lists (GENES) plus a recipe; no two variants of a round share more than
+max 20). A genome is 9 genes (8 before UAK-068: older genome.json lack `stage`) with fixed value lists (GENES) plus a recipe; no two variants of a round share more than
 MAX_SHARED genes, and each gene's values all appear before any repeats. The same --seed gives the same round.
 It prints the cost (N x Design-Variant-Tokens from PROJECT.md, default 60k, and the model tier) and writes nothing
 without --yes. `shoot` captures v<i>/1280.png and v<i>/390.png for any variant whose PNGs are missing.
@@ -19,6 +19,7 @@ Why (F0, Nov 11 2026): the kit's frontends scored 2.8 / 5 because every variant 
 be forced by the tool, not hoped for. Python 3.8+ standard library only; no network, no browser unless `shoot`."""
 import hashlib
 import json
+import math
 import os
 import re
 import shlex
@@ -28,6 +29,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+STILL = "still (no animation)"
 # The genome. Order matters (it is the order of genome.json). Scale values stay inside the F0 bounds
 # (docs/design/failures.md: display type <= 96 px on a landing hero, <= 48 px at 390, body 16-18 px, buttons 40-52 px).
 GENES = {
@@ -39,7 +41,11 @@ GENES = {
     "imagery": ["product screenshot", "video loop", "3D cut-out", "illustration", "type only"],
     "motion": ["still", "entrance", "scroll", "pointer"],
     "voice": ["plain", "bold claim", "numbers first"],
+    # Why (AXIA R1-R2, 2026-11-11): the hero is a stand-by screen for a hackathon projector; how it moves is a choice.
+    "stage": ["three.js scene", "three.js point cloud from the team's own image", "three.js scroll-driven", "canvas 2D generative",
+              "SVG/CSS animation", "real video with a live overlay", STILL],
 }
+AT_MOST_ONCE = {"stage": STILL}  # drawn at most once per round: a room turns its head for motion
 SCALE_BOUNDS = {  # max hero display px at 1280 wide (landing-story: 96 px ceiling, 48 px at 390)
     "restrained": "hero display at most 56 px",
     "standard": "hero display at most 72 px",
@@ -55,7 +61,7 @@ BEATS = ["one line", "proof", "wow", "steps", "users", "ask"]
 
 
 def shared_genes(a, b):
-    """How many of the 8 genes two genomes (dicts with "genes", or the gene dicts) have in common."""
+    """How many of the genes two genomes (dicts with "genes", or the gene dicts) have in common."""
     ga, gb = a.get("genes", a), b.get("genes", b)
     return sum(1 for k in GENES if ga.get(k) == gb.get(k))
 
@@ -104,18 +110,20 @@ def _try_round(n, seed, salt, recipes, ctx):
         for _ in range(400):
             genes, why = {}, {}
             for g in GENES:
+                once = AT_MOST_ONCE.get(g)
                 if taste:
-                    cands = list(GENES[g])
+                    cands = [v for v in GENES[g] if not (v == once and counts[g][v] >= 1)]
                     w = [(TASTE_FLOOR + weights.get(g, {}).get(v, 0.5)) * factors.get(g, {}).get(v, 1.0) for v in cands]
                     pick = rng.weighted(cands, w)
                     why[g] = "taste %.2f" % weights.get(g, {}).get(pick, 0.5)
                 else:
-                    low = min(counts[g].values())  # spread: a value repeats only once all the others appeared
+                    ok = [v for v in GENES[g] if not (v == once and counts[g][v] >= 1)]
+                    low = min(counts[g][v] for v in ok)  # spread: a value repeats only once all the others appeared
                     if g in factors:  # the project's material: all values stay possible, the unseen and the available likelier
-                        cands = list(GENES[g])
+                        cands = ok
                         pick = rng.weighted(cands, [factors[g].get(v, 1.0) * (1.0 if counts[g][v] == low else REPEAT_PENALTY) for v in cands])
                     else:
-                        pick = rng.pick([v for v in GENES[g] if counts[g][v] == low])
+                        pick = rng.pick([v for v in ok if counts[g][v] == low])
                     why[g] = "wildcard" if weights else "spread"
                 genes[g] = pick
             if not all(shared_genes(genes, o["genes"]) <= MAX_SHARED for o in out):
@@ -410,6 +418,18 @@ def task_text(rnd, i, genome, screen):
               "- Hero display type: at most 96 px at 1280 wide and at most 48 px at 390 wide. Your scale gene picks inside that: %s at 1280." % SCALE_BOUNDS[genes["scale"]],
               "- Body text 16-18 px. Primary buttons 40-52 px tall. At most 6 palette colors besides media. Colors are tokens in `:root`.",
               "- It must read at 1280x720 (the hero above the fold) and at 390 px wide with no horizontal scroll.", "",
+              "## The desktop first, the stage hero (the human's rules from R3; they override anything above)",
+              "- Design for 1440 and 1920 wide first, then 390. The hero is full-bleed. Content containers are at least 1200 px at 1440",
+              "  (a text column may be narrower, the composition fills the screen). No section with wide empty gutters.",
+              "- The hero is a stand-by loop for a projector: it runs with NO interaction in a 10-15 s cycle and tells the project to a",
+              "  stranger: subject, what the product finds, the result, the wow. Your `stage` gene (**%s**) says how. Reduced motion gives a complete still." % genes.get("stage", STILL),
+              "- Never show a raster upscaled. Recreate the subject (3D, points, line art, vector) or show it at or below native size. A real",
+              "  result chart may be rebuilt as live SVG/HTML from its real numbers.",
+              "- three.js: import map pinned to `https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js` (addons under `.../three@0.170.0/examples/jsm/`),",
+              "  devicePixelRatio at most 2, pause rendering when the tab is hidden, a designed still when WebGL is missing, no branded 3D models",
+              "  (build from primitives or the team's own assets), no network fetches but that CDN and fonts.",
+              "- Glows, neon blurs and soft gradient haze are tells (the human: \"AI slop\"); light comes from the scene itself.",
+              "- Check the page at 1920x1080 (the projector): `1920.png` if the capture wrote one, else open index.html at that size; then 1280 and 390.", "",
               "## Start from material",
               "Use the team's own material first: logo, mascot, photos, map, the real product screen. List what exists (`web/public`, `assets/`,",
               "links in IDEA.md) before designing, and build around it. Then generated material. Only then the MotionSites media shelf.",
@@ -418,7 +438,8 @@ def task_text(rnd, i, genome, screen):
               "## Subject world",
               "Before designing, list 3-5 concrete things from this project's domain (objects, instruments, units, local vernacular; see",
               "`../brief.md`) in a comment at the top of index.html, and use at least one as a visual element.", "",
-              "When done run `bash .uak/bin/uak design shoot %s v%d` and look at `1280.png` and `390.png`; fix what looks generic or broken." % (rnd, i)]
+              "When done run `bash .uak/bin/uak design shoot %s v%d` and look at `1280.png` and `390.png`; fix what looks generic or broken." % (rnd, i),
+              "Last, report what you spent: `bash .uak/bin/uak design done %s v%d --tokens N` with your real token usage (skip it if you cannot know it; never guess)." % (rnd, i)]
     return "\n".join(lines) + "\n"
 
 
@@ -449,7 +470,7 @@ def _taste_context(root, human, product, allow_repeat):
 
 def cmd_round(argv):
     screen, n, seed, dry, yes = "landing", DEFAULT_N, None, False, False
-    human, allow_repeat = None, False
+    human, allow_repeat, parallel = None, False, None
     it = iter(argv)
     try:
         for a in it:
@@ -463,6 +484,8 @@ def cmd_round(argv):
                 human = next(it)
             elif a == "--allow-repeat":
                 allow_repeat = True
+            elif a == "--parallel":
+                parallel = int(next(it))
             elif a == "--dry-run":
                 dry = True
             elif a == "--yes":
@@ -506,9 +529,24 @@ def cmd_round(argv):
             print("v%d  %s  | recipe %s | %s" % (i, " | ".join("%s=%s" % (k, g["genes"][k]) for k in GENES), g["recipe"], g["origin"]))
         print(mix_line)
         return 0
-    per = parse_tokens(cfg(root, "Design-Variant-Tokens", ""))
+    cfgd = cfg(root, "Design-Variant-Tokens", "")
+    per = parse_tokens(cfgd)
     tier = cfg(root, "Design-Variant-Model", DEFAULT_TIER)
-    print("DESIGN_ROUND cost: %d variants x %s tokens = %s tokens, model tier %s" % (n, fmt_tokens(per), fmt_tokens(per * n), tier))
+    import design_metrics
+    est = design_metrics.estimate(root, human, [g["genes"].get("stage", STILL) for g in genomes], per, parallel)
+    if est["parts"]:  # Why (AXIA R3): the fixed 60k per variant was off by 2x; a round's cost is what this human's rounds measured
+        print("DESIGN_ROUND cost: %s = %s tokens, model tier %s" % (" + ".join(est["parts"]), design_metrics.fmt_tokens(est["tokens"]), tier))
+        print("DESIGN_ROUND source: median of %d measured variants of %s's rounds, by stage family (uak design report --all)" % (est["entries"], human))
+    else:
+        print("DESIGN_ROUND cost: %d variants x %s tokens = %s tokens, model tier %s" % (n, fmt_tokens(per), fmt_tokens(per * n), tier))
+        print("DESIGN_ROUND source: %s, no history (no round with reported tokens yet; builders report with `uak design done`)" % (
+            "Design-Variant-Tokens in PROJECT.md" if cfgd else "the %s default" % fmt_tokens(DEFAULT_TOKENS)))
+    if est["wall_minutes"] is not None:
+        print("DESIGN_ROUND wall: ~%d min (%d variants, %d in parallel, median minutes per variant of the slowest stage family)" % (
+            math.ceil(est["wall_minutes"]), n, est["parallel"]))
+        warn = design_metrics.deadline_warning(root, est["wall_minutes"])
+        if warn:
+            print("DESIGN_ROUND " + warn)
     print(mix_line)
     again = "bash .uak/bin/uak design round --screen %s --n %d --seed %d --yes" % (screen, n, seed)
     if not yes:
@@ -532,6 +570,7 @@ def cmd_round(argv):
             f.write("\n")
         with open(str(v / "TASK.md"), "w", encoding="utf-8", newline="\n") as f:
             f.write(task_text("R%d" % k, i, g, screen))
+        design_metrics.start(v)
     print("DESIGN_ROUND R%d: brief.md + %d variants in %s" % (k, n, rnd))
     print("Next: one agent per variant follows v<i>/TASK.md, then: bash .uak/bin/uak design shoot R%d" % k)
     return 0
@@ -539,21 +578,162 @@ def cmd_round(argv):
 
 # ---- capture ----
 
+# Why (AXIA R1, Nov 11 2026): two variants looked broken in their captures because a <video>'s first frame is empty, and the
+# human judged six landings from that first screen alone. Before each shot every video is paused and seeked to 30% of its
+# length (a video that has no frame to show keeps its poster); the page is then still, so the fold and the full page match.
+MEDIA_JS = """async () => {
+  const vs = Array.prototype.slice.call(document.querySelectorAll('video'));
+  const wait = (el, ev, ms) => new Promise(res => { let done = false; const f = () => { if (!done) { done = true; res(); } };
+    el.addEventListener(ev, f, {once: true}); setTimeout(f, ms); });
+  for (const v of vs) {
+    try {
+      v.muted = true; v.removeAttribute('autoplay'); v.pause();
+      if (v.preload === 'none') { v.preload = 'auto'; v.load(); }
+      if (v.readyState < 1) await wait(v, 'loadedmetadata', 6000);
+      if (isFinite(v.duration) && v.duration > 0) { v.currentTime = v.duration * 0.3; await wait(v, 'seeked', 6000); }
+      v.pause();
+    } catch (e) {}
+  }
+  await new Promise(res => setTimeout(res, 300));
+  return vs.length;
+}"""
+
+# Why (AXIA R1-R3, Nov 11 2026): the lead hand-patched the capture for 1920, http and WebGL, and the human found the narrow
+# pages and stretched images by eye. The probe below measures what the human judges, in the page itself: WebGL, how wide
+# the content (text extents, images, media) is against the viewport, rasters drawn larger than they are, and the frame time.
+QA_JS = """async () => {
+  const W = innerWidth, dpr = window.devicePixelRatio || 1;
+  let gl = false;
+  try { const c = document.createElement('canvas'); gl = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) {}
+  const overflow = document.documentElement.scrollWidth > W + 1;
+  let lo = Infinity, hi = -Infinity, n = 0;
+  const all = document.body ? document.body.querySelectorAll('*') : [];
+  for (let i = 0; i < all.length && i < 4000; i++) {
+    const el = all[i], tag = el.tagName;
+    if (/^(SCRIPT|STYLE|NOSCRIPT|META|LINK|HEAD|TITLE|SOURCE)$/i.test(tag)) continue;
+    let r = null;
+    if (/^(IMG|VIDEO|CANVAS|SVG|PICTURE)$/i.test(tag)) r = el.getBoundingClientRect();
+    else {
+      let text = false;
+      for (const c of el.childNodes) { if (c.nodeType === 3 && c.textContent.trim()) { text = true; break; } }
+      if (!text) continue;
+      const g = document.createRange(); g.selectNodeContents(el); r = g.getBoundingClientRect();  // the text itself, not its box
+    }
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity === 0) continue;
+    if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.top > innerHeight * 3) continue;
+    lo = Math.min(lo, Math.max(0, r.left)); hi = Math.max(hi, Math.min(W, r.right)); n++;
+  }
+  const share = n && hi > lo ? Math.round((hi - lo) / W * 100) : null;
+  const upscaled = [];
+  document.querySelectorAll('img').forEach(im => {
+    const src = im.currentSrc || im.src || '';
+    if (!im.complete || !im.naturalWidth || /\.svg(\?|$)/i.test(src)) return;
+    const r = im.getBoundingClientRect(), cs = getComputedStyle(im);
+    if (r.width < 2 || cs.display === 'none' || cs.visibility === 'hidden') return;
+    if (r.width > im.naturalWidth * dpr * 1.1 + 1) upscaled.push({file: src.split('/').pop().split('?')[0], natural: im.naturalWidth, drawn: Math.round(r.width)});
+  });
+  const frame = await new Promise(res => { const t = []; let last = performance.now(); const t0 = last;
+    const f = now => { t.push(now - last); last = now; if (t.length < 200 && now - t0 < 1200) requestAnimationFrame(f);
+      else res(Math.round(t.reduce((a, b) => a + b, 0) / t.length)); };
+    requestAnimationFrame(f); });
+  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 5), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null};
+}"""
+
 _PLAYWRIGHT = """
-import sys
+import functools, http.server, json, os, re, sys, threading
 from pathlib import Path
+from urllib.parse import quote
 from playwright.sync_api import sync_playwright
+MEDIA = @MEDIA@
+QA = @QA@
 html, out = Path(sys.argv[1]).resolve(), Path(sys.argv[2])
+# Served over http: canvas pixel reads and fetches fail on file://. The root is the round folder (../brief.md, assets/).
+class Quiet(http.server.SimpleHTTPRequestHandler):
+    extensions_map = dict(http.server.SimpleHTTPRequestHandler.extensions_map, **{".glb": "model/gltf-binary", ".woff2": "font/woff2", ".mjs": "text/javascript", ".js": "text/javascript"})
+    def log_message(self, *a): pass
+    def end_headers(self):
+        self.send_header("Accept-Ranges", "bytes")
+        super().end_headers()
+    def do_GET(self):
+        # Why (UAK-067/069): Chromium will not seek a <video> over a server without byte ranges, which would undo the 30% seek.
+        m = re.match(r"^bytes=(\\d*)-(\\d*)$", self.headers.get("Range") or "")
+        path = self.translate_path(self.path)
+        if not m or not (m.group(1) or m.group(2)) or not os.path.isfile(path):
+            return super().do_GET()
+        size = os.path.getsize(path)
+        a, b = m.groups()
+        start, end = (max(0, size - int(b)), size - 1) if not a else (int(a), min(int(b), size - 1) if b else size - 1)
+        if start >= size or start > end:
+            self.send_response(416); self.send_header("Content-Range", "bytes */%d" % size); self.send_header("Content-Length", "0"); self.end_headers()
+            return
+        self.send_response(206)
+        self.send_header("Content-Type", self.guess_type(path))
+        self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+        self.send_header("Content-Length", str(end - start + 1))
+        self.end_headers()
+        with open(path, "rb") as f:
+            f.seek(start)
+            self.wfile.write(f.read(end - start + 1))
+root = html.parent.parent
+srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(root)))
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+url = "http://127.0.0.1:%d/%s" % (srv.server_address[1], quote(html.relative_to(root).as_posix()))
+report = {}
 with sync_playwright() as p:
-    b = p.chromium.launch()
-    for name, w, h in (("1280", 1280, 720), ("390", 390, 844)):
-        pg = b.new_page(viewport={"width": w, "height": h})
-        pg.goto(html.as_uri()); pg.wait_for_load_state("networkidle"); pg.wait_for_timeout(800)
+    b = p.chromium.launch(args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"])
+    for name, w, h in (("1920", 1920, 1080), ("1280", 1280, 720), ("390", 390, 844)):
+        pg = b.new_page(viewport={"width": w, "height": h}, device_scale_factor=2 if w < 500 else 1)  # the phone is sharp on the pick page
+        errs = []
+        pg.on("pageerror", lambda e: errs.append(str(e)))
+        try:
+            pg.goto(url, wait_until="networkidle", timeout=60000)
+        except Exception as exc:
+            errs.append("load: " + str(exc)[:120])
+        pg.wait_for_timeout(3200)  # animations are mid-cycle, fonts and media settled
+        pg.evaluate(MEDIA)
+        qa = pg.evaluate(QA) or {}
         pg.screenshot(path=str(out / (name + ".png")))
+        pg.evaluate(MEDIA)
         pg.screenshot(path=str(out / (name + "-full.png")), full_page=True)
+        qa["errors"], qa["first"] = len(errs), (errs[0][:160] if errs else "")
+        report[name] = qa
+        print("QA %s webgl=%s errors=%d overflow=%s content=%s%% fps=%s upscaled=%d" % (name, qa.get("gl"), len(errs), qa.get("overflow"), qa.get("share"), qa.get("fps"), len(qa.get("upscaled", []))))
         pg.close()
     b.close()
-"""
+srv.shutdown()
+(out / "qa.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+""".replace("@MEDIA@", json.dumps(MEDIA_JS)).replace("@QA@", json.dumps(QA_JS))
+
+
+NARROW_UNDER = 75  # percent of the viewport the content must span at 1920 and 1440 (the projector and the laptop)
+
+
+def qa_warnings(qa):
+    """[(viewport, text)] from a qa.json report: what the human would notice, said before they look."""
+    out = []
+    for name, q in (qa or {}).items():
+        if not isinstance(q, dict):
+            continue
+        w = q.get("w") or (int(name) if str(name).isdigit() else 0)
+        if q.get("errors"):
+            out.append((name, "page errors: %d (first: %s)" % (q["errors"], q.get("first") or "?")))
+        if q.get("gl") is False:
+            out.append((name, "no WebGL in the capture browser"))
+        if q.get("overflow"):
+            out.append((name, "horizontal overflow at %s px" % w))
+        if q.get("share") is not None and w >= 1440 and q["share"] < NARROW_UNDER:
+            out.append((name, "narrow page, empty gutters: content spans %s%% of %s px" % (q["share"], w)))
+        for u in q.get("upscaled", [])[:3]:
+            out.append((name, "upscaled raster: %s, %s -> %s px" % (u.get("file"), u.get("natural"), u.get("drawn"))))
+    return out
+
+
+def read_qa(vdir):
+    try:
+        return json.loads((Path(vdir) / "qa.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
 
 def find_capture(root):
@@ -608,7 +788,11 @@ def capture_one(cmd, html, vdir):
             return ok, (r.stderr or r.stdout)[-200:] if ok or exact else "shoot.py has other viewports than 1440x900; saved as desktop.png, not 1280.png"
         finally:
             shutil.rmtree(str(tmp), ignore_errors=True)
-    r = subprocess.run(cmd + [str(html), str(vdir)], capture_output=True, text=True, timeout=300)
+    try:
+        (vdir / "qa.json").unlink()  # a QA report belongs to the capture that wrote it
+    except OSError:
+        pass
+    r = subprocess.run(cmd + [str(html), str(vdir)], capture_output=True, text=True, timeout=600)
     ok = r.returncode == 0 and (vdir / "1280.png").is_file() and (vdir / "390.png").is_file()
     return ok, (r.stderr or r.stdout).strip()[-200:]
 
@@ -643,10 +827,25 @@ def cmd_shoot(argv):
         except (OSError, subprocess.SubprocessError) as exc:
             ok, why = False, str(exc)[:200]
         (done if ok else failed).append(v.name if ok else (v.name, why or "capture tool failed"))
+        if ok:
+            try:
+                import design_metrics
+                design_metrics.record_capture(v)
+            except Exception as exc:  # noqa: BLE001  metrics never fail a capture
+                print("DESIGN_SHOOT metrics not recorded for %s: %s" % (v.name, str(exc)[:120]), file=sys.stderr)
     print("DESIGN_SHOOT %s: captured %s; already had %d" % (argv[0], " ".join(done) or "none", len(variants) - len(todo)))
     for name, why in failed:
         print("DESIGN_SHOOT not captured: %s (%s)" % (name, why.replace("\n", " ")), file=sys.stderr)
-    return 1 if failed else 0
+    broken = []
+    for v in variants:
+        warns = qa_warnings(read_qa(v)) if v.name in done else []
+        for vp, text in warns:
+            print("DESIGN_SHOOT QA %s %s: %s" % (v.name, vp, text))
+        if any(t.startswith("page errors") for _, t in warns):
+            broken.append(v.name)
+    if broken:  # Why (AXIA R1-R3): a variant that throws on load is not a design to judge; the shoot fails so it is fixed first
+        print("DESIGN_SHOOT page errors in: %s (see the QA lines above; fix them, delete the variant's PNGs and shoot again)" % " ".join(broken), file=sys.stderr)
+    return 1 if failed or broken else 0
 
 
 def main(argv):
@@ -657,7 +856,10 @@ def main(argv):
         return cmd_round(argv[1:])
     if argv[:1] == ["shoot"]:
         return cmd_shoot(argv[1:])
-    print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] | design pick R<k> [--k N]", file=sys.stderr)
+    if argv[:1] in (["done"], ["report"]):  # tokens and minutes per variant (UAK-070)
+        import design_metrics
+        return design_metrics.main(argv)
+    print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] | design done R<k> v<i> --tokens N | design report R<k> [--all] | design pick R<k> [--k N]", file=sys.stderr)
     return 2
 
 
