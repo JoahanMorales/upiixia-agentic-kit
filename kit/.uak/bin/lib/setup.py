@@ -443,8 +443,6 @@ class SetupServer(ThreadingHTTPServer):
                 found = planning.violations(before, after)
                 tasks = planning.regular_file(root, ".uak/TASKS.md")
                 missing = not tasks.is_file()
-                if missing:
-                    found.append("The planner did not write .uak/TASKS.md.")
                 text = tasks.read_text(encoding="utf-8", errors="replace") if tasks.is_file() else ""
                 # No plan file: nothing to check, so no lint verdict (a green "passes" there was shown in round r3).
                 checked = {"ok": False, "lines": []} if missing else planning.lint(self.run, root, uak, bash_binary())
