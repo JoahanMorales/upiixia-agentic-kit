@@ -7,8 +7,10 @@ terminal runs Claude or Codex and needed the worktree cd, the first prompt and t
 Contract: notes/handoff:UI-006-contract.md (v2 + the reviewer's 9 amendments)."""
 import argparse
 import importlib.util
+import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -31,10 +33,32 @@ class Team:
 
     def __init__(self, ready=READY_OUT):
         self.ready, self.calls, self.gate, self.fake_timeout, self.skip = ready, [], None, False, False
+        # UI-009: the auth probes of the coding tools (exit code per tool: 0 signed in), the exit code of the canned
+        # `uak start`, every network Git call (gated on demand) and whether it ran beside a live worker.
+        self.tools, self.ready_code, self.net, self.srv = {"claude": 0, "codex": 0}, 0, [], None
+        self.net_gate, self.net_entered, self.net_code = None, threading.Event(), None
+        self.probe_gate, self.probe_entered = None, threading.Event()
 
     def __call__(self, command, cwd=None, timeout=120, group=False, env=None, **kwargs):
         if len(command) >= 3 and command[-1] == "start" and str(command[-2]).endswith("uak"):
-            return subprocess.CompletedProcess(command, 0, self.ready, "")
+            return subprocess.CompletedProcess(command, self.ready_code, self.ready, "")
+        tool = Path(str(command[0])).name.lower().replace(".exe", "").replace(".cmd", "")
+        if tool in self.tools and list(command[1:3]) in (["auth", "status"], ["login", "status"]):
+            self.probe_entered.set()
+            if self.probe_gate:
+                self.probe_gate.wait(6)
+            return subprocess.CompletedProcess(command, self.tools[tool], "", "")
+        if "ls-remote" in command or "fetch" in command:
+            srv = self.srv
+            worker = srv.worker if srv else None
+            self.net.append({"argv": list(command), "timeout": timeout, "group": group,
+                             "beside_worker": bool(worker and worker.is_alive() and threading.current_thread() is not worker)})
+            if "ls-remote" in command:
+                self.net_entered.set()
+                if self.net_gate:
+                    self.net_gate.wait(6)
+                if self.net_code is not None:
+                    return subprocess.CompletedProcess(command, self.net_code, "", "The run took too long and was stopped.")
         if "register-reviewer" in command:
             self.calls.append({"argv": list(command), "cwd": cwd, "env": dict(env or {}), "group": group,
                                "timeout": timeout})
@@ -203,7 +227,9 @@ def agent_launch_commands_are_exact(root, tmp):
     assert impl["command"] == ("cd %s && UAK_HUMAN= bash .uak/bin/wt new APP-001 --agent claude-ana --human ana && cd %s "
                                "&& UAK_HUMAN= claude '%s'" % (q(physical), q(worktree), MODULE.IMPL_PROMPT % "APP-001")), impl
     assert impl["resume"] == "cd %s && UAK_HUMAN= claude" % q(worktree), impl
-    assert review["command"] == "cd %s && UAK_HUMAN= UAK_AGENT=ana-r codex '%s'" % (q(physical), MODULE.REVIEW_PROMPT % "ana-r"), review
+    assert review["command"] == ("cd %s && UAK_HUMAN= UAK_AGENT=ana-r codex --sandbox workspace-write --add-dir %s "
+                                 "-c sandbox_workspace_write.network_access=true '%s'"
+                                 % (q(physical), q(physical / ".git"), MODULE.REVIEW_PROMPT % "ana-r")), review
     for c in (impl, review):
         assert c.get("terminal") and c.get("tool") in ("Claude Code", "Codex"), "each block names its terminal and tool: %r" % c
     for prompt in (MODULE.IMPL_PROMPT % "APP-001", MODULE.REVIEW_PROMPT % "ana-r"):
@@ -233,7 +259,9 @@ def agent_launch_commands_are_exact(root, tmp):
         and same(resumed[1][len("cwd="):], worktree), "each tool starts in its folder: %r" % [r[1] for r in runs]
     assert claude[:1] + claude[2:] == ["claude", "UAK_HUMAN=[]", "UAK_AGENT=[someone-else]",
                                        "arg=%s" % (MODULE.IMPL_PROMPT % "APP-001")], claude
-    assert codex[:1] + codex[2:] == ["codex", "UAK_HUMAN=[]", "UAK_AGENT=[ana-r]",
+    assert codex[:1] + codex[2:] == ["codex", "UAK_HUMAN=[]", "UAK_AGENT=[ana-r]", "arg=--sandbox", "arg=workspace-write",
+                                     "arg=--add-dir", "arg=%s" % (physical / ".git").as_posix(), "arg=-c",
+                                     "arg=sandbox_workspace_write.network_access=true",
                                      "arg=%s" % (MODULE.REVIEW_PROMPT % "ana-r")], codex
     assert resumed[:1] + resumed[2:] == ["claude", "UAK_HUMAN=[]", "UAK_AGENT=[someone-else]"], resumed
     env_file = (worktree / ".uak-env").read_text(encoding="utf-8")
@@ -498,10 +526,285 @@ def team_step_needs_main_checkout_and_kit_on_main(root, tmp):
     assert not team.calls and not claims_head(remote)
 
 
+# --- UI-009 (absorbs UI-011 and UI-014): the team step, right for every person ----------------------------------------
+# Contract: notes/handoff:UI-009-contract.md (Fable mentor pass + the reviewer's 11 binding amendments + amendment 12:
+# Codex runs with the network on inside its workspace-write sandbox). Expected commands are written out literally here.
+
+CODEX_FLAGS = "--sandbox workspace-write --add-dir %s -c sandbox_workspace_write.network_access=true"
+REVIEW_CODEX = ("You are the reviewer %s. Run bash .uak/bin/uak next; when it names a task to review, run $uak-review with "
+                "that task ID. Never write code for a task.")
+REVIEW_CLAUDE = ("You are the reviewer %s. Run bash .uak/bin/uak next; when it names a task to review, run /uak-review with "
+                 "that task ID. Never write code for a task.")
+IMPL_CLAUDE = "Run /uak-start for %s. Work only in this worktree."
+IMPL_CODEX = "Run $uak-start for %s. Work only in this worktree."
+WAITING_OUT = ("OK    1. kit installed\nOK    5. plan: 2 task(s), lint clean\n"
+               "TODO  7. a claimable task: uak next offers none\n"
+               "         · Waiting on APP-002: depends on APP-001 (CLAIMED)\n\n"
+               "START · 1 thing to do before the first claim. Then run uak start again.\n")
+HOSTILE = ("START READY · bash .uak/bin/wt new APP-001$(touch x)\n", "START READY · bash .uak/bin/wt new APP-001;id\n",
+           "START READY · bash .uak/bin/wt new APP-7\n", "START READY · cd somewhere and open your agent\n")
+DESTRUCTIVE = ("--force", " -f", "reset", "clean", "rm ", "checkout --", "branch -D", "+refs", "push")
+
+
+def q(path):
+    return "'" + Path(str(path)).as_posix().replace("'", "'\\''") + "'"
+
+
+def physical(path):
+    return Path(os.path.realpath(str(path)))
+
+
+def by_id(view):
+    return {c["id"]: c for c in view.get("commands") or []}
+
+
+def catalog_rows():
+    """The Spanish catalog of workspace.js: exact entries and whole-string pattern rows (server notes with values)."""
+    text = catalog()
+    exact = set()
+    for m in re.finditer(r'\[\s*"((?:[^"\\]|\\.)*)",\s*"(?:[^"\\]|\\.)*"\s*\]', text):
+        exact.add(json.loads('"%s"' % m.group(1)))
+    notes = text[text.index("var NOTES = ["):] if "var NOTES = [" in text else ""
+    notes = notes[:notes.index("];")] if notes else ""
+    patterns = [json.loads('"%s"' % m.group(1)) for m in re.finditer(r'\[\s*"((?:[^"\\]|\\.)*)",\s*"(?:[^"\\]|\\.)*"\s*\]', notes)]
+    return exact, patterns
+
+
+def translated(text):
+    exact, patterns = catalog_rows()
+    return text in exact or any(re.fullmatch(p, text) for p in patterns)
+
+
+def spanish_for(body):
+    """Every server text the page shows from this reply (notes, messages, reasons, way-out steps) has Spanish."""
+    texts = [body.get("note"), (body.get("registered") or {}).get("message"), (body.get("roles") or {}).get("note"),
+             body.get("error")]
+    texts += [t.get("reason") for t in body.get("tools") or []]
+    texts += [c.get("terminal") for c in body.get("commands") or []]
+    way = body.get("way_out") or {}
+    texts += list(way.get("steps") or [])
+    missing = [t for t in texts if t and not translated(t)]
+    assert not missing, "no Spanish entry in workspace.js for: %r" % missing
+
+
+def retire(target, who, human):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("UAK_")}
+    env.update(UAK_HUMAN=human, UAK_AGENT="")
+    done = subprocess.run([resolve_binary("bash"), ".uak/bin/uak", "retire", who], cwd=str(target), env=env,
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stdout + done.stderr
+
+
+def check(srv):
+    assert tp.post(srv, "/api/check", {})[0] == 202
+    tp.wait_idle(srv)
+    return tp.get(srv, "/api/status")[1]
+
+
+def reviewer_state_follows_project_and_name(root, tmp):
+    a, _ = ready_project(root, fresh(tmp, "a"), name="project a")
+    b, _ = ready_project(root, fresh(tmp, "b"), name="project b")
+    team = Team()
+    with tp.live(a, team) as srv:
+        team.srv = srv
+        ready(srv, a)
+        assert register(srv)[0] == 202
+        status, view = tp.get(srv, "/api/team")
+        assert status == 200 and view["registered"]["registered"] is True, view
+        assert tp.get(srv, "/api/status")[1]["reviewer"]["registered"] is True
+        ready(srv, b)
+        status, view = tp.get(srv, "/api/team")
+        assert status == 200 and view["registered"]["registered"] is False, \
+            "another project never inherits a registration: %r" % view.get("registered")
+        assert not (tp.get(srv, "/api/status")[1].get("reviewer") or {}).get("registered")
+        assert not view["registered"].get("message"), view["registered"]
+        runs = len(team.calls)
+        ready(srv, a)
+        view = tp.get(srv, "/api/team")[1]
+        assert view["registered"]["registered"] is True and view["registered"]["registered_by"] == "ana", view
+        assert len(team.calls) == runs, "read from claims: no engine run"
+        assert tp.post(srv, "/api/human", {"name": "bob"})[0] == 200
+        view = tp.get(srv, "/api/team")[1]
+        assert view["reviewer"] == "bob-r" and view["registered"]["registered"] is False, view
+        assert not (tp.get(srv, "/api/status")[1].get("reviewer") or {}).get("registered")
+        assert tp.post(srv, "/api/human", {"name": "ana"})[0] == 200
+        retire(a, "ana-r", "ana")
+        check(srv)
+        view = tp.get(srv, "/api/team")[1]
+        assert view["registered"]["retired"] is True and view["registered"]["registered"] is False, view
+        assert "review" not in by_id(view), "a retired reviewer gets no command: %r" % view["commands"]
+        assert "retired" in view["registered"]["message"], view["registered"]
+        spanish_for(view)
+        assert not (tp.get(srv, "/api/status")[1].get("reviewer") or {}).get("registered")
+        assert "reviewer" not in srv.state, "no server-wide reviewer flag"
+
+
+def codex_command_can_write_git(root, tmp):
+    real = tmp / "real root"
+    real.mkdir()
+    linked = tmp / "link root"
+    try:
+        linked.symlink_to(real, target_is_directory=True)
+    except OSError:
+        linked = real
+    target, _ = ready_project(root, linked, name="team space é")
+    home = physical(target)
+    gitdir = home / ".git"
+    worktree = home.parent / (home.name + "-wt") / "app-001"
+    team = Team()
+    with tp.live(target, team) as srv:
+        ready(srv, target)
+        status, view = tp.get(srv, "/api/team")
+        assert status == 200, view
+        review = by_id(view).get("review") or {}
+        assert review.get("command") == (
+            "cd %s && UAK_HUMAN= UAK_AGENT=ana-r codex --sandbox workspace-write --add-dir %s "
+            "-c sandbox_workspace_write.network_access=true 'You are the reviewer ana-r. Run bash .uak/bin/uak next; "
+            "when it names a task to review, run $uak-review with that task ID. Never write code for a task.'"
+            % (q(home), q(gitdir))), review
+        status, body = tp.post(srv, "/api/team/roles", {"implement": "codex", "review": "codex"})
+        assert status == 200, body
+        impl = by_id(tp.get(srv, "/api/team")[1])["implement"]
+    assert impl["command"] == ("cd %s && UAK_HUMAN= bash .uak/bin/wt new APP-001 --agent codex-ana --human ana && cd %s && "
+                               "UAK_HUMAN= codex --sandbox workspace-write --add-dir %s "
+                               "-c sandbox_workspace_write.network_access=true 'Run $uak-start for APP-001. Work only in "
+                               "this worktree.'" % (q(home), q(worktree), q(gitdir))), impl["command"]
+    stubs, log = stub_tools(tmp)
+    for line in (review["command"], impl["command"]):
+        done = run_line(line, stubs, tmp)
+        assert done.returncode == 0, done.stdout[-800:] + done.stderr[-800:]
+    runs = [r.splitlines() for r in log.read_text(encoding="utf-8").split("--- ")[1:]]
+    assert len(runs) == 2, runs
+    for run, prompt, where in ((runs[0], REVIEW_CODEX % "ana-r", home), (runs[1], IMPL_CODEX % "APP-001", worktree)):
+        args = [l[len("arg="):] for l in run if l.startswith("arg=")]
+        assert args == ["--sandbox", "workspace-write", "--add-dir", gitdir.as_posix(), "-c",
+                        "sandbox_workspace_write.network_access=true", prompt], args
+        assert Path(args[3]).is_dir(), "--add-dir names one existing directory: %r" % args[3]
+        assert os.path.normcase(os.path.realpath(run[1][len("cwd="):])) == os.path.normcase(str(where)), run[1]
+        assert "UAK_HUMAN=[]" in run, run
+        assert not [a for a in args[:-1] if a.startswith("-") and a not in ("--sandbox", "--add-dir", "-c")], args
+        for bad in tp.BYPASS:
+            assert bad not in args, "no approval or sandbox bypass: %r" % args
+    assert "UAK_AGENT=[ana-r]" in runs[0], runs[0]
+    assert (worktree / ".git").is_file(), "the worktree's .git is a file; Codex gets the main checkout's Git folder"
+    assert "UAK_AGENT=codex-ana" in (worktree / ".uak-env").read_text(encoding="utf-8")
+    # The Git folder must be quotable too (a separate Git dir with a quote mark): no command at all.
+    odd, _ = ready_project(root, fresh(tmp, "sep"), name="sep project")
+    moved = tmp / "sep" / "it's git"
+    shutil.move(str(odd / ".git"), str(moved))
+    (odd / ".git").write_text("gitdir: %s\n" % moved.as_posix(), encoding="utf-8")
+    with tp.live(odd, Team()) as srv:
+        ready(srv, odd)
+        status, view = tp.get(srv, "/api/team")
+    assert status == 200 and not view.get("commands") and view.get("note"), view
+    spanish_for(view)
+    # A Windows path is one quoted word.
+    flags = MODULE.codex_flags("C:/Users/Ana Pérez/team/.git")
+    assert shlex.split(flags) == ["--sandbox", "workspace-write", "--add-dir", "C:/Users/Ana Pérez/team/.git", "-c",
+                                  "sandbox_workspace_write.network_access=true"], flags
+
+
+def team_step_survives_the_first_claim(root, tmp):
+    target, _ = ready_project(root, tmp)
+    home = physical(target)
+    worktree = home.parent / (home.name + "-wt") / "app-001"
+    start = (root / ".uak/bin/start").read_text(encoding="utf-8")
+    assert "a claimable task: uak next offers none" in start, "the waiting line is the engine's own"
+    team = Team()
+    stubs, _ = stub_tools(tmp)
+    with tp.live(target, team) as srv:
+        ready(srv, target)
+        impl = by_id(tp.get(srv, "/api/team")[1])["implement"]
+        done = run_line(impl["command"], stubs, tmp)
+        assert done.returncode == 0, done.stdout[-800:] + done.stderr[-800:]
+        # (a) the same READY line again (round 3: the claimed task was offered a second time)
+        check(srv)
+        status, view = tp.get(srv, "/api/team")
+        assert status == 200, view
+        assert view["task"] == "" and "implement" not in by_id(view) and view.get("can_check") is True, \
+            "a claimed task is never offered again: %r" % view
+        assert "APP-001" in view.get("note", "") and "claimed" in view.get("note", ""), view.get("note")
+        rows = {r["task"]: r for r in view.get("claimed") or []}
+        assert rows.get("APP-001", {}).get("state") == "CLAIMED" and rows["APP-001"].get("owner") == "claude-ana", rows
+        assert rows["APP-001"].get("resume") == "cd %s && UAK_HUMAN= claude" % q(worktree), rows["APP-001"]
+        assert "review" in by_id(view), "the reviewer command stays"
+        spanish_for(view)
+        # (b) the engine's real waiting output: not ready, but the team step stays
+        team.ready, team.ready_code = WAITING_OUT, 1
+        state = check(srv)
+        assert state["ready"] is False and state.get("team") == "waiting", state
+        guide = state.get("guidance") or {}
+        assert guide.get("kind") == "waiting" and not guide.get("terminal") and not guide.get("commands"), guide
+        assert any("Waiting on APP-002" in s for s in guide.get("steps") or []), guide
+        status, view = tp.get(srv, "/api/team")
+        assert status == 200, "the team step survives the first claim: %r" % view
+        assert view.get("phase") == "waiting" and "review" in by_id(view) and "implement" not in by_id(view), view
+        assert {r["task"]: r for r in view["claimed"]}["APP-001"].get("resume"), view["claimed"]
+        spanish_for(view)
+        # (c) another free task: the next free identity of the same tool
+        team.ready, team.ready_code = READY_OUT.replace("APP-001", "APP-003"), 0
+        check(srv)
+        view = tp.get(srv, "/api/team")[1]
+        assert "--agent claude-ana-2 " in by_id(view)["implement"]["command"], view["commands"]
+        # hostile or unparsable READY lines: no command at all, a note
+        for line in HOSTILE:
+            team.ready = "OK    1. kit installed\n\n" + line
+            check(srv)
+            status, view = tp.get(srv, "/api/team")
+            assert status == 200 and not view.get("commands") and view.get("note"), (line, view)
+    # (d) the page keeps the step after the first claim
+    html = page()
+    assert re.search(r"function journeyStep\(data\) \{[\s\S]{0,400}data\.team", html), "journeyStep reads team"
+    assert re.search(r"async function loadTeam\(\) \{[\s\S]{0,300}state\.team", html), "loadTeam reads team"
+
+
+def offline_team_step_says_offline(root, tmp):
+    target, remote = ready_project(root, tmp)
+    team = Team()
+    with tp.live(target, team) as srv:
+        ready(srv, target)
+        assert register(srv)[0] == 202
+        tp.git(target, "remote", "set-url", "origin", str(tmp / "gone.git"))
+        status, view = tp.get(srv, "/api/team")
+        assert status == 200, view
+        assert (view.get("remote") or {}).get("state") == "offline" and view.get("retry") is True, view
+        assert not view.get("commands") and view["registered"]["registered"] is None, view
+        assert "cannot reach" in view["note"] and "publish" not in view["note"].lower(), view["note"]
+        assert (tp.get(srv, "/api/status")[1].get("reviewer") or {}).get("registered") is None, \
+            "offline is unknown, never a remembered true"
+        spanish_for(view)
+        tp.git(target, "remote", "set-url", "origin", str(remote))
+        view = tp.get(srv, "/api/team")[1]
+        assert view["remote"]["state"] == "ok" and by_id(view).get("implement"), "a failure is not cached: %r" % view
+        # A timeout reads as offline, says so, and is not cached either.
+        tp.post(srv, "/api/inspect", {"target": str(target)})
+        ready(srv, target)
+        team.net_code = 124
+        view = tp.get(srv, "/api/team")[1]
+        assert view["remote"]["state"] == "offline" and "timed out after 30 s" in view["note"], view
+        spanish_for(view)
+        team.net_code = None
+        view = tp.get(srv, "/api/team")[1]
+        assert view["remote"]["state"] == "ok" and view.get("commands"), view
+        # No remote at all: its own note, Retry, never "publish".
+        tp.git(target, "remote", "remove", "origin")
+        try:
+            view = tp.get(srv, "/api/team")[1]
+            assert view["remote"]["state"] == "none" and view.get("retry") is True and not view.get("commands"), view
+            assert "publish" not in view["note"].lower(), view["note"]
+            spanish_for(view)
+        finally:
+            tp.git(target, "remote", "add", "origin", str(remote))
+    for net in team.net:
+        assert net["timeout"] <= 30 and net["group"] is True, net
+
+
 TESTS = [reviewer_is_registered_from_the_page, agent_launch_commands_are_exact, advanced_view_shows_the_next_step,
          tool_roles_are_explained, registration_is_idempotent_and_honest, registration_env_is_exact,
          registration_self_grant_is_explained, registration_timeout_reports_remote_truth, team_api_keeps_the_protections,
-         concurrent_registration_is_busy, team_step_needs_main_checkout_and_kit_on_main]
+         concurrent_registration_is_busy, team_step_needs_main_checkout_and_kit_on_main,
+         reviewer_state_follows_project_and_name, codex_command_can_write_git, team_step_survives_the_first_claim,
+         offline_team_step_says_offline]
 
 
 def main():

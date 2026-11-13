@@ -7,10 +7,12 @@ import argparse
 import datetime
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -492,6 +494,220 @@ def schedule_is_never_guessed(root, tmp):
         assert (target / ".uak/PROJECT.md").read_bytes() == before, "a preview writes nothing"
 
 
+# --- UI-009 (absorbs UI-011): network Git outside the server lock, and a way out of unrelated history -------------
+
+
+class GatedPlanner(tp.FakePlanner):
+    """Holds the first `ls-remote` until the test opens the gate (at most 6 s); records every network call."""
+
+    def __init__(self):
+        super().__init__()
+        self.gate, self.entered, self.net = threading.Event(), threading.Event(), []
+
+    def __call__(self, command, cwd=None, timeout=120, **kwargs):
+        if "ls-remote" in command or "fetch" in command or "push" in command:
+            self.net.append({"argv": list(command), "timeout": timeout})
+        if "ls-remote" in command and not self.entered.is_set():
+            self.entered.set()
+            self.gate.wait(6)
+        return super().__call__(command, cwd=cwd, timeout=timeout, **kwargs)
+
+
+def timed_status(srv):
+    """One status request (not a mean), timed."""
+    started = time.monotonic()
+    status, body = tp.get(srv, "/api/status")
+    return status, body, time.monotonic() - started
+
+
+def in_thread(call):
+    box = {}
+    thread = threading.Thread(target=lambda: box.update(result=call()), daemon=True)
+    thread.start()
+    return thread, box
+
+
+def status_answers_during_network_git(root, tmp):
+    target, _ = installed(root, tmp)
+    planner = GatedPlanner()
+    with tp.live(target, planner) as srv:
+        ready_to_publish(srv, target)
+        thread, box = in_thread(lambda: tp.get(srv, "/api/publish-kit"))
+        assert planner.entered.wait(10), "the preview reached ls-remote"
+        status, body, seconds = timed_status(srv)
+        assert status == 200 and seconds < 1.0, "status answers while Git talks to the remote: %.2f s" % seconds
+        assert body.get("phase") not in wizard.MODULE.BUSY, body.get("phase")
+        planner.gate.set()
+        thread.join(15)
+        assert box["result"][0] == 200, box
+    for net in planner.net:
+        assert net["timeout"] <= 30, net
+    # The reviewer registration's own read of claims, then a tool probe: status never waits; POSTs queue.
+    import test_setup_team as team_tests
+    team_tests.MODULE = wizard.MODULE
+    project, _ = team_tests.ready_project(root, team_tests.fresh(tmp, "team"))
+    team = team_tests.Team()
+    team.probe_gate = threading.Event()
+    with tp.live(project, team) as srv:
+        team.srv = srv
+        team_tests.ready(srv, project)
+        thread, box = in_thread(lambda: tp.get(srv, "/api/team"))
+        assert team.probe_entered.wait(10), "the tool probe started"
+        status, _, seconds = timed_status(srv)
+        assert status == 200 and seconds < 1.0, "status answers during a tool probe: %.2f s" % seconds
+        team.probe_gate.set()
+        thread.join(15)
+        assert box["result"][0] == 200, box
+        team.net_entered.clear()
+        team.net_gate = threading.Event()
+        team.gate = threading.Event()  # the registration worker stays alive until released
+        reviewer, reviewer_box = in_thread(lambda: tp.post(srv, "/api/team/reviewer", {"confirm": "ana-r"}))
+        assert team.net_entered.wait(10), "the registration reads claims first"
+        status, _, seconds = timed_status(srv)
+        assert status == 200 and seconds < 1.0, "status answers during the claims read: %.2f s" % seconds
+        human, human_box = in_thread(lambda: tp.post(srv, "/api/human", {"name": "ana"}))
+        queued, queued_box = in_thread(lambda: tp.get(srv, "/api/team"))
+        time.sleep(0.5)
+        assert human.is_alive(), "a POST waits for the slow lane instead of racing it"
+        team.net_gate.set()
+        reviewer.join(15)
+        human.join(15)
+        queued.join(15)
+        assert reviewer_box["result"][0] == 202, reviewer_box
+        assert human_box["result"][0] in (200, 409), human_box  # 409: the registration it waited for is running
+        assert queued_box["result"][0] in (200, 409), queued_box
+        if queued_box["result"][0] == 200:
+            assert queued_box["result"][1].get("stale") is True, "while the engine runs, the last view is shown"
+        assert tp.get(srv, "/api/publish-kit")[0] == 409, "no fetch while the engine runs"
+        status, plan = tp.get(srv, "/api/plan")
+        assert status == 200, plan
+        assert not [n for n in team.net if n["beside_worker"]], \
+            "no request fetched while the worker ran: %r" % [n["argv"] for n in team.net if n["beside_worker"]]
+        team.gate.set()
+        tp.wait_idle(srv)
+    for net in team.net:
+        assert net["timeout"] <= 30, net
+
+
+def bash_line(line, cwd):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("UAK_")}
+    return subprocess.run([resolve_binary("bash"), "-c", line], cwd=str(cwd), env=env, capture_output=True, text=True,
+                          timeout=120)
+
+
+def remote_commit(remote, tmp, files, label):
+    """Someone else creates the remote's own first commit (a README or .gitignore made on GitHub)."""
+    clone = tmp / ("clone " + label)
+    tp.git(tmp, "clone", "-q", str(remote), str(clone))
+    for rel, text in files.items():
+        (clone / rel).parent.mkdir(parents=True, exist_ok=True)
+        (clone / rel).write_text(text, encoding="utf-8")
+    tp.git(clone, "add", "-A")
+    tp.git(clone, "-c", "user.name=x", "-c", "user.email=x@example.invalid", "commit", "-q", "-m", "on GitHub")
+    tp.git(clone, "push", "-q", "origin", "HEAD:main")
+    return tp.git(clone, "rev-parse", "HEAD")
+
+
+def way_out(srv):
+    status, body = tp.get(srv, "/api/publish-kit")
+    assert status == 400 and body.get("way_out"), "the preview explains the way out: %r" % body
+    assert "git pull" in body["error"], "the message names git pull (amendment 1): %r" % body["error"]
+    status, posted = tp.post(srv, "/api/publish-kit", {"digest": "0" * 64})
+    assert status == 400 and posted.get("way_out") == body["way_out"], posted
+    import test_setup_team as team_tests
+    team_tests.spanish_for(body)
+    for word in ("--force", " -f", "reset", "clean", "rm ", "checkout --", "branch -D", "+refs", "push"):
+        assert word not in body["way_out"]["command"], "no destructive word in %r" % body["way_out"]["command"]
+    return body["way_out"]
+
+
+def q(path):
+    return "'" + Path(str(path)).as_posix().replace("'", "'\\''") + "'"
+
+
+def unrelated_remote_history_has_a_way_out(root, tmp):
+    # (a) the round-4 incident: an unborn folder, GitHub made .gitignore and README.md
+    (tmp / "a").mkdir()
+    target, remote = installed(root, tmp / "a")
+    (target / ".gitignore").write_text("mine\n", encoding="utf-8")
+    theirs = remote_commit(remote, tmp / "a", {".gitignore": "remote\n", "README.md": "# made on GitHub\n"}, "a")
+    with tp.live(target, tp.FakePlanner()) as srv:
+        ready_to_publish(srv, target)
+        out = way_out(srv)
+        home = Path(os.path.realpath(str(target)))
+        assert out["command"] == ("cd %s && test ! -e '.gitignore.mine' && test ! -L '.gitignore.mine' && "
+                                  "mv -- '.gitignore' '.gitignore.mine' && git pull --no-rebase --no-edit "
+                                  "--allow-unrelated-histories origin main" % q(home)), out["command"]
+        assert out["renamed"] == [".gitignore"], out
+        assert any("new empty repository" in s for s in out["steps"]), out["steps"]
+        assert any(".gitignore.mine" in s for s in out["steps"]), out["steps"]
+        done = bash_line(out["command"], tmp)
+        assert done.returncode == 0, done.stdout[-600:] + done.stderr[-600:]
+        assert (target / ".gitignore.mine").read_text(encoding="utf-8") == "mine\n"
+        assert (target / ".gitignore").read_text(encoding="utf-8") == "remote\n"
+        assert tp.git(target, "rev-parse", "HEAD") == theirs
+        publish(srv)
+    assert tp.git(target, "rev-parse", "HEAD^") == theirs and remote_head(remote) == tp.git(target, "rev-parse", "HEAD"), \
+        "the kit is published on top of the remote's commit"
+    # (b) local commits with no common ancestor: the plain pull, two roots after it
+    (tmp / "b").mkdir()
+    target, remote = installed(root, tmp / "b")
+    tp.git(target, "add", "AGENTS.md")
+    tp.git(target, "commit", "-q", "-m", "my own start")
+    remote_commit(remote, tmp / "b", {"README.md": "# made on GitHub\n"}, "b")
+    with tp.live(target, tp.FakePlanner()) as srv:
+        ready_to_publish(srv, target)
+        out = way_out(srv)
+    home = Path(os.path.realpath(str(target)))
+    assert out["command"] == ("cd %s && git pull --no-rebase --no-edit --allow-unrelated-histories origin main" % q(home)), out
+    done = bash_line(out["command"], tmp)
+    assert done.returncode == 0, done.stdout[-600:] + done.stderr[-600:]
+    assert len(tp.git(target, "rev-list", "--max-parents=0", "HEAD").split()) == 2, "both histories are kept"
+    # (c) and amendment 8: names it cannot quote, a folder against a file, a .mine already there: no command, no change
+    cases = {"quote": ({"a'b": "remote\n"}, {"a'b": "mine\n"}),
+             "folder": ({"docs": "remote file\n"}, {"docs/note.md": "mine\n"}),
+             "mine": ({".gitignore": "remote\n"}, {".gitignore": "mine\n", ".gitignore.mine": "older\n"})}
+    for label, (remote_files_, local) in sorted(cases.items()):
+        (tmp / label).mkdir()
+        target, remote = installed(root, tmp / label)
+        for rel, text in local.items():
+            (target / rel).parent.mkdir(parents=True, exist_ok=True)
+            (target / rel).write_text(text, encoding="utf-8")
+        remote_commit(remote, tmp / label, remote_files_, label)
+        with tp.live(target, tp.FakePlanner()) as srv:
+            ready_to_publish(srv, target)
+            out = way_out(srv)
+        assert out["command"] == "", "%s: no command it cannot make safe: %r" % (label, out)
+        assert any("new empty repository" in s for s in out["steps"]), out["steps"]
+        for rel, text in local.items():
+            assert (target / rel).read_text(encoding="utf-8") == text, "%s: %s untouched" % (label, rel)
+    # an ignored file the remote also has: renamed, never silently overwritten by the merge
+    (tmp / "ignored").mkdir()
+    target, remote = installed(root, tmp / "ignored")
+    (target / ".gitignore").write_text("build/\n", encoding="utf-8")
+    (target / "build").mkdir()
+    (target / "build/out.txt").write_text("my build\n", encoding="utf-8")
+    remote_commit(remote, tmp / "ignored", {"build/out.txt": "their build\n"}, "ignored")
+    with tp.live(target, tp.FakePlanner()) as srv:
+        ready_to_publish(srv, target)
+        out = way_out(srv)
+    assert "build/out.txt" in out["renamed"], out
+    done = bash_line(out["command"], tmp)
+    assert done.returncode == 0, done.stdout[-600:] + done.stderr[-600:]
+    assert (target / "build/out.txt.mine").read_text(encoding="utf-8") == "my build\n", "the ignored file is kept"
+    # (e) simply behind (the local branch has the remote's older commit): today's git pull advice, no way out
+    (tmp / "e").mkdir()
+    target, remote = installed(root, tmp / "e")
+    tp.git(target, "add", "AGENTS.md")
+    tp.git(target, "commit", "-q", "-m", "first")
+    tp.git(target, "push", "-q", "origin", "main")
+    remote_commit(remote, tmp / "e", {"README.md": "newer\n"}, "e")
+    with tp.live(target, tp.FakePlanner()) as srv:
+        ready_to_publish(srv, target)
+        status, body = tp.get(srv, "/api/publish-kit")
+    assert status == 400 and "git pull" in body.get("error", "") and not body.get("way_out"), body
+
+
 TESTS = [schedule_form_writes_freeze_epoch, publish_kit_excludes_unapproved_plan_files,
          publish_kit_pushes_only_the_verified_commit, terminal_step_is_shown_with_its_command,
          planning_waits_for_the_kit_on_main, lint_failure_reason_reaches_the_page,
@@ -499,7 +715,8 @@ TESTS = [schedule_form_writes_freeze_epoch, publish_kit_excludes_unapproved_plan
          publish_never_includes_files_the_installer_did_not_place, publish_verifies_the_whole_committed_tree,
          schedule_never_follows_links, publish_ignores_personal_files_present_before_install,
          failed_commit_leaves_index_and_refs_as_before, refused_push_says_nothing_was_published,
-         long_messages_wrap_at_390, schedule_is_never_guessed]
+         long_messages_wrap_at_390, schedule_is_never_guessed, status_answers_during_network_git,
+         unrelated_remote_history_has_a_way_out]
 
 
 def main():
