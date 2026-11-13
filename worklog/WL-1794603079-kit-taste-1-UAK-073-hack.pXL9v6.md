@@ -11,3 +11,4 @@
 ## History
 - 1794603079 | CLAIMED | kit-taste-1 | claim; next: the capture in design_round.py (port the perf probe of /home/joahan/Proyectos/design-rounds/bin/shoot-patient.js)
 - 1794603839 | REVIEW | kit-taste-1 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-073; evidence: test_design_perf.py 5/5 exit 0 (incl. real Chromium probe); kit_lint pass; all design/gallery tests pass; smoke clean · red at bb0c632: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: -
+- 1794604227 | REVIEW | kit-r1 | review; approve; SHA 7e595ec6920cf41138074cded04ad98fee981f66; reviewer kit-r1
