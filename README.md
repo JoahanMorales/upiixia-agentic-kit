@@ -74,6 +74,8 @@ It never overwrites your files: a kit file you edited gets its new text beside i
 /uak:setup
 ```
 
+**Claude Code in a new folder:** run `claude` once in the repo and accept the trust question, then close it. Until then Claude Code ignores the repo's `.claude/settings.json` permissions ("this workspace has not been trusted"), so a headless planner or agent stops on its first command. Each task worktree asks once too.
+
 **2. Plan:** open your agent in the repo and run `/uak-setup`, then `/uak-plan`. Codex, Cursor and Gemini read `AGENTS.md` natively (in Codex the phase scripts are `$uak-setup`, `$uak-plan`). Then `bash .uak/bin/uak start` until it says `START READY`.
 
 **3. Start the team:**

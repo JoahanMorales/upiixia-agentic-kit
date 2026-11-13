@@ -1481,6 +1481,16 @@
                 Publish the kit to main first (step 3 above): the plan's
                 checks read the kit from main.
               </p>
+              <div class="notice" id="plan-trust">
+                <p>
+                  Claude Code only: open it once in this folder and accept its trust question (yes), then close it.
+                  Until then it ignores this project's permissions and the plan stops early.
+                </p>
+                <div class="next-command">
+                  <code id="plan-trust-command" data-no-i18n></code>
+                  <button type="button" class="secondary-button" id="copy-plan-trust">Copy</button>
+                </div>
+              </div>
               <button class="primary" type="button" id="plan-create">
                 Create the plan
               </button>
@@ -1649,7 +1659,8 @@
           </div>
           <p class="hint">
             It claims the task, creates its own folder (a worktree) and opens Claude Code there with its first prompt.
-            The first time, Claude Code asks to approve this project's uak server (MCP): approve it.
+            The first time, Claude Code asks whether you trust the task folder: accept it (yes), then approve this
+            project's uak server (MCP).
           </p>
           <p class="hint">If you closed that terminal, reopen the agent with:</p>
           <div class="next-command">
@@ -1948,6 +1959,8 @@
             blocked || !planView.idea || !selectedPlanner() || !planView.kit_on_main;
           el("plan-recheck").disabled = blocked || !planView.planned;
           el("plan-onmain-note").hidden = !planView || !!planView.kit_on_main;
+          el("plan-trust").hidden = !planView || !planView.trust_command;
+          el("plan-trust-command").textContent = (planView && planView.trust_command) || "";
           el("plan-change").disabled = blocked || !selectedPlanner();
           el("plan-approve").disabled =
             blocked || !planView.planned || !!planView.violations.length || !planView.lint.ok;
@@ -2495,6 +2508,9 @@
             }
             await loadTeam();
           });
+        };
+        el("copy-plan-trust").onclick = function () {
+          copyText(el("plan-trust-command").textContent, "idea-status");
         };
         el("copy-team-implement").onclick = function () {
           copyText(el("team-implement-command").textContent, "team-copy-status");

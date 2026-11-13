@@ -417,11 +417,15 @@ class SetupServer(ThreadingHTTPServer):
                 checked = planning.lint(self.run, root, uak, bash_binary())
                 plan = {"harness": harness, "violations": found, "lint": checked, "cards": planning.cards(text),
                         "digest": planning.digest(root), "head": after["head"], "exit": result.returncode}
+                output = (result.stdout or "") + "\n" + (result.stderr or "")
+                # An untrusted folder (UI-008): the tool ran, wrote no plan, and said why; name that cause.
+                untrusted = not tasks.is_file() and planning.UNTRUSTED in output
                 with self.lock:
                     self.plan = plan
-                    failed = result.returncode != 0
-                    self.state.update(phase="error" if failed else "planned", details=redact(result.stdout + "\n" + result.stderr),
-                                      error="The coding tool stopped with an error. Check Technical details, then try again." if failed else "")
+                    failed = result.returncode != 0 or untrusted
+                    self.state.update(phase="error" if failed else "planned", details=redact(output),
+                                      error=planning.UNTRUSTED_ERROR if untrusted else
+                                      "The coding tool stopped with an error. Check Technical details, then try again." if failed else "")
             except Exception as exc:
                 with self.lock:
                     self.state.update(phase="error", error="Planning stopped. Correct the issue and retry.", details=redact(exc))
@@ -752,7 +756,9 @@ class SetupHandler(BaseHTTPRequestHandler):
                 "lint": plan.get("lint", {"ok": False, "lines": []}), "cards": plan.get("cards", []),
                 "digest": plan.get("digest", ""), "tasks": text(".uak/TASKS.md") if plan else "",
                 "owners": text(".uak/OWNERS.md") if plan else "", "planned": bool(plan),
-                "kit_on_main": planning.kit_on_main(s.run, root) if kit_present(root) else False}
+                "kit_on_main": planning.kit_on_main(s.run, root) if kit_present(root) else False,
+                # Only Claude Code has the one-time folder trust (UI-008); a Codex-only project shows no notice.
+                "trust_command": planning.trust_command(root) if (root / ".claude").is_dir() else ""}
 
     def do_POST(self):
         if not self.authorized(write=True):

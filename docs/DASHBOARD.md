@@ -112,6 +112,8 @@ second name you register.
 
 In "Get ready", after the kit is installed:
 
+**Claude Code trusts a folder once.** In a folder nobody has opened Claude Code in, it ignores the project's permissions ("this workspace has not been trusted") and the planner stops early. The planning step shows the command that opens Claude Code there (`cd 'FOLDER' && claude`): accept the trust question once and close it. A run that fails for that reason says so; each task worktree asks once too, in the team step's terminal.
+
 1. **What are you building?** One line, who it is for, the judging rubric (sprint) or the spec goal
    (marathon), event length, team size.
    Setup saves `IDEA.md` as plain text. Replacing an existing `IDEA.md` needs your confirmation.
