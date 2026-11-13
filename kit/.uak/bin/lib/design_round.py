@@ -156,11 +156,77 @@ def make_genomes(n, seed, recipes=None, weights=None, wild=None, avoid=None, fac
         for salt in range(60 if ctx["weights"] else 500):  # a dead end (rare) restarts the whole draw with the next salt: still deterministic
             got = _try_round(n, seed, salt, recipes, ctx)
             if got:
+                def _fits(i, genes, got=got):
+                    return all(shared_genes(genes, o["genes"]) <= MAX_SHARED for j, o in enumerate(got) if j != i) and \
+                        all(shared_genes(genes, p) <= MAX_PAST_SHARED for p in (avoid or []))
+
+                def _flipped(it, old, new):
+                    it["why"]["color"] += " \u00b7 flipped from %s to keep light and dark in balance" % old
+                balance_ground(got, seed, _fits, _flipped)
                 import design_fonts
                 for g, f in zip(got, design_fonts.assign([g["genes"]["type"] for g in got], seed, avoid_faces)):
                     g["fonts"] = f
                 return got
     raise RuntimeError("no round of %d variants satisfies the diversity rule for seed %s" % (n, seed))
+
+
+# ---- ground: light or dark, kept in balance (UAK-072) ----
+# Why (AXIA R1-R3, 2026-11-11): dark won 4 of 5 picks, taste and breeding drifted every later round to dark; the human: "the
+# dark ones gained too much ground over the white ones". Each genome has a `ground` derived from its color gene; a round of
+# 4 or more keeps at least a third of each, however the draw, the taste or the breeding went.
+GROUND_OF_COLOR = {"dark media": "dark", "light paper": "light"}  # the other colors are drawn
+FLIP_TO = {"light": "light paper", "dark": "dark media"}
+
+
+def ground_of(genes):
+    return GROUND_OF_COLOR.get(genes.get("color"))
+
+
+def ground_need(n):
+    return -(-n // 3) if n >= 4 else 0
+
+
+def balance_ground(items, seed, ok=None, flipped=None, prefer=None):
+    """items: dicts with "genes". Sets item["ground"] on each, flipping colors where a side has fewer than ceil(n/3).
+    ok(i, genes) says whether item i may take these genes (diversity rules, rejected values); flipped(item, old, new) records it;
+    prefer(item) is the ground a drawn color takes when nothing is short. Never raises: when no flip fits, the round stays as it is."""
+    n, k = len(items), ground_need(len(items))
+    rng = Rng(seed, "ground")
+    for it in items:
+        it["ground"] = ground_of(it["genes"])
+    if k:
+        for _ in range(2 * n):
+            light = sum(1 for it in items if it["ground"] == "light")
+            dark = sum(1 for it in items if it["ground"] == "dark")
+            free = n - light - dark
+            short = "light" if light + free < k else "dark" if dark + free < k else None
+            if not short:
+                break
+            donors = [i for i, it in enumerate(items) if it["ground"] not in (None, short)]
+            donors.sort(key=lambda i: (items[i].get("kind") == "crossover", items[i].get("mutated") != "color"))
+            for i in donors:
+                new = dict(items[i]["genes"], color=FLIP_TO[short])
+                if ok is None or ok(i, new):
+                    old = items[i]["genes"]["color"]
+                    items[i]["genes"] = new
+                    items[i]["ground"] = short
+                    if flipped:
+                        flipped(items[i], old, FLIP_TO[short])
+                    break
+            else:
+                break
+    light = sum(1 for it in items if it["ground"] == "light")
+    dark = sum(1 for it in items if it["ground"] == "dark")
+    need_l, need_d = max(0, k - light), max(0, k - dark)
+    for it in items:
+        if it["ground"] is None:
+            if need_l:
+                it["ground"], need_l = "light", need_l - 1
+            elif need_d:
+                it["ground"], need_d = "dark", need_d - 1
+            else:
+                it["ground"] = (prefer(it) if prefer else None) or rng.pick(["light", "dark"])
+    return items
 
 
 # ---- what the project itself says: its seed, brand colors and material (UAK-063) ----
@@ -415,6 +481,8 @@ def task_text(rnd, i, genome, screen):
              "Content: the same in every variant, taken only from `../brief.md` (a MISSING beat is left out, never invented).",
              "Only the design changes. Your design is this genome (`genome.json`); follow every gene:", ""]
     lines += ["- %s: **%s**" % (g, genes[g]) for g in GENES]
+    if genome.get("ground"):
+        lines += ["- ground: **%s** (the page's main background is %s; the color gene says which colors, this says how light)" % (genome["ground"], genome["ground"])]
     if genome.get("fonts"):
         f = genome["fonts"]
         lines += ["- fonts: **%s** (display, weights %s) + **%s** (body, weights %s); load exactly this, no other face:" % (
@@ -588,6 +656,8 @@ def cmd_round(argv):
         v.mkdir()
         doc = {"id": "R%d-v%d" % (k, i), "round": "R%d" % k, "variant": i, "seed": seed, "screen": screen,
                "genes": g["genes"], "recipe": g["recipe"], "why": g["why"]}
+        if g.get("ground"):
+            doc["ground"] = g["ground"]
         if g.get("fonts"):
             doc["fonts"] = g["fonts"]
         with open(str(v / "genome.json"), "w", encoding="utf-8", newline="\n") as f:
