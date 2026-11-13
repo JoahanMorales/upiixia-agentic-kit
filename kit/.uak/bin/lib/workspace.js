@@ -701,6 +701,54 @@
     ["verdicts", "veredictos"],
     ["checkpoints", "puntos de control"],
     ["human", "persona"],
+    ["Your team is working", "Tu equipo está trabajando"],
+    ["No task is free to start right now.", "Ahora no hay una tarea libre para empezar."],
+    ["The project's Git folder has a quote mark or control character in its path, so setup cannot quote the commands exactly. Move it to a path without them, then press Check again.", "La carpeta de Git del proyecto tiene una comilla o un carácter de control en su ruta, así que la configuración no puede citar los comandos con exactitud. Muévela a una ruta sin ellos y pulsa Revisar otra vez."],
+    ["Your saved choice used a tool that is not available now, so setup chose again.", "Tu elección guardada usaba una herramienta que ahora no está disponible, así que la configuración eligió de nuevo."],
+    ["Choose which coding tool implements and which one reviews.", "Elige qué herramienta de código implementa y cuál revisa."],
+    ["Setup keeps your choice in .git/uak-setup/roles.json, and that is a link or not a regular file. Remove it, then choose again.", "La configuración guarda tu elección en .git/uak-setup/roles.json, y eso es un enlace o no es un archivo normal. Elimínalo y vuelve a elegir."],
+    ["UAK_REMOTE and UAK_BASE must be plain names such as origin and main. Fix them in the terminal that started setup, then restart it.", "UAK_REMOTE y UAK_BASE deben ser nombres simples como origin y main. Corrígelos en la terminal que inició la configuración y vuelve a iniciarla."],
+    [".uak-env in the project folder is a symbolic link, so setup cannot tell which agent a reviewer started there would be. Remove the link, then press Retry.", ".uak-env en la carpeta del proyecto es un enlace simbólico, así que la configuración no puede saber qué agente sería un revisor iniciado ahí. Elimina el enlace y pulsa Reintentar."],
+    ["If Git reports a conflict, open the files it names, keep what you need from both, then run git add on them and git commit.", "Si Git informa un conflicto, abre los archivos que nombra, conserva lo que necesites de ambos y luego ejecuta git add sobre ellos y git commit."],
+    ["Who implements?", "¿Quién implementa?"],
+    ["Who reviews?", "¿Quién revisa?"],
+    ["Your tools", "Tus herramientas"],
+    ["Choose which of your coding tools writes the code and which one reviews it. This choice is yours and stays on this computer; teammates choose their own.", "Elige cuál de tus herramientas de código escribe el código y cuál lo revisa. Esta elección es tuya y se queda en esta computadora; cada compañero elige la suya."],
+    ["The reviewer never reviews its own identity's work.", "El revisor nunca revisa el trabajo de su propia identidad."],
+    ["{tool} does both jobs under two names: {impl} writes the code and {who} reviews it in a separate session.", "{tool} hace ambos trabajos con dos nombres: {impl} escribe el código y {who} lo revisa en una sesión aparte."],
+    ["Not available here:", "No disponible aquí:"],
+    ["With only one tool, it does both jobs under two names.", "Con una sola herramienta, hace ambos trabajos con dos nombres."],
+    ["2. {tool} implements", "2. {tool} implementa"],
+    ["3. {tool} reviews", "3. {tool} revisa"],
+    ["Use Start your team above: its first command claims this task for {tool}.", "Usa Arranca tu equipo, arriba: su primer comando toma esta tarea para {tool}."],
+    ["Tasks already claimed", "Tareas ya tomadas"],
+    ["Reopen your agent for {task}:", "Vuelve a abrir tu agente para {task}:"],
+    ["Copy the command for {task}", "Copiar el comando para {task}"],
+    ["Retry", "Reintentar"],
+    ["Check what's next", "Revisar qué sigue"],
+    ["{name}'s registration could not be read right now.", "Ahora no se pudo leer el registro de {name}."],
+    ["It claims the task, creates its own folder (a worktree) and opens Codex there with its first prompt. Codex runs in its workspace sandbox with write access to the project's .git folder and the network on, so it can claim, commit and push.", "Toma la tarea, crea su propia carpeta (un worktree) y abre Codex ahí con su primera instrucción. Codex corre en su sandbox de espacio de trabajo con permiso de escritura en la carpeta .git del proyecto y la red activada, para poder tomar tareas, hacer commits y push."],
+    ["UAK_AGENT gives Claude Code the reviewer's name, so it acts as a second identity: it never reviews as the agent that wrote the code. It waits for work with uak next and reviews with /uak-review. The first time, Claude Code asks whether you trust this folder and to approve this project's uak server (MCP): accept both.", "UAK_AGENT le da a Claude Code el nombre del revisor, así actúa como una segunda identidad: nunca revisa como el agente que escribió el código. Espera trabajo con uak next y revisa con /uak-review. La primera vez, Claude Code pregunta si confías en esta carpeta y pide aprobar el servidor uak de este proyecto (MCP): acepta ambos."],
+    ["The remote already has its own history", "El remoto ya tiene su propia historia"],
+    ["Run this in a terminal, then press Review the files again:", "Ejecuta esto en una terminal y luego pulsa Revisar los archivos otra vez:"],
+  ];
+  // Server notes that carry values (UI-009): whole-string patterns; each value is translated when the catalog has it.
+  var NOTES = [
+    ["(.+) was retired, so it cannot review\\. Choose another name in Your name, or ask the human who retired it\\.", "$1 fue retirado, así que no puede revisar. Elige otro nombre en Tu nombre o pregunta a la persona que lo retiró."],
+    ["(.+) is registered: it reviews your agents' work\\.", "$1 quedó registrado: revisa el trabajo de tus agentes."],
+    ["(.+) was already registered by (.+)\\.", "$1 ya estaba registrado por $2."],
+    ["Setup cannot reach (.+) right now \\((.+)\\)\\. Check your connection, then press Retry\\.", "La configuración no puede conectar con $1 ahora ($2). Revisa tu conexión y pulsa Reintentar."],
+    ["This project has no remote named (.+)\\. Add one, then press Retry\\.", "Este proyecto no tiene un remoto llamado $1. Agrega uno y pulsa Reintentar."],
+    ["(.+) was claimed since the last check\\. Press Check what's next to find a free task\\.", "$1 fue tomada después de la última revisión. Pulsa Revisar qué sigue para encontrar una tarea libre."],
+    ["No coding tool can start here: Claude Code: (.+) Codex: (.+) With Cursor or Gemini, claim the task with the command below and open the tool in its folder yourself\\.", "Ninguna herramienta de código puede empezar aquí: Claude Code: $1 Codex: $2 Con Cursor o Gemini, toma la tarea con el comando de abajo y abre la herramienta en su carpeta tú mismo."],
+    ["Each of your implementer names \\((.+) to (.+)\\) already holds a task\\. Finish or release one, then press Check what's next\\.", "Cada uno de tus nombres de implementador ($1 a $2) ya tiene una tarea. Termina o libera una y pulsa Revisar qué sigue."],
+    ["\\.uak-env in the project folder says this checkout is the agent (.+), so a reviewer started there would not be (.+)\\. Remove that line \\(or the file\\), then press Retry\\.", ".uak-env en la carpeta del proyecto dice que esta copia es el agente $1, así que un revisor iniciado ahí no sería $2. Elimina esa línea (o el archivo) y pulsa Reintentar."],
+    ["That coding tool is not available here: (.+)", "Esa herramienta de código no está disponible aquí: $1"],
+    ["(.+) already has its own first commits \\(for example a README or \\.gitignore created on GitHub\\), and they do not share history with this folder\\. Nothing was changed\\. The command below runs git pull to join both histories; read it before you run it\\.", "$1 ya tiene sus propios primeros commits (por ejemplo un README o .gitignore creados en GitHub) y no comparten historia con esta carpeta. No se cambió nada. El comando de abajo ejecuta git pull para unir ambas historias; léelo antes de ejecutarlo."],
+    ["Your copies are kept with \\.mine added to their names: (.+)\\. Choose Repair or update kit so the kit adds its lines to \\.gitignore again, then compare and delete the \\.mine files\\.", "Tus copias se conservan con .mine agregado a su nombre: $1. Elige Reparar o actualizar el kit para que el kit vuelva a agregar sus líneas a .gitignore; luego compara y borra los archivos .mine."],
+    ["Or publish to a new empty repository \\(no README, no \\.gitignore, no license\\): git remote set-url (.+) <its URL>", "O publica en un repositorio nuevo y vacío (sin README, sin .gitignore, sin licencia): git remote set-url $1 <su URL>"],
+    ["Setup cannot write a safe command for the files this folder and (.+) both have\\. Publish to a new empty repository instead \\(no README, no \\.gitignore, no license\\): git remote set-url (.+) <its URL>", "La configuración no puede escribir un comando seguro para los archivos que tienen tanto esta carpeta como $1. Publica en un repositorio nuevo y vacío (sin README, sin .gitignore, sin licencia): git remote set-url $2 <su URL>"],
+    ["Could not reach (.+): (.+)", "No se pudo conectar con $1: $2"],
   ];
   // The readiness gate's lines (`uak start`, .uak/bin/start), as whole-line patterns: the engine's English stays in
   // Technical details; the checklist reads in the page's language. $1… are the engine's values, shown as they are.
@@ -760,7 +808,16 @@
   function translate(value) {
     var text = String(value),
       key = en[text] || text;
-    return language === "es" ? es[key] || text : key;
+    if (language !== "es") return key;
+    if (es[key]) return es[key];
+    for (var i = 0; i < NOTES.length; i++) {
+      var m = text.match(new RegExp("^(?:" + NOTES[i][0] + ")$"));
+      if (m)
+        return NOTES[i][1].replace(/\$(\d)/g, function (all, n) {
+          return m[+n] === undefined ? "" : es[m[+n]] || m[+n];
+        });
+    }
+    return text;
   }
   function format(value, values) {
     return translate(value).replace(/\{([a-z]+)\}/gi, function (match, key) {

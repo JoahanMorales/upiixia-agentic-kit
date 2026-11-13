@@ -765,6 +765,7 @@ def offline_team_step_says_offline(root, tmp):
         ready(srv, target)
         assert register(srv)[0] == 202
         tp.git(target, "remote", "set-url", "origin", str(tmp / "gone.git"))
+        check(srv)  # a finished check forgets the last read of the remote (an ok read is reused for 15 s)
         status, view = tp.get(srv, "/api/team")
         assert status == 200, view
         assert (view.get("remote") or {}).get("state") == "offline" and view.get("retry") is True, view
@@ -788,6 +789,7 @@ def offline_team_step_says_offline(root, tmp):
         assert view["remote"]["state"] == "ok" and view.get("commands"), view
         # No remote at all: its own note, Retry, never "publish".
         tp.git(target, "remote", "remove", "origin")
+        check(srv)
         try:
             view = tp.get(srv, "/api/team")[1]
             assert view["remote"]["state"] == "none" and view.get("retry") is True and not view.get("commands"), view
@@ -795,6 +797,19 @@ def offline_team_step_says_offline(root, tmp):
             spanish_for(view)
         finally:
             tp.git(target, "remote", "add", "origin", str(remote))
+        # A remote or base name that is not a plain name never reaches a refspec (amendment 7): a plain 400.
+        for key, bad in (("UAK_BASE", "main..x"), ("UAK_BASE", "x.lock"), ("UAK_REMOTE", "origin/"), ("UAK_BASE", "@{-1}")):
+            saved = os.environ.get(key)
+            os.environ[key] = bad
+            try:
+                status, body = tp.get(srv, "/api/team")
+                assert status == 400 and "UAK_REMOTE and UAK_BASE" in body.get("error", ""), (bad, body)
+                spanish_for(body)
+            finally:
+                if saved is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = saved
     for net in team.net:
         assert net["timeout"] <= 30 and net["group"] is True, net
 
