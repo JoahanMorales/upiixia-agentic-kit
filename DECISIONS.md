@@ -80,3 +80,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794601019 | deadline lease/UAK-071/1794553675 | REQUIRES_RECOVERY | Claim kept; read the summary and use release --expired --read-summary. No work is deleted.
 - 1794601022 | UAK-071 | taste profile recording left to design_taste owner; helper winning_fonts provided | Why: AXIA R3 same fonts
 - 1794602198 | UAK-072 | taste trait left to design_taste (outside Paths); ground is a top-level genome field, not a gene | Why: AXIA drift to dark
+- 1794603926 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-080 | Why: backlog without PR (Plan-Channel: claims)
