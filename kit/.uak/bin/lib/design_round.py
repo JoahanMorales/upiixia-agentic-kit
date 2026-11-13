@@ -474,6 +474,27 @@ def motionsites_installed(root):
     return any((d / "motionsites-web-builder").is_dir() for d in skill_dirs(root))
 
 
+def budget_lines(stage):
+    """The animation budget a stage must keep. Why (AXIA R3 -> colonIA R1, Nov 11 2026): the human, "it has to find a way not
+    to spend exaggerated resources on three.js"; on the Jetson an R3 three.js hero ran at 122 ms a frame (8 fps), an SVG one at 17 ms,
+    and six three.js pages captured at once saturated the machine. The capture measures the frame time and flags `heavy`."""
+    if str(stage).lower().startswith("three.js"):
+        return ["## Animation budget (three.js stage: the capture measures it and flags `heavy`)",
+                "- `new THREE.WebGLRenderer({antialias: false, powerPreference: 'low-power'})`; `renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5))`",
+                "  (tighter than the cap of 2 above: this is the budget).",
+                "- At most ~40k points or ~10k instances: one `BufferGeometry` of points or one `InstancedMesh`, never a mesh per object.",
+                "- Render only while visible: stop the loop on `visibilitychange` and when an IntersectionObserver says the hero is off screen.",
+                "- Cap the hero at 30 fps (skip frames by time, not by guessing). When frames run slow (average > 40 ms over a second),",
+                "  drop detail: halve the point/instance count or the pixel ratio, and keep going.",
+                "- Heavy = average frame over `Design-Frame-Budget-Ms` in PROJECT.md (default 50 ms for WebGL stages, measured on the capturing machine).", ""]
+    if str(stage) != STILL:
+        return ["## Animation budget (the capture measures it and flags `heavy`)",
+                "- Animate `transform` and `opacity` only, never layout (width, height, top, left, margins); `will-change` only on what really moves.",
+                "- No large `filter: blur()` or `backdrop-filter` over the hero; canvas redraws only what changed, at 30 fps at most.",
+                "- Heavy = average frame over `Design-Frame-Budget-Ms` in PROJECT.md (default 20 ms for the rest, measured on the capturing machine).", ""]
+    return []
+
+
 def task_text(rnd, i, genome, screen):
     genes = genome["genes"]
     lines = ["# Build variant v%d of the %s" % (i, screen), "",
@@ -507,6 +528,7 @@ def task_text(rnd, i, genome, screen):
               "  (build from primitives or the team's own assets), no network fetches but that CDN and fonts.",
               "- Glows, neon blurs and soft gradient haze are tells (the human: \"AI slop\"); light comes from the scene itself.",
               "- Check the page at 1920x1080 (the projector): `1920.png` if the capture wrote one, else open index.html at that size; then 1280 and 390.", "",
+              ] + budget_lines(genes.get("stage", STILL)) + [
               "## Start from material",
               "Use the team's own material first: logo, mascot, photos, map, the real product screen. List what exists (`web/public`, `assets/`,",
               "links in IDEA.md) before designing, and build around it. Then generated material. Only then the MotionSites media shelf.",
@@ -720,19 +742,69 @@ QA_JS = """async () => {
     lo = Math.min(lo, Math.max(0, r.left)); hi = Math.max(hi, Math.min(W, r.right)); n++;
   }
   const share = n && hi > lo ? Math.round((hi - lo) / W * 100) : null;
+  // Why (UAK-069 review, Nov 12 2026): the human saw stretched images the <img>-only check missed. The drawn size of anything
+  // raster is measured against its natural size: <img>, CSS background-image, <video> and a <canvas> backing store.
   const upscaled = [];
+  const fitted = (nw, nh, bw, bh, fit) => {  // the width at which a nw x nh raster is drawn in a bw x bh box
+    if (/cover/.test(fit)) return nw * Math.max(bw / nw, bh / nh);
+    if (/contain|scale-down/.test(fit)) return nw * Math.min(bw / nw, bh / nh);
+    if (/none/.test(fit)) return nw;
+    return bw;
+  };
+  const shown = (el) => { const cs = getComputedStyle(el), r = el.getBoundingClientRect();
+    return r.width >= 2 && r.height >= 2 && cs.display !== 'none' && cs.visibility !== 'hidden' && +cs.opacity !== 0 ? r : null; };
+  const name = (u) => (u || '').split('/').pop().split('?')[0].slice(0, 60);
   document.querySelectorAll('img').forEach(im => {
     const src = im.currentSrc || im.src || '';
     if (!im.complete || !im.naturalWidth || /\.svg(\?|$)/i.test(src)) return;
-    const r = im.getBoundingClientRect(), cs = getComputedStyle(im);
-    if (r.width < 2 || cs.display === 'none' || cs.visibility === 'hidden') return;
-    if (r.width > im.naturalWidth * dpr * 1.1 + 1) upscaled.push({file: src.split('/').pop().split('?')[0], natural: im.naturalWidth, drawn: Math.round(r.width)});
+    const r = shown(im);
+    if (!r) return;
+    const d = fitted(im.naturalWidth, im.naturalHeight, r.width, r.height, getComputedStyle(im).objectFit || '');
+    if (d > im.naturalWidth * dpr * 1.1 + 1) upscaled.push({file: name(src), natural: im.naturalWidth, drawn: Math.round(d), kind: 'img'});
   });
+  document.querySelectorAll('video').forEach(v => {
+    const r = shown(v);
+    if (!r || !v.videoWidth) return;
+    const d = fitted(v.videoWidth, v.videoHeight, r.width, r.height, getComputedStyle(v).objectFit || '');
+    if (d > v.videoWidth * dpr * 1.1 + 1) upscaled.push({file: name(v.currentSrc || v.src) || 'video', natural: v.videoWidth, drawn: Math.round(d), kind: 'video'});
+  });
+  document.querySelectorAll('canvas').forEach(c => {
+    const r = shown(c);
+    if (!r || !c.width) return;
+    if (c.width < r.width * dpr * 0.7) upscaled.push({file: 'canvas' + (c.id ? '#' + c.id : ''), natural: c.width, drawn: Math.round(r.width * dpr), kind: 'canvas'});
+  });
+  const bgs = [];
+  for (let i = 0; i < all.length && i < 4000; i++) {
+    const el = all[i], cs = getComputedStyle(el);
+    if (!cs.backgroundImage || cs.backgroundImage === 'none' || !/url\(/.test(cs.backgroundImage)) continue;
+    const r = shown(el);
+    if (!r) continue;
+    const sizes = (cs.backgroundSize || 'auto').split(/,\s*(?![^(]*\))/);
+    let k = 0;
+    cs.backgroundImage.replace(/url\((['"]?)(.*?)\\1\)/g, (m, q, u) => { bgs.push({u: u, r: r, size: sizes[k % sizes.length] || 'auto'}); k++; return m; });
+  }
+  const natural = {};
+  await Promise.all(Array.from(new Set(bgs.map(b => b.u))).filter(u => !/\.svg(\?|$)|^data:image\/svg/i.test(u)).slice(0, 40).map(u => new Promise(res => {
+    const im = new Image(); const t = setTimeout(res, 2500);
+    im.onload = () => { natural[u] = [im.naturalWidth, im.naturalHeight]; clearTimeout(t); res(); }; im.onerror = () => { clearTimeout(t); res(); }; im.src = u; })));
+  bgs.forEach(b => {
+    const n = natural[b.u];
+    if (!n || !n[0]) return;
+    let d = n[0];  // background-size: auto draws at natural size
+    if (/cover|contain/.test(b.size)) d = fitted(n[0], n[1], b.r.width, b.r.height, b.size);
+    else if (/%/.test(b.size)) d = b.r.width * parseFloat(b.size) / 100;
+    else if (/px/.test(b.size)) d = parseFloat(b.size);
+    if (d > n[0] * dpr * 1.1 + 1) upscaled.push({file: name(b.u), natural: n[0], drawn: Math.round(d), kind: 'background'});
+  });
+  // Frame cost (the reference shoot-patient.js): average frame interval over 3 s, long tasks and the JS heap.
+  let longTasks = 0;
+  try { new PerformanceObserver(l => { longTasks += l.getEntries().length; }).observe({type: 'longtask', buffered: false}); } catch (e) {}
   const frame = await new Promise(res => { const t = []; let last = performance.now(); const t0 = last;
-    const f = now => { t.push(now - last); last = now; if (t.length < 200 && now - t0 < 1200) requestAnimationFrame(f);
+    const f = now => { t.push(now - last); last = now; if (t.length < 600 && now - t0 < 3000) requestAnimationFrame(f);
       else res(Math.round(t.reduce((a, b) => a + b, 0) / t.length)); };
     requestAnimationFrame(f); });
-  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 5), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null};
+  const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
+  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap};
 }"""
 
 _PLAYWRIGHT = """
@@ -793,7 +865,7 @@ with sync_playwright() as p:
         pg.screenshot(path=str(out / (name + "-full.png")), full_page=True)
         qa["errors"], qa["first"] = len(errs), (errs[0][:160] if errs else "")
         report[name] = qa
-        print("QA %s webgl=%s errors=%d overflow=%s content=%s%% fps=%s upscaled=%d" % (name, qa.get("gl"), len(errs), qa.get("overflow"), qa.get("share"), qa.get("fps"), len(qa.get("upscaled", []))))
+        print("QA %s webgl=%s errors=%d overflow=%s content=%s%% frame=%sms long_tasks=%s heap=%sMB upscaled=%d" % (name, qa.get("gl"), len(errs), qa.get("overflow"), qa.get("share"), qa.get("frameMs"), qa.get("longTasks"), qa.get("heapMB"), len(qa.get("upscaled", []))))
         pg.close()
     b.close()
 srv.shutdown()
@@ -819,9 +891,61 @@ def qa_warnings(qa):
             out.append((name, "horizontal overflow at %s px" % w))
         if q.get("share") is not None and w >= 1440 and q["share"] < NARROW_UNDER:
             out.append((name, "narrow page, empty gutters: content spans %s%% of %s px" % (q["share"], w)))
+        if q.get("heavy"):
+            out.append((name, "heavy: %s ms a frame (~%s fps), over the %s ms budget" % (q.get("frameMs"), q.get("fps"), q.get("budget_ms"))))
         for u in q.get("upscaled", [])[:3]:
-            out.append((name, "upscaled raster: %s, %s -> %s px" % (u.get("file"), u.get("natural"), u.get("drawn"))))
+            kind = u.get("kind")
+            if kind == "canvas":
+                out.append((name, "upscaled raster: %s backing store is %s px, drawn at %s px (set the size from devicePixelRatio)" % (u.get("file"), u.get("natural"), u.get("drawn"))))
+            else:
+                out.append((name, "upscaled raster%s: %s, %s -> %s px" % (" (%s)" % kind if kind in ("background", "video") else "", u.get("file"), u.get("natural"), u.get("drawn"))))
     return out
+
+
+DEFAULT_FRAME_MS = {"webgl": 50, "other": 20}
+
+
+def frame_budget(root, webgl):
+    """Milliseconds a frame may average on the capturing machine: PROJECT.md `Design-Frame-Budget-Ms: 50` (one number for every
+    stage) or `50/20` (WebGL / the rest); default 50 for WebGL stages, 20 for the rest."""
+    raw = cfg(Path(root), "Design-Frame-Budget-Ms", "")
+    m = re.match(r"^\s*(\d+)\s*(?:/\s*(\d+))?", raw)
+    if m:
+        return int(m.group(1)) if webgl or not m.group(2) else int(m.group(2))
+    return DEFAULT_FRAME_MS["webgl" if webgl else "other"]
+
+
+def record_perf(root, vdir):
+    """After a capture: judge each viewport's frame time against the budget (qa.json gets budget_ms and heavy) and copy the
+    numbers into the variant's metrics.json under "perf". Returns the perf dict or None when the capture wrote no QA report."""
+    vdir = Path(vdir)
+    qa = read_qa(vdir)
+    if not qa:
+        return None
+    g = {}
+    try:
+        g = json.loads((vdir / "genome.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    stage = g.get("stage") or (g.get("genes") or {}).get("stage") or STILL
+    webgl = str(stage).lower().startswith("three.js")
+    budget = frame_budget(root, webgl)
+    perf = {"budget_ms": budget, "webgl": webgl, "heavy": False, "frame_ms": {}, "long_tasks": {}, "heap_mb": {}}
+    for vp, q in qa.items():
+        if not isinstance(q, dict) or q.get("frameMs") is None:
+            continue
+        q["budget_ms"], q["heavy"] = budget, q["frameMs"] > budget
+        perf["frame_ms"][vp], perf["long_tasks"][vp], perf["heap_mb"][vp] = q["frameMs"], q.get("longTasks"), q.get("heapMB")
+        perf["heavy"] = perf["heavy"] or q["heavy"]
+    (vdir / "qa.json").write_text(json.dumps(qa, indent=2), encoding="utf-8")
+    try:
+        mp = vdir / "metrics.json"
+        doc = json.loads(mp.read_text(encoding="utf-8"))
+        doc["perf"] = perf
+        mp.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+    return perf
 
 
 def read_qa(vdir):
@@ -926,6 +1050,7 @@ def cmd_shoot(argv):
             try:
                 import design_metrics
                 design_metrics.record_capture(v)
+                record_perf(root, v)
             except Exception as exc:  # noqa: BLE001  metrics never fail a capture
                 print("DESIGN_SHOOT metrics not recorded for %s: %s" % (v.name, str(exc)[:120]), file=sys.stderr)
     print("DESIGN_SHOOT %s: captured %s; already had %d" % (argv[0], " ".join(done) or "none", len(variants) - len(todo)))
