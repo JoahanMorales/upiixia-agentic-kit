@@ -2290,16 +2290,25 @@
             .split(new RegExp("[^\\p{L}\\p{N}]+", "u"))
             .filter(Boolean);
         }
-        // True when one of the account's words matches the person's name, in either direction (ana ↔ "Ana Human",
-        // "anagarcia" ↔ ana); a name or word shorter than 3 letters must match a whole word.
+        // True when the account carries the person's WHOLE name: a run of its words that joins into the name ("Ana
+        // García", "ana-garcia" and "anagarcia" all carry ana-garcia), optionally followed by digits (ana92). One shared
+        // word or a fragment is not enough (review of 4af5789: "mariana" vs Ana Lopez, "maria-garcia" vs Juan Garcia,
+        // "ana" vs banana).
         function sameName(words, human) {
           var me = plainWords(human).join("");
-          return words.some(function (w) {
-            return w === me || (me.length >= 3 && w.indexOf(me) >= 0) || (w.length >= 3 && me.indexOf(w) >= 0);
-          });
+          if (!me) return false;
+          for (var i = 0; i < words.length; i++) {
+            var w = "";
+            for (var j = i; j < words.length; j++) {
+              w += words[j];
+              if (w === me || (w.indexOf(me) === 0 && /^[0-9]+$/.test(w.slice(me.length)))) return true;
+              if (me.indexOf(w) !== 0) break;
+            }
+          }
+          return false;
         }
         // Which account looks like someone else's: {git, gh}. An empty account (no gh login) is nobody's, never someone
-        // else's; without the person's name nothing can be compared.
+        // else's; without the person's name nothing can be compared. The Git name and the email are each a whole.
         function sharedIdentity(ident, human) {
           ident = ident || {};
           if (!plainWords(human).length) return { git: false, gh: false };
@@ -2307,8 +2316,8 @@
             mail = plainWords(String(ident.git_email || "").split("@")[0]),
             login = plainWords(ident.gh_login);
           return {
-            git: !!(name.length || mail.length) && !sameName(name.concat(mail, [name.join("")]), human),
-            gh: !!login.length && !sameName(login.concat([login.join("")]), human),
+            git: !!(name.length || mail.length) && !(sameName(name, human) || sameName(mail, human)),
+            gh: !!login.length && !sameName(login, human),
           };
         }
         // The notice: who signs the commits and opens the pull requests, then which account belongs to someone else.

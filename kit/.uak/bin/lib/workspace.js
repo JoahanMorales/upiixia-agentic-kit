@@ -734,21 +734,6 @@
     ["The GitHub login {gh} does not match your name, so it looks like someone else's account: sign in as yourself with gh auth login before publishing.", "El usuario de GitHub {gh} no coincide con tu nombre, así que parece la cuenta de otra persona: inicia sesión con la tuya usando gh auth login antes de publicar."],
     ["The Git name and email {git} do not match your name, so they look like someone else's: set your own with git config user.name and user.email before publishing.", "El nombre y el correo de Git {git} no coinciden con tu nombre, así que parecen de otra persona: configura los tuyos con git config user.name y user.email antes de publicar."],
     ["never seen", "nunca visto"],
-    ["reviewer", "revisor"],
-    ["second", "segundo"],
-    ["seconds", "segundos"],
-    ["minute", "minuto"],
-    ["minutes", "minutos"],
-    ["hour", "hora"],
-    ["hours", "horas"],
-    ["day", "día"],
-    ["days", "días"],
-    ["week", "semana"],
-    ["weeks", "semanas"],
-    ["month", "mes"],
-    ["months", "meses"],
-    ["year", "año"],
-    ["years", "años"],
   ];
   // Server notes that carry values (UI-009): whole-string patterns; each value is translated when the catalog has it.
   var NOTES = [
@@ -773,8 +758,6 @@
     ["· Waiting on dependencies: (.+) task\\(s\\); (.+) waits on (.+) \\((.*)\\)\\.", "· Esperando dependencias: $1 tarea(s); $2 espera a $3 ($4)."],
     ["· Waiting on (.+)", "· Esperando: $1"],
     ["· Why not (.+): (.+)", "· Por qué no $1: $2"],
-    ["(.+) commit\\(s\\) since the claim · last: (.*) \\((\\d+) (seconds?|minutes?|hours?|days?|weeks?|months?|years?) ago\\) · (.+) uncommitted tracked file\\(s\\)(?: · at .+)?", "$1 commit(s) desde que se tomó · último: $2 (hace $3 $4) · $5 archivo(s) con seguimiento sin commit"],
-    ["(.+) commit\\(s\\) since the claim · last: (.*) · (.+) uncommitted tracked file\\(s\\)(?: · at .+)?", "$1 commit(s) desde que se tomó · último: $2 · $3 archivo(s) con seguimiento sin commit"],
     ["· core\\.bare=true on a checkout \\((.+)\\): fix with (.+) \\(or uak doctor --fix\\)", "· core.bare=true en una copia de trabajo ($1): corrígelo con $2 (o uak doctor --fix)"],
     ["· not a Git repository", "· no es un repositorio de Git"],
     ["· git has no user\\.name or user\\.email: (.+)", "· git no tiene user.name ni user.email: $1"],
@@ -797,6 +780,29 @@
     ["· (.+): the code uses zoneinfo but tzdata is no dependency; Windows has no time zone database, so imports fail with ZoneInfoNotFoundError\\. Fix: uv add tzdata", "· $1: el código usa zoneinfo pero tzdata no es una dependencia; Windows no tiene base de datos de zonas horarias, así que los imports fallan con ZoneInfoNotFoundError. Solución: uv add tzdata"],
     ["· Node (.+) is too old for (.+): (.+)\\. npm skips native packages a Node excludes, so the build fails \\((.+)\\)\\. Fix: winget install OpenJS\\.NodeJS\\.LTS \\(Windows\\), brew upgrade node, or nvm install --lts; then rm -rf (.+)/node_modules and npm ci", "· Node $1 es demasiado viejo para $2: $3. npm omite los paquetes nativos que una versión de Node excluye, así que el build falla ($4). Solución: winget install OpenJS.NodeJS.LTS (Windows), brew upgrade node o nvm install --lts; luego rm -rf $5/node_modules y npm ci"],
     ["uak start --fix does the hooks, the skills folders and, alone on the repo, Review-Mode: claims", "uak start --fix arregla los hooks, las carpetas de skills y, si estás solo en el repositorio, Review-Mode: claims"],
+    ["(.+) commit\\(s\\) since the claim · last: (.*) \\((\\d+) (seconds?|minutes?|hours?|days?|weeks?|months?|years?) ago\\) · (.+) uncommitted tracked file\\(s\\) · at (\\d+)", "$1 commit(s) desde que se tomó · último: $2 (hace $3 $4) · $5 archivo(s) con seguimiento sin commit · a las $6"],
+    ["(.+) commit\\(s\\) since the claim · last: (.*) \\((\\d+) (seconds?|minutes?|hours?|days?|weeks?|months?|years?) ago\\) · (.+) uncommitted tracked file\\(s\\)", "$1 commit(s) desde que se tomó · último: $2 (hace $3 $4) · $5 archivo(s) con seguimiento sin commit"],
+    ["(.+) commit\\(s\\) since the claim · last: (.*?)(?: \\([^()]*\\)?)? · (.+) uncommitted tracked file\\(s\\) · at (\\d+)", "$1 commit(s) desde que se tomó · último: $2 · $3 archivo(s) con seguimiento sin commit · a las $4"],
+    ["(.+) commit\\(s\\) since the claim · last: (.*?)(?: \\([^()]*\\)?)? · (.+) uncommitted tracked file\\(s\\)", "$1 commit(s) desde que se tomó · último: $2 · $3 archivo(s) con seguimiento sin commit"],
+  ];
+  // One-word labels (a dashboard tag, git's time units in a pattern): translated only where the code asks, never in the
+  // body translation, so page text that is just "day" or "reviewer" is left alone (review of 4af5789).
+  var WORDS = [
+    ["reviewer", "revisor"],
+    ["second", "segundo"],
+    ["seconds", "segundos"],
+    ["minute", "minuto"],
+    ["minutes", "minutos"],
+    ["hour", "hora"],
+    ["hours", "horas"],
+    ["day", "día"],
+    ["days", "días"],
+    ["week", "semana"],
+    ["weeks", "semanas"],
+    ["month", "mes"],
+    ["months", "meses"],
+    ["year", "año"],
+    ["years", "años"]
   ];
   // The readiness gate's lines (`uak start`, .uak/bin/start), as whole-line patterns: the engine's English stays in
   // Technical details; the checklist reads in the page's language. $1… are the engine's values, shown as they are.
@@ -855,6 +861,10 @@
     es[pair[0]] = pair[1];
     en[pair[1]] = pair[0];
   });
+  var words = Object.create(null);
+  WORDS.forEach(function (pair) {
+    words[pair[0]] = pair[1];
+  });
   var language = /^es\b/i.test(navigator.language || "") ? "es" : "en";
   try {
     language = localStorage.getItem("uak-language") || language;
@@ -867,11 +877,12 @@
       key = en[text] || text;
     if (language !== "es") return key;
     if (es[key]) return es[key];
+    if (words[key]) return words[key];
     for (var i = 0; i < NOTES.length; i++) {
       var m = text.match(new RegExp("^(?:" + NOTES[i][0] + ")$"));
       if (m)
         return NOTES[i][1].replace(/\$(\d)/g, function (all, n) {
-          return m[+n] === undefined ? "" : es[m[+n]] || m[+n];
+          return m[+n] === undefined ? "" : es[m[+n]] || words[m[+n]] || m[+n];
         });
     }
     return text;

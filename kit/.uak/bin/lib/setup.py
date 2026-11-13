@@ -631,7 +631,7 @@ class SetupServer(ThreadingHTTPServer):
 
         self.start_worker(work)
 
-    def approve_run(self, root, approved, approver, base_head, remote, base):
+    def approve_run(self, root, approved, approved_by, base_head, remote, base):
         """Commit exactly the reviewed plan files with Backlog-Approved: yes, check the commit, push, re-check."""
         planning, uak = self.planning, self.engine()
         with self.lock:
@@ -649,8 +649,7 @@ class SetupServer(ThreadingHTTPServer):
                     planning.approve_config(root)
                     blobs = {name: git("hash-object", "--path=" + name, "--", name).strip() for name in planning.PLAN_FILES}
                 git("add", "--", *planning.PLAN_FILES)
-                git("commit", "-q", "-m", "plan: backlog v1", "-m",
-                    signed_line("Approved-By", approver) + " with a typed confirmation.", "--", *planning.PLAN_FILES)
+                git("commit", "-q", "-m", "plan: backlog v1", "-m", approved_by, "--", *planning.PLAN_FILES)
                 commit = git("rev-parse", "HEAD").strip()
                 changed = set(git("diff-tree", "--no-commit-id", "--name-only", "-r", commit).split())
                 if git("rev-parse", commit + "^").strip() != base_head or not changed <= set(planning.PLAN_FILES) or \
@@ -896,7 +895,10 @@ class SetupHandler(BaseHTTPRequestHandler):
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 data = module.workspace_data(root)
-                name_the_team(self.server, Path(root), data)
+                try:
+                    name_the_team(self.server, Path(root), data)
+                except (OSError, ValueError, subprocess.SubprocessError):
+                    pass  # the dashboard still shows who has acted; only the extra names are missing
                 data["mode"] = read_config(root).get("Mode", "")
                 with self.server.lock:
                     self.server.state["freeze"] = data.get("freeze") or 0
@@ -1120,10 +1122,13 @@ class SetupHandler(BaseHTTPRequestHandler):
 
     def approve(self, data):
         root, approver, head, remote, base = approval_checks(self.server, data)
-        # The same human as the kit's Published-By: the name from the page; the Git name only when none was given.
+        # The same human as the kit's Published-By: the name from the page. Without one, the Git name, labelled as
+        # such (it never claims to come from the setup page; review of 4af5789).
         with self.server.lock:
             human = self.server.state.get("human") or ""
-        self.server.approve_run(root, data["digest"], human or approver, head, remote, base)
+        line = (signed_line("Approved-By", human) if human else
+                "Approved-By: %s (local Git identity, unverified) in local setup" % approver) + ", with a typed confirmation."
+        self.server.approve_run(root, data["digest"], line, head, remote, base)
         self.reply(202, {"phase": "approving"})
 
     def require_installer(self):
