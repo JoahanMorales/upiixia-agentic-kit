@@ -11,3 +11,4 @@
 ## History
 - 1794605996 | CLAIMED | kit-taste-1 | claim; next: a new kit/.uak/bin/lib/design_prior.py, then the weights argument of make_genomes in design_round.py
 - 1794606957 | REVIEW | kit-taste-1 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/tree/feat/uak-075; evidence: test_design_prior.py 6/6 exit 0; kit_lint pass; all design/gallery tests pass; smoke clean · red at 6ee919a: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: -
+- 1794607099 | REVIEW | kit-r1 | review; approve; SHA b83dc0afe5e2db68d1cf435f85fa79ce6f2aa900; reviewer kit-r1
