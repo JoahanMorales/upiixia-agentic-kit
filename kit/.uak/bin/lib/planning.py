@@ -6,6 +6,7 @@ and publishes it in the browser. The guarantee is not the planner's prompt or it
 module checking, after the run, that only the plan files changed, and committing exactly what the person reviewed.
 """
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -54,9 +55,43 @@ def trust_command(root):
     return "cd '%s' && claude" % Path(root).resolve().as_posix().replace("'", "'\\''")
 
 
+MISSING_PLAN_ERROR = ("The planner finished without writing a plan (.uak/TASKS.md). Check Technical details, then try "
+                      "again.")
+PROGRESS_MAX = 200
+
+
 def progress_line(line):
-    """One readable line for the page from one line of the coding tool's output (stub)."""
-    return ""
+    """One readable line for the page from one line of the coding tool's output (UI-010): the text or the tool use of a
+    stream-json event, or a plain line as it is; "" when there is nothing to read. Secrets never reach the page."""
+    line = (line or "").strip()
+    if not line:
+        return ""
+    shown = line
+    if line.startswith("{"):
+        shown = ""
+        try:
+            event = json.loads(line)
+        except ValueError:
+            event = None
+        if isinstance(event, dict):
+            message = event.get("message") if isinstance(event.get("message"), dict) else {}
+            for block in message.get("content") or []:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "text" and isinstance(block.get("text"), str) and block["text"].strip():
+                    shown = block["text"].strip()
+                elif block.get("type") == "tool_use":
+                    data = block.get("input") if isinstance(block.get("input"), dict) else {}
+                    target = next((str(data[k]) for k in ("file_path", "path", "pattern", "command") if data.get(k)), "")
+                    shown = ("%s %s" % (block.get("name", "tool"), target)).strip()
+            item = event.get("item") if isinstance(event.get("item"), dict) else {}
+            if not shown and isinstance(item.get("text"), str):  # Codex --json
+                shown = item["text"].strip()
+    shown = re.sub(r"\s+", " ", shown)
+    shown = re.sub(r"(https?://)[^\s/@]+:[^\s/@]+@", r"\1[redacted]@", shown)
+    shown = re.sub(r"\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]{12,})", "[redacted]", shown)
+    shown = re.sub(r"(?i)((?:token|password|secret|api[_-]?key)\s*[=:]\s*)\S+", r"\1[redacted]", shown)
+    return shown[:PROGRESS_MAX]
 
 
 class Conflict(ValueError):

@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import test_setup_planning as tp
@@ -464,7 +465,7 @@ def schedule_is_never_guessed(root, tmp):
                  "That freeze is in the past or less than an hour away. Save it anyway?"):
         assert line in es, "Spanish for %r" % line
     target, _ = installed(root, tmp)
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.fromtimestamp(time.time(), datetime.timezone.utc).replace(tzinfo=None)
 
     def fmt(moment):
         return moment.strftime("%Y-%m-%d %H:%M")

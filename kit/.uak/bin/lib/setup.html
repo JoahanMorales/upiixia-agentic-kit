@@ -1494,6 +1494,7 @@
               <button class="primary" type="button" id="plan-create">
                 Create the plan
               </button>
+              <p class="hint" id="plan-progress" role="status" data-no-i18n hidden></p>
               <section id="plan-review" hidden aria-labelledby="plan-review-heading">
                 <h3 id="plan-review-heading">Proposed plan</h3>
                 <div class="notice error" id="plan-violations" role="alert" hidden>
@@ -1512,6 +1513,7 @@
                   <summary>Plan files as written</summary>
                   <pre id="plan-files"></pre>
                 </details>
+                <div id="plan-ask">
                 <label class="field-label" for="plan-note">Ask for changes</label
                 ><textarea id="plan-note" maxlength="4000" rows="3"></textarea>
                 <div class="actions">
@@ -1524,6 +1526,7 @@
                   <button class="primary" type="button" id="plan-approve">
                     Approve and publish
                   </button>
+                </div>
                 </div>
                 <div id="approve-confirm" hidden>
                   <p>
@@ -1963,7 +1966,7 @@
           el("plan-trust-command").textContent = (planView && planView.trust_command) || "";
           el("plan-change").disabled = blocked || !selectedPlanner();
           el("plan-approve").disabled =
-            blocked || !planView.planned || !!planView.violations.length || !planView.lint.ok;
+            blocked || !planView.planned || planView.failed || !!planView.violations.length || !planView.lint.ok;
           el("idea-save").disabled = busy;
           if (busy) el("approve-confirm").hidden = true;
         }
@@ -2007,7 +2010,14 @@
             label.append(input, text);
             el("planner-options").append(label);
           });
-          el("plan-review").hidden = !view.planned;
+          // A run that wrote no plan is a failed plan (UI-010): only what it changed is shown, the notice above says why
+          // and "Create the plan" is the retry; there is no lint verdict, plan or approve button.
+          el("plan-review").hidden = !view.planned && !(view.failed && view.violations.length);
+          ["plan-lint", "plan-cards"].forEach(function (id) {
+            el(id).hidden = !!view.failed;
+          });
+          el("plan-files").parentNode.hidden = !!view.failed;
+          el("plan-ask").hidden = !!view.failed;
           el("plan-violations").hidden = !view.violations.length;
           el("plan-violation-list").replaceChildren();
           view.violations.forEach(function (line) {
@@ -2053,6 +2063,28 @@
           el("approve-publish").disabled = el("approve-name").value !== view.project;
           setPlanBusy(operationBusy());
         }
+        // While the coding tool plans (4 to 8 minutes in the test rounds) the page shows how long and its last output line.
+        var planClock = null;
+        function drawPlanProgress(data) {
+          var progress = data.phase === "planning" ? data.plan_progress || {} : {};
+          if (progress.elapsed === undefined) {
+            planClock = null;
+            el("plan-progress").hidden = true;
+            return;
+          }
+          planClock = { at: Date.now() - progress.elapsed * 1000, last: progress.last || "" };
+          tickPlanProgress();
+        }
+        function tickPlanProgress() {
+          if (!planClock) return;
+          var seconds = Math.max(0, Math.floor((Date.now() - planClock.at) / 1000)),
+            time = Math.floor(seconds / 60) + ":" + (seconds % 60 < 10 ? "0" : "") + (seconds % 60);
+          el("plan-progress").hidden = false;
+          el("plan-progress").textContent = planClock.last
+            ? UAKWorkspace.format("Planning for {time}. Last output: {line}", { time: time, line: planClock.last })
+            : UAKWorkspace.format("Planning for {time}. Waiting for the first output.", { time: time });
+        }
+        setInterval(tickPlanProgress, 1000);
         function ideaFields() {
           var fields = {
             idea: el("idea-text").value,
@@ -2739,13 +2771,7 @@
           el("human-status").textContent = data.human
             ? UAKWorkspace.format("Saved: {name}.", { name: data.human })
             : "";
-          if (!el("schedule-start").value) {
-            var start = new Date();
-            start.setMinutes(0, 0, 0);
-            start.setHours(start.getHours() + 1);
-            el("schedule-start").value = localInput(start);
-            el("schedule-end").value = localInput(new Date(start.getTime() + 3 * 3600 * 1000));
-          }
+          // The dates are never guessed (UI-010): the fields stay empty until the person chooses them.
           if (!el("schedule-zone").value) {
             try {
               el("schedule-zone").value = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -2795,7 +2821,23 @@
             end: el("schedule-end").value.replace("T", " "),
             zone: el("schedule-zone").value.trim(),
           };
+          if (!el("schedule-start").value || !el("schedule-end").value) {
+            error("Choose the start and end dates of the event.");
+            el(el("schedule-start").value ? "schedule-end" : "schedule-start").focus();
+            return;
+          }
           action(el("schedule-save"), async function () {
+            // Nothing is written until the person has seen a freeze that is past or about to start.
+            var look = await api("schedule", Object.assign({ preview: true }, body));
+            if (
+              look.soon &&
+              !window.confirm(
+                UAKWorkspace.t("That freeze is in the past or less than an hour away. Save it anyway?") +
+                  "\n" +
+                  look.freeze,
+              )
+            )
+              return;
             var result = await api("schedule", body);
             el("schedule-status").textContent = UAKWorkspace.format(
               "Saved. New work stops at {freeze}; take the first task by {first}.",
@@ -2920,6 +2962,7 @@
                   ? UAKWorkspace.t(data.guidance.detail)
                   : "Next: check what your project needs before starting work.");
           el("operation-status").classList.toggle("error", !!data.error);
+          drawPlanProgress(data);
           el("output").textContent = data.details || "No technical output yet.";
           el("checks").replaceChildren();
           (data.checks || []).forEach(function (check) {
