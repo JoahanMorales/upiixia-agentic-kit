@@ -54,6 +54,11 @@ def trust_command(root):
     return "cd '%s' && claude" % Path(root).resolve().as_posix().replace("'", "'\\''")
 
 
+def progress_line(line):
+    """One readable line for the page from one line of the coding tool's output (stub)."""
+    return ""
+
+
 class Conflict(ValueError):
     """The request is valid but would overwrite something the person has not confirmed."""
 
