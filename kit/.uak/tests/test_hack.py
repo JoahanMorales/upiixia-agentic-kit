@@ -86,9 +86,15 @@ class Runner:
         empty.write_text("", encoding="utf-8")
         self.env["UAK_EXTERNAL_SKILLS_TSV"] = str(empty)
         self.env["UAK_TASTE_HOME"] = str(Path(scratch) / "taste-home")  # design rounds fold picks into a profile (UAK-064)
-        # `uak pace` reads this machine's real Codex session logs; a machine near its usage limit ("critical") cut the
-        # fixtures' subagent caps to 1 (UAK-012, Dylan's Mac). Fixtures read no machine usage: tests that need a pace set it.
-        self.env["CODEX_HOME"] = str(Path(scratch) / "no-codex-home")
+        # `uak pace` reads this machine's real Codex session logs (${CODEX_HOME:-$HOME/.codex}); a machine near its usage
+        # limit ("critical") cut the fixtures' subagent caps to 1 (UAK-012, Dylan's Mac). Fixtures get an empty home of
+        # their own, and no Codex marker: a non-empty CODEX_HOME also names the harness "codex" (bb harness, the hook),
+        # which hid test_v42's recorded-harness check (review of d53a0eb). Tests that need a pace or a home set them.
+        for k in ("CODEX_HOME", "CODEX_SANDBOX", "CODEX_THREAD_ID"):
+            self.env.pop(k, None)
+        home = Path(scratch) / "fixture-home"
+        home.mkdir(parents=True, exist_ok=True)
+        self.env["HOME"] = str(home)
         # The machine's ~/.gitconfig (a global core.hooksPath, aliases, signing) must not reach the fixtures either: a
         # global hooksPath made install.sh keep it and skip the kit's scanner hook (UAK-012). Keep only the identity.
         machine_config = Path(scratch) / "machine-identity.gitconfig"

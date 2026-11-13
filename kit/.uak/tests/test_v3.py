@@ -239,9 +239,24 @@ def guard_budget_ignores_the_machine_pace(r):
     return guard_subagent_budget(machine)
 
 
+def fixtures_are_not_taken_for_codex(r):
+    """Review of d53a0eb (P2): pinning the pace with a non-empty CODEX_HOME made every fixture look like Codex to the
+    harness detection (bb harness, hook session-start), so test_v42's check of the recorded-harness fallback passed
+    even with the fallback broken. Fixtures carry no Codex marker; the recorded harness is what bb reads."""
+    for key in ("CODEX_HOME", "CODEX_SANDBOX", "CODEX_THREAD_ID", "CLAUDECODE"):
+        expect(not r.env.get(key), "the runner hands fixtures no %s (it names the harness)" % key)
+    f = r.fixture("v3-harness", count=1)
+    w = f.worktrees[0]
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    (gd / "uak-harness").write_text("claude-code\n", encoding="utf-8")
+    out = r.run([r.bash, ".uak/bin/bb", "harness"], cwd=w, env={"UAK_HARNESS": ""}, allowed=None)
+    expect(out.stdout.strip() == "claude-code", "bb reads the harness recorded at session start: %r" % out.stdout)
+    return "recorded harness"
+
+
 TESTS = [plan_publishes_without_pr, plan_requires_channel, dependency_parentheses_ignored,
          lease_from_project, guard_commands, guard_prompt_secrets, graph_waves_and_cycles, loop_bounded, board_stats_up, demo_runs, guard_subagent_budget,
-         guard_budget_ignores_the_machine_pace]
+         guard_budget_ignores_the_machine_pace, fixtures_are_not_taken_for_codex]
 
 
 def main():
