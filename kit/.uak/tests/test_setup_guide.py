@@ -331,8 +331,12 @@ def shared_identity_is_warned(root, tmp):
     assert re.search(r"unnamed = !data\.human", code), "an unnamed person gets the warning"
     assert "Tell setup your name (Your name, below) so it can check that this identity is yours." in catalog()
     assert re.search(r"me\.indexOf\(w\)", code) and re.search(r"w\.indexOf\(me\)", code), "the match works in both directions"
-    assert "def refresh_identity" in lib("setup.py") and "s.refresh_identity(" in lib("setup.py"), \
-        "who signs is read in the background, never under the server lock"
+    code_py = lib("setup.py")
+    post = code_py[code_py.index("    def do_POST(self):"):code_py.index("    def read_identity(self, data):")]
+    assert post.index("self.identity = self.read_identity(data)") < post.index("with self.server.lock:"), \
+        "who signs is read before the server lock is taken, never under it"
+    assert "threading.Thread" not in code_py[code_py.index("def signing_identity"):code_py.index("def kit_present")], \
+        "and synchronously: a background git kept a process in the project (Windows WinError 32)"
     es = catalog()
     for needle in ("Commits will be signed as {git} and pull requests opened as {gh}.",
                    "This looks like someone else's identity. If this is not your computer, set your own before publishing: git config user.name and user.email, and gh auth login."):

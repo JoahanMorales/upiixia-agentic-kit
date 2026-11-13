@@ -564,16 +564,6 @@ class SetupServer(ThreadingHTTPServer):
         self.worker = threading.Thread(target=work, daemon=True)
         self.worker.start()
 
-    def refresh_identity(self, root):
-        """Read who signs in the background (review of 949eca1: it ran under the server lock on every inspect); the page
-        polls /api/status and shows it when it arrives. Also re-read on every readiness check, after a gh login."""
-        def work():
-            found = signing_identity(self.identity_run, root)
-            with self.lock:
-                if self.target == str(root):
-                    self.state["identity"] = found
-        threading.Thread(target=work, daemon=True).start()
-
     def register_run(self, root, name, who, uak):
         """Run the engine's register-reviewer as NAME (UAK_HUMAN), then read the result back from claims."""
         self.state.update(phase="registering", error="", details="")
@@ -780,6 +770,9 @@ class SetupHandler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(data, dict):
                 raise ValueError("Expected a settings object.")
+            # Who signs is read before taking the lock (review of 949eca1: it blocked status polling) and synchronously
+            # (a background read kept a process inside the project, and Windows could not delete it: WinError 32).
+            self.identity = self.read_identity(data)
             with self.server.lock:
                 if self.server.worker and self.server.worker.is_alive():
                     self.reply(409, {"error": "An operation is running. Wait for it to finish."})
@@ -791,6 +784,23 @@ class SetupHandler(BaseHTTPRequestHandler):
         except (ValueError, TypeError, UnicodeError, OSError, subprocess.SubprocessError) as exc:
             # The planning module's Conflict: valid, but it would replace something the person has not confirmed.
             self.reply(409 if type(exc).__name__ == "Conflict" else 400, {"error": redact(exc)})
+
+    def read_identity(self, data):
+        """signing_identity() for the project an inspect names, or the current one on a readiness check; None otherwise."""
+        try:
+            if self.path == "/api/inspect" and set(data) == {"target"} and isinstance(data["target"], str):
+                root = project_root(data["target"])
+            elif self.path == "/api/check" and not data:
+                with self.server.lock:
+                    target = self.server.target
+                if not target:
+                    return None
+                root = project_root(target)
+            else:
+                return None
+        except ValueError:
+            return None
+        return signing_identity(self.server.identity_run, root)
 
     def schedule(self, data):
         """The event schedule: what `uak clock START DEADLINE ZONE --write` does, from a form (UI-005)."""
@@ -855,7 +865,8 @@ class SetupHandler(BaseHTTPRequestHandler):
             s.target = str(root)
             installed = kit_present(root) and s.failed_target != str(root)
             repair = (root / ".uak").exists()
-            s.refresh_identity(root)
+            if self.identity is not None:
+                s.state["identity"] = self.identity
             s.state.update(target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], next_command="", next_note="", freeze=0, details=previous.get("details", ""), error=previous.get("error", ""))
             self.reply(200, dict(s.state, settings=s.config()))
         elif self.path in ("/api/install", "/api/repair"):
@@ -885,7 +896,8 @@ class SetupHandler(BaseHTTPRequestHandler):
             # The engine that checks readiness is the one shipped with this setup (kit/.uak in the kit's checkout,
             # .uak in an installed project), so the check needs no installer and never certifies another version.
             s.launch("checking", [bash_binary(), str(s.engine()), "start"])
-            s.refresh_identity(project_root(s.target))
+            if self.identity is not None:
+                s.state["identity"] = self.identity
             self.reply(202, {"phase": "checking"})
         elif self.path == "/api/idea":
             s.engine()
