@@ -24,7 +24,7 @@ import unicodedata
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pathlib import Path  # noqa: E402
 
-from design_round import (DEFAULT_N, DEFAULT_TIER, GENES, MAX_N, MAX_SHARED, RECIPES, Rng, cfg, fmt_tokens,  # noqa: E402
+from design_round import (AT_MOST_ONCE, DEFAULT_N, DEFAULT_TIER, GENES, MAX_N, MAX_SHARED, RECIPES, Rng, cfg, fmt_tokens,  # noqa: E402
                           parse_tokens, project_root, shared_genes, task_text)
 
 WILDCARDS = 2
@@ -228,6 +228,17 @@ def breed(picks, n, seed, rejected=None):
     raise RuntimeError("could not breed %d children from %d picks that keep the diversity rule (seed %s)" % (n, len(picks), seed))
 
 
+def complete_genes(genes, k):
+    """A genome from before a gene existed (UAK-068: `stage`) gets a value for it, so old rounds still breed: the k-th pick
+    takes the k-th non-"still" value in turn (still is drawn at most once per round), deterministic."""
+    out = dict(genes)
+    for g, vals in GENES.items():
+        if g not in out:
+            pool = [v for v in vals if v != AT_MOST_ONCE.get(g)]
+            out[g] = pool[k % len(pool)]
+    return out
+
+
 def _read(path):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -331,12 +342,12 @@ def run(argv):
             print("design round --from: %s/%s has no genome.json" % (src, pid), file=sys.stderr)
             return 1
         genes, clause = note_genes(pick_notes.get(pid, ""))
-        picks.append({"ref": "%s/%s" % (src, pid), "genes": g["genes"], "recipe": g.get("recipe", RECIPES[0]), "chosen": genes, "clause": clause})
+        picks.append({"ref": "%s/%s" % (src, pid), "genes": complete_genes(g["genes"], len(picks)), "recipe": g.get("recipe", RECIPES[0]), "chosen": genes, "clause": clause})
     everyone = []
     for d_ in sorted(sdir.glob("v*")):
         g = _read(d_ / "genome.json")
-        if g and isinstance(g.get("genes"), dict) and all(k in g["genes"] for k in GENES):
-            everyone.append({"id": d_.name, "genes": g["genes"]})
+        if g and isinstance(g.get("genes"), dict):
+            everyone.append({"id": d_.name, "genes": complete_genes(g["genes"], len(everyone))})
     rejected = rejected_values(pick_notes, set(sp["picked"]), everyone)
     children = breed(picks, n, seed, rejected)
     if dry:
