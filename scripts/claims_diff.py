@@ -195,13 +195,23 @@ def scenario(r):
     return steps
 
 
+REVIEWER_STEP = "next of the reviewer"
+
+
 def compare(old, new):
     problems = []
     expect(len(old) == len(new), "the scenario ran %d steps on the old engine and %d on the new" % (len(old), len(new)))
     for (label, rc_o, out_o, tree_o), (_, rc_n, out_n, tree_n) in zip(old, new):
         if rc_o != rc_n:
             problems.append("%s: exit %d before, %d now" % (label, rc_o, rc_n))
-        if out_o != out_n:
+        if label == REVIEWER_STEP:
+            # UAK-069, the one deliberate difference: the old engine offered the registered reviewer a task to claim;
+            # the new one offers reviews only. Exit code and claims tree are still compared below, like every step.
+            if "| AVAILABLE |" not in out_o:
+                problems.append("%s: the old engine no longer offers the reviewer a task to claim: the scenario lost its point" % label)
+            if "| AVAILABLE |" in out_n or "wt new" in out_n or "Nothing to review right now" not in out_n:
+                problems.append("%s: a registered reviewer must get 'Nothing to review right now' and no task to claim, got:\n%s" % (label, out_n[:600]))
+        elif out_o != out_n:
             import difflib
             d = "\n".join(difflib.unified_diff(out_o.splitlines(), out_n.splitlines(), "before", "now", lineterm=""))
             problems.append("%s: stdout differs\n%s" % (label, d[:1500]))

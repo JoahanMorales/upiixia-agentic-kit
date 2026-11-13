@@ -31,6 +31,10 @@ The visual setup
   where it happens, the current one highlighted; a finished step moves focus to the next. Spanish covers the readiness
   check's lines and the Advanced dashboard; the notice under the dashboard title no longer repeats it. The typed
   approval says what to type, and Prepare warns when another person's Git/GitHub identity would sign the commits.
+- **A reviewer is never offered implementation work** (UAK-069): `UAK_AGENT=luis-r uak next` offered HACK-001 to claim
+  to the registered reviewer identity (test round 2026-11-13, r3 P3-6). A registered, not retired reviewer now sees
+  its reviews, or "Nothing to review right now" with `uak wait --for message`; any other identity sees what it saw
+  before. Test: `test_next_reviewer.py`.
 
 Tests and docs
 - **The hooks test waits for its background publish** (UAK-009): `test_tokens_coverage` returned while
