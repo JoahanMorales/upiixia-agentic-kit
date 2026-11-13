@@ -5,8 +5,11 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -378,9 +381,132 @@ def approval_refuses_failing_lint(root, tmp):
     assert git(target, "status", "--porcelain", "--", ".uak/PROJECT.md") == ""
 
 
+class NoPlanPlanner(FakePlanner):
+    """The coding tool ends cleanly (exit 0) and writes no plan, as in test round r3."""
+
+    def __call__(self, command, cwd=None, timeout=120, **kwargs):
+        name = Path(command[0]).name.lower().replace(".exe", "").replace(".cmd", "")
+        if name not in ("claude", "codex") or command[1:3] in (["auth", "status"], ["login", "status"]):
+            return super().__call__(command, cwd=cwd, timeout=timeout, **kwargs)
+        self.calls.append({"argv": list(command), "cwd": cwd})
+        return subprocess.CompletedProcess(command, 0, '{"type":"result","result":"done"}\n', "")
+
+
+class ChattyPlanner(FakePlanner):
+    """The coding tool prints a line before it writes the plan (the page shows the last one)."""
+
+    def __call__(self, command, cwd=None, timeout=120, **kwargs):
+        name = Path(command[0]).name.lower().replace(".exe", "").replace(".cmd", "")
+        if name in ("claude", "codex") and command[1:3] not in (["auth", "status"], ["login", "status"]):
+            kwargs["on_line"]('{"type":"assistant","message":{"content":[{"type":"text","text":"Reading IDEA.md now"}]}}')
+        return super().__call__(command, cwd=cwd, timeout=timeout, **kwargs)
+
+
+def catalog_of(root):
+    text = (root / ".uak/bin/lib/workspace.js").read_text(encoding="utf-8")
+    pairs = re.findall(r'\[\s*("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*")\s*,?\s*\]', text)
+    return {json.loads(a): json.loads(b) for a, b in pairs}
+
+
+def missing_tasks_file_is_a_failed_plan(root, tmp):
+    """Evidence (round r3): a run that wrote no TASKS.md showed a green lint line and an approve button."""
+    target, remote = project(root, tmp)
+    pushed = remote_main(remote)
+    with live(target, NoPlanPlanner()) as srv:
+        plan = planned(srv, target)
+        state = get(srv, "/api/status")[1]
+        assert state.get("phase") == "error", "no plan file is a failed run, not 'planned': %r" % state.get("phase")
+        error = state.get("error", "")
+        assert "TASKS.md" in error and error in catalog_of(root), "a translated message names the missing plan: %r" % error
+        assert plan["planned"] is False and plan.get("failed") is True, "the plan view says it failed: %r" % plan
+        assert plan["lint"]["lines"] == [] and not plan["lint"]["ok"], "no lint verdict for a plan that does not exist"
+        assert plan["cards"] == [] and plan["tasks"] == "", plan
+        assert post(srv, "/api/plan/approve", {"confirm": target.name, "digest": plan["digest"]})[0] == 400, \
+            "approving a missing plan is refused"
+        status, body = post(srv, "/api/plan", {"harness": "claude"})
+        assert status == 202, "the retry button runs the planner again: %r" % body
+        wait_idle(srv)
+    assert remote_main(remote) == pushed
+    page = (root / ".uak/bin/lib/setup.html").read_text(encoding="utf-8")
+    assert "view.failed" in page, "the page draws a failed plan differently"
+    assert re.search(r"plan-approve\"\)\.disabled\s*=\s*blocked[^;]*failed", page), "no approve button for a failed plan"
+
+
+def planning_shows_progress(root, tmp):
+    """Evidence (round r1): planning took 4 to 8 minutes with no cue; the page shows elapsed time and the last line."""
+    reader = PLANNING.progress_line
+    assert reader('{"type":"assistant","message":{"content":[{"type":"text","text":"Reading IDEA.md now"}]}}') == "Reading IDEA.md now"
+    tool = reader('{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":"/p/.uak/TASKS.md"}}]}}')
+    assert "Write" in tool and "TASKS.md" in tool, tool
+    assert reader("plain output line") == "plain output line"
+    assert reader('{"type":"system","subtype":"init"}') == "", "lines with nothing to read give no cue"
+    assert "ghp_" not in reader("token ghp_" + "a" * 30), "a secret is never shown"
+    assert len(reader("x" * 900)) <= 240, "a long line is cut"
+    seen = []
+    done = wizard.MODULE.run_command([sys.executable, "-c",
+                                      "print('first'); print('second', flush=True)"], timeout=30, group=True,
+                                     on_line=seen.append)
+    assert [x.strip() for x in seen] == ["first", "second"], "run_command reports each output line: %r" % seen
+    assert "first" in done.stdout and "second" in done.stdout, "and still returns the whole output"
+    target, _ = project(root, tmp)
+    gate = threading.Event()
+    with live(target, ChattyPlanner(gate=gate)) as srv:
+        assert post(srv, "/api/inspect", {"target": str(target)})[0] == 200
+        assert post(srv, "/api/idea", idea_fields(overwrite=True))[0] == 200
+        assert post(srv, "/api/plan", {"harness": "claude"})[0] == 202
+        progress = {}
+        for _ in range(100):
+            progress = get(srv, "/api/status")[1].get("plan_progress") or {}
+            if progress.get("last"):
+                break
+            threading.Event().wait(0.1)
+        assert progress.get("last") == "Reading IDEA.md now", "the last output line is in the status: %r" % progress
+        assert isinstance(progress.get("elapsed"), int) and progress["elapsed"] >= 0, progress
+        gate.set()
+        wait_idle(srv)
+        assert not get(srv, "/api/status")[1].get("plan_progress"), "the cue ends with the run"
+    page = (root / ".uak/bin/lib/setup.html").read_text(encoding="utf-8")
+    assert "plan_progress" in page and 'id="plan-progress"' in page, "the page shows the progress line"
+    es = catalog_of(root)
+    assert "Planning for {time}. Last output: {line}" in es, "the progress line has Spanish"
+
+
+def run_command_stops_a_descendant_holding_the_pipe(root, tmp):
+    """Review of 31b9a2d (P2): a tool that exits while a child still holds its output must not leave that child running
+    (the same class as the WinError 32 incident); the group is stopped, as on a timeout."""
+    code = ("import subprocess, sys\n"
+            "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+            "print(p.pid, flush=True)\n")
+    seen = []
+    done = wizard.MODULE.run_command([sys.executable, "-c", code], timeout=60, group=True, on_line=seen.append)
+    assert done.returncode == 0 and seen, "the tool exited cleanly and its line was read: %r %r" % (done, seen)
+    pid = int(seen[0].strip())
+
+    def alive():
+        if sys.platform == "win32":
+            listing = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid], capture_output=True, text=True).stdout
+            return str(pid) in listing
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        stat = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        return bool(stat) and not stat.startswith("Z")
+
+    for _ in range(50):
+        if not alive():
+            break
+        threading.Event().wait(0.1)
+    left = alive()
+    if left and sys.platform != "win32":
+        os.kill(pid, 9)  # never leave it behind, whatever the verdict
+    assert not left, "the descendant holding the pipe was left running after run_command returned"
+
+
 TESTS = [idea_is_saved_as_plain_text, planner_command_is_fixed_and_literal, planner_never_approves_or_pushes,
          duplicate_planning_is_rejected, approval_requires_typed_confirmation, approval_commits_only_plan_files,
-         approval_refuses_failing_lint]
+         approval_refuses_failing_lint, missing_tasks_file_is_a_failed_plan, planning_shows_progress,
+         run_command_stops_a_descendant_holding_the_pipe]
 
 
 def main():

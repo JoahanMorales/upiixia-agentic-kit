@@ -63,8 +63,69 @@ def safe_environment():
     return env
 
 
-def run_command(command, cwd=None, timeout=120, group=False, env=None, **kwargs):
-    """`env` adds a few named variables to the sanitized environment (UI-006: UAK_HUMAN for one human act)."""
+def windows_job(proc):
+    """A Windows Job Object holding the process, or None (not Windows, or any call failed: the caller falls back to
+    taskkill). `taskkill /T` cannot walk a tree whose parent already exited, a job can (UI-010 review). Descendants
+    created after the assignment join the job by themselves; one spawned in the tiny window between Popen and the
+    assignment is not in it."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class Basic(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                        ("SchedulingClass", wintypes.DWORD)]
+
+        class Counters(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_uint64) for name in (
+                "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+        class Extended(ctypes.Structure):
+            _fields_ = [("BasicLimitInformation", Basic), ("IoInfo", Counters), ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+        kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+        kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        job = kernel.CreateJobObjectW(None, None)
+        if not job:
+            return None
+        info = Extended()
+        info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not kernel.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)) or \
+                not kernel.AssignProcessToJobObject(job, int(proc._handle)):
+            kernel.CloseHandle(job)
+            return None
+        return job
+    except Exception:
+        return None
+
+
+def windows_job_end(job, kill):
+    """Terminate (when `kill`) and close the job; closing it also kills anything left (KILL_ON_JOB_CLOSE)."""
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    if kill:
+        kernel.TerminateJobObject(job, 1)
+    kernel.CloseHandle(job)
+
+
+def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=None, **kwargs):
+    """`env` adds a few named variables to the sanitized environment (UI-006: UAK_HUMAN for one human act).
+    `on_line` (group runs, UI-010) receives each line of standard output while the process runs."""
     environment = safe_environment()
     environment.update(env or {})
     if not group:
@@ -74,16 +135,59 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, **kwargs)
     extra = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
     proc = subprocess.Popen(command, cwd=cwd, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", **extra)
-    try:
-        out, err = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
+    job = windows_job(proc)
+    holder = [job]  # the job is closed once, by whichever of stop_group or the final cleanup gets there first
+    readers, lines, errors = [], [], []
+    if on_line:  # both pipes are drained by threads, so a chatty stderr never blocks the tool
+        def read_out():
+            for line in proc.stdout:
+                lines.append(line)
+                try:
+                    on_line(line)
+                except Exception:
+                    pass
+        readers = [threading.Thread(target=read_out, daemon=True),
+                   threading.Thread(target=lambda: errors.extend(proc.stderr), daemon=True)]
+        for thread in readers:
+            thread.start()
+
+    def stop_group():
         if os.name == "nt":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+            if holder[0]:
+                windows_job_end(holder[0], True)
+                holder[0] = None
+            else:
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
         else:
-            os.killpg(proc.pid, signal.SIGKILL)
-        out, err = proc.communicate()
-        return subprocess.CompletedProcess(command, 124, out, err + "\nThe run took too long and was stopped.")
-    return subprocess.CompletedProcess(command, proc.returncode, out, err)
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+    def finish(wait=None):
+        if not readers:
+            return proc.communicate(timeout=wait)
+        proc.wait(timeout=wait)
+        for thread in readers:
+            thread.join(10)
+        if any(thread.is_alive() for thread in readers):
+            # A descendant still holds the pipe after the tool exited: stop the group, never leave it running (UI-010 review).
+            stop_group()
+            for thread in readers:
+                thread.join(10)
+        return "".join(lines), "".join(errors)
+
+    try:
+        try:
+            out, err = finish(timeout)
+        except subprocess.TimeoutExpired:
+            stop_group()
+            out, err = finish()
+            return subprocess.CompletedProcess(command, 124, out, err + "\nThe run took too long and was stopped.")
+        return subprocess.CompletedProcess(command, proc.returncode, out, err)
+    finally:
+        if holder[0]:
+            windows_job_end(holder[0], False)
 
 
 def redact(text):
@@ -363,6 +467,7 @@ class SetupServer(ThreadingHTTPServer):
         self.identity_run = run_command
         self.lock = threading.Lock()
         self.worker = None
+        self.plan_started, self.plan_last = 0, ""
         self.target = ""
         self.failed_target = ""
         self.state = {"phase": "welcome", "target": str(target), "ready": False, "checks": [], "details": "",
@@ -398,6 +503,13 @@ class SetupServer(ThreadingHTTPServer):
         planning, root, uak = self.planning, Path(self.target), self.engine()
         self.plan = None
         self.state.update(phase="planning", error="", details="")
+        self.plan_started, self.plan_last = time.time(), ""
+
+        def seen(line):  # the last readable line of the tool's output, for the page (UI-010)
+            shown = planning.progress_line(line)
+            if shown:
+                with self.lock:
+                    self.plan_last = shown
 
         def work():
             try:
@@ -405,29 +517,34 @@ class SetupServer(ThreadingHTTPServer):
                 if note:
                     planning.write_atomic(note_path, ("# Changes the human asked for\n\n" + note + "\n").encode("utf-8"))
                 before = planning.snapshot(self.run, root)
-                result = self.run(command, cwd=str(root), timeout=planning.PLAN_TIMEOUT, group=True)
+                result = self.run(command, cwd=str(root), timeout=planning.PLAN_TIMEOUT, group=True, on_line=seen)
                 after = planning.snapshot(self.run, root)
                 if note_path.is_file() and not note_path.is_symlink():
                     note_path.unlink()
                 found = planning.violations(before, after)
                 tasks = planning.regular_file(root, ".uak/TASKS.md")
-                if not tasks.is_file():
-                    found.append("The planner did not write .uak/TASKS.md.")
+                missing = not tasks.is_file()
                 text = tasks.read_text(encoding="utf-8", errors="replace") if tasks.is_file() else ""
-                checked = planning.lint(self.run, root, uak, bash_binary())
+                # No plan file: nothing to check, so no lint verdict (a green "passes" there was shown in round r3).
+                checked = {"ok": False, "lines": []} if missing else planning.lint(self.run, root, uak, bash_binary())
                 plan = {"harness": harness, "violations": found, "lint": checked, "cards": planning.cards(text),
-                        "digest": planning.digest(root), "head": after["head"], "exit": result.returncode}
+                        "digest": planning.digest(root), "head": after["head"], "exit": result.returncode,
+                        "failed": missing}
                 output = (result.stdout or "") + "\n" + (result.stderr or "")
                 # An untrusted folder (UI-008): the tool ran, wrote no plan, and said why; name that cause.
                 untrusted = not tasks.is_file() and planning.UNTRUSTED in output
                 with self.lock:
                     self.plan = plan
-                    failed = result.returncode != 0 or untrusted
+                    failed = result.returncode != 0 or missing
+                    # The trust line names the specific cause of a missing plan; any other missing plan says so plainly.
                     self.state.update(phase="error" if failed else "planned", details=redact(output),
                                       error=planning.UNTRUSTED_ERROR if untrusted else
+                                      planning.MISSING_PLAN_ERROR if missing and result.returncode == 0 else
                                       "The coding tool stopped with an error. Check Technical details, then try again." if failed else "")
+                    self.plan_started = 0
             except Exception as exc:
                 with self.lock:
+                    self.plan_started = 0
                     self.state.update(phase="error", error="Planning stopped. Correct the issue and retry.", details=redact(exc))
 
         self.worker = threading.Thread(target=work, daemon=True)
@@ -729,7 +846,10 @@ class SetupHandler(BaseHTTPRequestHandler):
         elif self.path == "/api/status":
             try:
                 with self.server.lock:
-                    self.reply(200, dict(self.server.state, settings=self.server.config() if self.server.target else {},
+                    running = self.server.state.get("phase") == "planning" and self.server.plan_started
+                    progress = {"elapsed": max(0, int(time.time() - self.server.plan_started)),
+                                "last": self.server.plan_last} if running else {}
+                    self.reply(200, dict(self.server.state, plan_progress=progress, settings=self.server.config() if self.server.target else {},
                                          guidance=guidance(self.server.state),
                                          completed=completed_steps(self.server.state)))
             except (ValueError, OSError, subprocess.SubprocessError) as exc:
@@ -754,8 +874,9 @@ class SetupHandler(BaseHTTPRequestHandler):
         return {"project": root.name, "mode": read_config(root).get("Mode", ""), "planners": offers,
                 "idea": text("IDEA.md"), "violations": plan.get("violations", []),
                 "lint": plan.get("lint", {"ok": False, "lines": []}), "cards": plan.get("cards", []),
-                "digest": plan.get("digest", ""), "tasks": text(".uak/TASKS.md") if plan else "",
-                "owners": text(".uak/OWNERS.md") if plan else "", "planned": bool(plan),
+                "digest": plan.get("digest", ""), "failed": bool(plan.get("failed")),
+                "tasks": text(".uak/TASKS.md") if plan else "",
+                "owners": text(".uak/OWNERS.md") if plan else "", "planned": bool(plan) and not plan.get("failed"),
                 "kit_on_main": planning.kit_on_main(s.run, root) if kit_present(root) else False,
                 # Only Claude Code has the one-time folder trust (UI-008); a Codex-only project shows no notice.
                 "trust_command": planning.trust_command(root) if (root / ".claude").is_dir() else ""}
@@ -811,6 +932,10 @@ class SetupHandler(BaseHTTPRequestHandler):
     def schedule(self, data):
         """The event schedule: what `uak clock START DEADLINE ZONE --write` does, from a form (UI-005)."""
         s = self.server
+        # `preview` (UI-010) computes the schedule and writes nothing, so the page can ask before a past freeze is saved.
+        preview = data.pop("preview", False) if isinstance(data, dict) else False
+        if preview not in (True, False) or not isinstance(preview, bool):
+            raise ValueError("Give the event's start, end and time zone.")
         if set(data) != {"start", "end", "zone"} or not all(isinstance(v, str) for v in data.values()):
             raise ValueError("Give the event's start, end and time zone.")
         if not SCHEDULE_TIME.fullmatch(data["start"]) or not SCHEDULE_TIME.fullmatch(data["end"]):
@@ -831,6 +956,10 @@ class SetupHandler(BaseHTTPRequestHandler):
         first = re.search(r"(?m)^first claim by\s+(\S+ \S+)", output)
         if result.returncode or not freeze:
             raise ValueError("The schedule could not be set: %s" % redact(output.strip())[-400:])
+        if preview:
+            self.reply(200, {"freeze": freeze.group(1).strip(), "epoch": int(freeze.group(2)),
+                             "soon": int(freeze.group(2)) < time.time() + 3600})
+            return
         s.planning.set_freeze(root, int(freeze.group(2)))
         s.state.update(phase="setup", ready=False, checks=[], next_command="", next_note="", error="")
         self.reply(200, {"freeze": freeze.group(1).strip(), "epoch": int(freeze.group(2)),
@@ -840,7 +969,7 @@ class SetupHandler(BaseHTTPRequestHandler):
         """Lint, cards and digest of the current plan files again, without running the planner (UI-005)."""
         s = self.server
         planning = s.planning
-        if not s.plan:
+        if not s.plan or s.plan.get("failed"):
             raise ValueError("Create the plan first, then check it again.")
         uak = s.engine()
         root = project_root(s.target)
@@ -975,7 +1104,7 @@ def approval_checks(server, data):
     server.engine()
     root = project_root(server.target)
     plan = server.plan
-    if not plan:
+    if not plan or plan.get("failed"):
         raise ValueError("Create the plan first, then review it.")
     if plan["violations"]:
         raise ValueError("The last planning run changed files it may not change. Undo those changes, then create the plan again.")
