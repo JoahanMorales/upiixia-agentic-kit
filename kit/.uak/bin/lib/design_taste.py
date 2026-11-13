@@ -33,7 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from design_breed import _read, converged, first_pick  # noqa: E402
-from design_round import GENES, project_root  # noqa: E402
+from design_round import GENES, ground_of, project_root  # noqa: E402
 
 MIN_PICKS = 10
 HEX = re.compile(r"#[0-9a-fA-F]{3,8}\b")
@@ -215,8 +215,13 @@ def _fold_round(rdir):
         if not isinstance(g, dict) or not isinstance(g.get("genes"), dict):
             continue
         shown += 1
-        for gene in GENES:
-            val = g["genes"].get(gene)
+        # ground (light/dark, UAK-072) is a trait like a gene: the genome's own, else what its color implies (older rounds)
+        traits = dict(g["genes"])
+        ground = g.get("ground") or ground_of(g["genes"])
+        if ground:
+            traits["ground"] = ground
+        for gene in list(GENES) + ["ground"]:
+            val = traits.get(gene)
             if not isinstance(val, str):
                 continue
             c = genes.setdefault(gene, {}).setdefault(val, {"shown": 0, "first": 0, "picked": 0, "notes": []})
@@ -324,7 +329,7 @@ def show(human, doc=None):
     w = weights(doc)
     lines = ["TASTE %s: %d picks in %d rounds, confidence: %s%s" % (
         human, pick_count(doc), len(doc["rounds"]), confidence(doc), " (still learning: rounds keep exploring)" if confidence(doc) == "low" else "")]
-    for gene in GENES:
+    for gene in list(GENES) + ["ground"]:
         vals = tot.get(gene)
         if not vals:
             continue
