@@ -1104,10 +1104,12 @@ def registration_checks(server, data):
             if line.strip().rstrip("\r") == "UAK_AGENT=" + who:
                 raise ValueError("%s in this folder says this checkout is the agent %s, so it cannot register itself. "
                                  "Remove that line (or the file), then register again." % (env_file, who))
-    origin = git("config", "--show-scope", "--show-origin", "--get", "uak.agent")
-    if origin.returncode == 0 and origin.stdout.strip():
-        parts = origin.stdout.strip().split("\t")
+    # -z: the origin path is printed as is (without it Git quotes and octal-escapes a path with an accent).
+    origin = git("config", "-z", "--show-scope", "--show-origin", "--get", "uak.agent")
+    if origin.returncode == 0 and origin.stdout.strip("\0\n"):
+        parts = re.split(r"[\t\0]", origin.stdout.rstrip("\0\n"), maxsplit=2)
         scope, source, value = (parts + ["", "", ""])[:3]
+        value = value.rstrip("\0\n")
         if value == who:
             source = source[len("file:"):] if source.startswith("file:") else source
             if source and not os.path.isabs(source):

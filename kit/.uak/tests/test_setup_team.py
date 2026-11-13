@@ -132,7 +132,7 @@ def reviewer_is_registered_from_the_page(root, tmp):
     assert "Reviewer: ana-r" in text and "Registered-By: ana" in text, "the role file is on claims: %r" % text
     assert len(team.calls) == 1
     call = team.calls[0]
-    assert call["argv"][-2:] == ["register-reviewer", "ana-r"] and call["argv"][1].endswith("bin/uak"), call["argv"]
+    assert call["argv"][-2:] == ["register-reviewer", "ana-r"] and Path(call["argv"][1]).as_posix().endswith("bin/uak"), call["argv"]
     assert Path(call["cwd"]).resolve() == target.resolve(), "it runs in the project's main checkout"
 
     # No saved name: refused, nothing runs.
@@ -372,7 +372,8 @@ def registration_self_grant_is_explained(root, tmp):
         with tp.live(target, team) as srv:
             ready(srv, target)
             status, body = tp.post(srv, "/api/team/reviewer", {"confirm": "ana-r"})
-        assert status == 400 and source in body.get("error", "") and str(target / ".git") in body.get("error", ""), body
+        where = os.path.normcase(os.path.realpath(str(target / ".git" / "config")))
+        assert status == 400 and source in body.get("error", "") and where in os.path.normcase(body.get("error", "")), body
         assert not team.calls and not claims_head(remote)
         undo()
     (target / ".uak-env").write_text("UAK_AGENT=ana-r\n", encoding="utf-8")
@@ -392,7 +393,8 @@ def registration_self_grant_is_explained(root, tmp):
         with tp.live(target, team) as srv:
             ready(srv, target)
             status, body = tp.post(srv, "/api/team/reviewer", {"confirm": "ana-r"})
-        assert status == 400 and str(glob) in body.get("error", "") and "--global" in body.get("error", ""), body
+        assert status == 400 and os.path.normcase(str(glob)) in os.path.normcase(body.get("error", "")) \
+            and "--global" in body.get("error", ""), body
         assert not team.calls and not claims_head(remote)
     finally:
         if saved is None:
