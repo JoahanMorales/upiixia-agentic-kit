@@ -4,6 +4,7 @@ planning only with the kit on main, lint reasons and rechecking a plan. Real HTT
 remote, the engine's real `uak clock` and `uak lint`; a fake planner stands in for the coding tool.
 Evidence: the hackathon simulation of 2026-11-11 (notes/handoff:PENDING-IMPROVEMENTS.md #5, #6 and #8 to #10, plus #12)."""
 import argparse
+import datetime
 import importlib.util
 import json
 import re
@@ -67,6 +68,10 @@ def really_installed(root, tmp, name="real project", before=None):
                            "--no-mcp", str(target)], capture_output=True, text=True, timeout=300)
     assert done.returncode == 0, done.stderr[-600:]
     return target, remote
+
+
+def catalog_of_page(root):
+    return tp.catalog_of(root)
 
 
 def remote_files(remote):
@@ -446,6 +451,46 @@ def long_messages_wrap_at_390(root, tmp):
                for sel, body in rules), "the .notice rule wraps long words"
 
 
+def schedule_is_never_guessed(root, tmp):
+    """Evidence (round r1): the form defaulted to today, and saving it untouched froze a next-day hackathon. The fields
+    start empty, a date is required, and a freeze in the past or within the hour asks first (preview writes nothing)."""
+    page = (root / ".uak/bin/lib/setup.html").read_text(encoding="utf-8")
+    assert not re.search(r'id="schedule-(start|end)"[^>]*\bvalue=', page), "no preset date in the markup"
+    assert not re.search(r'el\("schedule-(start|end)"\)\.value\s*=\s*localInput', page), "no date is made up by the script"
+    assert "Choose the start and end dates of the event." in page, "saving without a date says so"
+    assert "That freeze is in the past or less than an hour away. Save it anyway?" in page, "a near freeze asks first"
+    es = catalog_of_page(root)
+    for line in ("Choose the start and end dates of the event.",
+                 "That freeze is in the past or less than an hour away. Save it anyway?"):
+        assert line in es, "Spanish for %r" % line
+    target, _ = installed(root, tmp)
+    now = datetime.datetime.utcnow()
+
+    def fmt(moment):
+        return moment.strftime("%Y-%m-%d %H:%M")
+
+    with tp.live(target, tp.FakePlanner()) as srv:
+        assert tp.post(srv, "/api/inspect", {"target": str(target)})[0] == 200
+        before = (target / ".uak/PROJECT.md").read_bytes()
+        assert tp.post(srv, "/api/schedule", {"start": "", "end": "", "zone": "UTC"})[0] == 400, "an empty date is refused"
+        assert tp.post(srv, "/api/schedule", {"start": "2026-11-12 10:00", "end": "2026-11-12 13:00", "zone": "UTC",
+                                              "preview": "yes"})[0] == 400, "preview is a boolean"
+
+        def preview(start, end):
+            status, body = tp.post(srv, "/api/schedule", {"start": fmt(start), "end": fmt(end), "zone": "UTC",
+                                                          "preview": True})
+            assert status == 200, body
+            return body
+
+        past = preview(now - datetime.timedelta(days=2), now - datetime.timedelta(days=2) + datetime.timedelta(hours=3))
+        assert past["soon"] is True and past["epoch"] < now.timestamp() + 3600, "a past freeze asks first: %r" % past
+        near = preview(now, now + datetime.timedelta(minutes=20))
+        assert near["soon"] is True, "a freeze within the hour asks first: %r" % near
+        later = preview(now + datetime.timedelta(days=1), now + datetime.timedelta(days=1, hours=5))
+        assert later["soon"] is False, "a freeze tomorrow does not ask: %r" % later
+        assert (target / ".uak/PROJECT.md").read_bytes() == before, "a preview writes nothing"
+
+
 TESTS = [schedule_form_writes_freeze_epoch, publish_kit_excludes_unapproved_plan_files,
          publish_kit_pushes_only_the_verified_commit, terminal_step_is_shown_with_its_command,
          planning_waits_for_the_kit_on_main, lint_failure_reason_reaches_the_page,
@@ -453,7 +498,7 @@ TESTS = [schedule_form_writes_freeze_epoch, publish_kit_excludes_unapproved_plan
          publish_never_includes_files_the_installer_did_not_place, publish_verifies_the_whole_committed_tree,
          schedule_never_follows_links, publish_ignores_personal_files_present_before_install,
          failed_commit_leaves_index_and_refs_as_before, refused_push_says_nothing_was_published,
-         long_messages_wrap_at_390]
+         long_messages_wrap_at_390, schedule_is_never_guessed]
 
 
 def main():
