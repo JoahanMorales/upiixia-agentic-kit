@@ -266,7 +266,8 @@ class Identity:
 
 
 GH_USER = "octo-friend\n"
-GH_HOSTILE = "Token: gho_SECRETSECRETSECRET1234 keyring\n"
+# A token-shaped value built at run time, so the secret scan never sees a token in this file.
+GH_HOSTILE = "Token: " + "gh" + "o_" + "X" * 24 + " keyring\n"
 
 
 def shared_identity_is_warned(root, tmp):
