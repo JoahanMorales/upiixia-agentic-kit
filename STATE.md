@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1794533900
+Updated: 1794533919
 AVAILABLE: UAK-067 UAK-069 UAK-070 
 CLAIMED: UAK-068 
 BLOCKED: -
@@ -14,11 +14,11 @@ UAK-068 | CLAIMED | kit-breed-1 | until 1794449792 (EXPIRED: release --expired -
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1794433420 | UAK-065 | relax order: fewest alternatives first, recorded in wildcard because; last resort ignore named genes | Why: kit-r1 rejection
 - 1794433571 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-070 | Why: backlog without PR (Plan-Channel: claims)
 - 1794435392 | UAK-068 | old 8-gene picks get a non-still stage by pick order (complete_genes in design_breed) | Why: AXIA R1-R2
 - 1794533468 | deadline lease/UAK-068/1794449792 | REQUIRES_RECOVERY | Claim kept; read the summary and use release --expired --read-summary. No work is deleted.
 - 1794533900 | allow | JoahanMorales | test change: UAK-068 | Why: gene count 8 to 9 (stage gene)
+- 1794533919 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-071 UAK-072 UAK-073 UAK-074 | Why: backlog without PR (Plan-Channel: claims)
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.
