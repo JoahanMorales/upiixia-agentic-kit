@@ -681,6 +681,15 @@
     ["guard block", "bloqueo de guard"],
     ["conflict", "conflicto"],
     ["CI run ", "ejecución de CI "],
+    ["all", "todos"],
+    [", peak ", ", máximo "],
+    ["now", "ahora"],
+    ["online", "en línea"],
+    ["recent", "reciente"],
+    ["away", "ausente"],
+    ["offline", "desconectado"],
+    ["retired", "retirado"],
+    ["Tell setup your name (Your name, below) so it can check that this identity is yours.", "Dile tu nombre a la configuración (Tu nombre, abajo) para que pueda comprobar que esta identidad es tuya."],
   ];
   // The readiness gate's lines (`uak start`, .uak/bin/start), as whole-line patterns: the engine's English stays in
   // Technical details; the checklist reads in the page's language. $1… are the engine's values, shown as they are.

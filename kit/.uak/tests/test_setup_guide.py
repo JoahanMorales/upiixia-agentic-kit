@@ -227,6 +227,7 @@ def advanced_dashboard_is_translated(root, tmp):
     assert re.search(r"UAKWorkspace\.start\(document\.body\)", dash), "dash.html translates its whole body as it changes"
     code = re.sub(r"(?m)^\s*//.*$", "", dash[dash.index("function T("):])
     classes = set(w for v in re.findall(r'"class":\s*"([^"]*)"', code) for w in v.split())
+    classes |= set(w for v in re.findall(r'(?:className\s*=\s*|"class":\s*|setAttribute\("class",\s*)"([^"]*)"\s*\+', code) for w in v.split())
     shown = set()
     for lit in re.findall(r'"((?:[^"\\]|\\.)*)"', code):
         if lit.startswith("uak ") or not re.match(r"[A-Za-z]", lit) or not re.search(r"[A-Za-z]{3,}", lit) or re.search(r"[{}=;<>()$/]|\.(md|py|sh|js)\b", lit):
@@ -236,6 +237,28 @@ def advanced_dashboard_is_translated(root, tmp):
         shown.add(lit)
     left = sorted(l for l in shown if l not in es and l.strip() not in es and l not in ("None",))
     assert not left, "dashboard labels with no Spanish: %r" % left
+    # Review of 949eca1 (P2): composed labels ("oldest 4 min", "online · 4 min ago") stayed English because the
+    # body translation only matches whole text nodes. Every English literal that is concatenated, or chosen by a
+    # ternary for a text property, goes through T().
+    def wrapped(at):
+        return re.search(r"T\(\s*$", code[max(0, at - 4):at]) is not None
+    concat = set()
+    for m in re.finditer(r'"((?:[^"\\]|\\.)*)"', code):
+        lit = m.group(1)
+        before, after = code[:m.start()].rstrip()[-1:], code[m.end():].lstrip()[:1]
+        if (before == "+" or after == "+") and re.search(r"[A-Za-z]{3,}", lit) and not wrapped(m.start()) \
+                and not re.search(r"[<>=:;/(){}#]|px|--", lit) and set(lit.split()) - classes - {"uak", "dash", "min", "·"}:
+            concat.add(lit)
+    assert not concat, "concatenated English with no T(): %r" % sorted(concat)
+    ternary = set()
+    for m in re.finditer(r"\btext:\s*[^,{}]*?\?\s*\"((?:[^\"\\]|\\.)*)\"\s*:\s*\"?((?:[^\"\\,}]|\\.)*)", code):
+        for lit, at in ((m.group(1), m.start(1) - 1),):
+            if re.search(r"[A-Za-z]{3,}", lit) and not wrapped(at) and lit not in ("github",):
+                ternary.add(lit)
+    assert not ternary, "text chosen by a ternary with no T(): %r" % sorted(ternary)
+    assert "T(a.status)" in code, "an agent's status (online, recent, away, offline) is translated"
+    for status in ("online", "recent", "away", "offline", "retired"):
+        assert status in es, "status %r has a Spanish label" % status
     for literal in re.findall(r'(?<![\w.])"((?:Retired|Conversation about )[^"]*)"', dash):
         assert re.search(r'T\(\s*"%s"' % re.escape(literal), dash), "%r goes through T()" % literal
     setup = lib("setup.html")
@@ -280,7 +303,13 @@ def shared_identity_is_warned(root, tmp):
         with live as srv:
             assert tp.post(srv, "/api/inspect", {"target": str(target)})[0] == 200
             assert tp.post(srv, "/api/human", {"name": "ana"})[0] == 200
-            status, body, _ = wizard.request(srv, "GET", "/api/status")
+            # Read in the background (never under the server lock): the page polls status until it arrives.
+            deadline = time.time() + 10
+            while True:
+                status, body, _ = wizard.request(srv, "GET", "/api/status")
+                if "identity" in json.loads(body.decode("utf-8")) or time.time() > deadline:
+                    break
+                time.sleep(0.1)
         raw = body.decode("utf-8")
         state = json.loads(raw)
         ident = state.get("identity")
@@ -296,6 +325,12 @@ def shared_identity_is_warned(root, tmp):
     assert re.search(r"identity-warning[\s\S]{0,1500}git_name[\s\S]{0,600}gh_login|gh_login[\s\S]{0,1500}identity-warning", code), \
         "the page names who signs the commits and the PRs"
     assert re.search(r"function sharedIdentity\(", code), "sharedIdentity() decides when the identity is someone else's"
+    # Review of 949eca1 (P3): no name means a warning too, and the match works both ways.
+    assert re.search(r"unnamed = !data\.human", code), "an unnamed person gets the warning"
+    assert "Tell setup your name (Your name, below) so it can check that this identity is yours." in catalog()
+    assert re.search(r"me\.indexOf\(w\)", code) and re.search(r"w\.indexOf\(me\)", code), "the match works in both directions"
+    assert "def refresh_identity" in lib("setup.py") and "s.refresh_identity(" in lib("setup.py"), \
+        "who signs is read in the background, never under the server lock"
     es = catalog()
     for needle in ("Commits will be signed as {git} and pull requests opened as {gh}.",
                    "This looks like someone else's identity. If this is not your computer, set your own before publishing: git config user.name and user.email, and gh auth login."):

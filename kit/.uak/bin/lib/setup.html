@@ -2131,11 +2131,17 @@
         }
         // Whose identity signs (UI-007): the project's Git name/email and gh's login, as the server parsed them. On someone
         // else's computer they are not the person's: say so before anything is published under that name.
+        // True when nothing in the Git name, the email's local part or the gh login matches the person's name, in either
+        // direction (ana ↔ "Ana Human", "anagarcia" ↔ ana); a name shorter than 3 letters must match a whole word.
         function sharedIdentity(ident, human) {
           var me = String(human || "").toLowerCase().replace(/[^a-z0-9]/g, "");
           if (!me || !ident) return false;
-          var mine = function (value) { return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "").indexOf(me) >= 0; };
-          return !mine(ident.git_name) && !mine(ident.git_email) && !mine(ident.gh_login);
+          var words = [ident.git_name, String(ident.git_email || "").split("@")[0], ident.gh_login]
+            .join(" ").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+          words.push(String(ident.git_name || "").toLowerCase().replace(/[^a-z0-9]/g, ""));
+          return !words.some(function (w) {
+            return w === me || (me.length >= 3 && w.indexOf(me) >= 0) || (w.length >= 3 && me.indexOf(w) >= 0);
+          });
         }
         function drawIdentity(data) {
           var ident = data.identity || {},
@@ -2147,8 +2153,11 @@
           var git = (ident.git_name || "?") + (ident.git_email ? " <" + ident.git_email + ">" : ""),
             gh = ident.gh_login ? "@" + ident.gh_login : UAKWorkspace.t("nobody (gh is not signed in)"),
             text = UAKWorkspace.format("Commits will be signed as {git} and pull requests opened as {gh}.", { git: git, gh: gh }),
-            other = sharedIdentity(ident, data.human);
-          if (other)
+            unnamed = !data.human,
+            other = unnamed || sharedIdentity(ident, data.human);
+          if (unnamed)
+            text += " " + UAKWorkspace.t("Tell setup your name (Your name, below) so it can check that this identity is yours.");
+          else if (other)
             text += " " + UAKWorkspace.t("This looks like someone else's identity. If this is not your computer, set your own before publishing: git config user.name and user.email, and gh auth login.");
           box.textContent = text;
           box.classList.toggle("error", other);
@@ -2167,6 +2176,7 @@
           });
         }
         // A finished operation moves the person to the heading of the step that comes next (amendment 8).
+        var identityTries = 0;
         var NEXT_FOCUS = {"installing": "prepare-heading", "publishing": "planning-heading", "approving": "team-heading"};
         function drawDashboard(data) {
           latestDashboard = data;
@@ -2989,6 +2999,11 @@
           }
           drawJourney();
           drawIdentity(data);
+          // Who signs is read in the background after choosing the project: ask again until it arrives (a few tries).
+          if (data.target && !data.identity && identityTries < 8 && !isBusy(data.phase)) {
+            identityTries += 1;
+            setTimeout(refresh, 700);
+          } else if (data.identity) identityTries = 0;
           if (NEXT_FOCUS[previous] && !isBusy(data.phase) && !data.error) {
             (function wait(id, tries) {
               var node = el(id);

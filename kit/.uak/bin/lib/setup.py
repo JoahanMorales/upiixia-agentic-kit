@@ -564,6 +564,16 @@ class SetupServer(ThreadingHTTPServer):
         self.worker = threading.Thread(target=work, daemon=True)
         self.worker.start()
 
+    def refresh_identity(self, root):
+        """Read who signs in the background (review of 949eca1: it ran under the server lock on every inspect); the page
+        polls /api/status and shows it when it arrives. Also re-read on every readiness check, after a gh login."""
+        def work():
+            found = signing_identity(self.identity_run, root)
+            with self.lock:
+                if self.target == str(root):
+                    self.state["identity"] = found
+        threading.Thread(target=work, daemon=True).start()
+
     def register_run(self, root, name, who, uak):
         """Run the engine's register-reviewer as NAME (UAK_HUMAN), then read the result back from claims."""
         self.state.update(phase="registering", error="", details="")
@@ -845,7 +855,7 @@ class SetupHandler(BaseHTTPRequestHandler):
             s.target = str(root)
             installed = kit_present(root) and s.failed_target != str(root)
             repair = (root / ".uak").exists()
-            s.state["identity"] = signing_identity(s.identity_run, root)
+            s.refresh_identity(root)
             s.state.update(target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], next_command="", next_note="", freeze=0, details=previous.get("details", ""), error=previous.get("error", ""))
             self.reply(200, dict(s.state, settings=s.config()))
         elif self.path in ("/api/install", "/api/repair"):
@@ -875,6 +885,7 @@ class SetupHandler(BaseHTTPRequestHandler):
             # The engine that checks readiness is the one shipped with this setup (kit/.uak in the kit's checkout,
             # .uak in an installed project), so the check needs no installer and never certifies another version.
             s.launch("checking", [bash_binary(), str(s.engine()), "start"])
+            s.refresh_identity(project_root(s.target))
             self.reply(202, {"phase": "checking"})
         elif self.path == "/api/idea":
             s.engine()
