@@ -350,6 +350,8 @@ def run(argv):
             everyone.append({"id": d_.name, "genes": complete_genes(g["genes"], len(everyone))})
     rejected = rejected_values(pick_notes, set(sp["picked"]), everyone)
     children = breed(picks, n, seed, rejected)
+    import design_fonts  # UAK-071: a child keeps its parent's font pair unless `type` mutated
+    design_fonts.inherit(children, {p["ref"]: {"genes": p["genes"], "fonts": (_read(sdir / p["ref"].split("/", 1)[1] / "genome.json") or {}).get("fonts")} for p in picks}, seed)
     if dry:
         for i, c in enumerate(children, 1):
             via = ("mutated " + c["mutated"]) if c["kind"] == "mutation" else ("from " + " x ".join(c["from"])) if c["kind"] == "crossover" else "no parent"

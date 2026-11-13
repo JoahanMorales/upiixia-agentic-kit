@@ -141,12 +141,13 @@ def _try_round(n, seed, salt, recipes, ctx):
     return out
 
 
-def make_genomes(n, seed, recipes=None, weights=None, wild=None, avoid=None, factors=None):
+def make_genomes(n, seed, recipes=None, weights=None, wild=None, avoid=None, factors=None, avoid_faces=()):
     """n genomes {"genes": {...8...}, "recipe": R, "why": {gene: reason}}: spread values, pairs share <= MAX_SHARED genes,
     same seed same list. Optional (UAK-063, design_breed.py calls it without them): weights {gene: {value: w}} from the
     taste profile (liked values likelier; the last `wild` variants, default 2, or 1 when n <= 4, ignore them), avoid
     [gene dicts of past directions] (no variant shares more than MAX_PAST_SHARED genes with one), factors
-    {gene: {value: f}} (the project's own material scales a value's chance)."""
+    {gene: {value: f}} (the project's own material scales a value's chance). Each genome also gets "fonts", an exact Google
+    Fonts pair from design_fonts.py: no display or body face twice in the round, none of avoid_faces (UAK-071)."""
     recipes = list(recipes or RECIPES)
     if wild is None:
         wild = 1 if n <= 4 else 2
@@ -155,6 +156,9 @@ def make_genomes(n, seed, recipes=None, weights=None, wild=None, avoid=None, fac
         for salt in range(60 if ctx["weights"] else 500):  # a dead end (rare) restarts the whole draw with the next salt: still deterministic
             got = _try_round(n, seed, salt, recipes, ctx)
             if got:
+                import design_fonts
+                for g, f in zip(got, design_fonts.assign([g["genes"]["type"] for g in got], seed, avoid_faces)):
+                    g["fonts"] = f
                 return got
     raise RuntimeError("no round of %d variants satisfies the diversity rule for seed %s" % (n, seed))
 
@@ -411,6 +415,11 @@ def task_text(rnd, i, genome, screen):
              "Content: the same in every variant, taken only from `../brief.md` (a MISSING beat is left out, never invented).",
              "Only the design changes. Your design is this genome (`genome.json`); follow every gene:", ""]
     lines += ["- %s: **%s**" % (g, genes[g]) for g in GENES]
+    if genome.get("fonts"):
+        f = genome["fonts"]
+        lines += ["- fonts: **%s** (display, weights %s) + **%s** (body, weights %s); load exactly this, no other face:" % (
+                  f["display"], f["display_weights"], f["body"], f["body_weights"]),
+                  "  `<link rel=\"stylesheet\" href=\"%s\">` (design-lint warns when the page loads another pair; Inter, Roboto, Arial and Geist are never a display face)" % f["url"]]
     if genome.get("brand"):
         lines += ["- project colors: %s (`../brief.md` > Brand colors; the color gene is built from them)" % " ".join(genome["brand"])]
     lines += ["- recipe: **%s** (use that skill's method for the look)" % genome["recipe"], "",
@@ -468,6 +477,19 @@ def _taste_context(root, human, product, allow_repeat):
     return design_taste.weights(doc), avoid, "taste: %s (%d picks)" % (human, design_taste.pick_count(doc))
 
 
+def _past_faces(human, product, root, allow_repeat):
+    """Faces of the human's past directions in other projects (their profile's `fonts`), unless --allow-repeat."""
+    if allow_repeat:
+        return set()
+    try:
+        import design_fonts
+        import design_taste
+        own = {root.name, product}
+        return design_fonts.past_faces([d for d in design_taste.past_directions(design_taste.load(human)) if d.get("project") not in own])
+    except Exception:  # noqa: BLE001  a broken profile never blocks a round
+        return set()
+
+
 def cmd_round(argv):
     screen, n, seed, dry, yes = "landing", DEFAULT_N, None, False, False
     human, allow_repeat, parallel = None, False, None
@@ -512,7 +534,8 @@ def cmd_round(argv):
     weights, avoid, taste_note = _taste_context(root, human, product, allow_repeat)
     brand = brand_colors(root, idea)
     material = project_material(root)
-    genomes = make_genomes(n, seed, recipes, weights=weights, avoid=avoid, factors=material_factors(material))
+    genomes = make_genomes(n, seed, recipes, weights=weights, avoid=avoid, factors=material_factors(material),
+                           avoid_faces=_past_faces(human, product, root, allow_repeat))
     for g in genomes:
         if brand:
             g["brand"] = [h for h, _ in brand]
@@ -565,6 +588,8 @@ def cmd_round(argv):
         v.mkdir()
         doc = {"id": "R%d-v%d" % (k, i), "round": "R%d" % k, "variant": i, "seed": seed, "screen": screen,
                "genes": g["genes"], "recipe": g["recipe"], "why": g["why"]}
+        if g.get("fonts"):
+            doc["fonts"] = g["fonts"]
         with open(str(v / "genome.json"), "w", encoding="utf-8", newline="\n") as f:
             json.dump(doc, f, indent=2, ensure_ascii=False)
             f.write("\n")
