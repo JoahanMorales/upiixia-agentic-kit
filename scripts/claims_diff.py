@@ -185,7 +185,8 @@ def scenario(r):
     step("status with expired leases", 0, "status")
     step("status --full with expired leases", 1, "status", "--full")
     step("next with an expired claim", 2, "next")
-    step("next of the reviewer", 1, "next")
+    # "next of the reviewer" is out of the scenario on purpose (UAK-069): a registered reviewer is no longer offered
+    # implementation work, so the old engine's output is no longer the expectation (test_next_reviewer.py covers it).
     step("summary of an expired claim", 1, "status", "--task", "HACK-002", "--summary")
     token = re.search(r"Read-token: (\S+)", raw[-1])
     expect(token is not None, "no read token in: " + raw[-1][-400:])
