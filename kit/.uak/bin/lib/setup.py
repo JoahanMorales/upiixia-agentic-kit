@@ -1022,6 +1022,14 @@ def team_context(server):
     return project_root(server.target), name
 
 
+def main_checkout(server, root):
+    """True in the project's main checkout (its Git dir is the common dir), false in a linked task worktree."""
+    git_dir = server.planning.git(server.run, root, "rev-parse", "--absolute-git-dir").stdout.strip()
+    common = server.planning.git(server.run, root, "rev-parse", "--git-common-dir").stdout.strip()
+    common_path = Path(common) if os.path.isabs(common) else root / common
+    return bool(git_dir and common) and Path(git_dir).resolve() == common_path.resolve()
+
+
 def team_view(server):
     """GET /api/team: the two agents' Copy commands, built only from server values (the READY line's task, the name,
     the project folder). Commands are never run by setup."""
@@ -1034,6 +1042,13 @@ def team_view(server):
     if "'" in text or any(ord(c) < 32 or ord(c) == 127 for c in text) or root.parent == root:
         view["note"] = ("Rename the project folder (no quote mark or control character, and not a drive's root), then "
                         "press Check again: setup only shows commands it can quote exactly.")
+        return view
+    if not main_checkout(server, root):
+        view["note"] = ("Choose the main project folder in this page (not a task worktree): agents start from there.")
+        return view
+    if not server.planning.kit_on_main(server.run, root, os.environ.get("UAK_REMOTE", "origin"),
+                                       os.environ.get("UAK_BASE", "main")):
+        view["note"] = "Publish the kit to main first (Prepare: Publish the kit to main): agents read the kit from there."
         return view
     if not task:
         view["note"] = "No task is free to start right now. Press Check what's next again in a moment."
@@ -1090,16 +1105,16 @@ def registration_checks(server, data):
     def git(*args, timeout=60):
         return planning.git(server.run, root, *args, timeout=timeout)
 
-    git_dir = git("rev-parse", "--absolute-git-dir").stdout.strip()
-    common = git("rev-parse", "--git-common-dir").stdout.strip()
-    common_path = Path(common) if os.path.isabs(common) else root / common
-    if not git_dir or Path(git_dir).resolve() != common_path.resolve():
+    if not main_checkout(server, root):
         raise ValueError("Register the reviewer from the project's main checkout, not from a task worktree. Choose the "
                          "main project folder in this page.")
     # The engine names the registrar from .uak-env, then git config uak.agent; registering yourself is refused
     # (review-merge.sh: "cannot grant a role to themselves"), so setup says where that name comes from first.
     env_file = root / ".uak-env"
-    if env_file.is_file() and not env_file.is_symlink():
+    if env_file.is_symlink():
+        raise ValueError("%s is a symbolic link, so setup cannot tell which agent this checkout is. Remove the link, "
+                         "then register again." % env_file)
+    if env_file.is_file():
         for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
             if line.strip().rstrip("\r") == "UAK_AGENT=" + who:
                 raise ValueError("%s in this folder says this checkout is the agent %s, so it cannot register itself. "

@@ -462,10 +462,46 @@ def concurrent_registration_is_busy(root, tmp):
     assert len(team.calls) == 1, "one engine run"
 
 
+def team_step_needs_main_checkout_and_kit_on_main(root, tmp):
+    """Review of 98507da (claude-Dylan-r, P3): no command from a linked worktree (wt puts the task worktree next to the
+    main checkout, so the second cd would fail) or when main does not have the kit; a symlinked .uak-env is refused
+    in plain words."""
+    target, remote = ready_project(root, tmp)
+    linked = tmp / "linked tree"
+    tp.git(target, "worktree", "add", "-q", "-b", "side", str(linked))
+    with tp.live(linked, Team()) as srv:
+        ready(srv, linked)
+        status, body = tp.get(srv, "/api/team")
+    assert status == 200 and not body.get("commands") and "main project folder" in body.get("note", "").lower(), body
+    bare = fresh(tmp, "nokit")
+    empty_remote = bare / "origin.git"
+    tp.git(bare, "init", "-q", "--bare", "-b", "main", str(empty_remote))
+    tp.git(target, "remote", "set-url", "origin", str(empty_remote))
+    try:
+        with tp.live(target, Team()) as srv:
+            ready(srv, target)
+            status, body = tp.get(srv, "/api/team")
+        assert status == 200 and not body.get("commands") and "publish the kit" in body.get("note", "").lower(), body
+    finally:
+        tp.git(target, "remote", "set-url", "origin", str(remote))
+    outside = tmp / "elsewhere.env"
+    outside.write_text("UAK_AGENT=someone\n", encoding="utf-8")
+    try:
+        (target / ".uak-env").symlink_to(outside)
+    except OSError:  # Windows without the symlink privilege: nothing to refuse there
+        return
+    team = Team()
+    with tp.live(target, team) as srv:
+        ready(srv, target)
+        status, body = tp.post(srv, "/api/team/reviewer", {"confirm": "ana-r"})
+    assert status == 400 and ".uak-env" in body.get("error", "") and "link" in body.get("error", "").lower(), body
+    assert not team.calls and not claims_head(remote)
+
+
 TESTS = [reviewer_is_registered_from_the_page, agent_launch_commands_are_exact, advanced_view_shows_the_next_step,
          tool_roles_are_explained, registration_is_idempotent_and_honest, registration_env_is_exact,
          registration_self_grant_is_explained, registration_timeout_reports_remote_truth, team_api_keeps_the_protections,
-         concurrent_registration_is_busy]
+         concurrent_registration_is_busy, team_step_needs_main_checkout_and_kit_on_main]
 
 
 def main():
