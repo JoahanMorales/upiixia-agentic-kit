@@ -32,13 +32,26 @@ PLANNER_PROMPT = (
     "changes the human asked for. Do only steps 1 to 3 of the plan: write .uak/TASKS.md and .uak/OWNERS.md, then run "
     "bash .uak/bin/uak graph and bash .uak/bin/uak lint and fix the backlog until lint prints LINT_OK. Do NOT do "
     "steps 4 and 5: never set Backlog-Approved, never run git add, git commit or git push, never run uak plan, uak "
-    "deploy or any wt command, and edit no file other than .uak/TASKS.md and .uak/OWNERS.md. If a command is "
-    "denied, do not retry it: stop and report. Finish with the one-screen table of step 4."
+    "deploy or any wt command, and edit no file other than .uak/TASKS.md and .uak/OWNERS.md. Read and list files "
+    "with your Read tool (and Glob, Grep), never with shell commands. If a command is denied, do not retry it: "
+    "continue without it, and stop only if you cannot write .uak/TASKS.md. Finish with the one-screen table of step 4."
 )
 CLAUDE_ALLOW = ("bash .uak/bin/uak graph *", "bash .uak/bin/uak lint *", "bash .uak/bin/uak clock *",
                 "bash .uak/bin/uak graph", "bash .uak/bin/uak lint")
 CLAUDE_DENY = ("git add *", "git commit *", "git push *", "bash .uak/bin/uak plan *", "bash .uak/bin/uak done *",
                "bash .uak/bin/uak merge *", "bash .uak/bin/uak deploy *", "bash .uak/bin/wt *")
+
+
+# Claude Code in a folder nobody has trusted interactively ignores the project's allow rules and prints this line
+# (test rounds, Nov 2026: the headless planner's first read was denied and the run wrote no plan).
+UNTRUSTED = "has not been trusted"
+UNTRUSTED_ERROR = ("Claude Code has not trusted this folder yet. Open Claude Code once in the project folder (the command "
+                   "above Create the plan), accept the trust question, close it, then try again.")
+
+
+def trust_command(root):
+    """The one command that opens Claude Code in the project folder so the person can accept its trust question."""
+    return "cd '%s' && claude" % Path(root).resolve().as_posix().replace("'", "'\\''")
 
 
 class Conflict(ValueError):

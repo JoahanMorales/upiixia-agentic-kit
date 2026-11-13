@@ -72,6 +72,11 @@ def trust_step_is_shown_before_planning(root, tmp):
         expected = "cd '%s' && claude" % target.resolve().as_posix()
         assert view.get("trust_command") == expected, "the plan view gives the exact trust command: %r" % view.get(
             "trust_command")
+    (tmp / "codex only").mkdir()
+    codex, _ = plans.project(root, tmp / "codex only", harnesses=("codex",))
+    with plans.live(codex, plans.FakePlanner()) as srv:
+        assert plans.post(srv, "/api/inspect", {"target": str(codex)})[0] == 200
+        assert not plans.get(srv, "/api/plan")[1].get("trust_command"), "a Codex-only project shows no trust notice"
     html = lib(root, "setup.html")
     planning = section(html, "planning")
     assert 'id="plan-trust"' in planning, "the planning step has a trust notice"
