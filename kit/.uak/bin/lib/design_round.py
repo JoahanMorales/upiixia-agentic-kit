@@ -19,6 +19,7 @@ Why (F0, Nov 11 2026): the kit's frontends scored 2.8 / 5 because every variant 
 be forced by the tool, not hoped for. Python 3.8+ standard library only; no network, no browser unless `shoot`."""
 import hashlib
 import json
+import math
 import os
 import re
 import shlex
@@ -437,7 +438,8 @@ def task_text(rnd, i, genome, screen):
               "## Subject world",
               "Before designing, list 3-5 concrete things from this project's domain (objects, instruments, units, local vernacular; see",
               "`../brief.md`) in a comment at the top of index.html, and use at least one as a visual element.", "",
-              "When done run `bash .uak/bin/uak design shoot %s v%d` and look at `1280.png` and `390.png`; fix what looks generic or broken." % (rnd, i)]
+              "When done run `bash .uak/bin/uak design shoot %s v%d` and look at `1280.png` and `390.png`; fix what looks generic or broken." % (rnd, i),
+              "Last, report what you spent: `bash .uak/bin/uak design done %s v%d --tokens N` with your real token usage (skip it if you cannot know it; never guess)." % (rnd, i)]
     return "\n".join(lines) + "\n"
 
 
@@ -468,7 +470,7 @@ def _taste_context(root, human, product, allow_repeat):
 
 def cmd_round(argv):
     screen, n, seed, dry, yes = "landing", DEFAULT_N, None, False, False
-    human, allow_repeat = None, False
+    human, allow_repeat, parallel = None, False, None
     it = iter(argv)
     try:
         for a in it:
@@ -482,6 +484,8 @@ def cmd_round(argv):
                 human = next(it)
             elif a == "--allow-repeat":
                 allow_repeat = True
+            elif a == "--parallel":
+                parallel = int(next(it))
             elif a == "--dry-run":
                 dry = True
             elif a == "--yes":
@@ -525,9 +529,24 @@ def cmd_round(argv):
             print("v%d  %s  | recipe %s | %s" % (i, " | ".join("%s=%s" % (k, g["genes"][k]) for k in GENES), g["recipe"], g["origin"]))
         print(mix_line)
         return 0
-    per = parse_tokens(cfg(root, "Design-Variant-Tokens", ""))
+    cfgd = cfg(root, "Design-Variant-Tokens", "")
+    per = parse_tokens(cfgd)
     tier = cfg(root, "Design-Variant-Model", DEFAULT_TIER)
-    print("DESIGN_ROUND cost: %d variants x %s tokens = %s tokens, model tier %s" % (n, fmt_tokens(per), fmt_tokens(per * n), tier))
+    import design_metrics
+    est = design_metrics.estimate(root, human, [g["genes"].get("stage", STILL) for g in genomes], per, parallel)
+    if est["parts"]:  # Why (AXIA R3): the fixed 60k per variant was off by 2x; a round's cost is what this human's rounds measured
+        print("DESIGN_ROUND cost: %s = %s tokens, model tier %s" % (" + ".join(est["parts"]), design_metrics.fmt_tokens(est["tokens"]), tier))
+        print("DESIGN_ROUND source: median of %d measured variants of %s's rounds, by stage family (uak design report --all)" % (est["entries"], human))
+    else:
+        print("DESIGN_ROUND cost: %d variants x %s tokens = %s tokens, model tier %s" % (n, fmt_tokens(per), fmt_tokens(per * n), tier))
+        print("DESIGN_ROUND source: %s, no history (no round with reported tokens yet; builders report with `uak design done`)" % (
+            "Design-Variant-Tokens in PROJECT.md" if cfgd else "the %s default" % fmt_tokens(DEFAULT_TOKENS)))
+    if est["wall_minutes"] is not None:
+        print("DESIGN_ROUND wall: ~%d min (%d variants, %d in parallel, median minutes per variant of the slowest stage family)" % (
+            math.ceil(est["wall_minutes"]), n, est["parallel"]))
+        warn = design_metrics.deadline_warning(root, est["wall_minutes"])
+        if warn:
+            print("DESIGN_ROUND " + warn)
     print(mix_line)
     again = "bash .uak/bin/uak design round --screen %s --n %d --seed %d --yes" % (screen, n, seed)
     if not yes:
@@ -551,6 +570,7 @@ def cmd_round(argv):
             f.write("\n")
         with open(str(v / "TASK.md"), "w", encoding="utf-8", newline="\n") as f:
             f.write(task_text("R%d" % k, i, g, screen))
+        design_metrics.start(v)
     print("DESIGN_ROUND R%d: brief.md + %d variants in %s" % (k, n, rnd))
     print("Next: one agent per variant follows v<i>/TASK.md, then: bash .uak/bin/uak design shoot R%d" % k)
     return 0
@@ -807,6 +827,12 @@ def cmd_shoot(argv):
         except (OSError, subprocess.SubprocessError) as exc:
             ok, why = False, str(exc)[:200]
         (done if ok else failed).append(v.name if ok else (v.name, why or "capture tool failed"))
+        if ok:
+            try:
+                import design_metrics
+                design_metrics.record_capture(v)
+            except Exception as exc:  # noqa: BLE001  metrics never fail a capture
+                print("DESIGN_SHOOT metrics not recorded for %s: %s" % (v.name, str(exc)[:120]), file=sys.stderr)
     print("DESIGN_SHOOT %s: captured %s; already had %d" % (argv[0], " ".join(done) or "none", len(variants) - len(todo)))
     for name, why in failed:
         print("DESIGN_SHOOT not captured: %s (%s)" % (name, why.replace("\n", " ")), file=sys.stderr)
@@ -830,7 +856,10 @@ def main(argv):
         return cmd_round(argv[1:])
     if argv[:1] == ["shoot"]:
         return cmd_shoot(argv[1:])
-    print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] | design pick R<k> [--k N]", file=sys.stderr)
+    if argv[:1] in (["done"], ["report"]):  # tokens and minutes per variant (UAK-070)
+        import design_metrics
+        return design_metrics.main(argv)
+    print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] | design done R<k> v<i> --tokens N | design report R<k> [--all] | design pick R<k> [--k N]", file=sys.stderr)
     return 2
 
 
