@@ -650,6 +650,10 @@ def task_text(rnd, i, genome, screen):
               "  devicePixelRatio at most 2, pause rendering when the tab is hidden, a designed still when WebGL is missing, no branded 3D models",
               "  (build from primitives or the team's own assets), no network fetches but that CDN and fonts.",
               "- Glows, neon blurs and soft gradient haze are tells (the human: \"AI slop\"); light comes from the scene itself.",
+              "- The hero breathes (at 1920x1080 and 1280x720; the capture counts the words at the fold and flags `dense`): one headline, one sentence,",
+              "  one or two actions, at most 3 secondary elements (a stat, a legend, a badge) besides the stage, about 45 words in all. The stage",
+              "  carries the story; the text does not repeat it, and no text block sits over the stage's focal point. Later sections: one idea each,",
+              "  at most ~4 cards or ~80 words. The human on a saturated landing: \"too much information, things pop up everywhere\".",
               "- Check the page at 1920x1080 (the projector): `1920.png` if the capture wrote one, else open index.html at that size; then 1280 and 390.", "",
               ] + budget_lines(genes.get("stage", STILL)) + [
               "## Start from material",
@@ -949,8 +953,46 @@ QA_JS = """async () => {
     const f = now => { t.push(now - last); last = now; if (t.length < 600 && now - t0 < 3000) requestAnimationFrame(f);
       else res(Math.round(t.reduce((a, b) => a + b, 0) / t.length)); };
     requestAnimationFrame(f); });
+  // Density at the fold (UAK-077). Why (colonIA R1, 2026-11-12): the human on v1, v5 and v6: "too much information, things pop up
+  // everywhere and it looks saturated"; on v5 "the pink text doesn't let you see the background". The stage is the big canvas,
+  // svg or video in the fold; text inside it is part of the stage, not a block of copy.
+  const FH = innerHeight, vis = (el, r) => { const cs = getComputedStyle(el);
+    return cs.display !== 'none' && cs.visibility !== 'hidden' && +cs.opacity !== 0 && r.width >= 2 && r.height >= 2; };
+  const inFold = (r) => r.bottom > 0 && r.top < FH && r.right > 0 && r.left < W;
+  const stages = [];
+  document.querySelectorAll('canvas, svg, video').forEach(el => {
+    if (el.tagName.toLowerCase() !== 'svg' ? false : (el.parentElement && el.parentElement.closest('svg'))) return;
+    const r = el.getBoundingClientRect();
+    if (!vis(el, r) || !inFold(r)) return;
+    const vw = Math.min(r.right, W) - Math.max(r.left, 0), vh = Math.min(r.bottom, FH) - Math.max(r.top, 0);
+    if (vw >= W * 0.4 && vh >= FH * 0.3) stages.push({el: el, r: r, area: vw * vh});
+  });
+  stages.sort((a, b) => b.area - a.area);
+  const stage = stages[0] || null;
+  let focal = null;
+  if (stage) { const r = stage.r, cx = (Math.max(r.left, 0) + Math.min(r.right, W)) / 2, cy = (Math.max(r.top, 0) + Math.min(r.bottom, FH)) / 2,
+    hw = (Math.min(r.right, W) - Math.max(r.left, 0)) * 0.2, hh = (Math.min(r.bottom, FH) - Math.max(r.top, 0)) * 0.2;
+    focal = {left: cx - hw, right: cx + hw, top: cy - hh, bottom: cy + hh}; }
+  const overlap = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  let texts = 0, words = 0, overStage = 0, overFocal = 0;
+  for (let i = 0; i < all.length && i < 4000; i++) {
+    const el = all[i];
+    if (/^(SCRIPT|STYLE|NOSCRIPT|META|LINK|HEAD|TITLE|SOURCE|OPTION)$/i.test(el.tagName)) continue;
+    if (stages.some(s => s.el !== el && s.el.contains(el))) continue;
+    if (el.closest('nav, [role=navigation]')) continue;  // the menu is not the hero's message
+    let own = '';
+    for (const c of el.childNodes) { if (c.nodeType === 3) own += ' ' + c.textContent; }
+    const w = own.split(/\s+/).filter(t => /[A-Za-z0-9\u00C0-\u024F]/.test(t)).length;
+    if (!w) continue;
+    const g = document.createRange(); g.selectNodeContents(el); const r = g.getBoundingClientRect();
+    if (!vis(el, r) || !inFold(r)) continue;
+    texts++; words += w;
+    const area = Math.max(1, r.width * r.height);
+    if (stage && overlap(r, stage.r) > area * 0.2) overStage++;
+    if (focal && overlap(r, focal) > 0) overFocal++;
+  }
   const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
-  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap};
+  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap, texts: texts, words: words, stage: !!stage, overStage: overStage, overFocal: overFocal};
 }"""
 
 _PLAYWRIGHT = """
@@ -1039,6 +1081,11 @@ def qa_warnings(qa):
             out.append((name, "narrow page, empty gutters: content spans %s%% of %s px" % (q["share"], w)))
         if q.get("heavy"):
             out.append((name, "heavy: %s ms a frame (~%s fps), over the %s ms budget" % (q.get("frameMs"), q.get("fps"), q.get("budget_ms"))))
+        if q.get("dense"):
+            out.append((name, "dense: %s words in %s text blocks at the fold, over the budget of %d words (one headline, one sentence, one or two actions, 3 secondary elements); the stage carries the story" % (
+                q.get("words"), q.get("texts"), DENSE_WORDS)))
+        if q.get("overFocal") and w >= 1280:
+            out.append((name, "text over the stage's focal point: %d text block(s) cover the middle of the stage; move the copy beside it" % q["overFocal"]))
         for u in q.get("upscaled", [])[:3]:
             kind = u.get("kind")
             if kind == "canvas":
@@ -1046,6 +1093,38 @@ def qa_warnings(qa):
             else:
                 out.append((name, "upscaled raster%s: %s, %s -> %s px" % (" (%s)" % kind if kind in ("background", "video") else "", u.get("file"), u.get("natural"), u.get("drawn"))))
     return out
+
+
+# The hero budget at the fold (UAK-077): ~45 words of copy (one headline, one sentence, one or two actions, 3 secondary elements),
+# a third of slack for the labels a stat or an action carries. Measured by QA_JS, judged here, at 1280 and 1920 (not the phone).
+DENSE_WORDS = 60
+
+
+def record_density(vdir):
+    """After a capture: judge the words at the fold of each desktop viewport (qa.json gets `dense`) and copy the counts into the
+    variant's metrics.json under "density". Returns the density dict or None when the capture wrote no QA report."""
+    vdir = Path(vdir)
+    qa = read_qa(vdir)
+    if not qa:
+        return None
+    dens = {"budget_words": DENSE_WORDS, "dense": False, "viewports": {}}
+    for vp, q in qa.items():
+        if not isinstance(q, dict) or q.get("words") is None:
+            continue
+        wide = (q.get("w") or (int(vp) if str(vp).isdigit() else 0)) >= 1280
+        q["dense"] = bool(wide and q["words"] > DENSE_WORDS)
+        dens["viewports"][vp] = {"words": q["words"], "texts": q.get("texts"), "over_stage": q.get("overStage"), "over_focal": q.get("overFocal"),
+                                 "stage": q.get("stage"), "dense": q["dense"]}
+        dens["dense"] = dens["dense"] or q["dense"]
+    (vdir / "qa.json").write_text(json.dumps(qa, indent=2), encoding="utf-8")
+    try:
+        mp = vdir / "metrics.json"
+        doc = json.loads(mp.read_text(encoding="utf-8"))
+        doc["density"] = dens
+        mp.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+    return dens
 
 
 DEFAULT_FRAME_MS = {"webgl": 50, "other": 20}
@@ -1197,6 +1276,7 @@ def cmd_shoot(argv):
                 import design_metrics
                 design_metrics.record_capture(v)
                 record_perf(root, v)
+                record_density(v)
             except Exception as exc:  # noqa: BLE001  metrics never fail a capture
                 print("DESIGN_SHOOT metrics not recorded for %s: %s" % (v.name, str(exc)[:120]), file=sys.stderr)
     print("DESIGN_SHOOT %s: captured %s; already had %d" % (argv[0], " ".join(done) or "none", len(variants) - len(todo)))
