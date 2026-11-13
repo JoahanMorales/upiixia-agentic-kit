@@ -621,7 +621,7 @@ QA_JS = """async () => {
 }"""
 
 _PLAYWRIGHT = """
-import functools, http.server, json, sys, threading
+import functools, http.server, json, os, re, sys, threading
 from pathlib import Path
 from urllib.parse import quote
 from playwright.sync_api import sync_playwright
@@ -632,6 +632,29 @@ html, out = Path(sys.argv[1]).resolve(), Path(sys.argv[2])
 class Quiet(http.server.SimpleHTTPRequestHandler):
     extensions_map = dict(http.server.SimpleHTTPRequestHandler.extensions_map, **{".glb": "model/gltf-binary", ".woff2": "font/woff2", ".mjs": "text/javascript", ".js": "text/javascript"})
     def log_message(self, *a): pass
+    def end_headers(self):
+        self.send_header("Accept-Ranges", "bytes")
+        super().end_headers()
+    def do_GET(self):
+        # Why (UAK-067/069): Chromium will not seek a <video> over a server without byte ranges, which would undo the 30% seek.
+        m = re.match(r"^bytes=(\\d*)-(\\d*)$", self.headers.get("Range") or "")
+        path = self.translate_path(self.path)
+        if not m or not (m.group(1) or m.group(2)) or not os.path.isfile(path):
+            return super().do_GET()
+        size = os.path.getsize(path)
+        a, b = m.groups()
+        start, end = (max(0, size - int(b)), size - 1) if not a else (int(a), min(int(b), size - 1) if b else size - 1)
+        if start >= size or start > end:
+            self.send_response(416); self.send_header("Content-Range", "bytes */%d" % size); self.send_header("Content-Length", "0"); self.end_headers()
+            return
+        self.send_response(206)
+        self.send_header("Content-Type", self.guess_type(path))
+        self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+        self.send_header("Content-Length", str(end - start + 1))
+        self.end_headers()
+        with open(path, "rb") as f:
+            f.seek(start)
+            self.wfile.write(f.read(end - start + 1))
 root = html.parent.parent
 srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(root)))
 threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -640,7 +663,7 @@ report = {}
 with sync_playwright() as p:
     b = p.chromium.launch(args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"])
     for name, w, h in (("1920", 1920, 1080), ("1280", 1280, 720), ("390", 390, 844)):
-        pg = b.new_page(viewport={"width": w, "height": h})
+        pg = b.new_page(viewport={"width": w, "height": h}, device_scale_factor=2 if w < 500 else 1)  # the phone is sharp on the pick page
         errs = []
         pg.on("pageerror", lambda e: errs.append(str(e)))
         try:

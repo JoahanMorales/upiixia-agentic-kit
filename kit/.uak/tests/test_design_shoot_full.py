@@ -43,7 +43,7 @@ class Page:
         Path(path).write_bytes(bytes.fromhex("89504e47"))
     def close(self): pass
 class Browser:
-    def new_page(self, viewport): return Page(viewport["width"])
+    def new_page(self, viewport, **kw): return Page(viewport["width"])
     def close(self): pass
 class Chromium:
     def launch(self, **kw): return Browser()

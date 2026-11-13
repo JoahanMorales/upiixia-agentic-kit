@@ -23,7 +23,7 @@ GENES = {"type": "grotesk", "scale": "bold", "color": "dark media", "layout": "s
          "imagery": "video loop", "motion": "entrance", "voice": "plain"}
 
 FAKE = '''
-import json, os, urllib.request
+import json, os, urllib.error, urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 LOG = os.environ["FAKE_PW_LOG"]
@@ -36,6 +36,16 @@ class Page:
     def goto(self, url, **kw):
         with urllib.request.urlopen(url, timeout=10) as r:  # what a canvas read or fetch needs: a real http origin
             log("goto", self.w, url, r.status, r.read().decode("utf-8", "replace")[:200])
+        if os.environ.get("FAKE_RANGE") and self.w == 1280:  # what Chromium does before it seeks a video
+            rq = urllib.request.Request(url.rsplit("/", 1)[0] + "/" + os.environ["FAKE_RANGE"], headers={"Range": "bytes=100000-100999"})
+            with urllib.request.urlopen(rq, timeout=10) as r:
+                log("range", r.status, r.headers.get("Content-Range"), r.headers.get("Content-Length"), r.headers.get("Accept-Ranges"), len(r.read()))
+            try:
+                rq = urllib.request.Request(url.rsplit("/", 1)[0] + "/" + os.environ["FAKE_RANGE"], headers={"Range": "bytes=999999999-"})
+                urllib.request.urlopen(rq, timeout=10)
+                log("range-past-end", 200)
+            except urllib.error.HTTPError as exc:
+                log("range-past-end", exc.code, exc.headers.get("Content-Range"))
         for e in json.loads(os.environ.get("FAKE_ERRORS", "[]")):
             self.h["pageerror"](Exception(e))
     def wait_for_load_state(self, s): pass
@@ -52,7 +62,9 @@ class Page:
         Path(path).write_bytes(bytes.fromhex("89504e47"))
     def close(self): pass
 class Browser:
-    def new_page(self, viewport): return Page(viewport["width"])
+    def new_page(self, viewport, **kw):
+        log("new_page", viewport["width"], kw.get("device_scale_factor", 1))
+        return Page(viewport["width"])
     def close(self): pass
 class Chromium:
     def launch(self, **kw):
@@ -97,9 +109,10 @@ class Env:
         expect(out.returncode in ok, "rc %d: %s" % (out.returncode, out.stdout + out.stderr))
         return out
 
-    def shoot(self, d, qa=None, errors=None, ok=(0,)):
+    def shoot(self, d, qa=None, errors=None, ok=(0,), env_extra=None):
         self.log.write_text("", encoding="utf-8")
         env = {"PYTHONPATH": str(self.site), "FAKE_PW_LOG": str(self.log), "FAKE_QA": json.dumps(qa or {}), "FAKE_ERRORS": json.dumps(errors or [])}
+        env.update(env_extra or {})
         return self.design(d, "shoot", "R1", env=env, ok=ok)
 
     def calls(self):
@@ -163,6 +176,25 @@ def flags_upscaled_raster(e):
     return "upscaled raster reported%s" % ("" if real is None else " (real Chromium too)")
 
 
+def range_requests_get_206(e):
+    d = e.project()
+    clip = d / ".uak/design/rounds/R1/v1/clip.mp4"
+    clip.write_bytes(bytes(range(256)) * 1600)  # 400 KB: bigger than one socket buffer, like a real loop
+    e.shoot(d, env_extra={"FAKE_RANGE": "clip.mp4"})
+    got = {c[0]: c for c in e.calls() if c[0] in ("range", "range-past-end")}
+    expect(got["range"][1:] == [206, "bytes 100000-100999/409600", "1000", "bytes", 1000], "206 with Content-Range: %s" % got["range"])
+    expect(got["range-past-end"][1:] == [416, "bytes */409600"], "a range past the end is 416: %s" % got["range-past-end"])
+    return "206 Partial Content, Accept-Ranges: bytes, 416 past the end"
+
+
+def phone_shot_is_sharp(e):
+    d = e.project()
+    e.shoot(d)
+    pages = {c[1]: c[2] for c in e.calls() if c[0] == "new_page"}
+    expect(pages == {1920: 1, 1280: 1, 390: 2}, "the 390 shot is taken at device scale factor 2: %s" % pages)
+    return "390 at DPR 2"
+
+
 def page_errors_fail_the_shoot(e):
     d = e.project(n=2)
     out = e.shoot(d, errors=["ReferenceError: THREE is not defined"], ok=(1,))
@@ -214,7 +246,7 @@ const { chromium } = require(%s);
     return json.loads(r.stdout.strip().splitlines()[-1])
 
 
-TESTS = [serves_over_http_so_canvas_reads_work, writes_1920_shot, flags_narrow_page, flags_upscaled_raster, page_errors_fail_the_shoot,
+TESTS = [serves_over_http_so_canvas_reads_work, range_requests_get_206, phone_shot_is_sharp, writes_1920_shot, flags_narrow_page, flags_upscaled_raster, page_errors_fail_the_shoot,
          pick_page_shows_qa_and_1920]
 
 
