@@ -66,7 +66,8 @@ class Env:
         return d
 
     def run(self, cwd, *args, env=None, ok=(0,)):
-        e = dict(os.environ, UAK_NO_COLOR="1")
+        # Rounds read and write a measured-cost history and a taste profile (UAK-063, UAK-070): never the real ~/.uak.
+        e = dict(os.environ, UAK_NO_COLOR="1", UAK_TASTE_HOME=str(self.tmp / "taste-home"))
         e.pop("UAK_DESIGN_SHOOT", None)
         e.update(env or {})
         out = subprocess.run([self.bash, str(self.tool)] + list(args), cwd=str(cwd), env=e, capture_output=True, text=True)

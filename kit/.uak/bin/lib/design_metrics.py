@@ -68,7 +68,8 @@ def _write(p, doc):
 
 def _family_of(vdir):
     g = _read(Path(vdir) / "genome.json") or {}
-    return family((g.get("genes") or {}).get("stage"))
+    # Rounds built by hand before the gene existed kept `stage` beside the genes (AXIA R3, colonIA R1).
+    return family((g.get("genes") or {}).get("stage") or g.get("stage"))
 
 
 def _born(p):
