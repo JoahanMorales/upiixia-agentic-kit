@@ -96,18 +96,53 @@ def rejected_values(notes, picked_ids, genomes):
     return out
 
 
-def _count_plan(n, npicks):
-    wild = min(WILDCARDS, n // 2)
+# Near-identical picks (UAK-080). Why (AXIA R3, 2026-11-13): the human picked two variants that share 8 of 9 genes; a
+# one-gene mutation of each shares 7 with the other's, the diversity rule (3) cannot hold, a crossover of them is always one
+# of them, and every seed failed: exactly when the human most needs the kit to explore. Picks sharing more than
+# MAX_SHARED + 2 genes are one line: their children are kin (they only must not be identical) and the round adds wildcards,
+# at least a third of it, each differing from every pick in 4+ genes.
+TWIN_SHARED = MAX_SHARED + 3
+_FAMILY = {}  # pick ref -> family id; set by set_families() at the start of breed()
+
+
+def set_families(picks):
+    """Union the picks that are near-identical; returns the largest number of genes two of them share (0 for one pick)."""
+    _FAMILY.clear()
+    root = {p["ref"]: p["ref"] for p in picks}
+
+    def find(x):
+        while root[x] != x:
+            x = root[x]
+        return x
+    top = 0
+    for a, b in itertools.combinations(picks, 2):
+        s = shared_genes(a["genes"], b["genes"])
+        top = max(top, s)
+        if s >= TWIN_SHARED:
+            root[find(a["ref"])] = find(b["ref"])
+    for ref in root:
+        _FAMILY[ref] = find(ref)
+    return top
+
+
+def twins(picks):
+    return len({_FAMILY.get(p["ref"], p["ref"]) for p in picks}) < len(picks)
+
+
+def _count_plan(n, npicks, twin=False, can_cross=True):
+    wild = min(max(WILDCARDS, -(-n // 3)) if twin else WILDCARDS, n // 2)
     mut = min(int(n / 2 + 0.5), n - wild)
     cross = n - mut - wild
-    if npicks < 2:  # nobody to cross with
+    if npicks < 2 or not can_cross:  # nobody to cross with
         mut, cross = mut + cross, 0
     return mut, cross, wild
 
 
 def kin(a, b):
-    """Children with a parent in common."""
-    return bool(set(a["from"]) & set(b["from"]))
+    """Children with a parent in common, or whose parents are one near-identical line."""
+    fa = {_FAMILY.get(r, r) for r in a["from"]}
+    fb = {_FAMILY.get(r, r) for r in b["from"]}
+    return bool(set(a["from"]) & set(b["from"])) or bool(fa & fb)
 
 
 def acceptable(children):
@@ -127,8 +162,9 @@ def _attempt(picks, n, seed, salt, rejected=None):
     it fits the ones before; None when a child cannot (the caller restarts with another salt)."""
     rng = Rng(seed, "breed%d" % salt)
     rejected = rejected or {}
-    mut, cross, wild = _count_plan(n, len(picks))
-    pairs = list(itertools.combinations(range(len(picks)), 2))
+    twin = twins(picks)
+    pairs = [(x, y) for x, y in itertools.combinations(range(len(picks)), 2) if _FAMILY.get(picks[x]["ref"]) != _FAMILY.get(picks[y]["ref"])]
+    mut, cross, wild = _count_plan(n, len(picks), twin, bool(pairs))
 
     def mutation(i):
         p = picks[i % len(picks)]  # round-robin from the first pick, which the human likes best
@@ -170,6 +206,8 @@ def _attempt(picks, n, seed, salt, rejected=None):
                 low = min(sum(1 for p in picks if p["genes"][g] == v) for v in ok)
                 free = [v for v in ok if sum(1 for p in picks if p["genes"][g] == v) == low]
             genes[g] = rng.pick(free)
+        if twin and any(shared_genes(genes, p["genes"]) > len(GENES) - 4 for p in picks):
+            return None  # an explorer: 4 or more genes unlike every pick
         return {"kind": "wildcard", "from": [], "genes": genes, "recipe": RECIPES[(i + len(picks)) % len(RECIPES)]}
 
     out = []
@@ -199,6 +237,17 @@ def breed(picks, n, seed, rejected=None):
     again, no "because"), with rejections restored and dropped the same way. Why (AXIA R2, 2026-11-11): two picks that
     share 5 genes, notes naming colors and animation, and a variant rejected on all 8 genes left no round: a mutation of
     each pick cannot share 3 genes when the picks differ in 3 and the notes fix the mutated gene to one they differ in."""
+    top = set_families(picks)
+    got = _breed(picks, n, seed, rejected)
+    if twins(picks):
+        wild = sum(1 for c in got if c["kind"] == "wildcard")
+        note = "picks nearly identical (%d/%d genes): treated as one line, %d wildcards explore" % (top, len(GENES), wild)
+        for c in got:
+            c["because"] = (c["because"] + "; " if c.get("because") else "") + note
+    return got
+
+
+def _breed(picks, n, seed, rejected=None):
     full = {g: set(v) for g, v in (rejected or {}).items()}
     plain = [dict(p, chosen=[]) for p in picks]
     for use, tries in ((picks, TRIES), (plain, TRIES)):
@@ -388,6 +437,10 @@ def run(argv):
     _balance_ground(children, picks, sdir, rejected, seed)  # before the fonts: a flipped child may be its parent's type again
     import design_fonts  # UAK-071: a child keeps its parent's font pair unless `type` mutated
     design_fonts.inherit(children, {p["ref"]: {"genes": p["genes"], "fonts": (_read(sdir / p["ref"].split("/", 1)[1] / "genome.json") or {}).get("fonts")} for p in picks}, seed)
+    if twins(picks):  # the human sees why the round explores
+        print("DESIGN_ROUND picks nearly identical (%d/%d genes): exploring with %d wildcards" % (
+            max(shared_genes(a["genes"], b["genes"]) for a, b in itertools.combinations(picks, 2)), len(GENES),
+            sum(1 for c in children if c["kind"] == "wildcard")))
     if dry:
         for i, c in enumerate(children, 1):
             via = ("mutated " + c["mutated"]) if c["kind"] == "mutation" else ("from " + " x ".join(c["from"])) if c["kind"] == "crossover" else "no parent"
