@@ -75,3 +75,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794533900 | allow | JoahanMorales | test change: UAK-068 | Why: gene count 8 to 9 (stage gene)
 - 1794533919 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-071 UAK-072 UAK-073 UAK-074 | Why: backlog without PR (Plan-Channel: claims)
 - 1794534445 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-075 UAK-076 UAK-077 UAK-078 UAK-079 | Why: backlog without PR (Plan-Channel: claims)
+- 1794534633 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-078 Paths: kit/.uak/bin/lib/design_round.py, kit/.uak/bin/lib/design_color.py, kit/.uak/bin/lib/design_taste.py, kit/.uak/tests/test_design_color.py → kit/.uak/bin/lib/design_round.py, kit/.uak/bin/lib/design_color.py, kit/.uak/bin/lib/design_taste.py, kit/.uak/bin/lib/gallery_pick.py, kit/.uak/tests/test_design_color.py; | Why: scope or criteria fixed before review
