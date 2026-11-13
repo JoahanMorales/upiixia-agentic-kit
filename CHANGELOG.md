@@ -6,6 +6,9 @@ The human of this project found the terminal-only setup hard to follow. Now the 
 in the background; installing, the next step, planning and progress happen in the browser. The CLI path is unchanged.
 Guide: [docs/DASHBOARD.md](docs/DASHBOARD.md).
 
+- **Light CI on pull requests (UAK-090).** Pull requests run the Ubuntu suite and the Windows per-file job; main and
+  workflow_dispatch keep macOS. Approved PRs #19-#21 waited hours for macOS arm64 runners GitHub could not provide.
+
 The visual setup
 - **`bash install.sh --wizard [PROJECT] [--no-open]`** (UI-001): a page on 127.0.0.1 (random port, session token in
   the URL fragment, Host/Origin/token checks, a JSON body limit) walks five steps: Welcome, Your project, Your workflow

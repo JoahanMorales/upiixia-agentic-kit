@@ -38,10 +38,8 @@ def pull_requests_skip_macos():
 def main_runs_macos():
     text = workflow()
     # The exclusion matches only on pull_request: on push (main) and workflow_dispatch it names 'none', no OS.
-    for event, excluded in (("pull_request", "macos-latest"), ("push", "none"), ("workflow_dispatch", "none")):
-        value = "macos-latest" if event == "pull_request" else "none"
-        expect(value == excluded, event)
     expect(EXCLUDE in text, "the exclusion expression is the event test, so main keeps macOS")
+    expect(text.count("exclude:") == 1, "no other exclusion drops macOS on main")
     windows = job(text, "windows")
     expect("pull_request" not in windows and "event_name" not in windows, "the Windows job is unchanged on every event")
     on = re.search(r"(?ms)^on:\n(.*?)^\S", text).group(1)

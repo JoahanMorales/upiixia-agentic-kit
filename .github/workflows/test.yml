@@ -36,6 +36,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         shard: ${{ fromJSON(needs.discover.outputs.shards) }}
+        # UAK-090: pull requests run Ubuntu (+ the Windows job); main and workflow_dispatch keep macOS. Why: approved
+        # PRs #19-#21 waited hours for macOS arm64 runners GitHub could not provide (capacity, 2026-11-13).
+        exclude:
+          - os: ${{ github.event_name == 'pull_request' && 'macos-latest' || 'none' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60   # a hang fails in an hour, not six (a Windows job once hung 84 min)
     steps:
