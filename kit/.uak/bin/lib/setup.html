@@ -1366,6 +1366,7 @@
             </div>
             <div id="prepare" hidden>
               <h3 id="prepare-heading" tabindex="-1">Prepare your project</h3>
+              <p class="notice" id="identity-warning" role="status" data-no-i18n hidden></p>
               <p class="hint">
                 These steps used to need a terminal. Do them here, in order;
                 the check below confirms each one.
@@ -2127,6 +2128,31 @@
           if (data.ready) return latestDashboard && (latestDashboard.tasks || []).some(function (t) { return t.state !== "AVAILABLE"; }) ? "progress" : "team";
           if (["planning", "planned", "approving"].indexOf(data.phase) >= 0 || (data.guidance || {}).action === "plan") return "plan";
           return "prepare";
+        }
+        // Whose identity signs (UI-007): the project's Git name/email and gh's login, as the server parsed them. On someone
+        // else's computer they are not the person's: say so before anything is published under that name.
+        function sharedIdentity(ident, human) {
+          var me = String(human || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+          if (!me || !ident) return false;
+          var mine = function (value) { return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "").indexOf(me) >= 0; };
+          return !mine(ident.git_name) && !mine(ident.git_email) && !mine(ident.gh_login);
+        }
+        function drawIdentity(data) {
+          var ident = data.identity || {},
+            box = el("identity-warning");
+          if (!ident.git_name && !ident.gh_login) {
+            box.hidden = true;
+            return;
+          }
+          var git = (ident.git_name || "?") + (ident.git_email ? " <" + ident.git_email + ">" : ""),
+            gh = ident.gh_login ? "@" + ident.gh_login : UAKWorkspace.t("nobody (gh is not signed in)"),
+            text = UAKWorkspace.format("Commits will be signed as {git} and pull requests opened as {gh}.", { git: git, gh: gh }),
+            other = sharedIdentity(ident, data.human);
+          if (other)
+            text += " " + UAKWorkspace.t("This looks like someone else's identity. If this is not your computer, set your own before publishing: git config user.name and user.email, and gh auth login.");
+          box.textContent = text;
+          box.classList.toggle("error", other);
+          box.hidden = false;
         }
         function drawJourney() {
           var current = journeyStep(state),
@@ -2961,6 +2987,7 @@
             }
           }
           drawJourney();
+          drawIdentity(data);
           if (NEXT_FOCUS[previous] && !isBusy(data.phase) && !data.error) {
             (function wait(id, tries) {
               var node = el(id);

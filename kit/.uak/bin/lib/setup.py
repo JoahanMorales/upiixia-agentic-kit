@@ -208,6 +208,29 @@ def install_unfinished(target):
     return (Path(target) / ".uak/INSTALLING").exists()
 
 
+GH_LOGIN = re.compile(r"Logged in to github\.com (?:account|as) ([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\b")
+
+
+def signing_identity(run, root):
+    """Who will sign this project's commits and pull requests (UI-007): the project's Git name and email, and the GitHub
+    login of `gh`. Only those parsed values leave this function; gh's output (it prints token details) never does."""
+    def value(*args):
+        try:
+            result = run(["git", "-C", str(root), "config"] + list(args), cwd=str(root), timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return (result.stdout or "").strip()[:200] if result.returncode == 0 else ""
+
+    login = ""
+    try:
+        shown = run(["gh", "auth", "status", "--hostname", "github.com"], cwd=str(root), timeout=10)
+        match = GH_LOGIN.search((shown.stdout or "") + "\n" + (shown.stderr or ""))
+        login = match.group(1) if match else ""
+    except (OSError, subprocess.SubprocessError):
+        login = ""
+    return {"git_name": value("user.name"), "git_email": value("user.email"), "gh_login": login}
+
+
 def kit_present(target):
     return not install_unfinished(target) and \
         all((Path(target) / path).is_file() for path in (".uak/PROJECT.md", ".uak/bin/uak", ".uak/VERSION"))
@@ -817,6 +840,7 @@ class SetupHandler(BaseHTTPRequestHandler):
             s.target = str(root)
             installed = kit_present(root) and s.failed_target != str(root)
             repair = (root / ".uak").exists()
+            s.state["identity"] = signing_identity(s.run, root)
             s.state.update(target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], next_command="", next_note="", freeze=0, details=previous.get("details", ""), error=previous.get("error", ""))
             self.reply(200, dict(s.state, settings=s.config()))
         elif self.path in ("/api/install", "/api/repair"):

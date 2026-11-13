@@ -673,6 +673,9 @@
     ["in a terminal", "en una terminal"],
     ["your agents do it", "lo hacen tus agentes"],
     ["This page installs the kit into this project and guides you to the moment your agents start. The kit itself is downloaded only once; each project gets its own copy.", "Esta página instala el kit en este proyecto y te guía hasta que empiezan tus agentes. El kit se descarga una sola vez; cada proyecto recibe su propia copia."],
+    ["Commits will be signed as {git} and pull requests opened as {gh}.", "Los commits se firmarán como {git} y los pull requests se abrirán como {gh}."],
+    ["This looks like someone else's identity. If this is not your computer, set your own before publishing: git config user.name and user.email, and gh auth login.", "Parece la identidad de otra persona. Si esta no es tu computadora, configura la tuya antes de publicar: git config user.name y user.email, y gh auth login."],
+    ["nobody (gh is not signed in)", "nadie (gh no tiene sesión iniciada)"],
   ];
   // The readiness gate's lines (`uak start`, .uak/bin/start), as whole-line patterns: the engine's English stays in
   // Technical details; the checklist reads in the page's language. $1… are the engine's values, shown as they are.

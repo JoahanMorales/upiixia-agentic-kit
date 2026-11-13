@@ -23,6 +23,14 @@ The visual setup
   `uak lint` itself. "Approve and publish" needs the typed folder name and a digest of the four reviewed files, commits
   exactly those (with `Backlog-Approved: yes`) and pushes the verified SHA to main. Gemini and Cursor say why they
   cannot plan headless.
+- **Start your team** (UI-006): after Ready, "Register NAME-r" registers the reviewer from the page (the third human
+  act: main checkout only, claims read before and after, self-grant and retired identities refused in plain words),
+  and one Copy command per agent: Claude Code claims the task and opens in its worktree with its first prompt; Codex
+  reviews as NAME-r with `$uak-review`. Commands are built only from server values and start with `UAK_HUMAN=`.
+- **The journey stays visible** (UI-007): Install → Prepare → Plan → Start the team → Follow progress, each marked
+  where it happens, the current one highlighted; a finished step moves focus to the next. Spanish covers the readiness
+  check's lines and the Advanced dashboard; the notice under the dashboard title no longer repeats it. The typed
+  approval says what to type, and Prepare warns when another person's Git/GitHub identity would sign the commits.
 
 Tests and docs
 - **The hooks test waits for its background publish** (UAK-009): `test_tokens_coverage` returned while

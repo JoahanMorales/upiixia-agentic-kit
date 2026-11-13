@@ -43,6 +43,17 @@ Nothing is written to your project before you press Install.
 | 4. Review & install | See every choice and what will be added (including `.mcp.json`), then install. Setup runs `install.sh` with those options. |
 | 5. Get ready | "Check what's next" runs `uak start` and shows its result. Plan your project here (below). |
 
+Above every view, **the journey** stays visible: Install, Prepare, Plan (in this page), Start the team (in a
+terminal), Follow progress (your agents do it), with the current one highlighted. The page installs the kit into your
+project; the kit itself is downloaded only once. When a step finishes, the page moves you to the next one (after
+installing: Prepare; after publishing the kit: Plan your project; after approving the plan: Start your team).
+
+In Spanish, the readiness check's lines are shown translated (the engine's own text stays in Technical details), and
+the Advanced dashboard has no English labels. Prepare says whose identity signs the commits and pull requests (the
+project's `git config user.name`/`user.email` and `gh`'s login, nothing else from `gh`); if it does not look like
+yours, for example on a friend's computer, it says so before anything is published. The typed approval shows the
+folder name to type and "Type NAME to enable publishing" under the disabled button.
+
 The page then becomes one workspace with two sections: **Configuration** (the steps, the readiness check, anonymous
 diagnostics, usage pacing and the "Your app" link) and **Dashboard** (project progress). The header switches Spanish
 or English and Auto, Light or Dark theme.
