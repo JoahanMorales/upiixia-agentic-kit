@@ -668,8 +668,22 @@
       .team-block h3 {
         margin-bottom: 6px;
       }
-      .team-block .next-command code {
+      .team-block .next-command code,
+      #publish-way-out .next-command code {
         flex-basis: 100%;
+      }
+      .team-block fieldset {
+        margin: 12px 0 0;
+      }
+      #team-claimed {
+        padding-left: 18px;
+      }
+      #team-claimed li {
+        margin: 8px 0;
+        overflow-wrap: anywhere;
+      }
+      #team-note-actions {
+        margin-top: 8px;
       }
       .your-app {
         margin-top: 24px;
@@ -1259,6 +1273,7 @@
                   identity, so no change merges unchecked. We recommend Claude Code + Codex: Claude Code
                   writes the code and Codex reviews it.
                 </p>
+                <p class="hint">With only one tool, it does both jobs under two names.</p>
               </fieldset>
               <label class="choice"
                 ><input id="solo" type="checkbox" /><span
@@ -1428,6 +1443,19 @@
                     <button type="button" class="primary" id="publish-kit">Publish the kit to main</button>
                   </div>
                 </div>
+                <div class="notice error" id="publish-way-out" role="status" hidden>
+                  <strong>The remote already has its own history</strong>
+                  <p id="publish-way-out-error"></p>
+                  <div id="publish-way-out-run" hidden>
+                    <p class="hint">Run this in a terminal, then press Review the files again:</p>
+                    <div class="next-command">
+                      <code id="publish-way-out-command" data-no-i18n></code>
+                      <button type="button" class="secondary-button" id="copy-publish-way-out">Copy</button>
+                    </div>
+                  </div>
+                  <ul id="publish-way-out-steps"></ul>
+                  <p class="hint" id="publish-way-out-status" role="status"></p>
+                </div>
               </div>
             </div>
             <div id="planning" hidden>
@@ -1477,6 +1505,7 @@
                 <legend>Coding tool that drafts the plan</legend>
                 <div id="planner-options"></div>
               </fieldset>
+              <p class="notice error" id="plan-remote-note" role="status" hidden></p>
               <p class="notice" id="plan-onmain-note" hidden>
                 Publish the kit to main first (step 3 above): the plan's
                 checks read the kit from main.
@@ -1653,17 +1682,51 @@
           <p class="hint" id="team-reviewer-status" role="status" aria-live="polite"></p>
         </div>
         <p class="notice" id="team-note" role="status" hidden></p>
+        <p class="notice" id="team-review-note" role="status" hidden></p>
+        <div class="actions" id="team-note-actions" hidden>
+          <button type="button" class="secondary-button" id="team-retry" hidden>Retry</button>
+          <button type="button" class="secondary-button" id="team-check" hidden>Check what's next</button>
+        </div>
+        <div class="team-block" id="team-roles" hidden>
+          <h3>Your tools</h3>
+          <p class="hint">
+            Choose which of your coding tools writes the code and which one reviews it. This choice is yours and stays
+            on this computer; teammates choose their own.
+          </p>
+          <fieldset>
+            <legend>Who implements?</legend>
+            <div class="tools" id="team-implement-options"></div>
+          </fieldset>
+          <fieldset>
+            <legend>Who reviews?</legend>
+            <div class="tools" id="team-review-options"></div>
+          </fieldset>
+          <p class="hint" id="team-same-tool" hidden>
+            <span id="team-same-tool-text" data-no-i18n></span>
+            <span>The reviewer never reviews its own identity's work.</span>
+          </p>
+          <p class="hint" id="team-roles-note" role="status" hidden></p>
+          <div id="team-unavailable" hidden>
+            <p class="hint">Not available here:</p>
+            <ul class="hint" id="team-unavailable-list"></ul>
+          </div>
+        </div>
         <div class="team-block" id="team-implement" hidden>
-          <h3>2. Claude Code implements</h3>
+          <h3 id="team-implement-heading" data-no-i18n>2. Claude Code implements</h3>
           <p class="hint" id="team-implement-terminal"></p>
           <div class="next-command">
             <code id="team-implement-command" data-no-i18n></code>
             <button type="button" class="secondary-button" id="copy-team-implement">Copy</button>
           </div>
-          <p class="hint">
+          <p class="hint" data-tool="claude">
             It claims the task, creates its own folder (a worktree) and opens Claude Code there with its first prompt.
             The first time, Claude Code asks whether you trust the task folder: accept it (yes), then approve this
             project's uak server (MCP).
+          </p>
+          <p class="hint" data-tool="codex" hidden>
+            It claims the task, creates its own folder (a worktree) and opens Codex there with its first prompt. Codex
+            runs in its workspace sandbox with write access to the project's .git folder and the network on, so it can
+            claim, commit and push.
           </p>
           <p class="hint">If you closed that terminal, reopen the agent with:</p>
           <div class="next-command">
@@ -1672,17 +1735,26 @@
           </div>
         </div>
         <div class="team-block" id="team-review" hidden>
-          <h3>3. Codex reviews</h3>
+          <h3 id="team-review-heading" data-no-i18n>3. Codex reviews</h3>
           <p class="hint" id="team-review-terminal"></p>
           <div class="next-command">
             <code id="team-review-command" data-no-i18n></code>
             <button type="button" class="secondary-button" id="copy-team-review">Copy</button>
           </div>
-          <p class="hint">
+          <p class="hint" data-tool="codex">
             UAK_AGENT gives Codex the reviewer's name, so it acts as a second identity: it never reviews as the
             agent that wrote the code. It waits for work with uak next and reviews with $uak-review.
             The first time, Codex asks to approve this project's uak server (MCP): approve it.
           </p>
+          <p class="hint" data-tool="claude" hidden>
+            UAK_AGENT gives Claude Code the reviewer's name, so it acts as a second identity: it never reviews as the
+            agent that wrote the code. It waits for work with uak next and reviews with /uak-review. The first time,
+            Claude Code asks whether you trust this folder and to approve this project's uak server (MCP): accept both.
+          </p>
+        </div>
+        <div class="team-block" id="team-claimed-block" hidden>
+          <h3>Tasks already claimed</h3>
+          <ul id="team-claimed"></ul>
         </div>
         <p class="hint" id="team-windows" hidden>
           On Windows, paste these in Git Bash, not PowerShell.
@@ -1844,10 +1916,11 @@
         }
         // One way to start a task: once Start your team shows its commands, the bare claim command is not offered
         // again (two Copy buttons for the same claim confused the simulation's person).
-        var teamReady = false;
+        var teamReady = false,
+          teamTool = "Claude Code";
         function teamGuide(g) {
           return g.kind === "ready" && teamReady
-            ? { kind: g.kind, title: g.title, detail: "Use Start your team above: its first command claims this task for Claude Code.", commands: [], steps: [] }
+            ? { kind: g.kind, title: g.title, detail: UAKWorkspace.format("Use Start your team above: its first command claims this task for {tool}.", { tool: teamTool }), commands: [], steps: [] }
             : g;
         }
         function drawNext(g) {
@@ -1861,11 +1934,11 @@
           el("next-steps").replaceChildren();
           (g.steps || []).forEach(function (line) {
             var li = document.createElement("li");
-            li.textContent = line;
+            li.textContent = UAKWorkspace.t(line);
             el("next-steps").append(li);
           });
           el("next-steps").hidden = !(g.steps || []).length;
-          el("next-check").hidden = ["check", "todo", "ready", "error"].indexOf(g.kind) < 0;
+          el("next-check").hidden = ["check", "todo", "ready", "error", "waiting"].indexOf(g.kind) < 0;
           el("next-check").disabled = operationBusy();
           el("next-check").textContent = UAKWorkspace.t(
             g.kind === "check" ? "Check what’s next" : "Check again",
@@ -1961,7 +2034,9 @@
           el("plan-create").disabled =
             blocked || !planView.idea || !selectedPlanner() || !planView.kit_on_main;
           el("plan-recheck").disabled = blocked || !planView.planned;
-          el("plan-onmain-note").hidden = !planView || !!planView.kit_on_main;
+          el("plan-onmain-note").hidden = !planView || !!planView.kit_on_main || !!planView.remote_note;
+          el("plan-remote-note").hidden = !planView || !planView.remote_note;
+          el("plan-remote-note").textContent = planView && planView.remote_note ? UAKWorkspace.t(planView.remote_note) : "";
           el("plan-trust").hidden = !planView || !planView.trust_command;
           el("plan-trust-command").textContent = (planView && planView.trust_command) || "";
           el("plan-change").disabled = blocked || !selectedPlanner();
@@ -2170,7 +2245,7 @@
         // The journey (UI-007): where the person is, from the server's state only; it stays visible above every view.
         function journeyStep(data) {
           if (!data || !data.installed) return "install";
-          if (data.ready) return latestDashboard && (latestDashboard.tasks || []).some(function (t) { return t.state !== "AVAILABLE"; }) ? "progress" : "team";
+          if (data.ready || data.team) return latestDashboard && (latestDashboard.tasks || []).some(function (t) { return t.state !== "AVAILABLE"; }) ? "progress" : "team";
           if (["planning", "planned", "approving"].indexOf(data.phase) >= 0 || (data.guidance || {}).action === "plan") return "plan";
           return "prepare";
         }
@@ -2283,8 +2358,8 @@
           var advanced = document.body.dataset.profile === "advanced";
           // Advanced keeps the same next step as Beginner (its guidance), above the dashboard frame.
           drawAdvancedNext(data.guidance || state.guidance || {});
-          if (teamFor !== state.target + ":" + state.ready) {
-            teamFor = state.target + ":" + state.ready;
+          if (teamFor !== [state.target, state.human, state.ready, state.team].join(":")) {
+            teamFor = [state.target, state.human, state.ready, state.team].join(":");
             loadTeam();
           }
           el("beginner-dashboard").hidden = advanced;
@@ -2379,6 +2454,7 @@
               body.error || "The action could not finish. Please retry.",
             );
             failure.status = response.status;
+            failure.body = body;
             throw failure;
           }
           return body;
@@ -2484,51 +2560,190 @@
           el("advanced-next-command").textContent = (guide.commands || []).join("\n");
           el("advanced-next-box").hidden = !(guide.commands || []).length;
         }
+        // UI-009: the reviewer's state comes from this project's claims (null: could not be read); each person picks
+        // which available tool implements and which reviews; claimed tasks stay listed with their resume line.
+        var teamView = null;
+        function toolLabel(id) {
+          return id === "codex" ? "Codex" : "Claude Code";
+        }
+        function drawRoles(view) {
+          var tools = view.tools || [],
+            roles = view.roles || {},
+            usable = tools.filter(function (t) { return t.available; }),
+            missing = tools.filter(function (t) { return !t.available; });
+          el("team-roles").hidden = !tools.length;
+          ["implement", "review"].forEach(function (role) {
+            var box = el("team-" + role + "-options");
+            box.replaceChildren();
+            usable.forEach(function (tool) {
+              var label = document.createElement("label"),
+                input = document.createElement("input"),
+                name = document.createElement("span");
+              input.type = "radio";
+              input.name = "team-" + role;
+              input.value = tool.id;
+              input.checked = roles[role] === tool.id;
+              input.disabled = operationBusy();
+              input.onchange = function () { pickRole(role, tool.id); };
+              name.textContent = tool.label;
+              name.dataset.noI18n = "";
+              label.append(input, name);
+              box.append(label);
+            });
+          });
+          el("team-same-tool").hidden = !roles.same_tool;
+          el("team-same-tool-text").textContent = roles.same_tool
+            ? UAKWorkspace.format("{tool} does both jobs under two names: {impl} writes the code and {who} reviews it in a separate session.", {
+                tool: toolLabel(roles.implement),
+                impl: (((view.commands || []).filter(function (c) { return c.id === "implement"; })[0]) || {}).identity || roles.implement + "-" + view.human,
+                who: view.reviewer,
+              })
+            : "";
+          el("team-roles-note").hidden = !roles.note;
+          el("team-roles-note").textContent = UAKWorkspace.t(roles.note || "");
+          el("team-unavailable").hidden = !missing.length;
+          el("team-unavailable-list").replaceChildren();
+          missing.forEach(function (tool) {
+            var li = document.createElement("li");
+            li.textContent = tool.label + ": " + UAKWorkspace.t(tool.reason);
+            el("team-unavailable-list").append(li);
+          });
+        }
+        function pickRole(role, tool) {
+          var roles = (teamView && teamView.roles) || {},
+            pick = { implement: roles.implement, review: roles.review };
+          pick[role] = tool;
+          if (!pick.implement || !pick.review) return;
+          action(el("team-roles"), async function () {
+            await api("team/roles", pick);
+            await loadTeam();
+          });
+        }
+        function drawClaimed(view) {
+          var rows = view.claimed || [];
+          el("team-claimed-block").hidden = !rows.length;
+          el("team-claimed").replaceChildren();
+          rows.forEach(function (row) {
+            var li = document.createElement("li"),
+              line = document.createElement("span");
+            line.dataset.noI18n = "";
+            line.textContent = row.task + " · " + UAKWorkspace.t({ CLAIMED: "In progress", BLOCKED: "Blocked", REVIEW: "In review" }[row.state] || row.state) + " · " + row.owner;
+            li.append(line);
+            if (row.resume) {
+              var hint = document.createElement("p"),
+                box = document.createElement("div"),
+                code = document.createElement("code"),
+                copy = document.createElement("button");
+              hint.className = "hint";
+              hint.textContent = UAKWorkspace.format("Reopen your agent for {task}:", { task: row.task });
+              box.className = "next-command";
+              code.dataset.noI18n = "";
+              code.textContent = row.resume;
+              copy.type = "button";
+              copy.className = "secondary-button";
+              copy.textContent = UAKWorkspace.t("Copy");
+              copy.setAttribute("aria-label", UAKWorkspace.format("Copy the command for {task}", { task: row.task }));
+              copy.onclick = function () { copyText(row.resume, "team-copy-status"); };
+              box.append(code, copy);
+              li.append(hint, box);
+            }
+            el("team-claimed").append(li);
+          });
+        }
         function drawTeam(view) {
+          teamView = view;
           var reviewer = view.registered || {};
           el("team-step").hidden = false;
           el("team-reviewer-name").textContent = view.reviewer;
           el("team-register").textContent = UAKWorkspace.format("Register {name}", { name: view.reviewer });
-          el("team-register").hidden = !!reviewer.registered;
-          el("team-reviewer-status").textContent = reviewer.message
-            ? UAKWorkspace.format(
-                reviewer.registered_by && reviewer.message.indexOf("already") >= 0
-                  ? "{name} was already registered by {by}."
-                  : "{name} is registered: it reviews your agents' work.",
-                { name: view.reviewer, by: reviewer.registered_by || "" },
-              )
-            : "";
+          // Unknown (offline) or retired: no Register button and no claim about the reviewer's state.
+          el("team-register").hidden = reviewer.registered !== false || !!reviewer.retired;
+          el("team-reviewer-status").textContent = reviewer.retired
+            ? UAKWorkspace.t(reviewer.message || "")
+            : reviewer.registered === null
+              ? UAKWorkspace.format("{name}'s registration could not be read right now.", { name: view.reviewer })
+              : reviewer.registered
+                ? UAKWorkspace.format(
+                    reviewer.registered_by && reviewer.registered_by !== view.human
+                      ? "{name} was already registered by {by}."
+                      : "{name} is registered: it reviews your agents' work.",
+                    { name: view.reviewer, by: reviewer.registered_by || "" },
+                  )
+                : "";
           var byId = {};
           (view.commands || []).forEach(function (c) { byId[c.id] = c; });
           el("team-note").hidden = !view.note;
           el("team-note").textContent = UAKWorkspace.t(view.note || "");
+          el("team-review-note").hidden = !view.review_note || view.review_note === view.note;
+          el("team-review-note").textContent = UAKWorkspace.t(view.review_note || "");
+          el("team-retry").hidden = !view.retry;
+          el("team-check").hidden = !view.can_check;
+          el("team-note-actions").hidden = !view.retry && !view.can_check;
+          drawRoles(view);
           el("team-implement").hidden = !byId.implement;
           el("team-review").hidden = !byId.review;
           el("team-windows").hidden = !/Win/.test(navigator.platform || navigator.userAgent || "");
           if (byId.implement) {
+            el("team-implement-heading").textContent = UAKWorkspace.format("2. {tool} implements", { tool: byId.implement.tool });
             el("team-implement-terminal").textContent = UAKWorkspace.t(byId.implement.terminal);
             el("team-implement-command").textContent = byId.implement.command;
             el("team-implement-resume").textContent = byId.implement.resume;
+            el("team-implement").querySelectorAll("[data-tool]").forEach(function (p) { p.hidden = p.dataset.tool !== byId.implement.harness; });
           }
           if (byId.review) {
+            el("team-review-heading").textContent = UAKWorkspace.format("3. {tool} reviews", { tool: byId.review.tool });
             el("team-review-terminal").textContent = UAKWorkspace.t(byId.review.terminal);
             el("team-review-command").textContent = byId.review.command;
+            el("team-review").querySelectorAll("[data-tool]").forEach(function (p) { p.hidden = p.dataset.tool !== byId.review.harness; });
           }
+          drawClaimed(view);
           teamReady = !!byId.implement;
+          teamTool = byId.implement ? byId.implement.tool : "Claude Code";
           var guide = (latestDashboard && latestDashboard.guidance) || state.guidance || {};
           drawNext(guide);
           drawAdvancedNext(guide);
         }
         async function loadTeam() {
-          if (!state.ready) {
+          if (!state.ready && !state.team) {
             el("team-step").hidden = true;
             return;
           }
           try {
             drawTeam(await api("team"));
           } catch (e) {
-            el("team-step").hidden = true;
+            // Only a refusal (400) hides the step; a busy server or a network error keeps what is drawn.
+            if (e.status === 400) {
+              el("team-step").hidden = true;
+            } else if (!el("team-step").hidden) {
+              el("team-note").hidden = false;
+              el("team-note").textContent = UAKWorkspace.t(e.message);
+            }
           }
+        }
+        window.addEventListener("uak:language", function () {
+          if (teamView && !el("team-step").hidden) drawTeam(teamView);
+        });
+        el("team-retry").onclick = function () {
+          action(this, loadTeam);
+        };
+        el("team-check").onclick = function () {
+          el("next-check").click();
+        };
+        el("copy-publish-way-out").onclick = function () {
+          copyText(el("publish-way-out-command").textContent, "publish-way-out-status");
+        };
+        function drawWayOut(out, message) {
+          el("publish-way-out").hidden = !out;
+          if (!out) return;
+          el("publish-way-out-error").textContent = UAKWorkspace.t(message || "");
+          el("publish-way-out-run").hidden = !out.command;
+          el("publish-way-out-command").textContent = out.command || "";
+          el("publish-way-out-steps").replaceChildren();
+          (out.steps || []).forEach(function (line) {
+            var li = document.createElement("li");
+            li.textContent = UAKWorkspace.t(line);
+            el("publish-way-out-steps").append(li);
+          });
         }
         el("team-register").onclick = function () {
           var name = el("team-reviewer-name").textContent;
@@ -2851,7 +3066,14 @@
         var publishDigest = "";
         el("publish-preview").onclick = function () {
           action(this, async function () {
-            var preview = await api("publish-kit");
+            var preview;
+            try {
+              preview = await api("publish-kit");
+            } catch (e) {
+              drawWayOut(e.body && e.body.way_out, e.message);
+              throw e;
+            }
+            drawWayOut(null);
             publishDigest = preview.digest;
             el("publish-count").textContent = UAKWorkspace.format(
               "{count} kit files will be committed as your Git identity and uploaded to main. IDEA.md and the plan are not included.",
@@ -2868,7 +3090,12 @@
         };
         el("publish-kit").onclick = function () {
           action(this, async function () {
-            await api("publish-kit", { digest: publishDigest });
+            try {
+              await api("publish-kit", { digest: publishDigest });
+            } catch (e) {
+              drawWayOut(e.body && e.body.way_out, e.message);
+              throw e;
+            }
             el("publish-confirm").hidden = true;
             await refresh();
           });
@@ -3040,6 +3267,8 @@
           if (previous === "registering" && !isBusy(data.phase)) {
             if (data.error) el("team-reviewer-status").textContent = UAKWorkspace.t(data.error);
             else loadTeam();
+          } else if (isBusy(previous) && !isBusy(data.phase) && (data.ready || data.team)) {
+            loadTeam();
           }
           // A finished readiness check moves on by itself: to project progress when ready, and it refreshes the
           // dashboard's next step when the check was started from there.
