@@ -253,7 +253,86 @@ def lint(run, root, uak, bash):
     result = run([bash, str(uak), "lint"], cwd=str(root), timeout=180)
     output = (result.stdout or "") + "\n" + (result.stderr or "")
     lines = [line[len("LINT: "):] for line in output.splitlines() if line.startswith("LINT: ")]
-    return {"ok": result.returncode == 0 and "LINT_OK" in output.splitlines(), "lines": lines[:20]}
+    ok = result.returncode == 0 and "LINT_OK" in output.splitlines()
+    if not ok and not lines:
+        # A failure that is not a LINT: line (Git, network, no main yet) still reaches the page with its reason.
+        # Why (UI-005): the page said "the kit's checks found problems" with an empty list.
+        raw = [line.strip() for line in output.splitlines() if re.search(r"ERROR|fatal|failed|refused", line)]
+        if any("refs/heads/main" in line or "couldn't find remote ref" in line for line in raw):
+            lines.append("The kit is not on main yet: publish the kit to main first, then check the plan again.")
+        lines.extend(raw[:3] or ["uak lint stopped without a reason (exit %d); see Technical details." % result.returncode])
+    return {"ok": ok, "lines": lines[:20]}
+
+
+# What "Publish the kit to main" may commit: only files the installer placed (its manifest), never by directory
+# prefix, and never the plan before its approval. Why (UI-005 review): a prefix published .github/private-note.txt.
+MANIFEST = ".uak/installed-files.txt"
+NOT_PUBLISHED = ("IDEA.md", ".uak/TASKS.md", ".uak/OWNERS.md", NOTE_FILE, ".uak/INSTALLING")
+
+
+def manifest_paths(root):
+    path = regular_file(root, MANIFEST)
+    if not path.is_file():
+        raise ValueError("This kit has no list of the files it installed (it predates that list). "
+                         "Choose Repair or update kit, then publish.")
+    paths = set()
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("/") or line.startswith(".git/") or ".." in Path(line).parts or "\\" in line:
+            raise ValueError("The kit's file list (.uak/installed-files.txt) has an invalid entry. Repair or update the kit.")
+        paths.add(line)
+    return paths
+
+
+def publish_files(run, root):
+    """Kit files (from the installer's manifest) that differ from HEAD: new, changed or deleted. Nothing else."""
+    root = Path(root)
+    owned = manifest_paths(root) - set(NOT_PUBLISHED)
+    status = git_out(run, root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    files, skip = [], False
+    for entry in status.split("\0"):
+        if skip:
+            skip = False
+            continue
+        if len(entry) < 4:
+            continue
+        if entry[0] in "RC":
+            skip = True
+        name = entry[3:]
+        if name in owned and name not in files:
+            files.append(name)
+    return sorted(files)
+
+
+def set_freeze(root, epoch):
+    """Freeze-Epoch in .uak/PROJECT.md, as `uak clock --write` sets it, but never through a link or a predictable
+    temporary file (UI-005 review): a regular file inside the project, replaced atomically from a random temp name."""
+    path = regular_file(root, ".uak/PROJECT.md")
+    if not path.is_file():
+        raise ValueError(".uak/PROJECT.md is missing. Repair or update the kit.")
+    text = path.read_bytes().decode("utf-8")
+    pattern = re.compile(r"(?m)^([-* ]*)Freeze-Epoch:[^\r\n]*")
+    if not pattern.search(text):
+        raise ValueError(".uak/PROJECT.md has no Freeze-Epoch line. Repair or update the kit.")
+    write_atomic(path, pattern.sub(lambda m: m.group(1) + "Freeze-Epoch: %d" % int(epoch), text).encode("utf-8"))
+
+
+def publish_digest(root, files):
+    """What the person saw in the preview: each listed path and its content (or its absence)."""
+    total = hashlib.sha256()
+    for name in files:
+        total.update(name.encode("utf-8", "replace") + b"\0" + file_hash(Path(root) / name).encode() + b"\0")
+    return total.hexdigest()
+
+
+def kit_on_main(run, root, remote="origin", base="main"):
+    """True when the remote's base branch already has the kit (agents read .uak/ from there)."""
+    fetched = git(run, root, "fetch", "-q", remote, base, timeout=120)
+    if fetched.returncode:
+        return False
+    return git(run, root, "cat-file", "-e", "FETCH_HEAD:.uak/PROJECT.md").returncode == 0
 
 
 ID = re.compile(r"[A-Z][A-Z0-9]*-[0-9]+")

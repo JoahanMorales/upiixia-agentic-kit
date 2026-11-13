@@ -228,7 +228,12 @@ def readiness(output, code):
             "next_note": ready_lines[-1] if ready and not claim else ""}
 
 
-BUSY = ("installing", "checking", "planning", "approving")
+BUSY = ("installing", "checking", "planning", "approving", "publishing")
+# Whole-string matches over ASCII only: `$` lets a trailing newline through and \d takes non-ASCII digits (review of
+# 57ef048: "ana\n" could add a line to the Published-By commit message).
+HUMAN_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
+SCHEDULE_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\Z")
+TIME_ZONE = re.compile(r"(UTC|[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2})\Z")
 # `uak start`'s READY line when a task is free: the command, then the engine's note after spaces.
 CLAIM_COMMAND = re.compile(r"^bash \.uak/bin/wt new ([A-Z][A-Z0-9]*-[0-9]+)(?=\s|$)")
 
@@ -276,8 +281,27 @@ def guidance(state, dashboard=None, now=None):
         if check.get("state") == "todo":
             lines = check.get("text", "").split("\n")
             title = re.sub(r"^\d+\.\s*", "", lines[0])
-            return step("todo", title, "This is the first thing the readiness check needs.",
-                        steps=[l for l in lines[1:] if l])
+            g = step("todo", title, "This is the first thing the readiness check needs.",
+                     steps=[l for l in lines[1:] if l])
+            # The page does what it can itself; anything else becomes a terminal box with the exact cd (UI-005).
+            # Why (simulation, Nov 2026): the next action lived only in Technical details and looked like loading.
+            # A preflight groups several doctor failures: each goes where it is fixed, the page or a terminal.
+            page_lines = {"schedule": r"Freeze-Epoch", "publish": r"push rejected in dry-run"}
+            rest = []
+            for line in g["steps"]:
+                kind = next((k for k, pattern in page_lines.items() if re.search(pattern, line)), None)
+                if kind and "action" not in g:
+                    g["action"] = kind
+                elif not kind:
+                    rest.append(line)
+            if "action" not in g:
+                if re.search(r"push the kit to |push your changes to", title):
+                    g["action"], rest = "publish", []
+                elif re.search(r"^(a plan|approve the plan|fix the plan)", title):
+                    g["action"], rest = "plan", []
+            if rest:
+                g["terminal"] = {"cd": "cd '%s'" % str(state.get("target", "")).replace("'", "'\\''"), "steps": rest}
+            return g
     return step("check", "Check what your project needs",
                 "The readiness check lists what is missing before agents can start, in order.")
 
@@ -303,7 +327,8 @@ class SetupServer(ThreadingHTTPServer):
         self.worker = None
         self.target = ""
         self.failed_target = ""
-        self.state = {"phase": "welcome", "target": str(target), "ready": False, "checks": [], "details": "", "installed": False}
+        self.state = {"phase": "welcome", "target": str(target), "ready": False, "checks": [], "details": "",
+                      "installed": False, "human": ""}
         super().__init__(("127.0.0.1", 0), SetupHandler)
 
     def config(self):
@@ -409,6 +434,94 @@ class SetupServer(ThreadingHTTPServer):
                                       error=redact(exc) if isinstance(exc, ValueError) else
                                       ("The plan was published, but the readiness check stopped. Check again." if pushed else
                                        "The approval stopped. Correct the issue and retry."))
+
+        self.worker = threading.Thread(target=work, daemon=True)
+        self.worker.start()
+
+    def publish_run(self, root, files, approved, human, base_head, remote, base):
+        """Commit exactly the previewed kit files (never the plan before its approval), check the commit, push its SHA."""
+        planning, uak = self.planning, self.engine()
+        self.state.update(phase="publishing", error="", details="")
+
+        def git(*args, timeout=60):
+            return planning.git_out(self.run, root, *args, timeout=timeout)
+
+        def reason(result):
+            """What Git said, on one line; a hook that exits without a word reads as "(no message)"."""
+            text = " ".join(redact((result.stderr or result.stdout or "").strip()).split())[-300:].rstrip(". ")
+            return text or "(no message)"
+
+        def restore():
+            """Refs and index as they were before publishing (contract #46; review of 57ef048: a rejected commit left
+            505 files staged on an empty repository)."""
+            head = planning.git(self.run, root, "rev-parse", "-q", "--verify", "HEAD").stdout.strip()
+            if base_head:
+                planning.git(self.run, root, "reset", "-q", "--mixed", base_head)
+            else:
+                if head:
+                    planning.git(self.run, root, "update-ref", "-d", "HEAD")
+                planning.git(self.run, root, "read-tree", "--empty")
+
+        def work():
+            pushed = False
+            try:
+                with self.lock:
+                    if planning.publish_digest(root, files) != approved:
+                        raise ValueError("The kit files changed after the preview. Nothing was committed; open the preview again.")
+                    git("add", "-A", "--", *files)
+                    # The tree the person approved: mode and blob of each staged path; a deletion is staged as absent.
+                    expected = {}
+                    for entry in git("ls-files", "-s", "-z", "--", *files).split("\0"):
+                        if entry:
+                            meta, name = entry.split("\t", 1)
+                            mode, blob = meta.split()[:2]
+                            expected[name] = (mode, blob)
+                committed = planning.git(self.run, root, "commit", "-q", "-m", "chore: uak setup", "-m",
+                                         "Published-By: %s (from the setup page; committed as the local Git identity, "
+                                         "unverified)" % human, "--", *files, timeout=120)
+                if committed.returncode:
+                    restore()
+                    raise ValueError("Git did not create the commit (a pre-commit hook or Git refused it): %s. Nothing was "
+                                     "published and nothing stays staged. Fix the cause, then publish again."
+                                     % reason(committed))
+                commit = git("rev-parse", "HEAD").strip()
+                parents = git("rev-list", "--parents", "-n", "1", commit).split()[1:]
+                changed = set(n for n in git("diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z", commit).split("\0") if n)
+                tree = {}
+                for entry in git("ls-tree", "-r", "-z", commit, "--", *files).split("\0"):
+                    if entry:
+                        meta, name = entry.split("\t", 1)
+                        mode, kind, blob = meta.split()[:3]
+                        tree[name] = (mode, blob)
+                # Every previewed path as approved (blob, type and mode), every deletion absent, nothing else changed.
+                if parents != ([base_head] if base_head else []) or changed != set(files) or tree != expected:
+                    restore()  # refs and index as they were before publishing (review of 0386bec, contract #46)
+                    raise ValueError("The commit did not match the files you reviewed (a Git hook changed it), so it was "
+                                     "undone and nothing was published. Check your pre-commit hooks, then publish again.")
+                ref = "%s:refs/heads/%s" % (commit, base)
+                result = self.run(list(planning.GIT) + ["-C", str(root), "push", remote, ref], cwd=str(root), timeout=120)
+                if result.returncode:
+                    # Review of f8d5d84 (P2): a refused push is a failure before publishing, so the commit is undone
+                    # (contract #46) and the page must not offer a push of a commit that no ref holds any more.
+                    restore()
+                    raise ValueError("%s refused the push: %s. Nothing was published, and nothing stays committed or "
+                                     "staged here. Fix the cause (for example a pre-push hook or a protected branch), "
+                                     "then publish again." % (remote, reason(result)))
+                pushed = True
+                check = self.run([bash_binary(), str(uak), "start"], cwd=str(root), timeout=120)
+                with self.lock:
+                    self.apply_readiness(check)
+            except Exception as exc:
+                if not pushed:
+                    try:
+                        restore()
+                    except Exception:  # noqa: BLE001 - the original failure is what the person needs to see
+                        pass
+                with self.lock:
+                    self.state.update(phase="error", ready=False, details=redact(exc),
+                                      error=redact(exc) if isinstance(exc, ValueError) else
+                                      ("The kit was published, but the readiness check stopped. Check again." if pushed else
+                                       "Publishing stopped. Correct the issue and retry."))
 
         self.worker = threading.Thread(target=work, daemon=True)
         self.worker.start()
@@ -523,6 +636,13 @@ class SetupHandler(BaseHTTPRequestHandler):
                 self.reply(200, data)
             except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
                 self.reply(400, {"error": redact(exc)})
+        elif self.path == "/api/publish-kit":
+            try:
+                with self.server.lock:
+                    _, files, digest, _, _, _ = publish_checks(self.server)
+                self.reply(200, {"files": files, "digest": digest})
+            except (ValueError, OSError, subprocess.SubprocessError) as exc:
+                self.reply(400, {"error": redact(exc)})
         elif self.path == "/api/plan":
             try:
                 self.reply(200, self.plan_view())
@@ -557,7 +677,8 @@ class SetupHandler(BaseHTTPRequestHandler):
                 "idea": text("IDEA.md"), "violations": plan.get("violations", []),
                 "lint": plan.get("lint", {"ok": False, "lines": []}), "cards": plan.get("cards", []),
                 "digest": plan.get("digest", ""), "tasks": text(".uak/TASKS.md") if plan else "",
-                "owners": text(".uak/OWNERS.md") if plan else "", "planned": bool(plan)}
+                "owners": text(".uak/OWNERS.md") if plan else "", "planned": bool(plan),
+                "kit_on_main": planning.kit_on_main(s.run, root) if kit_present(root) else False}
 
     def do_POST(self):
         if not self.authorized(write=True):
@@ -586,6 +707,49 @@ class SetupHandler(BaseHTTPRequestHandler):
         except (ValueError, TypeError, UnicodeError, OSError, subprocess.SubprocessError) as exc:
             # The planning module's Conflict: valid, but it would replace something the person has not confirmed.
             self.reply(409 if type(exc).__name__ == "Conflict" else 400, {"error": redact(exc)})
+
+    def schedule(self, data):
+        """The event schedule: what `uak clock START DEADLINE ZONE --write` does, from a form (UI-005)."""
+        s = self.server
+        if set(data) != {"start", "end", "zone"} or not all(isinstance(v, str) for v in data.values()):
+            raise ValueError("Give the event's start, end and time zone.")
+        if not SCHEDULE_TIME.fullmatch(data["start"]) or not SCHEDULE_TIME.fullmatch(data["end"]):
+            raise ValueError("Write dates as YYYY-MM-DD HH:MM (for example 2026-11-12 10:00).")
+        if data["end"] <= data["start"]:
+            raise ValueError("The event must end after it starts.")
+        if not TIME_ZONE.fullmatch(data["zone"]):
+            raise ValueError("Choose a time zone such as America/Mexico_City or UTC.")
+        uak = s.engine()
+        root = project_root(s.target)
+        # The engine computes the schedule; setup writes Freeze-Epoch itself, never through a symlinked PROJECT.md or
+        # the engine's predictable PROJECT.md.tmp (UI-005 review).
+        s.planning.regular_file(root, ".uak/PROJECT.md")
+        result = s.run([bash_binary(), str(uak), "clock", data["start"], data["end"], data["zone"]],
+                       cwd=str(root), timeout=60)
+        output = (result.stdout or "") + "\n" + (result.stderr or "")
+        freeze = re.search(r"(?m)^freeze\s+(.+?)\s+Freeze-Epoch: (\d+)", output)
+        first = re.search(r"(?m)^first claim by\s+(\S+ \S+)", output)
+        if result.returncode or not freeze:
+            raise ValueError("The schedule could not be set: %s" % redact(output.strip())[-400:])
+        s.planning.set_freeze(root, int(freeze.group(2)))
+        s.state.update(phase="setup", ready=False, checks=[], next_command="", next_note="", error="")
+        self.reply(200, {"freeze": freeze.group(1).strip(), "epoch": int(freeze.group(2)),
+                         "first_claim": first.group(1) if first else "", "details": redact(output.strip())})
+
+    def recheck_plan(self):
+        """Lint, cards and digest of the current plan files again, without running the planner (UI-005)."""
+        s = self.server
+        planning = s.planning
+        if not s.plan:
+            raise ValueError("Create the plan first, then check it again.")
+        uak = s.engine()
+        root = project_root(s.target)
+        tasks = planning.regular_file(root, ".uak/TASKS.md")
+        text = tasks.read_text(encoding="utf-8", errors="replace") if tasks.is_file() else ""
+        s.plan.update(lint=planning.lint(s.run, root, uak, bash_binary()), cards=planning.cards(text),
+                      digest=planning.digest(root))
+        s.state.update(phase="planned", error="")
+        self.reply(200, {"lint": s.plan["lint"], "digest": s.plan["digest"]})
 
     def approve(self, data):
         root, approver, head, remote, base = approval_checks(self.server, data)
@@ -653,6 +817,9 @@ class SetupHandler(BaseHTTPRequestHandler):
             root = project_root(s.target)
             if not (root / "IDEA.md").is_file():
                 raise ValueError("Describe what you are building first.")
+            if not s.planning.kit_on_main(s.run, root):
+                raise ValueError("Publish the kit to main first (Prepare: Publish the kit to main), then create the plan. "
+                                 "The plan's checks read the kit from main.")
             offered = {o["harness"] for o in s.planning.available_planners(root, s.run) if o["available"]}
             if data["harness"] not in offered:
                 raise ValueError("That coding tool cannot create the plan here. Choose one that setup offers.")
@@ -660,6 +827,25 @@ class SetupHandler(BaseHTTPRequestHandler):
             self.reply(202, {"phase": "planning"})
         elif self.path == "/api/plan/approve":
             self.approve(data)
+        elif self.path == "/api/human":
+            if set(data) != {"name"} or not isinstance(data["name"], str) or not HUMAN_NAME.fullmatch(data["name"]):
+                raise ValueError("Use a short name in lowercase letters, digits, - or _ (for example: ana).")
+            s.state["human"] = data["name"]
+            self.reply(200, {"human": s.state["human"]})
+        elif self.path == "/api/schedule":
+            self.schedule(data)
+        elif self.path == "/api/publish-kit":
+            if set(data) != {"digest"} or not isinstance(data["digest"], str):
+                raise ValueError("Open the preview of the kit files, then publish them.")
+            root, files, digest, base_head, remote, base = publish_checks(s)
+            if not hmac.compare_digest(data["digest"], digest):
+                raise ValueError("The kit files changed after the preview. Open the preview again before publishing.")
+            s.publish_run(root, files, digest, s.state["human"], base_head, remote, base)
+            self.reply(202, {"phase": "publishing"})
+        elif self.path == "/api/plan/check":
+            if data:
+                raise ValueError("Checking the plan again accepts no options.")
+            self.recheck_plan()
         else:
             self.reply(404, {"error": "Action not found."})
 
@@ -713,6 +899,53 @@ def approval_checks(server, data):
     if git("diff", "--quiet", "HEAD", "--", ".uak/PROJECT.md").returncode:
         raise ValueError("You have your own uncommitted changes in .uak/PROJECT.md. Commit or discard them first.")
     return root, approver, head, remote, base
+
+
+def publish_checks(server):
+    """Everything that must hold before the kit is published from the page; each failure says how to recover."""
+    planning, run = server.planning, server.run
+    if not server.state.get("human"):
+        raise ValueError("Tell setup your name first (Your name, in Prepare): publishing is a human act.")
+    server.engine()
+    root = project_root(server.target)
+
+    def git(*args, timeout=60):
+        return planning.git(run, root, *args, timeout=timeout)
+
+    if not git("config", "user.name").stdout.strip() or not git("config", "user.email").stdout.strip():
+        raise ValueError('Set your Git identity first: git config user.name "Your Name" and git config user.email you@example.com')
+    staged = [n for n in git("diff", "--cached", "--name-only", "-z").stdout.split("\0") if n]
+    if staged:
+        raise ValueError("Other files are staged: %s. Unstage them with git restore --staged -- %s, then publish again."
+                         % (", ".join(staged[:5]), " ".join(staged[:5])))
+    remote, base = os.environ.get("UAK_REMOTE", "origin"), os.environ.get("UAK_BASE", "main")
+    if git("symbolic-ref", "--short", "-q", "HEAD").stdout.strip() != base:
+        raise ValueError("The kit is published on %s. Switch to it first: git switch %s" % (base, base))
+    if git("remote", "get-url", remote).returncode:
+        raise ValueError("This project has no remote named %s. Create an empty repository and run: "
+                         "git remote add %s <its URL>" % (remote, remote))
+    head = git("rev-parse", "-q", "--verify", "HEAD").stdout.strip()
+    listed = git("ls-remote", "--heads", remote, base, timeout=120)
+    if listed.returncode:
+        raise ValueError("Could not reach %s: %s" % (remote, (listed.stderr or "").strip()[-300:]))
+    if listed.stdout.strip():
+        fetched = git("fetch", "-q", remote, base, timeout=120)
+        if fetched.returncode:
+            raise ValueError("Could not read %s/%s: %s" % (remote, base, (fetched.stderr or "").strip()[-300:]))
+        upstream = git("rev-parse", "FETCH_HEAD").stdout.strip()
+        if head != upstream:
+            if not head or git("merge-base", "--is-ancestor", head, upstream).returncode == 0:
+                raise ValueError("%s/%s already has commits this folder lacks. Run git pull %s %s, then publish again."
+                                 % (remote, base, remote, base))
+            raise ValueError("This branch has commits that are not on %s/%s. Push or move them first, so publishing "
+                             "sends only the kit." % (remote, base))
+    elif head:
+        raise ValueError("This branch has commits and %s has no %s yet. Push them yourself first "
+                         "(git push -u %s HEAD:%s), then publish the kit." % (remote, base, remote, base))
+    files = planning.publish_files(run, root)
+    if not files:
+        raise ValueError("Nothing to publish: the kit is already on %s." % base)
+    return root, files, planning.publish_digest(root, files), head, remote, base
 
 
 def make_server(target="", installer=None, run=None):
