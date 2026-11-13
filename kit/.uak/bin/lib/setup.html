@@ -615,6 +615,21 @@
         padding: 4px 0;
         overflow-wrap: anywhere;
       }
+      .team-step,
+      .advanced-next {
+        margin: 0 0 24px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid var(--line);
+      }
+      .team-step:focus {
+        outline: none;
+      }
+      .team-block {
+        margin-top: 18px;
+      }
+      .team-block h3 {
+        margin-bottom: 6px;
+      }
       .your-app {
         margin-top: 24px;
         padding-top: 20px;
@@ -1191,13 +1206,19 @@
                   Select the tools you already use. Setup adds their project
                   instructions; it does not install or sign in to them.
                 </p>
+                <p class="hint" id="tool-roles">
+                  One tool implements, the other reviews its work as a second
+                  identity, so no change merges unchecked. We recommend Claude Code + Codex: Claude Code
+                  writes the code and Codex reviews it.
+                </p>
               </fieldset>
               <label class="choice"
                 ><input id="solo" type="checkbox" /><span
                   ><strong>I’m the only human on this repository</strong
                   ><small
-                    >Agent identities review each other. Product mode still
-                    leaves the final merge to you.</small
+                    >Nobody else reviews here, so your agents review each other
+                    under a second name you register (for example ana-r). Product
+                    mode still leaves the final merge to you.</small
                   ></span
                 ></label
               >
@@ -1554,6 +1575,56 @@
       <button class="primary" id="dashboard-choose-project" hidden>
         Choose another project
       </button>
+      <section id="team-step" class="team-step" hidden aria-labelledby="team-heading" tabindex="-1">
+        <h2 id="team-heading">Start your team</h2>
+        <p class="hint">
+          Setup steps (install, publish, plan) need no agent; agents start only here.
+        </p>
+        <div class="team-block" id="team-reviewer">
+          <h3>1. Register the reviewer</h3>
+          <p>
+            <strong id="team-reviewer-name" data-no-i18n></strong>
+            <span>reviews your agents' work. In Hackathon mode an approved change can merge automatically after the checks pass.</span>
+          </p>
+          <button type="button" class="primary" id="team-register">Register the reviewer</button>
+          <p class="hint" id="team-reviewer-status" role="status" aria-live="polite"></p>
+        </div>
+        <p class="notice" id="team-note" role="status" hidden></p>
+        <div class="team-block" id="team-implement" hidden>
+          <h3>2. Claude Code implements</h3>
+          <p class="hint" id="team-implement-terminal"></p>
+          <div class="next-command">
+            <code id="team-implement-command" data-no-i18n></code>
+            <button type="button" class="secondary-button" id="copy-team-implement">Copy</button>
+          </div>
+          <p class="hint">
+            It claims the task, creates its own folder (a worktree) and opens Claude Code there with its first prompt.
+            The first time, Claude Code asks to approve this project's uak server (MCP): approve it.
+          </p>
+          <p class="hint">If you closed that terminal, reopen the agent with:</p>
+          <div class="next-command">
+            <code id="team-implement-resume" data-no-i18n></code>
+            <button type="button" class="secondary-button" id="copy-team-resume">Copy</button>
+          </div>
+        </div>
+        <div class="team-block" id="team-review" hidden>
+          <h3>3. Codex reviews</h3>
+          <p class="hint" id="team-review-terminal"></p>
+          <div class="next-command">
+            <code id="team-review-command" data-no-i18n></code>
+            <button type="button" class="secondary-button" id="copy-team-review">Copy</button>
+          </div>
+          <p class="hint">
+            UAK_AGENT gives Codex the reviewer's name, so it acts as a second identity: it never reviews as the
+            agent that wrote the code. It waits for work with uak next and reviews with $uak-review.
+            The first time, Codex asks to approve this project's uak server (MCP): approve it.
+          </p>
+        </div>
+        <p class="hint" id="team-windows" hidden>
+          On Windows, paste these in Git Bash, not PowerShell.
+        </p>
+        <p class="hint" id="team-copy-status" role="status"></p>
+      </section>
       <section id="beginner-dashboard" hidden>
         <div class="dashboard-metrics">
           <div>
@@ -1600,6 +1671,14 @@
           Not deployed yet. When your app is online, add its link in
           Configuration, under Project preferences.
         </p>
+      </section>
+      <section id="advanced-next" class="advanced-next" hidden aria-labelledby="advanced-next-heading">
+        <p class="secondary">Your next step</p>
+        <h3 id="advanced-next-heading"></h3>
+        <div class="next-command" id="advanced-next-box" hidden>
+          <code id="advanced-next-command" data-no-i18n></code>
+          <button type="button" class="secondary-button" id="copy-advanced-next">Copy</button>
+        </div>
       </section>
       <iframe
         id="dashboard-frame"
@@ -2029,6 +2108,16 @@
             el("simple-tasks").append(row);
           });
           var advanced = document.body.dataset.profile === "advanced";
+          // Advanced keeps the same next step as Beginner (its guidance), above the dashboard frame.
+          var guide = data.guidance || state.guidance || {};
+          el("advanced-next").hidden = !advanced || !guide.title;
+          el("advanced-next-heading").textContent = UAKWorkspace.t(guide.title || "");
+          el("advanced-next-command").textContent = (guide.commands || []).join("\n");
+          el("advanced-next-box").hidden = !(guide.commands || []).length;
+          if (teamFor !== state.target + ":" + state.ready) {
+            teamFor = state.target + ":" + state.ready;
+            loadTeam();
+          }
           el("beginner-dashboard").hidden = advanced;
           el("dashboard-frame").hidden = !advanced;
           if (advanced && !el("dashboard-frame").getAttribute("src"))
@@ -2195,6 +2284,87 @@
             );
             await refresh();
           });
+        };
+        // Start your team (UI-006): the reviewer registration (a human act) and one Copy command per agent, all
+        // from /api/team; the commands are built by the server from its own values and shown as text.
+        var teamFor = "";
+        function copyText(text, status) {
+          function done(ok) {
+            el(status).textContent = UAKWorkspace.t(
+              ok ? "Copied. Paste it where the block says." : "Select the command and copy it.",
+            );
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText)
+            navigator.clipboard.writeText(text).then(
+              function () { done(true); },
+              function () { done(false); },
+            );
+          else done(false);
+        }
+        function drawTeam(view) {
+          var reviewer = view.registered || {};
+          el("team-step").hidden = false;
+          el("team-reviewer-name").textContent = view.reviewer;
+          el("team-register").textContent = UAKWorkspace.format("Register {name}", { name: view.reviewer });
+          el("team-register").hidden = !!reviewer.registered;
+          el("team-reviewer-status").textContent = reviewer.message
+            ? UAKWorkspace.format(
+                reviewer.registered_by && reviewer.message.indexOf("already") >= 0
+                  ? "{name} was already registered by {by}."
+                  : "{name} is registered: it reviews your agents' work.",
+                { name: view.reviewer, by: reviewer.registered_by || "" },
+              )
+            : "";
+          var byId = {};
+          (view.commands || []).forEach(function (c) { byId[c.id] = c; });
+          el("team-note").hidden = !view.note;
+          el("team-note").textContent = UAKWorkspace.t(view.note || "");
+          el("team-implement").hidden = !byId.implement;
+          el("team-review").hidden = !byId.review;
+          el("team-windows").hidden = !/Win/.test(navigator.platform || navigator.userAgent || "");
+          if (byId.implement) {
+            el("team-implement-terminal").textContent = UAKWorkspace.t(byId.implement.terminal);
+            el("team-implement-command").textContent = byId.implement.command;
+            el("team-implement-resume").textContent = byId.implement.resume;
+          }
+          if (byId.review) {
+            el("team-review-terminal").textContent = UAKWorkspace.t(byId.review.terminal);
+            el("team-review-command").textContent = byId.review.command;
+          }
+        }
+        async function loadTeam() {
+          if (!state.ready) {
+            el("team-step").hidden = true;
+            return;
+          }
+          try {
+            drawTeam(await api("team"));
+          } catch (e) {
+            el("team-step").hidden = true;
+          }
+        }
+        el("team-register").onclick = function () {
+          var name = el("team-reviewer-name").textContent;
+          action(this, async function () {
+            var answer = await api("team/reviewer", { confirm: name });
+            if (answer.phase === "registering") {
+              el("team-reviewer-status").textContent = UAKWorkspace.t("Registering the reviewer…");
+              await refresh();
+            }
+            await loadTeam();
+          });
+        };
+        el("copy-team-implement").onclick = function () {
+          copyText(el("team-implement-command").textContent, "team-copy-status");
+        };
+        el("copy-team-resume").onclick = function () {
+          copyText(el("team-implement-resume").textContent, "team-copy-status");
+        };
+        el("copy-team-review").onclick = function () {
+          copyText(el("team-review-command").textContent, "team-copy-status");
+        };
+        el("copy-advanced-next").onclick = function () {
+          copyText(el("advanced-next-command").textContent, "team-copy-status");
         };
         el("copy-next-command").onclick = function () {
           var command = el("next-command").textContent;
@@ -2662,6 +2832,10 @@
           }
           setPlanBusy(isBusy(data.phase));
           syncRunningControls();
+          if (previous === "registering" && !isBusy(data.phase)) {
+            if (data.error) el("team-reviewer-status").textContent = UAKWorkspace.t(data.error);
+            else loadTeam();
+          }
           // A finished readiness check moves on by itself: to project progress when ready, and it refreshes the
           // dashboard's next step when the check was started from there.
           // A fast check can finish before the first poll ever sees "checking": remember that one was asked.
