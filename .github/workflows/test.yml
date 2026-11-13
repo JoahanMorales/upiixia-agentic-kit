@@ -1,5 +1,15 @@
 name: test
-on: [push, pull_request]
+# Once per SHA (UAK-067): a feature SHA ran the whole matrix twice (push and pull_request) and the duplicate macOS jobs
+# waited hours for runners. Pull requests run it; main runs it after every merge; workflow_dispatch on demand.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+# A newer push to a pull request cancels its older runs; any other run has a group of its own and is never cancelled.
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:

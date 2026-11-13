@@ -170,12 +170,89 @@ def check_test_discovery(findings):
             findings.append("kit/.uak/tests/%s.py · no-package-arg · smoke passes --package; add parser.add_argument(\"--package\", ...)" % t)
 
 
+def _top_block(text, key):
+    """A top-level YAML key of a workflow as (inline value, indented body lines), or None. Line-based: CI has no PyYAML."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        m = re.match(r"^(%s|'%s'|\"%s\"):(.*)$" % (key, key, key), line)
+        if m:
+            body = []
+            for nxt in lines[i + 1:]:
+                if nxt.strip() and not nxt[0].isspace():
+                    break
+                if nxt.strip() and not nxt.lstrip().startswith("#"):
+                    body.append(nxt)
+            return m.group(2).split("#", 1)[0].strip(), body
+    return None
+
+
+def ci_once_problems(text):
+    """UAK-067: the full matrix runs once per SHA. Pull requests run it and cancel their older runs; pushes run it only on
+    main, where nothing is cancelled. Why: every feature SHA ran it twice (push and pull_request), and the duplicate macOS
+    jobs were cancelled ~7 times for want of runners while a ready task waited ~2 h (2026-11-12)."""
+    out = []
+    where = ".github/workflows/test.yml · ci-once · "
+    on = _top_block(text, "on")
+    if on is None:
+        return [where + "no top-level on:"]
+    inline, body = on
+    events, push_branches = set(), None
+    if inline.startswith("["):
+        events = {e.strip().strip("'\"") for e in inline.strip("[]").split(",") if e.strip()}
+    elif inline:
+        events = {inline.strip("'\"")}
+    else:
+        current = None
+        for line in body:
+            m = re.match(r"^  ([A-Za-z_]+):(.*)$", line)
+            if m:
+                current = m.group(1)
+                events.add(current)
+                continue
+            m = re.match(r"^    (branches(?:-ignore)?):\s*(.*)$", line)
+            if m and current == "push":
+                if m.group(1) == "branches-ignore":
+                    push_branches = ["*"]
+                else:
+                    push_branches = [b.strip().strip("'\"") for b in m.group(2).split("#", 1)[0].strip().strip("[]").split(",") if b.strip()]
+    if "pull_request" not in events:
+        out.append(where + "the suite must run on pull_request")
+    if "push" not in events:
+        out.append(where + "the suite must still run on push to main after every merge")
+    elif push_branches != ["main"]:
+        out.append(where + "push runs the suite on every branch as well as pull_request (twice per feature SHA): use push: branches: [main]")
+    if "workflow_dispatch" not in events:
+        out.append(where + "workflow_dispatch must run the suite on demand")
+    conc = _top_block(text, "concurrency")
+    if conc is None:
+        out.append(where + "no concurrency: a newer push to a pull request must cancel its older runs")
+        return out
+    fields = {}
+    for line in conc[1]:
+        m = re.match(r"^\s+([a-z-]+):\s*(.*?)\s*$", line)
+        if m:
+            fields[m.group(1)] = m.group(2)
+    group, cancel = fields.get("group", ""), fields.get("cancel-in-progress", "")
+    if not re.search(r"github\.event\.pull_request\.number\s*\|\|\s*github\.(run_id|sha)\b", group):
+        out.append(where + "concurrency group must be the pull request number, else a group of its own (|| github.run_id): %r" % group)
+    if not re.fullmatch(r"\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*\}\}", cancel):
+        out.append(where + "cancel-in-progress must be ${{ github.event_name == 'pull_request' }}: older pull request runs cancelled, main never: %r" % cancel)
+    return out
+
+
+def check_ci_once(findings):
+    p = ROOT / ".github/workflows/test.yml"
+    if p.is_file():
+        findings.extend(ci_once_problems(p.read_text(encoding="utf-8")))
+
+
 def check_structure(findings):
     # The command registry routes, documents and exposes every command (scripts/gen_registry.py).
     sys.path.insert(0, str(ROOT / "scripts"))
     import gen_registry
     findings.extend("registry · " + x for x in gen_registry.problems())
     check_test_discovery(findings)
+    check_ci_once(findings)
     install = (ROOT / "install.sh").read_text(encoding="utf-8")
     sources = (ROOT / "kit/.uak/skills/SOURCES.md").read_text(encoding="utf-8")
     named = set(re.findall(r"skills=\"([^\"]+)\"", install))
