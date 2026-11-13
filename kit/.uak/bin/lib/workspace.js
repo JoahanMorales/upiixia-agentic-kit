@@ -676,6 +676,11 @@
     ["Commits will be signed as {git} and pull requests opened as {gh}.", "Los commits se firmarán como {git} y los pull requests se abrirán como {gh}."],
     ["This looks like someone else's identity. If this is not your computer, set your own before publishing: git config user.name and user.email, and gh auth login.", "Parece la identidad de otra persona. Si esta no es tu computadora, configura la tuya antes de publicar: git config user.name y user.email, y gh auth login."],
     ["nobody (gh is not signed in)", "nadie (gh no tiene sesión iniciada)"],
+    ["git error", "error de git"],
+    ["usage error", "error de uso"],
+    ["guard block", "bloqueo de guard"],
+    ["conflict", "conflicto"],
+    ["CI run ", "ejecución de CI "],
   ];
   // The readiness gate's lines (`uak start`, .uak/bin/start), as whole-line patterns: the engine's English stays in
   // Technical details; the checklist reads in the page's language. $1… are the engine's values, shown as they are.

@@ -223,6 +223,19 @@ def advanced_dashboard_is_translated(root, tmp):
     assert not missing, "dash.html labels with no Spanish: %r" % missing
     static = [t for t in texts(dash) if t not in es]
     assert not static, "static dash.html text with no Spanish: %r" % static
+    # Labels drawn without T() (tiles, empty states) are translated too: the frame translates its whole body.
+    assert re.search(r"UAKWorkspace\.start\(document\.body\)", dash), "dash.html translates its whole body as it changes"
+    code = re.sub(r"(?m)^\s*//.*$", "", dash[dash.index("function T("):])
+    classes = set(w for v in re.findall(r'"class":\s*"([^"]*)"', code) for w in v.split())
+    shown = set()
+    for lit in re.findall(r'"((?:[^"\\]|\\.)*)"', code):
+        if lit.startswith("uak ") or not re.match(r"[A-Za-z]", lit) or not re.search(r"[A-Za-z]{3,}", lit) or re.search(r"[{}=;<>()$/]|\.(md|py|sh|js)\b", lit):
+            continue
+        if set(lit.split()) <= classes or not (" " in lit.strip() or re.fullmatch(r"[A-Z][a-z]+", lit)):
+            continue
+        shown.add(lit)
+    left = sorted(l for l in shown if l not in es and l.strip() not in es and l not in ("None",))
+    assert not left, "dashboard labels with no Spanish: %r" % left
     for literal in re.findall(r'(?<![\w.])"((?:Retired|Conversation about )[^"]*)"', dash):
         assert re.search(r'T\(\s*"%s"' % re.escape(literal), dash), "%r goes through T()" % literal
     setup = lib("setup.html")
@@ -246,23 +259,23 @@ class Identity:
         if name == "gh":
             self.calls.append(list(command))
             assert timeout <= 15, "gh gets a short timeout: %r" % timeout
-            return subprocess.CompletedProcess(command, self.code, "", self.gh_output)
+            return subprocess.CompletedProcess(command, self.code, self.gh_output, "")
         if name in ("claude", "codex"):
             return subprocess.CompletedProcess(command, 0, "", "")
         return MODULE.run_command(command, cwd=cwd, timeout=timeout, group=group, env=env)
 
 
-GH_NEW = ("github.com\n  ✓ Logged in to github.com account octo-friend (keyring)\n  - Active account: true\n"
-          "  - Git operations protocol: https\n  - Token: gho_SECRETSECRETSECRET1234\n  - Token scopes: 'repo'\n")
-GH_OLD = "github.com\n  ✓ Logged in to github.com as old-style (oauth_token)\n  ✓ Token: ghp_ALSOSECRETVALUE99\n"
+GH_USER = "octo-friend\n"
+GH_HOSTILE = "Token: gho_SECRETSECRETSECRET1234 keyring\n"
 
 
 def shared_identity_is_warned(root, tmp):
     target, _ = tp.project(root, tmp, name="identity project")
-    for output, login in ((GH_NEW, "octo-friend"), (GH_OLD, "old-style"), ("You are not logged into any GitHub hosts.", "")):
-        runner = Identity(output, code=0 if login else 1)
+    for output, login, code in ((GH_USER, "octo-friend", 0), (GH_HOSTILE, "", 0), ("", "", 1)):
+        runner = Identity(output, code=code)
         live = wizard.LiveServer(str(target), run=runner)
         live.server.planning.find_binary = lambda name: "/fake/bin/" + name
+        live.server.identity_run = runner
         with live as srv:
             assert tp.post(srv, "/api/inspect", {"target": str(target)})[0] == 200
             assert tp.post(srv, "/api/human", {"name": "ana"})[0] == 200
@@ -273,7 +286,8 @@ def shared_identity_is_warned(root, tmp):
         assert ident == {"git_name": "Ana Human", "git_email": "ana@example.invalid", "gh_login": login}, ident
         assert "gho_" not in raw and "ghp_" not in raw and "Token" not in raw and "keyring" not in raw, \
             "only the parsed login reaches the page"
-        assert runner.calls and all(c[1:3] == ["auth", "status"] for c in runner.calls), runner.calls
+        # gh's own hosts file, offline: `gh auth status` checks the token online and made inspecting a project wait.
+        assert runner.calls and all(c[1:] == ["config", "get", "user", "-h", "github.com"] for c in runner.calls), runner.calls
     html = lib("setup.html")
     box = section(html, "identity-warning")
     assert 'role="status"' in box or 'role="alert"' in box, box[:200]

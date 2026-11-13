@@ -208,7 +208,7 @@ def install_unfinished(target):
     return (Path(target) / ".uak/INSTALLING").exists()
 
 
-GH_LOGIN = re.compile(r"Logged in to github\.com (?:account|as) ([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\b")
+GH_LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\Z")
 
 
 def signing_identity(run, root):
@@ -221,11 +221,13 @@ def signing_identity(run, root):
             return ""
         return (result.stdout or "").strip()[:200] if result.returncode == 0 else ""
 
+    # `gh config get user` reads gh's own hosts file: no network (auth status validates the token online and made
+    # inspecting a project wait), and nothing but the login. Anything that is not one login is ignored.
     login = ""
     try:
-        shown = run(["gh", "auth", "status", "--hostname", "github.com"], cwd=str(root), timeout=10)
-        match = GH_LOGIN.search((shown.stdout or "") + "\n" + (shown.stderr or ""))
-        login = match.group(1) if match else ""
+        shown = run(["gh", "config", "get", "user", "-h", "github.com"], cwd=str(root), timeout=10)
+        text = (shown.stdout or "").strip()
+        login = text if shown.returncode == 0 and GH_LOGIN.fullmatch(text) else ""
     except (OSError, subprocess.SubprocessError):
         login = ""
     return {"git_name": value("user.name"), "git_email": value("user.email"), "gh_login": login}
@@ -356,6 +358,9 @@ class SetupServer(ThreadingHTTPServer):
         self.nonce = secrets.token_urlsafe(24)
         self.installer = Path(installer).resolve()
         self.run = run or run_command
+        # Reading who signs (git config, gh's hosts file) is local and read-only: it never goes through the operation
+        # runner, whose callers count and pace their own commands.
+        self.identity_run = run_command
         self.lock = threading.Lock()
         self.worker = None
         self.target = ""
@@ -840,7 +845,7 @@ class SetupHandler(BaseHTTPRequestHandler):
             s.target = str(root)
             installed = kit_present(root) and s.failed_target != str(root)
             repair = (root / ".uak").exists()
-            s.state["identity"] = signing_identity(s.run, root)
+            s.state["identity"] = signing_identity(s.identity_run, root)
             s.state.update(target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], next_command="", next_note="", freeze=0, details=previous.get("details", ""), error=previous.get("error", ""))
             self.reply(200, dict(s.state, settings=s.config()))
         elif self.path in ("/api/install", "/api/repair"):

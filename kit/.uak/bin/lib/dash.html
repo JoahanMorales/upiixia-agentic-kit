@@ -551,7 +551,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
       if (m[1]) {
         var u = m[1].replace(/[.,;:]+$/, ""), short = u.replace(/^https?:\/\/(www\.)?/, "");
         var gh = u.match(/github\.com\/[^/]+\/[^/]+\/(pull\/\d+|compare\/[^?#]+|actions\/runs\/\d+|commit\/[0-9a-f]+)/);
-        if (gh) short = gh[1].replace(/^compare\/.*?\.\.\.?/, "compare ").replace(/^pull\//, "PR #").replace(/^actions\/runs\//, "CI run ").replace(/^commit\/([0-9a-f]{7}).*/, "commit $1");
+        if (gh) short = gh[1].replace(/^compare\/.*?\.\.\.?/, "compare ").replace(/^pull\//, "PR #").replace(/^actions\/runs\//, T("CI run ")).replace(/^commit\/([0-9a-f]{7}).*/, "commit $1");
         else if (short.length > 48) short = short.slice(0, 45) + "…";
         frag.appendChild(h("a", { href: u, target: "_blank", rel: "noopener", title: u, text: short }));
         if (u.length < m[1].length) frag.appendChild(document.createTextNode(m[1].slice(u.length)));
@@ -751,9 +751,11 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
   }
   if (!window.UAK_EMBEDDED) setInterval(reload, 1000 * Math.max(5, (window.UAK_DATA && window.UAK_DATA.refresh) || 20));
   document.addEventListener("uak:state", function () { if (window.UAK_DASH_THEME === "dark" || window.UAK_DASH_THEME === "light" || window.UAK_DASH_THEME === "") {themeSel.value=window.UAK_DASH_THEME;applyTheme(window.UAK_DASH_THEME);} if (window.UAKWorkspace && window.UAK_DASH_LANGUAGE) UAKWorkspace.setLanguage(window.UAK_DASH_LANGUAGE); else render(); });
-  window.addEventListener("uak:language", function () { render(); if(window.UAKWorkspace){UAKWorkspace.apply(document.querySelector(".top"));languageSelect.value=UAKWorkspace.language();} reportSize(); });
+  window.addEventListener("uak:language", function () { render(); if(window.UAKWorkspace){UAKWorkspace.apply(document.body);languageSelect.value=UAKWorkspace.language();} reportSize(); });
   function reportSize() { if(window.UAK_EMBEDDED)window.parent.postMessage({type:"uak:dashboard-size",height:document.documentElement.scrollHeight},"*"); }
-  if(window.UAKWorkspace)UAKWorkspace.apply(document.querySelector(".top"));
+  // Every label the dashboard draws goes through the shared catalog, also the ones built without T(): the whole body
+  // is translated as it changes (UI-007: the Spanish Advanced view had English tiles and empty states left).
+  if(window.UAKWorkspace)UAKWorkspace.start(document.body);
   if(window.UAK_EMBEDDED)document.querySelector(".top").hidden=true;
 
 })();

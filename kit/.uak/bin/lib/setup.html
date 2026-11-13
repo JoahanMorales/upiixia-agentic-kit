@@ -2285,6 +2285,7 @@
         }
         function show(index, focus) {
           openSection("setup");
+          drawJourney();
           step = index;
           panels.forEach(function (id, n) {
             el(id).hidden = n !== index;
@@ -3015,6 +3016,7 @@
             // The person may already have opened the dashboard: restore setup's step without leaving it.
             var stay = currentSection === "dashboard";
             state = data;
+            drawJourney();
             el("target").value = data.target || "";
             if (data.phase === "options") {
               el("selected-project").textContent = data.target;
