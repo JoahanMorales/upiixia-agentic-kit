@@ -237,7 +237,15 @@ def _direction(base, rounds):
         vid = converged(base, rnd) or first_pick(base, rnd)
         g = _read(base / rnd / vid / "genome.json") if vid else None
         if isinstance(g, dict) and isinstance(g.get("genes"), dict):
-            return {"round": rnd, "variant": vid, "genes": g["genes"]}
+            d = {"round": rnd, "variant": vid, "genes": g["genes"]}
+            try:  # the winning pair, so a new project's round 1 never reuses its faces (UAK-071)
+                import design_fonts
+                fonts = design_fonts.winning_fonts(base, rnd, vid)
+                if fonts:
+                    d["fonts"] = fonts
+            except Exception:  # noqa: BLE001  fonts are a bonus; the direction stands without them
+                pass
+            return d
     return None
 
 
@@ -259,7 +267,7 @@ def update(root, human, project=None, now=None, team=False):
     d = _direction(base, judged) if judged else None
     if d:
         old = doc["directions"].get(project, {})
-        same = old.get("genes") == d["genes"] and old.get("round") == d["round"] and old.get("variant") == d["variant"]
+        same = old.get("genes") == d["genes"] and old.get("round") == d["round"] and old.get("variant") == d["variant"] and old.get("fonts") == d.get("fonts")
         d["date"] = old["date"] if same else (now or time.strftime("%Y-%m-%d", time.gmtime()))
         d["project"] = project
         doc["directions"][project] = d

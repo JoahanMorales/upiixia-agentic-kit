@@ -466,7 +466,7 @@ def _taste_context(root, human, product, allow_repeat):
     """(weights or None, avoid list, note) from the human's taste profile. Low confidence or no profile: no weights."""
     try:
         import design_taste
-        doc = design_taste.load(human)
+        doc, source = design_taste.effective(root, human)  # team (.uak/design/taste.json), then personal (UAK-076)
     except Exception:  # noqa: BLE001  a broken profile never blocks a round
         return None, [], "no taste profile"
     own = {root.name, product}
@@ -474,7 +474,7 @@ def _taste_context(root, human, product, allow_repeat):
                                      if isinstance(d.get("genes"), dict) and d.get("project") not in own]
     if design_taste.confidence(doc) == "low" or not design_taste.weights(doc):
         return None, avoid, "taste: still learning (%d picks), exploring" % design_taste.pick_count(doc)
-    return design_taste.weights(doc), avoid, "taste: %s (%d picks)" % (human, design_taste.pick_count(doc))
+    return design_taste.weights(doc), avoid, "taste: %s, %s (%d picks)" % (source, human, design_taste.pick_count(doc))
 
 
 def _past_faces(human, product, root, allow_repeat):
