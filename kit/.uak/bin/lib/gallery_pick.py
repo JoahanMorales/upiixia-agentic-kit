@@ -26,7 +26,8 @@ from pathlib import Path
 from urllib.parse import unquote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from design_round import GENES, project_root  # noqa: E402
+import design_metrics  # noqa: E402
+from design_round import GENES, project_root, qa_warnings, read_qa  # noqa: E402
 
 DEFAULT_K = 3
 FIRST_PORT = 8791
@@ -58,7 +59,10 @@ def load_variants(rnd):
         except (OSError, ValueError):
             g = {}
         vs.append({"id": v.name, "genes": g.get("genes", {}), "recipe": g.get("recipe", ""),
-                   "has1280": (v / "1280.png").is_file(), "has390": (v / "390.png").is_file()})
+                   "has1280": (v / "1280.png").is_file(), "has390": (v / "390.png").is_file(),
+                   "has1280full": (v / "1280-full.png").is_file(), "has390full": (v / "390-full.png").is_file(),
+                   "hasIndex": (v / "index.html").is_file(), "has1920": (v / "1920.png").is_file(),
+                   "has1920full": (v / "1920-full.png").is_file(), "qa": qa_warnings(read_qa(v)), "metrics": design_metrics.variant_view(rnd, v.name)})
     return vs
 
 
@@ -98,6 +102,13 @@ button { background: var(--ink); color: var(--wall); border: 0; border-radius: 6
 .wall { position: relative; padding-bottom: 34px; }
 .desk, .phone { display: block; background: var(--mat); padding: 10px; box-shadow: var(--hang); }
 .desk img, .phone img { display: block; width: 100%; height: auto; }
+.full .desk, .full .phone { max-height: 85vh; overflow: auto; }
+.qa { list-style: none; font-size: 13px; color: var(--mark); display: grid; gap: 2px; }
+.cost { font-size: 13px; color: var(--ink-2); }
+.totals { font-size: 14px; color: var(--ink); padding-top: 8px; }
+.live { font-size: 14px; color: var(--ink-2); }
+.live a { color: var(--ink); }
+.view { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 14px; }
 .phone { position: absolute; right: -8px; bottom: 0; width: 21%; min-width: 84px; padding: 5px; border-radius: 4px; }
 .missing { display: grid; place-items: center; min-height: 160px; color: var(--ink-2); background: var(--mat); text-align: center; padding: 12px; font-size: 14px; }
 .head { display: flex; align-items: center; gap: 12px; }
@@ -162,6 +173,11 @@ JS = """
     c.addEventListener('focus', function () { cur = i; });
   });
   by.addEventListener('input', dirty);
+  document.getElementById('full').addEventListener('change', function (ev) {  // the fold by default, the whole page on the toggle
+    var on = ev.target.checked;
+    document.body.classList.toggle('full', on);
+    Array.prototype.forEach.call(document.querySelectorAll('img[data-fold]'), function (im) { im.src = on ? im.dataset.full : im.dataset.fold; });
+  });
   document.getElementById('save').addEventListener('click', save);
   document.addEventListener('keydown', function (ev) {
     var t = ev.target && ev.target.tagName;
@@ -187,27 +203,49 @@ def build_page(rnd, name, k, project):
     cards = []
     for v in vs:
         i = v["id"]
-        desk = ('<a class="desk" href="%s/1280.png" target="_blank"><img src="%s/1280.png" alt="%s at 1280 by 720"></a>' % (i, i, i)
-                if v["has1280"] else '<div class="missing">1280 capture missing<br>bash .uak/bin/uak design shoot %s</div>' % esc(name))
-        phone = ('<a class="phone" href="%s/390.png" target="_blank"><img src="%s/390.png" alt="%s at 390 wide"></a>' % (i, i, i)) if v["has390"] else ""
+        # the projector first: the 1920 shot is the main picture when the capture made one, 1280 otherwise
+        big, bigfull = ("1920", "1920-full") if v["has1920"] else ("1280", "1280-full")
+        desk = ('<a class="desk" href="%s/%s.png" target="_blank"><img src="%s/%s.png" data-fold="%s/%s.png" data-full="%s" alt="%s at %s wide"></a>'
+                % (i, big, i, big, i, big, "%s/%s.png" % (i, bigfull if v["has1920full" if v["has1920"] else "has1280full"] else big), i, big)
+                if (v["has1920"] or v["has1280"]) else '<div class="missing">1280 capture missing<br>bash .uak/bin/uak design shoot %s</div>' % esc(name))
+        phone = ('<a class="phone" href="%s/390.png" target="_blank"><img src="%s/390.png" data-fold="%s/390.png" data-full="%s" alt="%s at 390 wide"></a>' % (i, i, i, i + "/390-full.png" if v["has390full"] else i + "/390.png", i)) if v["has390"] else ""
+        live = ('<p class="live"><a href="%s/index.html" target="_blank" rel="noopener">Open the live page</a> (this server, %s/index.html)</p>' % (i, i)
+                if v["hasIndex"] else "")
+        m = v["metrics"]
+        cost = ""
+        if m:
+            cost = '<p class="cost">tokens %s &middot; %s &middot; %s</p>' % (
+                design_metrics.fmt_tokens(m["tokens"]) if m["tokens"] else "not reported",
+                "%.1f min" % (m["seconds"] / 60.0) if m["seconds"] is not None else "minutes n/a",
+                "%d look-and-fix passes" % m["passes"] if m["passes"] is not None else "passes n/a")
+        live = cost + live
+        qa = ('<ul class="qa">%s</ul>' % "".join("<li>%s: %s</li>" % (esc(str(vp)), esc(t)) for vp, t in v["qa"])) if v["qa"] else ""
         genes = "".join("<dt>%s</dt><dd>%s</dd>" % (esc(g), esc(str(v["genes"].get(g, "-")))) for g in GENES)
         cards.append(
             '<article class="card" tabindex="-1" data-id="%s"><div class="wall">%s%s</div>'
             '<div class="head"><span class="plate">%s</span><span class="badge" aria-hidden="true"></span><span class="recipe">recipe %s</span></div>'
-            '<dl class="genes">%s</dl><button type="button" class="pick-btn" aria-pressed="false">Pick</button>'
+            '%s%s<dl class="genes">%s</dl><button type="button" class="pick-btn" aria-pressed="false">Pick</button>'
             '<label class="n"><span>Note (optional)</span><input class="note" type="text" maxlength="%d" value="%s"></label></article>'
-            % (i, desk, phone, i, esc(v["recipe"] or "-"), genes, MAX_NOTE, esc(str(notes.get(i, "")))))
+            % (i, desk, phone, i, esc(v["recipe"] or "-"), live, qa, genes, MAX_NOTE, esc(str(notes.get(i, "")))))
+    sm = design_metrics.round_summary(rnd)
+    totals = ""
+    if sm["rows"]:
+        totals = '<p class="totals">Round cost: %s &middot; %s wall in parallel (longest variant)%s</p>\n' % (
+            "%s tokens" % design_metrics.fmt_tokens(sm["tokens"]) + ("" if sm["reported"] == sm["n"] else " (%d of %d variants reported)" % (sm["reported"], sm["n"])) if sm["tokens"] else "tokens not reported",
+            "%.1f min" % (sm["wall"] / 60.0) if sm["wall"] is not None else "minutes n/a",
+            " &middot; %s per picked variant" % design_metrics.fmt_tokens(sm["per_picked"]) if sm["per_picked"] else "")
     init = json.dumps({"ids": [v["id"] for v in vs], "picked": prior.get("picked", []) if isinstance(prior.get("picked"), list) else [], "k": k}).replace("</", "<\\/")
     return ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
             "<title>Pick · %s %s</title><style>%s</style></head><body><main>\n"
             "<div class=\"bar\"><h1>%s <em>· %s</em></h1><span id=\"count\" class=\"count\"></span>"
             "<label class=\"n\"><span>Your name</span><input id=\"by\" class=\"note\" type=\"text\" value=\"%s\"></label>"
+            "<label class=\"view\"><input type=\"checkbox\" id=\"full\">Full page</label>"
             "<span id=\"status\" class=\"status\" role=\"status\"></span><button type=\"button\" id=\"save\">Save picks</button></div>\n"
             "<p class=\"help\">Keys: <b>1-9</b> pick that variant, <b>arrows</b> move, <b>space</b> picks the focused one, <b>s</b> saves. "
-            "Pick in order of preference; the first is your favorite. Choose by looking.</p>\n"
+            "Pick in order of preference; the first is your favorite. Choose by looking.</p>\n%s"
             "<section class=\"room\">%s</section></main>\n<script type=\"application/json\" id=\"init\">%s</script>\n<script>%s</script></body></html>\n"
             % (esc(project), esc(name), CSS, esc(project), esc(name), esc(str(prior.get("by", "") or os.environ.get("UAK_AGENT", "") or os.environ.get("USER", ""))),
-               "".join(cards), init, JS))
+               totals, "".join(cards), init, JS))
 
 
 def save_picks(rnd, data, k):

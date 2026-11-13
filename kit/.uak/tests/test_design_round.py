@@ -66,7 +66,8 @@ class Env:
         return d
 
     def run(self, cwd, *args, env=None, ok=(0,)):
-        e = dict(os.environ, UAK_NO_COLOR="1")
+        # Rounds read and write a measured-cost history and a taste profile (UAK-063, UAK-070): never the real ~/.uak.
+        e = dict(os.environ, UAK_NO_COLOR="1", UAK_TASTE_HOME=str(self.tmp / "taste-home"))
         e.pop("UAK_DESIGN_SHOOT", None)
         e.update(env or {})
         out = subprocess.run([self.bash, str(self.tool)] + list(args), cwd=str(cwd), env=e, capture_output=True, text=True)
@@ -95,8 +96,8 @@ def round_writes_brief_and_genomes(e):
     gs = genomes_of(rnd)
     expect(len(gs) == 4, "4 genomes, got %d" % len(gs))
     for i, g in enumerate(gs, 1):
-        expect(len(g["genes"]) == 8, "8 genes")
-        expect(set(g["genes"]) == {"type", "scale", "color", "layout", "components", "imagery", "motion", "voice"}, "gene names")
+        expect(len(g["genes"]) == 9, "9 genes (UAK-068 added stage)")
+        expect(set(g["genes"]) == {"type", "scale", "color", "layout", "components", "imagery", "motion", "voice", "stage"}, "gene names")
         expect(g.get("recipe") in ("motionsites", "landing-story", "frontend-design", "design-taste-frontend"), "recipe")
         task = (rnd / ("v%d" % i) / "TASK.md").read_text(encoding="utf-8")
         expect("index.html" in task and "../brief.md" in task and "genome.json" in task, "TASK.md points to brief, genome and index.html")

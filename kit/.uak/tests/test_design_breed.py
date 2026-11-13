@@ -69,19 +69,19 @@ def children_follow_mutation_crossover_wildcard_mix(e):
         expect(len(kids) == n and kinds(kids) == want, "mix for n=%d: %s" % (n, kinds(kids)))
         picks = [src["v1"], src["v4"]]
         for name, g in kids.items():
-            expect(len(g["genes"]) == 8 and all(g["genes"][k] in dr.GENES[k] for k in dr.GENES), "valid genes")
+            expect(len(g["genes"]) == len(dr.GENES) and all(g["genes"][k] in dr.GENES[k] for k in dr.GENES), "valid genes")
             if g["kind"] == "mutation":
                 par = src[g["from"][0].split("/")[1]]
-                expect(8 - shared(g, par) == 1 and [k for k in dr.GENES if g["genes"][k] != par["genes"][k]] == [g["mutated"]], "%s: exactly one gene changed (%s)" % (name, g["mutated"]))
+                expect(len(dr.GENES) - shared(g, par) == 1 and [k for k in dr.GENES if g["genes"][k] != par["genes"][k]] == [g["mutated"]], "%s: exactly one gene changed (%s)" % (name, g["mutated"]))
             elif g["kind"] == "crossover":
                 a, b = (src[x.split("/")[1]] for x in g["from"])
                 expect(a is not b and all(g["genes"][k] in (a["genes"][k], b["genes"][k]) for k in dr.GENES), "genes come from the two parents")
-                expect(shared(g, a) < 8 and shared(g, b) < 8, "a crossover is neither parent")
+                expect(shared(g, a) < len(dr.GENES) and shared(g, b) < len(dr.GENES), "a crossover is neither parent")
             else:
                 expect(all(shared(g, p) == 0 for p in picks) , "%s: a wildcard shares no gene with a pick" % name)
         for (an, a), (bn, b) in itertools.combinations(kids.items(), 2):
             kin = set(a["from"]) & set(b["from"])
-            expect(shared(a, b) < 8, "%s and %s are the same design" % (an, bn))
+            expect(shared(a, b) < len(dr.GENES), "%s and %s are the same design" % (an, bn))
             expect(kin or shared(a, b) <= dr.MAX_SHARED, "non-kin %s %s share %d genes" % (an, bn, shared(a, b)))
     for seed in range(1, 25):  # the diversity rule on many seeds, 3 picks, N=20
         d = e.project("many%d" % seed, picks=("v2", "v5", "v7"), n=8, seed=seed)

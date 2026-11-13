@@ -33,7 +33,11 @@ verify_parse_error() {
   local v err
   v=$(printf '%s\n' "$1" | sed 's/^`//;s/`$//')
   err=$(bash -n -c "$v" 2>&1) && return 1
-  printf '%s\n' "$err" | head -n 1 | sed 's/^bash: -c: //'
+  # No `| head -n 1`: under pipefail the printf of a two-line error took SIGPIPE when head exited first, the function
+  # returned non-zero, and the broken Verify counted as fine. Why (UAK-079, v6.3 smoke runs): a flake under load.
+  err=${err%%$'\n'*}
+  printf '%s\n' "${err#bash: -c: }"
+  return 0
 }
 # `! rg …` passes on a machine without rg (command not found is a failure, and ! turns it into success). Why
 # (HackADA): a negated rg in Verify passed for any code where rg was missing; Git Bash on Windows ships none.

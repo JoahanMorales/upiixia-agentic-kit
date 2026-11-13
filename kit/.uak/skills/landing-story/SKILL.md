@@ -60,6 +60,14 @@ rule allows it).
 - Scale bounds (F0, `docs/design/failures.md`: the two landings scored 1 with 168 and 207 px display type; the one that
   scored 5 topped out at 36 px): hero display at most 96 px at 1280 and 48 px at 390; body 16–18 px; primary buttons
   40–52 px tall; at most 6 palette colors besides media. "Mega type" in `vw` only when the human picked it in a round.
+- Desktop first and a stand-by hero (the human's rules, AXIA R3): design for 1440 and 1920, then 390; the hero is full-bleed;
+  containers at least 1200 px at 1440 (a text column may be narrower, the composition fills the screen); no wide empty
+  gutters. The hero is a stand-by loop for a projector: no interaction, a 10-15 s cycle, and a stranger gets subject, what
+  the product finds, the result, the wow; reduced motion gives a complete still. Never show a raster upscaled: recreate
+  the subject (3D, points, line art, vector) or show it at or below native size; a result chart can be rebuilt as live
+  SVG/HTML from its real numbers. three.js: pinned import map (three@0.170.0 on jsdelivr), DPR at most 2, pause when
+  hidden, a designed still without WebGL, no branded models, no fetches but the CDN and fonts. Glows, neon blurs and
+  soft gradient haze are "AI slop"; light comes from the scene.
 - Run `frontend-design`'s two passes: a short plan (palette as named hex values, the type pair and scale, a layout
   sketch per section), then review it against its list of AI tells and revise what reads generic, before coding.
 - Ground the visuals in the subject's world: the materials, places and vernacular of the users (a market's awnings
