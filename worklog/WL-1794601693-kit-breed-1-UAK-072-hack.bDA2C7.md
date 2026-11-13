@@ -10,3 +10,4 @@
 
 ## History
 - 1794601693 | CLAIMED | kit-breed-1 | claim; next: after make_genomes in design_round.py and after breed() in design_breed.py
+- 1794602195 | CLAIMED | kit-breed-1 | heartbeat; lease until 1794616595

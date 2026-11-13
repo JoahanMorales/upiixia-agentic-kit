@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1794601693
+Updated: 1794602195
 AVAILABLE: UAK-073 UAK-074 UAK-075 UAK-077 UAK-078 
 CLAIMED: UAK-072 
 BLOCKED: -
@@ -10,7 +10,7 @@ INTEGRATED: (66; last 12) ... UAK-062 UAK-063 UAK-064 UAK-065 UAK-066 UAK-067 UA
 CANCELLED: UAK-002 UAK-005 
 
 Claims (first 24; status --task ID shows detail):
-UAK-072 | CLAIMED | kit-breed-1 | until 1794616093
+UAK-072 | CLAIMED | kit-breed-1 | until 1794616595
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
