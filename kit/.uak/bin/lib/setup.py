@@ -63,13 +63,16 @@ def safe_environment():
     return env
 
 
-def run_command(command, cwd=None, timeout=120, group=False, **kwargs):
+def run_command(command, cwd=None, timeout=120, group=False, env=None, **kwargs):
+    """`env` adds a few named variables to the sanitized environment (UI-006: UAK_HUMAN for one human act)."""
+    environment = safe_environment()
+    environment.update(env or {})
     if not group:
-        return subprocess.run(command, cwd=cwd, timeout=timeout, env=safe_environment(),
+        return subprocess.run(command, cwd=cwd, timeout=timeout, env=environment,
                               capture_output=True, text=True, encoding="utf-8", errors="replace")
     # A coding tool starts its own children (shells, tests): on timeout the whole process group stops.
     extra = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
-    proc = subprocess.Popen(command, cwd=cwd, env=safe_environment(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+    proc = subprocess.Popen(command, cwd=cwd, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", **extra)
     try:
         out, err = proc.communicate(timeout=timeout)
@@ -228,13 +231,20 @@ def readiness(output, code):
             "next_note": ready_lines[-1] if ready and not claim else ""}
 
 
-BUSY = ("installing", "checking", "planning", "approving", "publishing")
+BUSY = ("installing", "checking", "planning", "approving", "publishing", "registering")
 # Whole-string matches over ASCII only: `$` lets a trailing newline through and \d takes non-ASCII digits (review of
 # 57ef048: "ana\n" could add a line to the Published-By commit message).
 HUMAN_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
 SCHEDULE_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\Z")
 TIME_ZONE = re.compile(r"(UTC|[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2})\Z")
 # `uak start`'s READY line when a task is free: the command, then the engine's note after spaces.
+# The first prompts of the two agents the team step starts (UI-006). Constants with no shell metacharacters, and they
+# start with a word: Git Bash rewrites an argument that starts with / into a Windows path.
+IMPL_PROMPT = "Run /uak-start for %s. Work only in this worktree."
+REVIEW_PROMPT = ("You are the reviewer %s. Run bash .uak/bin/uak next; when it names a task to review, run $uak-review "
+                 "with that task ID. Never write code for a task.")
+# A task wt accepts (wt: [A-Z][A-Z0-9]*-[0-9]{3,}); the READY line's claim is offered to agents only when it is one.
+TEAM_TASK = re.compile(r"[A-Z][A-Z0-9]*-[0-9]{3,}\Z")
 CLAIM_COMMAND = re.compile(r"^bash \.uak/bin/wt new ([A-Z][A-Z0-9]*-[0-9]+)(?=\s|$)")
 
 
@@ -526,6 +536,35 @@ class SetupServer(ThreadingHTTPServer):
         self.worker = threading.Thread(target=work, daemon=True)
         self.worker.start()
 
+    def register_run(self, root, name, who, uak):
+        """Run the engine's register-reviewer as NAME (UAK_HUMAN), then read the result back from claims."""
+        self.state.update(phase="registering", error="", details="")
+
+        def work():
+            try:
+                result = self.run([bash_binary(), str(uak), "register-reviewer", who], cwd=str(root), timeout=180,
+                                  group=True, env=registration_env(name))
+                output = redact((result.stdout or "") + "\n" + (result.stderr or "")).strip()
+                found = reviewer_on_claims(self, root, who)
+                with self.lock:
+                    if found["registered"] and not found["retired"]:
+                        self.state.update(phase="ready", details=output, reviewer={
+                            "name": who, "registered": True, "registered_by": found["registered_by"],
+                            "message": "%s is registered: it reviews your agents' work." % who})
+                    else:
+                        last = (output.splitlines() or ["(no message)"])[-1][-300:]
+                        self.state.update(phase="error", details=output, reviewer={"name": who, "registered": False},
+                                          error="%s is not registered: %s. Check the connection, then register again."
+                                          % (who, last))
+            except Exception as exc:  # noqa: BLE001 - the page needs one plain message
+                with self.lock:
+                    self.state.update(phase="error", details=redact(exc), reviewer={"name": who, "registered": False},
+                                      error="%s is not registered: %s" % (who, redact(exc) if isinstance(exc, ValueError)
+                                                                           else "the registration stopped. Try again."))
+
+        self.worker = threading.Thread(target=work, daemon=True)
+        self.worker.start()
+
     def launch(self, operation, command):
         self.state.update(phase=operation, ready=False, checks=[], next_command="", next_note="", details="", error="")
 
@@ -641,6 +680,13 @@ class SetupHandler(BaseHTTPRequestHandler):
                 with self.server.lock:
                     _, files, digest, _, _, _ = publish_checks(self.server)
                 self.reply(200, {"files": files, "digest": digest})
+            except (ValueError, OSError, subprocess.SubprocessError) as exc:
+                self.reply(400, {"error": redact(exc)})
+        elif self.path == "/api/team":
+            try:
+                with self.server.lock:
+                    view = team_view(self.server)
+                self.reply(200, view)
             except (ValueError, OSError, subprocess.SubprocessError) as exc:
                 self.reply(400, {"error": redact(exc)})
         elif self.path == "/api/plan":
@@ -842,6 +888,19 @@ class SetupHandler(BaseHTTPRequestHandler):
                 raise ValueError("The kit files changed after the preview. Open the preview again before publishing.")
             s.publish_run(root, files, digest, s.state["human"], base_head, remote, base)
             self.reply(202, {"phase": "publishing"})
+        elif self.path == "/api/team/reviewer":
+            root, name, who = registration_checks(s, data)
+            found = reviewer_on_claims(s, root, who)
+            if found["retired"]:
+                raise ValueError("%s was retired, so it cannot review. Choose another name in Your name, or ask the human "
+                                 "who retired it." % who)
+            if found["registered"]:
+                s.state["reviewer"] = {"name": who, "registered": True, "registered_by": found["registered_by"],
+                                       "message": "%s was already registered by %s." % (who, found["registered_by"])}
+                self.reply(200, dict(s.state["reviewer"]))
+                return
+            s.register_run(root, name, who, s.engine())
+            self.reply(202, {"phase": "registering"})
         elif self.path == "/api/plan/check":
             if data:
                 raise ValueError("Checking the plan again accepts no options.")
@@ -946,6 +1005,143 @@ def publish_checks(server):
     if not files:
         raise ValueError("Nothing to publish: the kit is already on %s." % base)
     return root, files, planning.publish_digest(root, files), head, remote, base
+
+def shell_quote(path):
+    """A path as one single-quoted Bash word (forward slashes, as Git Bash and wt write it)."""
+    return "'" + path.replace("'", "'\\''") + "'"
+
+
+def team_context(server):
+    """The team step needs the human's name (UI-005), a READY check and an installed kit; returns (root, name)."""
+    name = server.state.get("human") or ""
+    if not HUMAN_NAME.fullmatch(name):
+        raise ValueError("Tell setup your name first (Your name, in Prepare): registering the reviewer is a human act.")
+    if not server.state.get("ready"):
+        raise ValueError("Press Check what's next first: the team starts after the readiness check says Ready.")
+    server.engine()
+    return project_root(server.target), name
+
+
+def main_checkout(server, root):
+    """True in the project's main checkout (its Git dir is the common dir), false in a linked task worktree."""
+    git_dir = server.planning.git(server.run, root, "rev-parse", "--absolute-git-dir").stdout.strip()
+    common = server.planning.git(server.run, root, "rev-parse", "--git-common-dir").stdout.strip()
+    common_path = Path(common) if os.path.isabs(common) else root / common
+    return bool(git_dir and common) and Path(git_dir).resolve() == common_path.resolve()
+
+
+def team_view(server):
+    """GET /api/team: the two agents' Copy commands, built only from server values (the READY line's task, the name,
+    the project folder). Commands are never run by setup."""
+    root, name = team_context(server)
+    view = {"task": "", "human": name, "reviewer": name + "-r", "commands": [], "note": "",
+            "registered": dict(server.state.get("reviewer") or {})}
+    claim = CLAIM_COMMAND.match(server.state.get("next_command") or "")
+    task = claim.group(1) if claim and TEAM_TASK.fullmatch(claim.group(1)) else ""
+    text = root.as_posix()
+    if "'" in text or any(ord(c) < 32 or ord(c) == 127 for c in text) or root.parent == root:
+        view["note"] = ("Rename the project folder (no quote mark or control character, and not a drive's root), then "
+                        "press Check again: setup only shows commands it can quote exactly.")
+        return view
+    if not main_checkout(server, root):
+        view["note"] = ("Choose the main project folder in this page (not a task worktree): agents start from there.")
+        return view
+    if not server.planning.kit_on_main(server.run, root, os.environ.get("UAK_REMOTE", "origin"),
+                                       os.environ.get("UAK_BASE", "main")):
+        view["note"] = "Publish the kit to main first (Prepare: Publish the kit to main): agents read the kit from there."
+        return view
+    if not task:
+        view["note"] = "No task is free to start right now. Press Check what's next again in a moment."
+        return view
+    worktree = (root.parent / (root.name + "-wt") / task.lower()).as_posix()
+    view["task"] = task
+    view["commands"] = [
+        {"id": "implement", "tool": "Claude Code", "terminal": "Terminal 1: a new terminal window, any folder",
+         "command": "cd %s && UAK_HUMAN= bash .uak/bin/wt new %s --agent claude-%s --human %s && cd %s && UAK_HUMAN= claude %s"
+                    % (shell_quote(text), task, name, name, shell_quote(worktree), shell_quote(IMPL_PROMPT % task)),
+         "resume": "cd %s && UAK_HUMAN= claude" % shell_quote(worktree)},
+        {"id": "review", "tool": "Codex", "terminal": "Terminal 2: another new terminal window, any folder",
+         "command": "cd %s && UAK_HUMAN= UAK_AGENT=%s-r codex %s" % (shell_quote(text), name, shell_quote(REVIEW_PROMPT % (name + "-r")))},
+    ]
+    return view
+
+
+def reviewer_on_claims(server, root, who):
+    """What claims says about a reviewer identity: {"registered", "registered_by", "retired"}. Read from the remote,
+    never from an exit code (a stopped run may have pushed)."""
+    planning = server.planning
+    remote = os.environ.get("UAK_REMOTE", "origin")
+
+    def git(*args, timeout=60):
+        return planning.git(server.run, root, *args, timeout=timeout)
+
+    listed = git("ls-remote", "--heads", remote, "claims", timeout=120)
+    if listed.returncode:
+        raise ValueError("Could not reach %s: %s" % (remote, redact((listed.stderr or "").strip())[-300:]))
+    found = {"registered": False, "registered_by": "", "retired": False}
+    if not listed.stdout.strip():
+        return found
+    if git("fetch", "-q", remote, "refs/heads/claims", timeout=120).returncode:
+        raise ValueError("Could not read the claims branch on %s. Check the connection and try again." % remote)
+    retired = git("cat-file", "-e", "FETCH_HEAD:meta/retired/%s.md" % who)
+    record = git("show", "FETCH_HEAD:roles/reviewers/%s.md" % who)
+    fields = dict(re.findall(r"(?m)^([A-Za-z-]+): *(.*?) *$", record.stdout if record.returncode == 0 else ""))
+    found["retired"] = retired.returncode == 0
+    if fields.get("Reviewer") == who and fields.get("Registered-By"):
+        found.update(registered=True, registered_by=fields["Registered-By"])
+    return found
+
+
+def registration_checks(server, data):
+    """Everything that must hold before the reviewer is registered from the page (UI-006 contract, amendments 1-2)."""
+    if set(data) != {"confirm"} or not isinstance(data["confirm"], str):
+        raise ValueError("Confirm the reviewer's name to register it.")
+    root, name = team_context(server)
+    who = name + "-r"
+    if not hmac.compare_digest(data["confirm"].encode("utf-8"), who.encode("utf-8")):
+        raise ValueError("Confirm exactly the reviewer shown on the page: %s" % who)
+    planning = server.planning
+
+    def git(*args, timeout=60):
+        return planning.git(server.run, root, *args, timeout=timeout)
+
+    if not main_checkout(server, root):
+        raise ValueError("Register the reviewer from the project's main checkout, not from a task worktree. Choose the "
+                         "main project folder in this page.")
+    # The engine names the registrar from .uak-env, then git config uak.agent; registering yourself is refused
+    # (review-merge.sh: "cannot grant a role to themselves"), so setup says where that name comes from first.
+    env_file = root / ".uak-env"
+    if env_file.is_symlink():
+        raise ValueError("%s is a symbolic link, so setup cannot tell which agent this checkout is. Remove the link, "
+                         "then register again." % env_file)
+    if env_file.is_file():
+        for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.strip().rstrip("\r") == "UAK_AGENT=" + who:
+                raise ValueError("%s in this folder says this checkout is the agent %s, so it cannot register itself. "
+                                 "Remove that line (or the file), then register again." % (env_file, who))
+    # -z: the origin path is printed as is (without it Git quotes and octal-escapes a path with an accent).
+    origin = git("config", "-z", "--show-scope", "--show-origin", "--get", "uak.agent")
+    if origin.returncode == 0 and origin.stdout.strip("\0\n"):
+        parts = re.split(r"[\t\0]", origin.stdout.rstrip("\0\n"), maxsplit=2)
+        scope, source, value = (parts + ["", "", ""])[:3]
+        value = value.rstrip("\0\n")
+        if value == who:
+            source = source[len("file:"):] if source.startswith("file:") else source
+            if source and not os.path.isabs(source):
+                source = str(root / source)
+            flag = "--global " if scope == "global" else "--system " if scope == "system" else ""
+            raise ValueError("Git config uak.agent = %s (set in %s) makes this checkout the agent %s, so it cannot "
+                             "register itself. Remove it: git config %s--unset uak.agent, then register again."
+                             % (value, source or scope, who, flag))
+    return root, name, who
+
+
+def registration_env(name):
+    env = {"UAK_HUMAN": name, "UAK_AGENT": ""}
+    for key in ("UAK_REMOTE", "UAK_BASE"):  # the same remote and base publish_checks uses
+        if os.environ.get(key):
+            env[key] = os.environ[key]
+    return env
 
 
 def make_server(target="", installer=None, run=None):

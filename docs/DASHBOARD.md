@@ -91,7 +91,11 @@ A choice of presentation, kept in your browser only. It never changes permission
   already done, and one action. It re-checks every minute and when the tab regains focus (Configuration does too), so a
   fix you made in the terminal advances on its own. When the project is ready, it opens project progress.
 - **Advanced** shows the full dashboard (board, agents, messages, black box, memory, tokens) and opens Technical
-  details.
+  details. Above it, the same next step as Beginner, with its Copy button.
+
+Choosing coding tools explains the roles: one tool implements, the other reviews as a second identity. Claude Code +
+Codex is the recommended pair. "I'm the only human on this repository" means your agents review each other under a
+second name you register.
 
 ## Plan from the page
 
@@ -112,6 +116,26 @@ In "Get ready", after the kit is installed:
    `.uak/OWNERS.md` and `.uak/PROJECT.md` (with `Backlog-Approved: yes`), only if they still match what you reviewed,
    pushes that verified commit to `main` and re-checks readiness. It refuses on failing lint, staged files, another
    branch, local commits not on `origin/main`, or your own uncommitted edits in `PROJECT.md`.
+
+## Start your team
+
+After the readiness check says Ready, the dashboard shows **Start your team** (Beginner and Advanced):
+
+1. **Register the reviewer.** One button registers `NAME-r` (NAME is the name you gave in Prepare). It is a human act:
+   setup runs the engine's `uak register-reviewer NAME-r` from the main checkout with `UAK_HUMAN=NAME`, never from a
+   task worktree. Before running, setup reads the claims branch: an identity that is already registered is reported
+   with who registered it, a retired one is refused, and a checkout whose `.uak-env` or `git config uak.agent` names
+   the reviewer is refused with where that name is set. The result is read back from claims, so a slow push that
+   still landed is reported as registered.
+2. **Claude Code implements** (Terminal 1, any folder): one Copy command claims the next task with `wt new`, enters
+   its worktree and starts Claude Code with its first prompt; a second line reopens the agent if that terminal closed.
+3. **Codex reviews** (Terminal 2, any folder): one Copy command starts Codex as `NAME-r` (`UAK_AGENT`), which waits
+   with `uak next` and reviews with `$uak-review`.
+
+Setup never runs these commands. They are built only from server values (the READY line's task, your name, the
+project folder), start with `UAK_HUMAN=` so no agent inherits human authority, and are not offered when the folder
+name holds a quote mark or a control character. On Windows, paste them in Git Bash, not PowerShell. The first time,
+each tool asks to approve the project's uak server (MCP): approve it.
 
 ## Your app
 
