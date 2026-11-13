@@ -52,6 +52,18 @@ def bind_addresses():
     return ["127.0.0.1"] + ([ts] if ts else [])
 
 
+def _perf(vdir):
+    """The variant's frame-time summary from metrics.json: {ms (the slowest viewport), fps, heavy, budget} or None."""
+    try:
+        perf = json.loads((vdir / "metrics.json").read_text(encoding="utf-8")).get("perf")
+    except (OSError, ValueError):
+        return None
+    if not isinstance(perf, dict) or not perf.get("frame_ms"):
+        return None
+    ms = max(perf["frame_ms"].values())
+    return {"ms": ms, "fps": round(1000.0 / ms) if ms else None, "heavy": bool(perf.get("heavy")), "budget": perf.get("budget_ms")}
+
+
 def load_variants(rnd):
     vs = []
     for v in sorted((p for p in rnd.iterdir() if p.is_dir() and re.match(r"^v\d+$", p.name)), key=lambda p: int(p.name[1:])):
@@ -63,7 +75,7 @@ def load_variants(rnd):
                    "has1280": (v / "1280.png").is_file(), "has390": (v / "390.png").is_file(),
                    "has1280full": (v / "1280-full.png").is_file(), "has390full": (v / "390-full.png").is_file(),
                    "hasIndex": (v / "index.html").is_file(), "has1920": (v / "1920.png").is_file(),
-                   "has1920full": (v / "1920-full.png").is_file(), "qa": qa_warnings(read_qa(v)), "metrics": design_metrics.variant_view(rnd, v.name)})
+                   "has1920full": (v / "1920-full.png").is_file(), "qa": qa_warnings(read_qa(v)), "perf": _perf(v), "metrics": design_metrics.variant_view(rnd, v.name)})
     return vs
 
 
@@ -106,6 +118,7 @@ button { background: var(--ink); color: var(--wall); border: 0; border-radius: 6
 .full .desk, .full .phone { max-height: 85vh; overflow: auto; }
 .qa { list-style: none; font-size: 13px; color: var(--mark); display: grid; gap: 2px; }
 .cost { font-size: 13px; color: var(--ink-2); }
+.cost.heavy { color: var(--mark); font-weight: 600; }
 .totals { font-size: 14px; color: var(--ink); padding-top: 8px; }
 .live { font-size: 14px; color: var(--ink-2); }
 .live a { color: var(--ink); }
@@ -231,6 +244,10 @@ def build_page(rnd, name, k, project):
                 design_metrics.fmt_tokens(m["tokens"]) if m["tokens"] else "not reported",
                 "%.1f min" % (m["seconds"] / 60.0) if m["seconds"] is not None else "minutes n/a",
                 "%d look-and-fix passes" % m["passes"] if m["passes"] is not None else "passes n/a")
+        pf = v["perf"]
+        if pf:
+            cost += '<p class="cost%s">frame %s ms (~%s fps)%s</p>' % (" heavy" if pf["heavy"] else "", pf["ms"], pf["fps"],
+                                                              " &middot; HEAVY: over the %s ms budget" % pf["budget"] if pf["heavy"] else " &middot; within the %s ms budget" % pf["budget"])
         live = cost + live
         qa = ('<ul class="qa">%s</ul>' % "".join("<li>%s: %s</li>" % (esc(str(vp)), esc(t)) for vp, t in v["qa"])) if v["qa"] else ""
         genes = "".join("<dt>%s</dt><dd>%s</dd>" % (esc(g), esc(str(v["genes"].get(g, "-")))) for g in GENES)
