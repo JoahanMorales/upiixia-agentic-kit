@@ -431,7 +431,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
       return h("button", { "class": "tile" + (cls ? " " + cls : ""), on: onclick }, [h("span", { "class": "lbl" }, label), h("span", { "class": "val", text: String(value) }), h("span", { "class": "det" }, det)]);
     }
     var faces = h("span", { "class": "faces" }, online.slice(0, 7).map(function (a) { return avatar(a.name, 20); }));
-    tiles.appendChild(tile([pres("online"), "Agents online"], online.length, online.length ? [faces, online.length > 7 ? "+" + (online.length - 7) : null] : ["none in the last 30 min"], "", function () { go("agents"); }));
+    tiles.appendChild(tile([pres("online"), T("Agents online")], online.length, online.length ? [faces, online.length > 7 ? "+" + (online.length - 7) : null] : ["none in the last 30 min"], "", function () { go("agents"); }));
     tiles.appendChild(tile(["Reviews waiting"], d.offers.length, [d.offers.length ? T("oldest ") + ago(oldest, d.generated) : "none waiting"], d.offers.length && d.generated - oldest > 3600 ? "warm" : "", function () { go("board"); }));
     tiles.appendChild(tile(["Stalled"], stalled.length, [stalled.length ? stalled.map(function (t) { return t.id; }).join(", ") : "every task is moving"], stalled.length ? "hot" : "", function () { go("board"); }));
     tiles.appendChild(tile(["Needs a human"], human.length, [human.length ? human.map(function (q) { return q.task; }).join(", ") : "nothing for you"], human.length ? "warm" : "", function () { go("talk", { kind: "human", task: "", agent: "", q: "" }); }));
@@ -534,10 +534,10 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
       var g = h("div", { "class": "agents" });
       list.forEach(function (a) {
         g.appendChild(h("article", { "class": "agent" }, [avatar(a.name, 46), h("div", { style: "min-width:0" }, [
-          h("div", { "class": "nm" }, [a.name, a.is_human ? h("span", { "class": "tag info", text: "human" }) : a.human && a.human !== a.name ? h("span", { "class": "muted", style: "font-weight:400;font-size:12.5px", text: a.human }) : null]),
+          h("div", { "class": "nm" }, [a.name, a.is_human ? h("span", { "class": "tag info", text: T("human") }) : a.human && a.human !== a.name ? h("span", { "class": "muted", style: "font-weight:400;font-size:12.5px", text: a.human }) : null]),
           h("div", { "class": "st" }, [pres(a.status), T(a.status) + " · " + ago(a.last_seen, d.generated) + T(" ago")])]),
           h("div", { "class": "now" }, a.tasks.length ? a.tasks.map(function (t) { return h("button", { "class": "chip", on: function () { goTask(t.id); } }, [h("span", { "class": "sw", style: "background:" + color(t.state) }), h("span", { "class": "mono", text: t.id }), h("span", { "class": "muted", text: LABEL[t.state].toLowerCase() })]); }) : [h("span", { "class": "muted", text: T("No live task") })]),
-          h("div", { "class": "stats" }, [h("div", {}, [h("b", { text: String(a.messages) }), "messages"]), h("div", {}, [h("b", { text: String(a.verdicts) }), "verdicts"]), h("div", {}, [h("b", { text: String(a.checkpoints) }), "checkpoints"])])]));
+          h("div", { "class": "stats" }, [h("div", {}, [h("b", { text: String(a.messages) }), T("messages")]), h("div", {}, [h("b", { text: String(a.verdicts) }), T("verdicts")]), h("div", {}, [h("b", { text: String(a.checkpoints) }), T("checkpoints")])])]));
       });
       sec.appendChild(g); v.appendChild(sec);
     });

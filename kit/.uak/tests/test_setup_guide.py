@@ -256,6 +256,8 @@ def advanced_dashboard_is_translated(root, tmp):
             if re.search(r"[A-Za-z]{3,}", lit) and not wrapped(at) and lit not in ("github",):
                 ternary.add(lit)
     assert not ternary, "text chosen by a ternary with no T(): %r" % sorted(ternary)
+    loose = sorted(set(m.group(1) for m in re.finditer(r'\)\s*,\s*"([A-Za-z][A-Za-z ]{2,})"\s*\]', code) if not wrapped(m.start(1) - 1)))
+    assert not loose, "a word drawn next to an element with no T(): %r" % loose
     assert "T(a.status)" in code, "an agent's status (online, recent, away, offline) is translated"
     for status in ("online", "recent", "away", "offline", "retired"):
         assert status in es, "status %r has a Spanish label" % status

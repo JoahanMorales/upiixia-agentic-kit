@@ -690,6 +690,10 @@
     ["offline", "desconectado"],
     ["retired", "retirado"],
     ["Tell setup your name (Your name, below) so it can check that this identity is yours.", "Dile tu nombre a la configuración (Tu nombre, abajo) para que pueda comprobar que esta identidad es tuya."],
+    ["messages", "mensajes"],
+    ["verdicts", "veredictos"],
+    ["checkpoints", "puntos de control"],
+    ["human", "persona"],
   ];
   // The readiness gate's lines (`uak start`, .uak/bin/start), as whole-line patterns: the engine's English stays in
   // Technical details; the checklist reads in the page's language. $1… are the engine's values, shown as they are.
