@@ -467,7 +467,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     });
     d.tasks.filter(function (t) { return t.stalled; }).forEach(function (t) {
       rows.push(h("div", { "class": "att-row" }, [h("span", { "class": "ico crit" }, [icon(I.pause)]),
-        h("div", { "class": "what" }, [h("div", {}, [tid(t.id), T(" has not moved in ") + t.stalled + " min", h("span", { "class": "muted", text: " · " + (t.owner || "") })]), h("div", { "class": "muted", style: "font-size:12.5px", text: t.progress || t.title })]),
+        h("div", { "class": "what" }, [h("div", {}, [tid(t.id), T(" has not moved in ") + t.stalled + " min", h("span", { "class": "muted", text: " · " + (t.owner || "") })]), h("div", { "class": "muted", style: "font-size:12.5px", text: t.progress ? T(t.progress) : t.title })]),
         h("span", { "class": "when", text: t.away ? T("owner away") : "" })]));
     });
     d.queue.filter(function (q) { return q.state === "HUMAN" || q.reason; }).forEach(function (q) {
@@ -512,7 +512,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
         t.stalled ? h("span", { "class": "tag crit", text: T("stalled ") + t.stalled + " min" }) : null, t.away ? h("span", { "class": "tag", text: T("owner away") }) : null]),
       h("div", { "class": "title", text: t.title || t.paths, title: t.title || t.paths }),
       h("div", { "class": "card-f" }, [t.owner && s !== "AVAILABLE" ? who(t.owner) : h("span", { "class": "muted", text: t.depends && t.depends !== "None" ? T("after ") + t.depends : T("free to claim") }), s !== "AVAILABLE" ? prLink(t) : null]),
-      prog && s !== "INTEGRATED" ? h("div", { "class": "prog", text: prog, title: prog }) : null]);
+      prog && s !== "INTEGRATED" ? h("div", { "class": "prog", text: T(prog), title: prog }) : null]);
   }
   function doneRows(list) {
     var sorted = list.slice().sort(function (a, b) { return (b.updated || 0) - (a.updated || 0) || (a.id < b.id ? 1 : -1); }), cut = ui.allDone ? sorted.length : 12;
@@ -534,8 +534,10 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
       var g = h("div", { "class": "agents" });
       list.forEach(function (a) {
         g.appendChild(h("article", { "class": "agent" }, [avatar(a.name, 46), h("div", { style: "min-width:0" }, [
-          h("div", { "class": "nm" }, [a.name, a.is_human ? h("span", { "class": "tag info", text: T("human") }) : a.human && a.human !== a.name ? h("span", { "class": "muted", style: "font-weight:400;font-size:12.5px", text: a.human }) : null]),
-          h("div", { "class": "st" }, [pres(a.status), T(a.status) + " · " + ago(a.last_seen, d.generated) + T(" ago")])]),
+          h("div", { "class": "nm" }, [a.name, a.is_human ? h("span", { "class": "tag info", text: T("human") }) : a.human && a.human !== a.name ? h("span", { "class": "muted", style: "font-weight:400;font-size:12.5px", text: a.human }) : null,
+            a.role === "reviewer" ? h("span", { "class": "tag", text: T("reviewer") }) : null]),
+          // last_seen 0: registered but never active (UI-012: "20770 d ago" was the time since 1970).
+          h("div", { "class": "st" }, [pres(a.status), T(a.status) + " · " + (a.last_seen ? ago(a.last_seen, d.generated) + T(" ago") : T("never seen"))])]),
           h("div", { "class": "now" }, a.tasks.length ? a.tasks.map(function (t) { return h("button", { "class": "chip", on: function () { goTask(t.id); } }, [h("span", { "class": "sw", style: "background:" + color(t.state) }), h("span", { "class": "mono", text: t.id }), h("span", { "class": "muted", text: LABEL[t.state].toLowerCase() })]); }) : [h("span", { "class": "muted", text: T("No live task") })]),
           h("div", { "class": "stats" }, [h("div", {}, [h("b", { text: String(a.messages) }), T("messages")]), h("div", {}, [h("b", { text: String(a.verdicts) }), T("verdicts")]), h("div", {}, [h("b", { text: String(a.checkpoints) }), T("checkpoints")])])]));
       });
@@ -647,7 +649,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     var bins = []; for (var i = 0; i < n; i++) bins.push(0);
     msgs.forEach(function (m) { var k = Math.floor((m.t - t0) / step); if (k >= 0 && k < n) bins[k]++; });
     var max = Math.max.apply(null, bins.concat([1])), total = bins.reduce(function (a, b) { return a + b; }, 0);
-    function lbl(k) { var x = new Date((t0 + k * step) * 1000); return hourly ? x.toLocaleString(undefined, { weekday: "short", hour: "numeric" }) : x.toLocaleDateString(window.UAKWorkspace ? UAKWorkspace.language() : undefined, { month: "short", day: "numeric" }); }
+    function lbl(k) { var x = new Date((t0 + k * step) * 1000); return hourly ? x.toLocaleString(window.UAKWorkspace ? UAKWorkspace.language() : undefined, { weekday: "short", hour: "numeric" }) : x.toLocaleDateString(window.UAKWorkspace ? UAKWorkspace.language() : undefined, { month: "short", day: "numeric" }); }
     var title = hourly ? "Messages per hour" : T("Messages per day");
     box.appendChild(h("div", { "class": "sec-h" }, [h("h2", { text: title }), h("span", { "class": "muted num", text: total + T(" in range · peak ") + max })]));
     var cols = h("div", { "class": "cols", role: "img", "aria-label": title + T(", peak ") + max });

@@ -502,6 +502,8 @@ def spanish_journey_has_no_english(root, tmp):
     checks = code[code.index('el("checks").replaceChildren();'):code.index('el("preferences").hidden')]
     assert re.search(r"lines\.slice\(1\)[\s\S]{0,200}UAKWorkspace\.t\(", checks), \
         "the checklist translates the lines under each check too, not only the first one"
+    terminal = code[code.index("var box = g.terminal;"):code.index('el("copy-terminal-cd").onclick')]
+    assert "li.textContent = UAKWorkspace.t(line);" in terminal, "the terminal box's doctor lines read in Spanish too (QA of UI-012)"
     # The claim progress line (claim.sh), shown on the Advanced dashboard's cards and stalled rows (r3).
     claim = lib("claim.sh")
     at = re.search(r'put "\$RECORD" Progress (?=")', claim)
