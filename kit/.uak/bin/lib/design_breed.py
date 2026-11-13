@@ -296,6 +296,41 @@ def child_task(rnd_name, i, genome, notes, parents, all_picks):
     return text + "\n".join(lines) + "\n"
 
 
+def _balance_ground(children, picks, sdir, rejected, seed):
+    """UAK-072: a bred round keeps at least a third light and a third dark. A flipped child takes the color of the other ground
+    (light paper or dark media), never a rejected one, and says so in "because"; a mutation then differs from its parent by
+    that color alone."""
+    import design_round
+    parents = {p["ref"]: p for p in picks}
+
+    def ok(i, genes):
+        c = children[i]
+        if genes["color"] in rejected.get("color", ()):
+            return False
+        if c["kind"] == "mutation":
+            par = parents[c["from"][0]]["genes"]
+            genes.update({g: par[g] for g in GENES if g != "color"})  # the parent's look, only its color changed
+            if genes == par:
+                return False
+        trial = [dict(o, genes=genes) if j == i else o for j, o in enumerate(children)]
+        return acceptable(trial) and all(shared_genes(genes, p["genes"]) < len(GENES) for p in picks)
+
+    def flipped(c, old, new):
+        if c["kind"] == "mutation":
+            c["mutated"] = "color"
+        elif c["kind"] == "crossover":
+            c["taken"]["color"] = "balance"
+        c["because"] = (c["because"] + "; " if c.get("because") else "") + "ground flipped: color %s \u2192 %s, to keep light and dark in balance" % (old, new)
+
+    def prefer(c):
+        if c["kind"] == "mutation":
+            par = parents[c["from"][0]]
+            if par["genes"]["color"] == c["genes"]["color"]:
+                return par.get("ground") or design_round.ground_of(par["genes"])
+        return None
+    design_round.balance_ground(children, seed, ok, flipped, prefer)
+
+
 def run(argv):
     src, n, seed, dry, yes = None, DEFAULT_N, 1, False, False
     args = list(argv[1:] if argv[:1] == ["round"] else argv)
@@ -342,7 +377,7 @@ def run(argv):
             print("design round --from: %s/%s has no genome.json" % (src, pid), file=sys.stderr)
             return 1
         genes, clause = note_genes(pick_notes.get(pid, ""))
-        picks.append({"ref": "%s/%s" % (src, pid), "genes": complete_genes(g["genes"], len(picks)), "recipe": g.get("recipe", RECIPES[0]), "chosen": genes, "clause": clause})
+        picks.append({"ref": "%s/%s" % (src, pid), "ground": g.get("ground"), "genes": complete_genes(g["genes"], len(picks)), "recipe": g.get("recipe", RECIPES[0]), "chosen": genes, "clause": clause})
     everyone = []
     for d_ in sorted(sdir.glob("v*")):
         g = _read(d_ / "genome.json")
@@ -350,6 +385,7 @@ def run(argv):
             everyone.append({"id": d_.name, "genes": complete_genes(g["genes"], len(everyone))})
     rejected = rejected_values(pick_notes, set(sp["picked"]), everyone)
     children = breed(picks, n, seed, rejected)
+    _balance_ground(children, picks, sdir, rejected, seed)  # before the fonts: a flipped child may be its parent's type again
     import design_fonts  # UAK-071: a child keeps its parent's font pair unless `type` mutated
     design_fonts.inherit(children, {p["ref"]: {"genes": p["genes"], "fonts": (_read(sdir / p["ref"].split("/", 1)[1] / "genome.json") or {}).get("fonts")} for p in picks}, seed)
     if dry:
