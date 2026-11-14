@@ -51,9 +51,105 @@
       button {
         cursor: pointer;
       }
-      button:disabled {
-        cursor: wait;
+      /* Blocked is not busy (UI-018): a button that waits for an earlier step shows not-allowed and says why;
+         the wait cursor and the spinner are only for the button whose request is running. */
+      button:disabled,
+      button[aria-disabled="true"] {
+        cursor: not-allowed;
         opacity: 0.6;
+      }
+      button[aria-busy="true"] {
+        cursor: wait;
+        opacity: 0.85;
+      }
+      button[aria-busy="true"]::before {
+        content: "";
+        display: inline-block;
+        width: 0.9em;
+        height: 0.9em;
+        margin-right: 8px;
+        vertical-align: -0.1em;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .action-result {
+        min-height: 1.6em;
+        margin: 8px 0 0;
+        font-size: 14px;
+        color: var(--secondary);
+      }
+      .action-result.error {
+        color: var(--error);
+      }
+      .blocked-reason {
+        color: var(--secondary);
+      }
+      .spotlight {
+        outline: 3px solid var(--accent);
+        outline-offset: 4px;
+        box-shadow: 0 0 0 8px var(--wash);
+        transition: box-shadow 0.3s;
+      }
+      .toast {
+        position: fixed;
+        z-index: 20;
+        right: 24px;
+        bottom: 24px;
+        width: min(380px, calc(100vw - 48px));
+        background: var(--paper);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--accent);
+        border-radius: var(--small);
+        box-shadow: 0 16px 40px -20px #173d2d88;
+        padding: 14px 16px;
+        font-size: 15px;
+        overflow-wrap: anywhere;
+        transition: opacity 0.2s, transform 0.2s;
+      }
+      .toast-title {
+        font-weight: 650;
+        margin-bottom: 4px;
+      }
+      .toast-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .toast-close {
+        border: 0;
+        background: transparent;
+        min-width: 44px;
+        min-height: 44px;
+        font-size: 22px;
+        line-height: 1;
+      }
+      @media (max-width: 600px) {
+        .toast {
+          left: 16px;
+          right: 16px;
+          bottom: 16px;
+          width: auto;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .toast,
+        .spotlight {
+          transition: none;
+        }
+      }
+      /* Until the first status arrives the panel shows no step (it flashed the welcome screen, UI-018). */
+      #content[data-loading] > section {
+        display: none;
       }
       a {
         color: var(--accent);
@@ -834,6 +930,15 @@
       #planning + #preferences {
         margin-top: 28px;
       }
+      /* The app link row: input, hint and button each on their own line, at any width (UI-018). */
+      #preferences input[type="url"] {
+        display: block;
+        width: 100%;
+      }
+      #live-url-hint {
+        display: block;
+        margin: 6px 0 14px;
+      }
       #approve-project {
         display: block;
         margin: 2px 0 10px;
@@ -1132,7 +1237,7 @@
             setup. Your coding tools keep their own sign-in.
           </div>
         </aside>
-        <main class="surface" id="content" tabindex="-1">
+        <main class="surface" id="content" tabindex="-1" data-loading>
           <div
             class="notice running-review"
             id="running-review"
@@ -1489,7 +1594,8 @@
                   uploads only the kit's files; your idea and plan wait until you
                   approve them.
                 </p>
-                <button type="button" class="secondary-button" id="publish-preview">Review the files</button>
+                <button type="button" class="secondary-button" id="publish-preview" aria-describedby="publish-preview-why">Review the files</button>
+                <p class="hint blocked-reason" id="publish-preview-why" hidden></p>
                 <div id="publish-confirm" hidden>
                   <p id="publish-count"></p>
                   <details open>
@@ -1559,7 +1665,7 @@
                   <pre id="idea-saved-text"></pre>
                 </details>
               </form>
-              <fieldset id="planner-choice">
+              <fieldset id="planner-choice" tabindex="-1">
                 <legend>Coding tool that drafts the plan</legend>
                 <div id="planner-options"></div>
               </fieldset>
@@ -1578,9 +1684,11 @@
                   <button type="button" class="secondary-button" id="copy-plan-trust">Copy</button>
                 </div>
               </div>
-              <button class="primary" type="button" id="plan-create">
+              <button class="primary" type="button" id="plan-create" aria-describedby="plan-create-why">
                 Create the plan
               </button>
+              <p class="hint blocked-reason" id="plan-create-why" hidden></p>
+              <p class="action-result" id="plan-create-result" role="status" aria-live="polite" data-no-i18n></p>
               <p class="hint" id="plan-progress" role="status" data-no-i18n hidden></p>
               <section id="plan-review" hidden aria-labelledby="plan-review-heading">
                 <h3 id="plan-review-heading">Proposed plan</h3>
@@ -1610,10 +1718,11 @@
                   <button class="secondary-button" type="button" id="plan-change">
                     Ask for changes
                   </button>
-                  <button class="primary" type="button" id="plan-approve">
+                  <button class="primary" type="button" id="plan-approve" aria-describedby="plan-approve-why">
                     Approve and publish
                   </button>
                 </div>
+                <p class="hint blocked-reason" id="plan-approve-why" hidden></p>
                 </div>
                 <div id="approve-confirm" hidden>
                   <p>
@@ -1697,6 +1806,7 @@
                 Choose another project</button
               ><button class="primary" id="check">Check what’s next</button>
             </div>
+            <p class="action-result" id="check-result" role="status" aria-live="polite" data-no-i18n></p>
           </section>
           <div id="error" class="notice error" role="alert" hidden></div>
         </main>
@@ -1889,6 +1999,18 @@
         finish.</span
       >
     </footer>
+    <div class="toast-region" id="toast-region" role="status" aria-live="polite" aria-atomic="true">
+      <div class="toast" id="toast" hidden>
+        <p class="toast-title">Not yet</p>
+        <p id="toast-text"></p>
+        <div class="toast-actions">
+          <button type="button" class="secondary-button" id="toast-go">Go there</button>
+          <button type="button" class="toast-close" id="toast-close" aria-label="Dismiss" data-i18n-aria="Dismiss">
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+      </div>
+    </div>
     <script nonce="__NONCE__" src="/workspace.js"></script>
     <script nonce="__NONCE__">
       (function () {
@@ -1998,9 +2120,9 @@
           el("next-steps").hidden = !(g.steps || []).length;
           el("next-check").hidden = ["check", "todo", "ready", "error", "waiting"].indexOf(g.kind) < 0;
           el("next-check").disabled = operationBusy();
-          el("next-check").textContent = UAKWorkspace.t(
+          setLabel(el("next-check"), UAKWorkspace.t(
             g.kind === "check" ? "Check what’s next" : "Check again",
-          );
+          ));
           el("copy-status").textContent = "";
           // Guided Beginner: why this step matters, and what the readiness check already passed.
           el("beginner-why").textContent = UAKWorkspace.t(
@@ -2064,6 +2186,8 @@
             g.kind !== "todo"
           )
             return;
+          startCheck(false);
+          lastButton = currentSection === "dashboard" ? "next-check" : "check";
           api("check", {})
             .then(function () {
               checkRequested = true;
@@ -2118,17 +2242,23 @@
         }
         function setPlanBusy(busy) {
           var blocked = busy || !planView;
-          el("plan-create").disabled =
-            blocked || !planView.idea || !selectedPlanner() || !planView.kit_on_main;
+          // Waiting for an earlier step is blocked, not busy: it says why, next to the button (UI-018).
+          el("plan-create").disabled = blocked;
+          setBlocked(el("plan-create"), planBlock(busy ? null : planView, selectedPlanner()));
           el("plan-recheck").disabled = blocked || !planView.planned;
           el("plan-onmain-note").hidden = !planView || !!planView.kit_on_main || !!planView.remote_note;
           el("plan-remote-note").hidden = !planView || !planView.remote_note;
           el("plan-remote-note").textContent = planView && planView.remote_note ? UAKWorkspace.t(planView.remote_note) : "";
           el("plan-trust").hidden = !planView || !planView.trust_command;
           el("plan-trust-command").textContent = (planView && planView.trust_command) || "";
-          el("plan-change").disabled = blocked || !selectedPlanner();
+          el("plan-change").disabled = blocked;
+          setBlocked(el("plan-change"), busy || !planView || selectedPlanner() ? null : planBlock(planView, ""));
           el("plan-approve").disabled =
             blocked || !planView.planned || planView.failed || !!planView.violations.length || !planView.lint.ok;
+          // A plan with problems: the click says to ask for changes first.
+          var fix = !busy && planView && planView.planned && el("plan-approve").disabled;
+          if (fix) el("plan-approve").disabled = false;
+          setBlocked(el("plan-approve"), fix ? { text: "Fix the plan's problems first: ask for changes.", target: "plan-note" } : null);
           el("idea-save").disabled = busy;
           if (busy) el("approve-confirm").hidden = true;
         }
@@ -2592,37 +2722,328 @@
           }
           return body;
         }
+        // Every request: the busy label in its button while it runs, then a result line next to it (UI-018). An
+        // operation that goes on in the background keeps its button busy; render says how it ended. fn() returning
+        // false reports by itself (a check reports what it found).
         async function action(button, fn) {
           if (requestBusy) return;
           requestBusy = true;
+          lastButton = (button && button.id) || "";
           button.disabled = true;
+          setBusy(button, true);
           el("error").hidden = true;
+          var outcome, failure = null;
           try {
-            await fn();
+            outcome = await fn();
           } catch (e) {
+            failure = e;
             error(e.message);
           } finally {
             requestBusy = false;
             button.disabled =
               step === 4 && isBusy(state.phase);
+            var running = isBusy(state.phase) && phaseOwner(state.phase) === button;
+            if (!running) setBusy(button, false);
+            if (failure) failed(button, failure.message);
+            else if (!running && outcome !== false) done(button);
           }
         }
-        // UI-018 feedback: begin (stub)
-        var BUSY_LABEL = {};
+        // UI-018 feedback: begin. Dylan's run (2026-11-13): a blocked button looked busy and said nothing, and a check
+        // seemed to do nothing. Every request shows its busy label inside its button and how it ended right next to it;
+        // a button that waits for an earlier step says why (aria-disabled, so a click can explain it in a toast).
+        // team-roles is a block, not a button (saving the roles guards it): setBusy leaves non-buttons as they are.
+        var BUSY_LABEL = {
+          check: "Checking…",
+          "next-check": "Checking…",
+          "team-retry": "Checking…",
+          install: "Installing…",
+          "publish-preview": "Reading the files…",
+          "publish-kit": "Publishing…",
+          "human-save": "Saving…",
+          "schedule-save": "Saving…",
+          "idea-save": "Saving…",
+          save: "Saving…",
+          "plan-create": "Creating the plan…",
+          "plan-change": "Creating the plan…",
+          "plan-recheck": "Checking the plan…",
+          "approve-publish": "Publishing…",
+          "team-register": "Registering…",
+          "team-roles": "Saving…",
+        };
+        // The background operation of each phase and the buttons that start it (the one pressed, or the first).
+        var PHASE_BUTTONS = {
+          checking: ["check", "next-check"],
+          installing: ["install"],
+          publishing: ["publish-kit"],
+          planning: ["plan-create", "plan-change"],
+          approving: ["approve-publish"],
+          registering: ["team-register"],
+        };
+        var lastButton = "",
+          checkBefore = null,
+          pointAfterCheck = false,
+          checksKey = "",
+          toastTimer = null,
+          toastLeft = 0,
+          toastAt = 0,
+          toastFrom = null,
+          TOAST_MS = 8000;
+        function clock(date) {
+          var pad = function (n) {
+            return (n < 10 ? "0" : "") + n;
+          };
+          return pad(date.getHours()) + ":" + pad(date.getMinutes());
+        }
+        function isButton(node) {
+          return !!node && node.tagName === "BUTTON" && !!node.id;
+        }
+        // A label drawn while the button is busy waits until the request ends.
+        function setLabel(button, text) {
+          button.dataset.label = text;
+          if (button.getAttribute("aria-busy") !== "true") button.textContent = text;
+        }
+        function setBusy(button, busy) {
+          if (!isButton(button)) return;
+          if (busy && button.getAttribute("aria-busy") !== "true") {
+            // Not busy, the text is the current label (code may have changed it since the last request).
+            button.dataset.label = button.textContent.trim();
+            button.setAttribute("aria-busy", "true");
+            button.textContent = UAKWorkspace.t(BUSY_LABEL[button.id] || "Working…");
+          } else if (!busy && button.getAttribute("aria-busy") === "true") {
+            button.removeAttribute("aria-busy");
+            button.textContent = button.dataset.label || "";
+          }
+        }
+        // A confirmation that closes when it succeeds reports next to the button that opened it.
+        var RESULT_AT = { "publish-kit": "publish-preview", "approve-publish": "plan-approve" };
+        // The result line of a button: under its row of actions, or right after it.
+        function resultLine(button) {
+          var line = el(button.id + "-result");
+          if (!line) {
+            line = document.createElement("p");
+            line.id = button.id + "-result";
+            line.className = "action-result";
+            line.setAttribute("role", "status");
+            line.setAttribute("aria-live", "polite");
+            line.dataset.noI18n = "";
+            var row = button.parentNode;
+            (row && row.classList.contains("actions") ? row : button).after(line);
+          }
+          return line;
+        }
+        function report(button, text, failed) {
+          if (button && RESULT_AT[button.id] && el(RESULT_AT[button.id])) button = el(RESULT_AT[button.id]);
+          if (!isButton(button)) return;
+          var line = resultLine(button);
+          line.textContent = text;
+          line.classList.toggle("error", !!failed);
+        }
+        function done(button) {
+          report(button, UAKWorkspace.format("Done at {time}.", { time: clock(new Date()) }));
+        }
+        function failed(button, message) {
+          report(
+            button,
+            UAKWorkspace.format("Failed at {time}: {error}", { time: clock(new Date()), error: UAKWorkspace.t(message) }),
+            true,
+          );
+        }
+        function phaseOwner(phase) {
+          var ids = PHASE_BUTTONS[phase] || [];
+          return el(ids.indexOf(lastButton) >= 0 ? lastButton : ids[0]);
+        }
+        function checkOwner() {
+          return phaseOwner("checking");
+        }
+        // While a background operation runs, the button that started it stays busy; when it ends it says how.
+        function drawPhaseButtons(data, previous) {
+          Object.keys(PHASE_BUTTONS).forEach(function (phase) {
+            var owner = phaseOwner(phase);
+            PHASE_BUTTONS[phase].forEach(function (id) {
+              setBusy(el(id), data.phase === phase && el(id) === owner);
+            });
+          });
+          if (isBusy(previous) && previous !== "checking" && !isBusy(data.phase)) {
+            if (data.error) failed(phaseOwner(previous), data.error);
+            else done(phaseOwner(previous));
+          }
+        }
+        // "Checked at 21:04 · nothing changed · 2 things to do": a check that changed nothing still says so.
+        function checkSummary(before, data, now) {
+          var checks = data.checks || [],
+            todo = checks.filter(function (c) {
+              return c.state === "todo";
+            }).length,
+            parts = [UAKWorkspace.format("Checked at {time}", { time: clock(now) })];
+          if (before && JSON.stringify(before) === JSON.stringify(checks)) parts.push(UAKWorkspace.t("nothing changed"));
+          parts.push(
+            data.ready || !todo
+              ? UAKWorkspace.t("everything is ready")
+              : todo === 1
+                ? UAKWorkspace.t("1 thing to do")
+                : UAKWorkspace.format("{count} things to do", { count: todo }),
+          );
+          return parts.join(" · ");
+        }
+        function startCheck(byPerson) {
+          checkBefore = state.checks || [];
+          if (byPerson) pointAfterCheck = true;
+        }
+        // The gate's next step, when it is something this page does: its control.
+        function nextControl(data) {
+          var action = (data.guidance || {}).action;
+          if ((action === "publish" || action === "schedule") && !data.human) return "human-name";
+          if (action === "publish") return "publish-preview";
+          if (action === "schedule") return "schedule-start";
+          if (action === "plan") return planView && planView.planned ? "plan-approve" : "plan-create";
+          return "";
+        }
+        function pointTo(id) {
+          var node = el(id);
+          if (!node || node.offsetParent === null) return false;
+          var still = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+          node.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+          node.focus({ preventScroll: true });
+          node.classList.add("spotlight");
+          setTimeout(function () {
+            node.classList.remove("spotlight");
+          }, 4000);
+          return true;
+        }
+        // Why Create the plan waits, in the order of the page's steps.
         function planBlock(view, planner) {
+          if (!view) return null;
+          if (!view.kit_on_main) return { text: "Publish the kit to main first (step 3).", target: "publish-preview" };
+          if (!view.idea) return { text: "Save the idea first.", target: "idea-text" };
+          if (!planner) return { text: "Choose the coding tool that drafts the plan.", target: "planner-choice" };
           return null;
         }
-        function setBlocked(button, why) {}
-        function pointTo(id) {
-          return false;
+        function nameBlock(data) {
+          return data.installed && !data.human ? { text: "Save your name first (step 1).", target: "human-name" } : null;
         }
-        function nextControl(data) {
-          return "";
+        // Blocked is not busy: aria-disabled (the button stays focusable and its click explains itself), the reason
+        // in text next to it when the page has a place for it (#ID-why), and the not-allowed cursor.
+        function setBlocked(button, why) {
+          if (why) {
+            button.setAttribute("aria-disabled", "true");
+            button.dataset.blockedText = why.text;
+            button.dataset.blockedTarget = why.target || "";
+          } else {
+            button.removeAttribute("aria-disabled");
+            delete button.dataset.blockedText;
+            delete button.dataset.blockedTarget;
+          }
+          var line = el(button.id + "-why");
+          if (line) {
+            line.textContent = why ? UAKWorkspace.t(why.text) : "";
+            line.hidden = !why;
+          }
         }
-        function checkSummary(before, data, now) {
-          return "";
+        function showToast(why, from) {
+          el("toast-text").textContent = UAKWorkspace.t(why.text || "");
+          el("toast-go").hidden = !why.target;
+          el("toast-go").dataset.target = why.target || "";
+          el("toast").hidden = false;
+          toastFrom = from || null;
+          toastLeft = TOAST_MS;
+          armToast();
         }
+        function armToast() {
+          clearTimeout(toastTimer);
+          toastAt = Date.now();
+          toastTimer = setTimeout(hideToast, toastLeft);
+        }
+        function pauseToast() {
+          if (toastTimer === null) return;
+          clearTimeout(toastTimer);
+          toastTimer = null;
+          toastLeft = Math.max(2000, toastLeft - (Date.now() - toastAt));
+        }
+        function resumeToast() {
+          if (!el("toast").hidden && toastTimer === null) armToast();
+        }
+        function hideToast() {
+          clearTimeout(toastTimer);
+          toastTimer = null;
+          el("toast").hidden = true;
+        }
+        function onBlockedClick(event) {
+          var button = event.target && event.target.closest ? event.target.closest('button[aria-disabled="true"]') : null;
+          if (!button) return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          showToast({ text: button.dataset.blockedText, target: button.dataset.blockedTarget }, button);
+        }
+        document.addEventListener("click", onBlockedClick, true);
+        el("toast").addEventListener("mouseenter", pauseToast);
+        el("toast").addEventListener("mouseleave", resumeToast);
+        el("toast").addEventListener("focusin", pauseToast);
+        el("toast").addEventListener("focusout", function (event) {
+          if (!event.relatedTarget || !el("toast").contains(event.relatedTarget)) resumeToast();
+        });
+        el("toast-close").onclick = function () {
+          var back = toastFrom;
+          hideToast();
+          if (back) back.focus();
+        };
+        el("toast-go").onclick = function () {
+          var id = this.dataset.target;
+          hideToast();
+          pointTo(id);
+        };
+        document.addEventListener("keydown", function (event) {
+          if (event.key === "Escape" && !el("toast").hidden) el("toast-close").onclick();
+        });
+        // The checklist is redrawn only when its data changes, so polling never rebuilds (or resizes) it.
         function drawChecks(data) {
+          var key = JSON.stringify([UAKWorkspace.language(), data.checks || [], !!data.ready, data.guidance || null]);
+          if (key === checksKey) return false;
+          checksKey = key;
+          el("checks").replaceChildren();
+          (data.checks || []).forEach(function (check) {
+            var li = document.createElement("li"),
+              mark = document.createElement("span"),
+              text = document.createElement("span");
+            li.className = check.state;
+            mark.className = "check-mark";
+            mark.textContent = check.state === "ok" ? "✓" : check.state === "todo" ? "!" : "i";
+            mark.setAttribute(
+              "aria-label",
+              check.state === "ok" ? "Passed" : check.state === "todo" ? "Action needed" : "Information",
+            );
+            // The gate's first line in the page's language.
+            // The lines under it (doctor's failures, the fix) through the catalog: a command stays as it is (UI-012).
+            var lines = String(check.text || "").split("\n");
+            text.textContent = [UAKWorkspace.gate(lines[0])].concat(lines.slice(1).map(function (line) {
+              var indent = line.match(/^\s*/)[0];
+              return indent + UAKWorkspace.t(line.slice(indent.length));
+            })).join("\n");
+            li.append(mark, text);
+            el("checks").append(li);
+          });
+          if (data.ready) {
+            // The next action is visible here, never only in Technical details.
+            var li = document.createElement("li"),
+              text = document.createElement("span"),
+              code = document.createElement("code"),
+              progress = document.createElement("button");
+            li.className = "ready-next";
+            text.textContent = UAKWorkspace.t("Next: run this in your coding tool's terminal.");
+            code.dataset.noI18n = "";
+            var ready = data.guidance || {};
+            code.textContent = (ready.commands || []).join("\n");
+            code.hidden = !code.textContent;
+            if (code.hidden) text.textContent = UAKWorkspace.t(ready.detail || "Your project is ready");
+            progress.type = "button";
+            progress.className = "primary";
+            progress.textContent = UAKWorkspace.t("See project progress");
+            progress.onclick = function () {
+              openSection("dashboard");
+              loadDashboard();
+            };
+            li.append(text, code, progress);
+            el("checks").append(li);
+          }
           return true;
         }
         // UI-018 feedback: end
@@ -2707,6 +3128,7 @@
         el("refresh-dashboard").onclick = loadDashboard;
         el("next-check").onclick = function () {
           action(this, async function () {
+            startCheck(false);
             await api("check", {});
             checkRequested = true; // only once the server accepted it
             el("dashboard-status").hidden = false;
@@ -2714,6 +3136,7 @@
               "Checking your next steps",
             );
             await refresh();
+            return false; // render reports what the check found
           });
         };
         // Start your team (UI-006): the reviewer registration (a human act) and one Copy command per agent, all
@@ -3190,6 +3613,8 @@
           ["human-save", "schedule-save", "publish-preview", "publish-kit"].forEach(function (id) {
             el(id).disabled = busy;
           });
+          // Publishing is a human act: before a name is saved, the button says so instead of failing (UI-018).
+          setBlocked(el("publish-preview"), busy ? null : nameBlock(data));
         }
         el("copy-terminal-cd").onclick = function () {
           var text = el("terminal-cd").textContent,
@@ -3240,6 +3665,7 @@
               // The engine writes the weekday in English ("Fri 03:30"), in the event's zone (UI-012, r1).
               { freeze: UAKWorkspace.when(result.freeze), first: UAKWorkspace.when(result.first_claim || "-") },
             );
+            startCheck(false);
             await api("check", {});
             checkRequested = true;
             await refresh();
@@ -3292,11 +3718,13 @@
           action(this, async function () {
             if (!state.installed) {
               el("repair").click();
-              return;
+              return false; // it only opens the choices
             }
+            startCheck(true);
             await api("check", {});
             checkRequested = true; // only once the server accepted it
             await refresh();
+            return false; // render reports what the check found
           });
         };
         el("save").onclick = function () {
@@ -3348,34 +3776,10 @@
           el("operation-status").classList.toggle("error", !!data.error);
           drawPlanProgress(data);
           el("output").textContent = data.details || UAKWorkspace.t("No technical output yet.");
-          el("checks").replaceChildren();
-          (data.checks || []).forEach(function (check) {
-            var li = document.createElement("li"),
-              mark = document.createElement("span"),
-              text = document.createElement("span");
-            li.className = check.state;
-            mark.className = "check-mark";
-            mark.textContent =
-              check.state === "ok" ? "✓" : check.state === "todo" ? "!" : "i";
-            mark.setAttribute(
-              "aria-label",
-              check.state === "ok"
-                ? "Passed"
-                : check.state === "todo"
-                  ? "Action needed"
-                  : "Information",
-            );
-            // The gate's first line in the page's language.
-            // The lines under it (doctor's failures, the fix) through the catalog: a command stays as it is (UI-012).
-            var lines = String(check.text || "").split("\n");
-            text.textContent = [UAKWorkspace.gate(lines[0])].concat(lines.slice(1).map(function (line) {
-              var indent = line.match(/^\s*/)[0];
-              return indent + UAKWorkspace.t(line.slice(indent.length));
-            })).join("\n");
-            li.append(mark, text);
-            el("checks").append(li);
-          });
-          el("preferences").hidden = !data.installed || busy;
+          drawChecks(data);
+          // Preferences and Repair stay in place while an operation runs (hiding them made the page jump, UI-018).
+          el("preferences").hidden = !data.installed;
+          el("save").disabled = busy;
           el("diagnostics").checked = (data.settings || {}).Blackbox !== "off";
           el("pacing").checked = (data.settings || {}).Pace !== "off";
           if (document.activeElement !== el("live-url-input"))
@@ -3383,38 +3787,13 @@
           el("check").disabled = busy;
           el("next-check").disabled = busy;
           el("change-project").disabled = busy;
-          el("repair").hidden = !data.can_repair || busy;
-          el("check").textContent = data.installed
+          el("repair").hidden = !data.can_repair;
+          el("repair").disabled = busy;
+          setLabel(el("check"), data.installed
             ? data.ready
               ? "Check again"
               : "Check what’s next"
-            : "Review choices";
-          if (data.ready) {
-            // The next action is visible here, never only in Technical details.
-            var li = document.createElement("li"),
-              text = document.createElement("span"),
-              code = document.createElement("code"),
-              progress = document.createElement("button");
-            li.className = "ready-next";
-            text.textContent = UAKWorkspace.t(
-              "Next: run this in your coding tool's terminal.",
-            );
-            code.dataset.noI18n = "";
-            var ready = data.guidance || {};
-            code.textContent = (ready.commands || []).join("\n");
-            code.hidden = !code.textContent;
-            if (code.hidden)
-              text.textContent = UAKWorkspace.t(ready.detail || "Your project is ready");
-            progress.type = "button";
-            progress.className = "primary";
-            progress.textContent = UAKWorkspace.t("See project progress");
-            progress.onclick = function () {
-              openSection("dashboard");
-              loadDashboard();
-            };
-            li.append(text, code, progress);
-            el("checks").append(li);
-          }
+            : "Review choices");
           // Planning shows while the kit is installed and the project is not ready yet.
           el("planning").hidden = !data.installed || !!data.ready || data.phase === "installing";
           drawPrepare(data);
@@ -3424,6 +3803,7 @@
           }
           setPlanBusy(isBusy(data.phase));
           syncRunningControls();
+          drawPhaseButtons(data, previous);
           if (previous === "registering" && !isBusy(data.phase)) {
             if (data.error) el("team-reviewer-status").textContent = UAKWorkspace.t(data.error);
             else loadTeam();
@@ -3437,6 +3817,15 @@
             (previous === "checking" || previous === "approving" || checkRequested) &&
             !isBusy(data.phase)
           ) {
+            // The check says what it found next to the button that asked, even when nothing changed (UI-018), and
+            // when the next step is one this page does, it points there.
+            if (previous === "checking" || checkRequested) {
+              if (data.error) failed(checkOwner(), data.error);
+              else report(checkOwner(), checkSummary(checkBefore, data, new Date()));
+              var control = pointAfterCheck && !data.ready && currentSection === "setup" ? nextControl(data) : "";
+              pointAfterCheck = false;
+              if (control) setTimeout(function () { pointTo(control); }, 0);
+            }
             checkRequested = false;
             if (data.ready || currentSection === "dashboard") {
               var moved = currentSection !== "dashboard";
@@ -3495,6 +3884,10 @@
           })
           .catch(function (e) {
             error(e.message);
+          })
+          .then(function () {
+            // The panel shows once it knows which step is current: no welcome screen flashing first (UI-018).
+            el("content").removeAttribute("data-loading");
           });
       })();
     </script>
