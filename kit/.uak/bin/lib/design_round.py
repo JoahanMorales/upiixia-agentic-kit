@@ -646,7 +646,8 @@ def task_text(rnd, i, genome, screen):
               "  (a text column may be narrower, the composition fills the screen). No section with wide empty gutters.",
               "- The hero is a stand-by loop for a projector: it runs with NO interaction in a 10-15 s cycle and tells the project to a",
               "  stranger: subject, what the product finds, the result, the wow. Your `stage` gene (**%s**) says how. Reduced motion gives a complete still." % genes.get("stage", STILL),
-              "- Never show a raster upscaled. Recreate the subject (3D, points, line art, vector) or show it at or below native size. A real",
+              "- Raster images keep their aspect ratio: `object-fit: cover` (crop) or `contain` (fit), never `fill` or a width and height that disagree with the file",
+              "  (the capture flags `distorted image`). Never show a raster upscaled. Recreate the subject (3D, points, line art, vector) or show it at or below native size. A real",
               "  result chart may be rebuilt as live SVG/HTML from its real numbers.",
               "- three.js: import map pinned to `https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js` (addons under `.../three@0.170.0/examples/jsm/`),",
               "  devicePixelRatio at most 2, pause rendering when the tab is hidden, a designed still when WebGL is missing, no branded 3D models",
@@ -910,7 +911,11 @@ QA_JS = """async () => {
   const share = n && hi > lo ? Math.round((hi - lo) / W * 100) : null;
   // Why (UAK-069 review, Nov 12 2026): the human saw stretched images the <img>-only check missed. The drawn size of anything
   // raster is measured against its natural size: <img>, CSS background-image, <video> and a <canvas> backing store.
-  const upscaled = [];
+  const upscaled = [], distorted = [];
+  // Why (UAK-073 review, AXIA R1, 2026-11-13): "stretched and ugly" was squashing, not upscaling: loop.png (900x620) drawn at 532x620 with
+  // object-fit: fill. A raster drawn more than 8% off its natural aspect ratio, with nothing that preserves it, is flagged.
+  const squashed = (nw, nh, bw, bh) => nw > 0 && nh > 0 && bw > 0 && bh > 0 && Math.abs((bw / bh) / (nw / nh) - 1) > 0.08;
+  const keeps = (fit) => /cover|contain|none|scale-down/.test(fit || '');
   const fitted = (nw, nh, bw, bh, fit) => {  // the width at which a nw x nh raster is drawn in a bw x bh box
     if (/cover/.test(fit)) return nw * Math.max(bw / nw, bh / nh);
     if (/contain|scale-down/.test(fit)) return nw * Math.min(bw / nw, bh / nh);
@@ -927,17 +932,23 @@ QA_JS = """async () => {
     if (!r) return;
     const d = fitted(im.naturalWidth, im.naturalHeight, r.width, r.height, getComputedStyle(im).objectFit || '');
     if (d > im.naturalWidth * dpr * 1.1 + 1) upscaled.push({file: name(src), natural: im.naturalWidth, drawn: Math.round(d), kind: 'img'});
+    if (!keeps(getComputedStyle(im).objectFit) && squashed(im.naturalWidth, im.naturalHeight, r.width, r.height))
+      distorted.push({file: name(src), nw: im.naturalWidth, nh: im.naturalHeight, dw: Math.round(r.width), dh: Math.round(r.height), kind: 'img'});
   });
   document.querySelectorAll('video').forEach(v => {
     const r = shown(v);
     if (!r || !v.videoWidth) return;
     const d = fitted(v.videoWidth, v.videoHeight, r.width, r.height, getComputedStyle(v).objectFit || '');
     if (d > v.videoWidth * dpr * 1.1 + 1) upscaled.push({file: name(v.currentSrc || v.src) || 'video', natural: v.videoWidth, drawn: Math.round(d), kind: 'video'});
+    if (!keeps(getComputedStyle(v).objectFit) && squashed(v.videoWidth, v.videoHeight, r.width, r.height))
+      distorted.push({file: name(v.currentSrc || v.src) || 'video', nw: v.videoWidth, nh: v.videoHeight, dw: Math.round(r.width), dh: Math.round(r.height), kind: 'video'});
   });
   document.querySelectorAll('canvas').forEach(c => {
     const r = shown(c);
     if (!r || !c.width) return;
     if (c.width < r.width * dpr * 0.7) upscaled.push({file: 'canvas' + (c.id ? '#' + c.id : ''), natural: c.width, drawn: Math.round(r.width * dpr), kind: 'canvas'});
+    if (!keeps(getComputedStyle(c).objectFit) && squashed(c.width, c.height, r.width, r.height))
+      distorted.push({file: 'canvas' + (c.id ? '#' + c.id : ''), nw: c.width, nh: c.height, dw: Math.round(r.width), dh: Math.round(r.height), kind: 'canvas'});
   });
   const bgs = [];
   for (let i = 0; i < all.length && i < 4000; i++) {
@@ -961,6 +972,12 @@ QA_JS = """async () => {
     else if (/%/.test(b.size)) d = b.r.width * parseFloat(b.size) / 100;
     else if (/px/.test(b.size)) d = parseFloat(b.size);
     if (d > n[0] * dpr * 1.1 + 1) upscaled.push({file: name(b.u), natural: n[0], drawn: Math.round(d), kind: 'background'});
+    const two = (b.size || '').trim().split(/\s+/);  // sized on both axes: "100% 100%", "300px 120px"
+    if (two.length === 2 && two[0] !== 'auto' && two[1] !== 'auto') {
+      const len = (t, full) => /%$/.test(t) ? full * parseFloat(t) / 100 : parseFloat(t);
+      const dw = len(two[0], b.r.width), dh = len(two[1], b.r.height);
+      if (squashed(n[0], n[1], dw, dh)) distorted.push({file: name(b.u), nw: n[0], nh: n[1], dw: Math.round(dw), dh: Math.round(dh), kind: 'background'});
+    }
   });
   // Frame cost (the reference shoot-patient.js): average frame interval over 3 s, long tasks and the JS heap.
   let longTasks = 0;
@@ -1008,7 +1025,7 @@ QA_JS = """async () => {
     if (focal && overlap(r, focal) > 0) overFocal++;
   }
   const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
-  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap, texts: texts, words: words, stage: !!stage, overStage: overStage, overFocal: overFocal};
+  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), distorted: distorted.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap, texts: texts, words: words, stage: !!stage, overStage: overStage, overFocal: overFocal};
 }"""
 
 _PLAYWRIGHT = """
@@ -1102,6 +1119,9 @@ def qa_warnings(qa):
                 q.get("words"), q.get("texts"), DENSE_WORDS)))
         if q.get("overFocal") and w >= 1280:
             out.append((name, "text over the stage's focal point: %d text block(s) cover the middle of the stage; move the copy beside it" % q["overFocal"]))
+        for u in q.get("distorted", [])[:3]:
+            out.append((name, "distorted image: %s, natural %s\u00d7%s \u2192 drawn %s\u00d7%s (%s): keep the ratio with object-fit: cover or contain, never fill" % (
+                u.get("file"), u.get("nw"), u.get("nh"), u.get("dw"), u.get("dh"), u.get("kind"))))
         for u in q.get("upscaled", [])[:3]:
             kind = u.get("kind")
             if kind == "canvas":
