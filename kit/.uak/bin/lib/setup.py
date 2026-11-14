@@ -364,6 +364,13 @@ BUSY = ("installing", "checking", "planning", "approving", "publishing", "regist
 # Whole-string matches over ASCII only: `$` lets a trailing newline through and \d takes non-ASCII digits (review of
 # 57ef048: "ana\n" could add a line to the Published-By commit message).
 HUMAN_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
+
+
+def signed_line(field, name):
+    """The human line of a commit setup makes (Approved-By, Published-By): one wording, the page's name (UI-012)."""
+    return "%s: %s (from the setup page; committed as the local Git identity, unverified)" % (field, name)
+
+
 SCHEDULE_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\Z")
 TIME_ZONE = re.compile(r"(UTC|[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2})\Z")
 # `uak start`'s READY line when a task is free: the command, then the engine's note after spaces.
@@ -624,7 +631,7 @@ class SetupServer(ThreadingHTTPServer):
 
         self.start_worker(work)
 
-    def approve_run(self, root, approved, approver, base_head, remote, base):
+    def approve_run(self, root, approved, approved_by, base_head, remote, base):
         """Commit exactly the reviewed plan files with Backlog-Approved: yes, check the commit, push, re-check."""
         planning, uak = self.planning, self.engine()
         with self.lock:
@@ -642,9 +649,7 @@ class SetupServer(ThreadingHTTPServer):
                     planning.approve_config(root)
                     blobs = {name: git("hash-object", "--path=" + name, "--", name).strip() for name in planning.PLAN_FILES}
                 git("add", "--", *planning.PLAN_FILES)
-                git("commit", "-q", "-m", "plan: backlog v1", "-m",
-                    "Approved-By: %s (local Git identity, unverified) in local setup, with a typed confirmation." % approver,
-                    "--", *planning.PLAN_FILES)
+                git("commit", "-q", "-m", "plan: backlog v1", "-m", approved_by, "--", *planning.PLAN_FILES)
                 commit = git("rev-parse", "HEAD").strip()
                 changed = set(git("diff-tree", "--no-commit-id", "--name-only", "-r", commit).split())
                 if git("rev-parse", commit + "^").strip() != base_head or not changed <= set(planning.PLAN_FILES) or \
@@ -711,8 +716,7 @@ class SetupServer(ThreadingHTTPServer):
                             mode, blob = meta.split()[:2]
                             expected[name] = (mode, blob)
                 committed = planning.git(self.run, root, "commit", "-q", "-m", "chore: uak setup", "-m",
-                                         "Published-By: %s (from the setup page; committed as the local Git identity, "
-                                         "unverified)" % human, "--", *files, timeout=120)
+                                         signed_line("Published-By", human), "--", *files, timeout=120)
                 if committed.returncode:
                     restore()
                     raise ValueError("Git did not create the commit (a pre-commit hook or Git refused it): %s. Nothing was "
@@ -891,6 +895,10 @@ class SetupHandler(BaseHTTPRequestHandler):
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 data = module.workspace_data(root)
+                try:
+                    name_the_team(self.server, Path(root), data)
+                except (OSError, ValueError, subprocess.SubprocessError):
+                    pass  # the dashboard still shows who has acted; only the extra names are missing
                 data["mode"] = read_config(root).get("Mode", "")
                 with self.server.lock:
                     self.server.state["freeze"] = data.get("freeze") or 0
@@ -1114,7 +1122,13 @@ class SetupHandler(BaseHTTPRequestHandler):
 
     def approve(self, data):
         root, approver, head, remote, base = approval_checks(self.server, data)
-        self.server.approve_run(root, data["digest"], approver, head, remote, base)
+        # The same human as the kit's Published-By: the name from the page. Without one, the Git name, labelled as
+        # such (it never claims to come from the setup page; review of 4af5789).
+        with self.server.lock:
+            human = self.server.state.get("human") or ""
+        line = (signed_line("Approved-By", human) if human else
+                "Approved-By: %s (local Git identity, unverified) in local setup" % approver) + ", with a typed confirmation."
+        self.server.approve_run(root, data["digest"], line, head, remote, base)
         self.reply(202, {"phase": "approving"})
 
     def require_installer(self):
@@ -1519,22 +1533,23 @@ def read_remote(server, root, remote, base):
     return result
 
 
-def read_claims(git, result):
-    """Reviewer roles, retired identities and claims from setup's copy of the claims branch: two local commands.
-    Everything read is data; only files named like NAME.md count, and each line feeds only its own folder's fields."""
+def read_claims(git, result, ref=SETUP_CLAIMS):
+    """Reviewer roles, retired identities, claims and humans from a local copy of the claims branch (setup's own, or
+    the dashboard's): two local commands. Everything read is data; only files named like NAME.md count, and each line
+    feeds only its own folder's fields."""
     # The person's Git config must not change the output this parses (review of 993e112: grep.lineNumber or
     # grep.column in a global config turned every line into ref:path:N:Field and nothing was read).
     found = git("grep", "--no-color", "--no-line-number", "--no-column", "--full-name", "-E",
-                "^(Reviewer|Registered-By|ID|State|Owner): ", SETUP_CLAIMS, "--", "roles/reviewers", "claims")
+                "^(Reviewer|Registered-By|ID|State|Owner|Role): ", ref, "--", "roles/reviewers", "claims", "meta/agents")
     records = {}
-    prefix = SETUP_CLAIMS + ":"
+    prefix = ref + ":"
     for line in (found.stdout or "").splitlines() if found.returncode == 0 else []:
         if not line.startswith(prefix):
             continue
         path, _, text = line[len(prefix):].partition(":")
         folder, _, name = path.rpartition("/")
         match = re.match(r"([A-Za-z-]+): *(.*?) *\r?$", text)
-        if folder not in ("roles/reviewers", "claims") or not CLAIM_FILE.fullmatch(name) or not match:
+        if folder not in ("roles/reviewers", "claims", "meta/agents") or not CLAIM_FILE.fullmatch(name) or not match:
             continue
         records.setdefault((folder, name[:-3]), {}).setdefault(match.group(1), match.group(2))
     for (folder, stem), fields in records.items():
@@ -1542,7 +1557,9 @@ def read_claims(git, result):
             result["reviewers"][stem] = fields["Registered-By"][:64]
         elif folder == "claims" and fields.get("ID") == stem:
             result["claims"][stem] = {"state": fields.get("State", ""), "owner": fields.get("Owner", "")[:64]}
-    listed = git("ls-tree", "--name-only", SETUP_CLAIMS, "claims/", "meta/retired/")
+        elif folder == "meta/agents" and fields.get("Role") == "human":
+            result.setdefault("humans", []).append(stem)
+    listed = git("ls-tree", "--name-only", ref, "claims/", "meta/retired/")
     for path in (listed.stdout or "").splitlines():
         folder, _, name = path.strip().rpartition("/")
         if CLAIM_FILE.fullmatch(name):
@@ -1563,6 +1580,38 @@ def remote_state(server, root, fresh=False):
     with server.lock:
         server.remote_cache[key] = result
     return result
+
+
+DASH_CLAIMS = "refs/uak/dash-claims"
+
+
+def name_the_team(server, root, data):
+    """The Agents tab lists who has acted (dash.py); setup also names the reviewer the person registered and marks the
+    human (UI-012, test round r3: luis-r was missing until its first command, and luis read "offline · 20770 d ago").
+    Read from the claims copy dash.py has just fetched; a registered reviewer never seen has last_seen 0."""
+    if data.get("source") != "remote":
+        return
+
+    def git(*args):
+        return server.planning.git(server.run, root, *args, timeout=60)
+
+    if git("rev-parse", "-q", "--verify", DASH_CLAIMS + "^{commit}").returncode:
+        return
+    known = {"reviewers": {}, "retired": [], "claims": {}, "files": [], "humans": []}
+    read_claims(git, known, DASH_CLAIMS)
+    agents = data.setdefault("agents", [])
+    names = {a.get("name") for a in agents}
+    for agent in agents:
+        if agent.get("name") in known["humans"]:
+            agent["is_human"] = True
+        if agent.get("name") in known["reviewers"]:
+            agent["role"] = "reviewer"
+    for who, by in sorted(known["reviewers"].items()):
+        if who in names or who in known["retired"]:
+            continue
+        agents.append({"name": who, "human": by, "is_human": False, "last_seen": 0, "status": "offline", "role": "reviewer",
+                       "tasks": [], "sessions": 0, "events": 0, "checkpoints": 0, "messages": 0, "verdicts": 0,
+                       "started": 0})
 
 
 def reviewer_record(known, who, human):

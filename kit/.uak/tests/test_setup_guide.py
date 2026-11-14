@@ -343,8 +343,378 @@ def shared_identity_is_warned(root, tmp):
         assert needle in es, "%r is translated" % needle
 
 
+# --- UI-012 (absorbs UI-013): the identity warning per account, and no English left in the Spanish journey ------------
+# Evidence: notes/handoff:qa/rounds-2026-11-13/SUMMARY.md #8 and #10 (r2, r3, r4), PENDING-IMPROVEMENTS.md #42 and #44.
+
+
+def page_function(code, name):
+    """The source of a top-level page function (`function NAME(` at 8 spaces, closed by `}` at the same indent)."""
+    m = re.search(r"\n( *)function %s\([\s\S]*?\n\1\}" % re.escape(name), code)
+    assert m, "the page defines function %s()" % name
+    return m.group(0)
+
+
+NODE_PROGRAM = r"""
+const vm = require("vm"), fs = require("fs");
+const input = JSON.parse(fs.readFileSync(0, "utf8"));
+const store = {"uak-language": input.language};
+const ctx = {navigator: {language: input.language}, console: console,
+             localStorage: {getItem: function (k) { return store[k] || null; }, setItem: function () {}}};
+ctx.window = ctx;
+vm.createContext(ctx);
+input.sources.forEach(function (s) { vm.runInContext(s, ctx); });
+process.stdout.write(JSON.stringify(input.calls.map(function (c) { return vm.runInContext(c, ctx); })));
+"""
+
+
+def page_js(functions, calls, language="en"):
+    """Run page functions with the real workspace.js in Node (a fake browser: language, storage); None without Node.
+    Every other check in this file reads the sources; these run the page's own logic on the inputs that failed."""
+    node = shutil.which("node")
+    if not node:
+        print("  note: no Node.js here, so the page logic is checked by reading it only")
+        return None
+    code = script(lib("setup.html"))
+    sources = [lib("workspace.js")] + [page_function(code, name) for name in functions]
+    with tempfile.TemporaryDirectory(prefix="uak-guide-js-") as folder:
+        program = Path(folder) / "run.js"
+        program.write_text(NODE_PROGRAM, encoding="utf-8")
+        done = subprocess.run([node, str(program)], input=json.dumps({"language": language, "sources": sources,
+                                                                      "calls": calls}),
+                              capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert done.returncode == 0, "the page logic runs: %s" % done.stderr[-1500:]
+    return json.loads(done.stdout)
+
+
+def identity_verdicts(cases, language="en"):
+    """identityWarning(ident, human) for each (ident, human): {text, git, gh} as the page shows it."""
+    calls = ["JSON.parse(JSON.stringify(identityWarning(%s, %s)))" % (json.dumps(ident), json.dumps(human))
+             for ident, human in cases]
+    return page_js(["plainWords", "sameName", "sharedIdentity", "identityWarning"], calls, language)
+
+
+def github_login_is_checked_on_its_own(root, tmp):
+    # The server reports both accounts as parsed (fake identity: Git = the person, gh = someone else).
+    target, _ = tp.project(root, tmp, name="login project")
+    runner = Identity(GH_USER)
+    live = wizard.LiveServer(str(target), run=runner)
+    live.server.planning.find_binary = lambda name: "/fake/bin/" + name
+    live.server.identity_run = runner
+    with live as srv:
+        assert tp.post(srv, "/api/inspect", {"target": str(target)})[0] == 200
+        assert tp.post(srv, "/api/human", {"name": "ana"})[0] == 200
+        state = tp.get(srv, "/api/status")[1]
+    ident = state.get("identity")
+    assert ident == {"git_name": "Ana Human", "git_email": "ana@example.invalid", "gh_login": "octo-friend"}, ident
+    code = script(lib("setup.html"))
+    # Each account is matched on its own words: Git name and email's local part, then the GitHub login.
+    shared = page_function(code, "sharedIdentity")
+    assert re.search(r"git:[^,}]*sameName\(", shared) and re.search(r"gh:[^,}]*sameName\(", shared), \
+        "sharedIdentity() matches the Git name/email and the GitHub login separately: %s" % shared
+    assert "identityWarning(" in page_function(code, "drawIdentity"), "drawIdentity shows identityWarning()"
+    es = catalog()
+    for needle in ("The GitHub login {gh} does not match your name, so it looks like someone else's account: sign in as yourself with gh auth login before publishing.",
+                   "The Git name and email {git} do not match your name, so they look like someone else's: set your own with git config user.name and user.email before publishing."):
+        assert needle in es and es[needle] != needle, "%r has a Spanish translation" % needle
+    found = identity_verdicts([(ident, "ana"),
+                               (dict(ident, gh_login="ana-dev"), "ana"),
+                               ({"git_name": "Carla Ruiz", "git_email": "carla@example.invalid", "gh_login": "ana-dev"}, "ana"),
+                               ({"git_name": "Carla Ruiz", "git_email": "carla@example.invalid", "gh_login": "octo-friend"}, "ana"),
+                               ({"git_name": "Ana Human", "git_email": "ana@example.invalid", "gh_login": ""}, "ana")])
+    if found is None:
+        return
+    gh_other, mine, git_other, both, no_gh = found
+    # r4: "ana" matched the Git name, and that one word hid that the pull requests open as someone else.
+    assert gh_other["gh"] and not gh_other["git"], gh_other
+    assert "GitHub login @octo-friend" in gh_other["text"] and "Git name and email" not in gh_other["text"], gh_other
+    assert not mine["git"] and not mine["gh"] and "someone else" not in mine["text"], mine
+    assert git_other["git"] and not git_other["gh"], git_other
+    assert "Git name and email Carla Ruiz <carla@example.invalid>" in git_other["text"] and "GitHub login" not in git_other["text"], git_other
+    assert both["git"] and both["gh"] and "someone else's identity" in both["text"], both
+    assert not no_gh["gh"] and not no_gh["git"], "no gh login is nobody's account, not someone else's: %r" % no_gh
+    spanish = identity_verdicts([(ident, "ana")], language="es")[0]["text"]
+    assert "@octo-friend" in spanish and "GitHub login" not in spanish and "someone else" not in spanish, spanish
+
+
+def accents_do_not_break_the_match(root, tmp):
+    code = script(lib("setup.html"))
+    words = page_function(code, "plainWords")
+    # PENDING #44: [^a-z0-9] dropped "é", so "José" became "jos" and "Ana García" never matched "anagarcia".
+    assert 'normalize("NFD")' in words, "accents are removed by decomposing the letters: %s" % words
+    assert "[^a-z0-9]" not in page_function(code, "sharedIdentity") + words, "letters outside a-z are kept, not dropped"
+    found = identity_verdicts([
+        ({"git_name": "jose", "git_email": "jose@example.invalid", "gh_login": "jose-dev"}, "José"),
+        ({"git_name": "José Pérez", "git_email": "jperez@example.invalid", "gh_login": "JOSE-p"}, "jose"),
+        ({"git_name": "anagarcia", "git_email": "anagarcia@example.invalid", "gh_login": "anagarcia"}, "Ana García"),
+        ({"git_name": "Íñigo Muñoz", "git_email": "inigo@example.invalid", "gh_login": "inigo-munoz"}, "iñigo"),
+        ({"git_name": "Carla Ruiz", "git_email": "carla@example.invalid", "gh_login": "carla"}, "José"),
+        ({"git_name": "Дмитрий", "git_email": "dmitry@example.invalid", "gh_login": "octo-friend"}, "Дмитрий"),
+    ])
+    if found is None:
+        return
+    for verdict, case in zip(found[:4], ("José = jose", "case and accents", "Ana García = anagarcia", "ñ = n")):
+        assert not verdict["git"] and not verdict["gh"], "%s: %r" % (case, verdict)
+    assert found[4]["git"] and found[4]["gh"], "someone else's accounts still warn: %r" % found[4]
+    # A non-Latin name kept its letters: the Git name matches it, the unrelated login does not.
+    assert not found[5]["git"] and found[5]["gh"], found[5]
+
+
+def doctor_templates():
+    """Each doctor failure line as `uak start` lists it under its preflight line ("· " + the FAIL text)."""
+    text = lib("../doctor")
+    found = []
+    for m in re.finditer(r'(?:^|[\s;{|&])(?:bad|msg=)(?: )?(?=")', text, re.M):
+        value, _ = shell_string(text, m.end())
+        if value != "sample":
+            found.append("· " + value)
+    return found
+
+
+def notes_patterns():
+    text = lib("workspace.js")
+    m = re.search(r"var NOTES = (\[[\s\S]*?\n  \]);", text)
+    assert m, "workspace.js defines var NOTES = [[pattern, spanish], ...]"
+    return json.loads(re.sub(r",\s*\]", "]", m.group(1)))
+
+
+def spanish_of(line, patterns, es):
+    """What translate() shows for a line in Spanish: a catalog entry, else the first whole-line pattern."""
+    if line in es:
+        return es[line]
+    for rx, spanish in patterns:
+        m = re.fullmatch(rx, line)
+        if m:
+            return re.sub(r"\$(\d)", lambda d: es.get(m.group(int(d.group(1))) or "", m.group(int(d.group(1))) or ""), spanish)
+    return None
+
+
+def spanish_journey_has_no_english(root, tmp):
+    es, notes = catalog(), notes_patterns()
+    code = script(lib("setup.html"))
+    # The doctor sub-lines under "preflight: doctor found N failure(s)" (r3).
+    lines = doctor_templates()
+    assert len(lines) >= 18, "the doctor's failure lines were read: %r" % lines
+    lines.append("uak start --fix does the hooks, the skills folders and, alone on the repo, Review-Mode: claims")
+    missing = [l for l in lines if not spanish_of(l, notes, es) or spanish_of(l, notes, es) == l]
+    assert not missing, "doctor sub-lines with no Spanish: %r" % missing
+    for rx, _ in notes:
+        assert not re.search(r"\(\?[<P]", rx), "JS-compatible regex: %r" % rx
+    checks = code[code.index('el("checks").replaceChildren();'):code.index('el("preferences").hidden')]
+    assert re.search(r"lines\.slice\(1\)[\s\S]{0,200}UAKWorkspace\.t\(", checks), \
+        "the checklist translates the lines under each check too, not only the first one"
+    terminal = code[code.index("var box = g.terminal;"):code.index('el("copy-terminal-cd").onclick')]
+    assert "li.textContent = UAKWorkspace.t(line);" in terminal, "the terminal box's doctor lines read in Spanish too (QA of UI-012)"
+    # The claim progress line (claim.sh), shown on the Advanced dashboard's cards and stalled rows (r3).
+    claim = lib("claim.sh")
+    at = re.search(r'put "\$RECORD" Progress (?=")', claim)
+    progress, _ = shell_string(claim, at.end())
+    sample = progress.replace("sample commit", "3 commit").replace("last: sample", "last: 1a2b3c4 fix the form (5 minutes ago)")
+    sample = sample.replace("sample uncommitted", "2 uncommitted").replace("at sample", "at 1794600000")
+    for line in (sample, re.sub(r" · at \d+$", "", sample)):
+        shown = spanish_of(line, notes, es)
+        assert shown and "since the claim" not in shown and "uncommitted" not in shown and "ago" not in shown, (line, shown)
+        assert "1a2b3c4 fix the form" in shown, "the commit itself is shown as it is: %r" % shown
+    dash = lib("dash.html")
+    assert re.search(r'"class": "prog", text: T\(prog\)', dash) and re.search(r'text: t\.progress \? T\(t\.progress\)', dash), \
+        "the dashboard shows the progress line through T()"
+    # The status heading: the gate's line in Spanish, and no ✓ while a TODO remains (r3).
+    title = page_function(code, "statusTitle")
+    assert "UAKWorkspace.gate(" in title, "the heading shows the gate's line in the page's language"
+    left = [lit for lit in re.findall(r'"([A-Z][^"]*[a-z][^"]*)"', title) if lit not in es]
+    assert not left, "heading literals with no Spanish: %r" % left
+    assert re.search(r'el\("result-title"\)\.textContent = statusTitle\(data\)', code)
+    assert re.search(r'el\("status-icon"\)\.textContent = statusIcon\(data\)', code)
+    # "No technical output yet." sits in a <pre>, which the body translation skips (r1).
+    assert re.search(r'el\("output"\)\.textContent = data\.details \|\| UAKWorkspace\.t\("No technical output yet\."\)', code)
+    # The schedule's weekday ("Fri 03:30") comes from the engine in English (r1).
+    saved = code[code.index('el("schedule-form").onsubmit'):code.index("var publishDigest")]
+    assert saved.count("UAKWorkspace.when(") >= 3, "the freeze, the first claim and the confirmation read in Spanish"
+    todo = {"installed": True, "phase": "checked", "checks": [{"state": "ok", "text": "1. kit installed"},
+                                                             {"state": "todo", "text": "2. preflight: doctor found 2 failure(s)"}],
+            "guidance": {"kind": "todo", "title": "preflight: doctor found 2 failure(s)"}}
+    calls = ["statusIcon(%s)" % json.dumps(todo), "statusTitle(%s)" % json.dumps(todo),
+             "statusIcon(%s)" % json.dumps(dict(todo, ready=True, checks=[], guidance={})),
+             "UAKWorkspace.when('Fri 03:30')", "UAKWorkspace.when('Sun 23:59')",
+             "UAKWorkspace.t(%s)" % json.dumps(sample), "UAKWorkspace.t(%s)" % json.dumps(lines[0]),
+             "UAKWorkspace.t('No technical output yet.')"]
+    found = page_js(["isBusy", "statusIcon", "statusTitle"], calls, language="es")
+    if found is None:
+        return
+    icon, heading, ready_icon, fri, sun, shown, doctor, output = found
+    assert icon != "✓" and ready_icon == "✓", (icon, ready_icon)
+    assert heading == "revisión previa: doctor encontró 2 fallo(s)", heading
+    assert fri == "vie 03:30" and sun == "dom 23:59", (fri, sun)
+    assert "since the claim" not in shown and "ago" not in shown and shown.startswith("3 "), shown
+    assert doctor != lines[0] and output == "Todavía no hay salida técnica.", (doctor, output)
+    english = page_js([], ["UAKWorkspace.when('Fri 03:30')"], language="en")
+    assert english == ["Fri 03:30"], english
+
+
+def never_seen_human_is_named(root, tmp):
+    import test_setup_team as team
+    target, remote = team.ready_project(root, tmp)
+    # The person registered the reviewer and has not run anything yet (r3: "20770 d", and ana-r missing).
+    team.engine_registers(target, "ana-r", "ana")
+    with tp.live(target, tp.FakePlanner()) as srv:
+        assert tp.post(srv, "/api/inspect", {"target": str(target)})[0] == 200
+        status, data = tp.get(srv, "/api/dashboard")
+    assert status == 200, data
+    people = {a["name"]: a for a in data["agents"]}
+    assert "ana-r" in people, "the Agents tab lists the registered reviewer: %r" % sorted(people)
+    assert people["ana-r"].get("role") == "reviewer" and people["ana-r"]["human"] == "ana", people["ana-r"]
+    assert people["ana-r"]["last_seen"] == 0 and not people["ana-r"]["is_human"], people["ana-r"]
+    assert people["ana"]["is_human"], "the person who registered it is shown as the human: %r" % people["ana"]
+    dash = lib("dash.html")
+    agents = dash[dash.index("  function agents(v, d) {"):dash.index("  // Message text:")]
+    assert re.search(r'a\.last_seen \? [^:]*ago\(a\.last_seen, d\.generated\)[^:]*: T\("never seen"\)', agents), \
+        "a never-seen identity says never seen, not the days since 1970"
+    assert re.search(r'a\.role === "reviewer" \? h\("span", \{ "class": "tag", text: T\("reviewer"\) \}\)', agents), \
+        "the reviewer is labelled"
+    es = catalog()
+    assert es.get("never seen") and es.get("reviewer"), "translated"
+    # The plan's Approved-By names the same human as the kit's Published-By (r3: Git name vs the page's name).
+    (tmp / "plan").mkdir()
+    plan_target, plan_remote = tp.project(root, tmp / "plan", name="named plan")
+    with tp.live(plan_target, tp.FakePlanner()) as srv:
+        plan = tp.planned(srv, plan_target)
+        assert tp.post(srv, "/api/human", {"name": "ana"})[0] == 200
+        status, body = tp.post(srv, "/api/plan/approve", {"confirm": plan_target.name, "digest": plan["digest"]})
+        assert status == 202, body
+        tp.wait_idle(srv)
+    message = tp.git(plan_target, "log", "-1", "--format=%B", tp.remote_main(plan_remote))
+    assert "Approved-By: ana (from the setup page; committed as the local Git identity, unverified)" in message, message
+    assert tp.git(plan_target, "log", "-1", "--format=%an", tp.remote_main(plan_remote)) == "Ana Human", \
+        "still committed as the local Git identity"
+    code_py = lib("setup.py")
+    assert code_py.count("(from the setup page; committed as the local Git identity, unverified)") == 1 and \
+        re.search(r'signed_line\("Approved-By", ', code_py) and re.search(r'signed_line\("Published-By", ', code_py), \
+        "one wording for both lines"
+
+
+# --- Review of 4af5789 (claude-Dylan-r): one shared word or a fragment must not hide the warning ------------------
+
+
+def identity_needs_the_whole_name(root, tmp):
+    def account(git="", mail="", gh=""):
+        return {"git_name": git, "git_email": mail, "gh_login": gh}
+
+    must_warn = [  # (ident, person, which accounts must warn)
+        (account("Ana Lopez", "ana.lopez@example.invalid", "ana-lopez"), "mariana", ("git", "gh")),
+        (account("Juan Garcia", "juan@example.invalid", "maria-garcia"), "maria-garcia", ("git",)),
+        (account("Ana Human", "ana@example.invalid", "banana"), "ana", ("gh",)),
+        (account("Ana Human", "ana@example.invalid", "mariana"), "ana", ("gh",)),
+        (account("Maria Lopez", "mlopez@example.invalid", "maria"), "maria-garcia", ("git", "gh")),
+        (account("Juan Garcia", "juan@example.invalid", "maria-garcia"), "Juan Garcia", ("gh",)),
+        (account("Juan Garcia", "jgarcia@example.invalid", "juangarcia"), "mariana", ("git", "gh")),
+    ]
+    # Review of 3bc4018: an account word that STARTS with the typed (lowercase first) name is the person's own,
+    # letters or digits after it allowed; camelCase, digits and separators split words.
+    genuine = [
+        (account("Dylan", "dylan@example.invalid", "DylanMCDS"), "dylan"),
+        (account("Ana", "ana@example.invalid", "AnaLopez"), "ana"),
+        (account("ana", "ana@example.invalid", "analopez"), "ana"),
+        (account("Luis", "luis@example.invalid", "luisgarcia"), "luis"),
+        (account("Luis", "luis@example.invalid", "luisg"), "luis"),
+        (account("Ana Lopez", "ana-lopez@example.invalid", "ana-lopez"), "ana"),
+        (account("Ana Garcia", "ana_garcia92@example.invalid", "ana_garcia92"), "ana"),
+        (account("AnaLopez", "analopez@example.invalid", "AnaLopez"), "ana-lopez"),
+        (account("José Pérez", "jperez@example.invalid", "jose"), "jose"),
+        (account("Ana García", "ana.garcia@example.invalid", "anagarcia"), "ana-garcia"),
+        (account("ana garcia", "ana.garcia@example.invalid", "ana-garcia"), "ana-garcia"),
+        (account("Someone Else", "ana.garcia@example.invalid", "ana_garcia92"), "ana-garcia"),
+        (account("ANA", "ana@example.invalid", "ana2"), "ana"),
+    ]
+    found = identity_verdicts([(i, h) for i, h, _ in must_warn] + genuine)
+    if found is None:
+        return
+    for (ident, person, which), verdict in zip(must_warn, found):
+        for side in ("git", "gh"):
+            assert verdict[side] == (side in which), "%s for %r, %r: %r" % (side, person, ident, verdict)
+    for (ident, person), verdict in zip(genuine, found[len(must_warn):]):
+        assert not verdict["git"] and not verdict["gh"], "%r carries %r: %r" % (ident, person, verdict)
+
+
+def progress_line_survives_git_forms(root, tmp):
+    es, notes = catalog(), notes_patterns()
+    head = "3 commit(s) since the claim · last: "
+    lines = [head + "1a2b3c4 fix(ui): the form (1 year, 2 months ago) · 0 uncommitted tracked file(s) · at 1794600000",
+             head + "1a2b3c4 " + "x" * 104 + " (5 minu · 1 uncommitted tracked file(s)",
+             head + "1a2b3c4 fix the form (2 hours ago) · 0 uncommitted tracked file(s) · at 1794600000",
+             head + "- · 0 uncommitted tracked file(s)"]
+    for line in lines:
+        shown = spanish_of(line, notes, es)
+        assert shown, "a Spanish line for %r" % line
+        for english in ("since the claim", " ago", "uncommitted", "year", "month", "minu", " at "):
+            assert english not in shown, "%r left in %r" % (english, shown)
+        assert ("1794600000" in shown) == ("1794600000" in line), "the time stamp is kept: %r" % shown
+    assert "1a2b3c4 fix(ui): the form ·" in spanish_of(lines[0], notes, es), "the commit itself is kept"
+    found = page_js([], ["UAKWorkspace.t(%s)" % json.dumps(l) for l in lines], language="es")
+    if found is not None:
+        assert "(hace 2 horas)" in found[2], found[2]
+        for shown in found:
+            assert "since the claim" not in shown and " ago" not in shown and "minu" not in shown, shown
+
+
+def one_word_labels_stay_scoped(root, tmp):
+    text = lib("workspace.js")
+    words = re.search(r"var WORDS = (\[[\s\S]*?\n  \]);", text)
+    assert words, "one-word labels live in var WORDS, outside the catalog the body translation reads"
+    scoped = [a for a, _ in json.loads(words.group(1))]
+    assert {"reviewer", "day", "second", "month"} <= set(scoped), scoped
+    found = page_js([], ["[UAKWorkspace.catalog.reviewer, UAKWorkspace.catalog.day, UAKWorkspace.t('reviewer'), "
+                         "UAKWorkspace.t('day')]"], language="es")
+    if found is not None:
+        assert found[0] == [None, None, "revisor", "día"], "not in the body catalog, translated when asked: %r" % found
+
+
+def retired_reviewer_is_not_listed(root, tmp):
+    import test_setup_team as team
+    target, _ = team.ready_project(root, tmp)
+    team.engine_registers(target, "ana-r", "ana")
+    team.retire(target, "ana-r", "ana")
+    with tp.live(target, tp.FakePlanner()) as srv:
+        assert tp.post(srv, "/api/inspect", {"target": str(target)})[0] == 200
+        status, data = tp.get(srv, "/api/dashboard")
+    assert status == 200, data
+    listed = [a for a in data["agents"] if a["name"] == "ana-r"]
+    assert all(a["status"] == "retired" and a.get("role") != "reviewer" for a in listed), \
+        "a retired reviewer is not offered as the reviewer: %r" % listed
+    assert not any(a.get("role") == "reviewer" for a in data["agents"]), data["agents"]
+
+
+def approval_without_a_name_says_git_identity(root, tmp):
+    target, remote = tp.project(root, tmp, name="unnamed plan")
+    with tp.live(target, tp.FakePlanner()) as srv:
+        plan = tp.planned(srv, target)
+        status, body = tp.post(srv, "/api/plan/approve", {"confirm": target.name, "digest": plan["digest"]})
+        assert status == 202, body
+        tp.wait_idle(srv)
+    message = tp.git(target, "log", "-1", "--format=%B", tp.remote_main(remote))
+    assert "Approved-By: Ana Human (local Git identity, unverified)" in message, message
+    assert "from the setup page" not in message, "the Git name never claims to come from the page: %r" % message
+
+
+def dashboard_survives_a_failed_name_read(root, tmp):
+    import test_setup_team as team
+    target, _ = team.ready_project(root, tmp)
+    team.engine_registers(target, "ana-r", "ana")
+
+    def broken(command, cwd=None, timeout=120, **kwargs):
+        if "grep" in command:
+            raise OSError("git could not start")
+        return wizard.MODULE.run_command(command, cwd=cwd, timeout=timeout)
+
+    with tp.live(target, broken) as srv:
+        assert tp.post(srv, "/api/inspect", {"target": str(target)})[0] == 200
+        status, data = tp.get(srv, "/api/dashboard")
+    assert status == 200 and data.get("agents"), "the dashboard still answers: %r" % data
+
+
 TESTS = [journey_is_visible_from_welcome, approval_field_says_what_to_type, gate_lines_are_translated,
-         advanced_dashboard_is_translated, shared_identity_is_warned]
+         advanced_dashboard_is_translated, shared_identity_is_warned, github_login_is_checked_on_its_own,
+         accents_do_not_break_the_match, spanish_journey_has_no_english, never_seen_human_is_named,
+         identity_needs_the_whole_name, progress_line_survives_git_forms, one_word_labels_stay_scoped,
+         retired_reviewer_is_not_listed, approval_without_a_name_says_git_identity, dashboard_survives_a_failed_name_read]
 
 
 def main():
