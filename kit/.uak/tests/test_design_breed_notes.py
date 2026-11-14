@@ -121,6 +121,10 @@ def because_is_recorded(e):
     kids = e.breed(d, "--n", "8", "--seed", "2")
     seen = {}
     for g in kids.values():
+        if "because" in g:  # UAK-083: the three.js cap may add its own sentence after the note's
+            g["because"] = "; ".join(p for p in g["because"].split("; ") if "Design-Max-WebGL" not in p)
+            if not g["because"]:
+                del g["because"]
         if g["kind"] == "mutation" and g["from"][0] in ("R1/v2", "R1/v6"):
             expect(g["because"].startswith("note on %s: " % g["from"][0]) and g["because"].endswith(" → color"), "because: " + g.get("because", "(none)"))
             seen[g["from"][0]] = g["because"]

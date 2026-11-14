@@ -75,6 +75,8 @@ def child_keeps_parent_pair(e):
             expect(c["fonts"]["display"] in (v / "TASK.md").read_text(encoding="utf-8"), "TASK.md names it")
             if c["kind"] == "mutation":
                 par = gs[int(c["from"][0].split("/v")[1]) - 1]
+                if c.get("fonts_because"):
+                    continue  # UAK-083: a pair a sibling already has is replaced by a distinct one of the same type
                 if c["mutated"] != "type":
                     expect(c["fonts"] == par["fonts"], "%s keeps its parent's pair" % v.name)
                     seen["kept"] += 1

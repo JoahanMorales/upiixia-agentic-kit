@@ -72,10 +72,12 @@ def children_follow_mutation_crossover_wildcard_mix(e):
             expect(len(g["genes"]) == len(dr.GENES) and all(g["genes"][k] in dr.GENES[k] for k in dr.GENES), "valid genes")
             if g["kind"] == "mutation":
                 par = src[g["from"][0].split("/")[1]]
-                expect(len(dr.GENES) - shared(g, par) == 1 and [k for k in dr.GENES if g["genes"][k] != par["genes"][k]] == [g["mutated"]], "%s: exactly one gene changed (%s)" % (name, g["mutated"]))
+                capped = "Design-Max-WebGL" in g.get("because", "")  # UAK-083: the cap may also move the stage of a mutation off three.js
+                changed = [k for k in dr.GENES if g["genes"][k] != par["genes"][k] and not (capped and k == "stage")]
+                expect(len(changed) == 1 and changed == [g["mutated"]] or (capped and not changed and g["mutated"] == "stage"), "%s: exactly one gene changed (%s)" % (name, g["mutated"]))
             elif g["kind"] == "crossover":
                 a, b = (src[x.split("/")[1]] for x in g["from"])
-                expect(a is not b and all(g["genes"][k] in (a["genes"][k], b["genes"][k]) for k in dr.GENES), "genes come from the two parents")
+                expect(a is not b and all(g["genes"][k] in (a["genes"][k], b["genes"][k]) or (k == "stage" and "Design-Max-WebGL" in g.get("because", "")) for k in dr.GENES), "genes come from the two parents (a stage moved off three.js by the cap says so)")
                 expect(shared(g, a) < len(dr.GENES) and shared(g, b) < len(dr.GENES), "a crossover is neither parent")
             else:
                 expect(all(shared(g, p) == 0 for p in picks) , "%s: a wildcard shares no gene with a pick" % name)
@@ -85,6 +87,7 @@ def children_follow_mutation_crossover_wildcard_mix(e):
             expect(kin or shared(a, b) <= dr.MAX_SHARED, "non-kin %s %s share %d genes" % (an, bn, shared(a, b)))
     for seed in range(1, 25):  # the diversity rule on many seeds, 3 picks, N=20
         d = e.project("many%d" % seed, picks=("v2", "v5", "v7"), n=8, seed=seed)
+        (d / ".uak/PROJECT.md").write_text("- Design-Max-WebGL: 20\n", encoding="utf-8")  # the default cap (2) cannot hold 20 children 3 genes apart (UAK-083)
         e.breed(d, "--from", "R1", "--n", "20", "--seed", str(seed), "--yes")
         kids = list(e.genomes(d, "R2").values())
         expect(len(kids) == 20, "20 children")
