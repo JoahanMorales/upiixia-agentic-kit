@@ -1029,8 +1029,7 @@ QA_JS = r"""sync () => {
 }"""
 
 _PLAYWRIGHT = """
-import faulthandler; faulthandler.dump_traceback_later(20, exit=True)  # DEBUG-CI
-import functools, http.server, json, os, re, sys, threading
+import functools, http.server, json, os, re, socketserver, sys, threading
 from pathlib import Path
 from urllib.parse import quote
 from playwright.sync_api import sync_playwright
@@ -1065,7 +1064,13 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
             f.seek(start)
             self.wfile.write(f.read(end - start + 1))
 root = html.parent.parent
-srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(root)))
+class Srv(http.server.ThreadingHTTPServer):
+    # Why (CI, 2026-11-14): HTTPServer.server_bind calls socket.getfqdn(), a reverse DNS lookup that hung for minutes on macOS
+    # runners, so every capture timed out before the first page loaded. The name is never used.
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
+srv = Srv(("127.0.0.1", 0), functools.partial(Quiet, directory=str(root)))
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 url = "http://127.0.0.1:%d/%s" % (srv.server_address[1], quote(html.relative_to(root).as_posix()))
 report = {}
@@ -1354,10 +1359,6 @@ def cmd_shoot(argv):
 
 
 def main(argv):
-    import faulthandler  # DEBUG-CI
-    faulthandler.dump_traceback_later(60, exit=True)  # DEBUG-CI
-    import threading as _t, subprocess as _sp  # DEBUG-CI
-    _t.Timer(30, lambda: os.write(2, ("PS-DEBUG\n" + _sp.run(["ps", "-axo", "pid,ppid,stat,etime,command"], capture_output=True, text=True).stdout[-3500:]).encode())).start()  # DEBUG-CI
     if argv[:1] == ["round"] and "--from" in argv:  # a bred round from the human's picks (UAK-059)
         import design_breed
         return design_breed.run(argv[1:])
