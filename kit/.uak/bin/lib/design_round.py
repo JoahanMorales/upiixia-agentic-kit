@@ -865,7 +865,7 @@ def cmd_round(argv):
 # Why (AXIA R1, Nov 11 2026): two variants looked broken in their captures because a <video>'s first frame is empty, and the
 # human judged six landings from that first screen alone. Before each shot every video is paused and seeked to 30% of its
 # length (a video that has no frame to show keeps its poster); the page is then still, so the fold and the full page match.
-MEDIA_JS = """async () => {
+MEDIA_JS = r"""async () => {
   const vs = Array.prototype.slice.call(document.querySelectorAll('video'));
   const wait = (el, ev, ms) => new Promise(res => { let done = false; const f = () => { if (!done) { done = true; res(); } };
     el.addEventListener(ev, f, {once: true}); setTimeout(f, ms); });
@@ -885,7 +885,7 @@ MEDIA_JS = """async () => {
 # Why (AXIA R1-R3, Nov 11 2026): the lead hand-patched the capture for 1920, http and WebGL, and the human found the narrow
 # pages and stretched images by eye. The probe below measures what the human judges, in the page itself: WebGL, how wide
 # the content (text extents, images, media) is against the viewport, rasters drawn larger than they are, and the frame time.
-QA_JS = """async () => {
+QA_JS = r"""async () => {
   const W = innerWidth, dpr = window.devicePixelRatio || 1;
   let gl = false;
   try { const c = document.createElement('canvas'); gl = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) {}
@@ -958,7 +958,7 @@ QA_JS = """async () => {
     if (!r) continue;
     const sizes = (cs.backgroundSize || 'auto').split(/,\s*(?![^(]*\))/);
     let k = 0;
-    cs.backgroundImage.replace(/url\((['"]?)(.*?)\\1\)/g, (m, q, u) => { bgs.push({u: u, r: r, size: sizes[k % sizes.length] || 'auto'}); k++; return m; });
+    cs.backgroundImage.replace(/url\((['"]?)(.*?)\1\)/g, (m, q, u) => { bgs.push({u: u, r: r, size: sizes[k % sizes.length] || 'auto'}); k++; return m; });
   }
   const natural = {};
   await Promise.all(Array.from(new Set(bgs.map(b => b.u))).filter(u => !/\.svg(\?|$)|^data:image\/svg/i.test(u)).slice(0, 40).map(u => new Promise(res => {
@@ -1029,7 +1029,7 @@ QA_JS = """async () => {
 }"""
 
 _PLAYWRIGHT = """
-import functools, http.server, json, os, re, sys, threading
+import functools, http.server, json, os, re, socketserver, sys, threading
 from pathlib import Path
 from urllib.parse import quote
 from playwright.sync_api import sync_playwright
@@ -1064,7 +1064,13 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
             f.seek(start)
             self.wfile.write(f.read(end - start + 1))
 root = html.parent.parent
-srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(root)))
+class Srv(http.server.ThreadingHTTPServer):
+    # Why (CI, 2026-11-14): HTTPServer.server_bind calls socket.getfqdn(), a reverse DNS lookup that hung for minutes on macOS
+    # runners, so every capture timed out before the first page loaded. The name is never used.
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
+srv = Srv(("127.0.0.1", 0), functools.partial(Quiet, directory=str(root)))
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 url = "http://127.0.0.1:%d/%s" % (srv.server_address[1], quote(html.relative_to(root).as_posix()))
 report = {}
