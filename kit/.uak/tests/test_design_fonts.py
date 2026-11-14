@@ -133,7 +133,7 @@ def lint_flags_wrong_pair(e):
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=str(root), check=True)
     out = subprocess.run([resolve_binary("bash"), str(e.package / ".uak/bin/design-lint"), ".uak/design/rounds/R1"], cwd=str(root), capture_output=True, text=True)
     warns = [l for l in out.stdout.splitlines() if l.startswith("DESIGN_LINT_WARN")]
-    expect(out.returncode == 0 and len(warns) == 1 and "v2/index.html" in warns[0] and "loads Fraunces + Geist" in warns[0] and pairs[1]["display"] in warns[0], out.stdout + out.stderr)
+    expect(out.returncode == 0 and len(warns) == 1 and "v2/index.html" in warns[0].replace("\\", "/") and "loads Fraunces + Geist" in warns[0] and pairs[1]["display"] in warns[0], out.stdout + out.stderr)
     expect(not any("v1/index.html" in w for w in warns), "the right pair is silent")
     return "v2 flagged"
 

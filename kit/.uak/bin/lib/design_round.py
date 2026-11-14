@@ -865,7 +865,7 @@ def cmd_round(argv):
 # Why (AXIA R1, Nov 11 2026): two variants looked broken in their captures because a <video>'s first frame is empty, and the
 # human judged six landings from that first screen alone. Before each shot every video is paused and seeked to 30% of its
 # length (a video that has no frame to show keeps its poster); the page is then still, so the fold and the full page match.
-MEDIA_JS = r"""sync () => {
+MEDIA_JS = r"""async () => {
   const vs = Array.prototype.slice.call(document.querySelectorAll('video'));
   const wait = (el, ev, ms) => new Promise(res => { let done = false; const f = () => { if (!done) { done = true; res(); } };
     el.addEventListener(ev, f, {once: true}); setTimeout(f, ms); });
@@ -885,7 +885,7 @@ MEDIA_JS = r"""sync () => {
 # Why (AXIA R1-R3, Nov 11 2026): the lead hand-patched the capture for 1920, http and WebGL, and the human found the narrow
 # pages and stretched images by eye. The probe below measures what the human judges, in the page itself: WebGL, how wide
 # the content (text extents, images, media) is against the viewport, rasters drawn larger than they are, and the frame time.
-QA_JS = r"""sync () => {
+QA_JS = r"""async () => {
   const W = innerWidth, dpr = window.devicePixelRatio || 1;
   let gl = false;
   try { const c = document.createElement('canvas'); gl = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) {}
