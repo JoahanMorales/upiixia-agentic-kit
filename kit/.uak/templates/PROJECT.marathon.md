@@ -55,6 +55,7 @@ Subagents-Per-Machine: 6
 Subagent-Burst-Per-Minute: 6
 Max-Worktree-Agents: 4
 Blackbox: on
+Live-URL: -
 Additive-Paths: -
 Test-First: yes
 ```

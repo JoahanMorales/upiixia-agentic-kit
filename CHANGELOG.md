@@ -1,5 +1,62 @@
 # Changelog
 
+## Unreleased · The visual setup
+
+The human of this project found the terminal-only setup hard to follow. Now the terminal starts a local page and stays
+in the background; installing, the next step, planning and progress happen in the browser. The CLI path is unchanged.
+Guide: [docs/DASHBOARD.md](docs/DASHBOARD.md).
+
+- **Light CI on pull requests (UAK-090).** Pull requests run the Ubuntu suite and the Windows per-file job; main and
+  workflow_dispatch keep macOS. Approved PRs #19-#21 waited hours for macOS arm64 runners GitHub could not provide.
+
+- **The setup page says what it is doing (UI-018).** Every request shows a busy label and spinner inside its button and a
+  result line next to it ("Checked at 21:04 · nothing changed · 2 things to do"); a blocked button shows not-allowed
+  and its reason instead of the wait cursor, and a click on it opens a dismissible notice with **Go there**; the page
+  points to its own control (Publish, your name, the schedule, the plan) for the gate's next step; polling no longer
+  hides Preferences or Repair, and the app-link row lays out cleanly at 390 px. Evidence: Dylan's real run.
+
+The visual setup
+- **`bash install.sh --wizard [PROJECT] [--no-open]`** (UI-001): a page on 127.0.0.1 (random port, session token in
+  the URL fragment, Host/Origin/token checks, a JSON body limit) walks five steps: Welcome, Your project, Your workflow
+  (Hackathon = sprint, Product = marathon, coding tools, solo), Review & install, Get ready. Nothing is written before
+  Install. "Check what's next" runs `uak start`; the workspace has Configuration and Dashboard, in Spanish or English,
+  light, dark or auto. Without Python 3.8+ it says so; `install.sh --mode …` never starts a server.
+- **Beginner and Advanced** (UI-002): a view kept in the browser only, never a permission, mode or gate. Beginner shows
+  one step from the readiness gate, why it matters and what is done, re-checks every minute and on tab focus
+  (Configuration too), and opens progress when ready. Only the exact `bash .uak/bin/wt new ID` gets a Copy button.
+- **"Your app"** (UI-002): a `Live-URL:` key in `.uak/PROJECT.md`, absolute https without credentials, editable in
+  Configuration and shown as a link; a malformed value is treated as absent.
+- **Plan in the page** (UI-004): "What are you building?" saves IDEA.md (overwrite needs confirmation); "Create the
+  plan" runs Claude Code or Codex headless with a fixed argv and constant prompt; the server checks that only
+  `.uak/TASKS.md` and `.uak/OWNERS.md` changed (HEAD, index with flags, Git config, hooks, every file) and runs
+  `uak lint` itself. "Approve and publish" needs the typed folder name and a digest of the four reviewed files, commits
+  exactly those (with `Backlog-Approved: yes`) and pushes the verified SHA to main. Gemini and Cursor say why they
+  cannot plan headless.
+- **Start your team** (UI-006): after Ready, "Register NAME-r" registers the reviewer from the page (the third human
+  act: main checkout only, claims read before and after, self-grant and retired identities refused in plain words),
+  and one Copy command per agent: Claude Code claims the task and opens in its worktree with its first prompt; Codex
+  reviews as NAME-r with `$uak-review`. Commands are built only from server values and start with `UAK_HUMAN=`.
+- **The journey stays visible** (UI-007): Install → Prepare → Plan → Start the team → Follow progress, each marked
+  where it happens, the current one highlighted; a finished step moves focus to the next. Spanish covers the readiness
+  check's lines and the Advanced dashboard; the notice under the dashboard title no longer repeats it. The typed
+  approval says what to type, and Prepare warns when another person's Git/GitHub identity would sign the commits.
+- **The welcome screen offers the demo video** (UI-017): "Watch the 75-second demo" plays the video UI-016 ships in
+  `.uak/media/`, in the page, with captions in the page's language (English or Spanish). It never autoplays (`preload`
+  none) and is hidden when the files are missing. The server serves four fixed names from its own kit (never a path
+  from the request), with the Host check, `nosniff`, `Cross-Origin-Resource-Policy: same-origin` and byte ranges so the
+  browser can seek. Test: `test_setup_tutorial.py`.
+- **A reviewer is never offered implementation work** (UAK-069): `UAK_AGENT=luis-r uak next` offered HACK-001 to claim
+  to the registered reviewer identity (test round 2026-11-13, r3 P3-6). A registered, not retired reviewer now sees
+  its reviews, or "Nothing to review right now" with `uak wait --for message`; any other identity sees what it saw
+  before. Test: `test_next_reviewer.py`.
+
+Tests and docs
+- **The hooks test waits for its background publish** (UAK-009): `test_tokens_coverage` returned while
+  `tokens --publish` still ran inside the fixture's worktree, and Windows refused to remove it (WinError 32). The wait
+  needs this machine's new totals on claims and reports a recorded publish failure first. The engine is unchanged.
+- **Journey tests and docs** (UI-003): `test_dashboard_journey.py`; `docs/DASHBOARD.md`; the spec with the test behind
+  each guarantee in `docs/specs/dashboard-onboarding/spec.md`.
+
 ## v6.3.0 · 2026-11-13 · A design taste the kit learns, and ships to everyone
 
 Two real projects judged by the human through the landing tournament of v6.2 (AXIA: 3 rounds, 18 variants, ~1.68 M

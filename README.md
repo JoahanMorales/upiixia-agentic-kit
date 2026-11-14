@@ -17,6 +17,8 @@
 
 [![M8ven Score](https://m8ven.ai/badge/mcp/joahanmorales-upiixia-agentic-kit-1e9007)](https://m8ven.ai/mcp/joahanmorales-upiixia-agentic-kit-1e9007?s=readme)
 
+▶ [Demo (simulated): from zero to a deployed product in 74 s](kit/.uak/media/tutorial.mp4) · captions: [English](kit/.uak/media/tutorial-en.vtt) / [Español](kit/.uak/media/tutorial-es.vtt)
+
 [Quick start](#quick-start) · [First claim](#stuck-before-the-first-claim-uak-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Frontend](#frontends-that-dont-look-generated) · [Deploy](#deploy-in-one-command-uak-deploy) · [Dashboard](#see-everything-uak-dash) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-six-team-runs) · [Contributing](CONTRIBUTING.md)
 
 </div>
@@ -43,6 +45,15 @@ It runs a real 3-agent session in a temp repo with a local Git remote:
 Going to a hackathon? The one-page plan is in **[docs/HACKATHON.md](docs/HACKATHON.md)**. You pick the mode yourself at install. There is no default: `sprint` for a deadline with judges, `marathon` for a product with users after launch.
 
 
+**New to the kit? Start in your browser** (needs Git, Bash 3.2+ or Git Bash, Python 3.8+; no account or API key):
+
+```bash
+git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit
+bash ~/.uak-kit/install.sh --wizard /path/to/project   # a local page: install, next step, plan, progress
+```
+
+The page and what it guarantees: **[docs/DASHBOARD.md](docs/DASHBOARD.md)**. The terminal path below gives the same result.
+
 **1. Install into any Git repo** (30 s; needs Bash 3.2+ and Git):
 
 ```bash
@@ -64,6 +75,8 @@ It never overwrites your files: a kit file you edited gets its new text beside i
 /plugin install uak@upiixia-agentic-kit
 /uak:setup
 ```
+
+**Claude Code in a new folder:** run `claude` once in the repo and accept the trust question, then close it. Until then Claude Code ignores the repo's `.claude/settings.json` permissions ("this workspace has not been trusted"), so a headless planner or agent stops on its first command. Each task worktree asks once too.
 
 **2. Plan:** open your agent in the repo and run `/uak-setup`, then `/uak-plan`. Codex, Cursor and Gemini read `AGENTS.md` natively (in Codex the phase scripts are `$uak-setup`, `$uak-plan`). Then `bash .uak/bin/uak start` until it says `START READY`.
 
