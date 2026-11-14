@@ -747,8 +747,6 @@ def cap_webgl(items, limit, fits=()):
         it["genes"]["stage"] = new
         it["because"] = (it["because"] + "; " if it.get("because") else "") + (
             "stage %s: at most %d three.js variants per round (Design-Max-WebGL), was %s" % (new, limit, old))
-        if isinstance(it.get("why"), dict):
-            it["why"]["stage"] = it["because"].split("; ")[-1]
         moved += 1
     return moved
 
