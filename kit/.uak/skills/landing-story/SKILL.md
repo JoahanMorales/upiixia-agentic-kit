@@ -63,11 +63,16 @@ rule allows it).
 - Desktop first and a stand-by hero (the human's rules, AXIA R3): design for 1440 and 1920, then 390; the hero is full-bleed;
   containers at least 1200 px at 1440 (a text column may be narrower, the composition fills the screen); no wide empty
   gutters. The hero is a stand-by loop for a projector: no interaction, a 10-15 s cycle, and a stranger gets subject, what
-  the product finds, the result, the wow; reduced motion gives a complete still. Never show a raster upscaled: recreate
+  the product finds, the result, the wow; reduced motion gives a complete still. Raster images keep their aspect ratio (`object-fit: cover` or `contain`, never `fill`; the capture flags `distorted image`). Never show a raster upscaled: recreate
   the subject (3D, points, line art, vector) or show it at or below native size; a result chart can be rebuilt as live
   SVG/HTML from its real numbers. three.js: pinned import map (three@0.170.0 on jsdelivr), DPR at most 2, pause when
   hidden, a designed still without WebGL, no branded models, no fetches but the CDN and fonts. Glows, neon blurs and
   soft gradient haze are "AI slop"; light comes from the scene.
+- The hero breathes (colonIA R1: "too much information, things pop up everywhere, it looks saturated"). At 1920x1080 and
+  1280x720 the fold holds one headline, one sentence, one or two actions and at most 3 secondary elements (a stat, a legend,
+  a badge) besides the stage, about 45 words in all; the stage carries the story and the text does not repeat it; no text
+  block over the stage's focal point. Later sections: one idea each, at most ~4 cards or ~80 words. The capture counts the
+  words at the fold and flags `dense`.
 - Run `frontend-design`'s two passes: a short plan (palette as named hex values, the type pair and scale, a layout
   sketch per section), then review it against its list of AI tells and revise what reads generic, before coding.
 - Ground the visuals in the subject's world: the materials, places and vernacular of the users (a market's awnings

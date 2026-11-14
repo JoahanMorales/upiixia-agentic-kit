@@ -25,6 +25,7 @@ For **tenderos**, **Pasala** lets them sell in a minute.
 
 class Env:
     def __init__(self, tmp, package):
+        os.environ.setdefault("UAK_DESIGN_PRIOR", "none")  # these cases are about the profile or the capture, not the kit's default prior (UAK-075)
         self.tmp = Path(tmp)
         self.lib = Path(package) / ".uak" / "bin" / "lib"  # the candidate under test (smoke passes --package)
         sys.path.insert(0, str(self.lib))
