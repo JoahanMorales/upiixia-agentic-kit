@@ -1,9 +1,9 @@
 # STATE
 
 Phase: execution
-Updated: 1794638016
-AVAILABLE: UAK-083 
-CLAIMED: UAK-082 
+Updated: 1794638365
+AVAILABLE: -
+CLAIMED: UAK-082 UAK-083 
 BLOCKED: -
 REVIEW: -
 INTEGRATED: (74; last 12) ... UAK-070 UAK-071 UAK-072 UAK-073 UAK-074 UAK-075 UAK-076 UAK-077 UAK-078 UAK-079 UAK-080 UAK-081 
@@ -11,6 +11,7 @@ CANCELLED: UAK-002 UAK-005
 
 Claims (first 24; status --task ID shows detail):
 UAK-082 | CLAIMED | joahanmorales-11 | until 1794652416
+UAK-083 | CLAIMED | kit-breed-1 | until 1794652765
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
