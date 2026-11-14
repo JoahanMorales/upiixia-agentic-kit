@@ -85,3 +85,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794608598 | UAK-077 | budget 60 words judged at 1280/1920; v4 (still) is also over it by measurement | Why: colonIA R1 saturated
 - 1794625329 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-081 | Why: backlog without PR (Plan-Channel: claims)
 - 1794627457 | UAK-081 | flag only when nothing preserves the ratio (not cover/contain/none/scale-down); backgrounds only with both axes sized | Why: AXIA R1 squashed images
+- 1794637920 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-082 | Why: backlog without PR (Plan-Channel: claims)
