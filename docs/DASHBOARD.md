@@ -37,7 +37,7 @@ Nothing is written to your project before you press Install.
 
 | Step | What you do |
 |---|---|
-| 1. Welcome | Read what will happen. |
+| 1. Welcome | Read what will happen, and watch the 75-second demo if you like (a simulated walkthrough from an empty project to a deployed app; captions in English and Spanish; it never starts by itself). |
 | 2. Your project | Enter the full path of the repository root. Checking it installs nothing. |
 | 3. Your workflow | Hackathon or prototype (`sprint`) or Product with real users (`marathon`); your coding tools (Claude Code, Codex, Cursor, Gemini CLI); "I'm the only human on this repository" (`--solo`). More options: a technology preset, anonymous kit diagnostics. |
 | 4. Review & install | See every choice and what will be added (including `.mcp.json`), then install. Setup runs `install.sh` with those options. |
@@ -194,6 +194,13 @@ The page listens on 127.0.0.1 only, on a random port. Every API call needs the s
 fragment (it is never sent in a URL); the server checks the Host header, and every write also checks the Origin.
 JSON bodies are limited to 64 KB and nesting depth. Installation options are an allowlist passed as literal arguments,
 never through a shell. Text from the project is shown as text. The terminal log never prints requests or tokens.
+
+The demo video is served from the kit that runs setup (`.uak/media/`), never from your project: four fixed addresses
+(`/media/tutorial.mp4`, `/media/tutorial-en.vtt`, `/media/tutorial-es.vtt`, `/media/tutorial-poster.jpg`), regular
+files only (a symlink is refused), with `nosniff` and byte ranges so the player can seek. Like the page itself and
+`workspace.js`, these addresses need the Host check but no token, because a `<video>` element cannot send one; they
+carry no project data, and `Cross-Origin-Resource-Policy: same-origin` with a `Sec-Fetch-Site` check keeps other sites
+from loading them. When a file is missing the welcome screen simply has no video.
 
 ## Troubleshooting
 
