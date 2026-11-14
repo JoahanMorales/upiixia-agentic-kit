@@ -85,7 +85,8 @@ esac
 # on Windows (core.symlinks=false) is a one-line text file, and a copy can go stale. Why (DevDay and deus-ex-machina,
 # v6.0.0): both committed .agents/skills and .cursor/skills as symlinks; a Windows teammate's Codex had no skills.
 if [ -d .claude/skills ]; then
-  kit_home=${UAK_KIT_HOME:-$HOME/.uak-kit}
+  # The clone that installed this checkout (uak.kitHome, recorded per clone; UAK-091) before the default ~/.uak-kit.
+  kit_home=${UAK_KIT_HOME:-$(git config --get uak.kitHome 2>/dev/null)}; kit_home=${kit_home:-$HOME/.uak-kit}
   skills_refresh() { # $1 = folder; phase skills come from the kit clone when there is one
     mkdir -p "$1" || return 1   # the team's own skills in it stay
     for s in .claude/skills/*/; do s=${s%/}; rm -rf "$1/$(basename "$s")"; cp -R "$s" "$1/" || return 1; done
