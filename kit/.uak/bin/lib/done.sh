@@ -202,9 +202,21 @@ integrate_mutate() {
 }
 # done: REVIEW with the PR and evidence after the gates (UI shots, test-first), and one reviewer asked; or, with
 # --integrated, INTEGRATED after a human merge with a verified approval.
+# --pr none or the task's branch: only where no GitHub PR is reviewed (a non-GitHub remote, or Review-Mode: claims).
+done_no_pr_check() {
+  local mode remote
+  [ "$PR_URL" = none ] || [ "$PR_URL" = "$task_branch" ] ||
+    die "--pr $PR_URL is neither a PR URL nor this task's branch ($task_branch). With no GitHub PR: --pr none"
+  remote=$(git -C "$ROOT" config --get "remote.$REMOTE.url" 2>/dev/null || true)
+  case "$remote" in *github.com*) ;; *) return 0;; esac
+  mode=${UAK_REVIEW_MODE:-$(rm_config Review-Mode auto)}
+  [ "$mode" = claims ] || die "--pr $PR_URL: this repository is on GitHub and Review-Mode is $mode, so the PR is what gets reviewed. Open it (bash .uak/bin/wt pr) and pass its URL, or, to review on claims (another agent identity runs uak review), set Review-Mode: claims in .uak/PROJECT.md on $BASE."
+}
 done_mutate() {
   require_owner; STATE=REVIEW
   task_branch=$(field "$RECORD" Branch)
+  DONE_REF=$PR_URL
+  if [ "$DONE_NO_PR" = yes ]; then done_no_pr_check; DONE_REF="branch $task_branch (no PR)"; fi
   task_worktree=$(field "$RECORD" Worktree)
   # The path comes from claims: only a checkout of this repository counts. Why (audit, Oct 2026): a record
   # pointing at another checkout made done run that checkout's map.
@@ -246,10 +258,10 @@ done_mutate() {
   put "$RECORD" Task-Tip "$tip"
   put "$RECORD" State "$STATE"; put "$CLAIM" State "$STATE"
   put "$RECORD" PR "$PR_URL"; put "$CLAIM" PR "$PR_URL"; put "$RECORD" Evidence "$EVIDENCE"
-  put "$RECORD" Next "Another agent reviews $PR_URL; run .uak/bin/smoke"
-  put "$CLAIM" Next "Another agent reviews $PR_URL; run .uak/bin/smoke"
+  put "$RECORD" Next "Another agent reviews $DONE_REF; run .uak/bin/smoke"
+  put "$CLAIM" Next "Another agent reviews $DONE_REF; run .uak/bin/smoke"
   update_summary_field Done "$EVIDENCE"
-  update_summary_field Next "Another agent reviews $PR_URL; run .uak/bin/smoke"
+  update_summary_field Next "Another agent reviews $DONE_REF; run .uak/bin/smoke"
   # Contract check at the moment of shipping: does this diff touch files that other live tasks import, with no
   # contract message from you on this task? Why (adoption eval): with the rule in context (AGENTS.md §5.1) a
   # Sonnet agent changed a function another claimed task imported, pushed and shipped without telling it.
@@ -322,9 +334,9 @@ done_mutate() {
       [ -z "$reviewer" ] || [ "$reviewer" != "$(msg_last_rejecter "$AGENT" "$ID")" ] || why_r="you rejected the previous SHA"
     fi
     if [ -n "$reviewer" ]; then
-      msg_append "agent:$reviewer" review "$ID" "$ID ready for review ($why_r): $PR_URL (SHA $tip)$note_r. /uak-review $ID; if you can't, reply and any free agent takes it (uak next shows it)."
+      msg_append "agent:$reviewer" review "$ID" "$ID ready for review ($why_r): $DONE_REF (SHA $tip)$note_r. /uak-review $ID; if you can't, reply and any free agent takes it (uak next shows it)."
     else
-      msg_append all review "$ID" "$ID ready for review: $PR_URL (SHA $tip)$note_r. First free agent: /uak-review $ID"
+      msg_append all review "$ID" "$ID ready for review: $DONE_REF (SHA $tip)$note_r. First free agent: /uak-review $ID"
     fi
   fi
 }
@@ -332,8 +344,17 @@ done_mutate() {
 done_args_check() {
   # Both flags in one error, with the whole command. Why (Hacktoberfest): `done` failed 3 times in a row, first
   # on --pr, then on --evidence; neither wt pr nor the hint named them.
-  done_usage="Usage: bash .uak/bin/uak done ${ID:-ID} --pr URL --evidence \"<Verify command> exit 0; <criteria checked>\" (the PR URL: bash .uak/bin/wt pr)"
-  case "$PR_URL" in https://*/*) [ -n "$EVIDENCE" ] || die "done needs --evidence. $done_usage";;
+  done_usage="Usage: bash .uak/bin/uak done ${ID:-ID} --pr URL --evidence \"<Verify command> exit 0; <criteria checked>\" (the PR URL: bash .uak/bin/wt pr; no GitHub PR, as on a non-GitHub remote or with Review-Mode: claims: --pr none)"
+  # --pr none (or the task's branch): no PR to link; done_no_pr_check decides inside the transaction, where Review-Mode
+  # is read from PROJECT.md on the remote base. Why (QA round C, Nov 2026): on a local bare remote `wt pr` said "Not a
+  # GitHub remote" and done said "needs --pr HTTPS URL (… wt pr)", a dead loop; a tester invented an https URL.
+  DONE_NO_PR=
+  case "$PR_URL" in https://*/*) ;;
+    none|NONE|None) PR_URL=none; DONE_NO_PR=yes;;
+    *://*|-*|'') ;;
+    *) ! git check-ref-format --branch "$PR_URL" >/dev/null 2>&1 || DONE_NO_PR=yes;;
+  esac
+  case "$PR_URL:$DONE_NO_PR" in https://*/*:|*:yes) [ -n "$EVIDENCE" ] || die "done needs --evidence. $done_usage";;
     *) die "done needs --pr HTTPS URL$([ -n "$EVIDENCE" ] || printf ' and --evidence'). $done_usage";; esac
   # A GitHub PR URL must name this repository. Why (MLB hackathon): two tasks shipped with a PR link to another of
   # the human's repositories; reviewers opened the wrong compare page.
