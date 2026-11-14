@@ -125,7 +125,7 @@ def no_two_variants_share_more_than_three_genes(e):
             seen = [g["genes"][gene] for g in gs]
             head = seen[:len(values)]
             expect(len(set(head)) == len(values), "seed %d gene %s: first %d draws repeat: %s" % (seed, gene, len(values), head))
-    d = e.project("sh")
+    d = e.project("sh", project_md="- Design-Max-WebGL: 20\n")  # the cap (default 2) cannot hold 20 variants 3 genes apart (UAK-083)
     e.run(d, "round", "--n", "20", "--seed", "5", "--yes")
     gs = genomes_of(d / ".uak/design/rounds/R1")
     expect(all(shared(a, b) <= 3 for a, b in itertools.combinations(gs, 2)), "written genomes obey the rule")
