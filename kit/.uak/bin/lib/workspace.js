@@ -115,6 +115,11 @@
       "Pocas decisiones. Un siguiente paso claro.",
     ],
     ["Welcome", "Bienvenida"],
+    ["Watch the 75-second demo", "Mira la demostración de 75 segundos"],
+    [
+      "A simulated walkthrough: from an empty project to a deployed app. Captions in English and Spanish.",
+      "Un recorrido simulado: de un proyecto vacío a una app publicada. Subtítulos en inglés y español.",
+    ],
     ["Your project", "Tu proyecto"],
     ["Your workflow", "Tu forma de trabajar"],
     ["Review & install", "Revisar e instalar"],
