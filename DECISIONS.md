@@ -83,3 +83,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794603926 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-080 | Why: backlog without PR (Plan-Channel: claims)
 - 1794604636 | UAK-080 | twins = picks sharing >= 6 genes; handled up front, not as a last ladder step | Why: AXIA R3 failed every seed
 - 1794608598 | UAK-077 | budget 60 words judged at 1280/1920; v4 (still) is also over it by measurement | Why: colonIA R1 saturated
+- 1794625329 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-081 | Why: backlog without PR (Plan-Channel: claims)
