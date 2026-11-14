@@ -262,6 +262,11 @@ find "$src" -type f \( -name '*.css' -o -name '*.scss' -o -name '*.tsx' -o -name
               if (e ~ /\[/) { scan(e); px_h(n, mpx, "button or input") } else { sub(/^.*h-/, "", e); px_h(n, (e + 0) * 4, "button or input") } } } }
         if (line ~ /\}/) sel = "" }' "$f"
   done > "$warn"
+# A round folder (v*/genome.json): the page must load the Google Fonts pair TASK.md assigned (UAK-071). Why (AXIA R3): all six
+# variants loaded the same pair whatever the type gene said. A warning, like the scale checks.
+if [ -z "$only" ] && [ "$changed" != yes ] && command -v python3 >/dev/null 2>&1 && [ -f "$(dirname "$0")/lib/design_fonts.py" ]; then
+  python3 "$(dirname "$0")/lib/design_fonts.py" check "$src" 2>/dev/null >> "$warn" || :
+fi
 [ -z "$(printf '%s' "$lock_out" | tr -d '\n')" ] || printf '%s\n' "$lock_out" | grep -v '^$' >> "$out"
 files=$(awk 'END {print NR + 0}' "$list")
 # Why (AXIA R2): a round of static pages has no code files; the pass line counts the pages the scale checks read.
