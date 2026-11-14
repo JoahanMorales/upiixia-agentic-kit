@@ -604,9 +604,20 @@ def identity_needs_the_whole_name(root, tmp):
         (account("Ana Human", "ana@example.invalid", "banana"), "ana", ("gh",)),
         (account("Ana Human", "ana@example.invalid", "mariana"), "ana", ("gh",)),
         (account("Maria Lopez", "mlopez@example.invalid", "maria"), "maria-garcia", ("git", "gh")),
-        (account("Ana Human", "ana@example.invalid", "anabel"), "ana", ("gh",)),
+        (account("Juan Garcia", "juan@example.invalid", "maria-garcia"), "Juan Garcia", ("gh",)),
+        (account("Juan Garcia", "jgarcia@example.invalid", "juangarcia"), "mariana", ("git", "gh")),
     ]
+    # Review of 3bc4018: an account word that STARTS with the typed (lowercase first) name is the person's own,
+    # letters or digits after it allowed; camelCase, digits and separators split words.
     genuine = [
+        (account("Dylan", "dylan@example.invalid", "DylanMCDS"), "dylan"),
+        (account("Ana", "ana@example.invalid", "AnaLopez"), "ana"),
+        (account("ana", "ana@example.invalid", "analopez"), "ana"),
+        (account("Luis", "luis@example.invalid", "luisgarcia"), "luis"),
+        (account("Luis", "luis@example.invalid", "luisg"), "luis"),
+        (account("Ana Lopez", "ana-lopez@example.invalid", "ana-lopez"), "ana"),
+        (account("Ana Garcia", "ana_garcia92@example.invalid", "ana_garcia92"), "ana"),
+        (account("AnaLopez", "analopez@example.invalid", "AnaLopez"), "ana-lopez"),
         (account("José Pérez", "jperez@example.invalid", "jose"), "jose"),
         (account("Ana García", "ana.garcia@example.invalid", "anagarcia"), "ana-garcia"),
         (account("ana garcia", "ana.garcia@example.invalid", "ana-garcia"), "ana-garcia"),
