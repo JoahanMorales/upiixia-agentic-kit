@@ -2021,6 +2021,35 @@
         function isBusy(phase) {
           return ["installing", "checking", "planning", "approving", "publishing", "registering"].indexOf(phase) >= 0;
         }
+        // The status heading (UI-012, r3): ✓ only when nothing is left to do; the gate's line in the page's language.
+        function statusIcon(data) {
+          if (isBusy(data.phase)) return "…";
+          if (data.ready) return "✓";
+          var todo = (data.checks || []).some(function (c) { return c.state === "todo"; });
+          return data.phase === "error" || todo || !data.installed ? "!" : "✓";
+        }
+        function statusTitle(data) {
+          var title = isBusy(data.phase)
+            ? {
+                installing: "Installing your workspace",
+                planning: "Creating your plan",
+                approving: "Publishing your plan",
+                publishing: "Publishing the kit",
+                registering: "Registering the reviewer…",
+              }[data.phase] || "Checking your next steps"
+            : data.ready
+              ? "Your workspace is ready"
+              : data.phase === "error"
+                ? "Let’s resolve this step"
+                : data.installed && (data.checks || []).length && data.guidance
+                  ? data.guidance.title
+                  : data.installed
+                    ? data.phase === "installed"
+                      ? "The kit is installed. Let’s get ready."
+                      : "Kit files found. Let’s check your project."
+                    : "Continue setting up your project";
+          return UAKWorkspace.gate(UAKWorkspace.t(title || ""));
+        }
         // Planning (UI-004). Plan text comes from files an agent wrote: it is shown with textContent only.
         var planView = null,
           planFor = "",
@@ -2251,17 +2280,69 @@
         }
         // Whose identity signs (UI-007): the project's Git name/email and gh's login, as the server parsed them. On someone
         // else's computer they are not the person's: say so before anything is published under that name.
-        // True when nothing in the Git name, the email's local part or the gh login matches the person's name, in either
-        // direction (ana ↔ "Ana Human", "anagarcia" ↔ ana); a name shorter than 3 letters must match a whole word.
+        // UI-012: each account is checked on its own (r4: "ana" matched the Git name and hid that the pull requests
+        // opened as someone else), and names match without case or accents (José = jose, Ana García = anagarcia).
+        // Words also break where camelCase or digits start (AnaLopez, ana_garcia92 → ana lopez, ana garcia 92).
+        function plainWords(text) {
+          return String(text || "")
+            .normalize("NFD")
+            .replace(new RegExp("\\p{M}", "gu"), "")
+            .replace(new RegExp("(\\p{Ll})(\\p{Lu})", "gu"), "$1 $2")
+            .replace(new RegExp("(\\p{Lu})(\\p{Lu}\\p{Ll})", "gu"), "$1 $2")
+            .replace(new RegExp("(\\p{L})(\\p{N})", "gu"), "$1 $2")
+            .replace(new RegExp("(\\p{N})(\\p{L})", "gu"), "$1 $2")
+            .toLowerCase()
+            .split(new RegExp("[^\\p{L}\\p{N}]+", "u"))
+            .filter(Boolean);
+        }
+        // True when an account word STARTS with the person's whole name, letters or digits after it allowed: dylan
+        // = DylanMCDS, ana = analopez, luis = luisg, and a name of several words may run across the account's words
+        // (ana-garcia = "Ana García", anagarcia, ana_garcia92). The name inside a word (ana in mariana, banana) or one
+        // shared word of a longer name (maria-garcia vs Juan Garcia, mariana vs Ana Lopez) is not enough (reviews of
+        // 4af5789 and 3bc4018: a whole-word-only match warned on people's own accounts).
+        function sameName(words, human) {
+          var me = plainWords(human).join("");
+          if (!me) return false;
+          for (var i = 0; i < words.length; i++) {
+            var w = "";
+            for (var j = i; j < words.length; j++) {
+              w += words[j];
+              if (w.indexOf(me) === 0) return true; // the name, then anything: DylanMCDS, ana_garcia92
+              if (me.indexOf(w) !== 0) break; // whole words of the name so far ("ana" of ana-garcia), or not this run
+            }
+          }
+          return false;
+        }
+        // Which account looks like someone else's: {git, gh}. An empty account (no gh login) is nobody's, never someone
+        // else's; without the person's name nothing can be compared. The Git name and the email are each a whole.
         function sharedIdentity(ident, human) {
-          var me = String(human || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-          if (!me || !ident) return false;
-          var words = [ident.git_name, String(ident.git_email || "").split("@")[0], ident.gh_login]
-            .join(" ").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-          words.push(String(ident.git_name || "").toLowerCase().replace(/[^a-z0-9]/g, ""));
-          return !words.some(function (w) {
-            return w === me || (me.length >= 3 && w.indexOf(me) >= 0) || (w.length >= 3 && me.indexOf(w) >= 0);
-          });
+          ident = ident || {};
+          if (!plainWords(human).length) return { git: false, gh: false };
+          var name = plainWords(ident.git_name),
+            mail = plainWords(String(ident.git_email || "").split("@")[0]),
+            login = plainWords(ident.gh_login);
+          return {
+            git: !!(name.length || mail.length) && !(sameName(name, human) || sameName(mail, human)),
+            gh: !!login.length && !sameName(login, human),
+          };
+        }
+        // The notice: who signs the commits and opens the pull requests, then which account belongs to someone else.
+        function identityWarning(ident, human) {
+          ident = ident || {};
+          var git = (ident.git_name || "?") + (ident.git_email ? " <" + ident.git_email + ">" : ""),
+            gh = ident.gh_login ? "@" + ident.gh_login : UAKWorkspace.t("nobody (gh is not signed in)"),
+            text = UAKWorkspace.format("Commits will be signed as {git} and pull requests opened as {gh}.", { git: git, gh: gh }),
+            unnamed = !human,
+            other = sharedIdentity(ident, human);
+          if (unnamed)
+            text += " " + UAKWorkspace.t("Tell setup your name (Your name, below) so it can check that this identity is yours.");
+          else if (other.git && other.gh)
+            text += " " + UAKWorkspace.t("This looks like someone else's identity. If this is not your computer, set your own before publishing: git config user.name and user.email, and gh auth login.");
+          else if (other.gh)
+            text += " " + UAKWorkspace.format("The GitHub login {gh} does not match your name, so it looks like someone else's account: sign in as yourself with gh auth login before publishing.", { gh: gh });
+          else if (other.git)
+            text += " " + UAKWorkspace.format("The Git name and email {git} do not match your name, so they look like someone else's: set your own with git config user.name and user.email before publishing.", { git: git });
+          return { text: text, git: unnamed || other.git, gh: unnamed || other.gh };
         }
         function drawIdentity(data) {
           var ident = data.identity || {},
@@ -2270,17 +2351,11 @@
             box.hidden = true;
             return;
           }
-          var git = (ident.git_name || "?") + (ident.git_email ? " <" + ident.git_email + ">" : ""),
-            gh = ident.gh_login ? "@" + ident.gh_login : UAKWorkspace.t("nobody (gh is not signed in)"),
-            text = UAKWorkspace.format("Commits will be signed as {git} and pull requests opened as {gh}.", { git: git, gh: gh }),
-            unnamed = !data.human,
-            other = unnamed || sharedIdentity(ident, data.human);
-          if (unnamed)
-            text += " " + UAKWorkspace.t("Tell setup your name (Your name, below) so it can check that this identity is yours.");
-          else if (other)
-            text += " " + UAKWorkspace.t("This looks like someone else's identity. If this is not your computer, set your own before publishing: git config user.name and user.email, and gh auth login.");
-          box.textContent = text;
-          box.classList.toggle("error", other);
+          // With no name the notice asks for it (review of 949eca1).
+          var unnamed = !data.human,
+            shown = identityWarning(ident, unnamed ? "" : data.human);
+          box.textContent = shown.text;
+          box.classList.toggle("error", shown.git || shown.gh);
           box.hidden = false;
         }
         function drawJourney() {
@@ -2515,6 +2590,8 @@
           UAKWorkspace.setLanguage(this.value);
         };
         window.addEventListener("uak:language", function () {
+          // The heading, the checklist and who signs are drawn in the page's language, not by the body translation.
+          if (state.installed || state.can_repair) render(state);
           if (latestDashboard) drawDashboard(latestDashboard);
         });
         el("open-setup").onclick = function () {
@@ -3001,7 +3078,8 @@
             el("terminal-steps").replaceChildren();
             (box.steps || []).forEach(function (line) {
               var li = document.createElement("li");
-              li.textContent = line;
+              // A doctor line reads in the page's language; a command matches no pattern and stays as it is (UI-012).
+              li.textContent = UAKWorkspace.t(line);
               el("terminal-steps").append(li);
             });
           }
@@ -3049,14 +3127,15 @@
               !window.confirm(
                 UAKWorkspace.t("That freeze is in the past or less than an hour away. Save it anyway?") +
                   "\n" +
-                  look.freeze,
+                  UAKWorkspace.when(look.freeze),
               )
             )
               return;
             var result = await api("schedule", body);
             el("schedule-status").textContent = UAKWorkspace.format(
               "Saved. New work stops at {freeze}; take the first task by {first}.",
-              { freeze: result.freeze, first: result.first_claim || "-" },
+              // The engine writes the weekday in English ("Fri 03:30"), in the event's zone (UI-012, r1).
+              { freeze: UAKWorkspace.when(result.freeze), first: UAKWorkspace.when(result.first_claim || "-") },
             );
             await api("check", {});
             checkRequested = true;
@@ -3141,34 +3220,9 @@
           var previous = state.phase;
           state = data;
           var busy = isBusy(data.phase);
-          var failed = data.phase === "error";
           el("status-heading").classList.toggle("working", busy);
-          el("status-icon").textContent = busy
-            ? "…"
-            : data.ready
-              ? "✓"
-              : failed
-                ? "!"
-                : "✓";
-          el("result-title").textContent = busy
-            ? {
-                installing: "Installing your workspace",
-                planning: "Creating your plan",
-                approving: "Publishing your plan",
-                publishing: "Publishing the kit",
-                registering: "Registering the reviewer…",
-              }[data.phase] || "Checking your next steps"
-            : data.ready
-              ? "Your workspace is ready"
-              : failed
-                ? "Let’s resolve this step"
-                : data.installed && (data.checks || []).length && data.guidance
-                  ? UAKWorkspace.t(data.guidance.title)
-                  : data.installed
-                    ? data.phase === "installed"
-                      ? "The kit is installed. Let’s get ready."
-                      : "Kit files found. Let’s check your project."
-                    : "Continue setting up your project";
+          el("status-icon").textContent = statusIcon(data);
+          el("result-title").textContent = statusTitle(data);
           el("result-description").textContent = busy
             ? "This can take a moment. Keep the terminal and this page open."
             : data.ready
@@ -3190,7 +3244,7 @@
                   : "Next: check what your project needs before starting work.");
           el("operation-status").classList.toggle("error", !!data.error);
           drawPlanProgress(data);
-          el("output").textContent = data.details || "No technical output yet.";
+          el("output").textContent = data.details || UAKWorkspace.t("No technical output yet.");
           el("checks").replaceChildren();
           (data.checks || []).forEach(function (check) {
             var li = document.createElement("li"),
@@ -3208,10 +3262,13 @@
                   ? "Action needed"
                   : "Information",
             );
-            // The gate's first line in the page's language; the commands under it stay as the engine wrote them.
+            // The gate's first line in the page's language.
+            // The lines under it (doctor's failures, the fix) through the catalog: a command stays as it is (UI-012).
             var lines = String(check.text || "").split("\n");
-            lines[0] = UAKWorkspace.gate(lines[0]);
-            text.textContent = lines.join("\n");
+            text.textContent = [UAKWorkspace.gate(lines[0])].concat(lines.slice(1).map(function (line) {
+              var indent = line.match(/^\s*/)[0];
+              return indent + UAKWorkspace.t(line.slice(indent.length));
+            })).join("\n");
             li.append(mark, text);
             el("checks").append(li);
           });
