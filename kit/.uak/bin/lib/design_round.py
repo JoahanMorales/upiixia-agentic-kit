@@ -865,7 +865,7 @@ def cmd_round(argv):
 # Why (AXIA R1, Nov 11 2026): two variants looked broken in their captures because a <video>'s first frame is empty, and the
 # human judged six landings from that first screen alone. Before each shot every video is paused and seeked to 30% of its
 # length (a video that has no frame to show keeps its poster); the page is then still, so the fold and the full page match.
-MEDIA_JS = """async () => {
+MEDIA_JS = r"""sync () => {
   const vs = Array.prototype.slice.call(document.querySelectorAll('video'));
   const wait = (el, ev, ms) => new Promise(res => { let done = false; const f = () => { if (!done) { done = true; res(); } };
     el.addEventListener(ev, f, {once: true}); setTimeout(f, ms); });
@@ -885,7 +885,7 @@ MEDIA_JS = """async () => {
 # Why (AXIA R1-R3, Nov 11 2026): the lead hand-patched the capture for 1920, http and WebGL, and the human found the narrow
 # pages and stretched images by eye. The probe below measures what the human judges, in the page itself: WebGL, how wide
 # the content (text extents, images, media) is against the viewport, rasters drawn larger than they are, and the frame time.
-QA_JS = """async () => {
+QA_JS = r"""sync () => {
   const W = innerWidth, dpr = window.devicePixelRatio || 1;
   let gl = false;
   try { const c = document.createElement('canvas'); gl = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) {}
@@ -958,7 +958,7 @@ QA_JS = """async () => {
     if (!r) continue;
     const sizes = (cs.backgroundSize || 'auto').split(/,\s*(?![^(]*\))/);
     let k = 0;
-    cs.backgroundImage.replace(/url\((['"]?)(.*?)\\1\)/g, (m, q, u) => { bgs.push({u: u, r: r, size: sizes[k % sizes.length] || 'auto'}); k++; return m; });
+    cs.backgroundImage.replace(/url\((['"]?)(.*?)\1\)/g, (m, q, u) => { bgs.push({u: u, r: r, size: sizes[k % sizes.length] || 'auto'}); k++; return m; });
   }
   const natural = {};
   await Promise.all(Array.from(new Set(bgs.map(b => b.u))).filter(u => !/\.svg(\?|$)|^data:image\/svg/i.test(u)).slice(0, 40).map(u => new Promise(res => {
@@ -1029,7 +1029,7 @@ QA_JS = """async () => {
 }"""
 
 _PLAYWRIGHT = """
-import faulthandler; faulthandler.dump_traceback_later(50, exit=True)  # DEBUG-CI
+import faulthandler; faulthandler.dump_traceback_later(20, exit=True)  # DEBUG-CI
 import functools, http.server, json, os, re, sys, threading
 from pathlib import Path
 from urllib.parse import quote
@@ -1356,6 +1356,8 @@ def cmd_shoot(argv):
 def main(argv):
     import faulthandler  # DEBUG-CI
     faulthandler.dump_traceback_later(60, exit=True)  # DEBUG-CI
+    import threading as _t, subprocess as _sp  # DEBUG-CI
+    _t.Timer(30, lambda: os.write(2, ("PS-DEBUG\n" + _sp.run(["ps", "-axo", "pid,ppid,stat,etime,command"], capture_output=True, text=True).stdout[-3500:]).encode())).start()  # DEBUG-CI
     if argv[:1] == ["round"] and "--from" in argv:  # a bred round from the human's picks (UAK-059)
         import design_breed
         return design_breed.run(argv[1:])
