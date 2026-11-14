@@ -31,6 +31,7 @@ def seconds(h, m, s, ms):
 
 def parse_srt(path):
     """Return [(start, end, text)]; raise on a malformed cue."""
+    expect(path.is_file(), "docs/media/%s exists" % path.name)
     text = path.read_text(encoding="utf-8-sig").replace("\r\n", "\n").strip()
     expect(text, "%s is not empty" % path.name)
     cues = []
