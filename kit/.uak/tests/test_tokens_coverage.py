@@ -8,11 +8,51 @@ import argparse
 import concurrent.futures
 import os
 import re
+import shutil
+import sys
 import tempfile
 import time
 from pathlib import Path
 
 from test_hack import Runner, expect, resolve_binary
+
+
+def remove_tree(path, attempts=8, pause=0.5, rmtree=shutil.rmtree):
+    """Remove the scratch tree. On Windows a just-exited git or hook can still hold a worktree for a moment
+    (WinError 32 on tk-hooks/worktree-1, CI 2026-11-14): retry with a backoff, then warn instead of failing."""
+    for attempt in range(attempts):
+        try:
+            rmtree(path)
+            return True
+        except FileNotFoundError:
+            return True
+        except OSError as exc:
+            if attempt == attempts - 1:
+                print("WARNING: could not remove %s: %s" % (path, exc), file=sys.stderr)
+                return False
+            time.sleep(pause * (attempt + 1))
+    return False
+
+
+def wait_until_released(path, seconds=90):
+    """session-start and the Codex tick each start `tokens --publish` in the background with the worktree as its cwd. Wait for
+    that very process: while it runs, Windows refuses to rename the directory (the same WinError 32 that broke the cleanup);
+    where nothing locks a cwd the rename always works and this costs nothing."""
+    path = Path(path)
+    probe = path.with_name(path.name + ".probe")
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            os.rename(str(path), str(probe))
+            os.rename(str(probe), str(path))
+            return True
+        except OSError:
+            if probe.exists() and not path.exists():
+                os.rename(str(probe), str(path))
+            if time.monotonic() > deadline:
+                print("WARNING: %s is still held after %ds" % (path, seconds), file=sys.stderr)
+                return False
+            time.sleep(0.5)
 
 
 def enc(path):
@@ -120,11 +160,13 @@ def hooks_publish_from_session_start_and_codex(r):
     expect(not stamp.exists(), "no stamp yet")
     r.run([r.bash, "-c", "echo '{\"session_id\":\"s1\"}' | bash .uak/bin/hook session-start"], cwd=w, env=e, allowed=None)
     expect(stamp.exists(), "session-start publishes (tried now)")
+    wait_until_released(w)
     stamp.unlink()
     gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
     (gd / "uak-harness").write_bytes(b"codex\r\n")  # as Windows writes it
     r.run([r.bash, "-c", "echo '{}' | bash .uak/bin/hook tick"], cwd=w, env=e, allowed=None)
     expect(stamp.exists(), "the Codex tick publishes")
+    wait_until_released(w)
     return "session-start and codex tick"
 
 
@@ -138,7 +180,22 @@ def team_view_without_black_box_files_still_reads_the_tokens(r):
     return "team view"
 
 
-TESTS = [team_view_without_black_box_files_still_reads_the_tokens, publish_failure_is_recorded, team_view_names_machines_that_never_reported, main_share_is_reported_and_warned,
+def cleanup_survives_locked_worktree(r):
+    calls = []
+
+    def locked_twice(path):
+        calls.append(path)
+        if len(calls) < 3:
+            raise PermissionError(13, "[WinError 32] The process cannot access the file", str(path))
+    expect(remove_tree("x", attempts=5, pause=0, rmtree=locked_twice) is True and len(calls) == 3, "retries until the lock is gone: %d" % len(calls))
+
+    def always_locked(path):
+        raise PermissionError(13, "[WinError 32] locked", str(path))
+    expect(remove_tree("x", attempts=3, pause=0, rmtree=always_locked) is False, "a cleanup that never works is a warning, not a raise")
+    return "retry then warn"
+
+
+TESTS = [cleanup_survives_locked_worktree, team_view_without_black_box_files_still_reads_the_tokens, publish_failure_is_recorded, team_view_names_machines_that_never_reported, main_share_is_reported_and_warned,
          hooks_publish_from_session_start_and_codex]
 
 
@@ -148,7 +205,8 @@ def main():
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--case", action="append")
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="uak-tokens-coverage-") as tmp:
+    tmp = tempfile.mkdtemp(prefix="uak-tokens-coverage-")
+    try:
         runner = Runner(args.package.resolve(), Path(tmp), resolve_binary("bash"), resolve_binary("git"))
 
         def one(test):
@@ -161,6 +219,8 @@ def main():
         selected = [t for t in TESTS if not args.case or t.__name__ in args.case]
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
             results = list(pool.map(one, selected))
+    finally:
+        remove_tree(tmp)
     for name, ok, info in results:
         print(("PASS " if ok else "FAIL ") + name + " (" + info + ")")
     passed = sum(1 for _, ok, _ in results if ok)
