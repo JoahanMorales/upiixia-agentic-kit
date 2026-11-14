@@ -8,11 +8,45 @@ import argparse
 import concurrent.futures
 import os
 import re
+import shutil
+import sys
 import tempfile
 import time
 from pathlib import Path
 
 from test_hack import Runner, expect, resolve_binary
+
+
+def remove_tree(path, attempts=8, pause=0.5, rmtree=shutil.rmtree):
+    """Remove the scratch tree. On Windows a just-exited git or hook can still hold a worktree for a moment
+    (WinError 32 on tk-hooks/worktree-1, CI 2026-11-14): retry with a backoff, then warn instead of failing."""
+    for attempt in range(attempts):
+        try:
+            rmtree(path)
+            return True
+        except FileNotFoundError:
+            return True
+        except OSError as exc:
+            if attempt == attempts - 1:
+                print("WARNING: could not remove %s: %s" % (path, exc), file=sys.stderr)
+                return False
+            time.sleep(pause * (attempt + 1))
+    return False
+
+
+def wait_for_publish(r, f, seconds=60):
+    """session-start and the Codex tick start `tokens --publish` in the background with the worktree as cwd; wait for
+    it to land on claims so nothing of this test still holds the worktree when the scratch tree is removed."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        tree = r.g(f.clones[0], "ls-remote", f.remote, "refs/heads/claims", allowed=None)
+        if tree.returncode == 0 and tree.stdout.strip():
+            probe = r.run([r.git, "--git-dir", str(f.remote), "ls-tree", "-r", "--name-only", "claims"], allowed=None)
+            if "tokens/" in probe.stdout:
+                time.sleep(1.0)  # the process exits right after its push
+                return True
+        time.sleep(0.5)
+    return False
 
 
 def enc(path):
@@ -125,6 +159,7 @@ def hooks_publish_from_session_start_and_codex(r):
     (gd / "uak-harness").write_bytes(b"codex\r\n")  # as Windows writes it
     r.run([r.bash, "-c", "echo '{}' | bash .uak/bin/hook tick"], cwd=w, env=e, allowed=None)
     expect(stamp.exists(), "the Codex tick publishes")
+    wait_for_publish(r, f)
     return "session-start and codex tick"
 
 
@@ -138,7 +173,22 @@ def team_view_without_black_box_files_still_reads_the_tokens(r):
     return "team view"
 
 
-TESTS = [team_view_without_black_box_files_still_reads_the_tokens, publish_failure_is_recorded, team_view_names_machines_that_never_reported, main_share_is_reported_and_warned,
+def cleanup_survives_locked_worktree(r):
+    calls = []
+
+    def locked_twice(path):
+        calls.append(path)
+        if len(calls) < 3:
+            raise PermissionError(13, "[WinError 32] The process cannot access the file", str(path))
+    expect(remove_tree("x", attempts=5, pause=0, rmtree=locked_twice) is True and len(calls) == 3, "retries until the lock is gone: %d" % len(calls))
+
+    def always_locked(path):
+        raise PermissionError(13, "[WinError 32] locked", str(path))
+    expect(remove_tree("x", attempts=3, pause=0, rmtree=always_locked) is False, "a cleanup that never works is a warning, not a raise")
+    return "retry then warn"
+
+
+TESTS = [cleanup_survives_locked_worktree, team_view_without_black_box_files_still_reads_the_tokens, publish_failure_is_recorded, team_view_names_machines_that_never_reported, main_share_is_reported_and_warned,
          hooks_publish_from_session_start_and_codex]
 
 
@@ -148,7 +198,8 @@ def main():
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--case", action="append")
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="uak-tokens-coverage-") as tmp:
+    tmp = tempfile.mkdtemp(prefix="uak-tokens-coverage-")
+    try:
         runner = Runner(args.package.resolve(), Path(tmp), resolve_binary("bash"), resolve_binary("git"))
 
         def one(test):
@@ -161,6 +212,8 @@ def main():
         selected = [t for t in TESTS if not args.case or t.__name__ in args.case]
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
             results = list(pool.map(one, selected))
+    finally:
+        remove_tree(tmp)
     for name, ok, info in results:
         print(("PASS " if ok else "FAIL ") + name + " (" + info + ")")
     passed = sum(1 for _, ok, _ in results if ok)
