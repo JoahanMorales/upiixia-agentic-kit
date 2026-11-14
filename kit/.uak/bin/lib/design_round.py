@@ -1029,6 +1029,7 @@ QA_JS = """async () => {
 }"""
 
 _PLAYWRIGHT = """
+import faulthandler; faulthandler.dump_traceback_later(50, exit=True)  # DEBUG-CI
 import functools, http.server, json, os, re, sys, threading
 from pathlib import Path
 from urllib.parse import quote
@@ -1353,6 +1354,8 @@ def cmd_shoot(argv):
 
 
 def main(argv):
+    import faulthandler  # DEBUG-CI
+    faulthandler.dump_traceback_later(60, exit=True)  # DEBUG-CI
     if argv[:1] == ["round"] and "--from" in argv:  # a bred round from the human's picks (UAK-059)
         import design_breed
         return design_breed.run(argv[1:])
