@@ -63,7 +63,7 @@ rule allows it).
 - Desktop first and a stand-by hero (the human's rules, AXIA R3): design for 1440 and 1920, then 390; the hero is full-bleed;
   containers at least 1200 px at 1440 (a text column may be narrower, the composition fills the screen); no wide empty
   gutters. The hero is a stand-by loop for a projector: no interaction, a 10-15 s cycle, and a stranger gets subject, what
-  the product finds, the result, the wow; reduced motion gives a complete still. Never show a raster upscaled: recreate
+  the product finds, the result, the wow; reduced motion gives a complete still. Raster images keep their aspect ratio (`object-fit: cover` or `contain`, never `fill`; the capture flags `distorted image`). Never show a raster upscaled: recreate
   the subject (3D, points, line art, vector) or show it at or below native size; a result chart can be rebuilt as live
   SVG/HTML from its real numbers. three.js: pinned import map (three@0.170.0 on jsdelivr), DPR at most 2, pause when
   hidden, a designed still without WebGL, no branded models, no fetches but the CDN and fonts. Glows, neon blurs and
