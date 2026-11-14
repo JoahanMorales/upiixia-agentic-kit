@@ -48,7 +48,8 @@ BYPASS = ("--dangerously-skip-permissions", "bypassPermissions", "--yolo", "--fo
 
 
 def git(cwd, *args, check=True):
-    result = subprocess.run([resolve_binary("git"), "-C", str(cwd)] + list(args), capture_output=True, text=True)
+    result = subprocess.run([resolve_binary("git"), "-C", str(cwd)] + list(args), capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
     if check and result.returncode:
         raise AssertionError("git %s: %s" % (" ".join(args), result.stderr[-400:]))
     return result.stdout.strip()
@@ -503,10 +504,24 @@ def run_command_stops_a_descendant_holding_the_pipe(root, tmp):
     assert not left, "the descendant holding the pipe was left running after run_command returned"
 
 
+def one_grace_period_for_both_pipe_readers(root, tmp):
+    """UI-015 (Windows QA of UI-010, qa/windows/UI-010-1401.md): a descendant holding stdout AND stderr made run_command
+    wait 10 s per reader thread (20 s) before stopping the group; one 10 s grace covers both."""
+    import time
+    code = ("import subprocess, sys\n"
+            "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+            "print('started', flush=True)\n")
+    start = time.monotonic()
+    done = wizard.MODULE.run_command([sys.executable, "-c", code], timeout=60, group=True, on_line=lambda line: None)
+    elapsed = time.monotonic() - start
+    assert done.returncode == 0, done
+    assert elapsed < 15, "one grace period for both readers, not 10 s each: run_command took %.1f s" % elapsed
+
+
 TESTS = [idea_is_saved_as_plain_text, planner_command_is_fixed_and_literal, planner_never_approves_or_pushes,
          duplicate_planning_is_rejected, approval_requires_typed_confirmation, approval_commits_only_plan_files,
          approval_refuses_failing_lint, missing_tasks_file_is_a_failed_plan, planning_shows_progress,
-         run_command_stops_a_descendant_holding_the_pipe]
+         run_command_stops_a_descendant_holding_the_pipe, one_grace_period_for_both_pipe_readers]
 
 
 def main():
