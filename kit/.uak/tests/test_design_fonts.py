@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from test_hack import expect
+from test_hack import expect, resolve_binary
 
 
 class Env:
@@ -131,7 +131,7 @@ def lint_flags_wrong_pair(e):
         (v / "index.html").write_text('<!doctype html><html><head><link rel="stylesheet" href="%s"><style>:root{--ink:#111}h1{font-size:40px}</style></head><body><h1>x</h1></body></html>\n' % link, encoding="utf-8")
     root = d.parents[3]
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=str(root), check=True)
-    out = subprocess.run(["bash", str(e.package / ".uak/bin/design-lint"), ".uak/design/rounds/R1"], cwd=str(root), capture_output=True, text=True)
+    out = subprocess.run([resolve_binary("bash"), str(e.package / ".uak/bin/design-lint"), ".uak/design/rounds/R1"], cwd=str(root), capture_output=True, text=True)
     warns = [l for l in out.stdout.splitlines() if l.startswith("DESIGN_LINT_WARN")]
     expect(out.returncode == 0 and len(warns) == 1 and "v2/index.html" in warns[0] and "loads Fraunces + Geist" in warns[0] and pairs[1]["display"] in warns[0], out.stdout + out.stderr)
     expect(not any("v1/index.html" in w for w in warns), "the right pair is silent")
