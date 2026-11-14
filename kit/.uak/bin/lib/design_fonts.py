@@ -197,7 +197,7 @@ def check(path):
         got = page_fonts(page)
         want_set = {w for w in (want["display"], want.get("body")) if w}
         if {_key(x) for x in got} != {_key(x) for x in want_set}:
-            out.append((page.as_posix(), "%s loads %s, TASK.md assigned %s + %s: load the assigned pair (%s)" % (
+            out.append((str(page), "%s loads %s, TASK.md assigned %s + %s: load the assigned pair (%s)" % (
                 d.name, " + ".join(got) or "no Google Fonts", want["display"], want.get("body", "-"), want.get("url", ""))))
     return out
 

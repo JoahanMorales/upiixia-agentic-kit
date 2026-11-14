@@ -21,7 +21,8 @@ from pathlib import Path
 
 MIN_PROJECTS = 2
 STYLE_PROJECTS = 3
-STYLISTIC = ("type", "scale", "color", "ground")
+# Palette traits (UAK-078) are style too: they need 3 projects, like type, scale, color and ground.
+STYLISTIC = ("type", "scale", "color", "ground", "palette_hue", "palette_neutral", "palette_sat_hues", "palette_sat_share")
 LIFT_UP = 1.25
 LIFT_DOWN = 0.8
 VERSION = 1

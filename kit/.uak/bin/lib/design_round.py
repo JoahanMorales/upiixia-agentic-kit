@@ -632,7 +632,9 @@ def task_text(rnd, i, genome, screen):
         lines += ["- fonts: **%s** (display, weights %s) + **%s** (body, weights %s); load exactly this, no other face:" % (
                   f["display"], f["display_weights"], f["body"], f["body_weights"]),
                   "  `<link rel=\"stylesheet\" href=\"%s\">` (design-lint warns when the page loads another pair; Inter, Roboto, Arial and Geist are never a display face)" % f["url"]]
-    if genome.get("brand"):
+    if genome.get("palette"):
+        lines += ["- palette: **%s** (roles and exact hex below; they replace the color gene's colors)" % genome["palette"]["name"]]
+    elif genome.get("brand"):
         lines += ["- project colors: %s (`../brief.md` > Brand colors; the color gene is built from them)" % " ".join(genome["brand"])]
     lines += ["- recipe: **%s** (use that skill's method for the look)" % genome["recipe"], "",
               "## Bounds (same as landing-story; they override any size in MotionSites examples or craft.md)",
@@ -644,7 +646,8 @@ def task_text(rnd, i, genome, screen):
               "  (a text column may be narrower, the composition fills the screen). No section with wide empty gutters.",
               "- The hero is a stand-by loop for a projector: it runs with NO interaction in a 10-15 s cycle and tells the project to a",
               "  stranger: subject, what the product finds, the result, the wow. Your `stage` gene (**%s**) says how. Reduced motion gives a complete still." % genes.get("stage", STILL),
-              "- Never show a raster upscaled. Recreate the subject (3D, points, line art, vector) or show it at or below native size. A real",
+              "- Raster images keep their aspect ratio: `object-fit: cover` (crop) or `contain` (fit), never `fill` or a width and height that disagree with the file",
+              "  (the capture flags `distorted image`). Never show a raster upscaled. Recreate the subject (3D, points, line art, vector) or show it at or below native size. A real",
               "  result chart may be rebuilt as live SVG/HTML from its real numbers.",
               "- three.js: import map pinned to `https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js` (addons under `.../three@0.170.0/examples/jsm/`),",
               "  devicePixelRatio at most 2, pause rendering when the tab is hidden, a designed still when WebGL is missing, no branded 3D models",
@@ -655,7 +658,7 @@ def task_text(rnd, i, genome, screen):
               "  carries the story; the text does not repeat it, and no text block sits over the stage's focal point. Later sections: one idea each,",
               "  at most ~4 cards or ~80 words. The human on a saturated landing: \"too much information, things pop up everywhere\".",
               "- Check the page at 1920x1080 (the projector): `1920.png` if the capture wrote one, else open index.html at that size; then 1280 and 390.", "",
-              ] + budget_lines(genes.get("stage", STILL)) + [
+              ] + (__import__("design_color").palette_lines(genome["palette"]) if genome.get("palette") else []) + budget_lines(genes.get("stage", STILL)) + [
               "## Start from material",
               "Use the team's own material first: logo, mascot, photos, map, the real product screen. List what exists (`web/public`, `assets/`,",
               "links in IDEA.md) before designing, and build around it. Then generated material. Only then the MotionSites media shelf.",
@@ -782,11 +785,23 @@ def cmd_round(argv):
         if material:
             have = material.get(g["genes"]["imagery"])
             g["why"]["imagery"] += " \u00b7 " + ("project has: " + ", ".join(have[:2]) if have else "no material for it" if g["genes"]["imagery"] != "type only" else "needs none")
+    import design_color
+    pals, pal_note = design_color.picked_palettes(root)  # the human's picks of the palette round (UAK-078), light and dark kept in balance
+    for i, g in enumerate(genomes):
+        if pals:
+            ground = g.get("ground") or ("light", "dark")[i % 2]
+            g["palette"] = design_color.with_ground(pals[i % len(pals)], ground)
+            g["ground"] = ground
+            if ground_of(g["genes"]) != ground:
+                g["genes"]["color"] = FLIP_TO[ground]  # the color gene must say what the palette says
+            g["why"]["color"] = "palette %s (%s) \u00b7 roles and hex in TASK.md" % (g["palette"]["name"], g["palette"]["roles"]["primary"])
     mix = {k: sum(1 for g in genomes if g["origin"] == k) for k in ("taste", "prior", "wildcard", "spread")}
     novel = sum(1 for g in genomes if g["novelty"])
     mix_line = "DESIGN_ROUND mix: %d from %s, %d wildcards, %d drawn as before; %d redrawn for novelty vs %d past directions (%s; %s)%s" % (
         mix["taste"] or mix["prior"], "taste" if mix["taste"] or not mix["prior"] else "the kit prior", mix["wildcard"], mix["spread"], novel, len(avoid),
         taste_note, prior_note, "; seed %d from the project name" % seed)
+    if pal_note:
+        mix_line += "\nDESIGN_ROUND %s" % pal_note
     if dry:
         for i, g in enumerate(genomes, 1):
             print("v%d  %s  | recipe %s | %s" % (i, " | ".join("%s=%s" % (k, g["genes"][k]) for k in GENES), g["recipe"], g["origin"]))
@@ -830,6 +845,8 @@ def cmd_round(argv):
                "genes": g["genes"], "recipe": g["recipe"], "why": g["why"]}
         if g.get("ground"):
             doc["ground"] = g["ground"]
+        if g.get("palette"):
+            doc["palette"] = g["palette"]
         if g.get("fonts"):
             doc["fonts"] = g["fonts"]
         with open(str(v / "genome.json"), "w", encoding="utf-8", newline="\n") as f:
@@ -848,7 +865,7 @@ def cmd_round(argv):
 # Why (AXIA R1, Nov 11 2026): two variants looked broken in their captures because a <video>'s first frame is empty, and the
 # human judged six landings from that first screen alone. Before each shot every video is paused and seeked to 30% of its
 # length (a video that has no frame to show keeps its poster); the page is then still, so the fold and the full page match.
-MEDIA_JS = """async () => {
+MEDIA_JS = r"""async () => {
   const vs = Array.prototype.slice.call(document.querySelectorAll('video'));
   const wait = (el, ev, ms) => new Promise(res => { let done = false; const f = () => { if (!done) { done = true; res(); } };
     el.addEventListener(ev, f, {once: true}); setTimeout(f, ms); });
@@ -868,7 +885,7 @@ MEDIA_JS = """async () => {
 # Why (AXIA R1-R3, Nov 11 2026): the lead hand-patched the capture for 1920, http and WebGL, and the human found the narrow
 # pages and stretched images by eye. The probe below measures what the human judges, in the page itself: WebGL, how wide
 # the content (text extents, images, media) is against the viewport, rasters drawn larger than they are, and the frame time.
-QA_JS = """async () => {
+QA_JS = r"""async () => {
   const W = innerWidth, dpr = window.devicePixelRatio || 1;
   let gl = false;
   try { const c = document.createElement('canvas'); gl = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) {}
@@ -894,7 +911,11 @@ QA_JS = """async () => {
   const share = n && hi > lo ? Math.round((hi - lo) / W * 100) : null;
   // Why (UAK-069 review, Nov 12 2026): the human saw stretched images the <img>-only check missed. The drawn size of anything
   // raster is measured against its natural size: <img>, CSS background-image, <video> and a <canvas> backing store.
-  const upscaled = [];
+  const upscaled = [], distorted = [];
+  // Why (UAK-073 review, AXIA R1, 2026-11-13): "stretched and ugly" was squashing, not upscaling: loop.png (900x620) drawn at 532x620 with
+  // object-fit: fill. A raster drawn more than 8% off its natural aspect ratio, with nothing that preserves it, is flagged.
+  const squashed = (nw, nh, bw, bh) => nw > 0 && nh > 0 && bw > 0 && bh > 0 && Math.abs((bw / bh) / (nw / nh) - 1) > 0.08;
+  const keeps = (fit) => /cover|contain|none|scale-down/.test(fit || '');
   const fitted = (nw, nh, bw, bh, fit) => {  // the width at which a nw x nh raster is drawn in a bw x bh box
     if (/cover/.test(fit)) return nw * Math.max(bw / nw, bh / nh);
     if (/contain|scale-down/.test(fit)) return nw * Math.min(bw / nw, bh / nh);
@@ -911,17 +932,23 @@ QA_JS = """async () => {
     if (!r) return;
     const d = fitted(im.naturalWidth, im.naturalHeight, r.width, r.height, getComputedStyle(im).objectFit || '');
     if (d > im.naturalWidth * dpr * 1.1 + 1) upscaled.push({file: name(src), natural: im.naturalWidth, drawn: Math.round(d), kind: 'img'});
+    if (!keeps(getComputedStyle(im).objectFit) && squashed(im.naturalWidth, im.naturalHeight, r.width, r.height))
+      distorted.push({file: name(src), nw: im.naturalWidth, nh: im.naturalHeight, dw: Math.round(r.width), dh: Math.round(r.height), kind: 'img'});
   });
   document.querySelectorAll('video').forEach(v => {
     const r = shown(v);
     if (!r || !v.videoWidth) return;
     const d = fitted(v.videoWidth, v.videoHeight, r.width, r.height, getComputedStyle(v).objectFit || '');
     if (d > v.videoWidth * dpr * 1.1 + 1) upscaled.push({file: name(v.currentSrc || v.src) || 'video', natural: v.videoWidth, drawn: Math.round(d), kind: 'video'});
+    if (!keeps(getComputedStyle(v).objectFit) && squashed(v.videoWidth, v.videoHeight, r.width, r.height))
+      distorted.push({file: name(v.currentSrc || v.src) || 'video', nw: v.videoWidth, nh: v.videoHeight, dw: Math.round(r.width), dh: Math.round(r.height), kind: 'video'});
   });
   document.querySelectorAll('canvas').forEach(c => {
     const r = shown(c);
     if (!r || !c.width) return;
     if (c.width < r.width * dpr * 0.7) upscaled.push({file: 'canvas' + (c.id ? '#' + c.id : ''), natural: c.width, drawn: Math.round(r.width * dpr), kind: 'canvas'});
+    if (!keeps(getComputedStyle(c).objectFit) && squashed(c.width, c.height, r.width, r.height))
+      distorted.push({file: 'canvas' + (c.id ? '#' + c.id : ''), nw: c.width, nh: c.height, dw: Math.round(r.width), dh: Math.round(r.height), kind: 'canvas'});
   });
   const bgs = [];
   for (let i = 0; i < all.length && i < 4000; i++) {
@@ -931,7 +958,7 @@ QA_JS = """async () => {
     if (!r) continue;
     const sizes = (cs.backgroundSize || 'auto').split(/,\s*(?![^(]*\))/);
     let k = 0;
-    cs.backgroundImage.replace(/url\((['"]?)(.*?)\\1\)/g, (m, q, u) => { bgs.push({u: u, r: r, size: sizes[k % sizes.length] || 'auto'}); k++; return m; });
+    cs.backgroundImage.replace(/url\((['"]?)(.*?)\1\)/g, (m, q, u) => { bgs.push({u: u, r: r, size: sizes[k % sizes.length] || 'auto'}); k++; return m; });
   }
   const natural = {};
   await Promise.all(Array.from(new Set(bgs.map(b => b.u))).filter(u => !/\.svg(\?|$)|^data:image\/svg/i.test(u)).slice(0, 40).map(u => new Promise(res => {
@@ -945,6 +972,12 @@ QA_JS = """async () => {
     else if (/%/.test(b.size)) d = b.r.width * parseFloat(b.size) / 100;
     else if (/px/.test(b.size)) d = parseFloat(b.size);
     if (d > n[0] * dpr * 1.1 + 1) upscaled.push({file: name(b.u), natural: n[0], drawn: Math.round(d), kind: 'background'});
+    const two = (b.size || '').trim().split(/\s+/);  // sized on both axes: "100% 100%", "300px 120px"
+    if (two.length === 2 && two[0] !== 'auto' && two[1] !== 'auto') {
+      const len = (t, full) => /%$/.test(t) ? full * parseFloat(t) / 100 : parseFloat(t);
+      const dw = len(two[0], b.r.width), dh = len(two[1], b.r.height);
+      if (squashed(n[0], n[1], dw, dh)) distorted.push({file: name(b.u), nw: n[0], nh: n[1], dw: Math.round(dw), dh: Math.round(dh), kind: 'background'});
+    }
   });
   // Frame cost (the reference shoot-patient.js): average frame interval over 3 s, long tasks and the JS heap.
   let longTasks = 0;
@@ -992,11 +1025,11 @@ QA_JS = """async () => {
     if (focal && overlap(r, focal) > 0) overFocal++;
   }
   const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
-  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap, texts: texts, words: words, stage: !!stage, overStage: overStage, overFocal: overFocal};
+  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), distorted: distorted.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap, texts: texts, words: words, stage: !!stage, overStage: overStage, overFocal: overFocal};
 }"""
 
 _PLAYWRIGHT = """
-import functools, http.server, json, os, re, sys, threading
+import functools, http.server, json, os, re, socketserver, sys, threading
 from pathlib import Path
 from urllib.parse import quote
 from playwright.sync_api import sync_playwright
@@ -1031,7 +1064,13 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
             f.seek(start)
             self.wfile.write(f.read(end - start + 1))
 root = html.parent.parent
-srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(root)))
+class Srv(http.server.ThreadingHTTPServer):
+    # Why (CI, 2026-11-14): HTTPServer.server_bind calls socket.getfqdn(), a reverse DNS lookup that hung for minutes on macOS
+    # runners, so every capture timed out before the first page loaded. The name is never used.
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
+srv = Srv(("127.0.0.1", 0), functools.partial(Quiet, directory=str(root)))
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 url = "http://127.0.0.1:%d/%s" % (srv.server_address[1], quote(html.relative_to(root).as_posix()))
 report = {}
@@ -1086,6 +1125,9 @@ def qa_warnings(qa):
                 q.get("words"), q.get("texts"), DENSE_WORDS)))
         if q.get("overFocal") and w >= 1280:
             out.append((name, "text over the stage's focal point: %d text block(s) cover the middle of the stage; move the copy beside it" % q["overFocal"]))
+        for u in q.get("distorted", [])[:3]:
+            out.append((name, "distorted image: %s, natural %s\u00d7%s \u2192 drawn %s\u00d7%s (%s): keep the ratio with object-fit: cover or contain, never fill" % (
+                u.get("file"), u.get("nw"), u.get("nh"), u.get("dw"), u.get("dh"), u.get("kind"))))
         for u in q.get("upscaled", [])[:3]:
             kind = u.get("kind")
             if kind == "canvas":
@@ -1171,6 +1213,27 @@ def record_perf(root, vdir):
     except (OSError, ValueError):
         pass
     return perf
+
+
+def record_color(vdir):
+    """After a capture: the color use of the 1920 fold (saturated and dark share, dominant colors, role coverage, clashes) into
+    metrics.json under "color", with why the page drifted from its planned palette, when it did. Prints the drift."""
+    vdir = Path(vdir)
+    try:
+        import design_color
+        pal = (json.loads((vdir / "genome.json").read_text(encoding="utf-8"))).get("palette")
+        m = design_color.measure_png(vdir / "1920.png", pal)
+        if not m:
+            return None
+        mp = vdir / "metrics.json"
+        doc = json.loads(mp.read_text(encoding="utf-8"))
+        doc["color"] = m
+        mp.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        for why in m.get("drift") or []:
+            print("DESIGN_SHOOT QA %s 1920: palette drift: %s" % (vdir.name, why))
+        return m
+    except (OSError, ValueError):
+        return None
 
 
 def read_qa(vdir):
@@ -1276,6 +1339,7 @@ def cmd_shoot(argv):
                 import design_metrics
                 design_metrics.record_capture(v)
                 record_perf(root, v)
+                record_color(v)
                 record_density(v)
             except Exception as exc:  # noqa: BLE001  metrics never fail a capture
                 print("DESIGN_SHOOT metrics not recorded for %s: %s" % (v.name, str(exc)[:120]), file=sys.stderr)
@@ -1302,10 +1366,13 @@ def main(argv):
         return cmd_round(argv[1:])
     if argv[:1] == ["shoot"]:
         return cmd_shoot(argv[1:])
+    if argv[:1] == ["palettes"]:  # a cheap palette round: no agents, no tokens (UAK-078)
+        import design_color
+        return design_color.cmd_palettes(argv[1:], project_root())
     if argv[:1] in (["done"], ["report"]):  # tokens and minutes per variant (UAK-070)
         import design_metrics
         return design_metrics.main(argv)
-    print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] | design done R<k> v<i> --tokens N | design report R<k> [--all] | design pick R<k> [--k N]", file=sys.stderr)
+    print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] | design palettes [--n 6] | design done R<k> v<i> --tokens N | design report R<k> [--all] | design pick R<k> [--k N]", file=sys.stderr)
     return 2
 
 

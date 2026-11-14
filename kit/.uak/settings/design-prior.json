@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated": "2026-11-13",
+  "generated": "2026-11-14",
   "evidence": {
     "profiles": 1,
     "projects": 2,
@@ -13,7 +13,11 @@
       "type",
       "scale",
       "color",
-      "ground"
+      "ground",
+      "palette_hue",
+      "palette_neutral",
+      "palette_sat_hues",
+      "palette_sat_share"
     ],
     "stylistic_min_projects": 3,
     "lift_up": 1.25,

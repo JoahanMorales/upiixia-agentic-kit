@@ -34,6 +34,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from design_breed import _read, converged, first_pick  # noqa: E402
 from design_round import GENES, ground_of, project_root  # noqa: E402
+from design_color import TRAITS as PALETTE_TRAITS, traits_of  # noqa: E402
 
 MIN_PICKS = 10
 HEX = re.compile(r"#[0-9a-fA-F]{3,8}\b")
@@ -217,10 +218,16 @@ def _fold_round(rdir):
         shown += 1
         # ground (light/dark, UAK-072) is a trait like a gene: the genome's own, else what its color implies (older rounds)
         traits = dict(g["genes"])
-        ground = g.get("ground") or ground_of(g["genes"])
+        pal = g.get("palette") if isinstance(g.get("palette"), dict) else None
+        ground = g.get("ground") or (pal or {}).get("ground") or ground_of(g["genes"])
         if ground:
             traits["ground"] = ground
-        for gene in list(GENES) + ["ground"]:
+        if pal:  # palette features (UAK-078): dominant hue family, saturated hues, neutral temperature, saturation share
+            try:
+                traits.update(pal.get("traits") or traits_of(pal))
+            except (KeyError, ValueError, TypeError):
+                pass
+        for gene in list(GENES) + ["ground"] + list(PALETTE_TRAITS):
             val = traits.get(gene)
             if not isinstance(val, str):
                 continue
@@ -233,7 +240,8 @@ def _fold_round(rdir):
             note = HEX.sub("", str(notes.get(vdir.name, ""))).strip()
             if note:
                 c["notes"].append(note)
-    return {"picks": len(picked), "shown": shown, "genes": genes}
+    # a palette round teaches the palette traits; its picks do not count toward the confidence of the landing taste
+    return {"picks": len(picked) if rdir.name.startswith("R") else 0, "shown": shown, "genes": genes}
 
 
 def _direction(base, rounds):
@@ -261,7 +269,8 @@ def update(root, human, project=None, now=None, team=False):
     base = root / ".uak" / "design" / "rounds"
     doc = load_team(root) if team else load(human)
     judged = []
-    names = sorted((p.name for p in base.glob("R*") if re.match(r"^R\d+$", p.name)), key=lambda s: int(s[1:])) if base.is_dir() else []
+    # R<k> landing rounds and P<k> palette rounds (UAK-078) both teach the profile
+    names = sorted((p.name for p in base.glob("[RP]*") if re.match(r"^[RP]\d+$", p.name)), key=lambda s: (s[0] != "R", int(s[1:]))) if base.is_dir() else []
     for rnd in names:
         folded = _fold_round(base / rnd)
         if folded:
@@ -269,7 +278,8 @@ def update(root, human, project=None, now=None, team=False):
             judged.append(rnd)
     for key in [k for k in doc["rounds"] if k.startswith(project + ":") and k.split(":", 1)[1] not in judged]:
         del doc["rounds"][key]  # a round that no longer exists or lost its picks
-    d = _direction(base, judged) if judged else None
+    judged_r = [r for r in judged if r.startswith("R")]
+    d = _direction(base, judged_r) if judged_r else None
     if d:
         old = doc["directions"].get(project, {})
         same = old.get("genes") == d["genes"] and old.get("round") == d["round"] and old.get("variant") == d["variant"] and old.get("fonts") == d.get("fonts")
@@ -329,7 +339,7 @@ def show(human, doc=None):
     w = weights(doc)
     lines = ["TASTE %s: %d picks in %d rounds, confidence: %s%s" % (
         human, pick_count(doc), len(doc["rounds"]), confidence(doc), " (still learning: rounds keep exploring)" if confidence(doc) == "low" else "")]
-    for gene in list(GENES) + ["ground"]:
+    for gene in list(GENES) + ["ground"] + list(PALETTE_TRAITS):
         vals = tot.get(gene)
         if not vals:
             continue
