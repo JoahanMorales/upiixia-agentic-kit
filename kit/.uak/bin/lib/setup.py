@@ -14,6 +14,7 @@ import re
 import secrets
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -827,6 +828,53 @@ class SetupServer(ThreadingHTTPServer):
         self.start_worker(work)
 
 
+# UI-017: the demo video of the welcome screen (shipped by UI-016). A fixed allowlist: the request picks one of these
+# four routes, never a path, and the files come from the kit that runs this setup (.uak/media beside bin/lib), never
+# from the chosen project.
+MEDIA = {
+    "/media/tutorial.mp4": ("tutorial.mp4", "video/mp4"),
+    "/media/tutorial-en.vtt": ("tutorial-en.vtt", "text/vtt; charset=utf-8"),
+    "/media/tutorial-es.vtt": ("tutorial-es.vtt", "text/vtt; charset=utf-8"),
+    "/media/tutorial-poster.jpg": ("tutorial-poster.jpg", "image/jpeg"),
+}
+
+
+def media_file(name):
+    """The engine's media file `name` when it is a regular file reached without a symlink, else None."""
+    folder = Path(__file__).resolve().parents[2] / "media"
+    try:
+        if os.path.islink(str(folder)) or not os.path.isdir(str(folder)):
+            return None
+        path = folder / name
+        info = os.lstat(str(path))
+    except OSError:
+        return None
+    return path if stat.S_ISREG(info.st_mode) else None
+
+
+def media_available():
+    """The page shows the demo block only when all four files are there."""
+    return all(media_file(name) for name, _ in MEDIA.values())
+
+
+def byte_range(header, size):
+    """A single `bytes=a-b`, `bytes=a-` or `bytes=-n` range as (start, end); None to send the whole file (no header,
+    or one this server does not use: several ranges, another unit, a malformed one); "unsatisfiable" for a 416."""
+    m = re.match(r"^bytes=(\d*)-(\d*)$", (header or "").strip())
+    if not m or not (m.group(1) or m.group(2)):
+        return None
+    if not m.group(1):
+        suffix = int(m.group(2))
+        return (max(0, size - suffix), size - 1) if suffix and size else "unsatisfiable"
+    start = int(m.group(1))
+    end = int(m.group(2)) if m.group(2) else size - 1
+    if start >= size:
+        return "unsatisfiable"
+    if end < start:
+        return None
+    return start, min(end, size - 1)
+
+
 class SetupHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
 
@@ -845,7 +893,7 @@ class SetupHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'nonce-%s'; style-src 'unsafe-inline'; connect-src 'self'; frame-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors %s" % (self.server.nonce, "'self'" if self.path == "/dashboard" else "'none'"))
+        self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'nonce-%s'; style-src 'unsafe-inline'; connect-src 'self'; frame-src 'self'; img-src data: 'self'; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors %s" % (self.server.nonce, "'self'" if self.path == "/dashboard" else "'none'"))
         try:
             self.end_headers()
             self.wfile.write(data)
@@ -870,6 +918,8 @@ class SetupHandler(BaseHTTPRequestHandler):
             self.reply(200, html.replace("__NONCE__", self.server.nonce), html=True)
         elif self.path == "/workspace.js":
             self.reply(200, Path(__file__).with_name("workspace.js").read_text(encoding="utf-8"), javascript=True)
+        elif self.path in MEDIA:
+            self.media(*MEDIA[self.path])
         elif self.path == "/dashboard":
             html = Path(__file__).with_name("dash.html").read_text(encoding="utf-8")
             bridge = ('<script nonce="%s">window.UAK_EMBEDDED=true;'
@@ -934,11 +984,64 @@ class SetupHandler(BaseHTTPRequestHandler):
                     progress = {"elapsed": max(0, int(time.time() - s.plan_started)), "last": s.plan_last} if running else {}
                 self.reply(200, dict(state, plan_progress=progress, settings=read_config(target) if target else {},
                                      guidance=guidance(state), completed=completed_steps(state), team=team_phase(state),
+                                     demo=media_available(),
                                      reviewer=reviewer_status(s, target, state.get("human") or "")))
             except (ValueError, OSError, subprocess.SubprocessError) as exc:
                 self.reply(400, {"error": redact(exc)})
         else:
             self.reply(404, {"error": "Page not found."})
+
+    def media(self, name, kind):
+        """One file of the demo video, whole or one byte range so the browser can seek (UI-017).
+        Authorized like "/" and "/workspace.js": a <video> cannot send the X-UAK-Token header, so the loopback Host
+        check is the gate, as for the page's other same-origin assets; the files are the kit's public demo and carry no
+        project data. Sec-Fetch-Site and Cross-Origin-Resource-Policy keep other sites from embedding them."""
+        if self.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
+            self.reply(403, {"error": "This request must come from the local setup page."})
+            return
+        path = media_file(name)
+        if not path:
+            self.reply(404, {"error": "Page not found."})
+            return
+        try:
+            handle = open(str(path), "rb")
+        except OSError:
+            self.reply(404, {"error": "Page not found."})
+            return
+        with handle:
+            size = os.fstat(handle.fileno()).st_size
+            span = byte_range(self.headers.get("Range"), size)
+            if span == "unsatisfiable":
+                self.send_response(416)
+                self.send_header("Content-Range", "bytes */%d" % size)
+                start, end = 0, -1
+            elif span:
+                start, end = span
+                self.send_response(206)
+                self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+            else:
+                start, end = 0, size - 1
+                self.send_response(200)
+            self.send_header("Content-Type", kind)
+            self.send_header("Content-Length", str(end - start + 1))
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+            try:
+                self.end_headers()
+                handle.seek(start)
+                left = end - start + 1
+                while left > 0:
+                    chunk = handle.read(min(65536, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
+            except OSError:
+                pass  # the browser often drops a range it no longer needs while seeking
 
     def slow_lane(self, compute, when_busy):
         """Run `compute` in the slow lane, or `when_busy` when a worker runs, checked again after waiting (amendment 3)."""
