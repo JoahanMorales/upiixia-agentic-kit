@@ -87,3 +87,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794627457 | UAK-081 | flag only when nothing preserves the ratio (not cover/contain/none/scale-down); backgrounds only with both axes sized | Why: AXIA R1 squashed images
 - 1794637920 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-082 | Why: backlog without PR (Plan-Channel: claims)
 - 1794637966 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-083 | Why: backlog without PR (Plan-Channel: claims)
+- 1794637977 | allow | JoahanMorales | test change: UAK-082 | Why: flake de Windows en la limpieza
