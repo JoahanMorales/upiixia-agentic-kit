@@ -17,6 +17,8 @@
 
 [![M8ven Score](https://m8ven.ai/badge/mcp/joahanmorales-upiixia-agentic-kit-1e9007)](https://m8ven.ai/mcp/joahanmorales-upiixia-agentic-kit-1e9007?s=readme)
 
+▶ [Demo (simulated): from zero to a deployed product in 74 s](kit/.uak/media/tutorial.mp4) · captions: [English](kit/.uak/media/tutorial-en.vtt) / [Español](kit/.uak/media/tutorial-es.vtt)
+
 [Quick start](#quick-start) · [First claim](#stuck-before-the-first-claim-uak-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Frontend](#frontends-that-dont-look-generated) · [Deploy](#deploy-in-one-command-uak-deploy) · [Dashboard](#see-everything-uak-dash) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-six-team-runs) · [Contributing](CONTRIBUTING.md)
 
 </div>

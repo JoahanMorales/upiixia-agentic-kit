@@ -6,7 +6,7 @@
 # Never overwrites your files: if AGENTS.md, CLAUDE.md, settings.json… already exist and differ,
 # the kit's version is written as <file>.uak-new for you to merge. A file that is an earlier kit version nobody
 # edited (its hash is in .uak/settings/known-files.txt) is simply updated.
-# --update replaces only the engine (.uak/bin, docs, modes, templates, tests, settings, stacks, skills)
+# --update replaces only the engine (.uak/bin, docs, modes, templates, tests, settings, stacks, skills, media)
 # and keeps PROJECT.md, TASKS.md and OWNERS.md.
 # Harnesses: Claude Code (.claude), Codex (.codex), Cursor (.cursor), Gemini CLI (.gemini) all get
 # tiered subagents (fast / balanced / strong) and, where the harness has hooks, the same guard.
@@ -135,7 +135,8 @@ kit_snapshot() {
 }
 kit_snapshot > "$keep/kit-before"
 for f in smoke-project .smoke-project.provenance; do [ ! -f "$target/.uak/bin/$f" ] || cp -p "$target/.uak/bin/$f" "$keep/$f"; done
-for part in bin docs modes templates tests settings stacks skills; do
+# media: the demo video the setup page shows (UI-016), refreshed with the engine.
+for part in bin docs modes templates tests settings stacks skills media; do
   rm -rf "$target/.uak/$part"
   cp -R "$kit/.uak/$part" "$target/.uak/$part"
 done
@@ -144,7 +145,7 @@ cp "$kit/.uak/VERSION" "$target/.uak/VERSION"
 # Coach templates: copied on install; on --update they are refreshed too (they are engine text, not project data).
 cp "$kit/.uak/reminders.md" "$target/.uak/reminders.md"
 chmod +x "$target"/.uak/bin/* 2>/dev/null || true
-say "  + .uak/ (engine, modes, templates, docs, tests, skill library)"
+say "  + .uak/ (engine, modes, templates, docs, tests, skill library, demo video)"
 [ -f "$target/.uak/PROJECT.md" ] || { cp "$kit/.uak/templates/PROJECT.$mode.md" "$target/.uak/PROJECT.md"; say "  + .uak/PROJECT.md"; }
 [ -f "$target/.uak/OWNERS.md" ] || { cp "$kit/.uak/templates/OWNERS.template.md" "$target/.uak/OWNERS.md"; say "  + .uak/OWNERS.md"; }
 if [ "$blackbox" = off ] && grep -q '^Blackbox: on' "$target/.uak/PROJECT.md"; then

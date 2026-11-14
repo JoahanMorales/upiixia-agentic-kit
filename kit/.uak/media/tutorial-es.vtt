@@ -1,0 +1,49 @@
+WEBVTT
+
+1
+00:00:00.000 --> 00:00:04.500
+Demostración (simulada): el UPIIXIA Agentic Kit, de cero a un producto desplegado.
+
+2
+00:00:04.500 --> 00:00:09.500
+Empieza en una carpeta vacía y clona el kit una vez.
+
+3
+00:00:09.500 --> 00:00:14.500
+install.sh --wizard abre una página de configuración en tu propia computadora.
+
+4
+00:00:14.500 --> 00:00:21.000
+En la página: instala el kit y prepara el proyecto con tu nombre y el horario del evento.
+
+5
+00:00:21.000 --> 00:00:27.000
+Planea: describe tu idea. Claude Code redacta las tareas, cada una con sus pruebas.
+
+6
+00:00:27.000 --> 00:00:33.000
+Apruebas el plan escribiendo el nombre del proyecto. Solo una persona puede aprobarlo.
+
+7
+00:00:33.000 --> 00:00:40.000
+Arranca tu equipo: Claude Code implementa como claude-ana; una segunda identidad, ana-r, revisa. Basta una suscripción.
+
+8
+00:00:40.000 --> 00:00:47.000
+Los agentes toman tareas y escriben primero las pruebas: rojo, luego verde.
+
+9
+00:00:47.000 --> 00:00:54.000
+Lo terminado pasa a revisión. La revisora aprueba y uak merge corre las pruebas sobre el resultado integrado.
+
+10
+00:00:54.000 --> 00:01:01.000
+El tablero sigue cada tarea: disponible, en curso, en revisión, integrada.
+
+11
+00:01:01.000 --> 00:01:07.000
+La última tarea queda integrada y uak deploy pone la app en línea.
+
+12
+00:01:07.000 --> 00:01:14.000
+El tablero de turnos de la cafetería, desplegado en su URL pública. Esto fue una demostración con pantallas simuladas.
