@@ -26,3 +26,12 @@ python3 .uak/tests/test_v3.py           # fastest suite: plan, deps, leases, gua
 - New `uak graph` checks (for example, two wave-1 tasks sharing Paths) or `uak loop` features.
 
 Security issues: see [SECURITY.md](SECURITY.md). Please don't open a public issue.
+
+## Releasing (maintainers)
+1. `kit/.uak/VERSION`, `server.json`, `.claude-plugin/plugin.json` and `marketplace.json` get the new version; `CHANGELOG.md` gets the entry.
+2. README (the version paragraph), `llms.txt`, `docs/HACKATHON.md` and `docs/media/demo.svg` mention what changed.
+3. The kit's default design prior is regenerated from the maintainers' taste profiles and its evidence line goes into the
+   CHANGELOG entry: `python3 scripts/design_prior.py --from ~/.uak/taste/<maintainer>.json [--from …]` (UAK-075: only traits
+   picked in 2+ projects enter; stylistic genes need 3).
+4. `python3 scripts/kit_hashes.py` after `git add`, then `python3 scripts/kit_lint.py` and the full `bash .uak/bin/smoke`.
+5. Tag only after every CI run of the release commit is green (Linux, macOS, Windows), then check the tag's runs too.

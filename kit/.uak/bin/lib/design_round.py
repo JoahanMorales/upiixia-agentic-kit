@@ -102,10 +102,14 @@ def _try_round(n, seed, salt, recipes, ctx):
     rule (<= MAX_SHARED with every other variant) and the novelty rule (<= MAX_PAST_SHARED with every past direction)."""
     rng = Rng(seed, salt)
     weights, wild, avoid, factors = ctx.get("weights"), ctx.get("wild", 0), ctx.get("avoid") or [], ctx.get("factors") or {}
+    prior = ctx.get("prior")
+    import design_prior
+    value_weight = design_prior.blend(weights, prior)  # profile on top of the kit prior; (weight, source, profile w, prior w)
+    learned = bool(weights) or bool(prior)
     counts = {g: {v: 0 for v in vals} for g, vals in GENES.items()}
     out = []
     for i in range(n):
-        taste = bool(weights) and i < n - wild
+        taste = learned and i < n - wild
         novelty = False
         for _ in range(400):
             genes, why = {}, {}
@@ -113,9 +117,10 @@ def _try_round(n, seed, salt, recipes, ctx):
                 once = AT_MOST_ONCE.get(g)
                 if taste:
                     cands = [v for v in GENES[g] if not (v == once and counts[g][v] >= 1)]
-                    w = [(TASTE_FLOOR + weights.get(g, {}).get(v, 0.5)) * factors.get(g, {}).get(v, 1.0) for v in cands]
+                    w = [(TASTE_FLOOR + value_weight(g, v)[0]) * factors.get(g, {}).get(v, 1.0) for v in cands]
                     pick = rng.weighted(cands, w)
-                    why[g] = "taste %.2f" % weights.get(g, {}).get(pick, 0.5)
+                    got_w, src, wp, wr = value_weight(g, pick)
+                    why[g] = {"taste": "taste %.2f" % (wp or 0), "prior": "prior %.2f" % (wr or 0), "both": "taste %.2f, prior %.2f" % (wp or 0, wr or 0)}.get(src, "spread")
                 else:
                     ok = [v for v in GENES[g] if not (v == once and counts[g][v] >= 1)]
                     low = min(counts[g][v] for v in ok)  # spread: a value repeats only once all the others appeared
@@ -124,7 +129,7 @@ def _try_round(n, seed, salt, recipes, ctx):
                         pick = rng.weighted(cands, [factors[g].get(v, 1.0) * (1.0 if counts[g][v] == low else REPEAT_PENALTY) for v in cands])
                     else:
                         pick = rng.pick([v for v in ok if counts[g][v] == low])
-                    why[g] = "wildcard" if weights else "spread"
+                    why[g] = "wildcard" if learned else "spread"
                 genes[g] = pick
             if not all(shared_genes(genes, o["genes"]) <= MAX_SHARED for o in out):
                 continue
@@ -137,26 +142,97 @@ def _try_round(n, seed, salt, recipes, ctx):
         for g, v in genes.items():
             counts[g][v] += 1
         out.append({"genes": genes, "recipe": recipes[i % len(recipes)], "why": why,
-                    "origin": "taste" if taste else ("wildcard" if weights else "spread"), "novelty": novelty})
+                    "origin": ("taste" if weights else "prior") if taste else ("wildcard" if learned else "spread"), "novelty": novelty})
     return out
 
 
-def make_genomes(n, seed, recipes=None, weights=None, wild=None, avoid=None, factors=None):
+def make_genomes(n, seed, recipes=None, weights=None, wild=None, avoid=None, factors=None, avoid_faces=(), prior=None):
     """n genomes {"genes": {...8...}, "recipe": R, "why": {gene: reason}}: spread values, pairs share <= MAX_SHARED genes,
     same seed same list. Optional (UAK-063, design_breed.py calls it without them): weights {gene: {value: w}} from the
     taste profile (liked values likelier; the last `wild` variants, default 2, or 1 when n <= 4, ignore them), avoid
     [gene dicts of past directions] (no variant shares more than MAX_PAST_SHARED genes with one), factors
-    {gene: {value: f}} (the project's own material scales a value's chance)."""
+    {gene: {value: f}} (the project's own material scales a value's chance). Each genome also gets "fonts", an exact Google
+    Fonts pair from design_fonts.py: no display or body face twice in the round, none of avoid_faces (UAK-071). prior
+    {gene: {value: w}} is the kit's default (design_prior.py): drawn from when there is no profile, under one when there is (UAK-075)."""
     recipes = list(recipes or RECIPES)
     if wild is None:
         wild = 1 if n <= 4 else 2
     base = {"avoid": avoid, "factors": factors, "wild": min(wild, n)}
-    for ctx in ([dict(base, weights=weights)] if weights else []) + [dict(base, weights=None)]:
-        for salt in range(60 if ctx["weights"] else 500):  # a dead end (rare) restarts the whole draw with the next salt: still deterministic
+    for ctx in ([dict(base, weights=weights, prior=prior)] if (weights or prior) else []) + [dict(base, weights=None, prior=None)]:
+        for salt in range(60 if (ctx["weights"] or ctx["prior"]) else 500):  # a dead end (rare) restarts the whole draw with the next salt: still deterministic
             got = _try_round(n, seed, salt, recipes, ctx)
             if got:
+                def _fits(i, genes, got=got):
+                    return all(shared_genes(genes, o["genes"]) <= MAX_SHARED for j, o in enumerate(got) if j != i) and \
+                        all(shared_genes(genes, p) <= MAX_PAST_SHARED for p in (avoid or []))
+
+                def _flipped(it, old, new):
+                    it["why"]["color"] += " \u00b7 flipped from %s to keep light and dark in balance" % old
+                balance_ground(got, seed, _fits, _flipped)
+                import design_fonts
+                for g, f in zip(got, design_fonts.assign([g["genes"]["type"] for g in got], seed, avoid_faces)):
+                    g["fonts"] = f
                 return got
     raise RuntimeError("no round of %d variants satisfies the diversity rule for seed %s" % (n, seed))
+
+
+# ---- ground: light or dark, kept in balance (UAK-072) ----
+# Why (AXIA R1-R3, 2026-11-11): dark won 4 of 5 picks, taste and breeding drifted every later round to dark; the human: "the
+# dark ones gained too much ground over the white ones". Each genome has a `ground` derived from its color gene; a round of
+# 4 or more keeps at least a third of each, however the draw, the taste or the breeding went.
+GROUND_OF_COLOR = {"dark media": "dark", "light paper": "light"}  # the other colors are drawn
+FLIP_TO = {"light": "light paper", "dark": "dark media"}
+
+
+def ground_of(genes):
+    return GROUND_OF_COLOR.get(genes.get("color"))
+
+
+def ground_need(n):
+    return -(-n // 3) if n >= 4 else 0
+
+
+def balance_ground(items, seed, ok=None, flipped=None, prefer=None):
+    """items: dicts with "genes". Sets item["ground"] on each, flipping colors where a side has fewer than ceil(n/3).
+    ok(i, genes) says whether item i may take these genes (diversity rules, rejected values); flipped(item, old, new) records it;
+    prefer(item) is the ground a drawn color takes when nothing is short. Never raises: when no flip fits, the round stays as it is."""
+    n, k = len(items), ground_need(len(items))
+    rng = Rng(seed, "ground")
+    for it in items:
+        it["ground"] = ground_of(it["genes"])
+    if k:
+        for _ in range(2 * n):
+            light = sum(1 for it in items if it["ground"] == "light")
+            dark = sum(1 for it in items if it["ground"] == "dark")
+            free = n - light - dark
+            short = "light" if light + free < k else "dark" if dark + free < k else None
+            if not short:
+                break
+            donors = [i for i, it in enumerate(items) if it["ground"] not in (None, short)]
+            donors.sort(key=lambda i: (items[i].get("kind") == "crossover", items[i].get("mutated") != "color"))
+            for i in donors:
+                new = dict(items[i]["genes"], color=FLIP_TO[short])
+                if ok is None or ok(i, new):
+                    old = items[i]["genes"]["color"]
+                    items[i]["genes"] = new
+                    items[i]["ground"] = short
+                    if flipped:
+                        flipped(items[i], old, FLIP_TO[short])
+                    break
+            else:
+                break
+    light = sum(1 for it in items if it["ground"] == "light")
+    dark = sum(1 for it in items if it["ground"] == "dark")
+    need_l, need_d = max(0, k - light), max(0, k - dark)
+    for it in items:
+        if it["ground"] is None:
+            if need_l:
+                it["ground"], need_l = "light", need_l - 1
+            elif need_d:
+                it["ground"], need_d = "dark", need_d - 1
+            else:
+                it["ground"] = (prefer(it) if prefer else None) or rng.pick(["light", "dark"])
+    return items
 
 
 # ---- what the project itself says: its seed, brand colors and material (UAK-063) ----
@@ -233,20 +309,96 @@ def brand_colors(root, idea_text=None):
     return found[:MAX_BRAND]
 
 
+def image_info(path):
+    """(width, height, transparent_corners) of a PNG or JPEG without Pillow; Nones when it cannot tell. transparent_corners:
+    both top corners have alpha 0 (a cut-out), read from the first scanline of an 8-bit, non-interlaced PNG with alpha."""
+    import struct
+    import zlib
+    try:
+        size = os.path.getsize(str(path))
+        with open(str(path), "rb") as f:
+            head = f.read(32)
+            if head[:8] == b"\x89PNG\r\n\x1a\n":
+                w, h, depth, ctype, _, _, inter = struct.unpack(">IIBBBBB", head[16:29])
+                clear = None
+                if ctype in (4, 6) and depth == 8 and not inter and size <= 12000000:
+                    f.seek(33)
+                    comp = zlib.decompressobj()
+                    bpp, raw = (4 if ctype == 6 else 2), b""
+                    need = 1 + w * bpp
+                    while len(raw) < need:
+                        hdr = f.read(8)
+                        if len(hdr) < 8:
+                            break
+                        n, kind = struct.unpack(">I4s", hdr)
+                        if kind == b"IDAT":
+                            raw += comp.decompress(f.read(n))
+                            f.read(4)
+                        else:
+                            f.seek(n + 4, 1)
+                            if kind == b"IEND":
+                                break
+                    if len(raw) >= need:
+                        ft, row = raw[0], bytearray(raw[1:need])
+                        for i in range(len(row)):  # the first scanline has no row above: the up-neighbour is 0
+                            a = row[i - bpp] if i >= bpp else 0
+                            row[i] = (row[i] + {0: 0, 1: a, 2: 0, 3: a // 2, 4: a}.get(ft, 0)) & 255
+                        alpha = bpp - 1
+                        clear = row[alpha] == 0 and row[(w - 1) * bpp + alpha] == 0
+                return w, h, clear
+            if head[:2] == b"\xff\xd8":
+                f.seek(2)
+                while True:
+                    marker = f.read(4)
+                    if len(marker) < 4 or marker[0] != 0xFF:
+                        return None, None, None
+                    if marker[1] in (0xC0, 0xC1, 0xC2):
+                        d = f.read(5)
+                        return struct.unpack(">H", d[3:5])[0], struct.unpack(">H", d[1:3])[0], False
+                    f.seek(struct.unpack(">H", marker[2:4])[0] - 2, 1)
+    except (OSError, struct.error, zlib.error, ValueError):
+        pass
+    return None, None, None
+
+
+def is_screen_shape(w, h):
+    """Wide enough and 16:9 or 16:10: how a real capture of a product looks (a cut-out or a portrait is not)."""
+    return bool(w and h and w >= 1000 and (1.70 <= w / float(h) <= 1.85 or 1.55 <= w / float(h) <= 1.65))
+
+
+def has_coordinates(path):
+    try:
+        text = _read_text(path, 300000)
+    except OSError:
+        return False
+    return bool(re.search(r"\"coordinates\"|\"(?:lat|latitude)\"\s*:\s*-?\d|\"geometry\"", text))
+
+
 def project_material(root):
-    """{imagery value: [files]} for what the project really has: screens, video, mascot/photos, a map or drawings."""
+    """{imagery value: [files]} for what the project really has, found the way teams keep it: wide 16:9/16:10 captures are
+    product screens, a PNG with a transparent background is a cut-out, .geojson/.json with coordinates is real data (a map),
+    video is video. Why (colonIA R1, Nov 11 2026): four real product screens came out as "3D cut-out" (their file name said
+    "producto") and the real hex.geojson was not found."""
     root = Path(root)
     mat = {}
-    for d in ("assets", "web", "public", "docs", "screenshots", "media"):
+    for d in ("assets", "web", "public", "docs", "screenshots", "media", "data"):
         for f in _walk(root / d):
             rel = f.relative_to(root).as_posix()
             name, ext = f.name.lower(), f.suffix.lower()
             if ext in (".mp4", ".webm", ".mov", ".gif"):
                 mat.setdefault("video loop", []).append(rel)
-            elif ext in (".png", ".jpg", ".jpeg", ".webp") and re.search(r"screen|captur|shot|dashboard|resultado|result|panel|app|loop|demo|ui", name):
-                mat.setdefault("product screenshot", []).append(rel)
-            elif ext in (".png", ".jpg", ".jpeg", ".webp") and re.search(r"mascot|mascota|cutout|cut-out|vehicle|product|photo|foto|premium|3d", name):
-                mat.setdefault("3D cut-out", []).append(rel)
+            elif ext == ".geojson" or (ext == ".json" and has_coordinates(f)):
+                mat.setdefault("real data (map)", []).append(rel)
+            elif ext in (".png", ".jpg", ".jpeg", ".webp"):
+                w, h, clear = image_info(f)
+                if clear:
+                    mat.setdefault("3D cut-out", []).append(rel)
+                elif is_screen_shape(w, h) or re.search(r"screen|captur|shot|dashboard|resultado|result|panel|app|loop|demo|ui|producto?\b|producto?[-_ ]?\d", name):
+                    mat.setdefault("product screenshot", []).append(rel)
+                elif re.search(r"mascot|mascota|cutout|cut-out|vehicle|photo|foto|premium|3d", name):
+                    mat.setdefault("3D cut-out", []).append(rel)
+                elif re.search(r"map|mapa|illustr|ilustr|draw|icon|logo", name):
+                    mat.setdefault("illustration", []).append(rel)
             elif ext == ".svg" or re.search(r"map|mapa|illustr|ilustr|draw|icon|logo", name):
                 mat.setdefault("illustration", []).append(rel)
     if (root / "web").is_dir() and any(f.suffix.lower() in (".html", ".js", ".jsx", ".tsx") for f in _walk(root / "web", 400)):
@@ -258,18 +410,35 @@ def material_factors(mat):
     """imagery values with no material behind them are drawn less (NO_MATERIAL); "type only" needs none."""
     if not mat:
         return {}
-    return {"imagery": {v: (1.0 if (v in mat or v == "type only") else NO_MATERIAL) for v in GENES["imagery"]}}
+    have = set(mat) | ({"illustration"} if "real data (map)" in mat else set())  # a map rebuilt live from real data is vector art
+    return {"imagery": {v: (1.0 if (v in have or v == "type only") else NO_MATERIAL) for v in GENES["imagery"]}}
 
 
 # ---- IDEA.md -> brief (sections by their "## N." heading, as landing-story reads them) ----
 
+# Why (colonIA R1, Nov 11 2026): the team's IDEA.md was in Spanish and the brief said wow and ask MISSING although both were
+# there. A heading counts by its number ("## 4. Flujo de la demo") or, with no number, by its name in English or Spanish.
+HEADINGS = {0: ("name and brand", "nombre y marca", "nombre"), 1: ("one line", "una linea"), 2: ("users", "usuarios"),
+            4: ("demo flow", "flujo de la demo", "flujo"), 10: ("citable facts", "datos citables")}
+
+
+def _plain(text):
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c)).lower().strip()
+
+
 def _sections(text):
     secs, cur = {}, None
     for line in text.replace("\r", "").split("\n"):
-        m = re.match(r"^##\s+(\d+)\.", line)
+        m = re.match(r"^##\s+(?:(\d+)\.\s*)?(.*)$", line)
         if m:
-            cur = int(m.group(1))
-            secs[cur] = []
+            num = int(m.group(1)) if m.group(1) else None
+            if num is None:
+                name = _plain(re.sub(r"\(.*?\)|[*_`]", "", m.group(2)))
+                num = next((k for k, names in HEADINGS.items() if any(name == n or name.startswith(n + " ") for n in names)), None)
+            cur = num  # an unknown unnumbered heading closes the section before it
+            if cur is not None:
+                secs[cur] = []
         elif cur is not None:
             secs[cur].append(line)
     return secs
@@ -289,7 +458,26 @@ def _rows(lines):
     return rows[1:]  # first row is the header
 
 
-def read_beats(idea_text):
+def _clean(s):
+    return _real(s).strip(" *_\"\u201c\u201d")
+
+
+def cta_text(root):
+    """The primary call to action of the live product: its first element classed cta/primary, else its first button."""
+    for rel in ("web/index.html", "index.html", "public/index.html", "web/public/index.html", "app/web/index.html"):
+        html = _read_text(Path(root) / rel, 400000)
+        if not html:
+            continue
+        for pat in (r"<(a|button)\b[^>]*class=[\"'][^\"']*(?:cta|btn-primary|primary)[^\"']*[\"'][^>]*>(.*?)</\1>", r"<(button)\b[^>]*>(.*?)</\1>"):
+            m = re.search(pat, html, re.S | re.I)
+            if m:
+                t = _clean(re.sub(r"<[^>]+>", " ", m.group(2)))
+                if t:
+                    return t + " (the CTA of the live product)"
+    return None
+
+
+def read_beats(idea_text, root=None):
     """{beat: text or None}. None = IDEA.md does not say it (placeholders from the template count as not saying it)."""
     secs = _sections(idea_text or "")
     beats = dict.fromkeys(BEATS)
@@ -306,24 +494,29 @@ def read_beats(idea_text):
                 break
     s4 = secs.get(4, [])
     for l in s4:
-        m = re.search(r"Wow in one sentence:\s*([^·]*)", l)
-        if m and _real(m.group(1)):
-            beats["wow"] = _real(m.group(1))
-    if not beats["wow"]:
+        m = re.search(r"Wow (?:in one sentence|en una frase):\s*([^·]*)", l, re.I)
+        if m and _clean(m.group(1)):
+            beats["wow"] = _clean(m.group(1))
+    if not beats["wow"]:  # a **Wow:** or **Wow 1:** mark inside the flow table
         for r in _rows(s4):
             for c in r:
-                m = re.search(r"\*\*Wow:\*\*\s*(.*)", c)
-                if m and _real(m.group(1)):
-                    beats["wow"] = _real(m.group(1))
+                m = re.search(r"\*\*Wow(?:\s*\d+)?:\*\*\s*(.*)", c)
+                if m and _clean(m.group(1)):
+                    beats["wow"] = _clean(m.group(1))
+                    break
+            if beats["wow"]:
+                break
     steps = ["%s -> %s" % (_real(r[1]), _real(r[2])) for r in _rows(s4) if len(r) > 2 and _real(r[1]) and _real(r[2])]
     beats["steps"] = "\n".join("  %d. %s" % (i, s) for i, s in enumerate(steps[:6], 1)) or None
     users = ["%s: %s" % (_real(r[0]), _real(r[2])) for r in _rows(secs.get(2, [])) if len(r) > 2 and _real(r[0]) and _real(r[2])]
     beats["users"] = "; ".join(users) or None
     for l in (idea_text or "").replace("\r", "").split("\n"):
-        m = re.match(r"^\s*[-*]?\s*(?:\*\*)?Ask(?:\*\*)?:\s*(.+)$", l)
+        m = re.match(r"^\s*[-*]?\s*(?:\*\*)?(?:Ask|Pedido)(?:\*\*)?:\s*(.+)$", l)
         if m and _real(m.group(1)):
             beats["ask"] = _real(m.group(1))
             break
+    if not beats["ask"] and root is not None:
+        beats["ask"] = cta_text(root)
     return beats
 
 
@@ -404,6 +597,27 @@ def motionsites_installed(root):
     return any((d / "motionsites-web-builder").is_dir() for d in skill_dirs(root))
 
 
+def budget_lines(stage):
+    """The animation budget a stage must keep. Why (AXIA R3 -> colonIA R1, Nov 11 2026): the human, "it has to find a way not
+    to spend exaggerated resources on three.js"; on the Jetson an R3 three.js hero ran at 122 ms a frame (8 fps), an SVG one at 17 ms,
+    and six three.js pages captured at once saturated the machine. The capture measures the frame time and flags `heavy`."""
+    if str(stage).lower().startswith("three.js"):
+        return ["## Animation budget (three.js stage: the capture measures it and flags `heavy`)",
+                "- `new THREE.WebGLRenderer({antialias: false, powerPreference: 'low-power'})`; `renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5))`",
+                "  (tighter than the cap of 2 above: this is the budget).",
+                "- At most ~40k points or ~10k instances: one `BufferGeometry` of points or one `InstancedMesh`, never a mesh per object.",
+                "- Render only while visible: stop the loop on `visibilitychange` and when an IntersectionObserver says the hero is off screen.",
+                "- Cap the hero at 30 fps (skip frames by time, not by guessing). When frames run slow (average > 40 ms over a second),",
+                "  drop detail: halve the point/instance count or the pixel ratio, and keep going.",
+                "- Heavy = average frame over `Design-Frame-Budget-Ms` in PROJECT.md (default 50 ms for WebGL stages, measured on the capturing machine).", ""]
+    if str(stage) != STILL:
+        return ["## Animation budget (the capture measures it and flags `heavy`)",
+                "- Animate `transform` and `opacity` only, never layout (width, height, top, left, margins); `will-change` only on what really moves.",
+                "- No large `filter: blur()` or `backdrop-filter` over the hero; canvas redraws only what changed, at 30 fps at most.",
+                "- Heavy = average frame over `Design-Frame-Budget-Ms` in PROJECT.md (default 20 ms for the rest, measured on the capturing machine).", ""]
+    return []
+
+
 def task_text(rnd, i, genome, screen):
     genes = genome["genes"]
     lines = ["# Build variant v%d of the %s" % (i, screen), "",
@@ -411,6 +625,13 @@ def task_text(rnd, i, genome, screen):
              "Content: the same in every variant, taken only from `../brief.md` (a MISSING beat is left out, never invented).",
              "Only the design changes. Your design is this genome (`genome.json`); follow every gene:", ""]
     lines += ["- %s: **%s**" % (g, genes[g]) for g in GENES]
+    if genome.get("ground"):
+        lines += ["- ground: **%s** (the page's main background is %s; the color gene says which colors, this says how light)" % (genome["ground"], genome["ground"])]
+    if genome.get("fonts"):
+        f = genome["fonts"]
+        lines += ["- fonts: **%s** (display, weights %s) + **%s** (body, weights %s); load exactly this, no other face:" % (
+                  f["display"], f["display_weights"], f["body"], f["body_weights"]),
+                  "  `<link rel=\"stylesheet\" href=\"%s\">` (design-lint warns when the page loads another pair; Inter, Roboto, Arial and Geist are never a display face)" % f["url"]]
     if genome.get("brand"):
         lines += ["- project colors: %s (`../brief.md` > Brand colors; the color gene is built from them)" % " ".join(genome["brand"])]
     lines += ["- recipe: **%s** (use that skill's method for the look)" % genome["recipe"], "",
@@ -429,7 +650,12 @@ def task_text(rnd, i, genome, screen):
               "  devicePixelRatio at most 2, pause rendering when the tab is hidden, a designed still when WebGL is missing, no branded 3D models",
               "  (build from primitives or the team's own assets), no network fetches but that CDN and fonts.",
               "- Glows, neon blurs and soft gradient haze are tells (the human: \"AI slop\"); light comes from the scene itself.",
+              "- The hero breathes (at 1920x1080 and 1280x720; the capture counts the words at the fold and flags `dense`): one headline, one sentence,",
+              "  one or two actions, at most 3 secondary elements (a stat, a legend, a badge) besides the stage, about 45 words in all. The stage",
+              "  carries the story; the text does not repeat it, and no text block sits over the stage's focal point. Later sections: one idea each,",
+              "  at most ~4 cards or ~80 words. The human on a saturated landing: \"too much information, things pop up everywhere\".",
               "- Check the page at 1920x1080 (the projector): `1920.png` if the capture wrote one, else open index.html at that size; then 1280 and 390.", "",
+              ] + budget_lines(genes.get("stage", STILL)) + [
               "## Start from material",
               "Use the team's own material first: logo, mascot, photos, map, the real product screen. List what exists (`web/public`, `assets/`,",
               "links in IDEA.md) before designing, and build around it. Then generated material. Only then the MotionSites media shelf.",
@@ -443,21 +669,35 @@ def task_text(rnd, i, genome, screen):
     return "\n".join(lines) + "\n"
 
 
+def product_name(root, idea):
+    """The project's name: IDEA.md section 0's name line, else the <title> of the live product's index.html, else the IDEA.md
+    heading, else the folder."""
+    for l in _sections(idea).get(0, []):
+        m = re.match(r"^\s*[-*]?\s*(?:\*\*)?(?:Name|Nombre)(?:\*\*)?\s*:\s*(?:\*\*)?([^*\u00b7(\n]+)", l, re.I)
+        if m and _real(m.group(1)):
+            return _real(m.group(1)).strip(" .")
+    for rel in ("web/index.html", "index.html", "public/index.html", "web/public/index.html"):
+        m = re.search(r"<title[^>]*>(.*?)</title>", _read_text(Path(root) / rel, 100000), re.S | re.I)
+        if m and _real(m.group(1)):
+            return re.split(r"\s+[\u00b7|\u2014\u2013-]\s+", _real(m.group(1)))[0].strip()
+    m = re.match(r"^#\s*IDEA\s*[\u00b7:-]\s*(.+)$", idea.split("\n", 1)[0].strip()) if idea else None
+    return m.group(1).strip() if m else Path(root).name
+
+
 def _idea_and_product(root):
     idea = ""
     try:
         idea = (root / "IDEA.md").read_text(encoding="utf-8")
     except OSError:
         pass
-    m = re.match(r"^#\s*IDEA\s*[·:-]\s*(.+)$", idea.split("\n", 1)[0].strip()) if idea else None
-    return idea, (m.group(1).strip() if m else root.name)
+    return idea, product_name(root, idea)
 
 
 def _taste_context(root, human, product, allow_repeat):
     """(weights or None, avoid list, note) from the human's taste profile. Low confidence or no profile: no weights."""
     try:
         import design_taste
-        doc = design_taste.load(human)
+        doc, source = design_taste.effective(root, human)  # team (.uak/design/taste.json), then personal (UAK-076)
     except Exception:  # noqa: BLE001  a broken profile never blocks a round
         return None, [], "no taste profile"
     own = {root.name, product}
@@ -465,12 +705,25 @@ def _taste_context(root, human, product, allow_repeat):
                                      if isinstance(d.get("genes"), dict) and d.get("project") not in own]
     if design_taste.confidence(doc) == "low" or not design_taste.weights(doc):
         return None, avoid, "taste: still learning (%d picks), exploring" % design_taste.pick_count(doc)
-    return design_taste.weights(doc), avoid, "taste: %s (%d picks)" % (human, design_taste.pick_count(doc))
+    return design_taste.weights(doc), avoid, "taste: %s, %s (%d picks)" % (source, human, design_taste.pick_count(doc))
+
+
+def _past_faces(human, product, root, allow_repeat):
+    """Faces of the human's past directions in other projects (their profile's `fonts`), unless --allow-repeat."""
+    if allow_repeat:
+        return set()
+    try:
+        import design_fonts
+        import design_taste
+        own = {root.name, product}
+        return design_fonts.past_faces([d for d in design_taste.past_directions(design_taste.load(human)) if d.get("project") not in own])
+    except Exception:  # noqa: BLE001  a broken profile never blocks a round
+        return set()
 
 
 def cmd_round(argv):
     screen, n, seed, dry, yes = "landing", DEFAULT_N, None, False, False
-    human, allow_repeat, parallel = None, False, None
+    human, allow_repeat, parallel, no_prior = None, False, None, False
     it = iter(argv)
     try:
         for a in it:
@@ -484,6 +737,8 @@ def cmd_round(argv):
                 human = next(it)
             elif a == "--allow-repeat":
                 allow_repeat = True
+            elif a == "--no-prior":
+                no_prior = True
             elif a == "--parallel":
                 parallel = int(next(it))
             elif a == "--dry-run":
@@ -493,7 +748,7 @@ def cmd_round(argv):
             else:
                 raise ValueError(a)
     except (StopIteration, ValueError):
-        print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes]", file=sys.stderr)
+        print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--no-prior] [--dry-run] [--yes]", file=sys.stderr)
         return 2
     if screen != "landing":
         print("design round: only --screen landing exists yet", file=sys.stderr)
@@ -510,9 +765,16 @@ def cmd_round(argv):
         import design_taste
         human = design_taste.default_human()
     weights, avoid, taste_note = _taste_context(root, human, product, allow_repeat)
+    prior_w, prior_note = (None, "kit prior off (--no-prior)")
+    if not no_prior:
+        import design_prior
+        prior_w, prior_doc = design_prior.load()
+        prior_note = design_prior.describe(prior_doc) if prior_doc and prior_w else "no kit prior shipped"
+        prior_w = prior_w if prior_doc else None
     brand = brand_colors(root, idea)
     material = project_material(root)
-    genomes = make_genomes(n, seed, recipes, weights=weights, avoid=avoid, factors=material_factors(material))
+    genomes = make_genomes(n, seed, recipes, weights=weights, prior=prior_w, avoid=avoid, factors=material_factors(material),
+                           avoid_faces=_past_faces(human, product, root, allow_repeat))
     for g in genomes:
         if brand:
             g["brand"] = [h for h, _ in brand]
@@ -520,10 +782,11 @@ def cmd_round(argv):
         if material:
             have = material.get(g["genes"]["imagery"])
             g["why"]["imagery"] += " \u00b7 " + ("project has: " + ", ".join(have[:2]) if have else "no material for it" if g["genes"]["imagery"] != "type only" else "needs none")
-    mix = {k: sum(1 for g in genomes if g["origin"] == k) for k in ("taste", "wildcard", "spread")}
+    mix = {k: sum(1 for g in genomes if g["origin"] == k) for k in ("taste", "prior", "wildcard", "spread")}
     novel = sum(1 for g in genomes if g["novelty"])
-    mix_line = "DESIGN_ROUND mix: %d from taste, %d wildcards, %d drawn as before; %d redrawn for novelty vs %d past directions (%s)%s" % (
-        mix["taste"], mix["wildcard"], mix["spread"], novel, len(avoid), taste_note, "; seed %d from the project name" % seed)
+    mix_line = "DESIGN_ROUND mix: %d from %s, %d wildcards, %d drawn as before; %d redrawn for novelty vs %d past directions (%s; %s)%s" % (
+        mix["taste"] or mix["prior"], "taste" if mix["taste"] or not mix["prior"] else "the kit prior", mix["wildcard"], mix["spread"], novel, len(avoid),
+        taste_note, prior_note, "; seed %d from the project name" % seed)
     if dry:
         for i, g in enumerate(genomes, 1):
             print("v%d  %s  | recipe %s | %s" % (i, " | ".join("%s=%s" % (k, g["genes"][k]) for k in GENES), g["recipe"], g["origin"]))
@@ -559,12 +822,16 @@ def cmd_round(argv):
     rnd = base / ("R%d" % k)
     rnd.mkdir(parents=True)
     with open(str(rnd / "brief.md"), "w", encoding="utf-8", newline="\n") as f:
-        f.write(brief_text(read_beats(idea), screen, product, brand, material))
+        f.write(brief_text(read_beats(idea, root), screen, product, brand, material))
     for i, g in enumerate(genomes, 1):
         v = rnd / ("v%d" % i)
         v.mkdir()
         doc = {"id": "R%d-v%d" % (k, i), "round": "R%d" % k, "variant": i, "seed": seed, "screen": screen,
                "genes": g["genes"], "recipe": g["recipe"], "why": g["why"]}
+        if g.get("ground"):
+            doc["ground"] = g["ground"]
+        if g.get("fonts"):
+            doc["fonts"] = g["fonts"]
         with open(str(v / "genome.json"), "w", encoding="utf-8", newline="\n") as f:
             json.dump(doc, f, indent=2, ensure_ascii=False)
             f.write("\n")
@@ -625,19 +892,107 @@ QA_JS = """async () => {
     lo = Math.min(lo, Math.max(0, r.left)); hi = Math.max(hi, Math.min(W, r.right)); n++;
   }
   const share = n && hi > lo ? Math.round((hi - lo) / W * 100) : null;
+  // Why (UAK-069 review, Nov 12 2026): the human saw stretched images the <img>-only check missed. The drawn size of anything
+  // raster is measured against its natural size: <img>, CSS background-image, <video> and a <canvas> backing store.
   const upscaled = [];
+  const fitted = (nw, nh, bw, bh, fit) => {  // the width at which a nw x nh raster is drawn in a bw x bh box
+    if (/cover/.test(fit)) return nw * Math.max(bw / nw, bh / nh);
+    if (/contain|scale-down/.test(fit)) return nw * Math.min(bw / nw, bh / nh);
+    if (/none/.test(fit)) return nw;
+    return bw;
+  };
+  const shown = (el) => { const cs = getComputedStyle(el), r = el.getBoundingClientRect();
+    return r.width >= 2 && r.height >= 2 && cs.display !== 'none' && cs.visibility !== 'hidden' && +cs.opacity !== 0 ? r : null; };
+  const name = (u) => (u || '').split('/').pop().split('?')[0].slice(0, 60);
   document.querySelectorAll('img').forEach(im => {
     const src = im.currentSrc || im.src || '';
     if (!im.complete || !im.naturalWidth || /\.svg(\?|$)/i.test(src)) return;
-    const r = im.getBoundingClientRect(), cs = getComputedStyle(im);
-    if (r.width < 2 || cs.display === 'none' || cs.visibility === 'hidden') return;
-    if (r.width > im.naturalWidth * dpr * 1.1 + 1) upscaled.push({file: src.split('/').pop().split('?')[0], natural: im.naturalWidth, drawn: Math.round(r.width)});
+    const r = shown(im);
+    if (!r) return;
+    const d = fitted(im.naturalWidth, im.naturalHeight, r.width, r.height, getComputedStyle(im).objectFit || '');
+    if (d > im.naturalWidth * dpr * 1.1 + 1) upscaled.push({file: name(src), natural: im.naturalWidth, drawn: Math.round(d), kind: 'img'});
   });
+  document.querySelectorAll('video').forEach(v => {
+    const r = shown(v);
+    if (!r || !v.videoWidth) return;
+    const d = fitted(v.videoWidth, v.videoHeight, r.width, r.height, getComputedStyle(v).objectFit || '');
+    if (d > v.videoWidth * dpr * 1.1 + 1) upscaled.push({file: name(v.currentSrc || v.src) || 'video', natural: v.videoWidth, drawn: Math.round(d), kind: 'video'});
+  });
+  document.querySelectorAll('canvas').forEach(c => {
+    const r = shown(c);
+    if (!r || !c.width) return;
+    if (c.width < r.width * dpr * 0.7) upscaled.push({file: 'canvas' + (c.id ? '#' + c.id : ''), natural: c.width, drawn: Math.round(r.width * dpr), kind: 'canvas'});
+  });
+  const bgs = [];
+  for (let i = 0; i < all.length && i < 4000; i++) {
+    const el = all[i], cs = getComputedStyle(el);
+    if (!cs.backgroundImage || cs.backgroundImage === 'none' || !/url\(/.test(cs.backgroundImage)) continue;
+    const r = shown(el);
+    if (!r) continue;
+    const sizes = (cs.backgroundSize || 'auto').split(/,\s*(?![^(]*\))/);
+    let k = 0;
+    cs.backgroundImage.replace(/url\((['"]?)(.*?)\\1\)/g, (m, q, u) => { bgs.push({u: u, r: r, size: sizes[k % sizes.length] || 'auto'}); k++; return m; });
+  }
+  const natural = {};
+  await Promise.all(Array.from(new Set(bgs.map(b => b.u))).filter(u => !/\.svg(\?|$)|^data:image\/svg/i.test(u)).slice(0, 40).map(u => new Promise(res => {
+    const im = new Image(); const t = setTimeout(res, 2500);
+    im.onload = () => { natural[u] = [im.naturalWidth, im.naturalHeight]; clearTimeout(t); res(); }; im.onerror = () => { clearTimeout(t); res(); }; im.src = u; })));
+  bgs.forEach(b => {
+    const n = natural[b.u];
+    if (!n || !n[0]) return;
+    let d = n[0];  // background-size: auto draws at natural size
+    if (/cover|contain/.test(b.size)) d = fitted(n[0], n[1], b.r.width, b.r.height, b.size);
+    else if (/%/.test(b.size)) d = b.r.width * parseFloat(b.size) / 100;
+    else if (/px/.test(b.size)) d = parseFloat(b.size);
+    if (d > n[0] * dpr * 1.1 + 1) upscaled.push({file: name(b.u), natural: n[0], drawn: Math.round(d), kind: 'background'});
+  });
+  // Frame cost (the reference shoot-patient.js): average frame interval over 3 s, long tasks and the JS heap.
+  let longTasks = 0;
+  try { new PerformanceObserver(l => { longTasks += l.getEntries().length; }).observe({type: 'longtask', buffered: false}); } catch (e) {}
   const frame = await new Promise(res => { const t = []; let last = performance.now(); const t0 = last;
-    const f = now => { t.push(now - last); last = now; if (t.length < 200 && now - t0 < 1200) requestAnimationFrame(f);
+    const f = now => { t.push(now - last); last = now; if (t.length < 600 && now - t0 < 3000) requestAnimationFrame(f);
       else res(Math.round(t.reduce((a, b) => a + b, 0) / t.length)); };
     requestAnimationFrame(f); });
-  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 5), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null};
+  // Density at the fold (UAK-077). Why (colonIA R1, 2026-11-12): the human on v1, v5 and v6: "too much information, things pop up
+  // everywhere and it looks saturated"; on v5 "the pink text doesn't let you see the background". The stage is the big canvas,
+  // svg or video in the fold; text inside it is part of the stage, not a block of copy.
+  const FH = innerHeight, vis = (el, r) => { const cs = getComputedStyle(el);
+    return cs.display !== 'none' && cs.visibility !== 'hidden' && +cs.opacity !== 0 && r.width >= 2 && r.height >= 2; };
+  const inFold = (r) => r.bottom > 0 && r.top < FH && r.right > 0 && r.left < W;
+  const stages = [];
+  document.querySelectorAll('canvas, svg, video').forEach(el => {
+    if (el.tagName.toLowerCase() !== 'svg' ? false : (el.parentElement && el.parentElement.closest('svg'))) return;
+    const r = el.getBoundingClientRect();
+    if (!vis(el, r) || !inFold(r)) return;
+    const vw = Math.min(r.right, W) - Math.max(r.left, 0), vh = Math.min(r.bottom, FH) - Math.max(r.top, 0);
+    if (vw >= W * 0.4 && vh >= FH * 0.3) stages.push({el: el, r: r, area: vw * vh});
+  });
+  stages.sort((a, b) => b.area - a.area);
+  const stage = stages[0] || null;
+  let focal = null;
+  if (stage) { const r = stage.r, cx = (Math.max(r.left, 0) + Math.min(r.right, W)) / 2, cy = (Math.max(r.top, 0) + Math.min(r.bottom, FH)) / 2,
+    hw = (Math.min(r.right, W) - Math.max(r.left, 0)) * 0.2, hh = (Math.min(r.bottom, FH) - Math.max(r.top, 0)) * 0.2;
+    focal = {left: cx - hw, right: cx + hw, top: cy - hh, bottom: cy + hh}; }
+  const overlap = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  let texts = 0, words = 0, overStage = 0, overFocal = 0;
+  for (let i = 0; i < all.length && i < 4000; i++) {
+    const el = all[i];
+    if (/^(SCRIPT|STYLE|NOSCRIPT|META|LINK|HEAD|TITLE|SOURCE|OPTION)$/i.test(el.tagName)) continue;
+    if (stages.some(s => s.el !== el && s.el.contains(el))) continue;
+    if (el.closest('nav, [role=navigation]')) continue;  // the menu is not the hero's message
+    let own = '';
+    for (const c of el.childNodes) { if (c.nodeType === 3) own += ' ' + c.textContent; }
+    const w = own.split(/\s+/).filter(t => /[A-Za-z0-9\u00C0-\u024F]/.test(t)).length;
+    if (!w) continue;
+    const g = document.createRange(); g.selectNodeContents(el); const r = g.getBoundingClientRect();
+    if (!vis(el, r) || !inFold(r)) continue;
+    texts++; words += w;
+    const area = Math.max(1, r.width * r.height);
+    if (stage && overlap(r, stage.r) > area * 0.2) overStage++;
+    if (focal && overlap(r, focal) > 0) overFocal++;
+  }
+  const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
+  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap, texts: texts, words: words, stage: !!stage, overStage: overStage, overFocal: overFocal};
 }"""
 
 _PLAYWRIGHT = """
@@ -698,7 +1053,7 @@ with sync_playwright() as p:
         pg.screenshot(path=str(out / (name + "-full.png")), full_page=True)
         qa["errors"], qa["first"] = len(errs), (errs[0][:160] if errs else "")
         report[name] = qa
-        print("QA %s webgl=%s errors=%d overflow=%s content=%s%% fps=%s upscaled=%d" % (name, qa.get("gl"), len(errs), qa.get("overflow"), qa.get("share"), qa.get("fps"), len(qa.get("upscaled", []))))
+        print("QA %s webgl=%s errors=%d overflow=%s content=%s%% frame=%sms long_tasks=%s heap=%sMB upscaled=%d" % (name, qa.get("gl"), len(errs), qa.get("overflow"), qa.get("share"), qa.get("frameMs"), qa.get("longTasks"), qa.get("heapMB"), len(qa.get("upscaled", []))))
         pg.close()
     b.close()
 srv.shutdown()
@@ -724,9 +1079,98 @@ def qa_warnings(qa):
             out.append((name, "horizontal overflow at %s px" % w))
         if q.get("share") is not None and w >= 1440 and q["share"] < NARROW_UNDER:
             out.append((name, "narrow page, empty gutters: content spans %s%% of %s px" % (q["share"], w)))
+        if q.get("heavy"):
+            out.append((name, "heavy: %s ms a frame (~%s fps), over the %s ms budget" % (q.get("frameMs"), q.get("fps"), q.get("budget_ms"))))
+        if q.get("dense"):
+            out.append((name, "dense: %s words in %s text blocks at the fold, over the budget of %d words (one headline, one sentence, one or two actions, 3 secondary elements); the stage carries the story" % (
+                q.get("words"), q.get("texts"), DENSE_WORDS)))
+        if q.get("overFocal") and w >= 1280:
+            out.append((name, "text over the stage's focal point: %d text block(s) cover the middle of the stage; move the copy beside it" % q["overFocal"]))
         for u in q.get("upscaled", [])[:3]:
-            out.append((name, "upscaled raster: %s, %s -> %s px" % (u.get("file"), u.get("natural"), u.get("drawn"))))
+            kind = u.get("kind")
+            if kind == "canvas":
+                out.append((name, "upscaled raster: %s backing store is %s px, drawn at %s px (set the size from devicePixelRatio)" % (u.get("file"), u.get("natural"), u.get("drawn"))))
+            else:
+                out.append((name, "upscaled raster%s: %s, %s -> %s px" % (" (%s)" % kind if kind in ("background", "video") else "", u.get("file"), u.get("natural"), u.get("drawn"))))
     return out
+
+
+# The hero budget at the fold (UAK-077): ~45 words of copy (one headline, one sentence, one or two actions, 3 secondary elements),
+# a third of slack for the labels a stat or an action carries. Measured by QA_JS, judged here, at 1280 and 1920 (not the phone).
+DENSE_WORDS = 60
+
+
+def record_density(vdir):
+    """After a capture: judge the words at the fold of each desktop viewport (qa.json gets `dense`) and copy the counts into the
+    variant's metrics.json under "density". Returns the density dict or None when the capture wrote no QA report."""
+    vdir = Path(vdir)
+    qa = read_qa(vdir)
+    if not qa:
+        return None
+    dens = {"budget_words": DENSE_WORDS, "dense": False, "viewports": {}}
+    for vp, q in qa.items():
+        if not isinstance(q, dict) or q.get("words") is None:
+            continue
+        wide = (q.get("w") or (int(vp) if str(vp).isdigit() else 0)) >= 1280
+        q["dense"] = bool(wide and q["words"] > DENSE_WORDS)
+        dens["viewports"][vp] = {"words": q["words"], "texts": q.get("texts"), "over_stage": q.get("overStage"), "over_focal": q.get("overFocal"),
+                                 "stage": q.get("stage"), "dense": q["dense"]}
+        dens["dense"] = dens["dense"] or q["dense"]
+    (vdir / "qa.json").write_text(json.dumps(qa, indent=2), encoding="utf-8")
+    try:
+        mp = vdir / "metrics.json"
+        doc = json.loads(mp.read_text(encoding="utf-8"))
+        doc["density"] = dens
+        mp.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+    return dens
+
+
+DEFAULT_FRAME_MS = {"webgl": 50, "other": 20}
+
+
+def frame_budget(root, webgl):
+    """Milliseconds a frame may average on the capturing machine: PROJECT.md `Design-Frame-Budget-Ms: 50` (one number for every
+    stage) or `50/20` (WebGL / the rest); default 50 for WebGL stages, 20 for the rest."""
+    raw = cfg(Path(root), "Design-Frame-Budget-Ms", "")
+    m = re.match(r"^\s*(\d+)\s*(?:/\s*(\d+))?", raw)
+    if m:
+        return int(m.group(1)) if webgl or not m.group(2) else int(m.group(2))
+    return DEFAULT_FRAME_MS["webgl" if webgl else "other"]
+
+
+def record_perf(root, vdir):
+    """After a capture: judge each viewport's frame time against the budget (qa.json gets budget_ms and heavy) and copy the
+    numbers into the variant's metrics.json under "perf". Returns the perf dict or None when the capture wrote no QA report."""
+    vdir = Path(vdir)
+    qa = read_qa(vdir)
+    if not qa:
+        return None
+    g = {}
+    try:
+        g = json.loads((vdir / "genome.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    stage = g.get("stage") or (g.get("genes") or {}).get("stage") or STILL
+    webgl = str(stage).lower().startswith("three.js")
+    budget = frame_budget(root, webgl)
+    perf = {"budget_ms": budget, "webgl": webgl, "heavy": False, "frame_ms": {}, "long_tasks": {}, "heap_mb": {}}
+    for vp, q in qa.items():
+        if not isinstance(q, dict) or q.get("frameMs") is None:
+            continue
+        q["budget_ms"], q["heavy"] = budget, q["frameMs"] > budget
+        perf["frame_ms"][vp], perf["long_tasks"][vp], perf["heap_mb"][vp] = q["frameMs"], q.get("longTasks"), q.get("heapMB")
+        perf["heavy"] = perf["heavy"] or q["heavy"]
+    (vdir / "qa.json").write_text(json.dumps(qa, indent=2), encoding="utf-8")
+    try:
+        mp = vdir / "metrics.json"
+        doc = json.loads(mp.read_text(encoding="utf-8"))
+        doc["perf"] = perf
+        mp.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+    return perf
 
 
 def read_qa(vdir):
@@ -831,6 +1275,8 @@ def cmd_shoot(argv):
             try:
                 import design_metrics
                 design_metrics.record_capture(v)
+                record_perf(root, v)
+                record_density(v)
             except Exception as exc:  # noqa: BLE001  metrics never fail a capture
                 print("DESIGN_SHOOT metrics not recorded for %s: %s" % (v.name, str(exc)[:120]), file=sys.stderr)
     print("DESIGN_SHOOT %s: captured %s; already had %d" % (argv[0], " ".join(done) or "none", len(variants) - len(todo)))
