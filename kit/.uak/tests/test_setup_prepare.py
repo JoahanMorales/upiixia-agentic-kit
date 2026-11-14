@@ -348,7 +348,12 @@ def schedule_never_follows_links(root, tmp):
     with tp.live(target, tp.FakePlanner()) as srv:
         assert tp.post(srv, "/api/inspect", {"target": str(target)})[0] == 200
         config.unlink()
-        config.symlink_to(outside)
+        try:
+            config.symlink_to(outside)
+        except OSError as exc:  # Windows without Developer Mode: WinError 1314, no symlink can exist to follow
+            config.write_text(original, encoding="utf-8")
+            print("SKIP schedule_never_follows_links: %s" % exc)
+            return
         assert tp.post(srv, "/api/schedule", good)[0] == 400, "a symlinked PROJECT.md is refused"
         assert outside.read_text(encoding="utf-8") == "external file\n", "the external file is untouched"
         config.unlink()

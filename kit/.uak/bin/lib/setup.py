@@ -168,8 +168,10 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
         if not readers:
             return proc.communicate(timeout=wait)
         proc.wait(timeout=wait)
+        # One grace period for both readers, not 10 s each (UI-015: Windows QA measured 20 s).
+        deadline = time.monotonic() + 10
         for thread in readers:
-            thread.join(10)
+            thread.join(max(0, deadline - time.monotonic()))
         if any(thread.is_alive() for thread in readers):
             # A descendant still holds the pipe after the tool exited: stop the group, never leave it running (UI-010 review).
             stop_group()

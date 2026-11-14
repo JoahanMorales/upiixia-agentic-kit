@@ -48,7 +48,8 @@ BYPASS = ("--dangerously-skip-permissions", "bypassPermissions", "--yolo", "--fo
 
 
 def git(cwd, *args, check=True):
-    result = subprocess.run([resolve_binary("git"), "-C", str(cwd)] + list(args), capture_output=True, text=True)
+    result = subprocess.run([resolve_binary("git"), "-C", str(cwd)] + list(args), capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
     if check and result.returncode:
         raise AssertionError("git %s: %s" % (" ".join(args), result.stderr[-400:]))
     return result.stdout.strip()
