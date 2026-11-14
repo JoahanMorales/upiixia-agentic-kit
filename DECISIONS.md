@@ -88,3 +88,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1794637920 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-082 | Why: backlog without PR (Plan-Channel: claims)
 - 1794637966 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-083 | Why: backlog without PR (Plan-Channel: claims)
 - 1794637977 | allow | JoahanMorales | test change: UAK-082 | Why: flake de Windows en la limpieza
+- 1794676817 | allow | JoahanMorales | test change: UAK-083 | Why: premisas que cambian con el tope de three.js y las fuentes distintas
