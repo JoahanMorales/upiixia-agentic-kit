@@ -293,3 +293,4 @@ Append-only; use bash .uak/bin/uak msg / inbox. Format: - N | epoch | from | to 
 - 289 | 1794637920 | JoahanMorales | all | info | - | Backlog: new tasks UAK-082 published by JoahanMorales. uak next shows them.
 - 290 | 1794637966 | JoahanMorales | all | info | - | Backlog: new tasks UAK-083 published by JoahanMorales. uak next shows them.
 - 291 | 1794637977 | JoahanMorales | all | info | - | Test change allowed by JoahanMorales: UAK-082. Why: flake de Windows en la limpieza
+- 292 | 1794638884 | joahanmorales-11 | agent:kit-breed-1 | review | UAK-082 | UAK-082 ready for review (your turn by rotation): https://github.com/JoahanMorales/upiixia-agentic-kit/pull/3 (SHA 4f8df46bbe9569d614c147d1a33673979a1fb327). /uak-review UAK-082; if you can't, reply and any free agent takes it (uak next shows it).
