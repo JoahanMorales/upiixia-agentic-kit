@@ -632,7 +632,9 @@ def task_text(rnd, i, genome, screen):
         lines += ["- fonts: **%s** (display, weights %s) + **%s** (body, weights %s); load exactly this, no other face:" % (
                   f["display"], f["display_weights"], f["body"], f["body_weights"]),
                   "  `<link rel=\"stylesheet\" href=\"%s\">` (design-lint warns when the page loads another pair; Inter, Roboto, Arial and Geist are never a display face)" % f["url"]]
-    if genome.get("brand"):
+    if genome.get("palette"):
+        lines += ["- palette: **%s** (roles and exact hex below; they replace the color gene's colors)" % genome["palette"]["name"]]
+    elif genome.get("brand"):
         lines += ["- project colors: %s (`../brief.md` > Brand colors; the color gene is built from them)" % " ".join(genome["brand"])]
     lines += ["- recipe: **%s** (use that skill's method for the look)" % genome["recipe"], "",
               "## Bounds (same as landing-story; they override any size in MotionSites examples or craft.md)",
@@ -655,7 +657,7 @@ def task_text(rnd, i, genome, screen):
               "  carries the story; the text does not repeat it, and no text block sits over the stage's focal point. Later sections: one idea each,",
               "  at most ~4 cards or ~80 words. The human on a saturated landing: \"too much information, things pop up everywhere\".",
               "- Check the page at 1920x1080 (the projector): `1920.png` if the capture wrote one, else open index.html at that size; then 1280 and 390.", "",
-              ] + budget_lines(genes.get("stage", STILL)) + [
+              ] + (__import__("design_color").palette_lines(genome["palette"]) if genome.get("palette") else []) + budget_lines(genes.get("stage", STILL)) + [
               "## Start from material",
               "Use the team's own material first: logo, mascot, photos, map, the real product screen. List what exists (`web/public`, `assets/`,",
               "links in IDEA.md) before designing, and build around it. Then generated material. Only then the MotionSites media shelf.",
@@ -782,11 +784,23 @@ def cmd_round(argv):
         if material:
             have = material.get(g["genes"]["imagery"])
             g["why"]["imagery"] += " \u00b7 " + ("project has: " + ", ".join(have[:2]) if have else "no material for it" if g["genes"]["imagery"] != "type only" else "needs none")
+    import design_color
+    pals, pal_note = design_color.picked_palettes(root)  # the human's picks of the palette round (UAK-078), light and dark kept in balance
+    for i, g in enumerate(genomes):
+        if pals:
+            ground = g.get("ground") or ("light", "dark")[i % 2]
+            g["palette"] = design_color.with_ground(pals[i % len(pals)], ground)
+            g["ground"] = ground
+            if ground_of(g["genes"]) != ground:
+                g["genes"]["color"] = FLIP_TO[ground]  # the color gene must say what the palette says
+            g["why"]["color"] = "palette %s (%s) \u00b7 roles and hex in TASK.md" % (g["palette"]["name"], g["palette"]["roles"]["primary"])
     mix = {k: sum(1 for g in genomes if g["origin"] == k) for k in ("taste", "prior", "wildcard", "spread")}
     novel = sum(1 for g in genomes if g["novelty"])
     mix_line = "DESIGN_ROUND mix: %d from %s, %d wildcards, %d drawn as before; %d redrawn for novelty vs %d past directions (%s; %s)%s" % (
         mix["taste"] or mix["prior"], "taste" if mix["taste"] or not mix["prior"] else "the kit prior", mix["wildcard"], mix["spread"], novel, len(avoid),
         taste_note, prior_note, "; seed %d from the project name" % seed)
+    if pal_note:
+        mix_line += "\nDESIGN_ROUND %s" % pal_note
     if dry:
         for i, g in enumerate(genomes, 1):
             print("v%d  %s  | recipe %s | %s" % (i, " | ".join("%s=%s" % (k, g["genes"][k]) for k in GENES), g["recipe"], g["origin"]))
@@ -830,6 +844,8 @@ def cmd_round(argv):
                "genes": g["genes"], "recipe": g["recipe"], "why": g["why"]}
         if g.get("ground"):
             doc["ground"] = g["ground"]
+        if g.get("palette"):
+            doc["palette"] = g["palette"]
         if g.get("fonts"):
             doc["fonts"] = g["fonts"]
         with open(str(v / "genome.json"), "w", encoding="utf-8", newline="\n") as f:
@@ -1173,6 +1189,27 @@ def record_perf(root, vdir):
     return perf
 
 
+def record_color(vdir):
+    """After a capture: the color use of the 1920 fold (saturated and dark share, dominant colors, role coverage, clashes) into
+    metrics.json under "color", with why the page drifted from its planned palette, when it did. Prints the drift."""
+    vdir = Path(vdir)
+    try:
+        import design_color
+        pal = (json.loads((vdir / "genome.json").read_text(encoding="utf-8"))).get("palette")
+        m = design_color.measure_png(vdir / "1920.png", pal)
+        if not m:
+            return None
+        mp = vdir / "metrics.json"
+        doc = json.loads(mp.read_text(encoding="utf-8"))
+        doc["color"] = m
+        mp.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        for why in m.get("drift") or []:
+            print("DESIGN_SHOOT QA %s 1920: palette drift: %s" % (vdir.name, why))
+        return m
+    except (OSError, ValueError):
+        return None
+
+
 def read_qa(vdir):
     try:
         return json.loads((Path(vdir) / "qa.json").read_text(encoding="utf-8"))
@@ -1276,6 +1313,7 @@ def cmd_shoot(argv):
                 import design_metrics
                 design_metrics.record_capture(v)
                 record_perf(root, v)
+                record_color(v)
                 record_density(v)
             except Exception as exc:  # noqa: BLE001  metrics never fail a capture
                 print("DESIGN_SHOOT metrics not recorded for %s: %s" % (v.name, str(exc)[:120]), file=sys.stderr)
@@ -1302,10 +1340,13 @@ def main(argv):
         return cmd_round(argv[1:])
     if argv[:1] == ["shoot"]:
         return cmd_shoot(argv[1:])
+    if argv[:1] == ["palettes"]:  # a cheap palette round: no agents, no tokens (UAK-078)
+        import design_color
+        return design_color.cmd_palettes(argv[1:], project_root())
     if argv[:1] in (["done"], ["report"]):  # tokens and minutes per variant (UAK-070)
         import design_metrics
         return design_metrics.main(argv)
-    print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] | design done R<k> v<i> --tokens N | design report R<k> [--all] | design pick R<k> [--k N]", file=sys.stderr)
+    print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] | design palettes [--n 6] | design done R<k> v<i> --tokens N | design report R<k> [--all] | design pick R<k> [--k N]", file=sys.stderr)
     return 2
 
 
