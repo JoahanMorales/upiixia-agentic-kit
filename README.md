@@ -398,6 +398,14 @@ runs it in the first hours of a sprint. `landing-story` builds each one from the
 inside the F0 bounds; `design-lint` warns on giant type. The merge gate runs the suite in parallel shards
 (`Smoke-Jobs`, 749 → 333 s on our slowest machine).
 
+**v6.3: a design taste the kit learns, and ships to everyone.** Picks and notes fold into a taste profile (per person and
+per team, traits only), and the kit ships a default prior learned from real projects (`design-prior.json`; only traits
+picked in 2+ projects, style traits need 3), so every team starts from what worked without getting the same landing.
+Every round now gets a `stage` (three.js, canvas, SVG, video…), an exact font pair per variant, a light/dark balance,
+palettes built with harmony rules (`uak design palettes`, no agents), and budgets for animation and words in the hero.
+Captures at 1920 flag narrow pages, distorted images, heavy frames, dense heroes and palette drift, and `uak design report`
+shows tokens and minutes per round.
+
 ## Deploy in one command: `uak deploy`
 
 ```text

@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "generated": "2026-11-14",
+  "evidence": {
+    "profiles": 1,
+    "projects": 2,
+    "rounds": 4,
+    "picks": 9
+  },
+  "rules": {
+    "min_projects": 2,
+    "stylistic_genes": [
+      "type",
+      "scale",
+      "color",
+      "ground",
+      "palette_hue",
+      "palette_neutral",
+      "palette_sat_hues",
+      "palette_sat_share"
+    ],
+    "stylistic_min_projects": 3,
+    "lift_up": 1.25,
+    "lift_down": 0.8
+  },
+  "genes": {
+    "imagery": {
+      "3D cut-out": {
+        "weight": 0.667,
+        "lift": 1.33,
+        "picked": 2,
+        "shown": 4,
+        "projects": 2
+      },
+      "illustration": {
+        "weight": 0.718,
+        "lift": 1.44,
+        "picked": 7,
+        "shown": 13,
+        "projects": 2
+      }
+    },
+    "layout": {
+      "scroll story": {
+        "weight": 0.667,
+        "lift": 1.33,
+        "picked": 3,
+        "shown": 6,
+        "projects": 2
+      }
+    },
+    "motion": {
+      "entrance": {
+        "weight": 0.8,
+        "lift": 1.6,
+        "picked": 6,
+        "shown": 10,
+        "projects": 2
+      }
+    }
+  }
+}
