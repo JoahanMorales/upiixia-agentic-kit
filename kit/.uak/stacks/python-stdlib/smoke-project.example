@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -eu
+# Don't copy this file. Generate the adapter with:
+#   bash .uak/bin/uak init-smoke --command "<the Product smoke command from STACK.md>"
+# The gate only accepts an adapter with init-smoke provenance.
+printf '%s\n' 'PRODUCT_UNVERIFIED: run uak init-smoke with the real product check.' >&2
+exit 2
