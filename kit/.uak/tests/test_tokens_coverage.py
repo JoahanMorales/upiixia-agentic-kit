@@ -34,19 +34,25 @@ def remove_tree(path, attempts=8, pause=0.5, rmtree=shutil.rmtree):
     return False
 
 
-def wait_for_publish(r, f, seconds=60):
-    """session-start and the Codex tick start `tokens --publish` in the background with the worktree as cwd; wait for
-    it to land on claims so nothing of this test still holds the worktree when the scratch tree is removed."""
+def wait_until_released(path, seconds=90):
+    """session-start and the Codex tick each start `tokens --publish` in the background with the worktree as its cwd. Wait for
+    that very process: while it runs, Windows refuses to rename the directory (the same WinError 32 that broke the cleanup);
+    where nothing locks a cwd the rename always works and this costs nothing."""
+    path = Path(path)
+    probe = path.with_name(path.name + ".probe")
     deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        tree = r.g(f.clones[0], "ls-remote", f.remote, "refs/heads/claims", allowed=None)
-        if tree.returncode == 0 and tree.stdout.strip():
-            probe = r.run([r.git, "--git-dir", str(f.remote), "ls-tree", "-r", "--name-only", "claims"], allowed=None)
-            if "tokens/" in probe.stdout:
-                time.sleep(1.0)  # the process exits right after its push
-                return True
-        time.sleep(0.5)
-    return False
+    while True:
+        try:
+            os.rename(str(path), str(probe))
+            os.rename(str(probe), str(path))
+            return True
+        except OSError:
+            if probe.exists() and not path.exists():
+                os.rename(str(probe), str(path))
+            if time.monotonic() > deadline:
+                print("WARNING: %s is still held after %ds" % (path, seconds), file=sys.stderr)
+                return False
+            time.sleep(0.5)
 
 
 def enc(path):
@@ -154,12 +160,13 @@ def hooks_publish_from_session_start_and_codex(r):
     expect(not stamp.exists(), "no stamp yet")
     r.run([r.bash, "-c", "echo '{\"session_id\":\"s1\"}' | bash .uak/bin/hook session-start"], cwd=w, env=e, allowed=None)
     expect(stamp.exists(), "session-start publishes (tried now)")
+    wait_until_released(w)
     stamp.unlink()
     gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
     (gd / "uak-harness").write_bytes(b"codex\r\n")  # as Windows writes it
     r.run([r.bash, "-c", "echo '{}' | bash .uak/bin/hook tick"], cwd=w, env=e, allowed=None)
     expect(stamp.exists(), "the Codex tick publishes")
-    wait_for_publish(r, f)
+    wait_until_released(w)
     return "session-start and codex tick"
 
 
