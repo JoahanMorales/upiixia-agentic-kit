@@ -1,5 +1,52 @@
 # Changelog
 
+## v6.3.0 · 2026-11-13 · A design taste the kit learns, and ships to everyone
+
+Two real projects judged by the human through the landing tournament of v6.2 (AXIA: 3 rounds, 18 variants, ~1.68 M
+tokens; colonIA: 1 round) showed where the rounds went wrong: every page sat in a 600–900 px column on a desktop, all six
+variants of a round used the same fonts, breeding drifted to all-dark, three.js heroes ran at 8 fps, colors were
+labels instead of palettes (AXIA R3 measured 1 % saturated pixels), heroes carried 60–135 words, and the "stretched"
+images were squashed by `object-fit: fill`. Twenty tasks (UAK-062 … UAK-081), each test-first, reviewed by an agent that
+was not its author, and merged with the full suite.
+
+What the kit learns
+- **A taste profile** per person (`~/.uak/taste`) and per team (`.uak/design/taste.json` in the repo), folded from every
+  pick and note: traits, never pages or hex (UAK-062, 064, 076). One person, one profile (case, accents, aliases,
+  `--merge`). `uak design taste` shows it; saving picks in `uak design pick` updates it.
+- **The kit ships a default prior** (`kit/.uak/settings/design-prior.json`, UAK-075): only traits the maintainers picked in
+  at least 2 projects (style traits — type, scale, color, ground, palette — need 3), so every team starts from what
+  worked without everyone getting the same landing. First prior: 2 projects, 4 rounds, 9 picks → imagery
+  (illustration, 3D cut-out), layout (scroll story), motion (entrance). Regenerated at every release (CONTRIBUTING.md).
+- **Round 1 of a new project** is drawn team → personal → prior, shaped by the project (seed from its name, brand colors,
+  the material it really has, a "subject world"), and never repeats a past direction (UAK-063).
+- **Breeding reads the notes**: the gene a note names is the one that mutates; values the human rejected never reach a
+  wildcard; near-identical picks explore with wildcards instead of failing (UAK-065, 080).
+
+What every round now carries
+- **A `stage` gene** (three.js, point cloud, scroll-driven, canvas, SVG/CSS, video, still) and rules for everyone: design
+  for 1440/1920 first, full-bleed hero, a stand-by loop for the projector, no upscaled or distorted rasters
+  (UAK-068, 081).
+- **An exact font pair per variant**, distinct in the round and from past directions (36 vetted pairs; UAK-071).
+- **Light and dark in balance**: at least a third of each, in fresh and bred rounds (UAK-072).
+- **Palettes with harmony**: one dominant hue, tinted neutrals, at most two saturated hues, contrast checked before
+  building; `uak design palettes` is a palette round that costs no agents (UAK-078).
+- **Budgets**: animation (three.js low-power, DPR ≤ 1.5, 30 fps; frame time measured, "heavy" flagged; UAK-073) and
+  information density (~45 words in the hero fold, no text over the stage's focal point; "dense" flagged; UAK-077).
+- **A brief that reads real IDEA.md files** (Spanish headings, the wow inside the flow table, product screens vs cut-outs,
+  real map data; UAK-074).
+
+What the capture and the picker show
+- Captures over a local http server with software WebGL at 1920, 1280 and 390, media seeked so videos are not blank,
+  full pages, and a QA line: narrow page, upscaled or distorted image, page errors, frame time, density, color use and
+  palette drift (UAK-067, 069, 073, 077, 078, 081). `design-lint` lints a round's static pages (UAK-066).
+- **Tokens and time per round** (UAK-070): `uak design done --tokens N`, `uak design report [--all]`, and a cost line
+  from measured medians by stage family (on this machine: ~75k per light variant, ~154k per three.js one), with a wall-
+  time estimate and a sprint deadline warning.
+
+Fixed
+- `uak plan` and `uak lint` could accept a Verify that does not parse when the machine was loaded: a `printf | head`
+  pipeline under `pipefail` lost the error (UAK-079; it was the "flaky" test_v59).
+
 ## v6.2.0 · 2026-11-11 · Landings people want to look at
 
 The human scored the six frontends the kit had built (F0, [docs/design/failures.md](docs/design/failures.md)): **2.8 of
