@@ -451,8 +451,38 @@ msg_inbox_run() {
   QUIET=yes; transaction; QUIET=no
   say "INBOX_ACK up to #$MSG_ACK_UPTO"
 }
+# msg_contract_where: a contract that cites a commit not yet on $REMOTE/$BASE gets where to read it, appended to
+# MSG_TEXT: "SHA is on REMOTE/BRANCH: git show REMOTE/BRANCH:PATH" (PATH: the first path of the text in that commit).
+# A SHA on no branch of the remote is a note to the sender. Read before the transaction (local refs, no fetch).
+# Why (QA round C, 2026-11-14): "contract/ + docs/API.md at 21b950c" named a commit on an unmerged feature branch;
+# the consumer searched main, found nothing and built against its own guess.
+MSG_WHERE_NOTE=
+msg_contract_where() {
+  local w full br p path add= bref=refs/remotes/$REMOTE/$BASE
+  git -C "$ROOT" rev-parse -q --verify "$bref" >/dev/null 2>&1 || bref=refs/heads/$BASE
+  for w in $(printf '%s\n' "$MSG_TEXT" | tr -c 'A-Za-z0-9\n' ' ' | tr ' ' '\n' | grep -E '^[0-9a-f]{7,40}$' | grep '[0-9]' | awk '!seen[$0]++' | head -n 3); do
+    full=$(git -C "$ROOT" rev-parse -q --verify "$w^{commit}" 2>/dev/null) || continue
+    ! git -C "$ROOT" merge-base --is-ancestor "$full" "$bref" 2>/dev/null || continue
+    br=$(git -C "$ROOT" for-each-ref --contains "$full" --format='%(refname)' "refs/remotes/$REMOTE/" 2>/dev/null |
+      sed "s#^refs/remotes/##" | grep -v -e '/HEAD$' -e "^$REMOTE/claims\$" | head -n 1)
+    if [ -z "$br" ]; then
+      MSG_WHERE_NOTE="$MSG_WHERE_NOTE$w is on no branch of $REMOTE: push it, or the consumer cannot read it.
+"
+      continue
+    fi
+    path=
+    for p in $(printf '%s\n' "$MSG_TEXT" | tr -c 'A-Za-z0-9_./\n-' ' ' | tr ' ' '\n' | grep -E '[./]' | grep -E '^[A-Za-z0-9_.][A-Za-z0-9_./-]*$' | grep -v '^\.*$'); do
+      git -C "$ROOT" cat-file -e "$full:${p%/}" 2>/dev/null || continue
+      path=${p%/}; break
+    done
+    add="$add · $w is on $br (not on $BASE yet): git show $br:${path:-PATH}"
+  done
+  MSG_TEXT="$MSG_TEXT$add"
+}
 # msg: one transaction, then the sent line and its notes (an offline target, a likely typo).
 msg_run() {
+  [ "$MSG_KIND" != contract ] || msg_contract_where
   QUIET=yes; transaction; say "OK msg $MSG_SENT"
   [ ! -s "$TXROOT/msg-note" ] || sed 's/^/NOTE: /' "$TXROOT/msg-note" | awk '!seen[$0]++'
+  [ -z "$MSG_WHERE_NOTE" ] || printf '%s' "$MSG_WHERE_NOTE" | sed 's/^/NOTE: /'
 }

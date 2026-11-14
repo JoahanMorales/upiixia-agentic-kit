@@ -62,7 +62,9 @@ fi
 rec=$(grep -c 'REQUIRES_RECOVERY' "$dir/DECISIONS.md" 2>/dev/null || true)
 printf 'lease recoveries: %s\n' "${rec:-0}"
 if ls "$dir"/queue/*.md >/dev/null 2>&1; then
-  q=$(cat "$dir"/queue/*.md | sed -n 's/^Reason: //p' | sed 's/: .*//' | sort | uniq -c | sort -rn | head -n 3 | awk '{c=$1; $1=""; printf "%s%s ×%d", (NR > 1 ? " · " : ""), substr($0,2), c}')
+  # Escalations only (State: HUMAN): a WAITING entry is the merge queue working. Why (QA round C, 2026-11-14):
+  # "human-queue reasons: Waiting for queue ×2" sent the retro looking for a human step that never existed.
+  q=$(for f in "$dir"/queue/*.md; do grep -q '^State: HUMAN' "$f" && sed -n 's/^Reason: //p' "$f"; done | sed 's/: .*//' | sort | uniq -c | sort -rn | head -n 3 | awk '{c=$1; $1=""; printf "%s%s ×%d", (NR > 1 ? " · " : ""), substr($0,2), c}')
   printf 'human-queue reasons: %s\n' "${q:-none}"
 fi
 # Token spend published by every machine (uak tokens): the real bill, by harness and lead vs subagent.

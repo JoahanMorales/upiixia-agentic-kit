@@ -199,8 +199,10 @@ seen_normal() {
 $1
 EOF_SEEN
 }
-# seen_print KEY TEXT: TEXT, or "= unchanged" when this session already saw the same TEXT in the last 30 min.
-# <git dir>/uak-seen.KEY holds "SESSION EPOCH" and the normalized text it saw (read back with builtins, no cksum).
+# seen_print KEY TEXT: TEXT, or "= unchanged" when this session, as this identity, already saw the same TEXT in the
+# last 30 min. <git dir>/uak-seen.KEY holds "SESSION EPOCH AGENT" and the normalized text it saw (read back with
+# builtins, no cksum). Why the identity (QA round C, 2026-11-14): beto-r ran next after ana-r in one session and was
+# told "Nothing new" about a review it had never been shown.
 seen_print() {
   local key=$1 out=$2 gp prev line t=0
   git_dir_var "$ROOT"
@@ -216,12 +218,12 @@ seen_print() {
 "; done; } < "$GD/uak-seen.$key"
     set -- $line
   else set --; fi
-  if [ "${1:-}" = "$gp" ] && [ "$prev" = "$SEEN_TEXT" ] && [ "$((NOW - ${2:-0}))" -lt 1800 ]; then
+  if [ "${1:-}" = "$gp" ] && [ "${3:-}" = "${AGENT:--}" ] && [ "$prev" = "$SEEN_TEXT" ] && [ "$((NOW - ${2:-0}))" -lt 1800 ]; then
     say "= unchanged since $(((NOW - $2) / 60)) min ago (uak $key). Nothing new. Waiting for something? bash .uak/bin/uak wait ID --for approve|integrated|message (one call). --full reprints."
     return 0
   fi
   printf '%s\n' "$out"
-  printf '%s %s\n%s' "$gp" "$NOW" "$SEEN_TEXT" > "$GD/uak-seen.$key" 2>/dev/null || true
+  printf '%s %s %s\n%s' "$gp" "$NOW" "${AGENT:--}" "$SEEN_TEXT" > "$GD/uak-seen.$key" 2>/dev/null || true
 }
 # Once per 12 h per checkout: say early when PRs cannot be opened by the agent. The file holds the real epoch it ran,
 # read with builtins (bash 4.2+ printf %()T); bash 3.2 keeps the find -mmin check.
