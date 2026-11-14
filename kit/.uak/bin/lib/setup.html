@@ -2607,6 +2607,25 @@
               step === 4 && isBusy(state.phase);
           }
         }
+        // UI-018 feedback: begin (stub)
+        var BUSY_LABEL = {};
+        function planBlock(view, planner) {
+          return null;
+        }
+        function setBlocked(button, why) {}
+        function pointTo(id) {
+          return false;
+        }
+        function nextControl(data) {
+          return "";
+        }
+        function checkSummary(before, data, now) {
+          return "";
+        }
+        function drawChecks(data) {
+          return true;
+        }
+        // UI-018 feedback: end
         function profile(value) {
           document.body.dataset.profile = value;
           el("profile").value = value;
