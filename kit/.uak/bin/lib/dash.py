@@ -94,7 +94,12 @@ def snapshot(root, claims_dir=None):
                 # Plain files and directories only: a symlink on claims could point the page at any local file.
                 if m.name.startswith("/") or ".." in Path(m.name).parts or not (m.isfile() or m.isdir()):
                     continue
-                t.extract(m, tmp)
+                # filter="data" where tarfile has it (3.12+, backports): no DeprecationWarning on stderr, and the
+                # extraction refuses what the check above already skips. Why (QA round C, 2026-11-14, C-11).
+                if hasattr(tarfile, "data_filter"):
+                    t.extract(m, tmp, filter="data")
+                else:
+                    t.extract(m, tmp)
     backlog = git("show", "refs/uak/dash-base:.uak/TASKS.md", cwd=root, check=False).decode("utf-8", "replace")
     return tmp, backlog
 
@@ -135,6 +140,20 @@ def base_live_url(root):
     return project_live_url(text)
 
 
+# Mode (sprint or marathon) is a PROJECT.md key; claims' meta/config.md has it only when the engine wrote one.
+# Why (QA round C, 2026-11-14, C-12): the page reported mode "" for a sprint project.
+MODE_KEY = re.compile(r"(?m)^[-* ]*\**Mode\**:\**[ \t]*`?([A-Za-z]+)`?[ \t]*$")
+
+
+def project_mode(text):
+    match = MODE_KEY.search(text or "")
+    return match.group(1).lower() if match else ""
+
+
+def base_mode(root):
+    return project_mode(git("show", "refs/uak/dash-base:.uak/PROJECT.md", cwd=root, check=False).decode("utf-8", "replace"))
+
+
 def workspace_data(root):
     """The same dashboard model, including a clearly labelled offline/local-plan state."""
     remote = os.environ.get("UAK_REMOTE", "origin")
@@ -146,6 +165,7 @@ def workspace_data(root):
             extracted, backlog = snapshot(root)
             data = build(extracted, backlog, Path(root).name)
             data.update(source="remote", connection="ok", warning="", refresh=20, live_url=base_live_url(root))
+            data["mode"] = data.get("mode") or base_mode(root)
             return data
         except (OSError, RuntimeError, subprocess.SubprocessError):
             # A remote that exists but cannot be read is a different problem from no remote at all.
@@ -374,6 +394,8 @@ def main():
             data["refresh"] = refresh
             data["live_url"] = (project_live_url(read(Path(root) / ".uak/PROJECT.md")) if a.claims
                                 else base_live_url(root))
+            data["mode"] = data.get("mode") or (project_mode(read(Path(root) / ".uak/PROJECT.md")) if a.claims
+                                                else base_mode(root))
             body = "window.UAK_DATA = " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + ";\n"
             (out / "data.js.tmp").write_text(body, encoding="utf-8")
             os.replace(out / "data.js.tmp", out / "data.js")
