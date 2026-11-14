@@ -123,14 +123,14 @@ def welcome_offers_the_demo(root, tmp):
     video = re.search(r"<video\b[^>]*>", demo)
     assert video, "a <video> element plays the demo in the page"
     tag = video.group(0)
-    for attr in ("controls", 'preload="none"', "playsinline", 'src="/media/tutorial.mp4"',
-                 'poster="/media/tutorial-poster.jpg"'):
+    for attr in ("controls", 'preload="none"', "playsinline", 'data-src="/media/tutorial.mp4"',
+                 'data-poster="/media/tutorial-poster.jpg"'):
         assert re.search(r"\s%s(\s|>|=|$)" % re.escape(attr), tag) or attr in tag, "%s on the video: %s" % (attr, tag)
     tracks = re.findall(r"<track\b[^>]*>", demo)
     langs = {}
     for t in tracks:
         assert 'kind="captions"' in t, t
-        langs[re.search(r'srclang="(\w+)"', t).group(1)] = re.search(r'src="([^"]+)"', t).group(1)
+        langs[re.search(r'srclang="(\w+)"', t).group(1)] = re.search(r'data-src="([^"]+)"', t).group(1)
     assert langs == {"en": "/media/tutorial-en.vtt", "es": "/media/tutorial-es.vtt"}, langs
     code = script(html)
     m = re.search(r"function demoCaptions\(\) \{([\s\S]*?)\n        \}", code)
@@ -234,6 +234,10 @@ def missing_demo_hides_the_block(root, tmp):
     m = re.search(r"function showDemo\(available\) \{([\s\S]*?)\n        \}", code)
     assert m, "showDemo(available) shows the block only when the server has the files"
     assert re.search(r'el\("demo"\)\.hidden = !available', m.group(1)), m.group(1)
+    assert not re.search(r'\s(src|poster)="/media/', html), "a hidden block requests nothing: addresses wait in data-*"
+    for line in ("track.src = track.dataset.src", "video.poster = video.dataset.poster", "video.src = video.dataset.src"):
+        assert line in m.group(1), "showDemo(true) sets %s" % line
+    assert m.group(1).index("!available") < m.group(1).index("video.src ="), "only when available"
     assert re.search(r"showDemo\(data\.demo\)", code), "the first status decides"
     handler = re.search(r'el\("demo-video"\)\.addEventListener\("error", function \(\) \{([\s\S]*?)\}\);', code)
     assert handler and "showDemo(false)" in handler.group(1), "a file that fails to load hides the block"

@@ -323,6 +323,29 @@
         font-size: 15px;
         margin-bottom: 4px;
       }
+      .demo {
+        border-top: 1px solid var(--line);
+        margin-top: 24px;
+        padding-top: 20px;
+      }
+      .demo h2 {
+        font-size: 18px;
+        margin: 0 0 4px;
+      }
+      .demo p {
+        margin: 0 0 12px;
+        font-size: 14px;
+      }
+      .demo video {
+        display: block;
+        width: 100%;
+        max-width: 640px;
+        height: auto;
+        aspect-ratio: 16 / 9;
+        border-radius: var(--small);
+        border: 1px solid var(--line);
+        background: #000;
+      }
       .primary,
       .secondary-button {
         border-radius: var(--small);
@@ -1162,6 +1185,41 @@
               Already using the kit? Choose your project to continue
               configuration.
             </p>
+            <section
+              id="demo"
+              class="demo"
+              aria-labelledby="demo-heading"
+              hidden
+            >
+              <h2 id="demo-heading">Watch the 75-second demo</h2>
+              <p class="secondary">
+                A simulated walkthrough: from an empty project to a deployed
+                app. Captions in English and Spanish.
+              </p>
+              <video
+                id="demo-video"
+                data-src="/media/tutorial.mp4"
+                data-poster="/media/tutorial-poster.jpg"
+                controls
+                preload="none"
+                playsinline
+                width="1280"
+                height="720"
+                aria-labelledby="demo-heading"
+              >
+                <track
+                  kind="captions"
+                  srclang="en"
+                  label="English"
+                  data-src="/media/tutorial-en.vtt"
+                /><track
+                  kind="captions"
+                  srclang="es"
+                  label="Español"
+                  data-src="/media/tutorial-es.vtt"
+                />
+              </video>
+            </section>
           </section>
           <section id="project" hidden>
             <h2>Where are you building?</h2>
@@ -2589,7 +2647,33 @@
         el("language").onchange = function () {
           UAKWorkspace.setLanguage(this.value);
         };
+        // UI-017: the demo video on the welcome screen. Shown only when the server has the four files, whose addresses
+        // are set then (a hidden block requests nothing); never started by the page (it waits for the play button,
+        // preload none); the captions follow the page's language.
+        function showDemo(available) {
+          var video = el("demo-video");
+          el("demo").hidden = !available;
+          if (!available || video.getAttribute("src")) return;
+          video.querySelectorAll("track").forEach(function (track) {
+            track.src = track.dataset.src;
+          });
+          video.poster = video.dataset.poster;
+          video.src = video.dataset.src;
+          demoCaptions();
+        }
+        function demoCaptions() {
+          var tracks = el("demo-video").querySelectorAll("track");
+          for (var i = 0; i < tracks.length; i++) {
+            var mine = tracks[i].srclang === UAKWorkspace.language();
+            tracks[i].default = mine;
+            if (tracks[i].track) tracks[i].track.mode = mine ? "showing" : "disabled";
+          }
+        }
+        el("demo-video").addEventListener("error", function () {
+          showDemo(false);
+        });
         window.addEventListener("uak:language", function () {
+          demoCaptions();
           // The heading, the checklist and who signs are drawn in the page's language, not by the body translation.
           if (state.installed || state.can_repair) render(state);
           if (latestDashboard) drawDashboard(latestDashboard);
@@ -3377,6 +3461,7 @@
             var stay = currentSection === "dashboard";
             state = data;
             drawJourney();
+            showDemo(data.demo);
             el("target").value = data.target || "";
             if (data.phase === "options") {
               el("selected-project").textContent = data.target;
