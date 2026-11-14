@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UPIIXIA Agentic Kit demo</title>
+<!-- UI-016: every frame is a pure function of t (seconds): render.mjs calls window.seek(t) and takes a screenshot. -->
+<style>
+  :root {
+    --bg: #07090c; --panel: #0f1419; --panel2: #141b22; --line: #242e38; --ink: #e8edf2; --muted: #8d99a6;
+    --green: #3fb950; --blue: #58a6ff; --amber: #d29922; --purple: #bc8cff; --red: #f85149; --mint: #a3d8bc;
+    /* The setup page (kit/.uak/bin/lib/setup.html, light) */
+    --s-bg: #f4f6f3; --s-paper: #fff; --s-ink: #182b28; --s-secondary: #52645e; --s-muted: #67756e;
+    --s-line: #dce4dc; --s-accent: #14634e; --s-wash: #e8f1e9;
+    --sans: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    --mono: "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: var(--bg); color: var(--ink); font-family: var(--sans); }
+  #stage { position: relative; width: 1280px; height: 720px; overflow: hidden;
+    background: radial-gradient(900px 500px at 0% 100%, rgba(20, 90, 100, .28), transparent 60%),
+                radial-gradient(800px 500px at 100% 0%, rgba(110, 50, 200, .25), transparent 60%), var(--bg); }
+  .scene { position: absolute; inset: 0; }
+  .top { position: absolute; left: 24px; top: 18px; display: flex; gap: 10px; align-items: center; z-index: 50; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 14px; border-radius: 15px;
+    border: 1px solid var(--line); background: rgba(15, 20, 25, .85); font: 600 13px var(--mono); color: var(--ink); letter-spacing: .04em; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+  .step { font: 600 14px var(--sans); color: var(--muted); letter-spacing: 0; }
+  .step b { color: var(--ink); }
+  /* Windows */
+  .win { position: absolute; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--panel);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
+  .bar { height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: var(--panel2);
+    border-bottom: 1px solid var(--line); font: 13px var(--mono); color: var(--muted); }
+  .bar .l { width: 12px; height: 12px; border-radius: 50%; }
+  .bar .ttl { flex: 1; text-align: center; margin-right: 52px; }
+  .term { padding: 16px 20px; font: 16px/1.62 var(--mono); white-space: pre; color: var(--ink); }
+  .term .p { color: var(--purple); }
+  .term .c { color: var(--muted); }
+  .term .g { color: var(--green); }
+  .term .r { color: var(--red); }
+  .term .b { color: var(--blue); }
+  .term .a { color: var(--mint); }
+  .term .y { color: var(--amber); }
+  .caret { display: inline-block; width: 9px; height: 18px; background: var(--ink); vertical-align: -3px; }
+  /* Browser chrome */
+  .url { flex: 1; height: 26px; border-radius: 13px; background: #0a0e12; border: 1px solid var(--line); display: flex;
+    align-items: center; padding: 0 12px; font: 13px var(--sans); color: var(--ink); margin: 0 14px; }
+  .light .bar { background: #e9ece8; border-bottom-color: #d4dad3; color: #52645e; }
+  .light .url { background: #fff; border-color: #d4dad3; color: #182b28; }
+  .light { background: var(--s-bg); border-color: #cfd8cf; }
+  /* Setup page */
+  .setup { display: flex; height: calc(100% - 38px); color: var(--s-ink); font-family: var(--sans); }
+  .side { width: 230px; padding: 24px 18px; border-right: 1px solid var(--s-line); background: var(--s-paper); }
+  .brand { font: 700 15px var(--sans); margin-bottom: 22px; color: var(--s-ink); }
+  .brand span { color: var(--s-accent); }
+  .st { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px; border-radius: 10px;
+    font: 600 15px var(--sans); color: var(--s-muted); margin-bottom: 4px; }
+  .st .n { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--s-line); display: grid; place-items: center;
+    font: 700 12px var(--sans); }
+  .st.cur { background: var(--s-wash); color: var(--s-ink); }
+  .st.cur .n { border-color: var(--s-accent); color: var(--s-accent); }
+  .st.done .n { background: var(--s-accent); border-color: var(--s-accent); color: #fff; }
+  .main { flex: 1; padding: 26px 32px; overflow: hidden; }
+  .main h3 { font: 700 24px var(--sans); margin-bottom: 6px; }
+  .hint { font: 14px/1.45 var(--sans); color: var(--s-secondary); margin-bottom: 14px; }
+  .card { background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
+  .card h4 { font: 700 16px var(--sans); margin-bottom: 8px; }
+  .row { display: flex; align-items: center; gap: 10px; font: 15px var(--sans); height: 32px; }
+  .ok { width: 22px; height: 22px; border-radius: 50%; background: var(--s-accent); color: #fff; display: grid; place-items: center; font: 700 13px var(--sans); }
+  .wait { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--s-line); }
+  .field { height: 38px; border: 1.5px solid #b9c6bb; border-radius: 10px; background: #fff; padding: 0 12px; display: flex;
+    align-items: center; font: 15px var(--mono); color: var(--s-ink); }
+  .field.focus { border-color: var(--s-accent); box-shadow: 0 0 0 3px rgba(20, 99, 78, .18); }
+  .lbl { font: 600 13px var(--sans); color: var(--s-secondary); margin-bottom: 5px; }
+  .btn { display: inline-flex; align-items: center; height: 38px; padding: 0 16px; border-radius: 10px; font: 700 14px var(--sans);
+    background: var(--s-accent); color: #fff; }
+  .btn.sec { background: #fff; color: var(--s-ink); border: 1.5px solid #b9c6bb; }
+  .btn.off { opacity: .45; }
+  .btn.press { transform: scale(.96); box-shadow: 0 0 0 4px rgba(20, 99, 78, .25); }
+  .saved { font: 600 14px var(--sans); color: var(--s-accent); }
+  .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .task { background: #fff; border: 1px solid var(--s-line); border-radius: 12px; padding: 10px 12px; }
+  .task .id { font: 700 12px var(--mono); color: var(--s-accent); }
+  .task .t { font: 600 15px var(--sans); margin: 3px 0; }
+  .task .ts { font: 11.5px var(--mono); color: var(--s-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .banner { border-radius: 12px; background: var(--s-wash); border: 1px solid #b8d6c1; padding: 12px 16px; font: 600 15px var(--sans); color: var(--s-accent); }
+  .mini { background: #0f1419; color: #e8edf2; border-radius: 10px; padding: 10px 12px; font: 14px/1.6 var(--mono); white-space: pre; margin-top: 8px; }
+  .mini .p { color: #bc8cff; } .mini .c { color: #8d99a6; } .mini .g { color: #3fb950; }
+  /* Board (uak dash) */
+  .dash { padding: 16px; height: calc(100% - 38px); }
+  .prog { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+  .prog .pct { font: 800 44px var(--sans); }
+  .prog .lab { font: 15px var(--sans); color: var(--muted); }
+  .seg { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: #2a323a; margin-bottom: 16px; }
+  .cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .colh { display: flex; align-items: center; gap: 7px; font: 700 13px var(--sans); color: var(--ink); margin-bottom: 8px; }
+  .colh .sq { width: 10px; height: 10px; border-radius: 3px; }
+  .colh .k { margin-left: auto; color: var(--muted); }
+  .kc { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
+  .kc .id { font: 700 12px var(--mono); }
+  .kc .t { font: 13px var(--sans); color: var(--ink); margin-top: 2px; }
+  .kc .who { font: 12px var(--mono); color: var(--muted); margin-top: 4px; }
+  .kc.flash { border-color: var(--green); box-shadow: 0 0 0 2px rgba(63, 185, 80, .35); }
+  /* Product */
+  .prod { height: calc(100% - 38px); background: #fffaf3; color: #2a1d12; font-family: var(--sans); padding: 26px 34px; }
+  .prod h1 { font: 800 28px var(--sans); }
+  .prod .sub { color: #7a6553; font: 15px var(--sans); margin-top: 2px; }
+  .serve { border-radius: 22px; background: #2a1d12; color: #fffaf3; padding: 26px 30px; }
+  .serve .k { font: 700 15px var(--sans); letter-spacing: .12em; text-transform: uppercase; color: #f2c38b; }
+  .serve .num { font: 800 120px/1 var(--sans); letter-spacing: -.02em; margin: 10px 0 6px; }
+  .q { background: #fff; border: 1px solid #ecdcc8; border-radius: 14px; padding: 12px 16px; display: flex; justify-content: space-between;
+    font: 600 18px var(--sans); margin-bottom: 10px; }
+  .q span { color: #9a7b60; font-weight: 500; }
+  .take { display: inline-flex; height: 52px; align-items: center; padding: 0 26px; border-radius: 14px; background: #e07a1f; color: #fff;
+    font: 800 18px var(--sans); }
+  .live { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; background: rgba(63, 185, 80, .15);
+    color: #3fb950; font: 700 12px var(--sans); border: 1px solid rgba(63, 185, 80, .5); }
+  .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .big { font: 800 84px/1.02 var(--sans); letter-spacing: -.02em;
+    background: linear-gradient(180deg, #fff 0%, #c9c6ff 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lead { font: 500 28px var(--sans); color: var(--ink); margin-top: 18px; }
+  .lead2 { font: 500 20px var(--sans); color: var(--muted); margin-top: 10px; }
+  .chip { position: absolute; display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 12px;
+    background: rgba(15, 20, 25, .92); border: 1px solid var(--line); font: 600 16px var(--sans); color: var(--ink); box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+"use strict";
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const p = (t, a, b) => clamp((t - a) / (b - a), 0, 1);
+const ease = (x) => 1 - Math.pow(1 - x, 3);
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// Typed text: n characters at cps from start; a caret while typing (and blinking after, when asked).
+function typed(text, t, start, cps, caret) {
+  if (t < start) return caret === "always" ? '<span class="caret"></span>' : "";
+  const n = Math.floor((t - start) * cps);
+  const done = n >= text.length;
+  const c = !done || (caret === "always" && Math.floor(t * 2) % 2 === 0) ? '<span class="caret"></span>' : "";
+  return esc(text.slice(0, n)) + c;
+}
+// A scene's opacity: fades in over 0.4 s from a, out over 0.4 s before b.
+function vis(t, a, b) { return Math.min(p(t, a, a + 0.4), 1 - p(t, b - 0.4, b)); }
+function wrap(o, html, dy) {
+  if (o <= 0) return "";
+  return '<div class="scene" style="opacity:' + o.toFixed(3) + ';transform:translateY(' + ((1 - ease(o)) * (dy || 14)).toFixed(1) + 'px)">' + html + "</div>";
+}
+function bar(title, url, light) {
+  const lights = '<span class="l" style="background:#ff5f57"></span><span class="l" style="background:#febc2e"></span><span class="l" style="background:#28c840"></span>';
+  return '<div class="bar">' + lights + (url ? '<div class="url">' + url + "</div>" : '<div class="ttl">' + title + "</div>") + "</div>";
+}
+
+const STEPS = [[0, "Demonstration"], [4.5, "1 · Install the kit"], [14.5, "2 · Prepare in the setup page"],
+  [21, "3 · Plan with Claude Code"], [33, "4 · Start your team"], [40, "5 · Claim, test, review, merge"],
+  [61, "6 · Integrated and deployed"]];
+
+// ---- Scene 0: title -------------------------------------------------------------------------------------------
+function title(t) {
+  return '<div class="center"><div class="pill" style="margin-bottom:26px"><span class="dot"></span>DEMONSTRATION · SIMULATED SCREENS</div>' +
+    '<div class="big">UPIIXIA<br>Agentic Kit</div>' +
+    '<div class="lead">From an empty folder to a deployed product</div>' +
+    '<div class="lead2">Install · plan · build with agents · review · merge · deploy</div></div>';
+}
+
+// ---- Scene 1: terminal -----------------------------------------------------------------------------------------
+function terminal(t) {
+  const L = [];
+  const pr = (dir) => '<span class="p">ana@laptop ' + dir + " %</span> ";
+  L.push(pr("~") + typed("mkdir cafeteria-queue && cd cafeteria-queue", t, 5.0, 32));
+  if (t >= 6.6) L.push(pr("~/cafeteria-queue") + typed("ls -A", t, 6.7, 14));
+  if (t >= 7.2) L.push('<span class="c">(empty folder)</span>');
+  if (t >= 7.5) L.push(pr("~/cafeteria-queue") + typed("git clone --depth 1 \\", t, 7.6, 40));
+  if (t >= 8.2) L.push("    " + typed("https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit", t, 8.2, 52));
+  if (t >= 9.6) L.push('<span class="c">Cloning into \'/Users/ana/.uak-kit\'... done.</span>');
+  if (t >= 10.0) L.push(pr("~/cafeteria-queue") + typed("bash ~/.uak-kit/install.sh --wizard .", t, 10.1, 30));
+  if (t >= 11.8) L.push('<span class="a">UAK SETUP http://127.0.0.1:8765/</span>');
+  if (t >= 12.1) L.push('<span class="c">Keep this terminal open. Configure the kit in your browser;</span>');
+  if (t >= 12.1) L.push('<span class="c">press Ctrl+C here to stop.</span>');
+  if (t >= 12.7) L.push('<span class="g">Opening your browser…</span>');
+  let chip = "";
+  if (t >= 10.2) chip = '<div class="chip" style="left:190px;top:574px;opacity:' + p(t, 10.2, 10.6) + '">One command opens a local setup page: nothing to configure by hand.</div>';
+  return '<div class="win" style="left:150px;top:96px;width:980px;height:452px">' + bar("~/cafeteria-queue — zsh") +
+    '<div class="term">' + L.join("\n") + "</div></div>" + chip;
+}
+
+// ---- Scene 2-4: the setup page ----------------------------------------------------------------------------------
+const TASKS = [
+  ["CAF-001", "Queue model and API", "tickets_are_served_in_order"],
+  ["CAF-002", "Take-a-number page", "student_gets_a_ticket"],
+  ["CAF-003", "Staff console: call next", "staff_calls_the_next_ticket"],
+  ["CAF-004", "“Now serving” screen", "screen_shows_the_current_ticket"],
+  ["CAF-005", "Live updates", "screen_updates_without_reload"],
+  ["CAF-006", "Deploy to Render", "health_check_is_green"],
+];
+function sidebar(t) {
+  const marks = [14.5, 17, 21, 33, 1e9];
+  const names = ["Install", "Prepare", "Plan", "Start your team"];
+  let h = '<div class="side"><div class="brand"><span>UPIIXIA</span> Agentic Kit</div>';
+  names.forEach((n, i) => {
+    const cls = t >= marks[i + 1] ? "done" : t >= marks[i] ? "cur" : "";
+    h += '<div class="st ' + cls + '"><span class="n">' + (cls === "done" ? "✓" : i + 1) + "</span>" + n + "</div>";
+  });
+  return h + '<div class="hint" style="margin-top:22px;font-size:13px">Runs on your computer.<br>Nothing leaves it until you publish.</div></div>';
+}
+function install(t) {
+  const rows = [["Copy the kit into cafeteria-queue", 15.3], ["Git hooks and agent settings", 15.9], ["uak start: the coordination branch is ready", 16.5]];
+  let h = '<h3>Installing your workspace</h3><p class="hint">Hackathon mode (sprint): reviewed changes merge after the checks pass.</p><div class="card">';
+  rows.forEach(([r, at]) => { h += '<div class="row">' + (t >= at ? '<span class="ok">✓</span>' : '<span class="wait"></span>') + r + "</div>"; });
+  return h + "</div>" + (t >= 16.6 ? '<div class="banner">Installed. Next: prepare your project.</div>' : "");
+}
+function prepare(t) {
+  let h = '<h3>Prepare your project</h3><p class="hint">These steps used to need a terminal. Do them here, in order.</p>';
+  h += '<div class="card"><h4>1. Your name</h4><div class="lbl">Your name (lowercase, for example ana)</div><div style="display:flex;gap:10px;align-items:center">' +
+    '<div class="field ' + (t < 17.9 ? "focus" : "") + '" style="width:260px">' + typed("ana", t, 17.3, 8) + '</div><span class="btn sec ' + (t >= 17.75 && t < 17.95 ? "press" : "") + '">Save name</span>' +
+    (t >= 17.95 ? '<span class="saved">✓ Saved: ana</span>' : "") + "</div></div>";
+  h += '<div class="card"><h4>2. Event schedule</h4><div class="hint" style="margin-bottom:8px">The kit stops new work before the deadline (the freeze).</div><div style="display:flex;gap:12px;align-items:flex-end">';
+  [["Start", "Nov 14 · 09:00", 18.3], ["End", "Nov 15 · 09:00", 18.9], ["Time zone", "America/Mexico_City", 19.4]].forEach(([l, v, at]) => {
+    h += '<div><div class="lbl">' + l + '</div><div class="field" style="width:' + (l === "Time zone" ? 210 : 160) + 'px">' + typed(v, t, at, 30) + "</div></div>";
+  });
+  h += '<span class="btn sec ' + (t >= 20.0 && t < 20.2 ? "press" : "") + '">Save schedule</span></div>' +
+    (t >= 20.2 ? '<div class="saved" style="margin-top:10px">✓ Saved. Freeze at 08:00 on Nov 15.</div>' : "") + "</div>";
+  return h;
+}
+const IDEA = "A cafeteria queue board for our hackathon: students take a number, staff call the next one, and a screen shows who is next.";
+function plan(t) {
+  let h = '<h3>Plan your project</h3>';
+  const compact = t >= 24.3;
+  h += '<div class="lbl" style="margin-top:8px">Your idea</div><div class="field ' + (t < 23.6 ? "focus" : "") + '" style="height:' + (compact ? 38 : 64) +
+    'px;align-items:flex-start;padding-top:9px;font:15px/1.45 var(--sans);white-space:' + (compact ? "nowrap;text-overflow:ellipsis" : "normal") + ';overflow:hidden">' + typed(IDEA, t, 21.3, 60) + "</div>";
+  if (!compact) {
+    h += '<div style="margin-top:12px;display:flex;gap:12px;align-items:center"><span class="btn ' + (t >= 23.5 && t < 23.75 ? "press" : "") + '">Draft the plan with Claude Code</span>' +
+      (t >= 23.7 ? '<span class="saved">Claude Code is drafting tasks' + ".".repeat(1 + Math.floor((t - 23.7) * 6) % 3) + "</span>" : "") + "</div>";
+    return h;
+  }
+  h += '<div style="display:flex;align-items:baseline;gap:10px;margin:14px 0 8px"><h4 style="font:700 17px var(--sans)">Proposed plan</h4><span class="hint" style="margin:0">6 tasks · each names its tests</span></div><div class="grid3">';
+  TASKS.forEach(([id, ti, ts], i) => {
+    const o = p(t, 24.4 + i * 0.25, 24.7 + i * 0.25);
+    h += '<div class="task" style="opacity:' + o + '"><div class="id">' + id + '</div><div class="t">' + ti + '</div><div class="ts">test · ' + ts + "</div></div>";
+  });
+  h += "</div>";
+  if (t >= 26.4 && t < 27.6) h += '<div style="margin-top:12px"><span class="btn ' + (t >= 27.2 ? "press" : "") + '">Approve and publish</span></div>';
+  if (t >= 27.6 && t < 30.4) {
+    h += '<div class="card" style="margin-top:12px;border-color:#b8d6c1"><div class="lbl">Type the project folder name to confirm: <b style="color:var(--s-ink)">cafeteria-queue</b></div>' +
+      '<div style="display:flex;gap:10px;align-items:center"><div class="field focus" style="width:300px">' + typed("cafeteria-queue", t, 27.9, 16) + "</div>" +
+      '<span class="btn ' + (t < 28.9 ? "off" : "") + (t >= 29.8 ? " press" : "") + '">Publish the plan</span>' +
+      '<span class="hint" style="margin:0">Only a person can approve.</span></div></div>';
+  }
+  if (t >= 30.4) h += '<div class="banner" style="margin-top:12px">✓ Published. Backlog-Approved: yes · 6 tasks ready for your agents.</div>';
+  return h;
+}
+function team(t) {
+  let h = '<h3>Start your team</h3><p class="hint">Two identities, one Claude Code login: one writes the code, the other reviews it.</p>';
+  h += '<div class="grid3" style="grid-template-columns:1fr 1.25fr 1.25fr">';
+  h += '<div class="card" style="opacity:' + p(t, 33.4, 33.8) + '"><h4>1. Register the reviewer</h4><div class="field" style="width:100%">ana-r</div>' +
+    (t >= 34.2 ? '<div class="saved" style="margin-top:10px">✓ Registered</div>' : "") + "</div>";
+  h += '<div class="card" style="opacity:' + p(t, 34.4, 34.8) + '"><h4>2. Claude Code implements</h4><div class="hint" style="margin:0">In a terminal, in the project folder:</div>' +
+    '<div class="mini"><span class="p">$</span> ' + typed("claude", t, 34.9, 14) + (t >= 35.6 ? '\n<span class="g">claude-ana</span> <span class="c">· claims the next task</span>' : "") + "</div></div>";
+  h += '<div class="card" style="opacity:' + p(t, 35.8, 36.2) + '"><h4>3. A second identity reviews</h4><div class="hint" style="margin:0">A second terminal:</div>' +
+    '<div class="mini"><span class="p">$</span> ' + typed("UAK_AGENT=ana-r claude", t, 36.3, 22) + (t >= 37.5 ? '\n<span class="p">&gt;</span> /uak-review' : "") + "</div></div></div>";
+  if (t >= 38.0) h += '<div class="banner" style="margin-top:6px;opacity:' + p(t, 38.0, 38.4) + '">One subscription is enough: both identities share the same Claude Code login.</div>';
+  return h;
+}
+function setup(t) {
+  let main;
+  if (t < 17) main = install(t);
+  else if (t < 21) main = prepare(t);
+  else if (t < 33) main = plan(t);
+  else main = team(t);
+  return '<div class="win light" style="left:80px;top:64px;width:1120px;height:560px">' + bar("", "🔒 127.0.0.1:8765 · UPIIXIA Agentic Kit · Setup", true) +
+    '<div class="setup">' + sidebar(t) + '<div class="main">' + main + "</div></div></div>";
+}
+
+// ---- Scene 5: agents and the board ------------------------------------------------------------------------------
+// Each task: [in progress, in review, integrated] times.
+const FLOW = { "CAF-001": [41.0, 45.5, 49.5], "CAF-002": [46.5, 51.0, 53.0], "CAF-003": [51.5, 54.5, 56.0],
+  "CAF-004": [54.8, 56.8, 58.0], "CAF-005": [57.0, 58.6, 59.6], "CAF-006": [58.8, 60.4, 62.6] };
+const ANA = [
+  [40.3, '<span class="p">$</span> uak next'], [40.8, '<span class="c">→ CAF-001 Queue model and API · P0</span>'],
+  [41.0, '<span class="g">OK claim CAF-001 | CLAIMED</span>'], [41.6, '<span class="c">  writing tests/test_queue.py first</span>'],
+  [42.4, '<span class="p">$</span> uak red CAF-001'], [43.0, '<span class="r">RED_OK  3 failed (assertions): the test leads</span>'],
+  [43.8, '<span class="c">  implementing queue.py · verify loop 1/3</span>'], [44.6, '<span class="g">PASS  3 passed in 0.4 s</span>'],
+  [45.2, '<span class="p">$</span> uak done CAF-001 --pr #1'], [45.5, '<span class="b">DONE CAF-001 → review by ana-r</span>'],
+  [46.2, '<span class="p">$</span> uak next'], [46.5, '<span class="g">OK claim CAF-002 | CLAIMED</span>'],
+  [47.4, '<span class="r">RED_OK  1 failed: student_gets_a_ticket</span>'], [48.8, '<span class="g">PASS  1 passed</span>'],
+  [51.0, '<span class="b">DONE CAF-002 → review</span>'], [51.5, '<span class="g">OK claim CAF-003</span>'],
+  [53.2, '<span class="r">RED</span> <span class="c">→</span> <span class="g">PASS</span> <span class="c">staff_calls_the_next_ticket</span>'],
+  [54.5, '<span class="b">DONE CAF-003 → review</span>'], [54.8, '<span class="g">OK claim CAF-004</span>'],
+  [56.8, '<span class="b">DONE CAF-004 → review</span>'], [57.0, '<span class="g">OK claim CAF-005</span>'],
+  [58.6, '<span class="b">DONE CAF-005 → review</span>'], [58.8, '<span class="g">OK claim CAF-006 · Deploy to Render</span>'],
+  [60.4, '<span class="b">DONE CAF-006 → review</span>'], [61.0, '<span class="c">  nothing left to claim · 6 of 6 done</span>'],
+];
+const REV = [
+  [40.3, '<span class="p">$</span> uak next --review'], [40.6, '<span class="c">waiting for work to review…</span>'],
+  [45.8, '<span class="p">&gt;</span> /uak-review CAF-001'], [46.6, '<span class="c">  reading the diff · running the tests</span>'],
+  [47.6, '<span class="g">APPROVE  the tests cover the queue order</span>'], [48.4, '<span class="p">$</span> uak merge CAF-001'],
+  [49.2, '<span class="c">  smoke: green on the merged result</span>'], [49.5, '<span class="g">INTEGRATED CAF-001 → main</span>'],
+  [51.4, '<span class="p">&gt;</span> /uak-review CAF-002'], [52.4, '<span class="g">APPROVE</span>'], [53.0, '<span class="g">INTEGRATED CAF-002</span>'],
+  [54.8, '<span class="p">&gt;</span> /uak-review CAF-003'], [56.0, '<span class="g">INTEGRATED CAF-003</span>'],
+  [57.0, '<span class="p">&gt;</span> /uak-review CAF-004'], [58.0, '<span class="g">INTEGRATED CAF-004</span>'],
+  [59.0, '<span class="p">&gt;</span> /uak-review CAF-005'], [59.6, '<span class="g">INTEGRATED CAF-005</span>'],
+  [60.6, '<span class="p">&gt;</span> /uak-review CAF-006'], [61.6, '<span class="g">APPROVE  the health check is green</span>'],
+  [62.0, '<span class="p">$</span> uak merge CAF-006'], [62.6, '<span class="g">INTEGRATED CAF-006 · last task</span>'],
+  [63.4, '<span class="p">$</span> uak deploy'], [64.0, '<span class="c">  Render Blueprint · build · health check</span>'],
+  [64.9, '<span class="g">LIVE  https://cafeteria-queue.onrender.com</span>'],
+];
+function lines(list, t, max) {
+  const shown = list.filter(([at]) => t >= at).map(([, s]) => s);
+  return shown.slice(-max).join("\n");
+}
+function state(id, t) {
+  const f = FLOW[id];
+  return t >= f[2] ? 3 : t >= f[1] ? 2 : t >= f[0] ? 1 : 0;
+}
+function board(t) {
+  const cols = [["Available", "#6e7681"], ["In progress", "#d29922"], ["In review", "#58a6ff"], ["Integrated", "#3fb950"]];
+  const by = [[], [], [], []];
+  TASKS.forEach(([id, ti]) => by[state(id, t)].push([id, ti]));
+  const n = by[3].length, pct = Math.round((n / 6) * 100);
+  let h = '<div class="dash"><div class="prog"><span class="pct">' + pct + '%</span><span class="lab"><b style="color:var(--ink)">' + n +
+    ' of 6 tasks integrated.</b></span></div><div class="seg">';
+  [3, 2, 1].forEach((k) => { if (by[k].length) h += '<div style="width:' + (by[k].length / 6 * 100) + '%;background:' + cols[k][1] + '"></div>'; });
+  h += '</div><div class="cols">';
+  cols.forEach(([name, color], k) => {
+    h += '<div><div class="colh"><span class="sq" style="background:' + color + '"></span>' + name + '<span class="k">' + by[k].length + "</span></div>";
+    by[k].forEach(([id, ti]) => {
+      const who = k === 0 ? "free to claim" : k === 2 ? "ana-r reviews" : k === 3 ? "merged" : "claude-ana";
+      const f = FLOW[id], last = k > 0 ? f[k - 1] : -9;
+      if (k === 3) { h += '<div class="kc' + (t - last < 0.8 ? " flash" : "") + '" style="padding:6px 10px"><div class="id" style="color:' + color + '">' + id + ' ✓</div><div class="t" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + ti + "</div></div>"; return; }
+      h += '<div class="kc' + (t - last < 0.8 ? " flash" : "") + '"><div class="id" style="color:' + color + '">' + id + '</div><div class="t">' + ti + '</div><div class="who">' + who + "</div></div>";
+    });
+    h += "</div>";
+  });
+  return h + "</div></div>";
+}
+function work(t) {
+  const ff = t >= 50 && t < 60.5 ? '<div class="chip" style="right:28px;top:14px;padding:6px 12px;font-size:14px;color:var(--amber)">⏩ fast-forward</div>' : "";
+  return '<div class="win" style="left:24px;top:64px;width:600px;height:268px">' + bar("claude-ana · Claude Code (implements)") +
+    '<div class="term" style="font-size:14px;line-height:1.5;padding:10px 14px">' + lines(ANA, t, 9) + "</div></div>" +
+    '<div class="win" style="left:24px;top:346px;width:600px;height:268px">' + bar("ana-r · Claude Code (reviews)") +
+    '<div class="term" style="font-size:14px;line-height:1.5;padding:10px 14px">' + lines(REV, t, 9) + "</div></div>" +
+    '<div class="win" style="left:640px;top:64px;width:616px;height:550px">' + bar("", "cafeteria-queue · uak dash · <span style=\"color:#3fb950\">● Live</span>") + board(t) + "</div>" + ff;
+}
+
+// ---- Scene 6: the product -----------------------------------------------------------------------------------------
+function product(t) {
+  const flip = t >= 70.0;
+  const now = flip ? "A-043" : "A-042";
+  const queue = flip ? [["A-044", "Luis"], ["A-045", "Marta"], ["A-046", "Iker"]] : [["A-043", "Sofía"], ["A-044", "Luis"], ["A-045", "Marta"]];
+  let h = '<div class="win" style="left:80px;top:64px;width:1120px;height:560px;border-color:#3a2f24">' +
+    bar("", '🔒 https://cafeteria-queue.onrender.com <span class="live" style="margin-left:auto">● Deployed · live</span>') + '<div class="prod">' +
+    '<div style="display:flex;align-items:flex-end;justify-content:space-between"><div><h1>☕ Cafeteria Queue</h1><div class="sub">UPIIXIA Hackathon · main cafeteria</div></div>' +
+    '<span class="take' + (t >= 69.4 && t < 69.7 ? '" style="transform:scale(.96)' : "") + '">Take a number</span></div>' +
+    '<div style="display:grid;grid-template-columns:1.3fr 1fr;gap:24px;margin-top:22px">' +
+    '<div class="serve"><div class="k">Now serving</div><div class="num" style="opacity:' + (flip ? p(t, 70.0, 70.4) : 1) + '">' + now +
+    '</div><div style="font:500 18px var(--sans);color:#d9c3a5">Counter 2 · average wait 4 min</div></div><div>' +
+    '<div class="k" style="font:700 14px var(--sans);letter-spacing:.12em;color:#9a7b60;margin-bottom:10px">NEXT UP</div>';
+  queue.forEach(([n, who]) => { h += '<div class="q">' + n + "<span>" + who + "</span></div>"; });
+  h += '<div style="font:15px var(--sans);color:#7a6553;margin-top:6px">' + (flip ? 11 : 12) + " people in line · updates live</div></div></div>" +
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:22px">' +
+    [["Served today", flip ? "42" : "41"], ["Average wait", "4 min"], ["Counters open", "2"]].map(([k, v]) => '<div class="q" style="flex-direction:column;gap:4px;margin:0"><span style="font:600 13px var(--sans);letter-spacing:.08em;text-transform:uppercase">' + k + '</span><b style="font:800 30px var(--sans)">' + v + "</b></div>").join("") + "</div></div></div>";
+  h += '<div class="chip" style="left:96px;top:584px;opacity:' + p(t, 67.2, 67.6) + '"><span style="color:var(--green)">✓</span> Last task CAF-006: INTEGRATED · 6 of 6</div>';
+  return h;
+}
+function endcard(t) {
+  return '<div class="center" style="background:rgba(7,9,12,.95)"><div class="pill" style="margin-bottom:22px"><span class="dot"></span>DEMONSTRATION · SIMULATED SCREENS</div>' +
+    '<div class="big" style="font-size:60px">From zero to deployed.</div>' +
+    '<div class="lead" style="font:500 22px var(--mono);margin-top:24px;color:var(--mint)">bash ~/.uak-kit/install.sh --wizard .</div>' +
+    '<div class="lead2">github.com/JoahanMorales/upiixia-agentic-kit</div></div>';
+}
+
+function frame(t) {
+  let h = "";
+  h += wrap(vis(t, -1, 4.5), title(t));
+  h += wrap(vis(t, 4.5, 14.6), terminal(t));
+  h += wrap(vis(t, 14.5, 40.1), setup(t));
+  h += wrap(vis(t, 40.0, 66.6), work(t));
+  h += wrap(vis(t, 66.5, 99), product(t));
+  if (t >= 72.0) h += wrap(p(t, 72.0, 72.5), endcard(t), 6);
+  if (t >= 4.5) {
+    let step = STEPS[0][1];
+    STEPS.forEach(([at, s]) => { if (t >= at) step = s; });
+    h += '<div class="top"><span class="pill"><span class="dot"></span>DEMONSTRATION</span><span class="step"><b>' + step + "</b></span></div>";
+  }
+  return h;
+}
+window.DURATION = 74;
+window.seek = (t) => { document.getElementById("stage").innerHTML = frame(t); };
+window.seek(Number(new URLSearchParams(location.search).get("t") || 0));
+</script>
+</body>
+</html>
