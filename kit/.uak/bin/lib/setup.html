@@ -2282,18 +2282,24 @@
         // else's computer they are not the person's: say so before anything is published under that name.
         // UI-012: each account is checked on its own (r4: "ana" matched the Git name and hid that the pull requests
         // opened as someone else), and names match without case or accents (José = jose, Ana García = anagarcia).
+        // Words also break where camelCase or digits start (AnaLopez, ana_garcia92 → ana lopez, ana garcia 92).
         function plainWords(text) {
           return String(text || "")
             .normalize("NFD")
             .replace(new RegExp("\\p{M}", "gu"), "")
+            .replace(new RegExp("(\\p{Ll})(\\p{Lu})", "gu"), "$1 $2")
+            .replace(new RegExp("(\\p{Lu})(\\p{Lu}\\p{Ll})", "gu"), "$1 $2")
+            .replace(new RegExp("(\\p{L})(\\p{N})", "gu"), "$1 $2")
+            .replace(new RegExp("(\\p{N})(\\p{L})", "gu"), "$1 $2")
             .toLowerCase()
             .split(new RegExp("[^\\p{L}\\p{N}]+", "u"))
             .filter(Boolean);
         }
-        // True when the account carries the person's WHOLE name: a run of its words that joins into the name ("Ana
-        // García", "ana-garcia" and "anagarcia" all carry ana-garcia), optionally followed by digits (ana92). One shared
-        // word or a fragment is not enough (review of 4af5789: "mariana" vs Ana Lopez, "maria-garcia" vs Juan Garcia,
-        // "ana" vs banana).
+        // True when an account word STARTS with the person's whole name, letters or digits after it allowed: dylan
+        // = DylanMCDS, ana = analopez, luis = luisg, and a name of several words may run across the account's words
+        // (ana-garcia = "Ana García", anagarcia, ana_garcia92). The name inside a word (ana in mariana, banana) or one
+        // shared word of a longer name (maria-garcia vs Juan Garcia, mariana vs Ana Lopez) is not enough (reviews of
+        // 4af5789 and 3bc4018: a whole-word-only match warned on people's own accounts).
         function sameName(words, human) {
           var me = plainWords(human).join("");
           if (!me) return false;
@@ -2301,8 +2307,8 @@
             var w = "";
             for (var j = i; j < words.length; j++) {
               w += words[j];
-              if (w === me || (w.indexOf(me) === 0 && /^[0-9]+$/.test(w.slice(me.length)))) return true;
-              if (me.indexOf(w) !== 0) break;
+              if (w.indexOf(me) === 0) return true; // the name, then anything: DylanMCDS, ana_garcia92
+              if (me.indexOf(w) !== 0) break; // whole words of the name so far ("ana" of ana-garcia), or not this run
             }
           }
           return false;
