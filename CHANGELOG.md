@@ -9,6 +9,12 @@ Guide: [docs/DASHBOARD.md](docs/DASHBOARD.md).
 - **Light CI on pull requests (UAK-090).** Pull requests run the Ubuntu suite and the Windows per-file job; main and
   workflow_dispatch keep macOS. Approved PRs #19-#21 waited hours for macOS arm64 runners GitHub could not provide.
 
+- **The setup page says what it is doing (UI-018).** Every request shows a busy label and spinner inside its button and a
+  result line next to it ("Checked at 21:04 · nothing changed · 2 things to do"); a blocked button shows not-allowed
+  and its reason instead of the wait cursor, and a click on it opens a dismissible notice with **Go there**; the page
+  points to its own control (Publish, your name, the schedule, the plan) for the gate's next step; polling no longer
+  hides Preferences or Repair, and the app-link row lays out cleanly at 390 px. Evidence: Dylan's real run.
+
 The visual setup
 - **`bash install.sh --wizard [PROJECT] [--no-open]`** (UI-001): a page on 127.0.0.1 (random port, session token in
   the URL fragment, Host/Origin/token checks, a JSON body limit) walks five steps: Welcome, Your project, Your workflow

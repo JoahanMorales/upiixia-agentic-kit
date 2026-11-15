@@ -94,6 +94,20 @@ Planning waits until the kit is on `main` (the plan's checks read it from there)
 reason that is not a plan problem (no `main` yet, Git, network), the page says so; **Check the plan again** reruns
 the checks on the current files without running your coding tool again.
 
+## What the page tells you
+
+Every button that sends a request shows it inside the button while it runs ("Checking…", "Publishing…", with a small
+spinner and the wait cursor), then a short line right next to it says how it ended: "Done at 21:04." or the error.
+**Check what's next** always reports what it found, even when nothing changed: "Checked at 21:04 · nothing changed ·
+2 things to do". When the gate's next step is something this page does (publishing the kit, saving your name or the
+schedule, the plan), the page scrolls to that control, focuses it and highlights it.
+
+A button that waits for an earlier step is not busy: it shows the not-allowed cursor and says why next to it (for
+example, Create the plan: "Publish the kit to main first (step 3)."). Clicking it anyway opens a small notice on the
+right (full width at the bottom on a phone) with what to do next and **Go there**; it closes with × or Escape and
+hides by itself, but not while the pointer or the keyboard focus is on it. Polling never hides or rebuilds sections, so
+the page does not jump while a check runs. Everything follows the page's language and the reduced-motion setting.
+
 ## Beginner and Advanced
 
 A choice of presentation, kept in your browser only. It never changes permissions, the mode or any gate.
