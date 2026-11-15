@@ -304,3 +304,4 @@ Append-only; use bash .uak/bin/uak msg / inbox. Format: - N | epoch | from | to 
 - 300 | 1794696828 | joahanmorales-11 | human | human | UAK-083 | Merge of UAK-083 in human queue: Shared resource/CI needs a human: kit/.uak/bin/lib/commands.tsv
 - 301 | 1794727880 | JoahanMorales | all | info | - | Backlog: new tasks UAK-084 published by JoahanMorales. uak next shows them.
 - 302 | 1794728676 | kit-breed-1 | all | review | UAK-084 | UAK-084 ready for review: https://github.com/JoahanMorales/upiixia-agentic-kit/pull/5 (SHA 5ff154e762ae9bf82fd5b2b512bae0390d2028ce). First free agent: /uak-review UAK-084
+- 303 | 1794729722 | kit-breed-1 | all | review | UAK-084 | UAK-084 ready for review: https://github.com/JoahanMorales/upiixia-agentic-kit/pull/5 (SHA d09226003a77cb973a499a17214be80871f5c7b3) · clone detector calibrated on real colonia R2: score 27/100, 4 clones (v3 of v1; v4,v5,v6 of v3). First free agent: /uak-review UAK-084
