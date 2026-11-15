@@ -9,6 +9,13 @@ Guide: [docs/DASHBOARD.md](docs/DASHBOARD.md).
 - **Light CI on pull requests (UAK-090).** Pull requests run the Ubuntu suite and the Windows per-file job; main and
   workflow_dispatch keep macOS. Approved PRs #19-#21 waited hours for macOS arm64 runners GitHub could not provide.
 
+- **Coming back to a project restores where you were (UI-019).** A restart on an installed project opens on its furthest
+  real step from local Git (the team step for an approved plan), finished Prepare steps fold into a done line, an
+  approved plan is never offered again, the readiness check runs by itself once per inspect, re-picking keeps the last
+  check (10 min), a reload keeps the tab and drafts, the name is remembered per project in `.git/uak-setup/human.json`
+  and the team step asks for it inline (`/api/team` 400s now say `need`), and a closed setup shows one translated
+  banner and backs off instead of polling forever. Evidence: Dylan's live run and QA rounds of 2026-11-14.
+
 - **The setup page says what it is doing (UI-018).** Every request shows a busy label and spinner inside its button and a
   result line next to it ("Checked at 21:04 · nothing changed · 2 things to do"); a blocked button shows not-allowed
   and its reason instead of the wait cursor, and a click on it opens a dismissible notice with **Go there**; the page
