@@ -1069,7 +1069,7 @@ QA_JS = r"""async () => {
     hw = (Math.min(r.right, W) - Math.max(r.left, 0)) * 0.2, hh = (Math.min(r.bottom, FH) - Math.max(r.top, 0)) * 0.2;
     focal = {left: cx - hw, right: cx + hw, top: cy - hh, bottom: cy + hh}; }
   const overlap = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
-  let texts = 0, words = 0, overStage = 0, overFocal = 0;
+  let texts = 0, words = 0, overStage = 0, overFocal = 0; const textRects = [];
   for (let i = 0; i < all.length && i < 4000; i++) {
     const el = all[i];
     if (/^(SCRIPT|STYLE|NOSCRIPT|META|LINK|HEAD|TITLE|SOURCE|OPTION)$/i.test(el.tagName)) continue;
@@ -1081,7 +1081,7 @@ QA_JS = r"""async () => {
     if (!w) continue;
     const g = document.createRange(); g.selectNodeContents(el); const r = g.getBoundingClientRect();
     if (!vis(el, r) || !inFold(r)) continue;
-    texts++; words += w;
+    texts++; words += w; if (textRects.length < 80) textRects.push([Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)]);
     const area = Math.max(1, r.width * r.height);
     if (stage && overlap(r, stage.r) > area * 0.2) overStage++;
     if (focal && overlap(r, focal) > 0) overFocal++;
@@ -1109,7 +1109,40 @@ QA_JS = r"""async () => {
   const sig = head ? {head: norm(head), stage: stage ? norm(stage.r) : null, focal: stage ? [Math.round((norm(stage.r)[0] + norm(stage.r)[2]) * 50) / 100, Math.round((norm(stage.r)[1] + norm(stage.r)[3]) * 50) / 100] : [Math.round((norm(head)[0] + norm(head)[2]) * 50) / 100, Math.round((norm(head)[1] + norm(head)[3]) * 50) / 100],
     lum: Math.round(lumOf(ground) * 100) / 100, hue: hk === undefined ? null : +hk} : null;
   const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
-  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), distorted: distorted.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap, texts: texts, words: words, stage: !!stage, overStage: overStage, overFocal: overFocal, sig: sig};
+  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), distorted: distorted.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap, texts: texts, words: words, stage: !!stage, overStage: overStage, overFocal: overFocal, sig: sig, textRects: textRects};
+}"""
+
+
+# UAK-084: where the visual mass of the 1920 screenshot is (a full-bleed canvas says nothing about it): in the page, no dependency.
+# The ground is the mode of the border cells of a 64x36 grid; a cell is mass when it differs from the ground by more than 12 % of
+# luminance, or by more than 30 degrees of hue at saturation above .2; cells under a text block are not mass. Returns the
+# centroid and the 5-95 % box of the mass, normalized, and its share of the free cells.
+MASS_JS = r"""async (a) => {
+  const bin = atob(a.png), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const img = await createImageBitmap(new Blob([bytes], {type: 'image/png'}));
+  const GW = 64, GH = 36, cv = document.createElement('canvas'); cv.width = GW; cv.height = GH;
+  const cx = cv.getContext('2d'); cx.imageSmoothingQuality = 'high'; cx.drawImage(img, 0, 0, GW, GH);
+  const d = cx.getImageData(0, 0, GW, GH).data;
+  const cell = (i) => { const r = d[4 * i] / 255, g = d[4 * i + 1] / 255, b = d[4 * i + 2] / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), df = mx - mn;
+    const l = 0.2126 * r + 0.7152 * g + 0.0722 * b, s = mx ? df / mx : 0;
+    let h = 0; if (df) h = mx === r ? ((g - b) / df % 6) * 60 : mx === g ? ((b - r) / df + 2) * 60 : ((r - g) / df + 4) * 60;
+    return {l: l, s: s, h: (h + 360) % 360, k: (d[4 * i] >> 4) + ',' + (d[4 * i + 1] >> 4) + ',' + (d[4 * i + 2] >> 4)}; };
+  const cells = []; for (let i = 0; i < GW * GH; i++) cells.push(cell(i));
+  const count = {}; let best = null;
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) { if (x && y && x < GW - 1 && y < GH - 1) continue;
+    const c = cells[y * GW + x]; count[c.k] = (count[c.k] || 0) + 1; if (!best || count[c.k] > count[best.k]) best = c; }
+  const sx = GW / a.w, sy = GH / a.h;
+  const masked = (x, y) => a.rects.some(r => x + 0.5 >= r[0] * sx && x + 0.5 <= r[2] * sx && y + 0.5 >= r[1] * sy && y + 0.5 <= r[3] * sy);
+  const xs = [], ys = []; let free = 0;
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    if (masked(x, y)) continue; free++;
+    const c = cells[y * GW + x], dh = Math.min(Math.abs(c.h - best.h), 360 - Math.abs(c.h - best.h));
+    if (Math.abs(c.l - best.l) > 0.12 || (c.s > 0.2 && (best.s <= 0.2 || dh > 30))) { xs.push((x + 0.5) / GW); ys.push((y + 0.5) / GH); } }
+  if (!free || xs.length < 0.02 * free) return {mass: null};
+  const q = (v, p) => { v = v.slice().sort((m, n) => m - n); return v[Math.min(v.length - 1, Math.floor(p * v.length))]; };
+  const mean = (v) => v.reduce((m, n) => m + n, 0) / v.length, r2 = (n) => Math.round(n * 100) / 100;
+  return {mass: {centroid: [r2(mean(xs)), r2(mean(ys))], box: [r2(q(xs, 0.05)), r2(q(ys, 0.05)), r2(q(xs, 0.95)), r2(q(ys, 0.95))], share: r2(xs.length / free)}};
 }"""
 
 _PLAYWRIGHT = """
@@ -1119,6 +1152,7 @@ from urllib.parse import quote
 from playwright.sync_api import sync_playwright
 MEDIA = @MEDIA@
 QA = @QA@
+MASS = @MASS@
 html, out = Path(sys.argv[1]).resolve(), Path(sys.argv[2])
 # Served over http: canvas pixel reads and fetches fail on file://. The root is the round folder (../brief.md, assets/).
 class Quiet(http.server.SimpleHTTPRequestHandler):
@@ -1171,7 +1205,14 @@ with sync_playwright() as p:
         pg.wait_for_timeout(3200)  # animations are mid-cycle, fonts and media settled
         pg.evaluate(MEDIA)
         qa = pg.evaluate(QA) or {}
+        rects = qa.pop("textRects", [])
         pg.screenshot(path=str(out / (name + ".png")))
+        if name == "1920" and qa.get("sig"):
+            try:
+                import base64
+                qa["sig"].update(pg.evaluate(MASS, {"png": base64.b64encode((out / "1920.png").read_bytes()).decode("ascii"), "rects": rects, "w": 1920, "h": 1080}) or {})
+            except Exception as exc:
+                print("QA mass not measured: " + str(exc)[:120])
         pg.evaluate(MEDIA)
         pg.screenshot(path=str(out / (name + "-full.png")), full_page=True)
         qa["errors"], qa["first"] = len(errs), (errs[0][:160] if errs else "")
@@ -1181,7 +1222,7 @@ with sync_playwright() as p:
     b.close()
 srv.shutdown()
 (out / "qa.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-""".replace("@MEDIA@", json.dumps(MEDIA_JS)).replace("@QA@", json.dumps(QA_JS))
+""".replace("@MEDIA@", json.dumps(MEDIA_JS)).replace("@QA@", json.dumps(QA_JS)).replace("@MASS@", json.dumps(MASS_JS))
 
 
 NARROW_UNDER = 75  # percent of the viewport the content must span at 1920 and 1440 (the projector and the laptop)

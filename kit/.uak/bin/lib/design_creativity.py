@@ -33,8 +33,11 @@ MOTIFS = {
 PRAISE = re.compile(r"\b(linda|lindo|bonit[ao]|creativ[ao]|identidad|me encanta|hermos[ao]|genial|excelente|love|beautiful|great)\b", re.I)
 PRAISE_LAYOUT = re.compile(r"(layout|composici[oó]n|acomodaci[oó]n|distribuci[oó]n|estructura|orden)", re.I)
 TOO_MANY = re.compile(r"(demasiad|muchos objetos|muchas cosas|too many|saturad|sobrecarg)", re.I)
-CLONE_UNDER = 0.12  # signature distance below which two siblings count as the same hero
-SCALE = 0.4         # a mean pairwise distance of this scores 100
+# Calibrated on the real colonIA R2 (2026-11-14), six heroes the human called "todos son iguales" (headline left, visual right):
+# their pairwise distances run 0.07-0.20 (mean 0.12, score 27) and four of the six sit under CLONE_UNDER; a poster hero or a
+# bottom-band hero sits 0.19-0.32 from them. Color is the palette's job: it is not part of the distance.
+CLONE_UNDER = 0.14  # signature distance below which two siblings count as the same hero
+SCALE = 0.45        # a mean pairwise distance of this scores 100
 
 
 def clamp(v):
@@ -143,21 +146,34 @@ def read_motif(html_path):
     return " ".join(m.group(1).split())[:300] if m else None
 
 
-def _rect(a, b):
-    if not a and not b:
-        return 0.0
-    if not a or not b:
-        return 1.0
-    return sum(abs(x - y) for x, y in zip(a, b)) / 4.0
+def _mass(sig):
+    """The visual mass {centroid, box} the capture measured in the screenshot; a signature without it (no browser pixels) falls
+    back to the stage rect and its focal point."""
+    m = sig.get("mass")
+    if isinstance(m, dict) and m.get("centroid") and m.get("box"):
+        return m
+    if sig.get("stage"):
+        return {"centroid": sig.get("focal") or [0.5, 0.5], "box": sig["stage"]}
+    return None
+
+
+def _head(sig):
+    h = sig["head"]
+    return ((h[0] + h[2]) / 2.0, (h[1] + h[3]) / 2.0, h[2] - h[0], h[3] - h[1])
 
 
 def distance(a, b):
-    """0 (the same hero) to ~1. a, b: signatures {head, stage, focal, lum, hue} normalized to the fold."""
-    focal = 0.0 if not (a.get("focal") and b.get("focal")) else min(1.0, math.hypot(a["focal"][0] - b["focal"][0], a["focal"][1] - b["focal"][1]))
-    ha, hb = a.get("hue"), b.get("hue")
-    hue = 0.0 if ha is None and hb is None else 0.5 if ha is None or hb is None else min(abs(ha - hb), 360 - abs(ha - hb)) / 180.0
-    lum = abs((a.get("lum") or 0) - (b.get("lum") or 0))
-    return 0.35 * _rect(a.get("head"), b.get("head")) + 0.3 * _rect(a.get("stage"), b.get("stage")) + 0.15 * focal + 0.1 * lum + 0.1 * hue
+    """0 (the same hero) to ~1: the headline's center and size (0.4) plus where the visual mass sits (centroid 0.35, box 0.25).
+    Needs {"head": [l, t, r, b], "mass": {"centroid", "box"}} normalized to the fold."""
+    (ax, ay, aw, ah), (bx, by, bw, bh) = _head(a), _head(b)
+    head = 0.3 * math.hypot(ax - bx, ay - by) + 0.1 * (abs(aw - bw) + abs(ah - bh)) / 2.0
+    ma, mb = _mass(a), _mass(b)
+    if ma and mb:
+        mass = 0.35 * math.hypot(ma["centroid"][0] - mb["centroid"][0], ma["centroid"][1] - mb["centroid"][1]) \
+            + 0.25 * sum(abs(x - y) for x, y in zip(ma["box"], mb["box"])) / 4.0
+    else:
+        mass = 0.0 if not (ma or mb) else 0.3
+    return head + mass
 
 
 def signatures(rnd):
@@ -178,16 +194,25 @@ def _fmt(r):
     return "[" + ",".join("%.2f" % x for x in r) + "]" if r else "none"
 
 
-def analyze(rnd):
-    """(score 0-100 or None, [(variant, clone warning)]). The score is the mean pairwise distance scaled so SCALE is 100."""
-    sigs = signatures(rnd)
-    if len(sigs) < 2:
-        return None, []
+def analyze_sigs(sigs):
+    """(score 0-100 or None, [(variant, clone warning)]). A variant is a clone of the nearest EARLIER sibling closer than
+    CLONE_UNDER; the score is the mean pairwise distance scaled so SCALE is 100."""
     names = list(sigs)
+    if len(names) < 2:
+        return None, []
     dists, warns = [], []
-    for (i, a), (j, b) in itertools.combinations(enumerate(names), 2):
-        d = distance(sigs[a], sigs[b])
-        dists.append(d)
-        if d < CLONE_UNDER:
-            warns.append((b, "clone of %s: same hero composition (headline %s, stage %s)" % (a, _fmt(sigs[b].get("head")), _fmt(sigs[b].get("stage")))))
+    for j, b in enumerate(names):
+        near = None
+        for a in names[:j]:
+            d = distance(sigs[a], sigs[b])
+            dists.append(d)
+            if d < CLONE_UNDER and (near is None or d < near[0]):
+                near = (d, a)
+        if near:
+            mb = _mass(sigs[b])
+            warns.append((b, "clone of %s: same hero composition (headline %s, visual mass %s)" % (near[1], _fmt(sigs[b].get("head")), _fmt(mb["box"]) if mb else "none")))
     return min(100, int(round(100.0 * (sum(dists) / len(dists)) / SCALE))), warns
+
+
+def analyze(rnd):
+    return analyze_sigs(signatures(rnd))
