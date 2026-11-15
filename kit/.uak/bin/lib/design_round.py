@@ -636,6 +636,9 @@ def task_text(rnd, i, genome, screen):
         lines += ["- palette: **%s** (roles and exact hex below; they replace the color gene's colors)" % genome["palette"]["name"]]
     elif genome.get("brand"):
         lines += ["- project colors: %s (`../brief.md` > Brand colors; the color gene is built from them)" % " ".join(genome["brand"])]
+    if genome.get("composition") or genome.get("motif"):
+        import design_creativity
+        lines += design_creativity.task_lines(genome)
     lines += ["- recipe: **%s** (use that skill's method for the look)" % genome["recipe"], "",
               "## Bounds (same as landing-story; they override any size in MotionSites examples or craft.md)",
               "- Hero display type: at most 96 px at 1280 wide and at most 48 px at 390 wide. Your scale gene picks inside that: %s at 1280." % SCALE_BOUNDS[genes["scale"]],
@@ -767,6 +770,7 @@ def _past_faces(human, product, root, allow_repeat):
 def cmd_round(argv):
     screen, n, seed, dry, yes = "landing", DEFAULT_N, None, False, False
     human, allow_repeat, parallel, no_prior = None, False, None, False
+    creativity = None
     it = iter(argv)
     try:
         for a in it:
@@ -788,10 +792,14 @@ def cmd_round(argv):
                 dry = True
             elif a == "--yes":
                 yes = True
+            elif a == "--creativity":
+                creativity = int(next(it))
+                if not 1 <= creativity <= 5:
+                    raise ValueError(a)
             else:
                 raise ValueError(a)
     except (StopIteration, ValueError):
-        print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--no-prior] [--dry-run] [--yes]", file=sys.stderr)
+        print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--no-prior] [--creativity 1-5] [--dry-run] [--yes]", file=sys.stderr)
         return 2
     if screen != "landing":
         print("design round: only --screen landing exists yet", file=sys.stderr)
@@ -841,6 +849,9 @@ def cmd_round(argv):
     def distinct(i, genes):
         return all(shared_genes({"genes": genes}, o) < len(GENES) for j, o in enumerate(genomes) if j != i)
     cap_webgl(genomes, webgl_limit(root), (spread, distinct))  # Design-Max-WebGL
+    import design_creativity
+    level = design_creativity.creativity(cfg(root, "Design-Creativity", ""), creativity)
+    design_creativity.assign(genomes, level, seed)  # a composition and a motif family per variant (UAK-084)
     mix = {k: sum(1 for g in genomes if g["origin"] == k) for k in ("taste", "prior", "wildcard", "spread")}
     novel = sum(1 for g in genomes if g["novelty"])
     mix_line = "DESIGN_ROUND mix: %d from %s, %d wildcards, %d drawn as before; %d redrawn for novelty vs %d past directions (%s; %s)%s" % (
@@ -893,6 +904,9 @@ def cmd_round(argv):
             doc["ground"] = g["ground"]
         if g.get("because"):
             doc["because"] = g["because"]
+        for key in ("creativity", "composition", "motif"):
+            if g.get(key):
+                doc[key] = g[key]
         if g.get("palette"):
             doc["palette"] = g["palette"]
         if g.get("fonts"):
@@ -1072,8 +1086,30 @@ QA_JS = r"""async () => {
     if (stage && overlap(r, stage.r) > area * 0.2) overStage++;
     if (focal && overlap(r, focal) > 0) overFocal++;
   }
+  const rgb = (s) => { const m = (s || '').match(/[\d.]+/g); return m && m.length >= 3 ? {r: +m[0], g: +m[1], b: +m[2], a: m.length > 3 ? +m[3] : 1} : null; };
+  const lumOf = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+  const hueOf = (c) => { const r = c.r / 255, g = c.g / 255, b = c.b / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (d < 0.12) return null;
+    const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return Math.round((h * 60 + 360) % 360); };
+  let ground = null;
+  for (let e = document.body; e && !ground; e = e.parentElement) { const c = rgb(getComputedStyle(e).backgroundColor); if (c && c.a > 0.5) ground = c; }
+  ground = ground || {r: 255, g: 255, b: 255};
+  const norm = (r) => [Math.max(0, r.left) / W, Math.max(0, r.top) / FH, Math.min(r.right, W) / W, Math.min(r.bottom, FH) / FH].map(v => Math.round(v * 100) / 100);
+  let head = null, headSize = 0;
+  document.querySelectorAll('h1, h2, [class*=title], [class*=headline], [class*=hero] *').forEach(el => {
+    const r = el.getBoundingClientRect(), fs = parseFloat(getComputedStyle(el).fontSize) || 0;
+    if (!(el.textContent || '').trim() || !vis(el, r) || !inFold(r) || stages.some(s => s.el.contains(el))) return;
+    const score = (el.tagName === 'H1' ? 1000 : 0) + fs;
+    if (score > headSize) { headSize = score; head = r; } });
+  const hueW = {};
+  for (let i = 0; i < all.length && i < 1500; i++) { const el = all[i], r = el.getBoundingClientRect();
+    if (!vis(el, r) || !inFold(r)) continue;
+    const c = rgb(getComputedStyle(el).backgroundColor), h = c && c.a > 0.5 ? hueOf(c) : null;
+    if (h !== null) { const k = Math.round(h / 30) * 30 % 360, a = (Math.min(r.right, W) - Math.max(r.left, 0)) * (Math.min(r.bottom, FH) - Math.max(r.top, 0)); hueW[k] = (hueW[k] || 0) + a; } }
+  const hk = Object.keys(hueW).sort((a, b) => hueW[b] - hueW[a])[0];
+  const sig = head ? {head: norm(head), stage: stage ? norm(stage.r) : null, focal: stage ? [Math.round((norm(stage.r)[0] + norm(stage.r)[2]) * 50) / 100, Math.round((norm(stage.r)[1] + norm(stage.r)[3]) * 50) / 100] : [Math.round((norm(head)[0] + norm(head)[2]) * 50) / 100, Math.round((norm(head)[1] + norm(head)[3]) * 50) / 100],
+    lum: Math.round(lumOf(ground) * 100) / 100, hue: hk === undefined ? null : +hk} : null;
   const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
-  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), distorted: distorted.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap, texts: texts, words: words, stage: !!stage, overStage: overStage, overFocal: overFocal};
+  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), distorted: distorted.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap, texts: texts, words: words, stage: !!stage, overStage: overStage, overFocal: overFocal, sig: sig};
 }"""
 
 _PLAYWRIGHT = """
@@ -1408,6 +1444,22 @@ def cmd_shoot(argv):
               "(WebGL, page errors, overflow): pip install playwright && python -m playwright install chromium" % how, file=sys.stderr)
     for name, why in failed:
         print("DESIGN_SHOOT not captured: %s (%s)" % (name, why.replace("\n", " ")), file=sys.stderr)
+    try:  # UAK-084: the builder's motif comment into the genome, then the siblings' signatures against each other
+        import design_creativity
+        for v in variants:
+            text = design_creativity.read_motif(v / "index.html")
+            gp = v / "genome.json"
+            doc = json.loads(gp.read_text(encoding="utf-8")) if text and gp.is_file() else None
+            if doc is not None and (doc.get("motif") or {}).get("text") != text:
+                doc["motif"] = dict(doc.get("motif") or {}, text=text)
+                gp.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        score, clones = design_creativity.analyze(rnd)
+        for name, text in clones:
+            print("DESIGN_SHOOT QA %s 1920: %s" % (name, text))
+        if score is not None:
+            print("DESIGN_SHOOT creativity %s: %d/100 (mean distance between the captured heroes' compositions; clones are flagged above)" % (argv[0], score))
+    except Exception as exc:  # noqa: BLE001  the index never fails a capture
+        print("DESIGN_SHOOT creativity not computed: %s" % str(exc)[:120], file=sys.stderr)
     broken = []
     for v in variants:
         warns = qa_warnings(read_qa(v)) if v.name in done else []
