@@ -711,6 +711,46 @@ def _taste_context(root, human, product, allow_repeat):
     return design_taste.weights(doc), avoid, "taste: %s, %s (%d picks)" % (source, human, design_taste.pick_count(doc))
 
 
+LIGHT_STAGES = ["canvas 2D generative", "SVG/CSS animation", "real video with a live overlay"]
+
+
+def webgl_limit(root):
+    """Design-Max-WebGL in PROJECT.md: how many variants of a round may have a three.js stage (default 2)."""
+    try:
+        return max(0, int(cfg(root, "Design-Max-WebGL", "2")))
+    except ValueError:
+        return 2
+
+
+def cap_webgl(items, limit, fits=()):
+    """items: dicts with "genes" (a fresh round's genomes or a bred round's children). Variants past the first `limit` whose
+    stage is three.js move to a light stage (the least used of canvas 2D, SVG/CSS, video) and say why in "because". A bred
+    mutation keeps its three.js stage in preference (moving it changes a second gene of its parent). fits: predicates
+    (i, genes) -> bool tried in order, strictest first, so the move never makes two variants alike; with none that fits the
+    variant stays. Why (colonIA R2, 2026-11-14): 4 of 6 stages were three.js; the human: do not spend exaggerated resources
+    on three.js (on the Jetson six three.js pages captured at once saturated the machine). Returns how many moved."""
+    webgl = [i for i, it in enumerate(items) if str(it["genes"].get("stage", STILL)).lower().startswith("three.js")]
+    webgl.sort(key=lambda i: (items[i].get("kind") != "mutation", i))
+    moved = 0
+    for i in sorted(webgl[limit:]):
+        it = items[i]
+        old = it["genes"]["stage"]
+        use = {s: sum(1 for o in items if o["genes"].get("stage") == s) for s in LIGHT_STAGES}
+        order = sorted(LIGHT_STAGES, key=lambda s: (use[s], LIGHT_STAGES.index(s)))
+        new = None
+        for ok in (list(fits) or [lambda j, g: True]):
+            new = next((s for s in order if ok(i, dict(it["genes"], stage=s))), None)
+            if new:
+                break
+        if not new:
+            continue
+        it["genes"]["stage"] = new
+        it["because"] = (it["because"] + "; " if it.get("because") else "") + (
+            "stage %s: at most %d three.js variants per round (Design-Max-WebGL), was %s" % (new, limit, old))
+        moved += 1
+    return moved
+
+
 def _past_faces(human, product, root, allow_repeat):
     """Faces of the human's past directions in other projects (their profile's `fonts`), unless --allow-repeat."""
     if allow_repeat:
@@ -795,6 +835,12 @@ def cmd_round(argv):
             if ground_of(g["genes"]) != ground:
                 g["genes"]["color"] = FLIP_TO[ground]  # the color gene must say what the palette says
             g["why"]["color"] = "palette %s (%s) \u00b7 roles and hex in TASK.md" % (g["palette"]["name"], g["palette"]["roles"]["primary"])
+    def spread(i, genes):  # the move keeps "no two variants share more than MAX_SHARED genes" while a light stage can
+        return all(shared_genes({"genes": genes}, o) <= MAX_SHARED for j, o in enumerate(genomes) if j != i)
+
+    def distinct(i, genes):
+        return all(shared_genes({"genes": genes}, o) < len(GENES) for j, o in enumerate(genomes) if j != i)
+    cap_webgl(genomes, webgl_limit(root), (spread, distinct))  # Design-Max-WebGL
     mix = {k: sum(1 for g in genomes if g["origin"] == k) for k in ("taste", "prior", "wildcard", "spread")}
     novel = sum(1 for g in genomes if g["novelty"])
     mix_line = "DESIGN_ROUND mix: %d from %s, %d wildcards, %d drawn as before; %d redrawn for novelty vs %d past directions (%s; %s)%s" % (
@@ -845,6 +891,8 @@ def cmd_round(argv):
                "genes": g["genes"], "recipe": g["recipe"], "why": g["why"]}
         if g.get("ground"):
             doc["ground"] = g["ground"]
+        if g.get("because"):
+            doc["because"] = g["because"]
         if g.get("palette"):
             doc["palette"] = g["palette"]
         if g.get("fonts"):
@@ -1304,10 +1352,20 @@ def capture_one(cmd, html, vdir):
     return ok, (r.stderr or r.stdout).strip()[-200:]
 
 
+def _has_playwright():
+    try:
+        import playwright  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def cmd_shoot(argv):
     if not argv or not re.match(r"^R\d+$", argv[0]):
-        print("Usage: design shoot R<k> [v<i> ...]", file=sys.stderr)
+        print("Usage: design shoot R<k> [v<i> ...] [--again]", file=sys.stderr)
         return 2
+    again = "--again" in argv
+    argv = [a for a in argv if a != "--again"]
     root = project_root()
     rnd = root / ".uak" / "design" / "rounds" / argv[0]
     if not rnd.is_dir():
@@ -1316,7 +1374,7 @@ def cmd_shoot(argv):
     only = set(argv[1:])
     variants = sorted((p for p in rnd.glob("v*") if p.is_dir() and re.match(r"^v\d+$", p.name) and (not only or p.name in only)),
                       key=lambda p: int(p.name[1:]))
-    todo = [v for v in variants if not ((v / "1280.png").is_file() and (v / "390.png").is_file())]
+    todo = [v for v in variants if again or not ((v / "1280.png").is_file() and (v / "390.png").is_file())]
     done, failed = [], []
     cmd, how = find_capture(root) if todo else (None, "")
     if todo and cmd is None:
@@ -1343,7 +1401,11 @@ def cmd_shoot(argv):
                 record_density(v)
             except Exception as exc:  # noqa: BLE001  metrics never fail a capture
                 print("DESIGN_SHOOT metrics not recorded for %s: %s" % (v.name, str(exc)[:120]), file=sys.stderr)
-    print("DESIGN_SHOOT %s: captured %s; already had %d" % (argv[0], " ".join(done) or "none", len(variants) - len(todo)))
+    print("DESIGN_SHOOT %s: captured %s; already had %d%s" % (argv[0], " ".join(done) or "none", len(variants) - len(todo),
+                                                       " (recapture them with --again)" if len(variants) > len(todo) else ""))
+    if todo and how == "motionsites shoot.py" and not _has_playwright():  # Why (colonIA R2): the fallback has no QA report and said only "not captured"
+        print("DESIGN_SHOOT no QA report from this fallback (%s): Playwright for Python is not installed; install it for the QA report "
+              "(WebGL, page errors, overflow): pip install playwright && python -m playwright install chromium" % how, file=sys.stderr)
     for name, why in failed:
         print("DESIGN_SHOOT not captured: %s (%s)" % (name, why.replace("\n", " ")), file=sys.stderr)
     broken = []
@@ -1372,7 +1434,7 @@ def main(argv):
     if argv[:1] in (["done"], ["report"]):  # tokens and minutes per variant (UAK-070)
         import design_metrics
         return design_metrics.main(argv)
-    print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] | design palettes [--n 6] | design done R<k> v<i> --tokens N | design report R<k> [--all] | design pick R<k> [--k N]", file=sys.stderr)
+    print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] [--again] | design palettes [--n 6] | design done R<k> v<i> --tokens N | design report R<k> [--all] | design pick R<k> [--k N]", file=sys.stderr)
     return 2
 
 
