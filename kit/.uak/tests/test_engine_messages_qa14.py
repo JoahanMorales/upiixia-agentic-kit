@@ -8,6 +8,7 @@
 - `uak dash` printed a tarfile DeprecationWarning and reported mode "" (Mode lives in PROJECT.md, not claims).
 Real Git, a local bare remote."""
 import argparse
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -52,6 +53,8 @@ def next_cache_is_per_identity(r):
     f.hack(0, "register-reviewer", "agent-2", "agent-3", human=True, now=1000005)
     to_review(r, f)  # both reviewers are offered the same review: the same text
     c = f.clones[2]
+    if os.name == "nt":  # Git Bash has no `ps -o`: the session-start hook's uak-live keys the session there
+        Path(r.g(c, "rev-parse", "--absolute-git-dir").stdout.strip(), "uak-live").write_text("test-session 1000000\n", encoding="utf-8")
     run = lambda agent: r.run([r.bash, ".uak/bin/uak", "next"], cwd=c, env=env(agent, UAK_DEDUPE="on")).stdout
     first = run("agent-3")
     expect("= unchanged" not in first, "the first call prints: " + first[:400])
@@ -114,6 +117,15 @@ def dash_reports_the_mode(r):
     expect("DeprecationWarning" not in res.stderr, "no tarfile DeprecationWarning: " + res.stderr[-600:])
     data = (out_dir / "data.js").read_text(encoding="utf-8")
     expect('"mode":"sprint"' in data, "the mode comes from PROJECT.md on main when claims has none: " + data[:300])
+    # A PROJECT.md saved with CRLF (Windows editors) still names the mode.
+    text = project.read_text(encoding="utf-8").replace("Mode: sprint\n", "Mode: marathon\n")
+    project.write_bytes(text.replace("\n", "\r\n").encode("utf-8"))
+    r.g(c, "add", ".uak/PROJECT.md")
+    r.g(c, "commit", "-q", "-m", "mode crlf")
+    r.g(c, "push", "-q", "origin", "main")
+    r.run([r.bash, ".uak/bin/uak", "dash", "--out", str(out_dir)], cwd=c, env=env("agent-1"))
+    data = (out_dir / "data.js").read_text(encoding="utf-8")
+    expect('"mode":"marathon"' in data, "a CRLF PROJECT.md still gives the mode: " + data[:300])
     return "mode sprint"
 
 

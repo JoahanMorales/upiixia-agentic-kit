@@ -477,6 +477,12 @@ msg_contract_where() {
     done
     add="$add · $w is on $br (not on $BASE yet): git show $br:${path:-PATH}"
   done
+  # The pointer never pushes a message over the 1200-character limit: then it is a note to the sender instead.
+  if [ -n "$add" ] && [ $(( ${#MSG_TEXT} + ${#add} )) -gt 1200 ]; then
+    MSG_WHERE_NOTE="${MSG_WHERE_NOTE}the message is too long to add where the commit is:${add# ·}
+"
+    return 0
+  fi
   MSG_TEXT="$MSG_TEXT$add"
 }
 # msg: one transaction, then the sent line and its notes (an offline target, a likely typo).

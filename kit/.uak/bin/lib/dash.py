@@ -141,8 +141,8 @@ def base_live_url(root):
 
 
 # Mode (sprint or marathon) is a PROJECT.md key; claims' meta/config.md has it only when the engine wrote one.
-# Why (QA round C, 2026-11-14, C-12): the page reported mode "" for a sprint project.
-MODE_KEY = re.compile(r"(?m)^[-* ]*\**Mode\**:\**[ \t]*`?([A-Za-z]+)`?[ \t]*$")
+# Why (QA round C, 2026-11-14, C-12): the page reported mode "" for a sprint project. \r: a CRLF PROJECT.md (Windows).
+MODE_KEY = re.compile(r"(?m)^[-* ]*\**Mode\**:\**[ \t]*`?([A-Za-z]+)`?[ \t\r]*$")
 
 
 def project_mode(text):

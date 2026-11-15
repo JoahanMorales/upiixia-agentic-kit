@@ -54,7 +54,7 @@ render() {
     # PR#N only when the URL ends in a PR number (/pull/12, #12); otherwise its last segment. Why (QA round C,
     # 2026-11-14): .../pull/feat/caf-001 showed "PR#001", a PR that does not exist.
     function prn(p,   t) { if (p == "" || p == "-") return "-"; if (match(p, /[\/#][0-9]+$/)) return "PR#" substr(p, RSTART + 1)
-      t = p; sub(/[\/#]+$/, "", t); sub(/^.*[\/#]/, "", t); if (t == "") return "PR"; return "PR " substr(t, 1, 16) }
+      t = p; sub(/[\/#]+$/, "", t); sub(/^.*[\/#]/, "", t); if (t == "") return "PR"; return "PR " substr(t, 1, 9) }  # 12 columns
     END {
       split("CLAIMED REVIEW BLOCKED AVAILABLE INTEGRATED CANCELLED", S, " ")
       for (k = 1; k <= nt; k++) { id = order[k]; s = (id in st) ? st[id] : "AVAILABLE"; cnt[s]++ }
