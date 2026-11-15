@@ -303,6 +303,13 @@ def report_round(rnd):
         part = "" if s["reported"] == s["n"] else " (only %d of %d variants reported)" % (s["reported"], s["n"])
         lines.append("totals: %s tokens%s" % (fmt_tokens(s["tokens"]), part))
     lines.append("wall in parallel (longest variant): %s" % ("%.1f min" % (s["wall"] / 60.0) if s["wall"] is not None else "n/a"))
+    try:
+        import design_creativity
+        score, clones = design_creativity.analyze(rnd)
+        if score is not None:
+            lines.append("creativity: %d/100 (%d clone%s)" % (score, len(clones), "" if len(clones) == 1 else "s"))
+    except Exception:  # noqa: BLE001
+        pass
     lines.append("tokens per picked variant: %s" % ("%s (%d picked)" % (fmt_tokens(s["per_picked"]), s["picked"]) if s["per_picked"] else "n/a (%s)" % ("nothing picked yet" if not s["picked"] else "no tokens reported")))
     return lines
 
