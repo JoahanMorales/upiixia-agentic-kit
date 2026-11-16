@@ -54,7 +54,7 @@ def creativity(cfg_value, flag=None):
 
 def level_text(level):
     ask = {1: "refine the parent: keep its look and motif, change the details", 2: "stay close to the parent: same composition family, new details",
-           3: "same family, a new identity: keep what the human liked, change the hero's composition", 4: "a clearly different composition and motif from the parent",
+           3: "same family, a new identity: keep what the human liked, change the hero's composition", 4: "a clearly different composition; a new motif unless the human praised the parent's",
            5: "a new direction: nothing about the hero's layout or motif is borrowed"}
     return "- creativity: **%d/5** (%s)" % (level, ask[level])
 
@@ -98,9 +98,10 @@ def assign(children, level, seed, parents=None, notes=None):
             comp = _pool(names, set(comps), avoid, rng)
         comps.append(comp)
         c["composition"] = comp
-        inherit = par and praised(note) and (par.get("motif") or {}).get("family")
-        if inherit and par["motif"]["family"] not in fams:
-            fam = par["motif"]["family"]
+        # a pre-084 parent has no genome family: it still passes its page's motif comment on (the family is then a free one)
+        pfam = ((par or {}).get("motif") or {}).get("family")
+        fam = (pfam if pfam in MOTIFS else next((f for f in fam_names if f not in fams), None)) if par and praised(note) else None
+        if fam and fam not in fams:
             c["motif"] = {"family": fam, "inherited": True, "from": refs[0]}
             if par.get("motif_text"):
                 c["motif"]["parent_text"] = par["motif_text"]

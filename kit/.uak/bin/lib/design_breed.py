@@ -340,7 +340,10 @@ def child_task(rnd_name, i, genome, notes, parents, all_picks):
     if not said:
         lines.append("- (no notes)")
     if genome["kind"] == "mutation":
-        lines.append("Only the gene `%s` changed from the parent; keep the rest of the parent's look." % genome["mutated"])
+        if (genome.get("creativity") or 0) >= 3:
+            lines.append("Only the gene `%s` changed from the parent; the other genes are kept, but the composition and motif above replace the parent's hero layout." % genome["mutated"])
+        else:
+            lines.append("Only the gene `%s` changed from the parent; keep the rest of the parent's look." % genome["mutated"])
     elif genome["kind"] == "crossover":
         lines.append("Genes taken from: " + ", ".join("%s <- %s" % (g, genome["taken"][g]) for g in GENES))
     return text + "\n".join(lines) + "\n"
