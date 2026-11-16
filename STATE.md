@@ -1,8 +1,8 @@
 # STATE
 
 Phase: execution
-Updated: 1794791112
-AVAILABLE: -
+Updated: 1794791184
+AVAILABLE: UAK-086 
 CLAIMED: -
 BLOCKED: -
 REVIEW: -
@@ -13,11 +13,11 @@ Claims (first 24; status --task ID shows detail):
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1794637966 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-083 | Why: backlog without PR (Plan-Channel: claims)
 - 1794637977 | allow | JoahanMorales | test change: UAK-082 | Why: flake de Windows en la limpieza
 - 1794676817 | allow | JoahanMorales | test change: UAK-083 | Why: premisas que cambian con el tope de three.js y las fuentes distintas
 - 1794727880 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-084 | Why: backlog without PR (Plan-Channel: claims)
 - 1794791112 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-086 | Why: backlog without PR (Plan-Channel: claims)
+- 1794791184 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-085 | Why: backlog without PR (Plan-Channel: claims)
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.
