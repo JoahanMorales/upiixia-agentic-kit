@@ -17,6 +17,7 @@ UAK-063: a new project's round is seeded by the human's taste profile (design_ta
 values the project has no material for are drawn less) and each genome.json records "why" per gene.
 Why (F0, Nov 11 2026): the kit's frontends scored 2.8 / 5 because every variant of an agent looks alike; variety has to
 be forced by the tool, not hoped for. Python 3.8+ standard library only; no network, no browser unless `shoot`."""
+import contextlib
 import hashlib
 import json
 import math
@@ -27,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 STILL = "still (no animation)"
@@ -1203,18 +1205,36 @@ with sync_playwright() as p:
         except Exception as exc:
             errs.append("load: " + str(exc)[:120])
         pg.wait_for_timeout(3200)  # animations are mid-cycle, fonts and media settled
+        # Why (colonIA R3, 2026-11-15): after the QA pass the 390 full page took 35 s and hit Playwright's 30 s default, 5 runs in a row.
+        # The screenshots come first, each with a timeout that grows with the page; one that still times out is named and skipped.
         pg.evaluate(MEDIA)
-        qa = pg.evaluate(QA) or {}
-        rects = qa.pop("textRects", [])
-        pg.screenshot(path=str(out / (name + ".png")))
-        if name == "1920" and qa.get("sig"):
+        def shot(label, **kw):
             try:
+                height = int(pg.evaluate("() => document.documentElement.scrollHeight + 0 * innerWidth"))
+            except (TypeError, ValueError):
+                height = h
+            secs = max(90, int(height * (2 if w < 500 else 1) / 100.0)) if kw.get("full_page") else 60
+            try:
+                try:
+                    pg.screenshot(path=str(out / (label + ".png")), timeout=secs * 1000, **kw)
+                except TypeError:  # a capture double without the timeout argument
+                    pg.screenshot(path=str(out / (label + ".png")), **kw)
+            except Exception as exc:
+                why = "timed out after %d s: the page keeps repainting; pause loops off screen" % secs if "Timeout" in str(exc) else "failed: " + str(exc)[:120]
+                print("SHOOT_TIMEOUT %s %s" % (label, why))
+                report.setdefault("timeouts", []).append("%s %s" % (label, why))
+        shot(name)
+        pg.evaluate(MEDIA)
+        shot(name + "-full", full_page=True)
+        qa = {}
+        try:
+            qa = pg.evaluate(QA) or {}
+            rects = qa.pop("textRects", [])
+            if name == "1920" and qa.get("sig") and (out / "1920.png").is_file():
                 import base64
                 qa["sig"].update(pg.evaluate(MASS, {"png": base64.b64encode((out / "1920.png").read_bytes()).decode("ascii"), "rects": rects, "w": 1920, "h": 1080}) or {})
-            except Exception as exc:
-                print("QA mass not measured: " + str(exc)[:120])
-        pg.evaluate(MEDIA)
-        pg.screenshot(path=str(out / (name + "-full.png")), full_page=True)
+        except Exception as exc:
+            print("QA not measured at %s: %s" % (name, str(exc)[:120]))
         qa["errors"], qa["first"] = len(errs), (errs[0][:160] if errs else "")
         report[name] = qa
         print("QA %s webgl=%s errors=%d overflow=%s content=%s%% frame=%sms long_tasks=%s heap=%sMB upscaled=%d" % (name, qa.get("gl"), len(errs), qa.get("overflow"), qa.get("share"), qa.get("frameMs"), qa.get("longTasks"), qa.get("heapMB"), len(qa.get("upscaled", []))))
@@ -1426,7 +1446,52 @@ def capture_one(cmd, html, vdir):
         pass
     r = subprocess.run(cmd + [str(html), str(vdir)], capture_output=True, text=True, timeout=600)
     ok = r.returncode == 0 and (vdir / "1280.png").is_file() and (vdir / "390.png").is_file()
+    slow = [l[len("SHOOT_TIMEOUT "):] for l in (r.stdout or "").splitlines() if l.startswith("SHOOT_TIMEOUT ")]
+    for line in slow:  # UAK-086: name the viewport that timed out; the other viewports and qa.json are kept
+        print("DESIGN_SHOOT QA %s %s" % (vdir.name, line), file=sys.stderr)
+    if slow and not ok:
+        kept = " ".join(n for n in ("1920", "1280", "390") if (vdir / (n + ".png")).is_file())
+        return False, "%s; kept %s" % ("; ".join(slow), kept or "nothing")
     return ok, (r.stderr or r.stdout).strip()[-200:]
+
+
+LOCK_STALE = 900  # seconds: a shoot that has not touched its lock for this long died (one variant's capture is capped at 600 s)
+
+
+@contextlib.contextmanager
+def shoot_lock(rnd, wait=None):
+    """UAK-086: one capture at a time per round folder (agents shooting in parallel starved each other: load average ~17). The lock is a
+    file created exclusively (works on Windows too); a lock older than LOCK_STALE is broken. Waiting is announced once."""
+    path = Path(rnd) / ".shoot.lock"
+    limit = float(os.environ.get("UAK_SHOOT_LOCK_WAIT", wait if wait is not None else 3600))
+    stale = float(os.environ.get("UAK_SHOOT_LOCK_STALE", LOCK_STALE))
+    start, told = time.time(), False
+    while True:
+        try:
+            fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, ("%d\n" % os.getpid()).encode("ascii"))
+            os.close(fd)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - path.stat().st_mtime > stale:
+                    path.unlink()
+                    continue
+            except OSError:
+                continue  # it vanished between the two calls: try again
+            if time.time() - start > limit:
+                raise OSError("another shoot holds %s (waited %d s)" % (path.name, limit))
+            if not told:
+                print("DESIGN_SHOOT waiting for another shoot of this round to finish (%s)" % path.name, file=sys.stderr)
+                told = True
+            time.sleep(0.2)
+    try:
+        yield
+    finally:
+        try:
+            path.unlink()
+        except OSError:
+            pass
 
 
 def _has_playwright():
@@ -1465,7 +1530,8 @@ def cmd_shoot(argv):
             failed.append((v.name, "no index.html yet"))
             continue
         try:
-            ok, why = capture_one(cmd, html, v)
+            with shoot_lock(rnd):
+                ok, why = capture_one(cmd, html, v)
         except (OSError, subprocess.SubprocessError) as exc:
             ok, why = False, str(exc)[:200]
         (done if ok else failed).append(v.name if ok else (v.name, why or "capture tool failed"))
