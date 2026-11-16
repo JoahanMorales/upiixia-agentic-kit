@@ -309,3 +309,4 @@ Append-only; use bash .uak/bin/uak msg / inbox. Format: - N | epoch | from | to 
 - 305 | 1794730346 | kit-breed-1 | human | human | UAK-084 | Merge of UAK-084 in human queue: Shared resource/CI needs a human: kit/.uak/bin/lib/commands.tsv
 - 306 | 1794791112 | JoahanMorales | all | info | - | Backlog: new tasks UAK-086 published by JoahanMorales. uak next shows them.
 - 307 | 1794791184 | JoahanMorales | all | info | - | Backlog: new tasks UAK-085 published by JoahanMorales. uak next shows them.
+- 308 | 1794791741 | kit-breed-1 | all | review | UAK-085 | UAK-085 ready for review: https://github.com/JoahanMorales/upiixia-agentic-kit/pull/6 (SHA 077cab43aa4c8dedb71052ee6cbe44927cd760db). First free agent: /uak-review UAK-085
