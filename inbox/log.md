@@ -310,3 +310,4 @@ Append-only; use bash .uak/bin/uak msg / inbox. Format: - N | epoch | from | to 
 - 306 | 1794791112 | JoahanMorales | all | info | - | Backlog: new tasks UAK-086 published by JoahanMorales. uak next shows them.
 - 307 | 1794791184 | JoahanMorales | all | info | - | Backlog: new tasks UAK-085 published by JoahanMorales. uak next shows them.
 - 308 | 1794791741 | kit-breed-1 | all | review | UAK-085 | UAK-085 ready for review: https://github.com/JoahanMorales/upiixia-agentic-kit/pull/6 (SHA 077cab43aa4c8dedb71052ee6cbe44927cd760db). First free agent: /uak-review UAK-085
+- 309 | 1794792670 | kit-breed-1 | all | review | UAK-086 | UAK-086 ready for review: https://github.com/JoahanMorales/upiixia-agentic-kit/pull/7 (SHA 387bcaca4fb84632cfaf7f5f9c2d04c59f50e31b). First free agent: /uak-review UAK-086
