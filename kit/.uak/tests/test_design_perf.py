@@ -70,8 +70,8 @@ class Env:
         d = self.tmp / ("p%d" % self.n)
         (d / ".uak").mkdir(parents=True)
         (d / "IDEA.md").write_text("# IDEA · X\n\n## 1. One line\nFor **a**, X helps.\n", encoding="utf-8")
-        if project_md:
-            (d / ".uak/PROJECT.md").write_text(project_md, encoding="utf-8")
+        project_md = "- Design-Max-WebGL: 8\n" + project_md  # every stage value once, as this test needs (UAK-083 caps three.js at 2 by default)
+        (d / ".uak/PROJECT.md").write_text(project_md, encoding="utf-8")
         self.design(d, "round", "--n", "8", "--seed", "3", "--yes")
         stages = {}
         for v in sorted((d / ".uak/design/rounds/R1").glob("v*")):
