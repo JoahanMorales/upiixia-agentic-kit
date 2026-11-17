@@ -764,6 +764,15 @@
     ["Not yet", "Todavía no"],
     ["Go there", "Ir ahí"],
     ["Dismiss", "Cerrar aviso"],
+    // UI-020: the endings of the branch messages (values of the patterns above) and the page's branch notices.
+    ["check the project folder again", "vuelve a comprobar la carpeta del proyecto"],
+    ["publish again", "vuelve a publicar"],
+    ["approve the plan again", "vuelve a aprobar el plan"],
+    ["This folder is not on the main branch", "Esta carpeta no está en la rama principal"],
+    ["Run this in a terminal, then press Check project folder again:", "Ejecuta esto en una terminal y luego pulsa Comprobar carpeta otra vez:"],
+    ["Run this in a terminal, then press Check what’s next:", "Ejecuta esto en una terminal y luego pulsa Comprobar siguiente paso:"],
+    ["GitHub opens this project on the wrong branch", "GitHub abre este proyecto en la rama equivocada"],
+    ["Then run this second command to send your own commits:", "Luego ejecuta este segundo comando para enviar tus propios commits:"],
     // UI-019: coming back to a project restores where it was; a closed setup says so once.
     ["Setup has closed: run the command again and open the new link.", "Setup se cerró: vuelve a ejecutar el comando y abre el nuevo enlace."],
     ["Published on main (commit {sha}).", "Publicado en main (commit {sha})."],
@@ -777,6 +786,8 @@
     ["Setup could not remember your name for this project (.git/uak-setup/human.json is a link or not a regular file). It is kept until you close setup.", "La configuración no pudo recordar tu nombre para este proyecto (.git/uak-setup/human.json es un enlace o no es un archivo normal). Se conserva hasta que cierres la configuración."],
   ];
   // Server notes that carry values (UI-009): whole-string patterns; each value is translated when the catalog has it.
+  // UI-020 (B-01, B-03, B-09, Dylan's live run): the branch notes, publish refusals with their exact command, and no
+  // "command below" without a command. NOTES is read as JSON by the tests: no comments inside it.
   var NOTES = [
     ["(.+) was retired, so it cannot review\\. Choose another name in Your name, or ask the human who retired it\\.", "$1 fue retirado, así que no puede revisar. Elige otro nombre en Tu nombre o pregunta a la persona que lo retiró."],
     ["(.+) is registered: it reviews your agents' work\\.", "$1 quedó registrado: revisa el trabajo de tus agentes."],
@@ -784,11 +795,26 @@
     ["Setup cannot reach (.+) right now \\((.+)\\)\\. Check your connection, then press Retry\\.", "La configuración no puede conectar con $1 ahora ($2). Revisa tu conexión y pulsa Reintentar."],
     ["This project has no remote named (.+)\\. Add one, then press Retry\\.", "Este proyecto no tiene un remoto llamado $1. Agrega uno y pulsa Reintentar."],
     ["(.+) was claimed since the last check\\. Press Check what's next to find a free task\\.", "$1 fue tomada después de la última revisión. Pulsa Revisar qué sigue para encontrar una tarea libre."],
-    ["No coding tool can start here: Claude Code: (.+) Codex: (.+) With Cursor or Gemini, claim the task with the command below and open the tool in its folder yourself\\.", "Ninguna herramienta de código puede empezar aquí: Claude Code: $1 Codex: $2 Con Cursor o Gemini, toma la tarea con el comando de abajo y abre la herramienta en su carpeta tú mismo."],
+    ["No coding tool can start here: Claude Code: (.+) Codex: (.+) With Cursor or Gemini, claim (.+) yourself with (.+) and open the tool in its folder\\.", "Ninguna herramienta de código puede empezar aquí: Claude Code: $1 Codex: $2 Con Cursor o Gemini, toma $3 tú mismo con $4 y abre la herramienta en su carpeta."],
+    ["No coding tool can start here: Claude Code: (.+) Codex: (.+) With Cursor or Gemini, press Check what's next to get a free task first\\.", "Ninguna herramienta de código puede empezar aquí: Claude Code: $1 Codex: $2 Con Cursor o Gemini, pulsa Revisar qué sigue para obtener primero una tarea libre."],
     ["Each of your implementer names \\((.+) to (.+)\\) already holds a task\\. Finish or release one, then press Check what's next\\.", "Cada uno de tus nombres de implementador ($1 a $2) ya tiene una tarea. Termina o libera una y pulsa Revisar qué sigue."],
     ["\\.uak-env in the project folder says this checkout is the agent (.+), so a reviewer started there would not be (.+)\\. Remove that line \\(or the file\\), then press Retry\\.", ".uak-env en la carpeta del proyecto dice que esta copia es el agente $1, así que un revisor iniciado ahí no sería $2. Elimina esa línea (o el archivo) y pulsa Reintentar."],
     ["That coding tool is not available here: (.+)", "Esa herramienta de código no está disponible aquí: $1"],
     ["(.+) already has its own first commits \\(for example a README or \\.gitignore created on GitHub\\), and they do not share history with this folder\\. Nothing was changed\\. The command below runs git pull to join both histories; read it before you run it\\.", "$1 ya tiene sus propios primeros commits (por ejemplo un README o .gitignore creados en GitHub) y no comparten historia con esta carpeta. No se cambió nada. El comando de abajo ejecuta git pull para unir ambas historias; léelo antes de ejecutarlo."],
+    ["(.+) already has its own first commits \\(for example a README or \\.gitignore created on GitHub\\), and they do not share history with this folder\\. Nothing was changed\\. Setup cannot write a safe git pull command to join them here: follow the steps below\\.", "$1 ya tiene sus propios primeros commits (por ejemplo un README o .gitignore creados en GitHub) y no comparten historia con esta carpeta. No se cambió nada. La configuración no puede escribir aquí un comando git pull seguro para unirlas: sigue los pasos de abajo."],
+    ["Then run the second command: (.+) sends your own commits to (.+), so publishing sends only the kit\\. Then press Review the files again\\.", "Luego ejecuta el segundo comando: $1 envía tus propios commits a $2, así publicar envía solo el kit. Luego pulsa Revisar los archivos otra vez."],
+    ["This folder is on the branch (.+), not (.+), and the kit lives on (.+)\\. Switch first with (.+), then (.+)\\.", "Esta carpeta está en la rama $1, no en $2, y el kit vive en $3. Cámbiate primero con $4 y luego $5."],
+    ["This folder is on the branch (.+) and has no branch (.+), where the kit lives\\. Rename this branch with (.+), then (.+)\\.", "Esta carpeta está en la rama $1 y no tiene la rama $2, donde vive el kit. Cambia el nombre de esta rama con $3 y luego $4."],
+    ["This folder is not on any branch \\(detached HEAD\\), and the kit lives on (.+)\\. Switch first with (.+), then (.+)\\.", "Esta carpeta no está en ninguna rama (HEAD separado) y el kit vive en $1. Cámbiate primero con $2 y luego $3."],
+    ["This folder is on another branch, not (.+), and the kit lives on (.+)\\. Switch to (.+) yourself, then (.+)\\.", "Esta carpeta está en otra rama, no en $1, y el kit vive en $2. Cámbiate a $3 tú mismo y luego $4."],
+    ["The default branch of (.+) is claims, so new clones open the coordination branch instead of (.+)\\. Change it on GitHub: Settings, General, Default branch, choose (.+) and press Update\\. Then run git remote set-head (.+) -a in each clone that already exists\\.", "La rama predeterminada de $1 es claims, así que los clones nuevos abren la rama de coordinación en vez de $2. Cámbiala en GitHub: Settings, General, Default branch, elige $3 y pulsa Update. Luego ejecuta git remote set-head $4 -a en cada clon que ya exista."],
+    ["This branch has commits that are not on (.+) yet\\. Send them first with (.+), then publish again: publishing sends only the kit\\.", "Esta rama tiene commits que todavía no están en $1. Envíalos primero con $2 y luego vuelve a publicar: publicar envía solo el kit."],
+    ["This branch and (.+) both have new commits\\. Join them first with (.+) and then (.+), then publish again\\.", "Esta rama y $1 tienen commits nuevos. Únelos primero con $2 y después $3; luego vuelve a publicar."],
+    ["(.+) already has commits this folder lacks\\. Run (git pull .+), then publish again\\.", "$1 ya tiene commits que le faltan a esta carpeta. Ejecuta $2 y luego vuelve a publicar."],
+    ["This branch has commits and (.+) has no (.+) yet\\. Push them yourself first \\((.+)\\), then publish the kit\\.", "Esta rama tiene commits y $1 todavía no tiene $2. Súbelos tú primero ($3) y luego publica el kit."],
+    ["This project has no remote named (.+)\\. Create an empty repository and run: (.+)", "Este proyecto no tiene un remoto llamado $1. Crea un repositorio vacío y ejecuta: $2"],
+    ["Nothing to publish: the kit is already on (.+)\\.", "No hay nada que publicar: el kit ya está en $1."],
+    ["Could not read (.+): (.+)", "No se pudo leer $1: $2"],
     ["Your copies are kept with \\.mine added to their names: (.+)\\. Choose Repair or update kit so the kit adds its lines to \\.gitignore again, then compare and delete the \\.mine files\\.", "Tus copias se conservan con .mine agregado a su nombre: $1. Elige Reparar o actualizar el kit para que el kit vuelva a agregar sus líneas a .gitignore; luego compara y borra los archivos .mine."],
     ["Or publish to a new empty repository \\(no README, no \\.gitignore, no license\\): git remote set-url (.+) <its URL>", "O publica en un repositorio nuevo y vacío (sin README, sin .gitignore, sin licencia): git remote set-url $1 <su URL>"],
     ["Setup cannot write a safe command for the files this folder and (.+) both have\\. Publish to a new empty repository instead \\(no README, no \\.gitignore, no license\\): git remote set-url (.+) <its URL>", "La configuración no puede escribir un comando seguro para los archivos que tienen tanto esta carpeta como $1. Publica en un repositorio nuevo y vacío (sin README, sin .gitignore, sin licencia): git remote set-url $2 <su URL>"],

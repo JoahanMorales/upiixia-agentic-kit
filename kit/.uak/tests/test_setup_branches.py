@@ -325,6 +325,8 @@ def main():
     parser.add_argument("--case", action="append")
     args = parser.parse_args()
     root = args.package.resolve()
+    for key in [k for k in os.environ if k.startswith("UAK_")]:  # UAK_BASE/UAK_REMOTE would change the server's base
+        del os.environ[key]
     spec = importlib.util.spec_from_file_location("branches_setup", root / ".uak/bin/lib/setup.py")
     wizard.MODULE = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(wizard.MODULE)
