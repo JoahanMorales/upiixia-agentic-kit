@@ -834,6 +834,56 @@
         display: grid;
         gap: 10px;
       }
+      /* UI-019: a finished step shows one done line and folds its body; Change opens it again. */
+      .prepare-step[data-done]:not([data-open]) .step-body {
+        display: none;
+      }
+      .step-body {
+        display: grid;
+        gap: 10px;
+      }
+      .step-done {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin: 0;
+      }
+      .step-done strong::before {
+        content: "✓ ";
+      }
+      .link-button {
+        background: none;
+        border: 0;
+        padding: 0;
+        color: var(--accent);
+        text-decoration: underline;
+        cursor: pointer;
+        font: inherit;
+      }
+      .server-gone {
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 60;
+        width: min(720px, calc(100% - 32px));
+        box-sizing: border-box;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin: 0;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+      }
+      .server-gone[hidden] {
+        display: none;
+      }
+      #team-name-block input {
+        width: 100%;
+        box-sizing: border-box;
+      }
       .prepare-step.current {
         border-color: var(--accent);
         background: var(--wash);
@@ -1152,6 +1202,10 @@
     </style>
   </head>
   <body data-profile="beginner">
+    <div class="notice error server-gone" id="server-gone" role="alert" hidden>
+      <span id="server-gone-text">Setup has closed: run the command again and open the new link.</span>
+      <button type="button" class="secondary-button" id="server-gone-retry">Retry</button>
+    </div>
     <a class="skip" href="#content">Skip to setup</a>
     <header class="header">
       <div class="brand">
@@ -1542,6 +1596,7 @@
               <ul id="terminal-steps" data-no-i18n></ul>
               <p>When it is done, come back and press Check again.</p>
             </div>
+            <p class="notice step-done" id="plan-done" role="status" data-no-i18n hidden></p>
             <div id="prepare" hidden>
               <h3 id="prepare-heading" tabindex="-1">Prepare your project</h3>
               <p class="notice" id="identity-warning" role="status" data-no-i18n hidden></p>
@@ -1551,6 +1606,12 @@
               </p>
               <div class="prepare-step" id="name-step">
                 <h4>1. Your name</h4>
+                <p class="step-done" id="name-done" hidden>
+                  <strong>Done</strong>
+                  <span id="name-done-text" data-no-i18n></span>
+                  <button type="button" class="link-button" id="name-reopen">Change</button>
+                </p>
+                <div class="step-body">
                 <p class="hint">
                   Some steps only a person may do (publishing, approving). Setup
                   records them with this name.
@@ -1563,9 +1624,16 @@
                   <button type="button" class="secondary-button" id="human-save">Save name</button>
                 </div>
                 <p class="hint" id="human-status" role="status"></p>
+                </div>
               </div>
               <form class="prepare-step" id="schedule-form" novalidate>
                 <h4>2. Event schedule</h4>
+                <p class="step-done" id="schedule-done" hidden>
+                  <strong>Done</strong>
+                  <span id="schedule-done-text" data-no-i18n></span>
+                  <button type="button" class="link-button" id="schedule-reopen">Change</button>
+                </p>
+                <div class="step-body">
                 <p class="hint">
                   The kit stops new work before the deadline (the freeze), so the
                   last minutes go to the demo.
@@ -1586,9 +1654,16 @@
                 </div>
                 <button type="submit" class="secondary-button" id="schedule-save">Save schedule</button>
                 <p class="hint" id="schedule-status" role="status"></p>
+                </div>
               </form>
               <div class="prepare-step" id="publish-step">
                 <h4>3. Publish the kit to main</h4>
+                <p class="step-done" id="publish-done" hidden>
+                  <strong>Done</strong>
+                  <span id="publish-done-text" data-no-i18n></span>
+                  <button type="button" class="link-button" id="publish-reopen">Change</button>
+                </p>
+                <div class="step-body">
                 <p class="hint">
                   Your agents read the kit from the main branch on GitHub. This
                   uploads only the kit's files; your idea and plan wait until you
@@ -1619,6 +1694,7 @@
                   </div>
                   <ul id="publish-way-out-steps"></ul>
                   <p class="hint" id="publish-way-out-status" role="status"></p>
+                </div>
                 </div>
               </div>
             </div>
@@ -1840,6 +1916,20 @@
         <p class="hint">
           Setup steps (install, publish, plan) need no agent; agents start only here.
         </p>
+        <div class="team-block" id="team-name-block" hidden>
+          <h3>Your name</h3>
+          <p class="hint">
+            Registering the reviewer is a human act: setup records it with your name, and remembers it for this project.
+          </p>
+          <div class="prepare-row">
+            <div>
+              <label class="field-label" for="team-name">Your name (lowercase, for example ana)</label>
+              <input type="text" id="team-name" maxlength="32" autocomplete="off" spellcheck="false" />
+            </div>
+            <button type="button" class="primary" id="team-name-save">Save name</button>
+          </div>
+          <p class="hint" id="team-name-status" role="status"></p>
+        </div>
         <div class="team-block" id="team-reviewer">
           <h3>1. Register the reviewer</h3>
           <p>
@@ -2066,6 +2156,7 @@
         }
         function openSection(section) {
           currentSection = section;
+          writeSaved(state.target, { section: section }); // UI-019: the tab survives a reload (B-14)
           el("setup-shell").hidden = section !== "setup";
           el("dashboard-shell").hidden = section !== "dashboard";
           el("open-setup").setAttribute(
@@ -2178,6 +2269,7 @@
             state.guidance ||
             {};
           if (
+            gone ||
             document.hidden ||
             document.body.dataset.profile !== "beginner" ||
             !state.installed ||
@@ -2266,7 +2358,7 @@
           try {
             drawPlan(await api("plan"));
           } catch (e) {
-            error(e.message);
+            if (!e.gone) error(e.message);
           }
         }
         function drawPlan(view) {
@@ -2354,6 +2446,7 @@
           el("approve-project").textContent = view.project;
           el("approve-publish").disabled = el("approve-name").value !== view.project;
           setPlanBusy(operationBusy());
+          drawDone(state);
         }
         // While the coding tool plans (4 to 8 minutes in the test rounds) the page shows how long and its last output line.
         var planClock = null;
@@ -2368,7 +2461,7 @@
           tickPlanProgress();
         }
         function tickPlanProgress() {
-          if (!planClock) return;
+          if (!planClock || gone) return;
           var seconds = Math.max(0, Math.floor((Date.now() - planClock.at) / 1000)),
             time = Math.floor(seconds / 60) + ":" + (seconds % 60 < 10 ? "0" : "") + (seconds % 60);
           el("plan-progress").hidden = false;
@@ -2402,6 +2495,7 @@
             }
             el("idea-overwrite-row").hidden = true;
             el("idea-overwrite").checked = false;
+            dropDrafts(["idea-text", "idea-audience", "idea-goal", "idea-length", "idea-team"]);
             await loadPlan();
             el("idea-status").textContent = UAKWorkspace.t("IDEA.md is saved. Next: create the plan.");
           });
@@ -2462,8 +2556,12 @@
         // The journey (UI-007): where the person is, from the server's state only; it stays visible above every view.
         function journeyStep(data) {
           if (!data || !data.installed) return "install";
+          var resume = data.resume || {};
+          // UI-019: before a check finishes, the step the project's Git shows; never Plan for an approved plan.
+          if (!data.checked && resume.step && resume.step !== "install") return resume.step;
           if (data.ready || data.team) return latestDashboard && (latestDashboard.tasks || []).some(function (t) { return t.state !== "AVAILABLE"; }) ? "progress" : "team";
-          if (["planning", "planned", "approving"].indexOf(data.phase) >= 0 || (data.guidance || {}).action === "plan") return "plan";
+          if (resume.plan_approved !== true &&
+              (["planning", "planned", "approving"].indexOf(data.phase) >= 0 || (data.guidance || {}).action === "plan")) return "plan";
           return "prepare";
         }
         // Whose identity signs (UI-007): the project's Git name/email and gh's login, as the server parsed them. On someone
@@ -2631,7 +2729,9 @@
             el("dashboard-frame").src = "/dashboard";
           sendDashboard();
         }
+        var dashboardTries = 0;
         async function loadDashboard() {
+          if (gone) return;
           // A request while one is in flight (e.g. a check just finished) loads again right after it.
           if (dashboardLoading) {
             dashboardAgain = true;
@@ -2659,21 +2759,31 @@
           );
           el("refresh-dashboard").disabled = true;
           dashboardLoading = true;
-          var target = state.target;
+          var target = state.target,
+            soon = false;
           try {
             var data = await api("dashboard");
             if (state.target === target) drawDashboard(data);
+            dashboardTries = 0;
           } catch (e) {
+            if (e.gone) {
+              el("dashboard-status").hidden = true; // the banner says it once
+              return;
+            }
+            // An operation that just ended may still be finishing (409): ask again shortly, a few times (UI-019).
+            soon = e.status === 409 && dashboardTries < 4;
+            if (soon) dashboardTries += 1;
             el("dashboard-status").hidden = false;
-            el("dashboard-status").textContent = UAKWorkspace.t(e.message);
+            // A check that is still running (409) ends by loading the dashboard again (render).
+            el("dashboard-status").textContent = UAKWorkspace.t(e.status === 409 ? "Checking your next steps" : e.message);
           } finally {
             dashboardLoading = false;
             el("refresh-dashboard").disabled = false;
             if (dashboardAgain && currentSection === "dashboard") {
               dashboardAgain = false;
               loadDashboard();
-            } else if (currentSection === "dashboard")
-              dashboardTimer = setTimeout(loadDashboard, 20000);
+            } else if (currentSection === "dashboard" && !gone)
+              dashboardTimer = setTimeout(loadDashboard, soon ? 1500 : 20000);
           }
         }
         function show(index, focus) {
@@ -2710,8 +2820,15 @@
             options.headers["Content-Type"] = "application/json";
             options.body = JSON.stringify(data);
           }
-          var response = await fetch("/api/" + path, options);
-          var body = await response.json();
+          var response, body;
+          try {
+            response = await fetch("/api/" + path, options);
+            body = await response.json();
+          } catch (e) {
+            throw serverLost(e); // no answer, or not setup's answer: setup has closed (UI-019)
+          }
+          if (response.status === 403 && /session expired/.test(String((body || {}).error || "")))
+            throw serverLost(body);
           if (!response.ok) {
             var failure = Error(
               body.error || "The action could not finish. Please retry.",
@@ -2769,6 +2886,7 @@
           "approve-publish": "Publishing…",
           "team-register": "Registering…",
           "team-roles": "Saving…",
+          "team-name-save": "Saving…",
         };
         // The background operation of each phase and the buttons that start it (the one pressed, or the first).
         var PHASE_BUTTONS = {
@@ -3047,6 +3165,255 @@
           return true;
         }
         // UI-018 feedback: end
+        // UI-019 resume: begin. Dylan's live run and the QA rounds of 2026-11-14 (A-F2, A-F3, A-F4, A-F8, A-F11, B-04,
+        // B-05, B-14): after a refresh, a restart or re-picking the project the page landed on Welcome or Prepare with
+        // empty forms, offered publishing and "Create the plan" for an approved plan, and a closed setup showed a raw
+        // "Failed to fetch" while polling forever. The server says where the project is (status.resume, from local Git);
+        // this block lands there, folds finished steps, keeps the tab and the drafts of a reload, and says once when setup
+        // has closed. Storage is per port (a restart is a new origin): it only helps a reload, never decides a step.
+        var SAVED_PREFIX = "uak-setup:v1:",
+          SAVED_DAYS = 7,
+          DRAFT_MAX = 20000,
+          DRAFT_FIELDS = ["human-name", "team-name", "schedule-start", "schedule-end", "schedule-zone", "idea-text",
+            "idea-audience", "idea-goal", "idea-length", "idea-team"],
+          GONE_TEXT = "Setup has closed: run the command again and open the new link.",
+          PROBE_DELAYS = [2000, 4000, 8000, 16000, 30000, 30000],
+          gone = false,
+          probeTries = 0,
+          probeTimer = null,
+          autoCheckedFor = "",
+          checkAuto = false,
+          landedFor = "",
+          draftTimer = null;
+        function savedKey(target) {
+          return SAVED_PREFIX + target;
+        }
+        // What a reload of this tab may restore for TARGET; {} for anything unexpected (old, foreign, another version).
+        function readSaved(target) {
+          if (!target) return {};
+          try {
+            var raw = localStorage.getItem(savedKey(target));
+            if (!raw) return {};
+            var saved = JSON.parse(raw);
+            if (!saved || typeof saved !== "object" || Array.isArray(saved) || saved.v !== 1 || saved.target !== target)
+              return {};
+            if (typeof saved.at !== "number" || Date.now() - saved.at > SAVED_DAYS * 864e5) return {};
+            if (saved.section !== undefined && ["setup", "dashboard"].indexOf(saved.section) < 0) return {};
+            var drafts = {};
+            if (saved.drafts && typeof saved.drafts === "object")
+              DRAFT_FIELDS.forEach(function (id) {
+                if (typeof saved.drafts[id] === "string") drafts[id] = saved.drafts[id].slice(0, DRAFT_MAX);
+              });
+            var out = { v: 1, target: target, at: saved.at, drafts: drafts };
+            if (saved.section) out.section = saved.section;
+            return out;
+          } catch (e) {
+            return {};
+          }
+        }
+        function writeSaved(target, patch) {
+          if (!target) return;
+          var saved = readSaved(target),
+            next = { v: 1, target: target, at: Date.now(), drafts: saved.drafts || {} };
+          if (saved.section) next.section = saved.section;
+          if (patch.section === "setup" || patch.section === "dashboard") next.section = patch.section;
+          Object.keys(patch.drafts || {}).forEach(function (id) {
+            var value = patch.drafts[id];
+            if (DRAFT_FIELDS.indexOf(id) < 0) return;
+            if (value === null || value === undefined || value === "") delete next.drafts[id];
+            else next.drafts[id] = String(value).slice(0, DRAFT_MAX);
+          });
+          try {
+            localStorage.setItem(savedKey(target), JSON.stringify(next));
+          } catch (e) {}
+        }
+        // Where the page opens: the server's step decides; a reload keeps the tab the person had chosen.
+        function landing(data, saved) {
+          data = data || {};
+          saved = saved || {};
+          if (!data.phase || data.phase === "welcome") return { section: "setup", panel: 0 };
+          if (data.phase === "options") return { section: "setup", panel: 2 };
+          if (!data.installed) return { section: "setup", panel: 4 };
+          var step = (data.resume || {}).step;
+          return {
+            section: saved.section || (step === "team" || step === "progress" ? "dashboard" : "setup"),
+            panel: 4,
+          };
+        }
+        // A step is done only on evidence (null: no local copy to read, never drawn as done).
+        function stepsDone(data) {
+          var resume = (data && data.resume) || {};
+          return {
+            name: !!(data && data.human),
+            schedule: resume.freeze > 0,
+            publish: resume.kit_on_main === true,
+            plan: resume.plan_approved === true,
+          };
+        }
+        function planningVisible(data) {
+          return !!data.installed && !data.ready && data.phase !== "installing" &&
+            (data.resume || {}).plan_approved !== true;
+        }
+        function shouldAutoCheck(data) {
+          return !!data && !!data.installed && !data.checked && !data.ready && !data.error && !isBusy(data.phase) &&
+            data.phase !== "installed" && !requestBusy && !gone &&
+            autoCheckedFor !== data.target + ":" + data.inspect;
+        }
+        function probeDelay(n) {
+          return PROBE_DELAYS[n];
+        }
+        // A field gets its draft back only when it is empty and not being typed in; a value from the server wins.
+        function restoreDrafts(saved) {
+          var drafts = (saved && saved.drafts) || {},
+            resume = (state && state.resume) || {};
+          Object.keys(drafts).forEach(function (id) {
+            var node = el(id);
+            if (!node || node.value || document.activeElement === node) return;
+            if ((id === "human-name" || id === "team-name") && state && state.human) return;
+            if (id.indexOf("idea-") === 0 && resume.idea) return;
+            node.value = drafts[id];
+          });
+        }
+        function saveDrafts() {
+          draftTimer = null;
+          var drafts = {};
+          DRAFT_FIELDS.forEach(function (id) {
+            var node = el(id);
+            if (node) drafts[id] = node.value || null;
+          });
+          writeSaved(state && state.target, { drafts: drafts });
+        }
+        function dropDrafts(ids) {
+          var drafts = {};
+          ids.forEach(function (id) {
+            drafts[id] = null;
+          });
+          writeSaved(state && state.target, { drafts: drafts });
+        }
+        DRAFT_FIELDS.forEach(function (id) {
+          var node = el(id);
+          if (!node) return;
+          node.addEventListener("input", function () {
+            clearTimeout(draftTimer);
+            draftTimer = setTimeout(saveDrafts, 300);
+          });
+        });
+        // The check runs by itself once per inspect (B-04): no focus move, no toast, no tab switch (A-F11).
+        function maybeAutoCheck(data) {
+          if (!shouldAutoCheck(data)) return;
+          autoCheckedFor = data.target + ":" + data.inspect;
+          startCheck(false);
+          lastButton = currentSection === "dashboard" ? "next-check" : "check";
+          checkAuto = true;
+          api("check", {}).then(
+            function () {
+              checkRequested = true;
+              return refresh();
+            },
+            function (e) {
+              checkAuto = false;
+              if (!e.gone && e.status === 400) failed(checkOwner(), e.message);
+            },
+          );
+        }
+        // Finished steps: one done line and a folded body (A-F4, A-F8). Unknown (null) keeps what is drawn.
+        function markDone(id, done, text) {
+          var step = el(id),
+            line = el(id.replace("-form", "").replace("-step", "") + "-done");
+          if (done === null || done === undefined) return;
+          if (done) step.setAttribute("data-done", "");
+          else {
+            step.removeAttribute("data-done");
+            step.removeAttribute("data-open");
+          }
+          line.hidden = !done;
+          el(line.id + "-text").textContent = done ? text : "";
+        }
+        function drawDone(data) {
+          var resume = data.resume || {},
+            done = stepsDone(data),
+            kit = planView && planView.kit_on_main === true ? true : resume.kit_on_main;
+          markDone("name-step", done.name, UAKWorkspace.format("Saved: {name}.", { name: data.human || "" }));
+          markDone("schedule-form", typeof resume.freeze === "number" ? done.schedule : null,
+            UAKWorkspace.format("Freeze set: {when}.", {
+              when: resume.freeze ? new Date(resume.freeze * 1000).toLocaleString(UAKWorkspace.language()) : "",
+            }));
+          markDone("publish-step", kit === true ? true : kit === false ? false : null,
+            UAKWorkspace.format("Published on main (commit {sha}).", { sha: resume.base_sha || "?" }));
+          var approved = !!data.installed && resume.plan_approved === true;
+          el("plan-done").hidden = !approved;
+          el("plan-done").textContent = approved
+            ? "✓ " + UAKWorkspace.format("Plan approved on main (commit {sha}).", { sha: resume.base_sha || "?" })
+            : "";
+        }
+        ["name", "schedule", "publish"].forEach(function (name) {
+          var button = el(name + "-reopen");
+          if (!button) return;
+          button.onclick = function () {
+            var step = el(name === "schedule" ? "schedule-form" : name + "-step");
+            step.setAttribute("data-open", "");
+            var first = step.querySelector(".step-body input, .step-body button");
+            if (first) first.focus();
+          };
+        });
+        // Setup has closed (A-F3): one translated banner, nothing left busy, a few probes that back off, then stop.
+        function serverLost(e) {
+          if (!gone) {
+            gone = true;
+            el("server-gone-text").textContent = UAKWorkspace.t(GONE_TEXT);
+            el("server-gone").hidden = false;
+            clearTimeout(timer);
+            timer = null;
+            clearTimeout(dashboardTimer);
+            dashboardTimer = null;
+            Object.keys(BUSY_LABEL).forEach(function (id) {
+              if (el(id)) setBusy(el(id), false);
+            });
+            Object.keys(PHASE_BUTTONS).forEach(function (phase) {
+              PHASE_BUTTONS[phase].forEach(function (id) {
+                if (el(id)) setBusy(el(id), false);
+              });
+            });
+            probeTries = 0;
+            scheduleProbe();
+          }
+          var lost = Error(UAKWorkspace.t(GONE_TEXT));
+          lost.gone = true;
+          lost.cause = e;
+          return lost;
+        }
+        function scheduleProbe() {
+          clearTimeout(probeTimer);
+          probeTimer = null;
+          var delay = probeDelay(probeTries);
+          if (delay === undefined) return;
+          probeTries += 1;
+          probeTimer = setTimeout(probe, delay);
+        }
+        function probe() {
+          clearTimeout(probeTimer);
+          probeTimer = null;
+          return api("status").then(serverBack, function () {
+            if (gone) scheduleProbe();
+          });
+        }
+        function serverBack(data) {
+          if (!gone) return;
+          gone = false;
+          probeTries = 0;
+          clearTimeout(probeTimer);
+          probeTimer = null;
+          el("server-gone").hidden = true;
+          render(data);
+          if (isBusy(data.phase)) refresh();
+        }
+        el("server-gone-retry").onclick = function () {
+          probe();
+        };
+        document.addEventListener("visibilitychange", function () {
+          if (gone && !document.hidden && !probeTimer) probe();
+        });
+        // UI-019 resume: end
         function profile(value) {
           document.body.dataset.profile = value;
           el("profile").value = value;
@@ -3257,6 +3624,8 @@
           teamView = view;
           var reviewer = view.registered || {};
           el("team-step").hidden = false;
+          el("team-name-block").hidden = true;
+          el("team-reviewer").hidden = false;
           el("team-reviewer-name").textContent = view.reviewer;
           el("team-register").textContent = UAKWorkspace.format("Register {name}", { name: view.reviewer });
           // Unknown (offline) or retired: no Register button and no claim about the reviewer's state.
@@ -3306,23 +3675,66 @@
           drawNext(guide);
           drawAdvancedNext(guide);
         }
+        // UI-019: the team step asks for what it needs (the name, A-F2) instead of hiding; only these blocks show then.
+        function teamAsk(need, message) {
+          el("team-step").hidden = false;
+          ["team-reviewer", "team-roles", "team-implement", "team-review", "team-claimed-block", "team-note-actions",
+            "team-review-note"].forEach(function (id) {
+            el(id).hidden = true;
+          });
+          el("team-name-block").hidden = need !== "human";
+          el("team-note").hidden = need === "human";
+          el("team-note").textContent = need === "human" ? "" : UAKWorkspace.t(message);
+          if (need === "human") {
+            el("team-name-status").textContent = UAKWorkspace.t(message);
+            if (!el("team-name").value) el("team-name").value = el("human-name").value || "";
+          }
+        }
+        var teamTries = 0;
         async function loadTeam() {
-          if (!state.ready && !state.team) {
+          var step = (state.resume || {}).step;
+          if (gone) return;
+          if (!state.ready && !state.team && step !== "team" && step !== "progress") {
             el("team-step").hidden = true;
             return;
           }
           try {
             drawTeam(await api("team"));
+            teamTries = 0;
           } catch (e) {
-            // Only a refusal (400) hides the step; a busy server or a network error keeps what is drawn.
-            if (e.status === 400) {
+            var need = (e.body || {}).need;
+            if (e.gone) return;
+            // A refusal (400) says what it needs, or hides the step; a busy server or a network error keeps what is drawn.
+            if (e.status === 400 && need === "human") teamAsk("human", e.message);
+            else if (e.status === 400 && need === "check" && (!state.checked || isBusy(state.phase)))
+              teamAsk("check", "Checking your project…");
+            else if (e.status === 400) {
               el("team-step").hidden = true;
-            } else if (!el("team-step").hidden) {
-              el("team-note").hidden = false;
-              el("team-note").textContent = UAKWorkspace.t(e.message);
+            } else {
+              // The operation that just ended may still be finishing: ask again shortly, a few times.
+              if (e.status === 409 && teamTries < 3) {
+                teamTries += 1;
+                setTimeout(loadTeam, 1500);
+              }
+              if (!el("team-step").hidden) {
+                el("team-note").hidden = false;
+                el("team-note").textContent = UAKWorkspace.t(e.message);
+              }
             }
           }
         }
+        el("team-name-save").onclick = function () {
+          var name = el("team-name").value.trim().toLowerCase();
+          action(this, async function () {
+            var answer = await api("human", { name: name });
+            humanNote = answer.note || "";
+            el("team-name-status").textContent = humanNote ? UAKWorkspace.t(humanNote) : "";
+            el("human-name").value = name;
+            dropDrafts(["team-name", "human-name"]);
+            await refresh();
+            await loadTeam();
+          });
+        };
         window.addEventListener("uak:language", function () {
           if (teamView && !el("team-step").hidden) drawTeam(teamView);
         });
@@ -3434,13 +3846,16 @@
               state = await api("inspect", { target: el("target").value });
               if (previousTarget !== state.target) {
                 latestDashboard = null;
+                planView = null;
+                teamView = null;
+                teamFor = "";
                 el("dashboard-frame").removeAttribute("src");
                 el("beginner-dashboard").hidden = true;
                 el("dashboard-frame").hidden = true;
               }
               if (state.installed || state.can_repair) {
-                show(4);
-                render(state);
+                // UI-019 (B-05): re-picking lands where the project is, with its kept check.
+                landOn(state, landing(state, readSaved(state.target)), true);
               } else {
                 document
                   .querySelectorAll("input[name=mode]")
@@ -3456,6 +3871,8 @@
               el("target-error").textContent = e.message;
               el("target").focus();
             }
+          }).then(function () {
+            maybeAutoCheck(state);
           });
         };
         el("workflow-form").onsubmit = function (event) {
@@ -3576,7 +3993,10 @@
         }
         function drawPrepare(data) {
           var g = data.guidance || {},
-            show = !!data.installed && !data.ready && data.phase !== "installing";
+            done = stepsDone(data),
+            show = !!data.installed && !data.ready && data.phase !== "installing" &&
+              (planningVisible(data) || !(done.name && done.schedule && done.publish) ||
+                g.action === "schedule" || g.action === "publish");
           el("prepare").hidden = !show;
           ["name-step", "schedule-form", "publish-step"].forEach(function (id) {
             el(id).classList.remove("current");
@@ -3584,10 +4004,15 @@
           if (g.action === "schedule") el("schedule-form").classList.add("current");
           if (g.action === "publish") el("publish-step").classList.add("current");
           if ((g.action === "schedule" || g.action === "publish") && !data.human) el("name-step").classList.add("current");
+          // The step the gate asks for stays open even when it looks done (UI-019).
+          ["name-step", "schedule-form", "publish-step"].forEach(function (id) {
+            if (el(id).classList.contains("current")) el(id).setAttribute("data-open", "");
+          });
+          drawDone(data);
           if (document.activeElement !== el("human-name"))
             el("human-name").value = data.human || el("human-name").value || storedHuman();
           el("human-status").textContent = data.human
-            ? UAKWorkspace.format("Saved: {name}.", { name: data.human })
+            ? UAKWorkspace.format("Saved: {name}.", { name: data.human }) + (humanNote ? " " + UAKWorkspace.t(humanNote) : "")
             : "";
           // The dates are never guessed (UI-010): the fields stay empty until the person chooses them.
           if (!el("schedule-zone").value) {
@@ -3628,10 +4053,13 @@
         el("human-save").onclick = function () {
           var name = el("human-name").value.trim().toLowerCase();
           action(this, async function () {
-            await api("human", { name: name });
+            var answer = await api("human", { name: name });
+            humanNote = answer.note || "";
             try {
               localStorage.setItem("uak-human", name);
             } catch (e) {}
+            dropDrafts(["human-name", "team-name"]);
+            el("name-step").removeAttribute("data-open");
             await refresh();
           });
         };
@@ -3665,6 +4093,8 @@
               // The engine writes the weekday in English ("Fri 03:30"), in the event's zone (UI-012, r1).
               { freeze: UAKWorkspace.when(result.freeze), first: UAKWorkspace.when(result.first_claim || "-") },
             );
+            dropDrafts(["schedule-start", "schedule-end", "schedule-zone"]);
+            el("schedule-form").removeAttribute("data-open");
             startCheck(false);
             await api("check", {});
             checkRequested = true;
@@ -3705,6 +4135,7 @@
               throw e;
             }
             el("publish-confirm").hidden = true;
+            el("publish-step").removeAttribute("data-open");
             await refresh();
           });
         };
@@ -3747,9 +4178,23 @@
             await refresh();
           });
         };
+        var humanNote = "";
         function render(data) {
           var previous = state.phase;
           state = data;
+          // Another tab re-picked a project on this server: land on it here too (UI-019).
+          if (landedFor && data.target && data.target !== landedFor) {
+            planView = null;
+            teamView = null;
+            latestDashboard = null;
+            teamFor = "";
+            setTimeout(function () {
+              landOn(state, landing(state, readSaved(state.target)), false);
+            }, 0);
+          }
+          landedFor = data.target || landedFor;
+          // The check goes first, before any view that may probe the coding tools (UI-019).
+          maybeAutoCheck(data);
           var busy = isBusy(data.phase);
           el("status-heading").classList.toggle("working", busy);
           el("status-icon").textContent = statusIcon(data);
@@ -3795,7 +4240,7 @@
               : "Check what’s next"
             : "Review choices");
           // Planning shows while the kit is installed and the project is not ready yet.
-          el("planning").hidden = !data.installed || !!data.ready || data.phase === "installing";
+          el("planning").hidden = !planningVisible(data); // never "Create the plan" for an approved plan (B-04)
           drawPrepare(data);
           if (!el("planning").hidden && !isBusy(data.phase) && (previous === "planning" || previous === "publishing" || planFor !== data.target)) {
             planFor = data.target;
@@ -3822,12 +4267,17 @@
             if (previous === "checking" || checkRequested) {
               if (data.error) failed(checkOwner(), data.error);
               else report(checkOwner(), checkSummary(checkBefore, data, new Date()));
-              var control = pointAfterCheck && !data.ready && currentSection === "setup" ? nextControl(data) : "";
+              var control = pointAfterCheck && !checkAuto && !data.ready && currentSection === "setup" ? nextControl(data) : "";
               pointAfterCheck = false;
               if (control) setTimeout(function () { pointTo(control); }, 0);
             }
             checkRequested = false;
-            if (data.ready || currentSection === "dashboard") {
+            // A check the page ran by itself never switches the tab or moves focus (A-F11): the landing chose it.
+            var automatic = checkAuto;
+            checkAuto = false;
+            if (automatic) {
+              if (currentSection === "dashboard") loadDashboard();
+            } else if (data.ready || currentSection === "dashboard") {
               var moved = currentSection !== "dashboard";
               openSection("dashboard");
               loadDashboard();
@@ -3851,16 +4301,40 @@
         }
         async function refresh() {
           if (timer) clearTimeout(timer);
+          if (gone) return;
           try {
             var data = await api("status");
             render(data);
             if (isBusy(data.phase))
               timer = setTimeout(refresh, 1200);
           } catch (e) {
+            if (e.gone) return; // the banner says it once (UI-019)
             error(
               "Lost connection to setup. Keep the terminal open, then reload the original address printed there. " +
                 e.message,
             );
+          }
+        }
+        // Apply a landing (UI-019): the panel, then the section; the dashboard loads when it is the one shown.
+        function landOn(data, where, focus) {
+          landedFor = data.target || "";
+          if (where.panel === 2) {
+            el("selected-project").textContent = data.target;
+            show(2, false);
+          } else if (where.panel === 4) {
+            show(4, focus === true ? undefined : false);
+            // The section first, so a check the page starts by itself shows in the button the person sees.
+            if (where.section === "dashboard") openSection("dashboard");
+            render(data);
+            if (isBusy(data.phase)) refresh();
+          }
+          if (where.section === "dashboard") {
+            openSection("dashboard");
+            // A check the page just started loads the dashboard when it ends (render); asking now only meets a 409.
+            if (checkAuto) {
+              el("dashboard-status").hidden = false;
+              el("dashboard-status").textContent = UAKWorkspace.t("Checking your next steps");
+            } else loadDashboard();
           }
         }
         api("status")
@@ -3871,19 +4345,15 @@
             drawJourney();
             showDemo(data.demo);
             el("target").value = data.target || "";
-            if (data.phase === "options") {
-              el("selected-project").textContent = data.target;
-              show(2, false);
-            } else if (data.phase !== "welcome") {
-              show(4, false);
-              render(data);
-              if (isBusy(data.phase))
-                refresh();
-            }
-            if (stay) openSection("dashboard");
+            var saved = readSaved(data.target),
+              where = landing(data, saved);
+            if (stay && where.panel) where.section = "dashboard";
+            landOn(data, where, false);
+            if (stay && !where.panel) openSection("dashboard");
+            restoreDrafts(saved);
           })
           .catch(function (e) {
-            error(e.message);
+            if (!e.gone) error(e.message);
           })
           .then(function () {
             // The panel shows once it knows which step is current: no welcome screen flashing first (UI-018).

@@ -9,6 +9,13 @@ Guide: [docs/DASHBOARD.md](docs/DASHBOARD.md).
 - **Light CI on pull requests (UAK-090).** Pull requests run the Ubuntu suite and the Windows per-file job; main and
   workflow_dispatch keep macOS. Approved PRs #19-#21 waited hours for macOS arm64 runners GitHub could not provide.
 
+- **Coming back to a project restores where you were (UI-019).** A restart on an installed project opens on its furthest
+  real step from local Git (the team step for an approved plan), finished Prepare steps fold into a done line, an
+  approved plan is never offered again, the readiness check runs by itself once per inspect, re-picking keeps the last
+  check (10 min), a reload keeps the tab and drafts, the name is remembered per project in `.git/uak-setup/human.json`
+  and the team step asks for it inline (`/api/team` 400s now say `need`), and a closed setup shows one translated
+  banner and backs off instead of polling forever. Evidence: Dylan's live run and QA rounds of 2026-11-14.
+
 - **The setup page says what it is doing (UI-018).** Every request shows a busy label and spinner inside its button and a
   result line next to it ("Checked at 21:04 · nothing changed · 2 things to do"); a blocked button shows not-allowed
   and its reason instead of the wait cursor, and a click on it opens a dismissible notice with **Go there**; the page
@@ -56,6 +63,44 @@ Tests and docs
   needs this machine's new totals on claims and reports a recorded publish failure first. The engine is unchanged.
 - **Journey tests and docs** (UI-003): `test_dashboard_journey.py`; `docs/DASHBOARD.md`; the spec with the test behind
   each guarantee in `docs/specs/dashboard-onboarding/spec.md`.
+
+## v6.4.0 · 2026-11-16 · Six variants that are not the same landing
+
+colonIA's second round bred six heroes from the human's two picks, and the human said it in one line: "todos son
+iguales". All six put the headline on the left and a hex map on the right, and R1/v1's papel picado (the identity the
+human loved) was gone, because no gene carried it and TASK.md told every child to "keep the rest of the parent's look".
+Five tasks (UAK-082 … UAK-086), each test-first, reviewed by an agent that was not its author, and merged with the full
+suite. Bred again with the creativity index at 4, the round scored 54/100 (R2: 27), and the human closed it with
+three picks: "deternos aquí ya es perfecto".
+
+What a round now carries
+- **A creativity index** 1-5 (`Design-Creativity` in PROJECT.md, `uak design round --creativity N`; default 3, UAK-084).
+  Every variant gets a hero `composition` (poster, full-bleed + bottom band, stage left / copy right, monument, number
+  grid, diagonal, frame…) and a `motif`, the page's one identity idea, from families that do not depend on the domain
+  (a craft of the place, an everyday object, a typographic poster, cartography, documentary photography, an
+  illustrated character, a specimen sheet, signage). Siblings get distinct ones; at 3+ a child leaves its parent's
+  composition unless the human's note praises the layout.
+- **A praised motif survives breeding**: the child keeps the parent's motif, quoted from its `<!-- motif: -->` comment,
+  even when the parent predates motifs; "too many objects" in the note keeps the motif and cuts the objects. At 3+ TASK.md
+  no longer pulls the child back to the parent's layout (UAK-085).
+- **Clone warnings and a score**: the capture records each hero's signature at 1920 (headline box plus the visual mass
+  measured in the screenshot, text masked, color ignored) and `uak design shoot` flags siblings that came out the same
+  and scores the round 0-100 (calibrated on the real R2: 27, four clones).
+- **Bred rounds keep what was picked**: the picked palettes, distinct display faces across siblings, and at most
+  `Design-Max-WebGL` (default 2) three.js stages per round (UAK-083).
+
+What the capture does
+- `uak design shoot --again` re-shoots captured variants; a missing Python Playwright prints the install line (UAK-083).
+- Screenshots are taken before the long QA pass, with full-page timeouts that grow with the page (≥ 90 s); a timeout
+  names the viewport and keeps the others and `qa.json`; a `.shoot.lock` in the round folder serializes agents that shoot
+  at once (UAK-086; colonIA R3/v4 lost its 390 capture five times).
+
+Fixed
+- test_tokens_coverage no longer fails on Windows CI with WinError 32: it waits for each hook's own publish and retries
+  the cleanup (UAK-082).
+
+Design prior (regenerated): 1 profile, 2 projects, 6 rounds, 12 picks → imagery (3D cut-out), layout (scroll story),
+motion (entrance; scroll below 1).
 
 ## v6.3.0 · 2026-11-13 · A design taste the kit learns, and ships to everyone
 

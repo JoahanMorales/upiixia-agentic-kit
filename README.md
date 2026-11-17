@@ -406,6 +406,12 @@ palettes built with harmony rules (`uak design palettes`, no agents), and budget
 Captures at 1920 flag narrow pages, distorted images, heavy frames, dense heroes and palette drift, and `uak design report`
 shows tokens and minutes per round.
 
+**v6.4: six variants that are not the same landing.** A creativity index (`--creativity 1-5`) gives every variant its own
+hero composition and one identity motif; a motif the human praised survives breeding, quoted from the parent's page.
+`uak design shoot` measures each hero's geometry, flags siblings that came out the same and scores the round 0-100
+(colonIA: 27 → 54). Bred rounds keep the picked palettes, distinct faces and a cap on three.js stages, and captures no
+longer lose a viewport to a slow page.
+
 ## Deploy in one command: `uak deploy`
 
 ```text
