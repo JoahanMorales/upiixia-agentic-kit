@@ -340,7 +340,10 @@ def child_task(rnd_name, i, genome, notes, parents, all_picks):
     if not said:
         lines.append("- (no notes)")
     if genome["kind"] == "mutation":
-        lines.append("Only the gene `%s` changed from the parent; keep the rest of the parent's look." % genome["mutated"])
+        if (genome.get("creativity") or 0) >= 3:
+            lines.append("Only the gene `%s` changed from the parent; the other genes are kept, but the composition and motif above replace the parent's hero layout." % genome["mutated"])
+        else:
+            lines.append("Only the gene `%s` changed from the parent; keep the rest of the parent's look." % genome["mutated"])
     elif genome["kind"] == "crossover":
         lines.append("Genes taken from: " + ", ".join("%s <- %s" % (g, genome["taken"][g]) for g in GENES))
     return text + "\n".join(lines) + "\n"
@@ -414,6 +417,7 @@ def _distinct_display_faces(children, root, seed):
 
 def run(argv):
     src, n, seed, dry, yes = None, DEFAULT_N, 1, False, False
+    creativity = None
     args = list(argv[1:] if argv[:1] == ["round"] else argv)
     it = iter(args)
     try:
@@ -428,13 +432,17 @@ def run(argv):
                 dry = True
             elif a == "--yes":
                 yes = True
+            elif a == "--creativity":
+                creativity = int(next(it))
+                if not 1 <= creativity <= 5:
+                    raise ValueError(a)
             elif a == "--screen":
                 if next(it) != "landing":
                     raise ValueError(a)
             else:
                 raise ValueError(a)
     except (StopIteration, ValueError):
-        print("Usage: design round --from R<k> [--n N] [--seed S] [--dry-run] [--yes]", file=sys.stderr)
+        print("Usage: design round --from R<k> [--n N] [--seed S] [--creativity 1-5] [--dry-run] [--yes]", file=sys.stderr)
         return 2
     if not src or not re.match(r"^R\d+$", src) or not 1 <= n <= MAX_N:
         print("design round --from: R<k> and --n 1..%d required" % MAX_N, file=sys.stderr)
@@ -476,6 +484,15 @@ def run(argv):
     import design_fonts  # UAK-071: a child keeps its parent's font pair unless `type` mutated
     design_fonts.inherit(children, {p["ref"]: {"genes": p["genes"], "fonts": (_read(sdir / p["ref"].split("/", 1)[1] / "genome.json") or {}).get("fonts")} for p in picks}, seed)
     _distinct_display_faces(children, root, seed)
+    import design_creativity  # UAK-084: a composition and a motif per child; a praised parent's motif is kept, quoted from its page
+    level = design_creativity.creativity(cfg(root, "Design-Creativity", ""), creativity)
+    parent_info = {}
+    for p in picks:
+        pid = p["ref"].split("/", 1)[1]
+        pg = _read(sdir / pid / "genome.json") or {}
+        parent_info[p["ref"]] = {"composition": pg.get("composition"), "motif": pg.get("motif"),
+                                 "motif_text": design_creativity.read_motif(sdir / pid / "index.html") or (pg.get("motif") or {}).get("text")}
+    design_creativity.assign(children, level, seed, parent_info, {"%s/%s" % (src, k): v for k, v in pick_notes.items()})
     import design_color  # the human's picked palettes, as a fresh round applies them; the color gene agrees with the palette's ground
     pals, pal_note = design_color.picked_palettes(root)
     if pals:
