@@ -108,6 +108,20 @@ right (full width at the bottom on a phone) with what to do next and **Go there*
 hides by itself, but not while the pointer or the keyboard focus is on it. Polling never hides or rebuilds sections, so
 the page does not jump while a check runs. Everything follows the page's language and the reduced-motion setting.
 
+## Coming back to a project
+
+Setup restores where the project is, from the project's own Git (never the network): run the command again on an
+installed project and the page opens on the furthest real step (the team step once the plan is approved on main), not
+on Welcome. Finished Prepare steps show one done line ("Published on main (commit 9e6debb).") with **Change** to open
+them again, and an approved plan is never offered again ("Plan approved on main (commit …)."). The readiness check runs
+by itself once after you open or re-pick a project, without switching tabs or moving the focus; `uak start` stays the
+only gate. Your name is remembered per project in `.git/uak-setup/human.json` (never committed, shared by the
+project's worktrees); if it is missing, the team step asks for it there. Re-picking the same project within ten minutes
+keeps its last check. A reload keeps the tab you had open and what you were typing (in this browser only; a restart is
+a new address, so only the project's Git carries over). If setup closes, the page says once, in your language, "Setup
+has closed: run the command again and open the new link.", stops every button that was waiting, and asks a few more
+times (2, 4, 8, 16, 30, 30 s) before it stops; **Retry** asks once more.
+
 ## Beginner and Advanced
 
 A choice of presentation, kept in your browser only. It never changes permissions, the mode or any gate.
