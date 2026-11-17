@@ -26,6 +26,11 @@ TASKS = """## APP-001 · Core
 STRIPPED = 'for v in $(env | sed -n "s/^\\(UAK_[A-Za-z0-9_]*\\)=.*/\\1/p"); do unset "$v"; done; exec bash .uak/bin/start "$@"'
 
 
+def q(path):
+    """A path as start's hints print it: quoted when it has a space (CI runs under a temp dir with one)."""
+    return '"%s"' % path if " " in path else path
+
+
 def kit_github(r, name):
     """A bare "kit GitHub" holding this kit (install.sh and kit/) with one old release; the test tags a newer one when
     it needs it."""
@@ -111,7 +116,7 @@ def update_hint_names_the_installing_kit(r):
     # What the install records for this checkout (local Git config: per clone, never committed).
     r.g(t, "config", "uak.kitHome", installer.as_posix())
     out = start()
-    expect(installer.as_posix() + "/install.sh" in out.stdout and "git -C " + installer.as_posix() + " pull --ff-only" in out.stdout,
+    expect(q(installer.as_posix()) + "/install.sh" in out.stdout and "git -C " + q(installer.as_posix()) + " pull --ff-only" in out.stdout,
            "the hint names the installing kit: " + out.stdout)
     expect(other.as_posix() not in out.stdout and "~/.uak-kit" not in out.stdout, "never the other clone: " + out.stdout)
     r.g(t, "config", "--unset", "uak.kitHome")
@@ -136,7 +141,7 @@ def install_records_the_kit_clone(r):
     release(r, kit_src, kit_bare, "99.0.0")
     out = start()
     expect(out.returncode == 0 and "START READY" in out.stdout, "READY with a newer release: " + out.stdout)
-    expect('git -C "' + recorded + '" pull --ff-only' in out.stdout and 'bash "' + recorded + '/install.sh" --mode marathon --update' in out.stdout,
+    expect('git -C "' + recorded + '" pull --ff-only' in out.stdout and 'bash "' + recorded + '"/install.sh --mode marathon --update' in out.stdout,
            "the hint names the recorded clone, quoted: " + out.stdout)
     expect(".uak-kit" not in out.stdout, "never ~/.uak-kit: " + out.stdout)
     git("config", "--unset", "uak.kitHome")

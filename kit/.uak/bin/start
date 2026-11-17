@@ -64,7 +64,7 @@ tag=$(GIT_TERMINAL_PROMPT=0 git -C "$tags_dir" -c http.lowSpeedLimit=1000 -c htt
 pull=
 # A path with a space is quoted in the hints, so they still paste (uak.kitHome can be any folder).
 qh=$kit_home qi=$kit_home/install.sh
-case "$kit_home" in *' '*) qh="\"$kit_home\"" qi="\"$kit_home/install.sh\"";; esac
+case "$kit_home" in *' '*) qh="\"$kit_home\"" qi="\"$kit_home\"/install.sh";; esac
 if [ -n "$tag" ] && [ "$(vnum "$tag")" -gt "$(vnum "${newest:-0.0.0}")" ]; then
   newest=$tag where="the kit's GitHub"
   if [ -z "$kit_home" ]; then :
