@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # uak deploy: read the project, say how it deploys, and with --write create the files for it. Bash 3.2+.
 #   deploy [--write] [--disk PATH]
-# Detects FastAPI (+ React in web/), Django, Next.js, a static Vite or Expo web build, Go, Spring Boot and Streamlit,
+# Detects FastAPI (+ React in web/), Django, Next.js, a static Vite or Expo web build, Go, Spring Boot, Streamlit and a
+# plain Python standard-library server (python-stdlib: server.py or <pkg>/server.py),
 # then proposes ONE service on Render (Blueprint, Docker) or Vercel for Next.js. --write creates Dockerfile,
 # .dockerignore and render.yaml, never over a file that exists (it writes FILE.uak-new beside it). Secrets: only
 # the variable NAMES from .env.example go into render.yaml (sync: false, set in the dashboard); .env is never read.
@@ -42,7 +43,53 @@ elif [ -f pom.xml ] || [ -f build.gradle ] || [ -f build.gradle.kts ]; then stac
 elif [ -f app.json ] && has '"expo"' app.json; then stack=expo
 elif [ -f package.json ] && has '"vite"' package.json; then stack=vite
 fi
-[ -n "$stack" ] || { printf 'DEPLOY: no known stack here (FastAPI, Django, Next.js, Streamlit, Go, Spring Boot, Expo, Vite)\n'; exit 1; }
+# Plain Python (UAK-095): a standard-library server, run as `python3 -m <pkg>.server` or `python3 server.py`. Why (QA
+# round C): deploy said "no known stack" for one, and the agent hand-wrote a Dockerfile that copied a missing web/.
+pyfiles() { find . -maxdepth 3 -name '*.py' -not -path './.*' -not -path '*/node_modules/*' -not -path '*/venv/*' \
+  -not -path '*/tests/*' -not -path '*/test/*' -not -name 'test_*' -not -name '*_test.py' -not -path './*-wt/*' 2>/dev/null; }
+servers() { # rank PATH per stdlib server file; a case inside $(...) trips Bash 3.2's parser, so it lives here
+  pyfiles | while IFS= read -r f; do
+    grep -qsE '(http\.server|wsgiref|socketserver)' "$f" && grep -qs '__main__' "$f" || continue
+    case "$f" in ./server.py) r=1;; ./*/server.py) r=2;; */server.py) r=3;; */__main__.py) r=4;; *) r=5;; esac
+    printf '%s %s\n' "$r" "${f#./}"
+  done
+}
+if [ -z "$stack" ]; then
+  entry=$(servers | sort | head -n 1 | cut -d ' ' -f 2-)
+  if [ -n "$entry" ]; then
+    stack=python-stdlib
+    mod=${entry%.py}; mod=${mod%/__main__}; mod=$(printf '%s' "$mod" | tr '/' '.')
+    case "$entry" in
+      */*) if printf '%s\n' "$mod" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*([.][A-Za-z_][A-Za-z0-9_]*)*$'; then
+             run="python3 -m $mod" cmd="\"python3\", \"-m\", \"$mod\""
+           else run="python3 $entry" cmd="\"python3\", \"$entry\""; fi;;
+      *) run="python3 $entry" cmd="\"python3\", \"$entry\"";;
+    esac
+    p=$(grep -E 'PORT' "$entry" | grep -oE '[0-9]{4,5}' | head -n 1); [ -z "$p" ] || port=$p
+    case "$entry" in */*) hdir=${entry%/*};; *) hdir=$entry;; esac
+    health=$(grep -rhoE --include='*.py' "[\"'](/api)?/health[a-z]*[\"']" "$hdir" 2>/dev/null | head -n 1 | tr -d "\"'")
+    if ! grep -qs PORT "$entry" || ! grep -qsF 0.0.0.0 "$entry"; then notes="$notes
+- make $entry listen on 0.0.0.0:\$PORT (port = int(os.environ.get(\"PORT\", $port))): the host sends traffic there"
+    fi
+    pyver=$(sed -n '1s/^[^0-9]*\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' .python-version 2>/dev/null)
+    [ -f requirements.txt ] || ! grep -qsE '^dependencies *= *\[ *["'"'"']' pyproject.toml || notes="$notes
+- list the runtime packages in requirements.txt: the image installs requirements.txt only"
+  fi
+fi
+if [ -z "$stack" ]; then
+  if [ -n "$(pyfiles | head -n 1)" ]; then
+    printf '%s\n' 'DEPLOY: no known stack here: Python files, but no web server to start. Add server.py (or <pkg>/server.py)' \
+      'that serves http.server on 0.0.0.0:$PORT under if __name__ == "__main__", or a pyproject.toml with fastapi or' \
+      'streamlit; then run uak deploy again.'
+  else
+    printf '%s\n' 'DEPLOY: no known stack here; add the piece your app is missing, then run uak deploy again:' \
+      '  - Python: pyproject.toml with fastapi or streamlit, manage.py (Django), or server.py (or <pkg>/server.py) that' \
+      '    serves http.server on 0.0.0.0:$PORT' \
+      '  - JavaScript: package.json with next or vite; app.json with expo' \
+      '  - Go: go.mod · Java (Spring Boot): pom.xml or build.gradle'
+  fi
+  exit 1
+fi
 # Variable names from .env.example (never .env): set them in the host's dashboard.
 envs=$(for f in .env.example web/.env.example; do [ -f "$f" ] && sed -n 's/^[[:space:]]*\(export[[:space:]]*\)\{0,1\}\([A-Za-z_][A-Za-z0-9_]*\)=.*/\2/p' "$f"; done | grep -v '^PORT$' | awk '!seen[$0]++')
 vite_envs=$(printf '%s\n' $envs | grep '^VITE_' || true)
@@ -53,6 +100,7 @@ case "$stack" in
   *) target="Render (Blueprint, one Docker web service)";;
 esac
 printf 'DEPLOY %s · target %s · port $PORT (default %s)%s\n' "$stack" "$target" "$port" "${health:+ · health $health}"
+[ "$stack" != python-stdlib ] || printf 'DEPLOY start: %s (from %s)\n' "$run" "$entry"
 [ -z "$envs" ] || printf 'DEPLOY env (names from .env.example; values go in the dashboard, never in git): %s\n' "$(printf '%s ' $envs)"
 [ -z "$disk" ] || printf 'DEPLOY disk: %s persists across deploys (Render: a paid plan; free instances lose local files)\n' "$disk"
 [ -z "$notes" ] || printf 'DEPLOY to do:%s\n' "$notes"
@@ -95,6 +143,11 @@ dockerfile() {
       printf '%s\n' '# Built by uak deploy: Spring Boot (Java 21).' 'FROM eclipse-temurin:21-jdk AS build' 'WORKDIR /src' 'COPY . .' "$build" '' \
         'FROM eclipse-temurin:21-jre' "COPY --from=build /src/$jar /app/app.jar" 'ENV PORT=8080' 'EXPOSE 8080' \
         'CMD ["sh", "-c", "java -Dserver.port=${PORT} -jar /app/app.jar"]';;
+    python-stdlib)
+      printf '%s\n' "# Built by uak deploy: a plain Python app ($entry). The server listens on 0.0.0.0:\$PORT." \
+        "FROM python:${pyver:-3.12}-slim" 'ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1' 'WORKDIR /app'
+      [ ! -f requirements.txt ] || printf '%s\n' 'COPY requirements.txt ./' 'RUN pip install --no-cache-dir -r requirements.txt'
+      printf '%s\n' 'COPY . .' "ENV PORT=$port" "EXPOSE $port" "CMD [$cmd]";;
   esac
 }
 blueprint() {
