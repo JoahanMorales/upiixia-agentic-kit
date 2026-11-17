@@ -17,6 +17,7 @@ UAK-063: a new project's round is seeded by the human's taste profile (design_ta
 values the project has no material for are drawn less) and each genome.json records "why" per gene.
 Why (F0, Nov 11 2026): the kit's frontends scored 2.8 / 5 because every variant of an agent looks alike; variety has to
 be forced by the tool, not hoped for. Python 3.8+ standard library only; no network, no browser unless `shoot`."""
+import contextlib
 import hashlib
 import json
 import math
@@ -27,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 STILL = "still (no animation)"
@@ -636,6 +638,9 @@ def task_text(rnd, i, genome, screen):
         lines += ["- palette: **%s** (roles and exact hex below; they replace the color gene's colors)" % genome["palette"]["name"]]
     elif genome.get("brand"):
         lines += ["- project colors: %s (`../brief.md` > Brand colors; the color gene is built from them)" % " ".join(genome["brand"])]
+    if genome.get("composition") or genome.get("motif"):
+        import design_creativity
+        lines += design_creativity.task_lines(genome)
     lines += ["- recipe: **%s** (use that skill's method for the look)" % genome["recipe"], "",
               "## Bounds (same as landing-story; they override any size in MotionSites examples or craft.md)",
               "- Hero display type: at most 96 px at 1280 wide and at most 48 px at 390 wide. Your scale gene picks inside that: %s at 1280." % SCALE_BOUNDS[genes["scale"]],
@@ -711,6 +716,46 @@ def _taste_context(root, human, product, allow_repeat):
     return design_taste.weights(doc), avoid, "taste: %s, %s (%d picks)" % (source, human, design_taste.pick_count(doc))
 
 
+LIGHT_STAGES = ["canvas 2D generative", "SVG/CSS animation", "real video with a live overlay"]
+
+
+def webgl_limit(root):
+    """Design-Max-WebGL in PROJECT.md: how many variants of a round may have a three.js stage (default 2)."""
+    try:
+        return max(0, int(cfg(root, "Design-Max-WebGL", "2")))
+    except ValueError:
+        return 2
+
+
+def cap_webgl(items, limit, fits=()):
+    """items: dicts with "genes" (a fresh round's genomes or a bred round's children). Variants past the first `limit` whose
+    stage is three.js move to a light stage (the least used of canvas 2D, SVG/CSS, video) and say why in "because". A bred
+    mutation keeps its three.js stage in preference (moving it changes a second gene of its parent). fits: predicates
+    (i, genes) -> bool tried in order, strictest first, so the move never makes two variants alike; with none that fits the
+    variant stays. Why (colonIA R2, 2026-11-14): 4 of 6 stages were three.js; the human: do not spend exaggerated resources
+    on three.js (on the Jetson six three.js pages captured at once saturated the machine). Returns how many moved."""
+    webgl = [i for i, it in enumerate(items) if str(it["genes"].get("stage", STILL)).lower().startswith("three.js")]
+    webgl.sort(key=lambda i: (items[i].get("kind") != "mutation", i))
+    moved = 0
+    for i in sorted(webgl[limit:]):
+        it = items[i]
+        old = it["genes"]["stage"]
+        use = {s: sum(1 for o in items if o["genes"].get("stage") == s) for s in LIGHT_STAGES}
+        order = sorted(LIGHT_STAGES, key=lambda s: (use[s], LIGHT_STAGES.index(s)))
+        new = None
+        for ok in (list(fits) or [lambda j, g: True]):
+            new = next((s for s in order if ok(i, dict(it["genes"], stage=s))), None)
+            if new:
+                break
+        if not new:
+            continue
+        it["genes"]["stage"] = new
+        it["because"] = (it["because"] + "; " if it.get("because") else "") + (
+            "stage %s: at most %d three.js variants per round (Design-Max-WebGL), was %s" % (new, limit, old))
+        moved += 1
+    return moved
+
+
 def _past_faces(human, product, root, allow_repeat):
     """Faces of the human's past directions in other projects (their profile's `fonts`), unless --allow-repeat."""
     if allow_repeat:
@@ -727,6 +772,7 @@ def _past_faces(human, product, root, allow_repeat):
 def cmd_round(argv):
     screen, n, seed, dry, yes = "landing", DEFAULT_N, None, False, False
     human, allow_repeat, parallel, no_prior = None, False, None, False
+    creativity = None
     it = iter(argv)
     try:
         for a in it:
@@ -748,10 +794,14 @@ def cmd_round(argv):
                 dry = True
             elif a == "--yes":
                 yes = True
+            elif a == "--creativity":
+                creativity = int(next(it))
+                if not 1 <= creativity <= 5:
+                    raise ValueError(a)
             else:
                 raise ValueError(a)
     except (StopIteration, ValueError):
-        print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--no-prior] [--dry-run] [--yes]", file=sys.stderr)
+        print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--no-prior] [--creativity 1-5] [--dry-run] [--yes]", file=sys.stderr)
         return 2
     if screen != "landing":
         print("design round: only --screen landing exists yet", file=sys.stderr)
@@ -795,6 +845,15 @@ def cmd_round(argv):
             if ground_of(g["genes"]) != ground:
                 g["genes"]["color"] = FLIP_TO[ground]  # the color gene must say what the palette says
             g["why"]["color"] = "palette %s (%s) \u00b7 roles and hex in TASK.md" % (g["palette"]["name"], g["palette"]["roles"]["primary"])
+    def spread(i, genes):  # the move keeps "no two variants share more than MAX_SHARED genes" while a light stage can
+        return all(shared_genes({"genes": genes}, o) <= MAX_SHARED for j, o in enumerate(genomes) if j != i)
+
+    def distinct(i, genes):
+        return all(shared_genes({"genes": genes}, o) < len(GENES) for j, o in enumerate(genomes) if j != i)
+    cap_webgl(genomes, webgl_limit(root), (spread, distinct))  # Design-Max-WebGL
+    import design_creativity
+    level = design_creativity.creativity(cfg(root, "Design-Creativity", ""), creativity)
+    design_creativity.assign(genomes, level, seed)  # a composition and a motif family per variant (UAK-084)
     mix = {k: sum(1 for g in genomes if g["origin"] == k) for k in ("taste", "prior", "wildcard", "spread")}
     novel = sum(1 for g in genomes if g["novelty"])
     mix_line = "DESIGN_ROUND mix: %d from %s, %d wildcards, %d drawn as before; %d redrawn for novelty vs %d past directions (%s; %s)%s" % (
@@ -845,6 +904,11 @@ def cmd_round(argv):
                "genes": g["genes"], "recipe": g["recipe"], "why": g["why"]}
         if g.get("ground"):
             doc["ground"] = g["ground"]
+        if g.get("because"):
+            doc["because"] = g["because"]
+        for key in ("creativity", "composition", "motif"):
+            if g.get(key):
+                doc[key] = g[key]
         if g.get("palette"):
             doc["palette"] = g["palette"]
         if g.get("fonts"):
@@ -1007,7 +1071,7 @@ QA_JS = r"""async () => {
     hw = (Math.min(r.right, W) - Math.max(r.left, 0)) * 0.2, hh = (Math.min(r.bottom, FH) - Math.max(r.top, 0)) * 0.2;
     focal = {left: cx - hw, right: cx + hw, top: cy - hh, bottom: cy + hh}; }
   const overlap = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
-  let texts = 0, words = 0, overStage = 0, overFocal = 0;
+  let texts = 0, words = 0, overStage = 0, overFocal = 0; const textRects = [];
   for (let i = 0; i < all.length && i < 4000; i++) {
     const el = all[i];
     if (/^(SCRIPT|STYLE|NOSCRIPT|META|LINK|HEAD|TITLE|SOURCE|OPTION)$/i.test(el.tagName)) continue;
@@ -1019,13 +1083,68 @@ QA_JS = r"""async () => {
     if (!w) continue;
     const g = document.createRange(); g.selectNodeContents(el); const r = g.getBoundingClientRect();
     if (!vis(el, r) || !inFold(r)) continue;
-    texts++; words += w;
+    texts++; words += w; if (textRects.length < 80) textRects.push([Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)]);
     const area = Math.max(1, r.width * r.height);
     if (stage && overlap(r, stage.r) > area * 0.2) overStage++;
     if (focal && overlap(r, focal) > 0) overFocal++;
   }
+  const rgb = (s) => { const m = (s || '').match(/[\d.]+/g); return m && m.length >= 3 ? {r: +m[0], g: +m[1], b: +m[2], a: m.length > 3 ? +m[3] : 1} : null; };
+  const lumOf = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+  const hueOf = (c) => { const r = c.r / 255, g = c.g / 255, b = c.b / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (d < 0.12) return null;
+    const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return Math.round((h * 60 + 360) % 360); };
+  let ground = null;
+  for (let e = document.body; e && !ground; e = e.parentElement) { const c = rgb(getComputedStyle(e).backgroundColor); if (c && c.a > 0.5) ground = c; }
+  ground = ground || {r: 255, g: 255, b: 255};
+  const norm = (r) => [Math.max(0, r.left) / W, Math.max(0, r.top) / FH, Math.min(r.right, W) / W, Math.min(r.bottom, FH) / FH].map(v => Math.round(v * 100) / 100);
+  let head = null, headSize = 0;
+  document.querySelectorAll('h1, h2, [class*=title], [class*=headline], [class*=hero] *').forEach(el => {
+    const r = el.getBoundingClientRect(), fs = parseFloat(getComputedStyle(el).fontSize) || 0;
+    if (!(el.textContent || '').trim() || !vis(el, r) || !inFold(r) || stages.some(s => s.el.contains(el))) return;
+    const score = (el.tagName === 'H1' ? 1000 : 0) + fs;
+    if (score > headSize) { headSize = score; head = r; } });
+  const hueW = {};
+  for (let i = 0; i < all.length && i < 1500; i++) { const el = all[i], r = el.getBoundingClientRect();
+    if (!vis(el, r) || !inFold(r)) continue;
+    const c = rgb(getComputedStyle(el).backgroundColor), h = c && c.a > 0.5 ? hueOf(c) : null;
+    if (h !== null) { const k = Math.round(h / 30) * 30 % 360, a = (Math.min(r.right, W) - Math.max(r.left, 0)) * (Math.min(r.bottom, FH) - Math.max(r.top, 0)); hueW[k] = (hueW[k] || 0) + a; } }
+  const hk = Object.keys(hueW).sort((a, b) => hueW[b] - hueW[a])[0];
+  const sig = head ? {head: norm(head), stage: stage ? norm(stage.r) : null, focal: stage ? [Math.round((norm(stage.r)[0] + norm(stage.r)[2]) * 50) / 100, Math.round((norm(stage.r)[1] + norm(stage.r)[3]) * 50) / 100] : [Math.round((norm(head)[0] + norm(head)[2]) * 50) / 100, Math.round((norm(head)[1] + norm(head)[3]) * 50) / 100],
+    lum: Math.round(lumOf(ground) * 100) / 100, hue: hk === undefined ? null : +hk} : null;
   const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
-  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), distorted: distorted.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap, texts: texts, words: words, stage: !!stage, overStage: overStage, overFocal: overFocal};
+  return {w: W, gl: gl, overflow: overflow, share: share, upscaled: upscaled.slice(0, 6), distorted: distorted.slice(0, 6), frameMs: frame, fps: frame ? Math.round(1000 / frame) : null, longTasks: longTasks, heapMB: heap, texts: texts, words: words, stage: !!stage, overStage: overStage, overFocal: overFocal, sig: sig, textRects: textRects};
+}"""
+
+
+# UAK-084: where the visual mass of the 1920 screenshot is (a full-bleed canvas says nothing about it): in the page, no dependency.
+# The ground is the mode of the border cells of a 64x36 grid; a cell is mass when it differs from the ground by more than 12 % of
+# luminance, or by more than 30 degrees of hue at saturation above .2; cells under a text block are not mass. Returns the
+# centroid and the 5-95 % box of the mass, normalized, and its share of the free cells.
+MASS_JS = r"""async (a) => {
+  const bin = atob(a.png), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const img = await createImageBitmap(new Blob([bytes], {type: 'image/png'}));
+  const GW = 64, GH = 36, cv = document.createElement('canvas'); cv.width = GW; cv.height = GH;
+  const cx = cv.getContext('2d'); cx.imageSmoothingQuality = 'high'; cx.drawImage(img, 0, 0, GW, GH);
+  const d = cx.getImageData(0, 0, GW, GH).data;
+  const cell = (i) => { const r = d[4 * i] / 255, g = d[4 * i + 1] / 255, b = d[4 * i + 2] / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), df = mx - mn;
+    const l = 0.2126 * r + 0.7152 * g + 0.0722 * b, s = mx ? df / mx : 0;
+    let h = 0; if (df) h = mx === r ? ((g - b) / df % 6) * 60 : mx === g ? ((b - r) / df + 2) * 60 : ((r - g) / df + 4) * 60;
+    return {l: l, s: s, h: (h + 360) % 360, k: (d[4 * i] >> 4) + ',' + (d[4 * i + 1] >> 4) + ',' + (d[4 * i + 2] >> 4)}; };
+  const cells = []; for (let i = 0; i < GW * GH; i++) cells.push(cell(i));
+  const count = {}; let best = null;
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) { if (x && y && x < GW - 1 && y < GH - 1) continue;
+    const c = cells[y * GW + x]; count[c.k] = (count[c.k] || 0) + 1; if (!best || count[c.k] > count[best.k]) best = c; }
+  const sx = GW / a.w, sy = GH / a.h;
+  const masked = (x, y) => a.rects.some(r => x + 0.5 >= r[0] * sx && x + 0.5 <= r[2] * sx && y + 0.5 >= r[1] * sy && y + 0.5 <= r[3] * sy);
+  const xs = [], ys = []; let free = 0;
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    if (masked(x, y)) continue; free++;
+    const c = cells[y * GW + x], dh = Math.min(Math.abs(c.h - best.h), 360 - Math.abs(c.h - best.h));
+    if (Math.abs(c.l - best.l) > 0.12 || (c.s > 0.2 && (best.s <= 0.2 || dh > 30))) { xs.push((x + 0.5) / GW); ys.push((y + 0.5) / GH); } }
+  if (!free || xs.length < 0.02 * free) return {mass: null};
+  const q = (v, p) => { v = v.slice().sort((m, n) => m - n); return v[Math.min(v.length - 1, Math.floor(p * v.length))]; };
+  const mean = (v) => v.reduce((m, n) => m + n, 0) / v.length, r2 = (n) => Math.round(n * 100) / 100;
+  return {mass: {centroid: [r2(mean(xs)), r2(mean(ys))], box: [r2(q(xs, 0.05)), r2(q(ys, 0.05)), r2(q(xs, 0.95)), r2(q(ys, 0.95))], share: r2(xs.length / free)}};
 }"""
 
 _PLAYWRIGHT = """
@@ -1035,6 +1154,7 @@ from urllib.parse import quote
 from playwright.sync_api import sync_playwright
 MEDIA = @MEDIA@
 QA = @QA@
+MASS = @MASS@
 html, out = Path(sys.argv[1]).resolve(), Path(sys.argv[2])
 # Served over http: canvas pixel reads and fetches fail on file://. The root is the round folder (../brief.md, assets/).
 class Quiet(http.server.SimpleHTTPRequestHandler):
@@ -1085,11 +1205,36 @@ with sync_playwright() as p:
         except Exception as exc:
             errs.append("load: " + str(exc)[:120])
         pg.wait_for_timeout(3200)  # animations are mid-cycle, fonts and media settled
+        # Why (colonIA R3, 2026-11-15): after the QA pass the 390 full page took 35 s and hit Playwright's 30 s default, 5 runs in a row.
+        # The screenshots come first, each with a timeout that grows with the page; one that still times out is named and skipped.
         pg.evaluate(MEDIA)
-        qa = pg.evaluate(QA) or {}
-        pg.screenshot(path=str(out / (name + ".png")))
+        def shot(label, **kw):
+            try:
+                height = int(pg.evaluate("() => document.documentElement.scrollHeight + 0 * innerWidth"))
+            except (TypeError, ValueError):
+                height = h
+            secs = max(90, int(height * (2 if w < 500 else 1) / 100.0)) if kw.get("full_page") else 60
+            try:
+                try:
+                    pg.screenshot(path=str(out / (label + ".png")), timeout=secs * 1000, **kw)
+                except TypeError:  # a capture double without the timeout argument
+                    pg.screenshot(path=str(out / (label + ".png")), **kw)
+            except Exception as exc:
+                why = "timed out after %d s: the page keeps repainting; pause loops off screen" % secs if "Timeout" in str(exc) else "failed: " + str(exc)[:120]
+                print("SHOOT_TIMEOUT %s %s" % (label, why))
+                report.setdefault("timeouts", []).append("%s %s" % (label, why))
+        shot(name)
         pg.evaluate(MEDIA)
-        pg.screenshot(path=str(out / (name + "-full.png")), full_page=True)
+        shot(name + "-full", full_page=True)
+        qa = {}
+        try:
+            qa = pg.evaluate(QA) or {}
+            rects = qa.pop("textRects", [])
+            if name == "1920" and qa.get("sig") and (out / "1920.png").is_file():
+                import base64
+                qa["sig"].update(pg.evaluate(MASS, {"png": base64.b64encode((out / "1920.png").read_bytes()).decode("ascii"), "rects": rects, "w": 1920, "h": 1080}) or {})
+        except Exception as exc:
+            print("QA not measured at %s: %s" % (name, str(exc)[:120]))
         qa["errors"], qa["first"] = len(errs), (errs[0][:160] if errs else "")
         report[name] = qa
         print("QA %s webgl=%s errors=%d overflow=%s content=%s%% frame=%sms long_tasks=%s heap=%sMB upscaled=%d" % (name, qa.get("gl"), len(errs), qa.get("overflow"), qa.get("share"), qa.get("frameMs"), qa.get("longTasks"), qa.get("heapMB"), len(qa.get("upscaled", []))))
@@ -1097,7 +1242,7 @@ with sync_playwright() as p:
     b.close()
 srv.shutdown()
 (out / "qa.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-""".replace("@MEDIA@", json.dumps(MEDIA_JS)).replace("@QA@", json.dumps(QA_JS))
+""".replace("@MEDIA@", json.dumps(MEDIA_JS)).replace("@QA@", json.dumps(QA_JS)).replace("@MASS@", json.dumps(MASS_JS))
 
 
 NARROW_UNDER = 75  # percent of the viewport the content must span at 1920 and 1440 (the projector and the laptop)
@@ -1301,13 +1446,68 @@ def capture_one(cmd, html, vdir):
         pass
     r = subprocess.run(cmd + [str(html), str(vdir)], capture_output=True, text=True, timeout=600)
     ok = r.returncode == 0 and (vdir / "1280.png").is_file() and (vdir / "390.png").is_file()
+    slow = [l[len("SHOOT_TIMEOUT "):] for l in (r.stdout or "").splitlines() if l.startswith("SHOOT_TIMEOUT ")]
+    for line in slow:  # UAK-086: name the viewport that timed out; the other viewports and qa.json are kept
+        print("DESIGN_SHOOT QA %s %s" % (vdir.name, line), file=sys.stderr)
+    if slow and not ok:
+        kept = " ".join(n for n in ("1920", "1280", "390") if (vdir / (n + ".png")).is_file())
+        return False, "%s; kept %s" % ("; ".join(slow), kept or "nothing")
     return ok, (r.stderr or r.stdout).strip()[-200:]
+
+
+LOCK_STALE = 900  # seconds: a shoot that has not touched its lock for this long died (one variant's capture is capped at 600 s)
+
+
+@contextlib.contextmanager
+def shoot_lock(rnd, wait=None):
+    """UAK-086: one capture at a time per round folder (agents shooting in parallel starved each other: load average ~17). The lock is a
+    file created exclusively (works on Windows too); a lock older than LOCK_STALE is broken. Waiting is announced once."""
+    path = Path(rnd) / ".shoot.lock"
+    limit = float(os.environ.get("UAK_SHOOT_LOCK_WAIT", wait if wait is not None else 3600))
+    stale = float(os.environ.get("UAK_SHOOT_LOCK_STALE", LOCK_STALE))
+    start, told = time.time(), False
+    while True:
+        try:
+            fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, ("%d\n" % os.getpid()).encode("ascii"))
+            os.close(fd)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - path.stat().st_mtime > stale:
+                    path.unlink()
+                    continue
+            except OSError:
+                continue  # it vanished between the two calls: try again
+            if time.time() - start > limit:
+                raise OSError("another shoot holds %s (waited %d s)" % (path.name, limit))
+            if not told:
+                print("DESIGN_SHOOT waiting for another shoot of this round to finish (%s)" % path.name, file=sys.stderr)
+                told = True
+            time.sleep(0.2)
+    try:
+        yield
+    finally:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def _has_playwright():
+    try:
+        import playwright  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 
 def cmd_shoot(argv):
     if not argv or not re.match(r"^R\d+$", argv[0]):
-        print("Usage: design shoot R<k> [v<i> ...]", file=sys.stderr)
+        print("Usage: design shoot R<k> [v<i> ...] [--again]", file=sys.stderr)
         return 2
+    again = "--again" in argv
+    argv = [a for a in argv if a != "--again"]
     root = project_root()
     rnd = root / ".uak" / "design" / "rounds" / argv[0]
     if not rnd.is_dir():
@@ -1316,7 +1516,7 @@ def cmd_shoot(argv):
     only = set(argv[1:])
     variants = sorted((p for p in rnd.glob("v*") if p.is_dir() and re.match(r"^v\d+$", p.name) and (not only or p.name in only)),
                       key=lambda p: int(p.name[1:]))
-    todo = [v for v in variants if not ((v / "1280.png").is_file() and (v / "390.png").is_file())]
+    todo = [v for v in variants if again or not ((v / "1280.png").is_file() and (v / "390.png").is_file())]
     done, failed = [], []
     cmd, how = find_capture(root) if todo else (None, "")
     if todo and cmd is None:
@@ -1330,7 +1530,8 @@ def cmd_shoot(argv):
             failed.append((v.name, "no index.html yet"))
             continue
         try:
-            ok, why = capture_one(cmd, html, v)
+            with shoot_lock(rnd):
+                ok, why = capture_one(cmd, html, v)
         except (OSError, subprocess.SubprocessError) as exc:
             ok, why = False, str(exc)[:200]
         (done if ok else failed).append(v.name if ok else (v.name, why or "capture tool failed"))
@@ -1343,9 +1544,29 @@ def cmd_shoot(argv):
                 record_density(v)
             except Exception as exc:  # noqa: BLE001  metrics never fail a capture
                 print("DESIGN_SHOOT metrics not recorded for %s: %s" % (v.name, str(exc)[:120]), file=sys.stderr)
-    print("DESIGN_SHOOT %s: captured %s; already had %d" % (argv[0], " ".join(done) or "none", len(variants) - len(todo)))
+    print("DESIGN_SHOOT %s: captured %s; already had %d%s" % (argv[0], " ".join(done) or "none", len(variants) - len(todo),
+                                                       " (recapture them with --again)" if len(variants) > len(todo) else ""))
+    if todo and how == "motionsites shoot.py" and not _has_playwright():  # Why (colonIA R2): the fallback has no QA report and said only "not captured"
+        print("DESIGN_SHOOT no QA report from this fallback (%s): Playwright for Python is not installed; install it for the QA report "
+              "(WebGL, page errors, overflow): pip install playwright && python -m playwright install chromium" % how, file=sys.stderr)
     for name, why in failed:
         print("DESIGN_SHOOT not captured: %s (%s)" % (name, why.replace("\n", " ")), file=sys.stderr)
+    try:  # UAK-084: the builder's motif comment into the genome, then the siblings' signatures against each other
+        import design_creativity
+        for v in variants:
+            text = design_creativity.read_motif(v / "index.html")
+            gp = v / "genome.json"
+            doc = json.loads(gp.read_text(encoding="utf-8")) if text and gp.is_file() else None
+            if doc is not None and (doc.get("motif") or {}).get("text") != text:
+                doc["motif"] = dict(doc.get("motif") or {}, text=text)
+                gp.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        score, clones = design_creativity.analyze(rnd)
+        for name, text in clones:
+            print("DESIGN_SHOOT QA %s 1920: %s" % (name, text))
+        if score is not None:
+            print("DESIGN_SHOOT creativity %s: %d/100 (mean distance between the captured heroes' compositions; clones are flagged above)" % (argv[0], score))
+    except Exception as exc:  # noqa: BLE001  the index never fails a capture
+        print("DESIGN_SHOOT creativity not computed: %s" % str(exc)[:120], file=sys.stderr)
     broken = []
     for v in variants:
         warns = qa_warnings(read_qa(v)) if v.name in done else []
@@ -1372,7 +1593,7 @@ def main(argv):
     if argv[:1] in (["done"], ["report"]):  # tokens and minutes per variant (UAK-070)
         import design_metrics
         return design_metrics.main(argv)
-    print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] | design palettes [--n 6] | design done R<k> v<i> --tokens N | design report R<k> [--all] | design pick R<k> [--k N]", file=sys.stderr)
+    print("Usage: design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--dry-run] [--yes] | design round --from R<k> [--n N] [--yes] | design shoot R<k> [v<i> ...] [--again] | design palettes [--n 6] | design done R<k> v<i> --tokens N | design report R<k> [--all] | design pick R<k> [--k N]", file=sys.stderr)
     return 2
 
 

@@ -764,6 +764,17 @@
     ["Not yet", "Todavía no"],
     ["Go there", "Ir ahí"],
     ["Dismiss", "Cerrar aviso"],
+    // UI-019: coming back to a project restores where it was; a closed setup says so once.
+    ["Setup has closed: run the command again and open the new link.", "Setup se cerró: vuelve a ejecutar el comando y abre el nuevo enlace."],
+    ["Published on main (commit {sha}).", "Publicado en main (commit {sha})."],
+    ["Plan approved on main (commit {sha}).", "Plan aprobado en main (commit {sha})."],
+    ["Freeze set: {when}.", "Cierre de cambios fijado: {when}."],
+    ["Done", "Hecho"],
+    ["Change", "Cambiar"],
+    ["Checking your project…", "Revisando tu proyecto…"],
+    ["Your name", "Tu nombre"],
+    ["Registering the reviewer is a human act: setup records it with your name, and remembers it for this project.", "Registrar al revisor es un acto humano: la configuración lo registra con tu nombre y lo recuerda para este proyecto."],
+    ["Setup could not remember your name for this project (.git/uak-setup/human.json is a link or not a regular file). It is kept until you close setup.", "La configuración no pudo recordar tu nombre para este proyecto (.git/uak-setup/human.json es un enlace o no es un archivo normal). Se conserva hasta que cierres la configuración."],
   ];
   // Server notes that carry values (UI-009): whole-string patterns; each value is translated when the catalog has it.
   var NOTES = [

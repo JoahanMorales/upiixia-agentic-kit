@@ -224,11 +224,13 @@ EOF_WT
     esac
     repo=${repo%.git}; repo=${repo%/}
     branch=$(git symbolic-ref --short HEAD 2>/dev/null) || die "Detached HEAD."
-    case "$url" in *github.com*) ;; *) die "Not a GitHub remote: open the PR in your forge's web UI for $branch.";; esac
+    task=$(sed -n 's/^UAK_TASK=//p' "$(git rev-parse --show-toplevel)/.uak-env" 2>/dev/null | tr -d '\r')
+    # No GitHub: name the way to finish with no PR. Why (QA round C, Nov 2026): this line and done's "needs --pr HTTPS
+    # URL (… wt pr)" sent each other in a loop on a local bare remote.
+    case "$url" in *github.com*) ;; *) die "Not a GitHub remote: open the PR in your forge's web UI for $branch and pass its https URL, or ship with no PR (another agent identity reviews it with uak review on claims): bash .uak/bin/uak done ${task:-ID} --pr none --evidence \"<Verify command> exit 0; <criteria checked>\"";; esac
     # Why (UpiixSol): a fine-grained token without "Pull requests: write" made gh pr create fail for a day.
     say "Open this URL to create the PR (gh pr create needs a token with Pull requests: write):"
     say "https://github.com/$repo/compare/$BASE...$branch?expand=1"
-    task=$(sed -n 's/^UAK_TASK=//p' "$(git rev-parse --show-toplevel)/.uak-env" 2>/dev/null | tr -d '\r')
     say "Then: bash .uak/bin/uak done ${task:-ID} --pr <the PR's URL> --evidence \"<Verify command> exit 0; <criteria checked>\""; exit 0;;
   new) ;;
   *) usage >&2; exit 2;;

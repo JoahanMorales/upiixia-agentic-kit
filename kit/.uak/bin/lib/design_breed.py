@@ -24,6 +24,7 @@ import unicodedata
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pathlib import Path  # noqa: E402
 
+import design_round  # noqa: E402
 from design_round import (AT_MOST_ONCE, DEFAULT_N, DEFAULT_TIER, GENES, MAX_N, MAX_SHARED, RECIPES, Rng, cfg, fmt_tokens,  # noqa: E402
                           parse_tokens, project_root, shared_genes, task_text)
 
@@ -339,7 +340,10 @@ def child_task(rnd_name, i, genome, notes, parents, all_picks):
     if not said:
         lines.append("- (no notes)")
     if genome["kind"] == "mutation":
-        lines.append("Only the gene `%s` changed from the parent; keep the rest of the parent's look." % genome["mutated"])
+        if (genome.get("creativity") or 0) >= 3:
+            lines.append("Only the gene `%s` changed from the parent; the other genes are kept, but the composition and motif above replace the parent's hero layout." % genome["mutated"])
+        else:
+            lines.append("Only the gene `%s` changed from the parent; keep the rest of the parent's look." % genome["mutated"])
     elif genome["kind"] == "crossover":
         lines.append("Genes taken from: " + ", ".join("%s <- %s" % (g, genome["taken"][g]) for g in GENES))
     return text + "\n".join(lines) + "\n"
@@ -380,8 +384,40 @@ def _balance_ground(children, picks, sdir, rejected, seed):
     design_round.balance_ground(children, seed, ok, flipped, prefer)
 
 
+def _distinct_display_faces(children, root, seed):
+    """No two children of a round share a display face. Why (colonIA R2, 2026-11-14): v1/v3 were both Anton and v2/v4 both
+    Fraunces (the human: "las fuentes en todos ya son las mismas"). A child keeps its parent's pair only when no sibling has
+    it; otherwise it gets a distinct pair of its own `type` gene, never a past direction's face."""
+    import design_fonts
+    try:
+        import design_taste
+        past = design_round._past_faces(design_taste.default_human(), root.name, root, False)
+    except Exception:  # noqa: BLE001
+        past = set()
+    seen = {}
+    for i, c in enumerate(children):
+        key = design_fonts._key(c["fonts"]["display"])
+        if key not in seen:
+            seen[key] = i
+            continue
+        used = set()
+        for o in children:
+            if o is not c and o.get("fonts"):
+                used |= design_fonts.faces(o["fonts"])
+        for salt in range(50):
+            f = design_fonts.for_type(c["genes"]["type"], seed + 1000 + 17 * i + salt, used | set(past))
+            if design_fonts._key(f["display"]) not in used and design_fonts._key(f["body"]) not in used:
+                break
+        else:
+            f = design_fonts.for_type(c["genes"]["type"], seed + 1000 + 17 * i, used)
+        c["fonts"] = f
+        seen[design_fonts._key(f["display"])] = i
+        c["fonts_because"] = "a sibling already had the parent's display face, so %s/%s (same type gene)" % (f["display"], f["body"])
+
+
 def run(argv):
     src, n, seed, dry, yes = None, DEFAULT_N, 1, False, False
+    creativity = None
     args = list(argv[1:] if argv[:1] == ["round"] else argv)
     it = iter(args)
     try:
@@ -396,13 +432,17 @@ def run(argv):
                 dry = True
             elif a == "--yes":
                 yes = True
+            elif a == "--creativity":
+                creativity = int(next(it))
+                if not 1 <= creativity <= 5:
+                    raise ValueError(a)
             elif a == "--screen":
                 if next(it) != "landing":
                     raise ValueError(a)
             else:
                 raise ValueError(a)
     except (StopIteration, ValueError):
-        print("Usage: design round --from R<k> [--n N] [--seed S] [--dry-run] [--yes]", file=sys.stderr)
+        print("Usage: design round --from R<k> [--n N] [--seed S] [--creativity 1-5] [--dry-run] [--yes]", file=sys.stderr)
         return 2
     if not src or not re.match(r"^R\d+$", src) or not 1 <= n <= MAX_N:
         print("design round --from: R<k> and --n 1..%d required" % MAX_N, file=sys.stderr)
@@ -434,9 +474,34 @@ def run(argv):
             everyone.append({"id": d_.name, "genes": complete_genes(g["genes"], len(everyone))})
     rejected = rejected_values(pick_notes, set(sp["picked"]), everyone)
     children = breed(picks, n, seed, rejected)
+    def alike(i, genes):  # the move never makes two children the same design
+        return all(shared_genes(genes, o["genes"]) < len(GENES) for j, o in enumerate(children) if j != i)
+
+    def diverse(i, genes):
+        return alike(i, genes) and all(kin(dict(children[i], genes=genes), o) or shared_genes(genes, o["genes"]) <= MAX_SHARED for j, o in enumerate(children) if j != i)
+    design_round.cap_webgl(children, design_round.webgl_limit(root), (diverse, alike))  # Design-Max-WebGL
     _balance_ground(children, picks, sdir, rejected, seed)  # before the fonts: a flipped child may be its parent's type again
     import design_fonts  # UAK-071: a child keeps its parent's font pair unless `type` mutated
     design_fonts.inherit(children, {p["ref"]: {"genes": p["genes"], "fonts": (_read(sdir / p["ref"].split("/", 1)[1] / "genome.json") or {}).get("fonts")} for p in picks}, seed)
+    _distinct_display_faces(children, root, seed)
+    import design_creativity  # UAK-084: a composition and a motif per child; a praised parent's motif is kept, quoted from its page
+    level = design_creativity.creativity(cfg(root, "Design-Creativity", ""), creativity)
+    parent_info = {}
+    for p in picks:
+        pid = p["ref"].split("/", 1)[1]
+        pg = _read(sdir / pid / "genome.json") or {}
+        parent_info[p["ref"]] = {"composition": pg.get("composition"), "motif": pg.get("motif"),
+                                 "motif_text": design_creativity.read_motif(sdir / pid / "index.html") or (pg.get("motif") or {}).get("text")}
+    design_creativity.assign(children, level, seed, parent_info, {"%s/%s" % (src, k): v for k, v in pick_notes.items()})
+    import design_color  # the human's picked palettes, as a fresh round applies them; the color gene agrees with the palette's ground
+    pals, pal_note = design_color.picked_palettes(root)
+    if pals:
+        for i, c in enumerate(children):
+            ground = c.get("ground") or design_round.ground_of(c["genes"])
+            if ground:
+                c["palette"] = design_color.with_ground(pals[i % len(pals)], ground)
+                if design_round.ground_of(c["genes"]) != ground:
+                    c["genes"]["color"] = design_round.FLIP_TO[ground]
     if twins(picks):  # the human sees why the round explores
         print("DESIGN_ROUND picks nearly identical (%d/%d genes): exploring with %d wildcards" % (
             max(shared_genes(a["genes"], b["genes"]) for a, b in itertools.combinations(picks, 2)), len(GENES),
