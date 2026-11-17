@@ -37,6 +37,7 @@ Then open your agent in the repo:
 | A screen looks generic or off-brand | `bash .uak/bin/uak design-lint` (it also warns on giant type and buttons), then the skill `product-ui` (3-second test) and `design-critic` |
 | Pick the colors first (no tokens) | `bash .uak/bin/uak design palettes`, then `uak design pick P<k>` |
 | How much did a round cost | `bash .uak/bin/uak design report R<k>` (tokens, minutes, per picked variant) |
+| Variants all look the same | `bash .uak/bin/uak design round --from R<k> --creativity 4` (clone warnings and a 0-100 score in `design shoot`) |
 | The landing needs another look | `bash .uak/bin/uak design round --from R<k>` breeds new variants from the human's picks; `uak design pick R<k>` to choose |
 | `uak next` offers nothing | read its `Why not` lines, or run `bash .uak/bin/uak start` |
 | See the team | `bash .uak/bin/uak board --watch 10` |

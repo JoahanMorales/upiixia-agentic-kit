@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "generated": "2026-11-14",
+  "generated": "2026-11-16",
   "evidence": {
     "profiles": 1,
     "projects": 2,
-    "rounds": 4,
-    "picks": 9
+    "rounds": 6,
+    "picks": 12
   },
   "rules": {
     "min_projects": 2,
@@ -26,35 +26,35 @@
   "genes": {
     "imagery": {
       "3D cut-out": {
-        "weight": 0.667,
-        "lift": 1.33,
-        "picked": 2,
-        "shown": 4,
-        "projects": 2
-      },
-      "illustration": {
-        "weight": 0.718,
-        "lift": 1.44,
-        "picked": 7,
-        "shown": 13,
+        "weight": 0.714,
+        "lift": 1.43,
+        "picked": 4,
+        "shown": 7,
         "projects": 2
       }
     },
     "layout": {
       "scroll story": {
-        "weight": 0.667,
-        "lift": 1.33,
-        "picked": 3,
-        "shown": 6,
+        "weight": 0.625,
+        "lift": 1.25,
+        "picked": 4,
+        "shown": 8,
         "projects": 2
       }
     },
     "motion": {
       "entrance": {
-        "weight": 0.8,
-        "lift": 1.6,
-        "picked": 6,
-        "shown": 10,
+        "weight": 0.769,
+        "lift": 1.54,
+        "picked": 8,
+        "shown": 13,
+        "projects": 2
+      },
+      "scroll": {
+        "weight": 0.357,
+        "lift": 0.71,
+        "picked": 2,
+        "shown": 7,
         "projects": 2
       }
     }
