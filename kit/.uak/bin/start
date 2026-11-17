@@ -57,20 +57,23 @@ newest= where=
 # Without a local clone (installed from another checkout or the plugin), ask the kit's GitHub directly: HackADA's copied
 # repo is exactly the case that has no ~/.uak-kit. The low-speed limit keeps an offline laptop from waiting.
 kit_url=${UAK_KIT_URL:-https://github.com/JoahanMorales/upiixia-agentic-kit}
-if [ -n "$kit_home" ] && [ -d "$kit_home/.git" ]; then tags_dir=$kit_home tags_from=origin; else tags_dir=. tags_from=$kit_url; fi
+if [ -n "$kit_home" ] && [ -e "$kit_home/.git" ]; then tags_dir=$kit_home tags_from=origin; else tags_dir=. tags_from=$kit_url; fi
 tag=$(GIT_TERMINAL_PROMPT=0 git -C "$tags_dir" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 \
       ls-remote --tags --refs "$tags_from" 'v*' 2>/dev/null | sed 's#.*refs/tags/v##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' |
       sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
 pull=
+# A path with a space is quoted in the hints, so they still paste (uak.kitHome can be any folder).
+qh=$kit_home qi=$kit_home/install.sh
+case "$kit_home" in *' '*) qh="\"$kit_home\"" qi="\"$kit_home/install.sh\"";; esac
 if [ -n "$tag" ] && [ "$(vnum "$tag")" -gt "$(vnum "${newest:-0.0.0}")" ]; then
   newest=$tag where="the kit's GitHub"
   if [ -z "$kit_home" ]; then :
-  elif [ -d "$kit_home/.git" ]; then pull="git -C $kit_home pull --ff-only, then "
-  else pull="git clone --depth 1 $kit_url $kit_home, then "; fi
+  elif [ -e "$kit_home/.git" ]; then pull="git -C $qh pull --ff-only, then "
+  else pull="git clone --depth 1 $kit_url $qh, then "; fi
 fi
 if [ -n "$newest" ] && [ "$(vnum "$newest")" -gt "$(vnum "${mine:-0.0.0}")" ] && [ -z "${UAK_KIT_PIN:-}" ]; then
   if [ -n "$kit_home" ]; then
-    set -- "${pull}bash $kit_home/install.sh --mode $mode --update .   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)"
+    set -- "${pull}bash $qi --mode $mode --update .   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)"
   else
     set -- "in the kit folder you installed this project from (the clone with install.sh): git pull --ff-only, then bash install.sh --mode $mode --update \"$root\"   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)" \
          "no clone at hand: git clone --depth 1 $kit_url <folder>, then bash <folder>/install.sh --mode $mode --update \"$root\""

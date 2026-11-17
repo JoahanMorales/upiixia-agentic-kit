@@ -361,6 +361,16 @@ case "$cur_hooks" in
   ''|.githooks|.githooks/|.uak/githooks|.uak/githooks/) git -C "$target" config core.hooksPath "$hooks_path";;
   *) say "  ~ core.hooksPath is $cur_hooks (another hook manager): kept. Add the secret scan to its pre-commit: bash .uak/githooks/pre-commit";;
 esac
+# The kit clone that installed this checkout, for uak start's update hint and doctor's skills (local Git config: per
+# clone, never committed, so a teammate never reads another machine's path). Only a Git clone of the kit, which can
+# pull. Why (QA rounds 2026-11-14, A-F1; UAK-091): the hint named ~/.uak-kit, another clone, as the kit to update from.
+kit_top=$(git -C "$here" rev-parse --show-toplevel 2>/dev/null || true)
+if [ -n "$kit_top" ] && [ -f "$here/install.sh" ] && [ "$(cd "$kit_top" 2>/dev/null && pwd -P)" = "$(cd "$here" && pwd -P)" ]; then
+  kit_rec=$here
+  # Git Bash: record C:/... (Git, Bash and Python all read it), not /c/...
+  if command -v cygpath >/dev/null 2>&1; then kit_rec=$(cygpath -m "$here"); fi
+  git -C "$target" config uak.kitHome "$kit_rec"
+fi
 
 # The manifest: what changed or appeared now, what disappeared (the installer removes only its own stale copies), and
 # the previous manifest's entries, so an --update before the first publish keeps every kit file listed.

@@ -8,6 +8,7 @@ Real Git, a real install.sh, a fake gh, separate processes."""
 import argparse
 import concurrent.futures
 import os
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -26,12 +27,15 @@ STRIPPED = 'for v in $(env | sed -n "s/^\\(UAK_[A-Za-z0-9_]*\\)=.*/\\1/p"); do u
 
 
 def kit_github(r, name):
-    """A bare "kit GitHub" with one old release; the test tags a newer one when it needs it."""
+    """A bare "kit GitHub" holding this kit (install.sh and kit/) with one old release; the test tags a newer one when
+    it needs it."""
     src = r.scratch / (name + "-kitsrc")
     src.mkdir()
     r.g(src, "init", "-q", "-b", "main")
     r.g(src, "config", "user.name", "Kit"); r.g(src, "config", "user.email", "kit@example.invalid")
-    (src / "install.sh").write_text("echo fake installer\n", encoding="utf-8")
+    r.g(src, "config", "core.autocrlf", "false")
+    shutil.copy2(r.package.parent / "install.sh", src / "install.sh")
+    shutil.copytree(r.package, src / "kit", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     r.g(src, "add", "."); r.g(src, "commit", "-qm", "kit"); r.g(src, "tag", "v0.0.1")
     bare = r.scratch / (name + "-kit.git")
     r.g(r.scratch, "clone", "-q", "--bare", src, bare)
@@ -44,9 +48,11 @@ def release(r, src, bare, version):
 
 
 def ready_project(r, name):
-    """A marathon project installed with install.sh, published on main, planned and approved: start says READY."""
-    pkg = r.package.parent
+    """A marathon project installed with install.sh from a clone of the kit (in a folder with a space), published on
+    main, planned and approved: start says READY."""
     kit_src, kit_bare = kit_github(r, name)
+    installer = r.scratch / (name + " kit clone")
+    r.g(r.scratch, "clone", "-q", kit_bare, installer)
     t = r.scratch / name
     t.mkdir()
     r.g(t, "init", "-q", "-b", "main")
@@ -65,7 +71,7 @@ def ready_project(r, name):
            "GIT_CONFIG_COUNT": "4",
            "GIT_CONFIG_KEY_2": "url." + remote.as_posix() + ".insteadOf", "GIT_CONFIG_VALUE_2": "https://github.com/solo/app.git",
            "GIT_CONFIG_KEY_3": "url." + kit_bare.as_posix() + ".insteadOf", "GIT_CONFIG_VALUE_3": KIT_URL}
-    r.run([r.bash, str(pkg / "install.sh"), "--mode", "marathon", "--harness", "claude", str(t)], cwd=t, env=env)
+    r.run([r.bash, str(installer / "install.sh"), "--mode", "marathon", "--harness", "claude", str(t)], cwd=t, env=env)
     git = lambda *a: r.run([r.git, *a], cwd=t, env=env)
     git("remote", "add", "origin", "https://github.com/solo/app.git")
     r.run([r.bash, ".uak/bin/uak", "start", "--fix"], cwd=t, env=env, allowed=None)
@@ -77,12 +83,12 @@ def ready_project(r, name):
     start = lambda cwd=t, *a: r.run([r.bash, "-c", STRIPPED, "start", *a], cwd=cwd, env=env, allowed=None)
     out = start()
     expect(out.returncode == 0 and "START READY" in out.stdout, "the fixture is READY before any newer release: " + out.stdout)
-    return t, env, start, kit_src, kit_bare
+    return t, env, start, kit_src, kit_bare, installer
 
 
 def newer_release_is_a_note_after_publish(r):
     """The kit is on main: a newer release is a NOTE with the update command, never a TODO, and READY stays."""
-    t, env, start, kit_src, kit_bare = ready_project(r, "gate-note")
+    t, env, start, kit_src, kit_bare, _ = ready_project(r, "gate-note")
     release(r, kit_src, kit_bare, "99.0.0")
     out = start()
     expect(out.returncode == 0 and "START READY" in out.stdout, "a newer release does not block: " + out.stdout)
@@ -96,7 +102,7 @@ def newer_release_is_a_note_after_publish(r):
 def update_hint_names_the_installing_kit(r):
     """The hint names the clone recorded for this checkout, never ~/.uak-kit when that is another clone; unknown, it
     says how to find the installing kit instead of guessing one."""
-    t, env, start, kit_src, kit_bare = ready_project(r, "gate-hint")
+    t, env, start, kit_src, kit_bare, _ = ready_project(r, "gate-hint")
     installer = r.scratch / "gate-hint-installer"
     r.g(r.scratch, "clone", "-q", kit_bare, installer)
     other = Path(env["HOME"]) / ".uak-kit"   # a different clone at the default place
@@ -117,10 +123,44 @@ def update_hint_names_the_installing_kit(r):
     return {"hint": True}
 
 
+def install_records_the_kit_clone(r):
+    """The real install.sh records the kit clone it ran from in the project's local Git config (uak.kitHome, a path
+    with a space), again on --update; the update hint then names that folder, quoted, and nothing else. A copy of the
+    kit that is not a Git clone records nothing."""
+    t, env, start, kit_src, kit_bare, installer = ready_project(r, "gate-record")
+    git = lambda *a: r.run([r.git, *a], cwd=t, env=env, allowed=None)
+    recorded = git("config", "--get", "uak.kitHome").stdout.strip()
+    expect(recorded and os.path.samefile(recorded, str(installer)), "install records the installing clone: " + recorded)
+    local = git("config", "--local", "--get", "uak.kitHome").stdout.strip()
+    expect(local == recorded and git("status", "--porcelain").stdout.strip() == "", "the record is local Git config, never a file: " + local)
+    release(r, kit_src, kit_bare, "99.0.0")
+    out = start()
+    expect(out.returncode == 0 and "START READY" in out.stdout, "READY with a newer release: " + out.stdout)
+    expect('git -C "' + recorded + '" pull --ff-only' in out.stdout and 'bash "' + recorded + '/install.sh" --mode marathon --update' in out.stdout,
+           "the hint names the recorded clone, quoted: " + out.stdout)
+    expect(".uak-kit" not in out.stdout, "never ~/.uak-kit: " + out.stdout)
+    git("config", "--unset", "uak.kitHome")
+    up = r.run([r.bash, str(installer / "install.sh"), "--mode", "marathon", "--harness", "claude", "--update", str(t)],
+               cwd=t, env=env, allowed=None)
+    expect(up.returncode == 0, "--update runs: " + up.stdout + up.stderr)
+    again = git("config", "--get", "uak.kitHome").stdout.strip()
+    expect(again and os.path.samefile(again, str(installer)), "--update records it again: " + again)
+    # A plain copy of the kit (a download, the plugin): nothing to pull, nothing recorded.
+    copy = r.scratch / "gate-record-copy"
+    shutil.copytree(installer, copy, ignore=shutil.ignore_patterns(".git"))
+    fresh = r.scratch / "gate-record-fresh"
+    fresh.mkdir()
+    r.g(fresh, "init", "-q", "-b", "main")
+    r.run([r.bash, str(copy / "install.sh"), "--mode", "marathon", "--harness", "claude", str(fresh)], cwd=fresh, env=env)
+    none = r.run([r.git, "config", "--get", "uak.kitHome"], cwd=fresh, env=env, allowed=None)
+    expect(none.returncode != 0 and not none.stdout.strip(), "a copy that is not a clone records nothing: " + none.stdout)
+    return {"recorded": recorded}
+
+
 def teammate_clone_is_ready(r):
     """A teammate clones the READY project after a newer release and runs uak start --fix once (its hooks): READY,
     no env var, no pin."""
-    t, env, start, kit_src, kit_bare = ready_project(r, "gate-mate")
+    t, env, start, kit_src, kit_bare, _ = ready_project(r, "gate-mate")
     release(r, kit_src, kit_bare, "99.0.0")
     mate = r.scratch / "gate-mate-clone"
     r.run([r.git, "clone", "-q", "-b", "main", "https://github.com/solo/app.git", str(mate)], cwd=r.scratch, env=env)
@@ -132,7 +172,8 @@ def teammate_clone_is_ready(r):
     return {"ready": True}
 
 
-TESTS = [newer_release_is_a_note_after_publish, update_hint_names_the_installing_kit, teammate_clone_is_ready]
+TESTS = [newer_release_is_a_note_after_publish, update_hint_names_the_installing_kit, install_records_the_kit_clone,
+         teammate_clone_is_ready]
 
 
 def main():
