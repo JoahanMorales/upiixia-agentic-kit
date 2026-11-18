@@ -9,6 +9,15 @@ Guide: [docs/DASHBOARD.md](docs/DASHBOARD.md).
 - **Light CI on pull requests (UAK-090).** Pull requests run the Ubuntu suite and the Windows per-file job; main and
   workflow_dispatch keep macOS. Approved PRs #19-#21 waited hours for macOS arm64 runners GitHub could not provide.
 
+- **Branches and publishing never leave a dead end (UI-020).** Inspect warns and Install or Repair stop when the folder
+  has commits and is not on `main` (a clone of a remote whose default branch is `claims` landed on `claims` and the kit
+  was installed there), with the exact command (`git switch main`, or `git branch -m master main` when there is no
+  `main`); the page says when the remote's default branch is `claims` and how to change it on GitHub (Settings,
+  General, Default branch). The way out of unrelated history adds a second command, `git push origin main`, for a
+  folder with its own commits; publish refusals carry their exact command and read in Spanish; "the command below" is
+  only said when there is one; a quote mark in the project path no longer blocks the way out. Evidence: Dylan's live
+  run (GitHub's default branch became `claims`) and QA round B of 2026-11-14 (B-01, B-03, B-09, B-16).
+
 - **Coming back to a project restores where you were (UI-019).** A restart on an installed project opens on its furthest
   real step from local Git (the team step for an approved plan), finished Prepare steps fold into a done line, an
   approved plan is never offered again, the readiness check runs by itself once per inspect, re-picking keeps the last
