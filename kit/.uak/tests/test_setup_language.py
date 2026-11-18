@@ -161,9 +161,8 @@ def spanish_page_has_no_engine_english(root, tmp):
     for line in hints:
         shown = cat.t(line)
         assert shown != line and not english(shown), "engine line still English (%r): %r" % (english(shown), shown)
-    for token, label in (("CLAIMED", "In progress"), ("BLOCKED", "Blocked"), ("REVIEW", "In review"),
-                         ("human", "")):
-        assert token in cat.words or label in cat.es, "the token %s has a Spanish label" % token
+    for token in ("CLAIMED", "BLOCKED", "REVIEW", "human", "all"):
+        assert cat.word(token) != token, "the token %s has a Spanish label" % token
     # (3) "Nada que probar primero: no (static …)": no double negative on the plan cards.
     html = page()
     assert "Nothing to test first:" not in html, "the plan card's Test-First label is not a double negative"

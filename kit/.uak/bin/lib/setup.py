@@ -200,17 +200,31 @@ def redact(text):
     return text[-18000:]
 
 
+class FieldError(ValueError):
+    """A refusal about one form field: the page shows it under that field and moves the focus there (UI-021)."""
+
+    def __init__(self, message, field):
+        super().__init__(message)
+        self.field = field
+
+
 def project_root(target):
     if not isinstance(target, str) or not target.strip() or len(target) > 4096 or "\x00" in target:
-        raise ValueError("Enter the full path to an existing Git repository.")
-    path = Path(target).expanduser().resolve()
+        raise FieldError("Enter the full path to an existing Git repository.", "target")
+    given = Path(target.strip()).expanduser()
+    # UI-021 (QA round D): "my-app" said "does not exist" (it was looked up next to setup). A path from the root of a
+    # drive (/c/Users/… in Git Bash) is still a full path.
+    if not given.is_absolute() and not target.strip().startswith(("/", "\\")):
+        raise FieldError("Use the full path of the folder, not a relative one: for example /Users/you/my-app or "
+                         "C:\\Projects\\my-app.", "target")
+    path = given.resolve()
     if not path.is_dir():
-        raise ValueError("This folder does not exist. Choose an existing project folder.")
+        raise FieldError("This folder does not exist. Choose an existing project folder.", "target")
     result = run_command(["git", "-C", str(path), "rev-parse", "--show-toplevel"], timeout=10)
     if result.returncode or Path(result.stdout.strip()).resolve() != path:
-        raise ValueError("Choose the root of a Git repository. Create the repository first if needed.")
+        raise FieldError("Choose the root of a Git repository. Create the repository first if needed.", "target")
     if (path / ".uak").is_symlink():
-        raise ValueError("The kit folder must be local to this project, not a symbolic link.")
+        raise FieldError("The kit folder must be local to this project, not a symbolic link.", "target")
     return path
 
 
@@ -373,6 +387,53 @@ BUSY = ("installing", "checking", "planning", "approving", "publishing", "regist
 HUMAN_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
 
 
+def zone_database():
+    """True when this computer can tell a real time zone from a made-up one (Python's zoneinfo or the system files)."""
+    try:
+        import zoneinfo
+        if zoneinfo.available_timezones():
+            return True
+    except ImportError:  # Python 3.8: the system's zone files only
+        pass
+    return any(os.path.isfile(os.path.join(folder, "Etc", "UTC")) for folder in ZONE_DIRS)
+
+
+def real_zone(zone):
+    """An IANA time zone this computer knows; without a zone database, one in an IANA area."""
+    if zone not in ("UTC", "GMT") and not (TIME_ZONE.fullmatch(zone) and zone.split("/")[0] in ZONE_AREAS):
+        return False
+    try:
+        import zoneinfo
+        if zoneinfo.available_timezones():
+            zoneinfo.ZoneInfo(zone)
+            return True
+    except ImportError:
+        pass
+    except (ValueError, OSError, LookupError):  # ZoneInfoNotFoundError is a KeyError
+        return False
+    folders = [folder for folder in ZONE_DIRS if os.path.isfile(os.path.join(folder, "Etc", "UTC"))]
+    return not folders or any(os.path.isfile(os.path.join(folder, *zone.split("/"))) for folder in folders)
+
+
+def dated(shown, start, end, last=False):
+    """The engine's "Tue 11:55" (a weekday and a time in the event's zone) with its date inside the event: the first
+    such day from the start, or the last one up to the end (UI-021: "stops Wed 06:24; take the first task by Tue 11:55"
+    read in reverse). "" when it is not that shape."""
+    import datetime
+    match = re.fullmatch(r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun) (\d\d):(\d\d)", shown.strip())
+    if not match:
+        return ""
+    begin, finish = (datetime.datetime.strptime(t, "%Y-%m-%d %H:%M") for t in (start, end))
+    days = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+    day = finish.date() if last else begin.date()
+    for _ in range(8):
+        moment = datetime.datetime(day.year, day.month, day.day, int(match.group(2)), int(match.group(3)))
+        if days[moment.weekday()] == match.group(1) and (moment <= finish if last else moment >= begin):
+            return "%s %s" % (match.group(1), moment.strftime("%Y-%m-%d %H:%M"))
+        day += datetime.timedelta(days=-1 if last else 1)
+    return ""
+
+
 def signed_line(field, name):
     """The human line of a commit setup makes (Approved-By, Published-By): one wording, the page's name (UI-012)."""
     return "%s: %s (from the setup page; committed as the local Git identity, unverified)" % (field, name)
@@ -380,6 +441,11 @@ def signed_line(field, name):
 
 SCHEDULE_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\Z")
 TIME_ZONE = re.compile(r"(UTC|[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2})\Z")
+# The IANA areas: without a zone database (Python on Windows has none unless tzdata is installed) a zone must at least
+# start with one of them (UI-021, QA round D: "Mars/Base" was accepted and a Freeze-Epoch computed).
+ZONE_AREAS = ("Africa", "America", "Antarctica", "Arctic", "Asia", "Atlantic", "Australia", "Europe", "Indian",
+              "Pacific", "Etc")
+ZONE_DIRS = ("/usr/share/zoneinfo", "/usr/lib/zoneinfo", "/usr/share/lib/zoneinfo")
 # `uak start`'s READY line when a task is free: the command, then the engine's note after spaces.
 # The first prompts of the two agents the team step starts (UI-006). Constants with no shell metacharacters, and they
 # start with a word: Git Bash rewrites an argument that starts with / into a Windows path.
@@ -596,7 +662,7 @@ class SetupServer(ThreadingHTTPServer):
                                   phase="setup", identity=identity, human=saved, human_source="project" if saved else "",
                                   resume=resume, inspect=self.state.get("inspect", 0) + 1, checked=False, ready=False,
                                   checks=[], next_command="", next_note="", freeze=0, details="", error="")
-                self.plan_known.setdefault(str(root), ([], bool(resume["kit_on_main"]), ""))
+                self.plan_known.setdefault(str(root), ([], bool(resume["kit_on_main"]), "", ""))
         except (OSError, ValueError, subprocess.SubprocessError):
             return
 
@@ -1169,19 +1235,20 @@ class SetupHandler(BaseHTTPRequestHandler):
         if not target:
             raise ValueError("Choose a project first.")
         root = project_root(target)
-        remote_note = ""
+        remote_note, remote_technical = "", ""
         if probe:
             offers = planners(s, root)
             known = remote_state(s, root) if kit_present(root) else {}
             kit = bool(known.get("kit"))
             if known.get("state") == "offline":
                 # Offline is not "publish the kit" (review of 993e112): the same words as POST /api/plan.
-                remote_note = "Could not reach %s: %s" % (remote_and_base()[0], known["detail"])
+                failure = unreachable(remote_and_base()[0], known["failure"])
+                remote_note, remote_technical = str(failure), failure.technical
             with s.lock:
-                s.plan_known[str(root)] = (offers, kit, remote_note)
+                s.plan_known[str(root)] = (offers, kit, remote_note, remote_technical)
         else:
             with s.lock:
-                offers, kit, remote_note = s.plan_known.get(str(root), ([], False, ""))
+                offers, kit, remote_note, remote_technical = s.plan_known.get(str(root), ([], False, "", ""))
 
         def text(name):
             path = planning.regular_file(root, name)
@@ -1193,7 +1260,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                 "digest": plan.get("digest", ""), "failed": bool(plan.get("failed")),
                 "tasks": text(".uak/TASKS.md") if plan else "",
                 "owners": text(".uak/OWNERS.md") if plan else "", "planned": bool(plan) and not plan.get("failed"),
-                "kit_on_main": kit, "remote_note": remote_note,
+                "kit_on_main": kit, "remote_note": remote_note, "remote_technical": remote_technical,
                 # UI-019: an approved plan is shown done, never offered again (from the last local copy of main).
                 "approved": resume.get("plan_approved") is True, "approved_sha": resume.get("base_sha") or "",
                 # Only Claude Code has the one-time folder trust (UI-008); a Codex-only project shows no notice.
@@ -1265,12 +1332,16 @@ class SetupHandler(BaseHTTPRequestHandler):
             raise ValueError("Give the event's start, end and time zone.")
         if set(data) != {"start", "end", "zone"} or not all(isinstance(v, str) for v in data.values()):
             raise ValueError("Give the event's start, end and time zone.")
-        if not SCHEDULE_TIME.fullmatch(data["start"]) or not SCHEDULE_TIME.fullmatch(data["end"]):
-            raise ValueError("Write dates as YYYY-MM-DD HH:MM (for example 2026-11-12 10:00).")
+        for field in ("start", "end"):
+            if not SCHEDULE_TIME.fullmatch(data[field]):
+                raise FieldError("Write dates as YYYY-MM-DD HH:MM (for example 2026-11-12 10:00).", field)
         if data["end"] <= data["start"]:
-            raise ValueError("The event must end after it starts.")
+            raise FieldError("The event must end after it starts.", "end")
         if not TIME_ZONE.fullmatch(data["zone"]):
-            raise ValueError("Choose a time zone such as America/Mexico_City or UTC.")
+            raise FieldError("Choose a time zone such as America/Mexico_City or UTC.", "zone")
+        if not real_zone(data["zone"]):
+            raise FieldError("%s is not a time zone this computer knows. Choose one from the list, such as "
+                             "America/Mexico_City or UTC." % data["zone"], "zone")
         uak = s.engine()
         root = project_root(s.target)
         # The engine computes the schedule; setup writes Freeze-Epoch itself, never through a symlinked PROJECT.md or
@@ -1283,8 +1354,11 @@ class SetupHandler(BaseHTTPRequestHandler):
         first = re.search(r"(?m)^first claim by\s+(\S+ \S+)", output)
         if result.returncode or not freeze:
             raise ValueError("The schedule could not be set: %s" % redact(output.strip())[-400:])
+        # The page shows dates, in the order they happen (UI-021); "freeze"/"first_claim" stay the engine's words.
+        freeze_at = dated(freeze.group(1), data["start"], data["end"], last=True)
+        first_at = dated(first.group(1), data["start"], data["end"]) if first else ""
         if preview:
-            self.reply(200, {"freeze": freeze.group(1).strip(), "epoch": int(freeze.group(2)),
+            self.reply(200, {"freeze": freeze.group(1).strip(), "epoch": int(freeze.group(2)), "freeze_at": freeze_at,
                              "soon": int(freeze.group(2)) < time.time() + 3600})
             return
         s.planning.set_freeze(root, int(freeze.group(2)))
@@ -1292,7 +1366,8 @@ class SetupHandler(BaseHTTPRequestHandler):
             s.state.update(phase="setup", ready=False, checks=[], next_command="", next_note="", error="", checked=False)
         s.refresh_progress()
         self.reply(200, {"freeze": freeze.group(1).strip(), "epoch": int(freeze.group(2)),
-                         "first_claim": first.group(1) if first else "", "details": redact(output.strip())})
+                         "first_claim": first.group(1) if first else "", "freeze_at": freeze_at,
+                         "first_claim_at": first_at, "details": redact(output.strip())})
 
     def recheck_plan(self):
         """Lint, cards and digest of the current plan files again, without running the planner (UI-005)."""
@@ -1356,7 +1431,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                     s.state.update(ready=kept["ready"], checks=list(kept["checks"]), next_command=kept["next_command"],
                                    next_note=kept["next_note"], details=kept["details"], phase=kept["phase"],
                                    freeze=kept["freeze"], checked=True)
-                s.plan_known.setdefault(str(root), ([], bool(resume["kit_on_main"]), ""))
+                s.plan_known.setdefault(str(root), ([], bool(resume["kit_on_main"]), "", ""))
                 state = dict(s.state)
             self.reply(200, dict(state, settings=s.config()))
         elif self.path in ("/api/install", "/api/repair"):
@@ -1417,7 +1492,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                 raise ValueError("Describe what you are building first.")
             known = remote_state(s, root, fresh=True)
             if known["state"] == "offline":
-                raise ValueError("Could not reach %s: %s" % (remote_and_base()[0], known["detail"]))
+                raise unreachable(remote_and_base()[0], known["failure"])
             if not known.get("kit"):
                 raise ValueError("Publish the kit to main first (Prepare: Publish the kit to main), then create the plan. "
                                  "The plan's checks read the kit from main.")
@@ -1430,7 +1505,7 @@ class SetupHandler(BaseHTTPRequestHandler):
             self.approve(data)
         elif self.path == "/api/human":
             if set(data) != {"name"} or not isinstance(data["name"], str) or not HUMAN_NAME.fullmatch(data["name"]):
-                raise ValueError("Use a short name in lowercase letters, digits, - or _ (for example: ana).")
+                raise FieldError("Use a short name in lowercase letters, digits, - or _ (for example: ana).", "name")
             name = data["name"]
             with s.lock:
                 s.state["human"] = name
@@ -1465,8 +1540,10 @@ class SetupHandler(BaseHTTPRequestHandler):
             root, name, who = registration_checks(s, data)
             # Read fresh from claims (never the cache) before the engine runs; the slow lane, not the state lock.
             known = remote_state(s, root, fresh=True)
+            if known["state"] == "offline":
+                raise unreachable(remote_and_base()[0], known["failure"])
             if known["state"] != "ok":
-                raise ValueError("Could not reach %s: %s" % (remote_and_base()[0], known.get("detail") or "no such remote"))
+                raise ValueError("This project has no remote named %s. Add one, then press Retry." % remote_and_base()[0])
             found = reviewer_record(known, who, name)
             if found["retired"]:
                 raise ValueError(found["message"])
@@ -1525,7 +1602,7 @@ def approval_checks(server, data):
     fetched = net_git(server, root, "fetch", "-q", "--no-tags", "--no-write-fetch-head", remote,
                       "+refs/heads/%s:%s" % (base, SETUP_BASE))
     if fetched.returncode:
-        raise ValueError("Could not reach %s: %s" % (remote, offline_detail(fetched)))
+        raise unreachable(remote, git_failure(fetched))
     head = git("rev-parse", "HEAD").stdout.strip()
     upstream = git("rev-parse", SETUP_BASE).stdout.strip()
     if head != upstream:
@@ -1564,12 +1641,12 @@ def publish_checks(server):
     head = git("rev-parse", "-q", "--verify", "HEAD").stdout.strip()
     listed = net_git(server, root, "ls-remote", "--heads", remote, "refs/heads/" + base)
     if listed.returncode:
-        raise ValueError("Could not reach %s: %s" % (remote, offline_detail(listed)))
+        raise unreachable(remote, git_failure(listed))
     if heads_of(listed.stdout).get("refs/heads/" + base):
         fetched = net_git(server, root, "fetch", "-q", "--no-tags", "--no-write-fetch-head", remote,
                           "+refs/heads/%s:%s" % (base, SETUP_BASE))
         if fetched.returncode:
-            raise ValueError("Could not read %s/%s: %s" % (remote, base, offline_detail(fetched)))
+            raise unreachable("%s/%s" % (remote, base), git_failure(fetched), read=True)
         upstream = git("rev-parse", SETUP_BASE).stdout.strip()
         if head != upstream:
             if head and git("merge-base", "--is-ancestor", head, upstream).returncode == 0:
@@ -1677,6 +1754,10 @@ def unrelated_history(server, root, head, remote, base):
 
 def refusal(exc):
     body = {"error": redact(exc)}
+    if getattr(exc, "field", ""):
+        body["field"] = exc.field  # UI-021: the page shows it under that field (setup's or the planning module's)
+    if getattr(exc, "technical", ""):
+        body["technical"] = redact(exc.technical)  # git's own words, under Technical details
     if isinstance(exc, Need):
         body["need"] = exc.need
     if isinstance(exc, WayOut):
@@ -1810,11 +1891,68 @@ def net_git(server, root, *args):
                       group=True)
 
 
+# UI-021 (QA round D-4.1): offline, the page showed git's stderr ("fatal: '…/gone.git' does not appear to be a git
+# repository …") followed by "check your connection", which was wrong advice. The common failures are one plain
+# sentence each, with the advice that fits; git's own words go under Technical details. Order matters: a timeout says
+# "timed out" and a refused key says "Could not read from remote repository" too.
+GIT_FAILURES = (
+    ("timeout", r"timed out|time-?out"),
+    ("network", r"could not resolve host|nodename nor servname|name or service not known|temporary failure in name "
+                r"resolution|getaddrinfo|failed to connect|connection refused|network is unreachable|no route to host|"
+                r"could not connect to server"),
+    ("auth", r"authentication failed|permission denied|could not read (username|password)|terminal prompts disabled|"
+             r"invalid username or password|returned error: 40[13]|publickey"),
+    ("repo", r"does not appear to be a git repository|not a git repository|repository not found|repository '[^']*' "
+             r"not found|no such file or directory"),
+)
+GIT_REASON = {
+    "timeout": "it timed out after %d s" % NET_TIMEOUT,
+    "network": "this computer cannot reach its server (no internet, or a wrong address)",
+    "auth": "it refused the sign-in",
+    "repo": "its address does not point to a repository you can read",
+    "other": "Git could not talk to it",
+}
+GIT_ADVICE = {
+    "timeout": "Check your connection, then try again.",
+    "network": "Check your connection, then try again.",
+    "auth": "Sign in with gh auth login (or check your SSH key), then try again.",
+    "repo": "Check the address with git remote -v and that you are signed in (gh auth login), then try again.",
+    "other": "Read Technical details, then try again.",
+}
+
+
+def git_failure(result):
+    """A failed network Git as {"reason", "advice", "technical"}: a plain clause, what to do, and git's own words."""
+    technical = redact((result.stderr or result.stdout or "").strip())[-1200:]
+    kind = "timeout" if result.returncode == 124 else "other"
+    if kind == "other":
+        for name, pattern in GIT_FAILURES:
+            if re.search(pattern, technical, re.I):
+                kind = name
+                break
+    if result.returncode == 124 and not technical:
+        technical = "git was stopped after %d s" % NET_TIMEOUT
+    return {"kind": kind, "reason": GIT_REASON[kind], "advice": GIT_ADVICE[kind], "technical": technical}
+
+
+class GitFailure(ValueError):
+    """A refusal caused by network Git: one plain sentence for the page, git's own words as `technical`."""
+
+    def __init__(self, message, technical=""):
+        super().__init__(message)
+        self.technical = technical
+
+
+def unreachable(remote, failure, read=False):
+    """The refusal for a remote that did not answer: "Could not reach origin: <reason>. <advice>" (UI-021)."""
+    if read:
+        return GitFailure("Could not read %s: %s. %s" % (remote, failure["reason"], failure["advice"]), failure["technical"])
+    return GitFailure("Could not reach %s: %s. %s" % (remote, failure["reason"], failure["advice"]), failure["technical"])
+
+
 def offline_detail(result):
-    if result.returncode == 124:
-        return "timed out after %d s" % NET_TIMEOUT
-    text = " ".join(redact((result.stderr or result.stdout or "").strip()).split())[-300:].rstrip(". ")
-    return text or "(no message)"
+    """The plain reason a network Git failed (its words stay in git_failure's technical)."""
+    return git_failure(result)["reason"]
 
 
 def heads_of(text):
@@ -1840,7 +1978,8 @@ def read_remote(server, root, remote, base):
     # --symref HEAD: the remote's default branch too (UI-020: GitHub made claims the default), in the same call.
     listed = net_git(server, root, "ls-remote", "--symref", remote, "HEAD", "refs/heads/" + base, "refs/heads/claims")
     if listed.returncode:
-        return {"state": "offline", "detail": offline_detail(listed), "at": now}
+        failure = git_failure(listed)
+        return {"state": "offline", "detail": failure["reason"], "failure": failure, "at": now}
     heads = heads_of(listed.stdout)
     pointed = re.search(r"^ref: refs/heads/(\S+)\s+HEAD\r?$", listed.stdout or "", re.M)
 
@@ -1858,7 +1997,8 @@ def read_remote(server, root, remote, base):
     if moved:
         got = net_git(server, root, "fetch", "-q", "--no-tags", "--no-write-fetch-head", remote, *moved)
         if got.returncode:
-            return {"state": "offline", "detail": offline_detail(got), "at": now}
+            failure = git_failure(got)
+            return {"state": "offline", "detail": failure["reason"], "failure": failure, "at": now}
     for branch, ref in present:
         if ref == SETUP_BASE:
             result["kit"] = git("cat-file", "-e", SETUP_BASE + ":.uak/PROJECT.md").returncode == 0
@@ -2269,9 +2409,10 @@ def team_view(server):
     known = remote_state(server, root)
     view["remote"] = {"state": known["state"], "detail": known.get("detail", "")}
     if known["state"] == "offline":
+        failure = known["failure"]
         view.update(retry=True, registered=dict(view["registered"], registered=None),
-                    note="Setup cannot reach %s right now (%s). Check your connection, then press Retry."
-                         % (remote, known["detail"]))
+                    note="Setup cannot reach %s right now (%s). %s" % (remote, failure["reason"], failure["advice"]),
+                    technical=failure["technical"])
         return view
     if known["state"] == "none":
         view.update(retry=True, registered=dict(view["registered"], registered=None),

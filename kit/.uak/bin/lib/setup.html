@@ -904,6 +904,52 @@
         min-width: 0;
         flex: 1 1 180px;
       }
+      /* UI-021 (A-F13): a datetime-local input has a wide intrinsic size; without this it overlapped its neighbour. */
+      .prepare-row input {
+        min-width: 0;
+        max-width: 100%;
+      }
+      /* UI-021 (A-F14): the same gap above the button as between the fields. */
+      #idea-save {
+        margin-top: 16px;
+      }
+      .field-error:empty {
+        display: none;
+      }
+      [aria-invalid="true"] {
+        border-color: var(--error) !important;
+      }
+      details.technical {
+        margin-top: 6px;
+        font-size: 13px;
+      }
+      details.technical pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 200px;
+        overflow: auto;
+      }
+      .beginner-only {
+        display: none;
+      }
+      body[data-profile="beginner"] .beginner-only {
+        display: block;
+      }
+      #glossary {
+        margin-top: 16px;
+        font-size: 14px;
+      }
+      #glossary dl {
+        margin: 8px 0 0;
+      }
+      #glossary dt {
+        font-weight: 600;
+        margin-top: 8px;
+      }
+      #glossary dd {
+        margin: 2px 0 0;
+        color: var(--secondary);
+      }
       #prepare input[type="text"],
       #prepare input[type="datetime-local"] {
         width: 100%;
@@ -1138,8 +1184,14 @@
         .brand {
           font-size: 16px;
         }
+        /* Out of sight on a phone, still each control's one name (UI-021: no second aria-label). */
         .profile > label {
-          display: none;
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          overflow: hidden;
+          clip: rect(0 0 0 0);
+          white-space: nowrap;
         }
         .shell {
           padding: 0 16px 16px;
@@ -1214,25 +1266,17 @@
       </div>
       <div class="profile">
         <label for="language" data-i18n-aria="Language">Language</label>
-        <select
-          id="language"
-          aria-label="Language"
-          data-i18n-aria="Language"
-          data-no-i18n
-        >
+        <select id="language" data-no-i18n>
           <option value="es">Español</option>
           <option value="en">English</option>
         </select>
         <label for="profile">View</label
-        ><select
-          id="profile"
-          aria-label="Interface profile"
-          data-i18n-aria="Interface profile"
-        >
+        ><select id="profile">
           <option value="beginner">Beginner</option>
           <option value="advanced">Advanced</option>
         </select>
-        <select id="workspace-theme" aria-label="Theme" data-i18n-aria="Theme">
+        <label for="workspace-theme">Theme</label
+        ><select id="workspace-theme">
           <option value="">Auto</option>
           <option value="light">Light</option>
           <option value="dark">Dark</option>
@@ -1290,6 +1334,27 @@
             Runs on your computer.<br />No account or API key is needed for this
             setup. Your coding tools keep their own sign-in.
           </div>
+          <details class="beginner-only" id="glossary">
+            <summary>Words you will see</summary>
+            <dl>
+              <dt><dfn>claim</dfn></dt>
+              <dd>An agent takes a task so nobody else works on it at the same time.</dd>
+              <dt><dfn>freeze</dfn></dt>
+              <dd>The time before the deadline when new work stops, so the last minutes go to the demo.</dd>
+              <dt><dfn>lint</dfn></dt>
+              <dd>An automatic check of the plan: it finds tasks that are incomplete or depend on each other in a loop.</dd>
+              <dt><dfn>wave</dfn></dt>
+              <dd>A group of tasks that can be done at the same time; wave 2 starts when wave 1 is done.</dd>
+              <dt><dfn>worktree</dfn></dt>
+              <dd>A separate folder for one task, so two agents never edit the same files at once.</dd>
+              <dt><dfn>PR</dfn></dt>
+              <dd>A pull request: the proposed change of one task, which another agent reviews before it joins main.</dd>
+              <dt><dfn>origin</dfn></dt>
+              <dd>The name Git gives your project's copy on GitHub.</dd>
+              <dt><dfn>MCP</dfn></dt>
+              <dd>The way a coding tool talks to the kit's own commands; the tool asks you to approve it once.</dd>
+            </dl>
+          </details>
         </aside>
         <main class="surface" id="content" tabindex="-1" data-loading>
           <div
@@ -1386,7 +1451,7 @@
               Choose the folder that contains your Git repository. The kit will
               live alongside your project.
             </p>
-            <form id="project-form">
+            <form id="project-form" novalidate>
               <div class="field">
                 <label class="field-label" for="target">Project folder</label
                 ><input
@@ -1432,7 +1497,7 @@
           <section id="workflow" hidden>
             <h2>How will your team work?</h2>
             <p class="secondary" id="selected-project" data-no-i18n></p>
-            <form id="workflow-form">
+            <form id="workflow-form" novalidate>
               <fieldset>
                 <legend>Choose your goal</legend>
                 <label class="choice"
@@ -1678,7 +1743,8 @@
                   </div>
                   <div>
                     <label class="field-label" for="schedule-zone">Time zone</label>
-                    <input type="text" id="schedule-zone" autocomplete="off" spellcheck="false" />
+                    <input type="text" id="schedule-zone" list="schedule-zones" autocomplete="off" spellcheck="false" />
+                    <datalist id="schedule-zones"></datalist>
                   </div>
                 </div>
                 <button type="submit" class="secondary-button" id="schedule-save">Save schedule</button>
@@ -2378,6 +2444,7 @@
           el("plan-onmain-note").hidden = !planView || !!planView.kit_on_main || !!planView.remote_note;
           el("plan-remote-note").hidden = !planView || !planView.remote_note;
           el("plan-remote-note").textContent = planView && planView.remote_note ? UAKWorkspace.t(planView.remote_note) : "";
+          technical(el("plan-remote-note"), (planView && planView.remote_note && planView.remote_technical) || "");
           el("plan-trust").hidden = !planView || !planView.trust_command;
           el("plan-trust-command").textContent = (planView && planView.trust_command) || "";
           el("plan-change").disabled = blocked;
@@ -2473,7 +2540,7 @@
             });
             tests.textContent = card.tests.length
               ? UAKWorkspace.t("Checks it must pass:") + " " + card.tests.join(", ").replace(/_/g, " ")
-              : UAKWorkspace.t("Nothing to test first:") + " " + (card.test_first || "-");
+              : UAKWorkspace.t("Tests first:") + " " + (card.test_first || "-");
             tests.dataset.noI18n = "";
             li.append(title, meta, tests);
             el("plan-cards").append(li);
@@ -2520,6 +2587,7 @@
         }
         el("idea-form").onsubmit = function (event) {
           event.preventDefault();
+          if (!checkFields(this)) return;
           action(el("idea-save"), async function () {
             try {
               await api("idea", ideaFields());
@@ -2886,19 +2954,22 @@
           button.disabled = true;
           setBusy(button, true);
           el("error").hidden = true;
-          var outcome, failure = null;
+          var outcome, failure = null, tech = "", atField = false;
           try {
             outcome = await fn();
           } catch (e) {
             failure = e;
-            error(e.message);
+            tech = (e.body && e.body.technical) || "";
+            atField = !!(e.body && e.body.field && fieldError(fieldInput(e.body.field, button), e.message));
+            if (!atField) error(e.message);
           } finally {
             requestBusy = false;
             button.disabled =
               step === 4 && isBusy(state.phase);
             var running = isBusy(state.phase) && phaseOwner(state.phase) === button;
             if (!running) setBusy(button, false);
-            if (failure) failed(button, failure.message);
+            // The reason is under its field already: the result line only points there (said once, A-F15).
+            if (failure) failed(button, atField ? "See the message under the field." : failure.message, tech);
             else if (!running && outcome !== false) done(button);
           }
         }
@@ -2906,6 +2977,87 @@
         // seemed to do nothing. Every request shows its busy label inside its button and how it ended right next to it;
         // a button that waits for an earlier step says why (aria-disabled, so a click can explain it in a toast).
         // team-roles is a block, not a button (saving the roles guards it): setBusy leaves non-buttons as they are.
+        // UI-021 (QA round D, top 1): a refused field said so in a box ~2,900 px away with the focus on <body>. The
+        // server names the field; the message goes under it, the field is marked invalid and gets the focus.
+        var FIELD_INPUT = {
+          target: "target",
+          name: "human-name",
+          start: "schedule-start",
+          end: "schedule-end",
+          zone: "schedule-zone",
+          idea: "idea-text",
+          audience: "idea-audience",
+          rubric: "idea-goal",
+          goal: "idea-goal",
+          event_length: "idea-length",
+          team_size: "idea-team",
+        };
+        function fieldInput(field, button) {
+          if (field === "name" && button && button.id === "team-name-save") return "team-name";
+          return FIELD_INPUT[field] || "";
+        }
+        // The message under the field; false when the field is not on screen (the global box says it then).
+        function fieldError(id, message) {
+          var input = id && el(id);
+          if (!input || !input.getClientRects().length) return false;
+          var box = el(id + "-error");
+          if (!box) {
+            box = document.createElement("p");
+            box.id = id + "-error";
+            box.className = "field-error";
+            // Under the row of a side-by-side group (name and Save, the three schedule fields): the row keeps its line.
+            (input.closest(".prepare-row") || input).after(box);
+          }
+          box.textContent = UAKWorkspace.t(message);
+          input.setAttribute("aria-invalid", "true");
+          var described = (input.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+          if (described.indexOf(box.id) < 0) described.push(box.id);
+          input.setAttribute("aria-describedby", described.join(" "));
+          input.focus();
+          return true;
+        }
+        function clearFieldError(input) {
+          if (!input || input.getAttribute("aria-invalid") !== "true") return;
+          input.removeAttribute("aria-invalid");
+          var box = el(input.id + "-error");
+          if (box) box.textContent = "";
+        }
+        document.addEventListener("input", function (event) {
+          clearFieldError(event.target);
+        });
+        // The page's own messages, never the browser's (English) bubbles: the first empty or invalid field of a form.
+        function checkFields(form) {
+          var fields = form.querySelectorAll("input[required], textarea[required]");
+          for (var i = 0; i < fields.length; i++) {
+            var input = fields[i];
+            if (!input.getClientRects().length || input.type === "radio" || input.type === "checkbox") continue;
+            clearFieldError(input);
+            if (!input.value.trim()) return !fieldError(input.id, "Fill in this field.");
+            if (input.type === "number" && !/^\d+$/.test(input.value.trim())) return !fieldError(input.id, "Use a whole number from 1 to 50.");
+          }
+          return true;
+        }
+        // Git's own words under a result line, folded: the line says what happened in plain words (UI-021).
+        function technical(anchor, text) {
+          if (!anchor) return;
+          var box = el(anchor.id + "-technical");
+          if (!text) {
+            if (box) box.remove();
+            return;
+          }
+          if (!box) {
+            box = document.createElement("details");
+            box.id = anchor.id + "-technical";
+            box.className = "technical";
+            var summary = document.createElement("summary"),
+              pre = document.createElement("pre");
+            summary.textContent = UAKWorkspace.t("Technical details");
+            pre.dataset.noI18n = "";
+            box.append(summary, pre);
+            anchor.after(box);
+          }
+          box.querySelector("pre").textContent = text;
+        }
         var BUSY_LABEL = {
           check: "Checking…",
           "next-check": "Checking…",
@@ -2986,21 +3138,23 @@
           }
           return line;
         }
-        function report(button, text, failed) {
+        function report(button, text, failed, details) {
           if (button && RESULT_AT[button.id] && el(RESULT_AT[button.id])) button = el(RESULT_AT[button.id]);
           if (!isButton(button)) return;
           var line = resultLine(button);
           line.textContent = text;
           line.classList.toggle("error", !!failed);
+          technical(line, details || "");
         }
         function done(button) {
           report(button, UAKWorkspace.format("Done at {time}.", { time: clock(new Date()) }));
         }
-        function failed(button, message) {
+        function failed(button, message, details) {
           report(
             button,
             UAKWorkspace.format("Failed at {time}: {error}", { time: clock(new Date()), error: UAKWorkspace.t(message) }),
             true,
+            details,
           );
         }
         function phaseOwner(phase) {
@@ -3683,6 +3837,7 @@
           (view.commands || []).forEach(function (c) { byId[c.id] = c; });
           el("team-note").hidden = !view.note;
           el("team-note").textContent = UAKWorkspace.t(view.note || "");
+          technical(el("team-note"), (view.note && view.technical) || "");
           el("team-review-note").hidden = !view.review_note || view.review_note === view.note;
           el("team-review-note").textContent = UAKWorkspace.t(view.review_note || "");
           el("team-retry").hidden = !view.retry;
@@ -3907,7 +4062,8 @@
         });
         el("project-form").onsubmit = function (event) {
           event.preventDefault();
-          el("target-error").textContent = "";
+          if (!checkFields(this)) return;
+          clearFieldError(el("target"));
           action(this.querySelector("button[type=submit]"), async function () {
             try {
               var previousTarget = state.target;
@@ -3940,8 +4096,7 @@
                 show(2);
               }
             } catch (e) {
-              el("target-error").textContent = e.message;
-              el("target").focus();
+              fieldError("target", e.message);
             }
           }).then(function () {
             maybeAutoCheck(state);
@@ -3950,6 +4105,11 @@
         el("workflow-form").onsubmit = function (event) {
           event.preventDefault();
           var modes = document.querySelector("input[name=mode]:checked");
+          if (!modes) {
+            error("Choose Hackathon or Product before installing.");
+            document.querySelector("input[name=mode]").focus();
+            return;
+          }
           var tools = Array.from(
             document.querySelectorAll("input[name=harness]:checked"),
           ).map(function (input) {
@@ -4094,6 +4254,7 @@
               el("schedule-zone").value = "UTC";
             }
           }
+          fillZones();
           var box = g.terminal;
           el("terminal-step").hidden = !box;
           if (box) {
@@ -4135,6 +4296,24 @@
             await refresh();
           });
         };
+        // The zone list: the browser's own zone first, then every zone the browser knows (D top 2).
+        function fillZones() {
+          var list = el("schedule-zones");
+          if (list.options.length) return;
+          var here = "UTC", zones = [];
+          try {
+            here = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+          } catch (e) {}
+          try {
+            zones = Intl.supportedValuesOf ? Intl.supportedValuesOf("timeZone") : [];
+          } catch (e) {}
+          [here, "UTC"].concat(zones).forEach(function (zone, i, all) {
+            if (all.indexOf(zone) !== i) return;
+            var option = document.createElement("option");
+            option.value = zone;
+            list.append(option);
+          });
+        }
         el("schedule-form").onsubmit = function (event) {
           event.preventDefault();
           var body = {
@@ -4143,8 +4322,8 @@
             zone: el("schedule-zone").value.trim(),
           };
           if (!el("schedule-start").value || !el("schedule-end").value) {
-            error("Choose the start and end dates of the event.");
-            el(el("schedule-start").value ? "schedule-end" : "schedule-start").focus();
+            // Never guessed (UI-010); said at the empty field, never in a browser bubble (UI-021).
+            fieldError(el("schedule-start").value ? "schedule-end" : "schedule-start", "Choose the start and end dates of the event.");
             return;
           }
           action(el("schedule-save"), async function () {
@@ -4155,15 +4334,19 @@
               !window.confirm(
                 UAKWorkspace.t("That freeze is in the past or less than an hour away. Save it anyway?") +
                   "\n" +
-                  UAKWorkspace.when(look.freeze),
+                  UAKWorkspace.when(look.freeze_at || look.freeze),
               )
             )
               return;
             var result = await api("schedule", body);
+            // In the order they happen, with their dates (UI-021); the engine writes the weekday in English, in the
+            // event's zone ("Fri 2026-11-13 03:30"), and when() puts it in the page's language (UI-012, r1).
             el("schedule-status").textContent = UAKWorkspace.format(
-              "Saved. New work stops at {freeze}; take the first task by {first}.",
-              // The engine writes the weekday in English ("Fri 03:30"), in the event's zone (UI-012, r1).
-              { freeze: UAKWorkspace.when(result.freeze), first: UAKWorkspace.when(result.first_claim || "-") },
+              "Saved. Take the first task by {first}; new work stops at {freeze}.",
+              {
+                first: UAKWorkspace.when(result.first_claim_at || result.first_claim || "-"),
+                freeze: UAKWorkspace.when(result.freeze_at || result.freeze),
+              },
             );
             dropDrafts(["schedule-start", "schedule-end", "schedule-zone"]);
             el("schedule-form").removeAttribute("data-open");
