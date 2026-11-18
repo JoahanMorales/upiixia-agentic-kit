@@ -173,7 +173,9 @@ def start_asks_for_the_smoke(r):
     expect(made.returncode == 0 and "SMOKE_ADAPTER_CREATED" in made.stdout, "the pasted command works: " + made.stdout + made.stderr)
     out = start()
     expect(smoke_line(out.stdout) and "push" in out.stdout, "made here, not on main yet: still asked, with push: " + out.stdout)
-    git("add", "-A"); git("commit", "-qm", "chore: product smoke"); git("push", "-q", "origin", "main")
+    git("add", "-A")
+    r.run([r.git, "commit", "-qm", "chore: product smoke"], cwd=t, env={**env, "UAK_DIRECT_MAIN": "1"})  # the human's setup commit
+    git("push", "-q", "origin", "main")
     out = start()
     expect(out.returncode == 0 and "START READY" in out.stdout and not smoke_line(out.stdout),
            "the smoke on main: READY: " + out.stdout)
@@ -196,7 +198,7 @@ def web_smoke_boots_the_app(r):
     text = made.stdout + made.stderr
     expect(made.returncode != 0 and "PRODUCT_UNVERIFIED" in text and "ImportError" in text,
            "the generated smoke boots the app and fails on its broken import: rc %d %s" % (made.returncode, text[-600:].replace("Error", "E.")))
-    adapter = (t / ".uak/bin/smoke-project").read_text(encoding="utf-8")
+    adapter = (t / ".uak/bin/smoke-project").read_text(encoding="utf-8").replace("\\", "")   # the command is %q-quoted
     expect("smoke-init.sh boot" in adapter and "app.server" in adapter, "the adapter boots the app: " + adapter)
     stdlib_app(t, broken=False)
     made = uak("init-smoke", env={"UAK_PORT": str(port)})
