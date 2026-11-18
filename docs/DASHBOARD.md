@@ -141,6 +141,15 @@ A choice of presentation, kept in your browser only. It never changes permission
 - **Advanced** shows the full dashboard (board, agents, messages, black box, memory, tokens) and opens Technical
   details. Above it, the same next step as Beginner, with its Copy button.
 
+What the progress view counts is what can really happen (UI-023): a task whose dependencies are not integrated yet
+is **Waiting on dependencies**, not available; a review approved for its current commit says **approved**; only a
+merge the gate handed to a person counts as **Needs a human**, and that merge is the next step before anything else,
+in one plain sentence with no path on your disk. Past the freeze every view says the project is frozen (setup reads
+the freeze from `.uak/PROJECT.md` too). When the remote stops answering, the dashboard shows the last claims this
+computer read, labelled with their age, instead of the plan with every task free. The board's tabs are ARIA tabs (arrow
+keys, Home, End) that wrap on a phone, each view has a heading, small buttons are at least 24 px and text keeps a
+contrast of 4.5:1 or more in light and dark.
+
 In Spanish the whole page speaks to you as *tú*, the lines the engine prints (the readiness checks and their hints,
 the freeze, the claim states) and every refusal have a Spanish version, and each control has one name. Beginner adds
 **Words you will see** beside the steps: what a claim, the freeze, lint, a wave, a worktree, a PR, `origin` and MCP
