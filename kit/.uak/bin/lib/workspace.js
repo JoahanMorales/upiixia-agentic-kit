@@ -412,6 +412,26 @@
     ["Blocked", "Bloqueadas"],
     ["In review", "En revisión"],
     ["Integrated", "Integradas"],
+    ["Waiting on dependencies", "Esperando dependencias"],
+    ["Project dashboard", "Panel del proyecto"],
+    ["available", "disponible"],
+    ["in progress", "en curso"],
+    ["blocked", "bloqueada"],
+    ["in review", "en revisión"],
+    ["integrated", "integrada"],
+    ["waiting on dependencies", "esperando dependencias"],
+    ["approved", "aprobada"],
+    ["waits on ", "espera a "],
+    ["Waiting", "Esperando"],
+    ["Last known state · ", "Último estado conocido · "],
+    ["The remote did not answer: this is the last state this computer read.", "El remoto no respondió: este es el último estado que leyó esta computadora."],
+    ["Coordination could not refresh. Showing the last known state of the team.", "No se pudo actualizar la coordinación. Se muestra el último estado conocido del equipo."],
+    ["The product check (smoke) failed or does not exist yet, so the merge stopped.", "La comprobación del producto (smoke) falló o todavía no existe, así que la integración se detuvo."],
+    ["The project is frozen: a person must allow this task before it merges.", "El proyecto está congelado: una persona debe autorizar esta tarea antes de integrarla."],
+    ["The reviewer and the author belong to the same person: another person's agent must review.", "Quien revisa y quien escribió el código son de la misma persona: debe revisar el agente de otra persona."],
+    ["The merge needs a current approval from a reviewer.", "La integración necesita una aprobación vigente de un revisor."],
+    ["Checking the merged result failed: the task needs a look before it can merge.", "Falló la comprobación del resultado integrado: hay que revisar la tarea antes de integrarla."],
+    ["The merge stopped and needs a person. The Advanced view's conversation has the details.", "La integración se detuvo y necesita a una persona. Los detalles están en las conversaciones de la vista Avanzada."],
     ["No agents yet", "Todavía no hay agentes"],
     [
       "An agent appears here after its first uak command.",
@@ -880,6 +900,7 @@
   // UI-020 (B-01, B-03, B-09, Dylan's live run): the branch notes, publish refusals with their exact command, and no
   // "command below" without a command. NOTES is read as JSON by the tests: no comments inside it.
   var NOTES = [
+    ["(\\S+) needs a person to finish its merge", "$1 necesita que una persona termine su integración"],
     ["Could not reach ([^:]+): ([^.]+)\\. (.+)", "No se pudo conectar con $1: $2. $3"],
     ["Could not read ([^:]+): ([^.]+)\\. (.+)", "No se pudo leer $1: $2. $3"],
     ["Type the project folder name exactly as shown: (.+)", "Escribe el nombre de la carpeta del proyecto tal como se muestra: $1"],
@@ -1034,7 +1055,7 @@
     ["reviews: no reviewer is registered, so the first PR waits until a second agent holds a claim\\. Working alone\\? Register one from this checkout: (.+), and a second session as (.+) runs /uak-review\\.", "revisiones: no hay revisor registrado, así que el primer PR espera a que un segundo agente tenga una tarea. ¿Trabajas solo? Registra uno desde esta copia: $1, y una segunda sesión como $2 ejecuta /uak-review."],
     ["reviews: no reviewer is registered, so the first PR waits until a second agent holds a claim\\. Working alone\\? Register one from this checkout: (.+)", "revisiones: no hay revisor registrado, así que el primer PR espera a que un segundo agente tenga una tarea. ¿Trabajas solo? Registra uno desde esta copia: $1"],
     ["you already hold (.+) \\((.+)\\)", "ya tienes $1 ($2)"],
-    ["first task: (.+) \\((.*)\\)", "primera tarea: $1 ($2)"],
+    ["first task: (.+) \\((.*)\\)", "siguiente tarea: $1 ($2)"],
     ["a claimable task: uak next offers none", "una tarea disponible: uak next no ofrece ninguna"]
   ];
   function gate(line) {

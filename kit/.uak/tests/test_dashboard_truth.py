@@ -8,6 +8,7 @@ Evidence: notes/handoff:qa/rounds-2026-11-14 A-F9, B-06, B-07, B-08, B-12, B-13,
 import argparse
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -251,6 +252,9 @@ def main():
     parser.add_argument("--case", action="append")
     args = parser.parse_args()
     root = args.package.resolve()
+    # The server reads UAK_REMOTE/UAK_BASE from this process: an inherited value (a task worktree's) is not the fixture's.
+    for key in [k for k in os.environ if k.startswith("UAK_")]:
+        del os.environ[key]
     spec = importlib.util.spec_from_file_location("truth_setup", root / ".uak/bin/lib/setup.py")
     team.MODULE = wizard.MODULE = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(wizard.MODULE)

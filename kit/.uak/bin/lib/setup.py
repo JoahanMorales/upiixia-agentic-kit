@@ -8,6 +8,7 @@ project name, and only the reviewed plan files are committed and pushed (WHY.md,
 import argparse
 import hmac
 import importlib.util
+import io
 import json
 import os
 import re
@@ -17,6 +18,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -534,8 +536,12 @@ def guidance(state, dashboard=None, now=None):
         return step("busy", "Working in the background", "Keep this window and the terminal open.")
     if state.get("phase") == "error" and state.get("error"):
         return step("error", "Something needs your attention", state["error"])
-    freeze = dashboard.get("freeze") or state.get("freeze") or 0
-    if freeze and freeze <= now:
+    # UI-023 (B-07): a merge in the human queue is the first thing a person does; the reason is a plain sentence
+    # with no path (the engine's own words stay in the Advanced view's conversation).
+    human = dashboard["needs_human"] if "needs_human" in dashboard else state.get("needs_human") or []
+    if human and state.get("installed"):
+        return step("human", "%s needs a person to finish its merge" % human[0]["task"], plain_reason(human[0]["reason"]))
+    if frozen_since(state, dashboard, now):
         return step("frozen", "Project changes are frozen",
                     "The change window has closed. Review the project with the responsible human before starting new work.")
     if not state.get("installed"):
@@ -546,7 +552,7 @@ def guidance(state, dashboard=None, now=None):
                     steps=[l for l in todo.get("text", "").split("\n")[1:] if l])
     if state.get("ready"):
         claim = CLAIM_COMMAND.match(state.get("next_command") or "")
-        tasks = {t.get("id"): t.get("state") for t in dashboard.get("tasks") or []}
+        tasks = {t.get("id"): "WAITING" if t.get("waiting_on") else t.get("state") for t in dashboard.get("tasks") or []}
         if claim and tasks.get(claim.group(1), "AVAILABLE") != "AVAILABLE":
             return step("check", "Check what's next",
                         "The task suggested by the last check is no longer available.")
@@ -583,6 +589,113 @@ def guidance(state, dashboard=None, now=None):
             return g
     return step("check", "Check what your project needs",
                 "The readiness check lists what is missing before agents can start, in order.")
+
+
+FROZEN_NOTE = "The change window has closed. Review the project with the responsible human before starting new work."
+
+
+def frozen_since(state, dashboard=None, now=None):
+    """The freeze epoch when it has passed, else 0. Claims' config, the last dashboard read, or the project's own
+    PROJECT.md (UI-023, B-06: a project past its freeze read "Your team is working" until the dashboard was opened)."""
+    now = time.time() if now is None else now
+    freeze = (dashboard or {}).get("freeze") or state.get("freeze") or (state.get("resume") or {}).get("freeze") or 0
+    return freeze if 0 < freeze <= now else 0
+
+
+DEPENDENCY = re.compile(r"[A-Z][A-Z0-9]*-\d+")
+# An absolute path (POSIX or a Windows drive) in an engine reason, and the gate's "(log: …)" note.
+ABSOLUTE_PATH = re.compile(r"(?<![\w.:/\\])(?:[A-Za-z]:[\\/]|/)[^\s;,()]+")
+LOG_NOTE = re.compile(r"\s*\(log: [^)]*\)")
+
+
+def without_paths(text):
+    """UI-023 (B-07): a reason shown on the page names files, never where they are on someone's disk."""
+    text = LOG_NOTE.sub("", str(text or ""))
+    return ABSOLUTE_PATH.sub(lambda m: re.split(r"[\\/]", m.group(0).rstrip("/\\"))[-1] or "…", text).strip()
+
+
+# Why the merge gate handed a task to a person, as one plain sentence each (Spanish pairs in workspace.js).
+HUMAN_REASONS = (
+    (r"PRODUCT_UNVERIFIED|[Ss]moke", "The product check (smoke) failed or does not exist yet, so the merge stopped."),
+    (r"FREEZE", "The project is frozen: a person must allow this task before it merges."),
+    (r"Review-Independence|same human",
+     "The reviewer and the author belong to the same person: another person's agent must review."),
+    (r"[Aa]pprov", "The merge needs a current approval from a reviewer."),
+    (r"[Cc]onflict|[Vv]erify|[Cc]andidate|tree hash|not on ",
+     "Checking the merged result failed: the task needs a look before it can merge."),
+)
+
+
+def plain_reason(reason):
+    for pattern, sentence in HUMAN_REASONS:
+        if re.search(pattern, reason or ""):
+            return sentence
+    return "The merge stopped and needs a person. The Advanced view's conversation has the details."
+
+
+def truthful(data):
+    """UI-023 (A-F9, B-07, B-13): what the page shows as available can really be claimed, an approved review is
+    marked, and only the human queue counts as work for a person; reasons carry no absolute path."""
+    tasks = data.get("tasks") or []
+    states = {t.get("id"): t.get("state") for t in tasks}
+    for t in tasks:
+        deps = re.sub(r"\([^)]*\)", "", t.get("depends") or "")
+        t["waiting_on"] = [d for d in dict.fromkeys(DEPENDENCY.findall(deps))
+                           if d != t.get("id") and states.get(d) != "INTEGRATED"] if t.get("state") == "AVAILABLE" else []
+    progress = data.setdefault("progress", {})
+    progress["waiting"] = sum(1 for t in tasks if t["waiting_on"])
+    progress["available"] = sum(1 for t in tasks if t.get("state") == "AVAILABLE" and not t["waiting_on"])
+    verdicts = {}
+    for review in sorted(data.get("reviews") or [], key=lambda r: r.get("at") or 0):
+        verdicts[review.get("task")] = review.get("verdict")
+    offered = {o.get("task") for o in data.get("offers") or []}
+    for t in tasks:
+        t["approved"] = t.get("state") == "REVIEW" and verdicts.get(t.get("id")) == "approve" and t.get("id") not in offered
+    for q in data.get("queue") or []:
+        q["reason"] = without_paths(q.get("reason"))
+    data["needs_human"] = [{"task": q.get("task", ""), "reason": q["reason"]} for q in data.get("queue") or []
+                           if q.get("state") == "HUMAN"]
+    return data
+
+
+def last_claims(server, root, module):
+    """UI-023 (B-08): the remote does not answer: the newest local copy of claims this clone has (the dashboard's,
+    setup's or Git's tracking ref), built like a live read and marked stale; None when there is none."""
+    remote, base = remote_and_base()
+    newest = None
+    for ref in (DASH_CLAIMS, SETUP_CLAIMS, "refs/remotes/%s/claims" % remote):
+        shown = server.planning.git(server.identity_run, root, "log", "-1", "--format=%ct", ref, "--", timeout=10)
+        at = (shown.stdout or "").strip() if shown.returncode == 0 else ""
+        if at.isdigit() and (not newest or int(at) > newest[1]):
+            newest = (ref, int(at))
+    if not newest:
+        return None
+    backlog = None
+    for ref in ("refs/uak/dash-base", SETUP_BASE, "refs/remotes/%s/%s" % (remote, base)):
+        shown = server.planning.git(server.identity_run, root, "show", ref + ":.uak/TASKS.md", timeout=10)
+        if shown.returncode == 0:
+            backlog = shown.stdout
+            break
+    if backlog is None:
+        backlog = module.read(Path(root) / ".uak/TASKS.md")
+    folder = Path(tempfile.mkdtemp(prefix="uak-last-claims-"))
+    try:
+        with tarfile.open(fileobj=io.BytesIO(module.git("archive", newest[0], cwd=str(root)))) as archive:
+            for member in archive.getmembers():
+                # Plain files and directories only, inside the folder (the same rule as dash.py's live read).
+                if member.name.startswith("/") or ".." in Path(member.name).parts or not (member.isfile() or member.isdir()):
+                    continue
+                if hasattr(tarfile, "data_filter"):
+                    archive.extract(member, str(folder), filter="data")
+                else:
+                    archive.extract(member, str(folder))
+        data = module.build(folder, backlog, Path(root).name)
+    finally:
+        shutil.rmtree(str(folder), ignore_errors=True)
+    data.update(source="cache", connection="unreachable", stale=True, claims_at=newest[1], refresh=20,
+                warning="Coordination could not refresh. Showing the last known state of the team.",
+                live_url=module.project_live_url(module.read(Path(root) / ".uak/PROJECT.md")))
+    return data
 
 
 def planning_module():
@@ -661,7 +774,7 @@ class SetupServer(ThreadingHTTPServer):
                 self.state.update(target=str(root), installed=resume["installed"], can_repair=(root / ".uak").exists(),
                                   phase="setup", identity=identity, human=saved, human_source="project" if saved else "",
                                   resume=resume, inspect=self.state.get("inspect", 0) + 1, checked=False, ready=False,
-                                  checks=[], next_command="", next_note="", freeze=0, details="", error="")
+                                  checks=[], next_command="", next_note="", freeze=0, needs_human=[], details="", error="")
                 self.plan_known.setdefault(str(root), ([], bool(resume["kit_on_main"]), "", ""))
         except (OSError, ValueError, subprocess.SubprocessError):
             return
@@ -1093,13 +1206,28 @@ class SetupHandler(BaseHTTPRequestHandler):
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 data = module.workspace_data(root)
+                if data.get("source") == "local" and data.get("connection") == "unreachable":
+                    # UI-023 (B-08): offline, the last claims this clone read, marked stale, not "everything free".
+                    try:
+                        data = last_claims(self.server, root, module) or data
+                    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, tarfile.TarError):
+                        pass  # no readable copy: the plainly labelled local plan stays
                 try:
                     name_the_team(self.server, Path(root), data)
                 except (OSError, ValueError, subprocess.SubprocessError):
                     pass  # the dashboard still shows who has acted; only the extra names are missing
-                data["mode"] = read_config(root).get("Mode", "")
+                config = read_config(root)
+                data["mode"] = config.get("Mode", "")
+                if not data.get("freeze"):
+                    # UI-023 (B-06): claims' config has no freeze until the engine writes one; PROJECT.md has it.
+                    try:
+                        data["freeze"] = max(0, int(read_config(root, ("Freeze-Epoch",)).get("Freeze-Epoch") or 0))
+                    except ValueError:
+                        data["freeze"] = 0
+                truthful(data)
                 with self.server.lock:
                     self.server.state["freeze"] = data.get("freeze") or 0
+                    self.server.state["needs_human"] = data["needs_human"]
                     data["guidance"] = guidance(self.server.state, data)
                 self.reply(200, data)
             except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
@@ -1424,7 +1552,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                 if self.identity is not None:
                     s.state["identity"] = self.identity
                 human = saved or s.state.get("human") or ""
-                s.state.update(target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], next_command="", next_note="", freeze=0, details=previous.get("details", ""), error=previous.get("error", ""),
+                s.state.update(target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], next_command="", next_note="", freeze=0, needs_human=[], details=previous.get("details", ""), error=previous.get("error", ""),
                                human=human, human_source="project" if saved else "session" if human else "",
                                resume=resume, inspect=s.state.get("inspect", 0) + 1, checked=False, branch=branch)
                 if kept:
@@ -2445,11 +2573,18 @@ def team_view(server):
         view["claimed"].append(row)
     with server.lock:
         claim = CLAIM_COMMAND.match(server.state.get("next_command") or "")
+        frozen = frozen_since(server.state)
     task = claim.group(1) if claim and TEAM_TASK.fullmatch(claim.group(1)) else ""
+    if frozen:
+        # UI-023 (B-06): after the freeze nothing new is claimed; the page says frozen, not "your team is working".
+        view["note"] = FROZEN_NOTE
+        task = ""
     if not available:
         reasons = tuple(next(t["reason"] for t in tools if t["id"] == i) for i in ("claude", "codex"))
         # B-09: no command is shown below this note, so the command it talks about is in the note itself.
-        if task and task not in known["files"] and not (wt_root / task.lower()).exists():
+        if frozen:
+            pass
+        elif task and task not in known["files"] and not (wt_root / task.lower()).exists():
             view["note"] = ("No coding tool can start here: Claude Code: %s Codex: %s With Cursor or Gemini, claim %s "
                             "yourself with cd %s && bash .uak/bin/wt new %s and open the tool in its folder."
                             % (reasons + (task, shell_quote(text), task)))
@@ -2458,7 +2593,9 @@ def team_view(server):
                             "Check what's next to get a free task first." % reasons)
         return view
     commands = []
-    if phase == "waiting":
+    if frozen:
+        pass
+    elif phase == "waiting":
         view["note"] = "No task is free to start right now."
     elif not task:
         # A READY line that does not parse to a valid task: no command at all (amendment 2).

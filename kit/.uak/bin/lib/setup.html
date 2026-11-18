@@ -16,7 +16,7 @@
         --paper: #fff;
         --ink: #182b28;
         --secondary: #52645e;
-        --muted: #67756e;
+        --muted: #5c6a63;
         --line: #dce4dc;
         --accent: #14634e;
         --accent-hover: #104f3e;
@@ -772,11 +772,21 @@
         padding: 4px 0;
         overflow-wrap: anywhere;
       }
-      .team-step,
-      .advanced-next {
+      .team-step {
         margin: 0 0 24px;
         padding-bottom: 20px;
         border-bottom: 1px solid var(--line);
+      }
+      /* UI-023 (B-15): the Advanced next step is its own card, not a line squeezed under "Your app". */
+      .advanced-next {
+        margin: 24px 0;
+        padding: 18px 20px;
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: var(--small);
+      }
+      .advanced-next h3 {
+        margin: 2px 0 6px;
       }
       .team-step:focus {
         outline: none;
@@ -2802,22 +2812,30 @@
           // Configuration), so this view never offers work that the gate still blocks.
           drawNext(data.guidance || state.guidance || {});
           el("simple-tasks").replaceChildren();
-          var labels = {
-            AVAILABLE: "Available",
-            CLAIMED: "In progress",
-            BLOCKED: "Blocked",
-            REVIEW: "In review",
-            INTEGRATED: "Integrated",
+          // UI-023 (B-12, B-13): one row reads in the singular, a task waiting on its dependencies is not
+          // available, and an approved review says so.
+          var ROW_LABEL = {
+            AVAILABLE: "available",
+            CLAIMED: "in progress",
+            BLOCKED: "blocked",
+            REVIEW: "in review",
+            INTEGRATED: "integrated",
           };
           data.tasks.slice(0, 8).forEach(function (task) {
             var row = document.createElement("li"),
               title = document.createElement("span"),
-              status = document.createElement("span");
+              status = document.createElement("span"),
+              waits = (task.waiting_on || []).length;
             title.dataset.noI18n = "";
             title.textContent = task.id + " · " + task.title;
             status.textContent = UAKWorkspace.t(
-              labels[task.state] || task.state,
+              waits
+                ? "waiting on dependencies"
+                : task.approved
+                  ? "approved"
+                  : ROW_LABEL[task.state] || task.state,
             );
+            if (waits) status.title = UAKWorkspace.t("waits on ") + task.waiting_on.join(", ");
             row.append(title, status);
             el("simple-tasks").append(row);
           });
