@@ -9,6 +9,19 @@ Guide: [docs/DASHBOARD.md](docs/DASHBOARD.md).
 - **Light CI on pull requests (UAK-090).** Pull requests run the Ubuntu suite and the Windows per-file job; main and
   workflow_dispatch keep macOS. Approved PRs #19-#21 waited hours for macOS arm64 runners GitHub could not provide.
 
+- **Forms say what is wrong next to the field, and the page speaks plain Spanish all the way (UI-021, absorbs UI-022).**
+  A refused or empty field (project folder, name, schedule, idea) shows its reason under it with `aria-invalid` and
+  `aria-describedby` and takes the focus; the forms use the page's own translated messages instead of the browser's
+  bubbles. A made-up time zone (`Mars/Base`) is refused (zoneinfo, or the IANA areas where Python has no zone
+  database) and the zone list starts with the browser's zone; the schedule confirmation gives dates in the order they
+  happen; a relative folder asks for the full path; the schedule fields no longer overlap and "Save the idea" has its
+  gap. Every refusal of setup and of the planning module, the readiness hints, the freeze lines and the claim states
+  have Spanish; a failed network Git is one plain sentence with the advice that fits (address, sign-in, connection,
+  timeout) and Git's words under Technical details; the beginner view has a glossary; the header's controls have one
+  visible label each; the plan cards say "Tests first"; the planner writes titles, criteria and test names in the
+  idea's language. Evidence: QA rounds of 2026-11-14 (D top 1, 2, 7, 9 and other findings; A-F10, F13, F14, F20;
+  B-11).
+
 - **Branches and publishing never leave a dead end (UI-020).** Inspect warns and Install or Repair stop when the folder
   has commits and is not on `main` (a clone of a remote whose default branch is `claims` landed on `claims` and the kit
   was installed there), with the exact command (`git switch main`, or `git branch -m master main` when there is no
