@@ -588,8 +588,10 @@ class SetupServer(ThreadingHTTPServer):
                 return
             identity = signing_identity(self.identity_run, root)
             resume, saved = project_progress(self, root, "")
+            branch = branch_state(self, root)
             with self.lock:
                 self.target = str(root)
+                self.state["branch"] = branch
                 self.state.update(target=str(root), installed=resume["installed"], can_repair=(root / ".uak").exists(),
                                   phase="setup", identity=identity, human=saved, human_source="project" if saved else "",
                                   resume=resume, inspect=self.state.get("inspect", 0) + 1, checked=False, ready=False,
@@ -605,9 +607,11 @@ class SetupServer(ThreadingHTTPServer):
         if not target:
             return
         resume, _ = project_progress(self, Path(target), human)
+        branch = branch_state(self, Path(target))
         with self.lock:
             if self.target == target:
                 self.state["resume"] = resume
+                self.state["branch"] = branch
 
     def keep_check(self, at=None):
         """Remember the current project's finished check (caller holds the lock)."""
@@ -1059,6 +1063,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                     running = state.get("phase") == "planning" and s.plan_started
                     progress = {"elapsed": max(0, int(time.time() - s.plan_started)), "last": s.plan_last} if running else {}
                 self.reply(200, dict(state, plan_progress=progress, settings=read_config(target) if target else {},
+                                     branch=remote_default(s, target, state.get("branch") or {}),
                                      guidance=guidance(state), completed=completed_steps(state), team=team_phase(state),
                                      demo=media_available(),
                                      reviewer=reviewer_status(s, target, state.get("human") or "")))
@@ -1333,6 +1338,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                 session = s.state.get("human") or ""
             # UI-019: where the project is, from local Git only, outside the lock.
             resume, saved = project_progress(s, root, session)
+            branch = branch_state(s, root)  # UI-020: on the base branch? the remote's default branch?
             with s.lock:
                 s.keep_check()  # the project being left keeps its last check
                 previous = dict(s.state) if s.failed_target == str(root) else {}
@@ -1345,7 +1351,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                 human = saved or s.state.get("human") or ""
                 s.state.update(target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], next_command="", next_note="", freeze=0, details=previous.get("details", ""), error=previous.get("error", ""),
                                human=human, human_source="project" if saved else "session" if human else "",
-                               resume=resume, inspect=s.state.get("inspect", 0) + 1, checked=False)
+                               resume=resume, inspect=s.state.get("inspect", 0) + 1, checked=False, branch=branch)
                 if kept:
                     s.state.update(ready=kept["ready"], checks=list(kept["checks"]), next_command=kept["next_command"],
                                    next_note=kept["next_note"], details=kept["details"], phase=kept["phase"],
@@ -1358,7 +1364,11 @@ class SetupHandler(BaseHTTPRequestHandler):
             cmd = install_command(s.installer, s.target, data)
             if not s.target:
                 raise ValueError("Check the project folder before installing.")
-            project_root(s.target)
+            wrong = branch_state(s, project_root(s.target))
+            with s.lock:
+                s.state["branch"] = wrong
+            if wrong["wrong"]:
+                raise ValueError(wrong["message"])  # B-01: never install the kit on claims or any other branch
             if self.path == "/api/repair":
                 existing_mode = s.config().get("Mode")
                 if existing_mode and existing_mode != data["mode"]:
@@ -1510,7 +1520,7 @@ def approval_checks(server, data):
                          % (", ".join(staged[:5]), " ".join(staged[:5])))
     remote, base = remote_and_base()
     if git("symbolic-ref", "--short", "-q", "HEAD").stdout.strip() != base:
-        raise ValueError("The plan is published on %s. Switch to it first: git switch %s" % (base, base))
+        raise ValueError(switch_advice(server, root, "approve the plan again"))
     # Into setup's own ref, never FETCH_HEAD (the engine reads its own), with the network timeout (UI-011).
     fetched = net_git(server, root, "fetch", "-q", "--no-tags", "--no-write-fetch-head", remote,
                       "+refs/heads/%s:%s" % (base, SETUP_BASE))
@@ -1547,7 +1557,7 @@ def publish_checks(server):
                          % (", ".join(staged[:5]), " ".join(staged[:5])))
     remote, base = remote_and_base()
     if git("symbolic-ref", "--short", "-q", "HEAD").stdout.strip() != base:
-        raise ValueError("The kit is published on %s. Switch to it first: git switch %s" % (base, base))
+        raise ValueError(switch_advice(server, root, "publish again"))
     if git("remote", "get-url", remote).returncode:
         raise ValueError("This project has no remote named %s. Create an empty repository and run: "
                          "git remote add %s <its URL>" % (remote, remote))
@@ -1567,8 +1577,12 @@ def publish_checks(server):
                                  % (remote, base, remote, base))
             if not head or not git("merge-base", head, upstream).stdout.strip():
                 raise unrelated_history(server, root, head, remote, base)
-            raise ValueError("This branch has commits that are not on %s/%s. Push or move them first, so publishing "
-                             "sends only the kit." % (remote, base))
+            # B-03: after the way-out's git pull this branch is ahead; a refusal always carries its exact command.
+            if git("merge-base", "--is-ancestor", upstream, head).returncode == 0:
+                raise ValueError("This branch has commits that are not on %s/%s yet. Send them first with git push %s %s, "
+                                 "then publish again: publishing sends only the kit." % (remote, base, remote, base))
+            raise ValueError("This branch and %s/%s both have new commits. Join them first with git pull --no-rebase %s %s "
+                             "and then git push %s %s, then publish again." % (remote, base, remote, base, remote, base))
     elif head:
         raise ValueError("This branch has commits and %s has no %s yet. Push them yourself first "
                          "(git push -u %s HEAD:%s), then publish the kit." % (remote, base, remote, base))
@@ -1611,7 +1625,7 @@ def unrelated_history(server, root, head, remote, base):
         else:
             collide.append(path)
     text = root.as_posix()
-    if changed or unsafe or len(collide) > 8 or not quotable(text) or any(
+    if changed or unsafe or len(collide) > 8 or not printable(text) or any(
             not SAFE_PATH.fullmatch(p) or ".." in p.split("/") or os.path.lexists(str(root / (p + ".mine")))
             for p in collide):
         command = ""
@@ -1622,6 +1636,9 @@ def unrelated_history(server, root, head, remote, base):
             # mv -n would exit 0 without moving: the tests stop the chain before git pull instead (amendment 8).
             parts += ["test ! -e " + mine, "test ! -L " + mine, "mv -- %s %s" % (shell_quote(p), mine)]
         command = " && ".join(parts + ["git pull --no-rebase --no-edit --allow-unrelated-histories %s %s" % (remote, base)])
+    # B-03: with commits of its own, this folder is ahead after the pull: the second command sends them (a separate
+    # command, so the first never pushes anything; an unborn folder simply becomes the remote's history).
+    push = "cd %s && git push %s %s" % (shell_quote(text), remote, base) if command and head else ""
     steps = []
     if changed:
         names = " ".join(shell_quote(p) for p in changed[:8])
@@ -1634,6 +1651,9 @@ def unrelated_history(server, root, head, remote, base):
     if command:
         steps.append("If Git reports a conflict, open the files it names, keep what you need from both, then run git add "
                      "on them and git commit.")
+        if push:
+            steps.append("Then run the second command: git push %s %s sends your own commits to %s/%s, so publishing "
+                         "sends only the kit. Then press Review the files again." % (remote, base, remote, base))
         if collide:
             steps.append("Your copies are kept with .mine added to their names: %s. Choose Repair or update kit so the kit "
                          "adds its lines to .gitignore again, then compare and delete the .mine files."
@@ -1647,10 +1667,12 @@ def unrelated_history(server, root, head, remote, base):
         steps.append("Setup cannot write a safe command for the files this folder and %s/%s both have. Publish to a new "
                      "empty repository instead (no README, no .gitignore, no license): git remote set-url %s <its URL>"
                      % (remote, base, remote))
-    return WayOut("%s/%s already has its own first commits (for example a README or .gitignore created on GitHub), and they "
-                  "do not share history with this folder. Nothing was changed. The command below runs git pull to join "
-                  "both histories; read it before you run it." % (remote, base),
-                  {"command": command, "renamed": collide if command else [], "steps": steps})
+    first = ("%s/%s already has its own first commits (for example a README or .gitignore created on GitHub), and they "
+             "do not share history with this folder. Nothing was changed. " % (remote, base))
+    # B-09: "the command below" only when there is one.
+    first += ("The command below runs git pull to join both histories; read it before you run it." if command else
+              "Setup cannot write a safe git pull command to join them here: follow the steps below.")
+    return WayOut(first, {"command": command, "push": push, "renamed": collide if command else [], "steps": steps})
 
 
 def refusal(exc):
@@ -1668,8 +1690,99 @@ def shell_quote(path):
 
 
 def quotable(text):
-    """A path setup shows inside a command: no quote mark and no control character (it never escapes them)."""
-    return "'" not in text and not any(ord(c) < 32 or ord(c) == 127 for c in text)
+    """A path setup shows inside an agent's launch command: no quote mark and no control character."""
+    return "'" not in text and printable(text)
+
+
+def printable(text):
+    """A path shell_quote makes one exact Bash word: any quote mark, no control character (B-16)."""
+    return not any(ord(c) < 32 or ord(c) == 127 for c in text)
+
+
+def switch_step(head, base, has_base, born):
+    """The one command that puts this folder on the base branch, or "" when setup cannot write it exactly."""
+    if has_base:
+        return "git switch " + base
+    if not head or not born:
+        return "git switch -c " + base  # detached, or no commit yet: the new branch starts here
+    return "git branch -m %s %s" % (head, base) if valid_ref_name(head) else ""
+
+
+def branch_state(server, root, then="check the project folder again"):
+    """UI-020 (B-01, Dylan's live run): the branch this folder is on and its remote's default branch, from local Git
+    only (setup's own reader, never the operation runner). `wrong` when the folder has commits and HEAD is not the base
+    branch: a clone of a remote whose default branch is claims lands on claims, and the kit was installed there."""
+    remote, base = remote_and_base()
+
+    def git(*args):
+        return server.planning.git(server.identity_run, root, *args, timeout=10)
+
+    head = git("symbolic-ref", "-q", "HEAD").stdout.strip()
+    head = head[len("refs/heads/"):] if head.startswith("refs/heads/") else ""
+    tracking, origin_head = "refs/remotes/%s/%s" % (remote, base), "refs/remotes/%s/HEAD" % remote
+    wanted = ["refs/heads/" + base, tracking, origin_head] + (["refs/heads/" + head] if head else [])
+    refs = {}
+    for line in git("for-each-ref", "--format=%(refname) %(symref)", *wanted).stdout.splitlines():
+        name, _, points = line.strip().partition(" ")
+        refs[name] = points.strip()  # for-each-ref also matches refs below a name: only exact names are read
+    pointed = refs.get(origin_head, "")
+    prefix = "refs/remotes/%s/" % remote
+    view = {"head": head, "base": base, "wrong": False, "message": "", "command": "", "step": "",
+            "remote_default": pointed[len(prefix):] if pointed.startswith(prefix) else "", "remote_note": ""}
+    view["remote_note"] = default_note(remote, base, view["remote_default"])
+    if head == base:
+        return view
+    born = ("refs/heads/" + head) in refs if head else git("rev-parse", "-q", "--verify", "HEAD").returncode == 0
+    step = switch_step(head, base, ("refs/heads/" + base) in refs or tracking in refs, born)
+    if not head:
+        message = ("This folder is not on any branch (detached HEAD), and the kit lives on %s. Switch first with %s, then "
+                   "%s." % (base, step, then))
+    elif step.startswith("git branch -m"):
+        message = ("This folder is on the branch %s and has no branch %s, where the kit lives. Rename this branch with "
+                   "%s, then %s." % (head, base, step, then))
+    elif step:
+        message = ("This folder is on the branch %s, not %s, and the kit lives on %s. Switch first with %s, then %s."
+                   % (head, base, base, step, then))
+    else:
+        message = ("This folder is on another branch, not %s, and the kit lives on %s. Switch to %s yourself, then %s."
+                   % (base, base, base, then))
+    view.update(step=step, message=message)
+    if not born:
+        return view  # no commit yet: nothing to stop at inspect; publishing names the step
+    text = root.as_posix()
+    if step and printable(text):
+        view["command"] = "cd %s && %s" % (shell_quote(text), step)
+    view["wrong"] = True
+    return view
+
+
+def switch_advice(server, root, then):
+    """The publish and approval refusal off the base branch: the exact step, never a command that cannot work."""
+    return branch_state(server, root, then)["message"]
+
+
+def default_note(remote, base, default):
+    """Dylan's live run: GitHub made claims the default branch (the first branch pushed), so clones open on claims."""
+    if default != "claims" or default == base:
+        return ""
+    return ("The default branch of %s is claims, so new clones open the coordination branch instead of %s. Change it on "
+            "GitHub: Settings, General, Default branch, choose %s and press Update. Then run git remote set-head %s -a "
+            "in each clone that already exists." % (remote, base, base, remote))
+
+
+def remote_default(server, target, branch):
+    """/api/status's branch: what inspect saw, plus the remote's default branch from setup's last read of the remote."""
+    if not target or not branch:
+        return branch
+    try:
+        remote, base = remote_and_base()
+    except ValueError:
+        return branch
+    with server.lock:
+        known = server.remote_cache.get((target, remote, base)) or {}
+    # The remote itself wins over this clone's refs/remotes/origin/HEAD, which stays stale after GitHub is fixed.
+    default = known["default"] if "default" in known else branch.get("remote_default") or ""
+    return dict(branch, remote_default=default, remote_note=default_note(remote, base, default))
 
 
 def codex_flags(gitdir):
@@ -1724,13 +1837,15 @@ def read_remote(server, root, remote, base):
 
     if git("remote", "get-url", remote).returncode:
         return {"state": "none", "detail": "", "at": now}
-    listed = net_git(server, root, "ls-remote", "--heads", remote, "refs/heads/" + base, "refs/heads/claims")
+    # --symref HEAD: the remote's default branch too (UI-020: GitHub made claims the default), in the same call.
+    listed = net_git(server, root, "ls-remote", "--symref", remote, "HEAD", "refs/heads/" + base, "refs/heads/claims")
     if listed.returncode:
         return {"state": "offline", "detail": offline_detail(listed), "at": now}
     heads = heads_of(listed.stdout)
+    pointed = re.search(r"^ref: refs/heads/(\S+)\s+HEAD\r?$", listed.stdout or "", re.M)
 
     result = {"state": "ok", "detail": "", "kit": False, "reviewers": {}, "retired": [], "claims": {}, "files": [],
-              "at": now}
+              "at": now, "default": pointed.group(1) if pointed else ""}
     # What setup already holds in its private refs (one process); one fetch for every branch that moved.
     held = {}
     for line in git("for-each-ref", "--format=%(refname) %(objectname)", "refs/uak/").stdout.splitlines():
@@ -2187,15 +2302,21 @@ def team_view(server):
         if mine and row["here"] and mine.group(1) in available:
             row["resume"] = resume_command(mine.group(1), folder.as_posix(), gitdir)
         view["claimed"].append(row)
-    if not available:
-        view["note"] = ("No coding tool can start here: Claude Code: %s Codex: %s With Cursor or Gemini, claim the task "
-                        "with the command below and open the tool in its folder yourself."
-                        % tuple(next(t["reason"] for t in tools if t["id"] == i) for i in ("claude", "codex")))
-        return view
-    commands = []
     with server.lock:
         claim = CLAIM_COMMAND.match(server.state.get("next_command") or "")
     task = claim.group(1) if claim and TEAM_TASK.fullmatch(claim.group(1)) else ""
+    if not available:
+        reasons = tuple(next(t["reason"] for t in tools if t["id"] == i) for i in ("claude", "codex"))
+        # B-09: no command is shown below this note, so the command it talks about is in the note itself.
+        if task and task not in known["files"] and not (wt_root / task.lower()).exists():
+            view["note"] = ("No coding tool can start here: Claude Code: %s Codex: %s With Cursor or Gemini, claim %s "
+                            "yourself with cd %s && bash .uak/bin/wt new %s and open the tool in its folder."
+                            % (reasons + (task, shell_quote(text), task)))
+        else:
+            view["note"] = ("No coding tool can start here: Claude Code: %s Codex: %s With Cursor or Gemini, press "
+                            "Check what's next to get a free task first." % reasons)
+        return view
+    commands = []
     if phase == "waiting":
         view["note"] = "No task is free to start right now."
     elif not task:

@@ -208,7 +208,16 @@ license, it shares no history with your folder. Publishing then shows one exact 
 renamed to `NAME.mine` (the command stops if that name is taken). When setup cannot make it safe, it only suggests
 publishing to a new empty repository. A file you track and changed without committing (for example a `.gitignore`
 the installer added lines to) gets no pull: the page asks you to commit it first, because Git would refuse to merge over
-it; a tracked file on both sides ends in a conflict the page tells you how to resolve. Setup never runs it.
+it; a tracked file on both sides ends in a conflict the page tells you how to resolve. Setup never runs it. When your
+folder has commits of its own, a second command (`git push origin main`) sends them after the pull, so publishing then
+sends only the kit. A quote mark in the project path is fine: the commands quote it.
+
+**The right branch.** The kit lives on `main`. A folder with commits on another branch (a clone that opened on
+`claims`, a detached HEAD, a project whose only branch is `master`) gets a warning when you check it, and Install
+stops, with the one command that fixes it (`git switch main`, or `git branch -m master main`). When GitHub made
+`claims` the repository's default branch (the first branch pushed to an empty repository), new clones open on
+`claims`: the page says so and how to change it (on GitHub: Settings, General, Default branch, choose `main`, Update;
+then `git remote set-head origin -a` in each clone).
 
 ## Your app
 

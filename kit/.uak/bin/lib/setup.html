@@ -1407,6 +1407,19 @@
                 The folder needs to be a Git repository. Nothing is installed
                 when you check it.
               </p>
+              <div class="notice error" id="branch-warning" role="alert" tabindex="-1" hidden>
+                <strong>This folder is not on the main branch</strong>
+                <p id="branch-warning-text" data-no-i18n></p>
+                <div id="branch-warning-run" hidden>
+                  <p class="hint">Run this in a terminal, then press Check project folder again:</p>
+                  <div class="next-command">
+                    <code id="branch-warning-command" data-no-i18n></code>
+                    <button type="button" class="secondary-button" id="copy-branch-warning">Copy</button>
+                  </div>
+                </div>
+                <p id="branch-warning-remote" data-no-i18n hidden></p>
+                <p class="hint" id="branch-warning-status" role="status"></p>
+              </div>
               <div class="actions">
                 <button type="button" class="secondary-button" data-back="0">
                   Back</button
@@ -1581,6 +1594,22 @@
               role="status"
               aria-live="polite"
             ></p>
+            <div class="notice error" id="setup-branch-warning" role="alert" hidden>
+              <strong>This folder is not on the main branch</strong>
+              <p id="setup-branch-warning-text" data-no-i18n></p>
+              <div id="setup-branch-warning-run" hidden>
+                <p class="hint">Run this in a terminal, then press Check what’s next:</p>
+                <div class="next-command">
+                  <code id="setup-branch-warning-command" data-no-i18n></code>
+                  <button type="button" class="secondary-button" id="copy-setup-branch-warning">Copy</button>
+                </div>
+              </div>
+              <p class="hint" id="setup-branch-warning-status" role="status"></p>
+            </div>
+            <div class="notice" id="remote-default-warning" role="status" hidden>
+              <strong>GitHub opens this project on the wrong branch</strong>
+              <p id="remote-default-text" data-no-i18n></p>
+            </div>
             <ul class="checklist" id="checks"></ul>
             <div class="notice" id="terminal-step" hidden>
               <h3>Do this in a terminal</h3>
@@ -1690,6 +1719,13 @@
                     <div class="next-command">
                       <code id="publish-way-out-command" data-no-i18n></code>
                       <button type="button" class="secondary-button" id="copy-publish-way-out">Copy</button>
+                    </div>
+                  </div>
+                  <div id="publish-way-out-push-run" hidden>
+                    <p class="hint">Then run this second command to send your own commits:</p>
+                    <div class="next-command">
+                      <code id="publish-way-out-push" data-no-i18n></code>
+                      <button type="button" class="secondary-button" id="copy-publish-way-out-push">Copy</button>
                     </div>
                   </div>
                   <ul id="publish-way-out-steps"></ul>
@@ -1908,6 +1944,7 @@
         Loading your project dashboard…
       </p>
       <p class="notice error" id="dashboard-freeze" role="status" hidden></p>
+      <p class="notice" id="dashboard-remote-default" role="status" data-no-i18n hidden></p>
       <button class="primary" id="dashboard-choose-project" hidden>
         Choose another project
       </button>
@@ -3256,7 +3293,7 @@
         }
         function shouldAutoCheck(data) {
           return !!data && !!data.installed && !data.checked && !data.ready && !data.error && !isBusy(data.phase) &&
-            data.phase !== "installed" && !requestBusy && !gone &&
+            data.phase !== "installed" && !requestBusy && !gone && !(data.branch && data.branch.wrong) &&
             autoCheckedFor !== data.target + ":" + data.inspect;
         }
         function probeDelay(n) {
@@ -3747,12 +3784,43 @@
         el("copy-publish-way-out").onclick = function () {
           copyText(el("publish-way-out-command").textContent, "publish-way-out-status");
         };
+        el("copy-publish-way-out-push").onclick = function () {
+          copyText(el("publish-way-out-push").textContent, "publish-way-out-status");
+        };
+        // UI-020 (B-01, Dylan's live run): the branch this folder is on, and the remote's default branch.
+        el("copy-branch-warning").onclick = function () {
+          copyText(el("branch-warning-command").textContent, "branch-warning-status");
+        };
+        el("copy-setup-branch-warning").onclick = function () {
+          copyText(el("setup-branch-warning-command").textContent, "setup-branch-warning-status");
+        };
+        function drawBranch(data) {
+          var branch = (data && data.branch) || {};
+          ["branch-warning", "setup-branch-warning"].forEach(function (id) {
+            el(id).hidden = !branch.wrong;
+            el(id + "-text").textContent = branch.wrong ? UAKWorkspace.t(branch.message || "") : "";
+            el(id + "-run").hidden = !(branch.wrong && branch.command);
+            el(id + "-command").textContent = branch.wrong ? branch.command || "" : "";
+          });
+          var note = branch.remote_note ? UAKWorkspace.t(branch.remote_note) : "";
+          el("branch-warning-remote").hidden = !note;
+          el("branch-warning-remote").textContent = note;
+          el("remote-default-warning").hidden = !note;
+          el("remote-default-text").textContent = note;
+          el("dashboard-remote-default").hidden = !note; // a ready project opens on the dashboard
+          el("dashboard-remote-default").textContent = note;
+        }
+        window.addEventListener("uak:language", function () {
+          drawBranch(state);
+        });
         function drawWayOut(out, message) {
           el("publish-way-out").hidden = !out;
           if (!out) return;
           el("publish-way-out-error").textContent = UAKWorkspace.t(message || "");
           el("publish-way-out-run").hidden = !out.command;
           el("publish-way-out-command").textContent = out.command || "";
+          el("publish-way-out-push-run").hidden = !out.push; // B-03: the push after the pull
+          el("publish-way-out-push").textContent = out.push || "";
           el("publish-way-out-steps").replaceChildren();
           (out.steps || []).forEach(function (line) {
             var li = document.createElement("li");
@@ -3844,6 +3912,7 @@
             try {
               var previousTarget = state.target;
               state = await api("inspect", { target: el("target").value });
+              drawBranch(state);
               if (previousTarget !== state.target) {
                 latestDashboard = null;
                 planView = null;
@@ -3853,7 +3922,10 @@
                 el("beginner-dashboard").hidden = true;
                 el("dashboard-frame").hidden = true;
               }
-              if (state.installed || state.can_repair) {
+              if (state.branch && state.branch.wrong) {
+                // UI-020 (B-01): not on the base branch: stop here with the warning and its command.
+                el("branch-warning").focus();
+              } else if (state.installed || state.can_repair) {
                 // UI-019 (B-05): re-picking lands where the project is, with its kept check.
                 landOn(state, landing(state, readSaved(state.target)), true);
               } else {
@@ -4286,6 +4358,7 @@
           }
           drawJourney();
           drawIdentity(data);
+          drawBranch(data);
           // Who signs is read in the background after choosing the project: ask again until it arrives (a few tries).
           if (data.target && !data.identity && identityTries < 8 && !isBusy(data.phase)) {
             identityTries += 1;
