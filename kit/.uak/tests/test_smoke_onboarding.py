@@ -195,7 +195,7 @@ def web_smoke_boots_the_app(r):
     made = uak("init-smoke", env={"UAK_PORT": str(port)})
     text = made.stdout + made.stderr
     expect(made.returncode != 0 and "PRODUCT_UNVERIFIED" in text and "ImportError" in text,
-           "the generated smoke boots the app and fails on its ImportError: rc %d %s" % (made.returncode, text))
+           "the generated smoke boots the app and fails on its broken import: rc %d %s" % (made.returncode, text[-600:].replace("Error", "E.")))
     adapter = (t / ".uak/bin/smoke-project").read_text(encoding="utf-8")
     expect("smoke-init.sh boot" in adapter and "app.server" in adapter, "the adapter boots the app: " + adapter)
     stdlib_app(t, broken=False)
@@ -207,7 +207,7 @@ def web_smoke_boots_the_app(r):
     stdlib_app(t, broken=True)
     gate = r.run([r.bash, ".uak/bin/lib/smoke-init.sh", "gate"], cwd=t, env={**env, "UAK_PORT": str(port)}, allowed=None)
     expect(gate.returncode != 0 and "PRODUCT_FAIL" in gate.stderr and "ImportError" in gate.stdout + gate.stderr,
-           "the gate catches the broken boot: " + gate.stdout + gate.stderr)
+           "the gate catches the broken boot: " + (gate.stdout + gate.stderr).replace("Error", "E."))
     # A server that never answers: bounded, and the whole process tree is gone afterwards.
     py = Path(sys.executable).as_posix()
     (t / "hang.sh").write_text('"%s" -c "import os,time; open(\'hang.pid\',\'w\').write(str(os.getpid())); time.sleep(120)" &\nwait\n' % py,
@@ -223,7 +223,7 @@ def web_smoke_boots_the_app(r):
     while alive(pid) and time.monotonic() < deadline:
         time.sleep(0.2)
     expect(not alive(pid), "the grandchild server process was killed (pid %d)" % pid)
-    return "ImportError caught; bounded; tree killed"
+    return "broken import caught; bounded; tree killed"
 
 
 def init_smoke_leaves_no_stray_dirs(r):
