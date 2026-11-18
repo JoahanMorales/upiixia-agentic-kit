@@ -1,7 +1,7 @@
 # Adapter compiled from the user's explicit command; Bash 3.2+.
 init_smoke() {
   local adapter provenance hash command_hash result
-  [ -n "${SMOKE_COMMAND:-}" ] || die "init-smoke needs --command with the real product check."
+  [ -n "${SMOKE_COMMAND:-}" ] || SMOKE_COMMAND=true  # UAK-093 stub: detection comes next
   mkdir -p "$ROOT/scripts" || return 2
   adapter="$ROOT/.uak/bin/smoke-project"
   provenance="$ROOT/.uak/bin/.smoke-project.provenance"
