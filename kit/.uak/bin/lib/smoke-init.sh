@@ -162,6 +162,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     gate) product_gate; exit "$?";;
     boot) shift; smoke_boot "$@"; exit "$?";;
     suggest) smoke_suggest; exit 0;;
-    *) printf '%s\n' 'Internal usage: smoke-init.sh gate|boot|suggest' >&2; exit 2;;
+    detect) smoke_detect; exit "$?";;
+    *) printf '%s\n' 'Internal usage: smoke-init.sh gate|boot|suggest|detect' >&2; exit 2;;
   esac
 fi

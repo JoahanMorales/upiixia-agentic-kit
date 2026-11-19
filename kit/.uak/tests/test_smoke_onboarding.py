@@ -150,23 +150,37 @@ def stdlib_app(t, broken):
     (t / "tests/test_server.py").write_text(UNIT, encoding="utf-8")
 
 
+def gate_spanish(r, line):
+    """The setup page shows the gate's line in Spanish: the GATE row of workspace.js that matches it, filled in."""
+    import json
+    text = (r.package / ".uak/bin/lib/workspace.js").read_text(encoding="utf-8")
+    m = re.search(r"var GATE = (\[[\s\S]*?\n  \]);", text)
+    expect(m, "workspace.js has var GATE")
+    rest = re.sub(r"^(TODO|NOTE|OK)\s+(\d+\.\s+)?", "", line)
+    for rx, es in json.loads(re.sub(r",\s*\]", "]", m.group(1))):
+        hit = re.fullmatch(rx, rest)
+        if hit:
+            return re.sub(r"\$(\d)", lambda g: hit.group(int(g.group(1))), es)
+    return None
+
+
 def smoke_line(out):
     return [l for l in out.splitlines() if "a product smoke" in l]
 
 
 def start_asks_for_the_smoke(r):
-    # Sprint: the kit's merge gate runs the product smoke, so a missing one blocks the first claim with the command.
+    # Sprint with an app to boot: the kit's merge gate runs the product smoke, so a missing one blocks the first claim
+    # with the exact command, which boots the app and requests one route.
     t, env, git, start, uak = installed(r, "onb-sprint", "sprint")
+    stdlib_app(t, broken=False)
     out = start()
     line = smoke_line(out.stdout)
     expect(out.returncode == 1 and "START READY" not in out.stdout and line and line[0].startswith("TODO"),
-           "sprint, no smoke: a TODO, not READY: " + out.stdout)
-    expect("bash .uak/bin/uak init-smoke --command" in out.stdout, "no app yet: a generic init-smoke command: " + out.stdout)
-    # A stdlib web app appears: the exact command boots it and requests one route.
-    stdlib_app(t, broken=False)
-    out = start()
-    expect(smoke_line(out.stdout) and "smoke-init.sh boot" in out.stdout and "python3 -m app.server" in out.stdout
-           and "/api/queue" in out.stdout, "a detected web app: the exact boot command: " + out.stdout)
+           "sprint, an app, no smoke: a TODO, not READY: " + out.stdout)
+    expect("smoke-init.sh boot" in out.stdout and "python3 -m app.server" in out.stdout
+           and "/api/queue" in out.stdout and "no app yet" not in out.stdout, "a detected web app: the exact boot command: " + out.stdout)
+    es = gate_spanish(r, line[0])
+    expect(es and es.startswith("un smoke del producto: main no tiene"), "the setup page reads it in Spanish: %r" % es)
     cmd = re.search(r"(bash \.uak/bin/uak init-smoke --command .*)$", out.stdout, re.M)
     expect(cmd, "one line to paste: " + out.stdout)
     made = r.run([r.bash, "-c", cmd.group(1)], cwd=t, env={**env, "UAK_PORT": str(free_port())}, allowed=None)
@@ -186,6 +200,21 @@ def start_asks_for_the_smoke(r):
     expect(out.returncode == 0 and "START READY" in out.stdout and line and line[0].startswith("NOTE")
            and "init-smoke" in out.stdout, "marathon: a NOTE with the command, READY stays: " + out.stdout)
     return "sprint TODO, marathon NOTE"
+
+
+def start_notes_the_smoke_before_any_app(r):
+    """A fresh sprint with no app yet: nothing to boot, so the smoke is a NOTE with the command and READY stays (the
+    first claim is often the walking skeleton itself)."""
+    t, env, git, start, uak = installed(r, "onb-fresh", "sprint")
+    out = start()
+    line = smoke_line(out.stdout)
+    expect(out.returncode == 0 and "START READY" in out.stdout and line and line[0].startswith("NOTE")
+           and "TODO" not in out.stdout, "no app yet: a NOTE, READY stays: " + out.stdout)
+    expect("bash .uak/bin/uak init-smoke --command" in out.stdout and "no app yet" in out.stdout,
+           "the NOTE gives the generic init-smoke command: " + out.stdout)
+    es = gate_spanish(r, line[0])
+    expect(es and es.startswith("un smoke del producto: main no tiene"), "the same Spanish row: %r" % es)
+    return "fresh sprint READY with a NOTE"
 
 
 def web_smoke_boots_the_app(r):
@@ -246,7 +275,7 @@ def init_smoke_leaves_no_stray_dirs(r):
     return "no stray folder"
 
 
-TESTS = [start_asks_for_the_smoke, web_smoke_boots_the_app, init_smoke_leaves_no_stray_dirs]
+TESTS = [start_asks_for_the_smoke, start_notes_the_smoke_before_any_app, web_smoke_boots_the_app, init_smoke_leaves_no_stray_dirs]
 
 
 def main():

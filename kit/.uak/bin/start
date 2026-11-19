@@ -181,20 +181,25 @@ case "$review:$url" in auto:*github.com*) review=gh;; auto:*) review=claims;; es
 
 # The product smoke: /uak-ship and the merge gate run .uak/bin/smoke-project from $base. Why (QA round C, UAK-093):
 # nothing on the onboarding path created it, start said READY, then the first ship and merge stopped at
-# PRODUCT_UNVERIFIED. Sprint: the kit's merge gate runs it, so it blocks. Marathon: the human merges on GitHub, a NOTE.
+# PRODUCT_UNVERIFIED. Sprint: the kit's merge gate runs it, so it blocks once there is an app to boot; before any app
+# (a fresh hackathon) it is a NOTE, so the first claim, often the walking skeleton, stays possible. Marathon: the human
+# merges on GitHub, always a NOTE.
 if [ "$base_smoke" != yes ]; then
+  app=no; bash "$here/lib/smoke-init.sh" detect >/dev/null 2>&1 && app=yes
   if [ -f .uak/bin/smoke-project ]; then
     set -- "commit .uak/bin/smoke-project and .uak/bin/.smoke-project.provenance, then push them to $base"
   else
     set -- "$(bash "$here/lib/smoke-init.sh" suggest 2>/dev/null)" \
-      "it boots the app and requests one route (init-smoke with no --command does it for a web app uak deploy knows); then commit .uak/bin/smoke-project and .uak/bin/.smoke-project.provenance and push them to $base" \
-      "no app yet: give that step to the walking-skeleton task, or run init-smoke now with the check you have"
+      "it boots the app and requests one route (init-smoke with no --command does it for a web app uak deploy knows); then commit .uak/bin/smoke-project and .uak/bin/.smoke-project.provenance and push them to $base"
+    [ "$app" = yes ] || set -- "$@" "no app yet: give that step to the walking-skeleton task, or run init-smoke now with the check you have"
   fi
-  if [ "$mode" = sprint ]; then
+  if [ "$mode" = sprint ] && [ "$app" = yes ]; then
     need "a product smoke: $base has no .uak/bin/smoke-project, so /uak-ship and the merge gate stop at PRODUCT_UNVERIFIED" "$@"
   else
     note "a product smoke: $base has no .uak/bin/smoke-project, so /uak-ship and the merge gate stop at PRODUCT_UNVERIFIED"
-    for l in "not blocking in marathon: the human merges on GitHub" "$@"; do printf '         %s\n' "$l"; done
+    if [ "$mode" = sprint ]; then set -- "not blocking yet: no app to boot; it blocks once uak deploy detects one" "$@"
+    else set -- "not blocking in marathon: the human merges on GitHub" "$@"; fi
+    for l in "$@"; do printf '         %s\n' "$l"; done
   fi
 fi
 
