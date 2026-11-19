@@ -214,7 +214,14 @@ def start_notes_the_smoke_before_any_app(r):
            "the NOTE gives the generic init-smoke command: " + out.stdout)
     es = gate_spanish(r, line[0])
     expect(es and es.startswith("un smoke del producto: main no tiene"), "the same Spanish row: %r" % es)
-    return "fresh sprint READY with a NOTE"
+    # Any stack uak deploy knows and init-smoke can boot makes it a TODO (review: Go, Streamlit, Spring stayed a NOTE).
+    (t / "go.mod").write_text("module example.com/app\n\ngo 1.22\n", encoding="utf-8")
+    (t / "main.go").write_text("package main\n\nfunc main() {}\n", encoding="utf-8")
+    out = start()
+    line = smoke_line(out.stdout)
+    expect(out.returncode == 1 and line and line[0].startswith("TODO") and "go run ." in out.stdout,
+           "a Go app: a TODO with its boot command: " + out.stdout)
+    return "fresh sprint READY with a NOTE; Go detected"
 
 
 def web_smoke_boots_the_app(r):
@@ -257,6 +264,43 @@ def web_smoke_boots_the_app(r):
     return "broken import caught; bounded; tree killed"
 
 
+def occupied_port_never_answers_for_the_app(r):
+    """Review of UAK-093: wt gives each worktree a UAK_PORT and the dev server runs there; with a stale server still up,
+    the new app could not bind it and the probe got the old server's answer: BOOT_PASS for an app that never started.
+    An occupied UAK_PORT is never probed; the boot moves to a free port and says so."""
+    t = r.scratch / "onb-port"
+    t.mkdir()
+    port = free_port()
+    py = Path(sys.executable).as_posix()
+    stale = subprocess.Popen([sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1"], cwd=str(t),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        deadline = time.monotonic() + 15
+        while not serving(port) and time.monotonic() < deadline:
+            time.sleep(0.2)
+        expect(serving(port), "the stale server is up on %d" % port)
+        boot = lambda cmd, timeout="4": r.run([r.bash, str(r.package / ".uak/bin/lib/smoke-init.sh"), "boot", "--timeout", timeout,
+                                               "--", cmd], cwd=t, env={"UAK_PORT": str(port)}, allowed=None, timeout=90)
+        hang = boot('"%s" -c "import time; time.sleep(60)"' % py)
+        expect(hang.returncode != 0 and "BOOT_PASS" not in hang.stdout and "already answers" in hang.stdout,
+               "an app that never answers fails even with a server on UAK_PORT: rc %d %s %s" % (hang.returncode, hang.stdout, hang.stderr))
+        good = boot('"%s" -m http.server $PORT --bind 127.0.0.1' % py, timeout="20")
+        m = re.search(r"BOOT_PASS: / answered \d+ on port (\d+)", good.stdout)
+        expect(good.returncode == 0 and m and int(m.group(1)) != port, "a real app boots on another port: " + good.stdout + good.stderr)
+    finally:
+        stale.kill()
+        stale.wait(timeout=10)
+    # The wait is bounded by default (60 s) and by UAK_SMOKE_BOOT_TIMEOUT; usage names both.
+    usage = r.run([r.bash, str(r.package / ".uak/bin/lib/smoke-init.sh"), "boot"], cwd=t, allowed=None)
+    expect("UAK_SMOKE_BOOT_TIMEOUT" in usage.stderr and "60" in usage.stderr, "usage: " + usage.stderr)
+    began = time.monotonic()
+    env_bound = r.run([r.bash, str(r.package / ".uak/bin/lib/smoke-init.sh"), "boot", "--", '"%s" -c "import time; time.sleep(60)"' % py],
+                      cwd=t, env={"UAK_SMOKE_BOOT_TIMEOUT": "3"}, allowed=None, timeout=90)
+    expect(env_bound.returncode != 0 and time.monotonic() - began < 30 and "within 3s" in env_bound.stderr,
+           "UAK_SMOKE_BOOT_TIMEOUT bounds the wait: " + env_bound.stderr)
+    return "occupied port skipped; timeout bounded"
+
+
 def init_smoke_leaves_no_stray_dirs(r):
     t, env, git, start, uak = installed(r, "onb-stray", "sprint")
     before = set(p.name for p in t.iterdir())
@@ -275,7 +319,7 @@ def init_smoke_leaves_no_stray_dirs(r):
     return "no stray folder"
 
 
-TESTS = [start_asks_for_the_smoke, start_notes_the_smoke_before_any_app, web_smoke_boots_the_app, init_smoke_leaves_no_stray_dirs]
+TESTS = [start_asks_for_the_smoke, start_notes_the_smoke_before_any_app, web_smoke_boots_the_app, occupied_port_never_answers_for_the_app, init_smoke_leaves_no_stray_dirs]
 
 
 def main():

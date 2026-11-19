@@ -190,14 +190,14 @@ if [ "$base_smoke" != yes ]; then
     set -- "commit .uak/bin/smoke-project and .uak/bin/.smoke-project.provenance, then push them to $base"
   else
     set -- "$(bash "$here/lib/smoke-init.sh" suggest 2>/dev/null)" \
-      "it boots the app and requests one route (init-smoke with no --command does it for a web app uak deploy knows); then commit .uak/bin/smoke-project and .uak/bin/.smoke-project.provenance and push them to $base"
+      "it boots the app and requests one route (init-smoke with no --command does it for the web app it detects: the stacks of uak deploy except Expo); then commit .uak/bin/smoke-project and .uak/bin/.smoke-project.provenance and push them to $base"
     [ "$app" = yes ] || set -- "$@" "no app yet: give that step to the walking-skeleton task, or run init-smoke now with the check you have"
   fi
   if [ "$mode" = sprint ] && [ "$app" = yes ]; then
     need "a product smoke: $base has no .uak/bin/smoke-project, so /uak-ship and the merge gate stop at PRODUCT_UNVERIFIED" "$@"
   else
     note "a product smoke: $base has no .uak/bin/smoke-project, so /uak-ship and the merge gate stop at PRODUCT_UNVERIFIED"
-    if [ "$mode" = sprint ]; then set -- "not blocking yet: no app to boot; it blocks once uak deploy detects one" "$@"
+    if [ "$mode" = sprint ]; then set -- "not blocking yet: init-smoke finds no web app it can boot here; it blocks once there is one" "$@"
     else set -- "not blocking in marathon: the human merges on GitHub" "$@"; fi
     for l in "$@"; do printf '         %s\n' "$l"; done
   fi

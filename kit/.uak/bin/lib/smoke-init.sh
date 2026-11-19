@@ -19,6 +19,12 @@ smoke_detect() {
     django) run='uv run python manage.py runserver 127.0.0.1:$PORT --noreload';;
     nextjs) run='npm run dev -- --port $PORT';;
     vite) run='npm run dev -- --port $PORT --strictPort';;
+    streamlit) entry=$(cd "$ROOT" && for f in streamlit_app.py app.py main.py src/app.py; do [ -f "$f" ] && { printf '%s' "$f"; break; }; done)
+      [ -z "$entry" ] || run="uv run streamlit run $entry --server.port \$PORT --server.headless true";;
+    go) entry=$(cd "$ROOT" && find cmd -maxdepth 2 -name main.go 2>/dev/null | head -n 1); entry=${entry%/main.go}
+      run="go run ./${entry:-.}"; run=${run%/.};;   # the app reads $PORT, as uak deploy's image runs it
+    spring) if [ -f "$ROOT/pom.xml" ]; then run='./mvnw -q spring-boot:run -Dspring-boot.run.arguments=--server.port=$PORT'
+      else run='./gradlew -q bootRun --args=--server.port=$PORT'; fi;;
     *) return 1;;
   esac
   [ -n "$run" ] || return 1
@@ -82,9 +88,11 @@ product_gate() {
   if [ "$result" -ne 0 ]; then printf 'PRODUCT_FAIL: adapter exit=%s\n' "$result" >&2; return "$result"; fi
   printf '%s\n' 'PRODUCT_PASS: current adapter exited 0.'
 }
-# boot [--path ROUTE] [--timeout SECONDS] -- COMMAND: start the app on $PORT (UAK_PORT when the merge gate gives one,
-# else a free one), request ROUTE until it answers below 500 or the timeout, then stop the whole process tree.
-# Exit 0 = it answered; 1 = it exited, answered 5xx or never answered. The app's output is shown on failure.
+# boot [--path ROUTE] [--timeout SECONDS] -- COMMAND: start the app on $PORT (UAK_PORT when it is free, else a free
+# one), request ROUTE until it answers below 500 or the timeout (default 60 s, or UAK_SMOKE_BOOT_TIMEOUT), then stop the
+# whole process tree. Exit 0 = it answered (a 4xx too: the app is up); 1 = it exited, answered 5xx or never answered.
+# The app's output is shown on failure. An occupied UAK_PORT is never probed: a stale dev server there answered for an
+# app that could not bind it (review of UAK-093).
 smoke_windows() { case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0;; esac; return 1; }
 smoke_probe() { # print the HTTP status of URL, 000 when nothing answers
   if command -v curl >/dev/null 2>&1; then
@@ -110,23 +118,29 @@ smoke_stop() { # the process tree of $1: taskkill /T on Git Bash, the process gr
   { wait "$pid"; } 2>/dev/null || :
 }
 smoke_boot() {
-  local path=/ timeout=30 port code pid log i end rc=1 cmd
+  local path=/ timeout=${UAK_SMOKE_BOOT_TIMEOUT:-60} port code pid log i end rc=1 cmd
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --path) path=${2:-/}; shift 2 2>/dev/null || shift;;
-      --timeout) timeout=${2:-30}; shift 2 2>/dev/null || shift;;
+      --timeout) timeout=${2:-60}; shift 2 2>/dev/null || shift;;
       --) shift; break;;
       *) break;;
     esac
   done
-  case "$timeout" in ''|*[!0-9]*) timeout=30;; esac
+  case "$timeout" in ''|*[!0-9]*) timeout=60;; esac
   case "$path" in /*) ;; *) path=/$path;; esac
-  [ "$#" -gt 0 ] || { printf '%s\n' 'Usage: smoke-init.sh boot [--path ROUTE] [--timeout SECONDS] -- COMMAND' >&2; return 2; }
+  [ "$#" -gt 0 ] || { printf '%s\n' 'Usage: smoke-init.sh boot [--path ROUTE] [--timeout SECONDS (default 60, or UAK_SMOKE_BOOT_TIMEOUT)] -- COMMAND' >&2; return 2; }
   cmd=$*
   SMOKE_PY=python3; "$SMOKE_PY" -c 'import sys' >/dev/null 2>&1 || SMOKE_PY=python
   # A python3 that does not run (Windows has only `python`, or the Store stub): the command's python3 is python.
   [ "$SMOKE_PY" = python3 ] || cmd="python3() { python \"\$@\"; }; $cmd"
   port=${UAK_PORT:-}
+  case "$port" in ''|*[!0-9]*) ;; *)
+    if [ "$(smoke_probe "http://127.0.0.1:$port/")" != 000 ]; then
+      printf 'BOOT_NOTE: port %s (UAK_PORT) already answers (a dev server still running?); booting on a free port instead.\n' "$port"
+      port=
+    fi;;
+  esac
   case "$port" in ''|*[!0-9]*)
     port=
     for i in 1 2 3 4 5 6 7 8; do
@@ -150,7 +164,9 @@ smoke_boot() {
     sleep 1
   done
   smoke_stop "$pid" 2>/dev/null   # also the shell's "Terminated" job notice
-  if [ "$rc" -eq 0 ]; then printf 'BOOT_PASS: %s answered %s on port %s.\n' "$path" "$code" "$port"
+  if [ "$rc" -eq 0 ]; then
+    case "$code" in 4*) printf 'BOOT_PASS: %s answered %s on port %s (the app is up).\n' "$path" "$code" "$port";;
+      *) printf 'BOOT_PASS: %s answered %s on port %s.\n' "$path" "$code" "$port";; esac
   elif [ "$code" = 000 ]; then printf 'BOOT_FAIL: no answer from %s on port %s within %ss. Its output:\n' "$path" "$port" "$timeout" >&2; tail -n 30 "$log" >&2
   else printf 'BOOT_FAIL: %s answered %s. Its output:\n' "$path" "$code" >&2; tail -n 30 "$log" >&2; fi
   rm -f "$log"
