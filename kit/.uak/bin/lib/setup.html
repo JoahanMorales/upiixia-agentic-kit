@@ -1276,11 +1276,10 @@
         }
       }
       /* UI-024 (A-F16): after install the journey bar is the only step model. */
-      body.installed .sidebar {
+      /* Only the rail: the glossary and the local note stay beside every later step (UI-021). */
+      body.installed #steps,
+      body.installed .rail-heading {
         display: none;
-      }
-      body.installed .layout {
-        grid-template-columns: 1fr;
       }
       .rail-heading {
         margin: 0 0 4px;
@@ -2357,7 +2356,15 @@
         // again (two Copy buttons for the same claim confused the simulation's person).
         var teamReady = false,
           teamTool = "Claude Code";
+        // UI-024 (D-3.2, review of a8c124f): before the reviewer is registered no next step carries the claim
+        // command; it points to registering the reviewer in Start your team.
+        function reviewerReady() {
+          return (state.reviewer || {}).registered === true ||
+            !!(teamView && teamView.registered && teamView.registered.registered === true);
+        }
         function teamGuide(g) {
+          if (g.kind === "ready" && !reviewerReady())
+            return { kind: g.kind, title: g.title, detail: "Next: register your reviewer in Start your team.", commands: [], steps: [] };
           return g.kind === "ready" && teamReady
             ? { kind: g.kind, title: g.title, detail: UAKWorkspace.format("Use Start your team above: its first command claims this task for {tool}.", { tool: teamTool }), commands: [], steps: [] }
             : g;

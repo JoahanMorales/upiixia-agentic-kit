@@ -2626,26 +2626,26 @@ def claude_trust(folders, server=None):
         info = os.stat(str(path))
         if not stat.S_ISREG(info.st_mode) or info.st_size > CLAUDE_CONFIG_MAX:
             return unknown
-        key = (str(path), info.st_mtime_ns, info.st_size, tuple(folders))
+        # One read per version of the file (its mtime and size), whichever folders the view asks about.
+        key = (str(path), info.st_mtime_ns, info.st_size)
+        trusted = None
         if server is not None:
             with server.lock:
-                hit = server.trust_cache.get(key)
-            if hit is not None:
-                return dict(hit)
-        with open(str(path), "rb") as handle:
-            data = json.loads(handle.read(CLAUDE_CONFIG_MAX + 1).decode("utf-8"))
-        projects = data.get("projects") if isinstance(data, dict) else None
-        if not isinstance(projects, dict):
-            return unknown
-        trusted = set(trust_key(name) for name, entry in projects.items()
-                      if isinstance(name, str) and isinstance(entry, dict) and entry.get("hasTrustDialogAccepted") is True)
-        del data, projects
-        result = {folder: any(c in trusted for c in trust_candidates(folder)) for folder in folders}
-        del trusted
-        if server is not None:
-            with server.lock:
-                server.trust_cache = {key: dict(result)}
-        return result
+                trusted = server.trust_cache.get(key)
+        if trusted is None:
+            with open(str(path), "rb") as handle:
+                data = json.loads(handle.read(CLAUDE_CONFIG_MAX + 1).decode("utf-8"))
+            projects = data.get("projects") if isinstance(data, dict) else None
+            if not isinstance(projects, dict):
+                return unknown
+            # Only which folders are trusted is kept (their names, one flag each): no other value of the file.
+            trusted = frozenset(trust_key(name) for name, entry in projects.items() if isinstance(name, str)
+                                and isinstance(entry, dict) and entry.get("hasTrustDialogAccepted") is True)
+            del data, projects
+            if server is not None:
+                with server.lock:
+                    server.trust_cache = {key: trusted}
+        return {folder: any(c in trusted for c in trust_candidates(folder)) for folder in folders}
     except Exception:  # noqa: BLE001 - unreadable, not JSON, a race with Claude Code writing it: "could not read"
         return unknown
 

@@ -136,6 +136,20 @@ def trust_step_is_explicit(root, tmp):
         assert status == 200 and view["trust"] == {"project": None, "worktree": None}, view.get("trust")
 
         config_file(tmp, {posix_real(target): True})
+        opened, real_open = [], open
+
+        def counting(name, *args, **kwargs):
+            if str(name).endswith(".claude.json"):
+                opened.append(name)
+            return real_open(name, *args, **kwargs)
+
+        MODULE.open = counting
+        try:
+            for _ in range(2):
+                assert tp.get(srv, "/api/team")[0] == 200 and tp.get(srv, "/api/plan")[0] == 200
+        finally:
+            del MODULE.open
+        assert len(opened) == 1, "the team and plan views share one read of the file: %d reads" % len(opened)
         status, plan = tp.get(srv, "/api/plan")
         assert status == 200 and plan.get("trust") is True, "the planning step knows it too: %r" % plan.get("trust")
         status, body = tp.post(srv, "/api/team/roles", {"implement": "codex", "review": "codex"})
@@ -250,6 +264,58 @@ def commands_wait_for_the_reviewer(root, tmp):
     if out is not None:
         assert out["before"] == 0 and out["after"] == 1, "the bare claim line waits for the reviewer: %r" % out
         assert "register your reviewer" in out["text"], out
+    script = code()
+    for name in ("teamGuide", "drawNext", "drawAdvancedNext"):
+        assert "teamGuide(" in tf.page_function(script, name) or name == "teamGuide", name
+    assert "reviewerReady()" in tf.page_function(script, "teamGuide"), "teamGuide asks whether the reviewer is registered"
+    out = next_step("""
+        var ready = {kind: "ready", title: "Ready", detail: "Next: run this in your coding tool's terminal.",
+                     commands: ["bash .uak/bin/wt new APP-001"], steps: []};
+        function look() {
+          drawNext(ready);
+          drawAdvancedNext(ready);
+          return {box: !el("next-command-box").hidden, code: el("next-command").textContent,
+                  adv: el("advanced-next-command").textContent, text: el("next-description").textContent};
+        }
+        state = {phase: "ready", ready: true, reviewer: {registered: false}, completed: []};
+        teamView = {registered: {registered: false}, locked: {reason: "x"}};
+        teamReady = false;
+        var before = look();
+        state.reviewer = {registered: true};
+        teamView = {registered: {registered: true}};
+        var after = look();
+        return {before: before, after: after};
+    """)
+    if out is not None:
+        before = out["before"]
+        assert not before["box"] and "wt new" not in before["code"] and "wt new" not in before["adv"], \
+            "no claim command before the reviewer is registered: %r" % before
+        assert "register your reviewer" in before["text"], before
+        assert out["after"]["box"] and "wt new" in out["after"]["code"], "registered: the command is offered: %r" % out
+
+
+def next_step(scenario, language="en"):
+    """Run the page's teamGuide, drawNext and drawAdvancedNext (with the feedback block) over the fake DOM."""
+    node = shutil.which("node")
+    if not node:
+        print("  note: no Node.js here, so the page logic is checked by reading it only")
+        return None
+    page = html()
+    script = tf.script(page)
+    sources = [tf.lib("workspace.js"), tf.PRELUDE,
+               "var teamReady = false, teamTool = 'Claude Code', teamView = null, lastStepTitle = '';"]
+    sources += [tf.page_function(script, n) for n in ("el", "isBusy", "operationBusy", "error")]
+    sources += [tf.block(script)] + [tf.page_function(script, n) for n in ("reviewerReady", "teamGuide", "drawNext",
+                                                                            "drawAdvancedNext")]
+    with tempfile.TemporaryDirectory(prefix="uak-first-run-js-") as folder:
+        program = Path(folder) / "run.js"
+        program.write_text(tf.NODE_PROGRAM, encoding="utf-8")
+        done = subprocess.run([node, str(program)], input=json.dumps({"language": language, "sources": sources,
+                                                                      "tree": tf.tree(page), "scenario": scenario,
+                                                                      "reduced": False}),
+                              capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert done.returncode == 0, "the page logic runs: %s" % done.stderr[-2000:]
+    return json.loads(done.stdout)
 
 
 # --- check_does_not_jump ----------------------------------------------------------------------------------------------
@@ -300,8 +366,12 @@ def check_does_not_jump(root, tmp):
         assert not [n for n in notices if reason in " ".join(" ".join(trust.visible(n)).split())], \
             "a notice repeats %r" % reason
     assert not re.search(r'<span class="step-number">[1-5]<', page), "the wizard rail has no second 1-5 numbering"
-    assert any(re.search(r"body\.installed \.sidebar", s) and re.search(r"display:\s*none", b) for s, b in tf.rules(page)), \
+    found = tf.rules(page)
+    assert any(re.search(r"body\.installed #steps", s) and re.search(r"display:\s*none", b) for s, b in found), \
         "after install the rail is hidden"
+    assert not [s for s, b in found if re.search(r"body\.installed[^,]*(\.sidebar|#glossary|\.local-note)\s*$", s.split(",")[-1])
+                or (re.search(r"body\.installed", s) and re.search(r"\.sidebar|#glossary", s) and "display" in b)], \
+        "the glossary (Words you will see) stays visible after install"
     welcome = trust.section(page, "welcome")
     intros = [m.start() for m in re.finditer(r'class="intro"', welcome)]
     assert len(intros) >= 2 and welcome.index('id="begin"') < min(welcome.index('class="benefit"'), intros[1]), \
