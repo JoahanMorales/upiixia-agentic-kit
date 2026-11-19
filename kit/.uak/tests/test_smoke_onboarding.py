@@ -221,7 +221,13 @@ def start_notes_the_smoke_before_any_app(r):
     line = smoke_line(out.stdout)
     expect(out.returncode == 1 and line and line[0].startswith("TODO") and "go run ." in out.stdout,
            "a Go app: a TODO with its boot command: " + out.stdout)
-    return "fresh sprint READY with a NOTE; Go detected"
+    # Vite binds `localhost`, which Node 17+ resolves to ::1 on macOS: the boot line asks for IPv4 (review of UAK-093).
+    (t / "go.mod").unlink(); (t / "main.go").unlink()
+    (t / "package.json").write_text('{"scripts": {"dev": "vite"}, "devDependencies": {"vite": "5.4.0"}}\n', encoding="utf-8")
+    out = start()
+    expect(smoke_line(out.stdout) and "npm run dev -- --host 127.0.0.1 --port" in out.stdout,
+           "the Vite boot line binds IPv4: " + out.stdout)
+    return "fresh sprint READY with a NOTE; Go and Vite detected"
 
 
 def web_smoke_boots_the_app(r):
@@ -290,6 +296,18 @@ def occupied_port_never_answers_for_the_app(r):
     finally:
         stale.kill()
         stale.wait(timeout=10)
+    # An app that answers only on ::1 (a dev server on `localhost`) is still found.
+    v6 = socket.has_ipv6
+    if v6:
+        try:
+            probe = socket.socket(socket.AF_INET6)
+            probe.bind(("::1", 0))
+            probe.close()
+        except OSError:
+            v6 = False
+    if v6:
+        six = boot('"%s" -m http.server $PORT --bind ::1' % py, timeout="20")
+        expect(six.returncode == 0 and "BOOT_PASS" in six.stdout, "an app on ::1 boots: " + six.stdout + six.stderr)
     # The wait is bounded by default (60 s) and by UAK_SMOKE_BOOT_TIMEOUT; usage names both.
     usage = r.run([r.bash, str(r.package / ".uak/bin/lib/smoke-init.sh"), "boot"], cwd=t, allowed=None)
     expect("UAK_SMOKE_BOOT_TIMEOUT" in usage.stderr and "60" in usage.stderr, "usage: " + usage.stderr)

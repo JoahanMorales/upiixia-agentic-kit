@@ -17,14 +17,18 @@ smoke_detect() {
         path=$(grep -oE "[\"'](/api/[A-Za-z0-9_./-]*)[\"']" "$ROOT/$entry" 2>/dev/null | head -n 1 | tr -d "\"'");;
     fastapi|fastapi-react) run='uv run uvicorn app.main:app --host 127.0.0.1 --port $PORT';;
     django) run='uv run python manage.py runserver 127.0.0.1:$PORT --noreload';;
-    nextjs) run='npm run dev -- --port $PORT';;
-    vite) run='npm run dev -- --port $PORT --strictPort';;
+    # An explicit IPv4 host wherever the tool takes one: Vite and Next bind `localhost`, which Node 17+ resolves to ::1
+    # on macOS, and the probe asks 127.0.0.1 first (review of UAK-093: every healthy Vite app failed).
+    nextjs) run='npm run dev -- --port $PORT --hostname 127.0.0.1';;
+    vite) run='npm run dev -- --host 127.0.0.1 --port $PORT --strictPort';;
     streamlit) entry=$(cd "$ROOT" && for f in streamlit_app.py app.py main.py src/app.py; do [ -f "$f" ] && { printf '%s' "$f"; break; }; done)
-      [ -z "$entry" ] || run="uv run streamlit run $entry --server.port \$PORT --server.headless true";;
+      [ -z "$entry" ] || run="uv run streamlit run $entry --server.address 127.0.0.1 --server.port \$PORT --server.headless true";;
     go) entry=$(cd "$ROOT" && find cmd -maxdepth 2 -name main.go 2>/dev/null | head -n 1); entry=${entry%/main.go}
       run="go run ./${entry:-.}"; run=${run%/.};;   # the app reads $PORT, as uak deploy's image runs it
-    spring) if [ -f "$ROOT/pom.xml" ]; then run='./mvnw -q spring-boot:run -Dspring-boot.run.arguments=--server.port=$PORT'
-      else run='./gradlew -q bootRun --args=--server.port=$PORT'; fi;;
+    # Spring Boot reads SERVER_ADDRESS and SERVER_PORT from the environment; the wrapper when the repo has one.
+    spring) if [ -f "$ROOT/pom.xml" ]; then run='mvn'; [ ! -f "$ROOT/mvnw" ] || run='./mvnw'; run="$run -q spring-boot:run"
+      else run='gradle'; [ ! -f "$ROOT/gradlew" ] || run='./gradlew'; run="$run -q bootRun"; fi
+      run="SERVER_ADDRESS=127.0.0.1 SERVER_PORT=\$PORT $run";;
     *) return 1;;
   esac
   [ -n "$run" ] || return 1
@@ -94,9 +98,15 @@ product_gate() {
 # The app's output is shown on failure. An occupied UAK_PORT is never probed: a stale dev server there answered for an
 # app that could not bind it (review of UAK-093).
 smoke_windows() { case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0;; esac; return 1; }
-smoke_probe() { # print the HTTP status of URL, 000 when nothing answers
+smoke_probe() { # print the HTTP status of URL, 000 when nothing answers; 127.0.0.1, then [::1] (an app on localhost)
+  local code
+  code=$(smoke_probe_one "$1")
+  case "$code:$1" in 000:*://127.0.0.1:*) code=$(smoke_probe_one "$(printf '%s' "$1" | sed 's#://127\.0\.0\.1:#://[::1]:#')");; esac
+  printf '%s' "${code:-000}"
+}
+smoke_probe_one() {
   if command -v curl >/dev/null 2>&1; then
-    curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$1" 2>/dev/null || :
+    curl -g -s -o /dev/null -w '%{http_code}' --max-time 3 "$1" 2>/dev/null || :
   else
     "$SMOKE_PY" -c 'import sys, urllib.request, urllib.error
 try: print(urllib.request.urlopen(sys.argv[1], timeout=3).status)
