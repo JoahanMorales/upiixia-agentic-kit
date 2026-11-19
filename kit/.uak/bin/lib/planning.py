@@ -35,7 +35,9 @@ PLANNER_PROMPT = (
     "steps 4 and 5: never set Backlog-Approved, never run git add, git commit or git push, never run uak plan, uak "
     "deploy or any wt command, and edit no file other than .uak/TASKS.md and .uak/OWNERS.md. Read and list files "
     "with your Read tool (and Glob, Grep), never with shell commands. If a command is denied, do not retry it: "
-    "continue without it, and stop only if you cannot write .uak/TASKS.md. Finish with the one-screen table of step 4."
+    "continue without it, and stop only if you cannot write .uak/TASKS.md. Write every task title, acceptance criteria "
+    "and test name in the language IDEA.md is written in: a Spanish idea gets a Spanish plan. Keep the field names, "
+    "the task IDs and the commands as the kit writes them. Finish with the one-screen table of step 4."
 )
 CLAUDE_ALLOW = ("bash .uak/bin/uak graph *", "bash .uak/bin/uak lint *", "bash .uak/bin/uak clock *",
                 "bash .uak/bin/uak graph", "bash .uak/bin/uak lint")
@@ -98,6 +100,14 @@ class Conflict(ValueError):
     """The request is valid but would overwrite something the person has not confirmed."""
 
 
+class FieldError(ValueError):
+    """A refusal about one field of the idea form: the page shows it under that field (UI-021)."""
+
+    def __init__(self, message, field):
+        super().__init__(message)
+        self.field = field
+
+
 def find_binary(name):
     return shutil.which(name)
 
@@ -144,12 +154,12 @@ def available_planners(root, run):
     return offers
 
 
-def one_line(value, limit, label):
+def one_line(value, limit, label, field=""):
     if not isinstance(value, str):
-        raise ValueError("%s must be text." % label)
+        raise FieldError("%s must be text." % label, field)
     value = " ".join("".join(ch if ch.isprintable() else " " for ch in value).split())
     if not value or len(value) > limit:
-        raise ValueError("%s needs between 1 and %d characters." % (label, limit))
+        raise FieldError("%s needs between 1 and %d characters." % (label, limit), field)
     return value
 
 
@@ -191,11 +201,11 @@ def save_idea(root, data, mode):
         raise ValueError("Invalid overwrite confirmation.")
     team = data["team_size"]
     if isinstance(team, bool) or not isinstance(team, int) or not 1 <= team <= 50:
-        raise ValueError("The team size is a number from 1 to 50.")
-    idea = one_line(data["idea"], 300, "The idea")
-    audience = one_line(data["audience"], 300, "Who it is for")
-    target = one_line(data[goal], 1000, "The judging rubric" if goal == "rubric" else "The spec goal")
-    length = one_line(data["event_length"], 60, "The event length")
+        raise FieldError("The team size is a number from 1 to 50.", "team_size")
+    idea = one_line(data["idea"], 300, "The idea", "idea")
+    audience = one_line(data["audience"], 300, "Who it is for", "audience")
+    target = one_line(data[goal], 1000, "The judging rubric" if goal == "rubric" else "The spec goal", goal)
+    length = one_line(data["event_length"], 60, "The event length", "event_length")
     path = regular_file(root, "IDEA.md")
     if path.exists() and not data.get("overwrite"):
         raise Conflict("IDEA.md already exists. Confirm that setup may replace it.")

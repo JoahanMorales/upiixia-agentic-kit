@@ -9,6 +9,30 @@ Guide: [docs/DASHBOARD.md](docs/DASHBOARD.md).
 - **Light CI on pull requests (UAK-090).** Pull requests run the Ubuntu suite and the Windows per-file job; main and
   workflow_dispatch keep macOS. Approved PRs #19-#21 waited hours for macOS arm64 runners GitHub could not provide.
 
+- **The dashboard tells the truth and is accessible (UI-023).** A task waiting on a dependency that is not integrated
+  is its own "Waiting on dependencies" bucket, never available (nor suggested to claim); an approved review has an
+  "approved" badge; only the human queue counts as "Needs a human", and a merge waiting there is setup's next step
+  first, in a plain translated sentence with no absolute path. Past the freeze setup says frozen everywhere, also
+  before the dashboard was opened and when only `.uak/PROJECT.md` has the freeze. Offline, the dashboard falls back to
+  the last claims this clone read, marked stale with their age. Row labels are singular; muted text is 4.5:1 or more
+  in light and dark; task-ID and small buttons are 24 px; the view tabs are ARIA tabs with arrow keys, wrap at 390 px
+  and carry their count as a separate word; every view has a heading (and an h1 when embedded); the online dot is grey
+  at 0; an offer to everyone reads "todos"; the Advanced next step is a card. Evidence: QA rounds of 2026-11-14 (A-F9;
+  B-06, B-07, B-08, B-12, B-13, B-15; D WCAG 1.4.3, 2.5.3, 2.5.8, 1.3.1, tabs, 390 tab strip, green dot at 0).
+
+- **Forms say what is wrong next to the field, and the page speaks plain Spanish all the way (UI-021, absorbs UI-022).**
+  A refused or empty field (project folder, name, schedule, idea) shows its reason under it with `aria-invalid` and
+  `aria-describedby` and takes the focus; the forms use the page's own translated messages instead of the browser's
+  bubbles. A made-up time zone (`Mars/Base`) is refused (zoneinfo, or the IANA areas where Python has no zone
+  database) and the zone list starts with the browser's zone; the schedule confirmation gives dates in the order they
+  happen; a relative folder asks for the full path; the schedule fields no longer overlap and "Save the idea" has its
+  gap. Every refusal of setup and of the planning module, the readiness hints, the freeze lines and the claim states
+  have Spanish; a failed network Git is one plain sentence with the advice that fits (address, sign-in, connection,
+  timeout) and Git's words under Technical details; the beginner view has a glossary; the header's controls have one
+  visible label each; the plan cards say "Tests first"; the planner writes titles, criteria and test names in the
+  idea's language. Evidence: QA rounds of 2026-11-14 (D top 1, 2, 7, 9 and other findings; A-F10, F13, F14, F20;
+  B-11).
+
 - **Branches and publishing never leave a dead end (UI-020).** Inspect warns and Install or Repair stop when the folder
   has commits and is not on `main` (a clone of a remote whose default branch is `claims` landed on `claims` and the kit
   was installed there), with the exact command (`git switch main`, or `git branch -m master main` when there is no
