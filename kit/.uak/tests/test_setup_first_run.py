@@ -73,7 +73,7 @@ def config_file(tmp, projects):
     path = folder / ".claude.json"
     data = {"projects": {k: {"hasTrustDialogAccepted": v, "mcpServers": {"x": {"env": {"TOKEN": "tok-SECRET-123"}}}}
                          for k, v in projects.items()},
-            "oauthAccount": {"emailAddress": "ana@example.invalid"}}
+            "oauthAccount": {"emailAddress": "claude-account@private.invalid"}}
     path.write_text(json.dumps(data), encoding="utf-8")
     os.environ["CLAUDE_CONFIG_DIR"] = str(folder)
     return path
@@ -113,14 +113,14 @@ def trust_step_is_explicit(root, tmp):
         for _ in range(3):
             status, body = raw(srv, "/api/team")
             assert status == 200, body
-            for secret in (b"tok-SECRET-123", b"example.invalid", b".claude.json"):
+            for secret in (b"tok-SECRET-123", b"private.invalid", b".claude.json"):
                 assert secret not in body, "the team view carries nothing of Claude's config: %r" % secret
         view = json.loads(body)
         assert view.get("trust") == {"project": True, "worktree": False}, \
             "Claude Code implements here: the page knows whether it trusts each folder: %r" % view.get("trust")
         for page in ("/api/status", "/api/plan"):
             status, body = raw(srv, page)
-            assert not [s for s in (b"tok-SECRET-123", b"example.invalid", b".claude.json") if s in body], page
+            assert not [s for s in (b"tok-SECRET-123", b"private.invalid", b".claude.json") if s in body], page
         assert (path.read_bytes(), path.stat().st_mtime_ns) == before, "Claude's config is never written"
         assert os.listdir(str(path.parent)) == [".claude.json"], "no lock or temp file beside it"
 
@@ -147,8 +147,10 @@ def trust_step_is_explicit(root, tmp):
     for ident in ("team-implement", "team-review", "plan-trust"):
         assert 'class="trust-help"' in trust.section(page, ident), "#%s has the trust help block" % ident
     line = tf.page_function(script, "trustLine")
+    lines = re.search(r"var TRUST_LINES = \[[\s\S]*?\];", tf.block(script))
+    assert lines and "TRUST_LINES" in line, "trustLine draws the TRUST_LINES of the feedback block"
     for word in ("↓", "Enter", "No, exit", "Yes, proceed", "permissions.allow"):
-        assert word in line, "the trust help names %r: %s" % (word, line[:300])
+        assert word in lines.group(0), "the trust help names %r: %s" % (word, lines.group(0)[:300])
     keys = [k for k in es if "No, exit" in k or "permissions.allow" in k]
     assert len(keys) >= 3, "the keyboard lines and the warning line have Spanish: %r" % keys
     for key in keys:
@@ -381,10 +383,11 @@ def views_answer_during_a_check(root, tmp):
         try:
             assert tp.post(srv, "/api/check", {})[0] == 202
             assert runner.check_entered.wait(10)
-            status, view = timed_get(srv, "/api/team")
+            # Built from local copies only (a few local Git reads; Windows starts processes slowly): no 45 s wait.
+            status, view = timed_get(srv, "/api/team", 10)
             assert status == 200 and view.get("checking") is True and view.get("commands") == [], (status, view)
             assert team.translated(view.get("note", "")), view.get("note")
-            status, dash = timed_get(srv, "/api/dashboard")
+            status, dash = timed_get(srv, "/api/dashboard", 10)
             assert status == 200 and dash.get("stale") is True and dash.get("connection") == "checking", (status, dash)
         finally:
             runner.check_gate.set()

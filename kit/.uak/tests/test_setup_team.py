@@ -105,6 +105,13 @@ def ready(srv, target, name="ana"):
     assert state["ready"], "the canned gate is READY: %r" % state
 
 
+def ready_team(srv, target, name="ana"):
+    """ready() and the reviewer NAME-r registered: launch commands wait for the reviewer (UI-024, D-3.2)."""
+    ready(srv, target, name)
+    status, body, _ = register(srv, name + "-r")
+    assert status in (200, 202), body
+
+
 def claims_head(remote):
     shown = subprocess.run([resolve_binary("git"), "-C", str(remote), "rev-parse", "-q", "--verify", "refs/heads/claims"],
                            capture_output=True, text=True)
@@ -214,7 +221,7 @@ def agent_launch_commands_are_exact(root, tmp):
     target, _ = ready_project(root, linked, name="team space é")
     team = Team()
     with tp.live(target, team) as srv:
-        ready(srv, target)
+        ready_team(srv, target)
         status, body = tp.get(srv, "/api/team")
         assert status == 200, body
     physical = Path(os.path.realpath(str(target)))
@@ -653,7 +660,7 @@ def codex_command_can_write_git(root, tmp):
     worktree = home.parent / (home.name + "-wt") / "app-001"
     team = Team()
     with tp.live(target, team) as srv:
-        ready(srv, target)
+        ready_team(srv, target)
         status, view = tp.get(srv, "/api/team")
         assert status == 200, view
         review = by_id(view).get("review") or {}
@@ -713,7 +720,7 @@ def team_step_survives_the_first_claim(root, tmp):
     team = Team()
     stubs, _ = stub_tools(tmp)
     with tp.live(target, team) as srv:
-        ready(srv, target)
+        ready_team(srv, target)
         impl = by_id(tp.get(srv, "/api/team")[1])["implement"]
         done = run_line(impl["command"], stubs, tmp)
         assert done.returncode == 0, done.stdout[-800:] + done.stderr[-800:]

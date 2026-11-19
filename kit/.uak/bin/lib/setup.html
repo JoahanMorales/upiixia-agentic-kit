@@ -1261,6 +1261,47 @@
           font-size: 13px;
         }
       }
+      /* UI-024 (A-F7): a running check dims the last result instead of emptying it; B-10: stale views too. */
+      #checks.stale,
+      .team-step.stale,
+      #beginner-dashboard.stale {
+        opacity: 0.55;
+        transition: opacity 0.2s;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #checks.stale,
+        .team-step.stale,
+        #beginner-dashboard.stale {
+          transition: none;
+        }
+      }
+      /* UI-024 (A-F16): after install the journey bar is the only step model. */
+      body.installed .sidebar {
+        display: none;
+      }
+      body.installed .layout {
+        grid-template-columns: 1fr;
+      }
+      .rail-heading {
+        margin: 0 0 4px;
+      }
+      /* UI-024 (A-F6): what Claude Code's trust question looks like, and whether it will ask. */
+      .trust-help {
+        margin: 10px 0;
+      }
+      .trust-help p {
+        margin: 4px 0;
+      }
+      .trust-mark {
+        font-weight: 700;
+      }
+      .trust-help kbd {
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 0 4px;
+        font: inherit;
+        font-size: 0.9em;
+      }
     </style>
   </head>
   <body data-profile="beginner">
@@ -1318,25 +1359,26 @@
               >A few decisions. A clear next step.</span
             >
           </p>
+          <p class="rail-heading"><strong>1. Install</strong></p>
           <ol class="steps" id="steps">
             <li aria-current="step">
-              <span class="step-number">1</span
+              <span class="step-number" aria-hidden="true">•</span
               ><span class="step-label">Welcome</span>
             </li>
             <li>
-              <span class="step-number">2</span
+              <span class="step-number" aria-hidden="true">•</span
               ><span class="step-label">Your project</span>
             </li>
             <li>
-              <span class="step-number">3</span
+              <span class="step-number" aria-hidden="true">•</span
               ><span class="step-label">Your workflow</span>
             </li>
             <li>
-              <span class="step-number">4</span
+              <span class="step-number" aria-hidden="true">•</span
               ><span class="step-label">Review &amp; install</span>
             </li>
             <li>
-              <span class="step-number">5</span
+              <span class="step-number" aria-hidden="true">•</span
               ><span class="step-label">Get ready</span>
             </li>
           </ol>
@@ -1395,6 +1437,11 @@
               Give your coding agents a shared plan, clear responsibilities, and
               a review before changes ship. We’ll help you set it up.
             </p>
+            <button class="primary" id="begin">Set up my project</button>
+            <p class="hint">
+              Already using the kit? Choose your project to continue
+              configuration.
+            </p>
             <p class="intro">
               This page installs the kit into this project and guides you to the moment your agents start. The kit
               itself is downloaded only once; each project gets its own copy.
@@ -1414,11 +1461,6 @@
                 >
               </div>
             </div>
-            <button class="primary" id="begin">Set up my project</button>
-            <p class="hint">
-              Already using the kit? Choose your project to continue
-              configuration.
-            </p>
             <section
               id="demo"
               class="demo"
@@ -1858,19 +1900,16 @@
                 <div id="planner-options"></div>
               </fieldset>
               <p class="notice error" id="plan-remote-note" role="status" hidden></p>
-              <p class="notice" id="plan-onmain-note" hidden>
-                Publish the kit to main first (step 3 above): the plan's
-                checks read the kit from main.
-              </p>
               <div class="notice" id="plan-trust">
                 <p>
-                  Claude Code only: open it once in this folder and accept its trust question (yes), then close it.
-                  Until then it ignores this project's permissions and the plan stops early.
+                  Claude Code only: open it once in this folder and answer its trust question as shown below, then
+                  close it. Until then it ignores this project's permissions and the plan stops early.
                 </p>
                 <div class="next-command">
                   <code id="plan-trust-command" data-no-i18n></code>
                   <button type="button" class="secondary-button" id="copy-plan-trust">Copy</button>
                 </div>
+                <div class="trust-help" id="plan-trust-help" data-reload="plan" data-no-i18n hidden></div>
               </div>
               <button class="primary" type="button" id="plan-create" aria-describedby="plan-create-why">
                 Create the plan
@@ -1880,12 +1919,15 @@
               <p class="hint" id="plan-progress" role="status" data-no-i18n hidden></p>
               <section id="plan-review" hidden aria-labelledby="plan-review-heading">
                 <h3 id="plan-review-heading">Proposed plan</h3>
-                <div class="notice error" id="plan-violations" role="alert" hidden>
-                  <p>
-                    The planner changed things only you may change. Undo those
-                    changes, then create the plan again.
-                  </p>
+                <div class="notice error" id="plan-violations" role="alert" tabindex="-1" hidden>
+                  <strong>The planner broke a rule</strong>
                   <ul class="plan-problems" id="plan-violation-list" data-no-i18n></ul>
+                  <p id="plan-undo-text"></p>
+                  <div class="next-command" id="plan-undo-run" hidden>
+                    <code id="plan-undo-command" data-no-i18n></code>
+                    <button type="button" class="secondary-button" id="copy-plan-undo">Copy</button>
+                  </div>
+                  <p class="hint" id="plan-undo-status" role="status"></p>
                 </div>
                 <div class="notice" id="plan-lint" role="status">
                   <p id="plan-lint-summary"></p>
@@ -2029,6 +2071,17 @@
         <p class="hint">
           Setup steps (install, publish, plan) need no agent; agents start only here.
         </p>
+        <div class="team-block" id="team-two-people" hidden>
+          <h3>Two or more people?</h3>
+          <p>
+            Each person uses their own computer: they clone the project, open this page there, save their own name and
+            register their own reviewer (name-r).
+          </p>
+          <p>
+            You run the commands shown on your page; your teammate runs the ones on theirs. Never paste a teammate's
+            commands: they carry their name.
+          </p>
+        </div>
         <div class="team-block" id="team-name-block" hidden>
           <h3>Your name</h3>
           <p class="hint">
@@ -2082,8 +2135,9 @@
             <ul class="hint" id="team-unavailable-list"></ul>
           </div>
         </div>
+        <p class="hint blocked-reason" id="team-locked-why" hidden></p>
         <div class="team-block" id="team-implement" hidden>
-          <h3 id="team-implement-heading" data-no-i18n>2. Claude Code implements</h3>
+          <h3 id="team-implement-heading" tabindex="-1" data-no-i18n>2. Claude Code implements</h3>
           <p class="hint" id="team-implement-terminal"></p>
           <div class="next-command">
             <code id="team-implement-command" data-no-i18n></code>
@@ -2091,16 +2145,16 @@
           </div>
           <p class="hint" data-tool="claude">
             It claims the task, creates its own folder (a worktree) and opens Claude Code there with its first prompt.
-            The first time, Claude Code asks whether you trust the task folder: accept it (yes), then approve this
-            project's uak server (MCP).
+            The first time, Claude Code asks whether you trust the task folder.
           </p>
+          <div class="trust-help" id="team-implement-trust" data-no-i18n hidden></div>
           <p class="hint" data-tool="codex" hidden>
             It claims the task, creates its own folder (a worktree) and opens Codex there with its first prompt. Codex
             runs in its workspace sandbox with write access to the project's .git folder and the network on, so it can
             claim, commit and push.
           </p>
-          <p class="hint">If you closed that terminal, reopen the agent with:</p>
-          <div class="next-command">
+          <p class="hint resume-only">If you closed that terminal, reopen the agent with:</p>
+          <div class="next-command resume-only">
             <code id="team-implement-resume" data-no-i18n></code>
             <button type="button" class="secondary-button" id="copy-team-resume">Copy</button>
           </div>
@@ -2120,8 +2174,9 @@
           <p class="hint" data-tool="claude" hidden>
             UAK_AGENT gives Claude Code the reviewer's name, so it acts as a second identity: it never reviews as the
             agent that wrote the code. It waits for work with uak next and reviews with /uak-review. The first time,
-            Claude Code asks whether you trust this folder and to approve this project's uak server (MCP): accept both.
+            Claude Code asks whether you trust this folder.
           </p>
+          <div class="trust-help" id="team-review-trust" data-no-i18n hidden></div>
         </div>
         <div class="team-block" id="team-claimed-block" hidden>
           <h3>Tasks already claimed</h3>
@@ -2263,7 +2318,7 @@
               "#project-form button[type=submit],#workflow-form button[type=submit],#install",
             )
             .forEach(function (button) {
-              button.disabled = busy;
+              setWaiting(button, state.phase);
             });
           el("running-review").hidden = !busy || step === 4;
         }
@@ -2323,7 +2378,7 @@
           });
           el("next-steps").hidden = !(g.steps || []).length;
           el("next-check").hidden = ["check", "todo", "ready", "error", "waiting"].indexOf(g.kind) < 0;
-          el("next-check").disabled = operationBusy();
+          setWaiting(el("next-check"), state.phase);
           setLabel(el("next-check"), UAKWorkspace.t(
             g.kind === "check" ? "Check what’s next" : "Check again",
           ));
@@ -2446,26 +2501,36 @@
           return input ? input.value : "";
         }
         function setPlanBusy(busy) {
-          var blocked = busy || !planView;
-          // Waiting for an earlier step is blocked, not busy: it says why, next to the button (UI-018).
-          el("plan-create").disabled = blocked;
-          setBlocked(el("plan-create"), planBlock(busy ? null : planView, selectedPlanner()));
-          el("plan-recheck").disabled = blocked || !planView.planned;
-          el("plan-onmain-note").hidden = !planView || !!planView.kit_on_main || !!planView.remote_note;
+          var phase = busy ? state.phase : "",
+            planned = !!(planView && planView.planned);
+          // Waiting for an earlier step, or for a running operation, is blocked, not busy: it says why (UI-018,
+          // UI-024 D-6.1). The publish-first reason lives only under Create the plan (A-F15: it was said 3 times).
+          setWaiting(el("plan-create"), phase);
+          if (!busy) setBlocked(el("plan-create"), planBlock(planView, selectedPlanner()));
+          if (!busy && !planView) el("plan-create").disabled = true;
+          setWaiting(el("plan-recheck"), phase);
+          if (!planned) el("plan-recheck").disabled = true;
           el("plan-remote-note").hidden = !planView || !planView.remote_note;
           el("plan-remote-note").textContent = planView && planView.remote_note ? UAKWorkspace.t(planView.remote_note) : "";
           technical(el("plan-remote-note"), (planView && planView.remote_note && planView.remote_technical) || "");
-          el("plan-trust").hidden = !planView || !planView.trust_command;
+          // The trust note is Claude Code's: shown only when Claude Code drafts the plan (D-1.1).
+          el("plan-trust").hidden = !planView || !planView.trust_command || selectedPlanner() !== "claude";
           el("plan-trust-command").textContent = (planView && planView.trust_command) || "";
-          el("plan-change").disabled = blocked;
-          setBlocked(el("plan-change"), busy || !planView || selectedPlanner() ? null : planBlock(planView, ""));
-          el("plan-approve").disabled =
-            blocked || !planView.planned || planView.failed || !!planView.violations.length || !planView.lint.ok;
-          // A plan with problems: the click says to ask for changes first.
-          var fix = !busy && planView && planView.planned && el("plan-approve").disabled;
-          if (fix) el("plan-approve").disabled = false;
-          setBlocked(el("plan-approve"), fix ? { text: "Fix the plan's problems first: ask for changes.", target: "plan-note" } : null);
-          el("idea-save").disabled = busy;
+          trustLine(el("plan-trust-help"), planView && planView.trust_command ? planView.trust : undefined);
+          setWaiting(el("plan-change"), phase, !planView || selectedPlanner() ? null : planBlock(planView, ""));
+          if (!busy && !planView) el("plan-change").disabled = true;
+          // A plan with problems: the click says what to do first (a rule break: undo it; lint: ask for changes).
+          var why = !planned
+            ? null
+            : planView.violations.length
+              ? { text: "Undo the planner's changes first, then create the plan again.", target: "plan-violations" }
+              : planView.failed || !planView.lint.ok
+                ? { text: "Fix the plan's problems first: ask for changes.", target: "plan-note" }
+                : null;
+          setWaiting(el("plan-approve"), phase, why);
+          var blocked = !planned;
+          if (!busy) el("plan-approve").disabled = blocked || (!why && !!planView.failed);
+          setWaiting(el("idea-save"), phase);
           if (busy) el("approve-confirm").hidden = true;
         }
         async function loadPlan() {
@@ -2511,12 +2576,17 @@
           // A run that wrote no plan is a failed plan (UI-010): only what it changed is shown, the notice above says why
           // and "Create the plan" is the retry; there is no lint verdict, plan or approve button.
           el("plan-review").hidden = !view.planned && !(view.failed && view.violations.length);
-          ["plan-lint", "plan-cards"].forEach(function (id) {
-            el(id).hidden = !!view.failed;
-          });
+          // UI-024 (D-7.1): after a rule break no green "passes" box and no "Ask for changes": one instruction, undo.
+          el("plan-lint").hidden = !!view.failed || !!view.violations.length;
+          el("plan-cards").hidden = !!view.failed;
           el("plan-files").parentNode.hidden = !!view.failed;
-          el("plan-ask").hidden = !!view.failed;
+          el("plan-ask").hidden = !!view.failed || !!view.violations.length;
           el("plan-violations").hidden = !view.violations.length;
+          var undo = view.undo || {};
+          el("plan-undo-text").textContent = UAKWorkspace.t(undo.text || "");
+          el("plan-undo-command").textContent = undo.command || "";
+          el("plan-undo-run").hidden = !undo.command;
+          el("plan-undo-status").textContent = "";
           el("plan-violation-list").replaceChildren();
           view.violations.forEach(function (line) {
             var li = document.createElement("li");
@@ -2783,6 +2853,7 @@
           el("dashboard-status").textContent = warning;
           el("dashboard-status").hidden = !warning;
           el("dashboard-status").classList.remove("error");
+          el("beginner-dashboard").classList.toggle("stale", !!(data.stale && data.checking));
           drawLiveUrl(data.live_url);
           var p = data.progress,
             states = p.states;
@@ -2918,6 +2989,8 @@
           });
           Array.from(el("steps").children).forEach(function (node, n) {
             node.classList.toggle("done", n < index);
+            // UI-024 (A-F16): sub-steps of 1. Install, marked, never numbered a second time.
+            node.querySelector(".step-number").textContent = n < index ? "✓" : "•";
             if (n === index) node.setAttribute("aria-current", "step");
             else node.removeAttribute("aria-current");
           });
@@ -3192,6 +3265,16 @@
           });
           if (isBusy(previous) && previous !== "checking" && !isBusy(data.phase)) {
             if (data.error) failed(phaseOwner(previous), data.error);
+            else if (previous === "planning" && data.outcome === "problems")
+              // UI-024 (D-7.1): a plan written after a rule break is not "Done".
+              report(
+                phaseOwner(previous),
+                UAKWorkspace.format("Finished with problems at {time}: {problem}", {
+                  time: clock(new Date()),
+                  problem: UAKWorkspace.t(data.problem || ""),
+                }),
+                true,
+              );
             else done(phaseOwner(previous));
           }
         }
@@ -3321,9 +3404,100 @@
         document.addEventListener("keydown", function (event) {
           if (event.key === "Escape" && !el("toast").hidden) el("toast-close").onclick();
         });
+        // UI-024 (D-6.1, QA round D): a button natively disabled during an operation said nothing. It is blocked like
+        // any other: focusable, aria-disabled, and its click says what it waits for. The button that started the
+        // operation keeps its busy label (UI-018).
+        var BUSY_REASON = {
+          installing: "Wait: the kit is being installed.",
+          checking: "Wait: setup is checking your project.",
+          planning: "Wait: the coding tool is drafting the plan.",
+          approving: "Wait: the plan is being approved.",
+          publishing: "Wait: the kit is being published.",
+          registering: "Wait: the reviewer is being registered.",
+        };
+        function setWaiting(button, phase, why) {
+          if (!button) return;
+          var busy = isBusy(phase),
+            owner = busy && phaseOwner(phase) === button;
+          button.disabled = owner;
+          setBlocked(button, owner ? null : busy ? { text: BUSY_REASON[phase] } : why || null);
+        }
+        // UI-024 (A-F6): Claude Code's trust question starts on "No, exit" and an English warning comes first. Whether
+        // Claude Code already trusts the folder (true, false, or null: unknown), and how to answer; undefined hides it.
+        var TRUST_LINES = [
+          "Before it, you may see an English warning such as \"Ignoring 51 permissions.allow entries … has not been trusted\". That is expected the first time and goes away once you accept.",
+          "The question starts on \"No, exit\": press ↓ until \"Yes, proceed\" is selected, then press Enter.",
+          "If you pressed Enter on \"No, exit\", Claude Code closes: paste the same command again.",
+        ];
+        var TRUST_WORDS = /(No, exit|Yes, proceed|Ignoring 51 permissions\.allow entries … has not been trusted|↓|Enter)/;
+        function trustText(text) {
+          var line = document.createElement("p");
+          line.className = "hint";
+          String(text)
+            .split(TRUST_WORDS)
+            .forEach(function (part, i) {
+              if (!part) return;
+              if (i % 2 === 0) return line.append(part);
+              // What the terminal shows stays English; keys are keys.
+              var key = part === "↓" || part === "Enter",
+                node = document.createElement(key ? "kbd" : "span");
+              if (!key) node.setAttribute("lang", "en");
+              node.textContent = part;
+              line.append(node);
+            });
+          return line;
+        }
+        function trustLine(box, value) {
+          if (!box) return;
+          box.replaceChildren();
+          box.hidden = value === undefined;
+          if (value === undefined) return;
+          var head = document.createElement("p"),
+            mark = document.createElement("span"),
+            text = document.createElement("span");
+          mark.className = "trust-mark";
+          mark.textContent = value === true ? "✓" : value === false ? "✗" : "i";
+          mark.setAttribute("aria-label", UAKWorkspace.t(value === true ? "Trusted" : value === false ? "Not trusted yet" : "Not known"));
+          text.textContent =
+            " " +
+            UAKWorkspace.t(
+              value === true
+                ? "Claude Code already trusts this folder."
+                : value === false
+                  ? "Claude Code does not trust this folder yet, so it will ask first."
+                  : "Setup could not read whether Claude Code trusts this folder. If it asks, answer as below.",
+            );
+          head.append(mark, text);
+          box.append(head);
+          if (value !== true)
+            TRUST_LINES.forEach(function (line) {
+              box.append(trustText(UAKWorkspace.t(line)));
+            });
+          var mcp = document.createElement("p"),
+            again = document.createElement("button");
+          mcp.className = "hint";
+          mcp.textContent = UAKWorkspace.t("Then approve this project's uak server (MCP).");
+          again.type = "button";
+          again.className = "link-button trust-recheck";
+          again.textContent = UAKWorkspace.t("Check again");
+          // After accepting in the terminal, ✗ turns ✓: setup reads Claude Code's config again.
+          again.onclick = function () {
+            if (box.dataset.reload === "plan") loadPlan();
+            else loadTeam();
+          };
+          box.append(mcp, again);
+        }
         // The checklist is redrawn only when its data changes, so polling never rebuilds (or resizes) it.
+        // UI-024 (A-F7): while a check runs the last list stays, dimmed and marked busy, until the new one arrives.
         function drawChecks(data) {
-          var key = JSON.stringify([UAKWorkspace.language(), data.checks || [], !!data.ready, data.guidance || null]);
+          var list = el("checks"),
+            waiting = data.phase === "checking";
+          list.classList.toggle("stale", waiting);
+          if (waiting) list.setAttribute("aria-busy", "true");
+          else list.removeAttribute("aria-busy");
+          if (waiting) return false;
+          var registered = (data.reviewer || {}).registered === true;
+          var key = JSON.stringify([UAKWorkspace.language(), data.checks || [], !!data.ready, data.guidance || null, registered]);
           if (key === checksKey) return false;
           checksKey = key;
           el("checks").replaceChildren();
@@ -3358,13 +3532,20 @@
             text.textContent = UAKWorkspace.t("Next: run this in your coding tool's terminal.");
             code.dataset.noI18n = "";
             var ready = data.guidance || {};
-            code.textContent = (ready.commands || []).join("\n");
+            // UI-024 (A-F11, D-3.2): the claim command waits for the reviewer; until then this line points there.
+            code.textContent = registered ? (ready.commands || []).join("\n") : "";
             code.hidden = !code.textContent;
-            if (code.hidden) text.textContent = UAKWorkspace.t(ready.detail || "Your project is ready");
+            if (!registered) text.textContent = UAKWorkspace.t("Next: register your reviewer in Start your team.");
+            else if (code.hidden) text.textContent = UAKWorkspace.t(ready.detail || "Your project is ready");
             progress.type = "button";
             progress.className = "primary";
-            progress.textContent = UAKWorkspace.t("See project progress");
+            progress.textContent = UAKWorkspace.t(registered ? "See project progress" : "Register the reviewer");
             progress.onclick = function () {
+              if (!registered) {
+                openSection("setup");
+                pointTo("team-register");
+                return;
+              }
               openSection("dashboard");
               loadDashboard();
             };
@@ -3830,6 +4011,7 @@
           });
         }
         function drawTeam(view) {
+          var wasLocked = !!(teamView && teamView.locked);
           teamView = view;
           var reviewer = view.registered || {};
           el("team-step").hidden = false;
@@ -3862,22 +4044,42 @@
           el("team-check").hidden = !view.can_check;
           el("team-note-actions").hidden = !view.retry && !view.can_check;
           drawRoles(view);
-          el("team-implement").hidden = !byId.implement;
-          el("team-review").hidden = !byId.review;
-          el("team-windows").hidden = !/Win/.test(navigator.platform || navigator.userAgent || "");
-          if (byId.implement) {
-            el("team-implement-heading").textContent = UAKWorkspace.format("2. {tool} implements", { tool: byId.implement.tool });
-            el("team-implement-terminal").textContent = UAKWorkspace.t(byId.implement.terminal);
-            el("team-implement-command").textContent = byId.implement.command;
-            el("team-implement-resume").textContent = byId.implement.resume;
-            el("team-implement").querySelectorAll("[data-tool]").forEach(function (p) { p.hidden = p.dataset.tool !== byId.implement.harness; });
-          }
-          if (byId.review) {
-            el("team-review-heading").textContent = UAKWorkspace.format("3. {tool} reviews", { tool: byId.review.tool });
-            el("team-review-terminal").textContent = UAKWorkspace.t(byId.review.terminal);
-            el("team-review-command").textContent = byId.review.command;
-            el("team-review").querySelectorAll("[data-tool]").forEach(function (p) { p.hidden = p.dataset.tool !== byId.review.harness; });
-          }
+          // UI-024 (D-3.2): before the reviewer is registered both blocks are placeholders: what each terminal will
+          // run, no command and no Copy button, and the one reason above them.
+          var locked = view.locked || null,
+            waiting = {};
+          (view.waiting || []).forEach(function (w) { waiting[w.id] = w; });
+          el("team-locked-why").hidden = !locked;
+          el("team-locked-why").textContent = locked ? UAKWorkspace.t(locked.reason) : "";
+          // A view drawn during a check may be outdated: dimmed, and its Copy buttons say why (B-10).
+          el("team-step").classList.toggle("stale", !!view.stale);
+          ["copy-team-implement", "copy-team-resume", "copy-team-review"].forEach(function (id) {
+            setBlocked(el(id), view.stale ? { text: BUSY_REASON[state.phase] || BUSY_REASON.checking } : null);
+          });
+          // A-F19: with two or more people, who runs what.
+          el("team-two-people").hidden = view.people === 1;
+          var trust = view.trust || {},
+            TERMINAL = {
+              implement: "Terminal 1: a new terminal window on your computer, any folder",
+              review: "Terminal 2: another new terminal window on your computer, any folder",
+            };
+          [["implement", "2. {tool} implements", "worktree"], ["review", "3. {tool} reviews", "project"]].forEach(function (row) {
+            var id = row[0],
+              block = el("team-" + id),
+              shown = byId[id] || waiting[id];
+            block.hidden = !shown;
+            if (!shown) return;
+            block.querySelectorAll(".next-command").forEach(function (box) { box.hidden = !byId[id]; });
+            block.querySelectorAll(".resume-only").forEach(function (line) { line.hidden = !byId[id]; });
+            el("team-" + id + "-heading").textContent = UAKWorkspace.format(row[1], { tool: shown.tool });
+            el("team-" + id + "-terminal").textContent = UAKWorkspace.t(byId[id] ? byId[id].terminal : TERMINAL[id]);
+            el("team-" + id + "-command").textContent = byId[id] ? byId[id].command : "";
+            if (id === "implement") el("team-implement-resume").textContent = byId[id] ? byId[id].resume : "";
+            block.querySelectorAll("[data-tool]").forEach(function (p) { p.hidden = p.dataset.tool !== shown.harness; });
+            // A-F6: Claude Code's trust question, answered before it is asked.
+            trustLine(el("team-" + id + "-trust"), shown.harness === "claude" && view.trust ? trust[row[2]] : undefined);
+          });
+          if (wasLocked && !locked && byId.implement) el("team-implement-heading").focus();
           drawClaimed(view);
           teamReady = !!byId.implement;
           teamTool = byId.implement ? byId.implement.tool : "Claude Code";
@@ -3948,6 +4150,10 @@
         window.addEventListener("uak:language", function () {
           if (teamView && !el("team-step").hidden) drawTeam(teamView);
         });
+        // UI-024 (A-F6): back from the terminal where Claude Code asked about trust, the ✓/✗ is read again.
+        document.addEventListener("visibilitychange", function () {
+          if (!document.hidden && teamView && !el("team-step").hidden && !operationBusy() && !requestBusy) loadTeam();
+        });
         el("team-retry").onclick = function () {
           action(this, loadTeam);
         };
@@ -4014,6 +4220,9 @@
         };
         el("copy-plan-trust").onclick = function () {
           copyText(el("plan-trust-command").textContent, "idea-status");
+        };
+        el("copy-plan-undo").onclick = function () {
+          copyText(el("plan-undo-command").textContent, "plan-undo-status");
         };
         el("copy-team-implement").onclick = function () {
           copyText(el("team-implement-command").textContent, "team-copy-status");
@@ -4285,12 +4494,12 @@
               el("terminal-steps").append(li);
             });
           }
-          var busy = isBusy(data.phase);
-          ["human-save", "schedule-save", "publish-preview", "publish-kit"].forEach(function (id) {
-            el(id).disabled = busy;
+          // A running operation blocks these with its reason (UI-024, D-6.1); publishing is a human act: before a
+          // name is saved, the button says so instead of failing (UI-018).
+          ["human-save", "schedule-save", "publish-kit"].forEach(function (id) {
+            setWaiting(el(id), data.phase);
           });
-          // Publishing is a human act: before a name is saved, the button says so instead of failing (UI-018).
-          setBlocked(el("publish-preview"), busy ? null : nameBlock(data));
+          setWaiting(el("publish-preview"), data.phase, nameBlock(data));
         }
         el("copy-terminal-cd").onclick = function () {
           var text = el("terminal-cd").textContent,
@@ -4482,9 +4691,12 @@
                     : "") +
                   "Your project may still need a plan, a remote connection, or approval before agents can work. You can also repair or update the kit."
                 : "Review the details below, correct the issue, and try again. Existing files are preserved.";
+          document.body.classList.toggle("installed", !!data.installed); // UI-024: the rail hides after install
           el("operation-status").textContent =
             data.error ||
-            (busy
+            (data.phase === "checking" && (data.checks || []).length
+              ? "Your last result stays below until the new one arrives."
+              : busy
               ? "Working in the background. You can expand technical details below."
               : data.ready
                 ? "Ready for the next task."
@@ -4497,16 +4709,16 @@
           drawChecks(data);
           // Preferences and Repair stay in place while an operation runs (hiding them made the page jump, UI-018).
           el("preferences").hidden = !data.installed;
-          el("save").disabled = busy;
+          setWaiting(el("save"), data.phase);
           el("diagnostics").checked = (data.settings || {}).Blackbox !== "off";
           el("pacing").checked = (data.settings || {}).Pace !== "off";
           if (document.activeElement !== el("live-url-input"))
             el("live-url-input").value = (data.settings || {})["Live-URL"] || "";
-          el("check").disabled = busy;
-          el("next-check").disabled = busy;
-          el("change-project").disabled = busy;
+          setWaiting(el("check"), data.phase);
+          setWaiting(el("next-check"), data.phase);
+          setWaiting(el("change-project"), data.phase);
           el("repair").hidden = !data.can_repair;
-          el("repair").disabled = busy;
+          setWaiting(el("repair"), data.phase);
           setLabel(el("check"), data.installed
             ? data.ready
               ? "Check again"

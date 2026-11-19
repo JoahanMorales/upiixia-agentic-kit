@@ -219,6 +219,24 @@ chosen tools, the project folder and its Git folder), start with `UAK_HUMAN=` so
 and are not offered when the folder name holds a quote mark or a control character. On Windows, paste them in Git
 Bash, not PowerShell. The first time, each tool asks to approve the project's uak server (MCP): approve it.
 
+**The first run (UI-024).** Agents start only once the reviewer is registered: before that both blocks show what each
+terminal will run, with no command to copy, and one line says to register `NAME-r` first (`/api/team` answers
+`commands: []`, `locked: {reason, target}` and `waiting: [{id, harness, tool}]`; the ready line of the check points to
+the team step instead of the claim command). Claude Code's trust question starts on "No, exit": press ↓ until "Yes,
+proceed" and then Enter; an English "Ignoring … permissions.allow entries" warning before it is expected the first
+time. Setup reads only whether Claude Code already trusts a folder, from Claude Code's own config
+(`$CLAUDE_CONFIG_DIR/.claude.json`, else `~/.claude.json`, read-only, booleans only) and never changes it: `/api/team`
+has `trust: {project, worktree}` when a command starts Claude Code and `/api/plan` has `trust` (`true`, `false`, or
+`null` when it could not be read; on Windows best effort). **Check again** reads it again after you accept.
+`/api/team` also has `people` (from IDEA.md's team size): with two or more, each person runs their own page on their
+own computer and never pastes a teammate's commands. While a check runs, `/api/status` keeps the last `checks` with
+`checks_stale: true` (the page dims them), the check stops after 45 s (a stalled HTTP transfer after 10 s) and keeps
+the old result with an error, `/api/dashboard` answers with the last good dashboard (`stale`, `checking`) or one built
+from local copies (`connection: "checking"`), and `/api/team` with its last view or a view with no command
+(`checking: true`). A planning run that broke a rule sets `outcome: "problems"` and `problem` in `/api/status`, and
+`/api/plan` has `undo: {text, command}` (a `git reset`/`git restore` line when Git can restore everything, else
+words); setup never runs it.
+
 **Network.** Setup reads the remote (ls-remote, then a fetch into its own refs `refs/uak/setup-base` and
 `refs/uak/setup-claims`, never `FETCH_HEAD`) with a 30 s timeout per command, outside the lock the status poll uses:
 the page keeps answering while Git waits. One slow request can take up to two tool probes (20 s each) and three

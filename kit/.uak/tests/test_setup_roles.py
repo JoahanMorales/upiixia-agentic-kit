@@ -80,7 +80,7 @@ def roles_follow_the_tools_you_have(root, tmp):
     home = team.physical(target)
     worktree = home.parent / (home.name + "-wt") / "app-001"
     with tp.live(target, team.Team()) as srv:
-        team.ready(srv, target)
+        team.ready_team(srv, target)
         status, view = get(srv, "/api/team")
         assert status == 200, view
         tools = {t["id"]: t for t in view.get("tools") or []}
@@ -162,7 +162,7 @@ def one_tool_does_both_roles(root, tmp):
         home = team.physical(target)
         worktree = home.parent / (home.name + "-wt") / "app-001"
         with tp.live(target, team.Team()) as srv:
-            team.ready(srv, target)
+            team.ready_team(srv, target)
             view = get(srv, "/api/team")[1]
         roles = view.get("roles") or {}
         assert (roles.get("implement"), roles.get("review"), roles.get("same_tool")) == (tool, tool, True), roles
@@ -195,7 +195,7 @@ def any_tool_can_review(root, tmp):
     worktree = home.parent / (home.name + "-wt") / "app-001"
     stubs, log = team.stub_tools(tmp)
     with tp.live(target, team.Team()) as srv:
-        team.ready(srv, target)
+        team.ready_team(srv, target)
         for impl, rev in (("claude", "codex"), ("codex", "claude"), ("claude", "claude"), ("codex", "codex")):
             assert post(srv, "/api/team/roles", {"implement": impl, "review": rev})[0] == 200
             commands = team.by_id(get(srv, "/api/team")[1])
