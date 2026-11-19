@@ -1056,7 +1056,8 @@
     ["reviews: no reviewer is registered, so the first PR waits until a second agent holds a claim\\. Working alone\\? Register one from this checkout: (.+)", "revisiones: no hay revisor registrado, así que el primer PR espera a que un segundo agente tenga una tarea. ¿Trabajas solo? Registra uno desde esta copia: $1"],
     ["you already hold (.+) \\((.+)\\)", "ya tienes $1 ($2)"],
     ["first task: (.+) \\((.*)\\)", "siguiente tarea: $1 ($2)"],
-    ["a claimable task: uak next offers none", "una tarea disponible: uak next no ofrece ninguna"]
+    ["a claimable task: uak next offers none", "una tarea disponible: uak next no ofrece ninguna"],
+    ["a product smoke: (.+) has no \\.uak/bin/smoke-project, so /uak-ship and the merge gate stop at PRODUCT_UNVERIFIED", "un smoke del producto: $1 no tiene .uak/bin/smoke-project, así que /uak-ship y el gate de merge se detienen en PRODUCT_UNVERIFIED"]
   ];
   function gate(line) {
     var text = String(line),

@@ -131,6 +131,7 @@ if ! git fetch -q "$remote" "$base" 2>/dev/null || ! main_project=$(git show "FE
 fi
 main_tasks=$(git show "FETCH_HEAD:.uak/TASKS.md" 2>/dev/null)
 main_version=$(git show "FETCH_HEAD:.uak/VERSION" 2>/dev/null | tr -d '\r')
+base_smoke=no; git cat-file -e "FETCH_HEAD:.uak/bin/smoke-project" 2>/dev/null && base_smoke=yes
 drift=
 for f in .uak/PROJECT.md .uak/TASKS.md .uak/OWNERS.md .uak/VERSION; do
   [ -f "$f" ] || continue
@@ -177,6 +178,30 @@ review=${p_review:-auto}
 case "$review:$url" in auto:*github.com*) review=gh;; auto:*) review=claims;; esac
 [ "$review" != claims ] || [ "$reviewers" -gt 0 ] ||
   note "reviews: no reviewer is registered, so the first PR waits until a second agent holds a claim. Working alone? Register one from this checkout: UAK_HUMAN=<you> UAK_AGENT= bash .uak/bin/uak register-reviewer <you>-r, and a second session as <you>-r runs /uak-review."
+
+# The product smoke: /uak-ship and the merge gate run .uak/bin/smoke-project from $base. Why (QA round C, UAK-093):
+# nothing on the onboarding path created it, start said READY, then the first ship and merge stopped at
+# PRODUCT_UNVERIFIED. Sprint: the kit's merge gate runs it, so it blocks once there is an app to boot; before any app
+# (a fresh hackathon) it is a NOTE, so the first claim, often the walking skeleton, stays possible. Marathon: the human
+# merges on GitHub, always a NOTE.
+if [ "$base_smoke" != yes ]; then
+  app=no; bash "$here/lib/smoke-init.sh" detect >/dev/null 2>&1 && app=yes
+  if [ -f .uak/bin/smoke-project ]; then
+    set -- "commit .uak/bin/smoke-project and .uak/bin/.smoke-project.provenance, then push them to $base"
+  else
+    set -- "$(bash "$here/lib/smoke-init.sh" suggest 2>/dev/null)" \
+      "it boots the app and requests one route (init-smoke with no --command does it for the web app it detects: the stacks of uak deploy except Expo); then commit .uak/bin/smoke-project and .uak/bin/.smoke-project.provenance and push them to $base"
+    [ "$app" = yes ] || set -- "$@" "no app yet: give that step to the walking-skeleton task, or run init-smoke now with the check you have"
+  fi
+  if [ "$mode" = sprint ] && [ "$app" = yes ]; then
+    need "a product smoke: $base has no .uak/bin/smoke-project, so /uak-ship and the merge gate stop at PRODUCT_UNVERIFIED" "$@"
+  else
+    note "a product smoke: $base has no .uak/bin/smoke-project, so /uak-ship and the merge gate stop at PRODUCT_UNVERIFIED"
+    if [ "$mode" = sprint ]; then set -- "not blocking yet: init-smoke finds no web app it can boot here; it blocks once there is one" "$@"
+    else set -- "not blocking in marathon: the human merges on GitHub" "$@"; fi
+    for l in "$@"; do printf '         %s\n' "$l"; done
+  fi
+fi
 
 # 7. The first task: exactly what uak next offers, with the reason when it offers nothing.
 [ "$todo" -eq 0 ] || finish
