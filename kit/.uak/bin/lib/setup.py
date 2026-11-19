@@ -481,6 +481,25 @@ SAFE_PATH = re.compile(r"[A-Za-z0-9._][A-Za-z0-9._/-]{0,199}\Z")
 LIVE_STATES = ("CLAIMED", "BLOCKED", "REVIEW")
 # UI-019: a re-picked project keeps its last check this long (seconds); later the page checks again by itself.
 CHECK_KEEP = 600
+# UI-024 (B-10): a hanging remote made the check take 75 s while every view answered 409. The check stops after 45 s
+# (its whole tree), and a stalled HTTP transfer ends after 10 s below 1 kB/s. GIT_SSH_COMMAND is never set: it would
+# override the person's core.sshCommand.
+CHECK_TIMEOUT = 45
+CHECK_ENV = {"GIT_HTTP_LOW_SPEED_LIMIT": "1000", "GIT_HTTP_LOW_SPEED_TIME": "10"}
+CHECK_TIMEOUT_ERROR = ("The check stopped: %s did not answer within %d s. Your last result is still shown. Check your "
+                       "connection, then press Check again.")
+CHECKING_NOTE = "Checking your project… the commands come back when it ends."
+BUSY_NOTE = "An operation is running… the commands come back when it ends."
+CHECKING_WARNING = "Setup is checking your project. Showing the last known state until it ends."
+# UI-024 (D-3.2, A-F11): no launch command before the reviewer can review the agents' work.
+LOCK_REASON = "Register %s first (step 1): agents start only once a reviewer can review their work."
+# UI-024 (A-F6): Claude Code's own record of the folders it trusts; read-only, only booleans leave claude_trust().
+CLAUDE_CONFIG_MAX = 32 * 1024 * 1024
+TEAM_SIZE = re.compile(r"^- Team size: (\d{1,2}) ", re.M)
+# UI-024 (D-7.1): a planning run that broke a rule did not finish well, and the page says how to undo it.
+PLAN_PROBLEM = "The planner changed things only you may change."
+UNDO_COMMAND_TEXT = "Undo it with this command, then press Create the plan again:"
+UNDO_BY_HAND_TEXT = "Undo these changes by hand, then press Create the plan again."
 
 
 class Busy(Exception):
@@ -723,6 +742,9 @@ class SetupServer(ThreadingHTTPServer):
         # it; /api/status never does. Order: slow, then lock; never the reverse.
         self.slow = threading.Lock()
         self.remote_cache, self.tools_cache, self.team_cache, self.plan_known = {}, {}, {}, {}
+        # UI-024: the last trust read of Claude Code's config (size 1, keyed by its mtime and size) and the last good
+        # dashboard of each project, shown (stale) while a check runs instead of a 409 (B-10).
+        self.trust_cache, self.dash_cache = {}, {}
         self.worker = None
         self.plan_started, self.plan_last = 0, ""
         self.target = ""
@@ -835,7 +857,8 @@ class SetupServer(ThreadingHTTPServer):
         self.forget()
         output = redact(result.stdout + "\n" + result.stderr)
         self.state.update(readiness(output, result.returncode))
-        self.state.update(phase="ready" if self.state["ready"] else "setup", details=output, checked=True)
+        self.state.update(phase="ready" if self.state["ready"] else "setup", details=output, checked=True,
+                          checks_stale=False)
         if not self.state["checks"] and not self.state["ready"]:
             self.state["error"] = "The readiness check could not complete. Check connection and technical details, then retry."
         self.keep_check(at=time.monotonic())
@@ -845,7 +868,7 @@ class SetupServer(ThreadingHTTPServer):
         planning, root, uak = self.planning, Path(self.target), self.engine()
         with self.lock:
             self.plan = None
-            self.state.update(phase="planning", error="", details="")
+            self.state.update(phase="planning", error="", details="", outcome="", problem="")
             self.plan_started, self.plan_last = time.time(), ""
 
         def seen(line):  # the last readable line of the tool's output, for the page (UI-010)
@@ -873,6 +896,9 @@ class SetupServer(ThreadingHTTPServer):
                 plan = {"harness": harness, "violations": found, "lint": checked, "cards": planning.cards(text),
                         "digest": planning.digest(root), "head": after["head"], "exit": result.returncode,
                         "failed": missing}
+                if found:
+                    # UI-024 (D-7.1): one instruction to undo what the planner did, with its command when Git can.
+                    plan["undo"] = undo_instruction(self.run, root, before, after, found)
                 output = (result.stdout or "") + "\n" + (result.stderr or "")
                 # An untrusted folder (UI-008): the tool ran, wrote no plan, and said why; name that cause.
                 untrusted = not tasks.is_file() and planning.UNTRUSTED in output
@@ -884,6 +910,8 @@ class SetupServer(ThreadingHTTPServer):
                                       error=planning.UNTRUSTED_ERROR if untrusted else
                                       planning.MISSING_PLAN_ERROR if missing and result.returncode == 0 else
                                       "The coding tool stopped with an error. Check Technical details, then try again." if failed else "")
+                    # A written plan after a rule break is not "done": the page reads "Finished with problems".
+                    self.state.update(outcome="problems" if found else "", problem=PLAN_PROBLEM if found else "")
                     self.plan_started = 0
             except Exception as exc:
                 with self.lock:
@@ -1054,17 +1082,29 @@ class SetupServer(ThreadingHTTPServer):
         self.start_worker(work)
 
     def launch(self, operation, command):
+        checking = operation == "checking"
         with self.lock:
-            self.state.update(phase=operation, ready=False, checks=[], next_command="", next_note="", details="", error="",
-                              checked=False)
+            # UI-024 (A-F7): a check keeps the last list (dimmed by the page) until the new one arrives; emptying it
+            # made the page jump 1,014 px. An install still starts from an empty list.
+            self.state.update(phase=operation, ready=False, next_command="", next_note="", details="", error="",
+                              checked=False, checks_stale=checking)
+            if not checking:
+                self.state["checks"] = []
 
         def work():
             try:
-                result = self.run(command, cwd=self.target, timeout=120)
+                if checking:
+                    result = self.run(command, cwd=self.target, timeout=CHECK_TIMEOUT, group=True, env=dict(CHECK_ENV))
+                else:
+                    result = self.run(command, cwd=self.target, timeout=120)
                 output = redact(result.stdout + "\n" + result.stderr)
                 with self.lock:
                     installed = kit_present(self.target)
-                    if operation == "installing":
+                    if checking and result.returncode == 124:
+                        # B-10: the remote did not answer in time; the last result stays, marked current again.
+                        self.state.update(phase="setup", checks_stale=False, details=output,
+                                          error=CHECK_TIMEOUT_ERROR % (remote_and_base()[0], CHECK_TIMEOUT))
+                    elif operation == "installing":
                         success = result.returncode == 0 and installed
                         self.failed_target = "" if success else self.target
                         error = "Installation did not finish. Check details, correct the issue, and retry."
@@ -1082,7 +1122,8 @@ class SetupServer(ThreadingHTTPServer):
                     if operation == "installing":
                         self.failed_target = self.target
                         self.state["installed"] = False
-                    self.state.update(phase="error", ready=False, error="The operation stopped. Correct the issue and retry.", details=redact(exc))
+                    self.state.update(phase="error", ready=False, checks_stale=False,
+                                      error="The operation stopped. Correct the issue and retry.", details=redact(exc))
 
         self.start_worker(work)
 
@@ -1199,12 +1240,13 @@ class SetupHandler(BaseHTTPRequestHandler):
                     busy = self.server.worker and self.server.worker.is_alive()
                 if not root:
                     raise ValueError("Choose a project first.")
-                if busy:
-                    self.reply(409, {"error": "An operation is running. Wait for it to finish."})
-                    return
                 spec = importlib.util.spec_from_file_location("uak_dashboard", Path(__file__).with_name("dash.py"))
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
+                if busy:
+                    # UI-024 (B-10): while the engine runs the dashboard still answers, from what is known here.
+                    self.reply(200, self.dashboard_meanwhile(root, module))
+                    return
                 data = module.workspace_data(root)
                 if data.get("source") == "local" and data.get("connection") == "unreachable":
                     # UI-023 (B-08): offline, the last claims this clone read, marked stale, not "everything free".
@@ -1229,6 +1271,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                     self.server.state["freeze"] = data.get("freeze") or 0
                     self.server.state["needs_human"] = data["needs_human"]
                     data["guidance"] = guidance(self.server.state, data)
+                    self.server.dash_cache[os.path.normcase(root)] = data
                 self.reply(200, data)
             except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
                 self.reply(400, {"error": redact(exc)})
@@ -1345,13 +1388,51 @@ class SetupHandler(BaseHTTPRequestHandler):
         return view
 
     def cached_team(self):
-        """While the engine runs: the last view of this project and name, marked stale; never a fetch."""
+        """While the engine runs: the last view of this project and name, marked stale; never a fetch. Without one, a
+        view with no command that says why (UI-024, B-10: a 409 here left the team step blank during a check)."""
         key = self.team_key()
         with self.server.lock:
             view = self.server.team_cache.get(key)
-        if not view:
-            raise Busy()
-        return dict(view, stale=True)
+            checking = self.server.state.get("phase") == "checking"
+        if view:
+            return dict(view, stale=True)
+        target, name = key
+        if not HUMAN_NAME.fullmatch(name):
+            raise Need("Tell setup your name first (Your name, in Prepare): registering the reviewer is a human act.", "human")
+        who = name + "-r"
+        return {"task": "", "human": name, "reviewer": who, "phase": "", "stale": True, "checking": checking,
+                "remote": {"state": "", "detail": ""}, "commands": [], "review_note": "", "claimed": [], "tools": [],
+                "note": CHECKING_NOTE if checking else BUSY_NOTE,
+                "roles": effective_roles(None, set()), "retry": False, "can_check": False,
+                "people": team_size(target) if target else 0,
+                "registered": {"name": who, "registered": None, "registered_by": "", "retired": False, "message": ""}}
+
+    def dashboard_meanwhile(self, root, module):
+        """GET /api/dashboard while a worker runs: the last good dashboard of this project marked stale, or one built
+        from local copies only (the last claims this clone read, else the local plan). Never the network."""
+        s = self.server
+        with s.lock:
+            cached = s.dash_cache.get(os.path.normcase(root))
+        if cached:
+            return dict(cached, stale=True, checking=True)
+        try:
+            data = last_claims(s, root, module)
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, tarfile.TarError):
+            data = None
+        if not data:
+            with tempfile.TemporaryDirectory(prefix="uak-local-dashboard-") as folder:
+                data = module.build(Path(folder), module.read(Path(root) / ".uak/TASKS.md"), Path(root).name)
+            data["source"] = "local"
+        data.update(connection="checking", stale=True, checking=True, warning=CHECKING_WARNING, refresh=20)
+        data["mode"] = read_config(root).get("Mode", "")
+        try:
+            data["freeze"] = data.get("freeze") or max(0, int(read_config(root, ("Freeze-Epoch",)).get("Freeze-Epoch") or 0))
+        except ValueError:
+            data["freeze"] = 0
+        truthful(data)
+        with s.lock:
+            data["guidance"] = guidance(s.state, data)
+        return data
 
     def plan_view(self, probe=True):
         """The planning page: what can plan here, the idea, and the last proposed plan with its check and lint. Without
@@ -1392,7 +1473,10 @@ class SetupHandler(BaseHTTPRequestHandler):
                 # UI-019: an approved plan is shown done, never offered again (from the last local copy of main).
                 "approved": resume.get("plan_approved") is True, "approved_sha": resume.get("base_sha") or "",
                 # Only Claude Code has the one-time folder trust (UI-008); a Codex-only project shows no notice.
-                "trust_command": planning.trust_command(root) if (root / ".claude").is_dir() else ""}
+                "trust_command": planning.trust_command(root) if (root / ".claude").is_dir() else "",
+                # UI-024 (A-F6): whether Claude Code already trusts the project folder (None: could not read).
+                "trust": claude_trust((str(root),), s)[str(root)] if (root / ".claude").is_dir() else None,
+                "undo": plan.get("undo") or {"text": "", "command": ""}}
 
     def do_POST(self):
         if not self.authorized(write=True):
@@ -1701,7 +1785,8 @@ def approval_checks(server, data):
     if not plan or plan.get("failed"):
         raise ValueError("Create the plan first, then review it.")
     if plan["violations"]:
-        raise ValueError("The last planning run changed files it may not change. Undo those changes, then create the plan again.")
+        raise ValueError("The last planning run changed things only you may change. Undo them with the instruction "
+                         "under Proposed plan, then create the plan again.")
     if data["confirm"] != root.name:
         raise ValueError("Type the project folder name exactly as shown: %s" % root.name)
     for name in planning.PLAN_FILES:
@@ -2509,6 +2594,107 @@ def checkout_agent_note(root, who):
     return ""
 
 
+def claude_config_path():
+    """Claude Code's own config: $CLAUDE_CONFIG_DIR/.claude.json, else .claude.json in the home folder."""
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or str(Path.home())) / ".claude.json"
+
+
+def trust_key(text):
+    """A folder as Claude Code's config names it; on Windows compared leniently (separators, case)."""
+    if os.name == "nt":
+        text = text.replace("\\", "/").casefold()
+    return text.rstrip("/") or "/"
+
+
+def trust_candidates(folder):
+    """The folder and each of its parents, as given and physical (macOS /var is /private/var)."""
+    found = []
+    for text in (os.path.abspath(str(folder)), os.path.realpath(str(folder))):
+        path = Path(text)
+        for one in [path] + list(path.parents):
+            key = trust_key(one.as_posix())
+            if key not in found:
+                found.append(key)
+    return found
+
+
+def claude_trust(folders, server=None):
+    """{folder: True|False|None}. Reads Claude Code's own config, never writes it, keeps only booleans."""
+    unknown = {folder: None for folder in folders}
+    try:
+        path = claude_config_path()
+        info = os.stat(str(path))
+        if not stat.S_ISREG(info.st_mode) or info.st_size > CLAUDE_CONFIG_MAX:
+            return unknown
+        # One read per version of the file (its mtime and size), whichever folders the view asks about.
+        key = (str(path), info.st_mtime_ns, info.st_size)
+        trusted = None
+        if server is not None:
+            with server.lock:
+                trusted = server.trust_cache.get(key)
+        if trusted is None:
+            with open(str(path), "rb") as handle:
+                data = json.loads(handle.read(CLAUDE_CONFIG_MAX + 1).decode("utf-8"))
+            projects = data.get("projects") if isinstance(data, dict) else None
+            if not isinstance(projects, dict):
+                return unknown
+            # Only which folders are trusted is kept (their names, one flag each): no other value of the file.
+            trusted = frozenset(trust_key(name) for name, entry in projects.items() if isinstance(name, str)
+                                and isinstance(entry, dict) and entry.get("hasTrustDialogAccepted") is True)
+            del data, projects
+            if server is not None:
+                with server.lock:
+                    server.trust_cache = {key: trusted}
+        return {folder: any(c in trusted for c in trust_candidates(folder)) for folder in folders}
+    except Exception:  # noqa: BLE001 - unreadable, not JSON, a race with Claude Code writing it: "could not read"
+        return unknown
+
+
+def team_size(root):
+    """IDEA.md's "- Team size: N people" (UI-024, A-F19), or 0 when there is none."""
+    path = Path(root) / "IDEA.md"
+    try:
+        if path.is_symlink() or not path.is_file():
+            return 0
+        found = TEAM_SIZE.search(path.read_text(encoding="utf-8", errors="replace")[:200000])
+    except OSError:
+        return 0
+    return int(found.group(1)) if found else 0
+
+
+def undo_instruction(run, root, before, after, found):
+    """How to undo what a planning run changed beyond the plan (UI-024, D-7.1): a command when Git can restore every
+    change from the commit before the run, otherwise words. Setup only shows it, never runs it."""
+    by_hand = {"text": UNDO_BY_HAND_TEXT, "command": ""}
+    head = before.get("head") or ""
+    if not found or not head or before["config"] != after["config"] or before["hooks"] != after["hooks"]:
+        return by_hand
+    plan_files = (".uak/TASKS.md", ".uak/OWNERS.md", ".uak/plan-request.md")  # the plan is never restored
+    changed = sorted(name for name in set(before["files"]) | set(after["files"])
+                     if name not in plan_files and before["files"].get(name, "absent") != after["files"].get(name, "absent"))
+    for name in changed:
+        # Only plain paths: no quote mark, control character, glob or pathspec magic in a pasted git restore; a file
+        # the planner created is not Git's to restore.
+        if not quotable(name) or re.search(r"[*?\[\]\\]", name) or name.startswith(":") or \
+                before["files"].get(name, "absent") == "absent":
+            return by_hand
+    if changed:
+        listed = run(["git", "-c", "core.fsmonitor=false", "-c", "core.quotePath=false", "--literal-pathspecs", "-C",
+                      str(root), "ls-tree", "-r", "--name-only", "-z", head, "--"] + changed, cwd=str(root), timeout=60)
+        tracked = set(n for n in (listed.stdout or "").split("\0") if n) if listed.returncode == 0 else set()
+        if set(changed) - tracked:
+            return by_hand
+    parts = []
+    if before["head"] != after["head"] or before["index"] != after["index"]:
+        parts.append("git reset -q %s" % head)
+    if changed:
+        parts.append("git restore --source=%s --worktree -- %s" % (head, " ".join(shell_quote(n) for n in changed)))
+    home = Path(root).resolve().as_posix()
+    if not parts or not quotable(home):
+        return by_hand
+    return {"text": UNDO_COMMAND_TEXT, "command": " && ".join(["cd %s" % shell_quote(home)] + parts)}
+
+
 def team_view(server):
     """GET /api/team: who implements and who reviews (per person), the reviewer's state in this project's claims, the
     tasks already claimed, and the Copy commands. Commands are built only from server values (the READY line's task,
@@ -2518,7 +2704,8 @@ def team_view(server):
     view = {"task": "", "human": name, "reviewer": who, "phase": phase, "stale": False,
             "remote": {"state": "", "detail": ""}, "commands": [], "note": "", "review_note": "", "claimed": [], "tools": [],
             "roles": effective_roles(None, set()), "retry": False, "can_check": False,
-            "registered": {"name": who, "registered": False, "registered_by": "", "retired": False, "message": ""}}
+            "registered": {"name": who, "registered": False, "registered_by": "", "retired": False, "message": ""},
+            "people": team_size(root)}
     text = root.as_posix()
     if not quotable(text) or root.parent == root:
         view["note"] = ("Rename the project folder (no quote mark or control character, and not a drive's root), then "
@@ -2616,7 +2803,7 @@ def team_view(server):
             folder = (wt_root / task.lower()).as_posix()
             view["task"] = task
             commands.append({"id": "implement", "harness": tool, "tool": TOOL_LABEL[tool], "identity": identity,
-                             "task": task, "terminal": "Terminal 1: a new terminal window, any folder",
+                             "task": task, "terminal": "Terminal 1: a new terminal window on your computer, any folder",
                              "command": implement_command(tool, text, folder, gitdir, task, identity, name),
                              "resume": resume_command(tool, folder, gitdir)})
         else:
@@ -2631,8 +2818,25 @@ def team_view(server):
     elif not view["registered"]["retired"]:
         tool = roles["review"]
         commands.append({"id": "review", "harness": tool, "tool": TOOL_LABEL[tool], "identity": who,
-                         "terminal": "Terminal 2: another new terminal window, any folder",
+                         "terminal": "Terminal 2: another new terminal window on your computer, any folder",
                          "command": review_command(tool, text, gitdir, who)})
+    if "claude" in (roles["implement"], roles["review"]):
+        # UI-024 (A-F6): whether Claude Code already trusts the folders its commands open (the review runs in the
+        # project, the implementer in its task worktree), from Claude Code's own config; None when unreadable.
+        worktree = str(wt_root / (task or "").lower()) if task else str(wt_root)
+        found = claude_trust((text, worktree), server)
+        view["trust"] = {"project": found[text], "worktree": found[worktree]}
+    if view["registered"]["registered"] is not True:
+        # UI-024 (D-3.2, A-F11): no launch command until a reviewer can review the agents' work; resume lines of
+        # tasks already claimed stay (they start nothing new).
+        retired = bool(view["registered"]["retired"])
+        reason = view["registered"]["message"] if retired else LOCK_REASON % who
+        view["locked"] = {"reason": reason, "target": "human-name" if retired else "team-register"}
+        view["waiting"] = [{"id": role, "harness": roles[role], "tool": TOOL_LABEL[roles[role]]}
+                           for role in ("implement", "review")]
+        if view["note"] == reason:
+            view["note"] = ""  # one place per reason (A-F15)
+        commands = []
     view["commands"] = commands
     return view
 

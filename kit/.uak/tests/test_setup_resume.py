@@ -142,7 +142,7 @@ def can_link(tmp):
 def restart_lands_on_the_team_step(root, tmp):
     target, remote = tt.ready_project(root, tmp)
     with tp.live(target, tt.Team()) as srv:
-        tt.ready(srv, target)
+        tt.ready_team(srv, target)
         assert tp.get(srv, "/api/team")[0] == 200
     # 1. A real restart: the command a person runs again, on the same project.
     env = {k: v for k, v in os.environ.items() if not k.startswith("UAK_")}

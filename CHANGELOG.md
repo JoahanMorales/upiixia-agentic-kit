@@ -6,6 +6,19 @@ The human of this project found the terminal-only setup hard to follow. Now the 
 in the background; installing, the next step, planning and progress happen in the browser. The CLI path is unchanged.
 Guide: [docs/DASHBOARD.md](docs/DASHBOARD.md).
 
+- **The team step leads a beginner through the first run (UI-024).** Claude Code's trust question is explained before
+  it is asked: it starts on "No, exit", so press ↓ until "Yes, proceed" and then Enter; the English "Ignoring …
+  permissions.allow entries" warning before it is expected. Setup reads only whether Claude Code already trusts the
+  folder, from Claude Code's own config, and never changes it: a ✓ or ✗ (or "could not read") beside each Claude Code
+  command, with **Check again**. Launch commands appear only once the reviewer is registered (the ready line points
+  there too). A running check keeps the last result on screen, dimmed, instead of emptying it; the check stops after
+  45 s (a stalled HTTP transfer after 10 s) and keeps the old result with a plain error; the dashboard and the team
+  step keep answering during a check instead of "An operation is running". A blocked reason is said once; the wizard
+  rail no longer numbers a second 1-5 and hides after install; "Set up my project" is above the fold; buttons waiting
+  for an operation say what they wait for; a planning run that broke a rule reads "Finished with problems" with one
+  undo instruction and its command; a note says who runs what when two or more people share the project. Evidence:
+  QA rounds of 2026-11-14 (A-F6, A-F7, A-F11, A-F15, A-F16, A-F19, B-10, D-1, D-3, D-6, D-7, D-9, D-10).
+
 - **Light CI on pull requests (UAK-090).** Pull requests run the Ubuntu suite and the Windows per-file job; main and
   workflow_dispatch keep macOS. Approved PRs #19-#21 waited hours for macOS arm64 runners GitHub could not provide.
 
