@@ -49,11 +49,27 @@ ui_gate() {
     missing="$missing $f.png"
   done
   [ -s "$d/critic.txt" ] || missing="$missing critic.txt"
-  [ -z "$missing" ] || UAK_CODE=ui-shots-missing conflict "$ID writes UI ($ui): it ships with what was seen. Missing in .uak-shots/$ID/:$missing. Capture the screens it changed at 1280x720 and 390x844 there (skill webapp-testing), then run the design-critic subagent on them: it writes critic.txt. No visible change? done $ID ... --no-ui \"why\"."
+  [ -z "$missing" ] || UAK_CODE=ui-shots-missing conflict "$ID writes UI ($ui): it ships with what was seen. Missing in .uak-shots/$ID/:$missing. Capture the screens it changed at 1280x720 and 390x844 there (skill webapp-testing), then run the design-critic subagent on them: it writes critic.txt. design-critic not in your Agent tool list? Give any subagent the prompt file .claude/agents/design-critic.md, writing the same critic.txt (VERDICT: SHIP|FIX <sha7> on line 1). No visible change? done $ID ... --no-ui \"why\"."
   grep -q '^VERDICT: SHIP' "$d/critic.txt" ||
     UAK_CODE=critic-fix conflict "The design critic said FIX for $ID ($(grep -m 1 '^VERDICT' "$d/critic.txt" 2>/dev/null)). Fix its P1s (.uak-shots/$ID/critic.txt), capture again and rerun it."
-  grep -q "$short" "$d/critic.txt" ||
-    UAK_CODE=critic-stale conflict "critic.txt in .uak-shots/$ID/ is about another commit; this one is $short. Capture again and rerun design-critic on it."
+  grep -q "$short" "$d/critic.txt" || critic_covers_tip "$1" "$2" "$d/critic.txt" ||
+    UAK_CODE=critic-stale conflict "critic.txt in .uak-shots/$ID/ is about another commit; this one is $short. Capture again and rerun design-critic on it. design-critic not in your Agent tool list? Give any subagent the prompt file .claude/agents/design-critic.md, writing the same critic.txt (VERDICT: SHIP|FIX <sha7> on line 1)."
+}
+# A critique of commit A holds at commit B when A..B touches no UI path (the paths that make done ask for shots).
+# Why (private sprint, v6.4.0): "critic.txt is about another commit" x3 in one night after docs and test commits.
+# $1 tip, $2 worktree, $3 critic.txt; uses $TXROOT/ui-paths from ui_gate.
+critic_covers_tip() {
+  local tok full files
+  for tok in $(sed -n 's/^VERDICT: [A-Z]* *\([0-9a-f][0-9a-f]*\).*/\1/p' "$3" | head -n 1); do
+    [ "${#tok}" -ge 7 ] || continue
+    full=$(git -C "$2" rev-parse -q --verify "$tok^{commit}" 2>/dev/null) || continue
+    git -C "$2" merge-base --is-ancestor "$full" "$1" 2>/dev/null || continue
+    files=$(git -C "$2" diff --name-only "$full" "$1" 2>/dev/null) || continue
+    [ -n "$files" ] || return 0
+    normalize_paths "$files" > "$TXROOT/ui-changed" 2>/dev/null || continue
+    overlaps "$TXROOT/ui-changed" "$TXROOT/ui-paths" || return 0
+  done
+  return 1
 }
 # Tests only grow, a task's named tests exist, and its test failed before its code. Why (v5.10, test-first): agents
 # optimize toward green; stuck on red they edit the assertion, add a skip or delete the test, and a test written after

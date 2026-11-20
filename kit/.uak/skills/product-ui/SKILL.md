@@ -68,6 +68,10 @@ Screenshot the screen at 1280×720 (`webapp-testing`), look at it for 3 seconds,
 Then run `bash .uak/bin/design-lint`, capture 1280 and 390 into `.uak-shots/<ID>/`, and run the `design-critic`
 subagent: `uak done` refuses a task in `UI-Paths` without its `SHIP` for the current commit.
 
+Fallback: if your session's Agent tool does not list `design-critic`, give any subagent the prompt file
+`.claude/agents/design-critic.md` and the screenshots; it writes the same critic.txt (line 1 `VERDICT: SHIP <sha7>`).
+A critique stays valid across commits that touch no `UI-Paths`; a UI change needs a new one.
+
 ## 6. Seen in real events: each one cost a redo
 | Seen | Do instead |
 |---|---|
