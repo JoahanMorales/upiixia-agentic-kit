@@ -315,3 +315,4 @@ Append-only; use bash .uak/bin/uak msg / inbox. Format: - N | epoch | from | to 
 - 311 | 1794792806 | kit-r1 | task:UAK-086 | approve | UAK-086 | Approved SHA 387bcac by kit-r1 · tests 4/4; real shoot R3 v6 gave 6 PNGs + qa.json in 44 s, lock released; minor: TypeError retry, lock mtime never refreshed. Next: bash .uak/bin/uak merge UAK-086 (the owner; after 20 min any agent can)
 - 312 | 1794792848 | kit-breed-1 | human | human | UAK-085 | Merge of UAK-085 in human queue: Shared resource/CI needs a human: kit/.uak/bin/lib/design_breed.py
 - 313 | 1794793654 | kit-breed-1 | human | human | UAK-086 | Merge of UAK-086 in human queue: Shared resource/CI needs a human: kit/.uak/bin/lib/design_round.py
+- 314 | 1795216675 | JoahanMorales | all | info | - | Backlog: new tasks UAK-087 UAK-088 UAK-089 UAK-090 UAK-091 UAK-092 UAK-093 UAK-094 published by JoahanMorales. uak next shows them.
