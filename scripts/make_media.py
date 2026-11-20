@@ -15,15 +15,20 @@ import urllib.request
 from html import escape
 from pathlib import Path
 
-from PIL import Image
-from playwright.sync_api import sync_playwright
+# Pillow and Playwright load where they are used: the banner's text and its version stamp need neither (UAK-094).
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "media"
+VERSION_FILE = ROOT / "kit" / ".uak" / "VERSION"
 FONTS = Path.home() / ".cache" / "uak-media-fonts"
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
 CSS_URL = ("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800"
            "&family=JetBrains+Mono:wght@400;500;700&display=swap")
+
+
+def banner_version():
+    """major.minor of kit/.uak/VERSION: the banner's eyebrow and docs/media/banner.version (kit_lint compares them)."""
+    return ".".join(VERSION_FILE.read_text(encoding="utf-8").strip().split(".")[:2])
 
 
 def fonts_css():
@@ -100,7 +105,7 @@ def banner_html():
 <div class='glow' style='width:380px;height:380px;right:260px;bottom:-240px;background:#15803d;opacity:.35'></div>
 <div class='grid'></div>
 <div class='left'>
-  <div class='eyebrow mono'><i></i> v6.4 · multi-agent orchestration</div>
+  <div class='eyebrow mono'><i></i> v{banner_version()} · multi-agent orchestration</div>
   <h1>UPIIXIA<br>Agentic Kit</h1>
   <p class='sub'>Run a team of AI coding agents in parallel.<br><span>One Git branch. No server. No chaos.</span></p>
   <div class='chips'>{chips}</div>
@@ -280,6 +285,7 @@ def build_gif(page, out):
         shot(frame_html(n, len(sc), key, cap, done, True), 1900)
     shot(end_html(), 4200)
 
+    from PIL import Image
     imgs = [Image.open(io.BytesIO(b)).convert("RGB") for b, _ in frames]
     picks = sorted(set([len(imgs) - 1] + list(range(0, len(imgs), max(1, len(imgs) // 10)))))
     sample = Image.new("RGB", (W, H * len(picks)))
@@ -297,6 +303,7 @@ def main():
         # chromium --headless --screenshot=banner.png --window-size=1280,640 --virtual-time-budget=3000 file://…/banner.html
         dest = Path(sys.argv[sys.argv.index("--html") + 1])
         dest.write_text(page_html(banner_html(), 1280, 640), encoding="utf-8"); print(dest); return
+    from playwright.sync_api import sync_playwright
     gif = "--gif" in sys.argv
     out = demo_output() if gif else None
     with sync_playwright() as p:
@@ -308,6 +315,7 @@ def main():
             page.set_viewport_size({"width": W, "height": H})
             print("frames", build_gif(page, out))
         b.close()
+    (OUT / "banner.version").write_text(banner_version() + "\n", encoding="utf-8")  # kit_lint: the banner is not stale
     for f in ("banner.png", "demo.gif") if gif else ("banner.png",):
         print(f, (OUT / f).stat().st_size // 1024, "KB")
 

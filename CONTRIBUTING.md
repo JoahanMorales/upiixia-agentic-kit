@@ -29,7 +29,9 @@ Security issues: see [SECURITY.md](SECURITY.md). Please don't open a public issu
 
 ## Releasing (maintainers)
 1. `kit/.uak/VERSION`, `server.json`, `.claude-plugin/plugin.json` and `marketplace.json` get the new version; `CHANGELOG.md` gets the entry.
-2. README (the version paragraph), `llms.txt`, `docs/HACKATHON.md` and `docs/media/demo.svg` mention what changed.
+2. README (the version paragraph), `llms.txt`, `docs/HACKATHON.md` and `docs/media/demo.svg` mention what changed. The banner is
+   regenerated: `uv run --with playwright --with pillow python scripts/make_media.py` writes `docs/media/banner.png` and
+   `banner.version` from `VERSION`; `kit_lint` fails when they differ.
 3. The kit's default design prior is regenerated from the maintainers' taste profiles and its evidence line goes into the
    CHANGELOG entry: `python3 scripts/design_prior.py --from ~/.uak/taste/<maintainer>.json [--from …]` (UAK-075: only traits
    picked in 2+ projects enter; stylistic genes need 3).

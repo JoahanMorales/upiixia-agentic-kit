@@ -213,6 +213,20 @@ def check_garden(findings):
             shutil.rmtree(d, ignore_errors=True)
 
 
+def check_banner(findings):
+    """docs/media/banner.png says the kit's major.minor in its eyebrow; make_media.py writes it to banner.version.
+    A release that moved VERSION without regenerating the banner fails here (v6.4.0 shipped a banner that said v6.1)."""
+    stamp, version = ROOT / "docs/media/banner.version", ROOT / "kit/.uak/VERSION"
+    if not version.is_file() or not (ROOT / "docs/media/banner.png").is_file():
+        return
+    want = ".".join(version.read_text(encoding="utf-8").strip().split(".")[:2])
+    have = stamp.read_text(encoding="utf-8").strip() if stamp.is_file() else "missing"
+    if have != want:
+        findings.append("docs/media/banner.version · stale banner · %s but kit/.uak/VERSION is %s: regenerate it with "
+                        "`uv run --with playwright --with pillow python scripts/make_media.py` and commit docs/media/banner.png "
+                        "and banner.version" % (have, want))
+
+
 def check_dogfood(findings):
     """The kit's own backlog (.uak/ at the root: this repo is developed with the kit) passes `uak lint` offline:
     budgets, owners, the graph, every Verify parses, every feature names its Tests."""
@@ -253,6 +267,7 @@ def main():
     check_portability(findings)
     check_structure(findings)
     check_garden(findings)
+    check_banner(findings)
     check_dogfood(findings)
     for f in findings:
         print("KIT_LINT " + f)
