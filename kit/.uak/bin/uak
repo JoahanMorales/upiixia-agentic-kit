@@ -101,7 +101,15 @@ case "$CMD" in version|--version) cat "$UAK_BIN/../VERSION" 2>/dev/null || say u
 # Call counts give the black box a denominator (error rate per command). Local file, flushed by bb.
 bb_common=$(git rev-parse --git-common-dir 2>/dev/null) || bb_common=
 case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
-  [ -z "$bb_common" ] || printf '%s\n' "${UAK_CALLER:+$UAK_CALLER-}$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null;;
+  [ -z "$bb_common" ] || printf '%s\n' "${UAK_CALLER:+$UAK_CALLER-}$CMD" >> "$bb_common/uak-blackbox.calls" 2>/dev/null
+  # Pending lines older than 10 min go out from any command, not only from a harness hook (UAK-089: the kit's own box
+  # kept 61 errors unpublished). Same condition as the hook's Stop: stamp first, then a detached flush. No delay.
+  if [ -n "$bb_common" ] && [ -s "$bb_common/uak-blackbox.pending" ] \
+      && [ -n "$(find "$bb_common/uak-blackbox.pending" -mmin +10 2>/dev/null)" ] \
+      && [ -z "$(find "$bb_common/uak-blackbox.flushed" -mmin -10 2>/dev/null)" ]; then
+    touch "$bb_common/uak-blackbox.flushed" 2>/dev/null
+    nohup bash "$UAK_BIN/bb" flush --quiet > /dev/null 2>&1 < /dev/null &
+  fi;;
 esac
 # Dispatch from the registry (lib/commands.tsv): a script of its own, or a command of this engine.
 reg_find "$CMD" || UAK_CODE=unknown-command die "Unknown command: $CMD (uak help lists them)"
