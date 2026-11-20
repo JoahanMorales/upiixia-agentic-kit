@@ -16,7 +16,7 @@ check_dependencies() {
   done
 }
 check_collisions() {
-  [ ! -f "$(claim_file)" ] || UAK_CODE=already-claimed conflict "$ID already has claims/$ID.md; read its summary."
+  [ ! -f "$(claim_file)" ] || UAK_CODE=already-claimed conflict "$ID already has claims/$ID.md; read its summary. Owner: $(field "$(claim_file)" Owner)."
   if [ -f "$(task_file)" ]; then
     old_state=$(field "$(task_file)" State)
     case "$old_state" in INTEGRATED|CANCELLED) UAK_CODE=task-closed conflict "$ID is already $old_state.";; esac
@@ -209,6 +209,16 @@ claim_mutate() {
   coord_tick_mutate; load_task
   [ -n "$REQUEST_NEXT" ] || NEXT_TEXT=$DEFAULT_NEXT
   coord_claim_gate
+  # wt new ID --agent NAME on a claim that already belongs to NAME (after a handover, or a claim made on another
+  # machine): a resume, not a new claim. Why (UpiixSol, Nov 2026): "wt new refuses owner of a handed-over claim"; the
+  # agent had to git worktree add by hand. Only the owner, only on the claim's own branch, only from wt (UAK_WT_RESUME).
+  if [ "${UAK_WT_RESUME:-}" = 1 ] && [ -f "$CLAIM" ] && [ -f "$RECORD" ] && [ "$(field "$CLAIM" Owner)" = "$AGENT" ] &&
+     [ "$(field "$CLAIM" Branch)" = "$BRANCH" ]; then
+    put "$RECORD" Worktree "$WORKTREE"; put "$CLAIM" Worktree "$WORKTREE"
+    WL=$(field "$RECORD" Worklog); STATE=$(field "$RECORD" State)
+    refresh_lease; event "claim resumed in a new worktree"
+    return 0
+  fi
   check_collisions; STATE=CLAIMED; UNTIL=$((NOW + LEASE))
   WL="worklog/WL-$NOW-$AGENT-$ID-$(basename "$TXROOT").md"
   task_base=$CLAIM_BASE

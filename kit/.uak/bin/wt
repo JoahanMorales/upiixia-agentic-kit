@@ -304,10 +304,16 @@ for f in .env web/.env app/.env; do
   if wt_windows; then cp "$root/$f" "$path/$f" 2>/dev/null; else ln -s "$root/$f" "$path/$f" 2>/dev/null; fi
 done
 
+# A claim that already belongs to this identity (handover, another machine) is resumed, not refused.
+resumed=no
+if git -C "$root" fetch -q "$REMOTE" "+refs/heads/claims:refs/uak/wt-resume-$$" 2>/dev/null; then
+  [ "$(git -C "$root" cat-file -p "refs/uak/wt-resume-$$:claims/$id.md" 2>/dev/null | sed -n 's/^Owner: //p' | tr -d '\r')" != "$agent" ] || resumed=yes
+  git -C "$root" update-ref -d "refs/uak/wt-resume-$$" 2>/dev/null
+fi
 set -- claim "$id" --branch "$branch" --worktree "$path"
 [ -z "$next_text" ] || set -- "$@" --next "$next_text"
 code=0
-(cd "$path" && bash .uak/bin/uak "$@") || code=$?
+(cd "$path" && UAK_WT_RESUME=$([ "$resumed" = yes ] && echo 1 || echo 0) bash .uak/bin/uak "$@") || code=$?
 if [ "$code" -ne 0 ]; then
   # Undo only what this command created and that has no own commits yet.
   if [ -z "$(git -C "$root" rev-list "$start..$branch" 2>/dev/null)" ]; then
@@ -318,6 +324,7 @@ if [ "$code" -ne 0 ]; then
   exit "$code"
 fi
 (cd "$path" && bash .uak/bin/uak inbox --task "$id" 2>/dev/null | tail -n 20)
+[ "$resumed" != yes ] || say "wt: resumed the claim of $agent on $id (it was already yours: branch $branch, new worktree)."
 say "WT_READY: $id · branch $branch · worktree $path"
 say "Next: cd \"$path\" and open your agent there (claude / codex / cursor)."
 # Codex's sandbox writes only inside the worktree; git and uak also write the shared .git (index, refs, uak-out).
