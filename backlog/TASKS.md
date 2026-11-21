@@ -1316,3 +1316,15 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Acceptance:**
   - find_merge_commit compares trees from one git log, not one process per commit (2000 commits with a stale tip: 1995 git calls, 45 s)
 - **Verify:** `python3 kit/.uak/tests/test_merge_commit_field.py`
+
+## UAK-141 · A seventh Windows shard: the longest took 23m55s of a 25 min bound; the lint also flags a bare push: with no branches filter (follow-up of UAK-128)
+
+- **Type:** follow-up
+- **Priority:** P1
+- **Depends on:** UAK-128
+- **Follow-up of:** UAK-128
+- **Paths:** .github/workflows/test.yml, scripts/kit_lint.py, kit/.uak/tests/test_ci_shards.py
+- **Freeze-Allowed:** no
+- **Acceptance:**
+  - A seventh Windows shard: the longest took 23m55s of a 25 min bound; the lint also flags a bare push: with no branches filter
+- **Verify:** `python3 kit/.uak/tests/test_ci_shards.py`
