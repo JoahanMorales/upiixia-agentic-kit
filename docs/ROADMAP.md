@@ -2,10 +2,13 @@
 
 ## Now: v6.6 → v7.0 (from the audit of Nov 2026, `docs/audit-2026-11.md`)
 
-**v6.6 · The defects the audit found.** One live task per identity holds for heartbeat, log and checkpoint; the MCP
+**v6.6 · The defects the audit found (shipped 2026-11-21).** One live task per identity holds for heartbeat, log and checkpoint; the MCP
 `uak_cli` cannot run a passed command unseen; the guard treats substitutions inside quotes as code, sees `gh … merge`
 with flags and refuses a plain push to claims; the merge lock's renewer dies with its parent; an unapproved task cannot be
 recorded INTEGRATED by its owner; temp files and Python subprocesses get names and timeouts.
+
+Left from v6.6: a pre-push hook that reads the real ref (the guard only reads text), `guard` reading `Mode`
+case-insensitively, the P2 items of the audit (#9 other Python helpers, #11 identities).
 
 **v6.7 · Everything measurable.** A ledger of every command (name, outcome, milliseconds) published with the black box;
 `uak metrics`: calls and error rate per command, time per step, review rejections, rework after a reject, reverts and

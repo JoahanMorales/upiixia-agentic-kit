@@ -405,6 +405,12 @@ that is already on main and names what was not reviewed, a design critique survi
 box is published even without harness hooks, and a guessed spelling (`review --approve`, `uak decisions`) gets the right
 one back.
 
+**v6.6: the defects the audit found.** A read-only audit of the engine (`docs/audit-2026-11.md`) measured what the kit
+costs and found where an agent could break the protocol. Fixed: one live task per identity for every command that
+renews a lease, a guard that checks substitutions inside quotes and blocks `gh … merge` with flags and plain pushes to
+claims, an MCP tool that cannot run a command unseen, a merge lock that dies with its merge, and an integrate outside
+the gate that says whether anyone reviewed it (marathon asks a human).
+
 ## Deploy in one command: `uak deploy`
 
 ```text

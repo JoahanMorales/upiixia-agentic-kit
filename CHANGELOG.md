@@ -1,5 +1,36 @@
 # Changelog
 
+## v6.6.0 · 2026-11-21 · The defects the audit found
+
+A read-only audit of the engine at v6.5.0 (`docs/audit-2026-11.md`) found eleven defects; the seven that could let an
+agent break a rule of the protocol are fixed here. Six tasks (UAK-110 … UAK-115), each test-first and reviewed by an
+agent that was not its author. The reviews earned their cost: two tasks were rejected with a reproduction (a resume path
+that renewed a second task; an approval of an older commit counted as a review of what landed) and the guard went back
+once because it asked a human about commands agents run all day.
+
+Fixed
+- **One identity, one live task, for every command that renews a lease** (UAK-110): after its claim on X expires and it
+  claims Y, an identity can no longer renew X with `heartbeat`, `log`, `checkpoint`, `handoff` or a `wt new` resume. A
+  claim with a damaged `Lease-Until` counts as live, and `tick` reports it. First found by a TLA+ model of the claims
+  protocol in a fork.
+- **The guard sees more of what runs** (UAK-111): a command substitution inside double quotes is checked (and the block
+  says to use single quotes or a quoted heredoc for prose); `gh … merge` is blocked with flags between the words; a plain
+  `git push` to the claims branch is blocked; a push whose ref is a variable asks. Everyday forms stay quiet: the
+  current-branch idioms, `gh pr view $PR --json mergeable`, `git -C "$WT" push`, quoted heredoc bodies. Works on bash 3.2.
+- **The MCP `uak_cli` tool cannot run a passed command unseen** (UAK-112): the refusal looks past `--json`, covers `red`,
+  and its list is checked against `commands.tsv`.
+- **The merge lock's renewer stops when its merge dies** (UAK-113): a killed merge no longer leaves the queue locked.
+- **An integrate outside the gate says whether anyone reviewed it** (UAK-114): an approval counts only when it covers
+  the branch tip. Otherwise sprint records `Unreviewed: yes` and warns; marathon needs a human with `--reason`. `Mode`
+  is read from the remote base, trimmed and case-insensitive. `uak stats` counts the unreviewed ones.
+- **Temp files and timeouts** (UAK-115): `wt`, `doctor` and `bb export` use `mktemp` and clean up; `uak dash` gives up
+  on an unreachable remote after 30 s.
+
+Known limits, kept on the roadmap: the guard reads text, so a script written to a file and then run, or a ref built by
+an arbitrary command, is not seen (a pre-push hook that reads the real ref is planned); identities are self-declared.
+
+Design prior: unchanged (1 profile, 2 projects, 6 rounds, 12 picks).
+
 ## v6.5.0 · 2026-11-20 · What the black boxes said in November
 
 A harvest of the black boxes of the 14 repos that use the kit (1,409 events; `docs/blackbox/harvest-2026-11.md`): UpiixSol
