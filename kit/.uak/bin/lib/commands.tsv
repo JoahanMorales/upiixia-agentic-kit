@@ -47,6 +47,7 @@ board	exec	-	board	uak_cli	board [--md] [--watch S]   team kanban from the claim
 dash	exec	-	dash	uak_cli	dash [--watch [S]] [--open]   the whole team on one local page: progress %, agents, conversation, reviews, black box
 stats	exec	-	stats	uak_cli	stats   retro numbers: messages, reviews, recoveries, queue
 metrics	exec	-	metrics	uak_cli	metrics [--since DAYS] [--task ID] [--json]   every speed number next to its instability: throughput vs reopened, per-command errors and ms, human steps, work outside the kit
+timeline	exec	-	timeline	uak_cli	timeline ID [--json]   one task's whole story: every move in order with who, model, gap and reason, and the totals
 up	exec	-	up	shell	up N [--tool CMD] [--tmux]   claim the N best tasks into worktrees and launch agents
 demo	exec	-	demo	uak_cli	demo [--keep]   30-second real 3-agent run in a temp repo
 integrate	tx	integrate_mutate	done.sh	uak_cli	integrate ID   any agent records a task whose approved SHA is already in main (owner offline)

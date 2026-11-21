@@ -268,6 +268,97 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
 #tip { position: fixed; left: 0; top: 0; z-index: 40; pointer-events: none; background: var(--ink); color: var(--page); font-size: 12px; padding: 6px 9px; border-radius: 7px; max-width: 280px; opacity: 0; transition: opacity .12s; }
 #tip.on { opacity: 1; }
 
+/* A task's story (UAK-120): a drawer over the board, opened by a card. The board behind never moves: the dialog is out
+   of flow and the page scrollbar stays. Each kind of move has a color, a glyph and a word, so color is never alone. */
+.card[data-story], .row[data-story] { cursor: pointer; }
+.card[data-story]:focus-visible, .row[data-story]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+dialog#story { position: fixed; inset: 0 0 0 auto; margin: 0; padding: 0; border: 0; border-left: 1px solid var(--line-2); width: min(780px, 100vw); height: 100vh; height: 100dvh; max-width: none; max-height: none; background: var(--page); color: var(--ink); box-shadow: -18px 0 50px -20px rgba(0, 0, 0, .45); overflow: hidden; }
+dialog#story::backdrop { background: rgba(20, 20, 19, .42); }
+.st { display: flex; flex-direction: column; height: 100%; min-width: 0; }
+.st-h { padding: 16px 22px 14px; border-bottom: 1px solid var(--line); background: var(--surface); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 14px; align-items: start; }
+.st-h .ids { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.st-h .ids .mono { font-weight: 700; font-size: 13.5px; }
+.st-h h2 { grid-column: 1; margin: 2px 0 0; font-size: 17px; font-weight: 650; letter-spacing: -.012em; line-height: 1.32; text-wrap: pretty; overflow-wrap: anywhere; }
+.st-x { grid-column: 2; grid-row: 1; width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--line); background: var(--raised); cursor: pointer; display: grid; place-items: center; color: var(--ink-2); }
+.st-x:hover { background: var(--hover); color: var(--ink); }
+.st-x svg { width: 14px; height: 14px; }
+.st-sum { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.st-sum b { color: var(--ink); font-weight: 600; }
+.st-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 18px 22px 40px; }
+.st-sec { margin: 0 0 22px; }
+.st-sec > h3 { margin: 0 0 9px; font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.sbar { display: flex; gap: 2px; height: 14px; }
+.sbar span { display: block; height: 100%; min-width: 4px; border-radius: 3px; background: var(--c); }
+.slegend { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 5px 18px; margin-top: 11px; font-size: 12.5px; color: var(--ink-2); }
+.slegend .it { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.slegend .sw { background: var(--c); align-self: center; }
+.slegend .nm { overflow-wrap: anywhere; min-width: 0; }
+.slegend b { margin-left: auto; color: var(--ink); font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.crewrow { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.pcard { display: flex; gap: 9px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); min-width: 0; }
+.pcard .nm { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.pcard .md { font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.pcard .md i { color: var(--muted); }
+.pcard .rl { font-size: 11.5px; color: var(--muted); }
+.tl { position: relative; margin: 0; padding: 0; list-style: none; }
+.tl::before { content: ""; position: absolute; left: 121px; top: 6px; bottom: 6px; width: 2px; background: var(--line-2); border-radius: 2px; }
+.tl li { position: relative; display: grid; grid-template-columns: 98px 46px minmax(0, 1fr); column-gap: 0; padding: 0 0 15px; }
+.tl .when { text-align: right; padding-right: 12px; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; line-height: 22px; }
+.tl .when small { display: block; color: var(--muted); font-size: 11px; line-height: 1.25; }
+.tl .when .gap { display: inline-block; white-space: nowrap; margin-top: 2px; padding: 0 5px; border-radius: 5px; background: var(--hover); font-size: 11px; line-height: 17px; color: var(--ink-2); }
+.tl .when .gap.long { background: var(--warn-wash); color: var(--warn-ink); font-weight: 600; }
+.tl .node { position: relative; z-index: 1; justify-self: center; width: 22px; height: 22px; border-radius: 50%; background: var(--c); color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 800; line-height: 1; box-shadow: 0 0 0 4px var(--page); }
+.tl .body { min-width: 0; padding-top: 1px; }
+.tl .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.tl .kd { font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--c); }
+.tl .tx { font-weight: 600; font-size: 13.5px; overflow-wrap: anywhere; min-width: 0; }
+.tl .by { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 7px; margin-top: 3px; font-size: 12px; color: var(--ink-2); }
+.tl .by i { color: var(--muted); }
+.tl .by .sep { color: var(--line-2); }
+.tl .dt { margin: 7px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); font-size: 12.5px; line-height: 1.5; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; }
+.tl .dt.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.tl .more { all: unset; cursor: pointer; font-size: 12px; color: var(--accent-ink); margin-top: 3px; border-radius: 4px; }
+.tl .more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tl .more:hover { text-decoration: underline; }
+.tl li.quiet .node { width: 10px; height: 10px; font-size: 0; box-shadow: 0 0 0 4px var(--page); }
+.tl li.quiet { padding-bottom: 9px; }
+.tl li.quiet .tx { font-weight: 500; font-size: 12.5px; color: var(--ink-2); }
+.tl li.quiet .when { line-height: 12px; }
+.tl li.quiet .kd { display: none; }
+.tl li.alert .dt, .tl li.hum .dt { color: var(--ink); font-size: 13px; border-width: 1px; }
+.tl li.alert .dt { background: var(--crit-wash); border-color: color-mix(in srgb, var(--blocked) 45%, transparent); }
+.tl li.alert .dt::before { content: "Reason  "; font-weight: 700; color: var(--crit-ink); }
+.tl li.alert .tx { color: var(--crit-ink); font-size: 14.5px; }
+.tl li.hum .dt { background: color-mix(in srgb, var(--orange) 12%, var(--surface)); border-color: color-mix(in srgb, var(--orange) 45%, transparent); }
+.tl li.hum .dt::before { content: "Why a human  "; font-weight: 700; color: var(--orange); }
+.tl li.alert .node, .tl li.hum .node { width: 26px; height: 26px; font-size: 14px; }
+.tl li.alert, .tl li.hum { grid-template-columns: 98px 46px minmax(0, 1fr); }
+.tl .day { display: grid; grid-template-columns: 98px 46px minmax(0, 1fr); margin: 0 0 11px; font-size: 11.5px; font-weight: 650; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+.tl .day span { grid-column: 3; }
+.tl .day { position: relative; z-index: 1; }
+.st-ft { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px 22px; font-size: 12.5px; color: var(--ink-2); }
+.st-ft b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 2px; }
+.st-ft div { overflow-wrap: anywhere; min-width: 0; }
+.st-note { padding: 18px; border: 1px dashed var(--line-2); border-radius: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.st-note .mono { background: var(--hover); padding: 1px 5px; border-radius: 4px; }
+@media (max-width: 640px) {
+  dialog#story { width: 100vw; border-left: 0; }
+  .st-h { padding: 14px 16px 12px; } .st-body { padding: 16px 16px 40px; }
+  .tl::before { left: 11px; }
+  .tl li, .tl li.alert, .tl li.hum, .tl .day { grid-template-columns: 22px minmax(0, 1fr); column-gap: 11px; }
+  .tl .day span { grid-column: 2; }
+  .tl .node { grid-column: 1; grid-row: 1; }
+  .tl .body { grid-column: 2; grid-row: 1; }
+  .tl .when { grid-column: 2; grid-row: 1; text-align: left; padding: 0; line-height: 1.3; order: -1; display: none; }
+  .tl .body .tm { display: flex !important; }
+  .tl li.quiet { grid-template-columns: 22px minmax(0, 1fr); }
+  .tl li.quiet .node { justify-self: center; }
+  .slegend, .crewrow { grid-template-columns: 1fr; }
+}
+.tl .body .tm { display: none; flex-wrap: wrap; gap: 0 8px; align-items: center; font-size: 11.5px; color: var(--muted); margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+.tl .body .tm .gap { padding: 0 5px; border-radius: 5px; background: var(--hover); color: var(--ink-2); line-height: 17px; }
+.tl .body .tm .gap.long { background: var(--warn-wash); color: var(--warn-ink); font-weight: 600; }
+
 @media (max-width: 1000px) { .overview { grid-template-columns: 1fr; } }
 @media (max-width: 760px) {
   .top-in, main { padding-left: 16px; padding-right: 16px; }
@@ -305,6 +396,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
   <nav class="tabs" id="tabs" aria-label="Views"></nav>
   <section id="view" tabindex="-1"></section>
 </main>
+<dialog id="story" aria-labelledby="story-title"></dialog>
 <div id="tip" role="tooltip"></div>
 <script src="data.js"></script>
 <script>
@@ -401,6 +493,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     header(d); overview(d); attention(d); tabs(d);
     var v = document.getElementById("view"); v.innerHTML = "";
     ({ board: board, agents: agents, talk: talk, bb: blackbox, memory: memory, tokens: tokens })[ui.tab](v, d);
+    if (storyId) fillStory(true);
     if (caret >= 0) { var q = document.getElementById("q"); if (q) { q.focus(); q.setSelectionRange(caret, caret); } }
   }
 
@@ -551,7 +644,7 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
   }
   function card(t, s) {
     var prog = t.progress ? t.progress.replace(/ · at \d+$/, "") : "", sub = s === "REVIEW" ? t.sub : null, gen = D.generated;
-    return h("article", { "class": "card" + (sub && sub.late ? " late" : "") }, [
+    return storyable(h("article", { "class": "card" + (sub && sub.late ? " late" : "") }, [
       h("div", { "class": "card-h" }, [tid(t.id), t.priority ? h("span", { "class": "tag" + (t.priority === "P0" ? " info" : ""), text: t.priority }) : null,
         t.stalled ? h("span", { "class": "tag crit", text: "stalled " + t.stalled + " min" }) : null, t.away ? h("span", { "class": "tag", text: "owner away" }) : null,
         sub && sub.rounds ? h("span", { "class": "tag round", title: sub.rounds + " review verdict(s) on this task", text: "round " + (sub.kind === "rereview" ? sub.rounds + 1 : sub.rounds) }) : null,
@@ -561,13 +654,13 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
         h("span", { "class": "for", text: span(gen - sub.since) + " here" + (sub.late ? " \u00B7 over the review lease" : "") })]) : null,
       h("div", { "class": "card-f" }, [t.owner && s !== "AVAILABLE" ? who(t.owner) : h("span", { "class": "muted", text: t.depends && t.depends !== "None" ? "after " + t.depends : "free to claim" }), s !== "AVAILABLE" ? prLink(t) : null]),
       prog && s !== "INTEGRATED" ? h("div", { "class": "prog", text: prog, title: prog }) : null,
-      sub ? crew(t) : null]);
+      sub ? crew(t) : null]), t.id);
   }
   function doneRows(list) {
     var sorted = list.slice().sort(function (a, b) { return (b.updated || 0) - (a.updated || 0) || (a.id < b.id ? 1 : -1); }), cut = ui.allDone ? sorted.length : 12;
     var box = h("div", { "class": "rows" });
     sorted.slice(0, cut).forEach(function (t) {
-      box.appendChild(h("div", { "class": "row" }, [tid(t.id), h("span", { "class": "t", text: t.title || t.paths, title: t.title }), t.owner ? avatar(t.owner, 18) : h("span")]));
+      box.appendChild(storyable(h("div", { "class": "row" }, [tid(t.id), h("span", { "class": "t", text: t.title || t.paths, title: t.title }), t.owner ? avatar(t.owner, 18) : h("span")]), t.id));
     });
     if (sorted.length > 12) box.appendChild(h("button", { "class": "more", text: ui.allDone ? "Show the latest 12" : "Show all " + sorted.length, on: function () { ui.allDone = !ui.allDone; render(); } }));
     return box;
@@ -771,6 +864,107 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
       g.appendChild(h("div", { "class": "panel box" }, [h("div", { "class": "sec-h" }, [h("h2", { text: x[0] })]), hbars(x[1], M, x[2])]));
     });
     v.appendChild(g);
+  }
+
+  // A task's story (UAK-120): d.timelines[ID] is the compact copy of `uak timeline ID` (lib/dash.py compact_timeline), so
+  // the page needs nothing but data.js. Open tasks and the last closed ones are embedded; for the rest it names the command.
+  var SK = { plan: ["var(--muted)", "P", "planned"], amend: ["var(--violet)", "~", "amended"], decision: ["var(--muted)", "D", "decision"], claim: ["var(--claimed)", "▶", "claimed"],
+    takeover: ["var(--orange)", "⇄", "takeover"], checkpoint: ["var(--muted)", "", "checkpoint"], lease: ["var(--muted)", "", "lease"], red: ["var(--violet)", "R", "red test"],
+    done: ["var(--review)", "↑", "done"], tip: ["var(--review)", "↻", "new tip"], approve: ["var(--integrated)", "✓", "approved"], reject: ["var(--blocked)", "✕", "rejected"],
+    ci: ["var(--critical)", "!", "CI failed"], human: ["var(--orange)", "☺", "human step"], merge: ["var(--integrated)", "⬢", "merged"], integrate: ["var(--integrated)", "★", "integrated"],
+    handover: ["var(--violet)", "↪", "handover"], expired: ["var(--warning)", "⧖", "lease expired"], release: ["var(--muted)", "∅", "released"], note: ["var(--muted)", "", "note"] };
+  var SUBC = function (st, sub) { var x = (sub || st).toLowerCase();
+    if (st === "CLAIMED") return "var(--claimed)"; if (st === "AVAILABLE") return "var(--available)"; if (st === "BLOCKED") return "var(--blocked)";
+    if (x.indexOf("changes requested") === 0) return "var(--claimed)"; if (x.indexOf("re-review") === 0) return "var(--violet)"; if (x.indexOf("human") > -1) return "var(--orange)";
+    if (x.indexOf("ci failed") > -1) return "var(--critical)"; if (x.indexOf("approved") === 0) return "var(--integrated)"; return "var(--review)"; };
+  var storyEl = document.getElementById("story"), storyId = "", lastFocus = null;
+  function clock(t) { return new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }); }
+  function dayKey(t) { return new Date(t * 1000).toDateString(); }
+  function dayLabel(t) { return new Date(t * 1000).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" }); }
+  function gapEl(g, cls) { return g ? h("span", { "class": "gap" + (g > 3600 ? " long" : ""), text: "+" + span(g), title: "since the previous move" }) : null; }
+  function whoModel(a, model, harness) {
+    return [a === "-" ? h("span", { "class": "muted", text: "no agent" }) : who(a, 16), h("span", { "class": "sep", text: "·" }),
+      model === "unknown" ? h("i", { text: "model unknown", title: "recorded before the model was kept, or by a harness that does not say" }) : h("span", { "class": "mono", text: model }),
+      h("span", { "class": "sep", text: "·" }), harness === "unknown" ? h("i", { text: "harness unknown" }) : h("span", { text: harness })];
+  }
+  function lineEl(l, prev, i) {
+    var k = l[1], sk = SK[k] || SK.note, quiet = k === "checkpoint" || k === "lease" || k === "note" && !l[6], gap = prev ? l[0] - prev[0] : 0;
+    var cls = quiet ? "quiet" : k === "reject" ? "alert" : (k === "human" || k === "takeover") ? "hum" : "";
+    var det = l[6], long = det && det.length > 260 && cls === "" , open = ui.open["st" + storyId + i];
+    var li = h("li", { "class": cls, style: "--c:" + sk[0] }, [
+      h("div", { "class": "when" }, [clock(l[0]), h("small", { text: "" }), gap ? gapEl(gap) : null]),
+      h("span", { "class": "node", text: sk[1], "aria-hidden": "true" }),
+      h("div", { "class": "body" }, [
+        h("div", { "class": "tm" }, [clock(l[0]), gap ? gapEl(gap) : null]),
+        h("div", { "class": "head" }, [h("span", { "class": "kd", text: sk[2] }), h("span", { "class": "tx", text: l[5], title: l[8] || null })]),
+        quiet && l[2] === "-" ? null : h("div", { "class": "by" }, whoModel(l[2], l[3], l[4])),
+        det ? h("div", { "class": "dt" + (long && !open ? " clamp" : ""), text: det }) : null,
+        long ? h("button", { "class": "more", text: open ? "Show less" : "Show all", on: function () { ui.open["st" + storyId + i] = !open; fillStory(true); } }) : null])]);
+    return li;
+  }
+  function fillStory(keep) {
+    var tl = (D.timelines || {})[storyId], t = D.tasks.filter(function (x) { return x.id === storyId; })[0] || { id: storyId, title: "", state: "" };
+    var old = storyEl.querySelector(".st-body"), top = old ? old.scrollTop : 0;
+    var title = h("h2", { id: "story-title", text: t.title || t.paths || storyId });
+    var close = h("button", { "class": "st-x", "aria-label": "Close the story", title: "Close (Escape)", on: function () { closeStory(); } }, [icon('<path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/>')]);
+    var sum = h("div", { "class": "st-sum" }, []);
+    var body = h("div", { "class": "st-body" }, []);
+    if (!tl) {
+      body.appendChild(h("div", { "class": "st-note" }, ["The story of " + storyId + " is not embedded in this page: it keeps every open task and the last " + ((D.timeline_bound || {}).closed_kept || 15) + " closed ones, so data.js stays small. Run ", h("span", { "class": "mono", text: "bash .uak/bin/uak timeline " + storyId }), " for the whole story."]));
+    } else if (!tl.lines.length) {
+      body.appendChild(h("div", { "class": "st-note", text: "No history yet: " + storyId + " has no plan line, claim or move on the claims branch." }));
+    } else {
+      sum.appendChild(h("span", {}, ["Owner ", h("b", { text: t.owner || "–" })]));
+      sum.appendChild(h("span", {}, ["Rounds ", h("b", { text: String(tl.rounds) }), tl.rejects ? h("b", { style: "color:var(--crit-ink)", text: " · " + tl.rejects + (tl.rejects === 1 ? " reject" : " rejects") }) : null]));
+      sum.appendChild(h("span", {}, ["Moves ", h("b", { text: String(tl.lines.length) })]));
+      var total = tl.states.reduce(function (a, x) { return a + x[2]; }, 0);
+      if (total) {
+        var bar = h("div", { "class": "sbar", role: "img", "aria-label": "Time in each state: " + tl.states.map(function (x) { return (x[1] || LABEL[x[0]] || x[0]) + " " + span(x[2]); }).join(", ") }, []);
+        var leg = h("div", { "class": "slegend" }, []);
+        tl.states.forEach(function (x) {
+          var c = SUBC(x[0], x[1]), nm = x[1] ? (x[0] === "REVIEW" ? "Review: " : "") + x[1] : (LABEL[x[0]] || x[0]);
+          bar.appendChild(h("span", { style: "--c:" + c + ";flex:" + x[2] + " 1 0", tip: nm + " · " + span(x[2]) }));
+          leg.appendChild(h("div", { "class": "it", style: "--c:" + c }, [h("span", { "class": "sw" }), h("span", { "class": "nm", text: nm }), h("b", { text: span(x[2]) })]));
+        });
+        body.appendChild(h("section", { "class": "st-sec" }, [h("h3", { text: "Time in each state" + (tl.open ? " (the open one counts to now)" : "") }), bar, leg]));
+      }
+      body.appendChild(h("section", { "class": "st-sec" }, [h("h3", { text: "Who took part" }), h("div", { "class": "crewrow" }, tl.agents.map(function (a) {
+        return h("div", { "class": "pcard" }, [avatar(a[0], 26), h("div", { style: "min-width:0" }, [h("div", { "class": "nm", text: a[0] }),
+          h("div", { "class": "md" }, a[1] === "unknown" ? [h("i", { text: "model unknown" }), " · " + (a[2] === "unknown" ? "harness unknown" : a[2])] : [a[1] + " · " + (a[2] === "unknown" ? "harness unknown" : a[2])]),
+          h("div", { "class": "rl", text: a[3] + (a[3] === 1 ? " move: " : " moves: ") + a[4].join(", ") })])]);
+      }))]));
+      var ol = h("ol", { "class": "tl" }, []), prev = null, lastDay = "";
+      tl.lines.forEach(function (l, i) {
+        if (dayKey(l[0]) !== lastDay) { lastDay = dayKey(l[0]); ol.appendChild(h("li", { "class": "day", style: "padding:0" }, [h("span", { text: dayLabel(l[0]) })])); }
+        ol.appendChild(lineEl(l, prev, i)); prev = l;
+      });
+      body.appendChild(h("section", { "class": "st-sec" }, [h("h3", { text: "Every move, in order" }), ol]));
+      var ft = [h("div", {}, [h("b", { text: "Commands" }), tl.commands.length ? tl.commands.map(function (c) { return c[0] + " " + c[1] + (c[2] ? " (" + c[2] + " failed)" : ""); }).join(" · ") : "none in the ledger"]),
+        h("div", {}, [h("b", { text: "Errors" }), tl.errors ? tl.errors + " in the ledger" : "none"]),
+        h("div", {}, [h("b", { text: "Tokens" }), tl.tokens === null || tl.tokens === undefined ? "not published" : tl.tokens.toLocaleString()]),
+        h("div", {}, [h("b", { text: "Reviews file history" }), tl.history])];
+      body.appendChild(h("section", { "class": "st-sec" }, [h("h3", { text: "Totals" }), h("div", { "class": "st-ft" }, ft)]));
+    }
+    var hd = h("div", { "class": "st-h" }, [h("div", { "class": "ids" }, [h("span", { "class": "mono", text: storyId }), t.state ? h("span", { "class": "tag", style: "color:var(--ink)", text: LABEL[t.state] || t.state }) : null,
+      t.priority ? h("span", { "class": "tag", text: t.priority }) : null]), close, title, sum]);
+    storyEl.innerHTML = ""; storyEl.appendChild(h("div", { "class": "st" }, [hd, body]));
+    if (keep) body.scrollTop = top;
+  }
+  function openStory(id) {
+    storyId = id; lastFocus = document.activeElement; fillStory(false);
+    if (!storyEl.open) { if (storyEl.showModal) storyEl.showModal(); else storyEl.setAttribute("open", ""); }
+    var x = storyEl.querySelector(".st-x"); if (x) x.focus();
+  }
+  function closeStory() { storyId = ""; if (storyEl.close) storyEl.close(); else storyEl.removeAttribute("open"); if (lastFocus && lastFocus.focus) { try { lastFocus.focus({ preventScroll: true }); } catch (e) {} } }
+  storyEl.addEventListener("click", function (e) { if (e.target === storyEl) closeStory(); });   // a click on the backdrop
+  storyEl.addEventListener("cancel", function (e) { e.preventDefault(); closeStory(); });         // Escape
+  storyEl.addEventListener("close", function () { storyId = ""; });
+  function storyable(el, id) {
+    el.setAttribute("data-story", id); el.setAttribute("tabindex", "0"); el.setAttribute("aria-haspopup", "dialog");
+    el.setAttribute("aria-label", id + ": open its story, every move in order");
+    el.addEventListener("click", function (e) { if (e.target.closest && e.target.closest("a, button, summary, details")) return; openStory(id); });
+    el.addEventListener("keydown", function (e) { if (e.target === el && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openStory(id); } });
+    return el;
   }
 
   // One tooltip for every [data-tip]: bar segments, columns, identicons.

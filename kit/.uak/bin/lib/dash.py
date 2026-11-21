@@ -65,7 +65,7 @@ def num(v, default=0):
 
 def read(p):
     try:
-        return Path(p).read_text(encoding="utf-8", errors="replace")
+        return Path(p).read_text(encoding="utf-8", errors="replace").replace("\r", "")
     except OSError:
         return ""
 
@@ -210,7 +210,7 @@ def harnesses(c, tid):
     return out
 
 
-def build(c, backlog_text, repo):
+def build(c, backlog_text, repo, root=None):
     now = int(time.time()) if not os.environ.get("UAK_NOW") else int(os.environ["UAK_NOW"])
     cfg = fields(read(c / "meta/config.md"))
     presence = num(cfg.get("Presence-Seconds"), PRESENCE)
@@ -372,10 +372,397 @@ def build(c, backlog_text, repo):
                 "total": len(live), "states": states,
                 "outside": sum(1 for t in live if t["state"] == "INTEGRATED" and t.get("outside"))}
     freeze = num(cfg.get("Freeze-Epoch"))
+    # The stories: every task that is not closed, plus the last TL_EMBED_INTEGRATED closed ones (by last move), compact.
+    # Why bounded: a busy repo has 100+ tasks and data.js is re-read every refresh; older stories stay in `uak timeline ID`.
+    ctx = tl_ctx(c, msgs, None)
+    recs = {}
+    for f in (c / "tasks").glob("*.md"):
+        r = fields(read(f))
+        recs[r.get("ID", f.stem)] = r
+    closed = sorted((t for t in tasks.values() if t["state"] in ("INTEGRATED", "CANCELLED") and t["id"] in recs),
+                    key=lambda t: -(t.get("updated") or 0))
+    keep = [t["id"] for t in tasks.values() if t["state"] not in ("INTEGRATED", "CANCELLED")] + [t["id"] for t in closed[:TL_EMBED_INTEGRATED]]
+    cache, timelines = {}, {}
+    for tid in keep:
+        timelines[tid] = compact_timeline(timeline(ctx, tid, recs.get(tid, {"State": tasks[tid]["state"], "Owner": tasks[tid].get("owner", "")}), now, root, cache))
     return {"repo": repo, "generated": now, "mode": cfg.get("Mode", ""), "freeze": freeze, "progress": progress,
             "tasks": sorted(tasks.values(), key=lambda t: t["id"]), "agents": agents, "messages": msgs[-600:],
             "reviews": reviews, "locks": locks, "queue": queue, "offers": offers, "blackbox": bb[-400:], "usage": usage,
-            "decisions": decisions[-60:], "lessons": lessons[-60:], "tokens": tokens}
+            "decisions": decisions[-60:], "lessons": lessons[-60:], "tokens": tokens,
+            "timelines": timelines, "timeline_bound": {"embedded": len(timelines), "tasks": len(tasks), "closed_kept": TL_EMBED_INTEGRATED}}
+
+
+# ---- A task's whole story (UAK-120): `uak timeline ID` and the dashboard's card dialog share these functions. ----
+TL_EMBED_INTEGRATED = 15   # the page embeds the stories of every open task plus the last N closed ones (bounded data.js)
+
+
+def tl_history(text):
+    """The worklog's `## History` lines: '- epoch | STATE | actor | text [| Harness: h] [| Model: m]'. Harness and
+    model are 'unknown' for events written before UAK-118: never a guess."""
+    out, started = [], False
+    for line in text.replace("\r", "").split("\n"):
+        if line.startswith("## History"):
+            started = True
+            continue
+        if not started:
+            continue
+        m = re.match(r"^- (\d+) \| ([A-Z]+) \| ([^|]*?) \| (.*)$", line)
+        if not m:
+            continue
+        body, harness, model = m.group(4), "unknown", "unknown"
+        mm = re.search(r" \| Model: (\S.*)$", body)
+        if mm:
+            model, body = mm.group(1).strip(), body[:mm.start()]
+        mh = re.search(r" \| Harness: (\S.*)$", body)
+        if mh:
+            harness, body = mh.group(1).strip(), body[:mh.start()]
+        out.append({"epoch": int(m.group(1)), "state": m.group(2), "actor": m.group(3).strip(), "text": body.strip(),
+                    "harness": harness, "model": model})
+    return out
+
+
+def tl_ctx(c, msgs, decisions=None):
+    """Everything a story needs that is not per task, read once: worklog histories by task, messages, DECISIONS rows,
+    the ledger by task, tokens by task, the backlog's amendments."""
+    c = Path(c)
+    wl = {}
+    for f in sorted((c / "worklog").glob("*.md")):
+        text = read(f)
+        m = re.search(r"[·]\s*([A-Z][A-Z0-9]*-\d+)\s*$", text.replace("\r", "").split("\n", 1)[0])
+        if m:
+            wl.setdefault(m.group(1), []).extend(tl_history(text))
+    ledger = {}
+    for f in sorted((c / "metrics").glob("*.tsv")):
+        for line in read(f).replace("\r", "").split("\n"):
+            p = line.split("\t")
+            if len(p) >= 8 and not p[0].startswith("#") and p[2] not in ("", "-"):
+                ledger.setdefault(p[2], []).append({"epoch": num(p[0]), "cmd": p[1], "rc": p[3], "code": p[4], "agent": p[6]})
+    decs = []
+    for p in rows(read(c / "DECISIONS.md")):
+        if p and p[0].isdigit() and len(p) >= 4:
+            decs.append({"t": int(p[0]), "kind": p[1], "who": p[2], "text": " | ".join(p[3:])})
+    tokens = {}
+    for f in (c / "tokens").glob("*.md"):
+        for p in rows(read(f)):
+            if len(p) >= 9 and p[5].isdigit():
+                tokens[p[0]] = tokens.get(p[0], 0) + sum(num(x) for x in p[5:9])
+    return {"c": c, "wl": wl, "msgs": msgs, "decs": decs, "ledger": ledger, "tokens": tokens}
+
+
+def tl_files(root, old, new, cache):
+    """Files changed between two tips, when both commits are in the repository at hand; else None."""
+    key = (old, new)
+    if key in cache:
+        return cache[key]
+    out = None
+    if root and old and new:
+        try:
+            if all(run_git("cat-file", "-e", x + "^{commit}", cwd=root).returncode == 0 for x in (old, new)):
+                r = run_git("diff", "--name-only", old, new, cwd=root)
+                if r.returncode == 0:
+                    out = [x for x in r.stdout.decode("utf-8", "replace").splitlines() if x]
+        except RuntimeError:
+            out = None
+    cache[key] = out
+    return out
+
+
+def tl_reviews_history(root, tid):
+    """The review file is one per task, overwritten: earlier verdicts live in the claims branch history. Returns
+    (list of {verdict, sha, reviewer, at}, note); the note says when the history is not at hand."""
+    if not root:
+        return [], "unavailable: claims read from a directory, not from the claims branch"
+    ref = "refs/uak/dash-claims"
+    if run_git("rev-parse", "-q", "--verify", ref, cwd=root).returncode != 0:
+        return [], "unavailable: the claims branch is not fetched here"
+    r = run_git("log", "--format=%H", "-n", "40", ref, "--", "reviews/%s.md" % tid, cwd=root)
+    out = []
+    for h in r.stdout.decode("utf-8", "replace").split():
+        f = fields(run_git("show", "%s:reviews/%s.md" % (h, tid), cwd=root).stdout.decode("utf-8", "replace"))
+        if f.get("Verdict"):
+            out.append({"verdict": f["Verdict"], "sha": f.get("SHA", ""), "reviewer": f.get("Reviewer", ""), "at": num(f.get("Reviewed"))})
+    return out, "git log of reviews/%s.md on the claims branch: %d version%s" % (tid, len(out), "" if len(out) == 1 else "s")
+
+
+def timeline(ctx, tid, rec, now, root=None, cache=None, history_root=None):
+    """The story of one task: lines in order, each with its gap, agent, model and harness; totals from the same lines."""
+    cache = {} if cache is None else cache
+    c, hist = ctx["c"], sorted(ctx["wl"].get(tid, []), key=lambda e: e["epoch"])
+    sess = {h["agent"]: h for h in harnesses(c, tid)}
+    lines, seq = [], [0]
+
+    def add(epoch, kind, agent, text, detail="", model="unknown", harness="unknown", sha=""):
+        sx = sess.get(agent, {})
+        if model == "unknown":
+            model = sx.get("model", "unknown")
+        if harness == "unknown":
+            harness = sx.get("harness", "unknown")
+        seq[0] += 1
+        lines.append({"epoch": epoch, "kind": kind, "agent": agent or "-", "model": model, "harness": harness, "text": text,
+                      "detail": detail, "sha": sha, "_s": seq[0]})
+
+    # Planned and amended, by whom (DECISIONS).
+    for d in ctx["decs"]:
+        words = re.findall(r"[A-Z][A-Z0-9]*-\d+", d["text"])
+        if d["kind"] == "plan" and tid in words and "added" in d["text"][:20]:
+            add(d["t"], "plan", d["who"], "planned" + (" with %d other task%s" % (len(words) - 1, "" if len(words) == 2 else "s") if len(words) > 1 else ""))
+        elif d["kind"] == "plan --amend" and tid in words:
+            add(d["t"], "amend", d["who"], "plan amended", d["text"].split("amended:", 1)[-1].strip()[:600])
+        elif d["kind"] == tid:
+            add(d["t"], "decision", "-", "decision recorded", (d["who"] + (" | " + d["text"] if d["text"] else ""))[:600])
+        elif d["kind"] == "allow" and tid in words:
+            add(d["t"], "human", d["who"], "allowed by a human", d["text"][:600])
+    msgs = [m for m in ctx["msgs"] if m["task"] == tid or ("task:" + tid) in m["to"]]
+    used = set()
+    verdict_seen, last_reviewed_sha, rejected_before, prev_actor_claim, last_state, lease_end = [], "", 0, None, "", 0
+    rounds = rejects = 0
+    red_seen, handed_to = set(), ""
+    for e in hist:
+        t, st, who = e["text"], e["state"], e["actor"]
+        kw = dict(model=e["model"], harness=e["harness"])
+        if lease_end and e["epoch"] > lease_end and not t.startswith("heartbeat"):
+            add(lease_end, "expired", prev_actor_claim or "-", "lease expired: no heartbeat before the next move", "")
+        if not t.startswith("heartbeat"):
+            lease_end = 0
+        if t.startswith("claim"):
+            if prev_actor_claim and who != prev_actor_claim and last_state not in ("AVAILABLE", "CANCELLED", "INTEGRATED", "") and handed_to != who:
+                add(e["epoch"], "takeover", who, "took the task over from %s" % prev_actor_claim, **kw)
+            add(e["epoch"], "claim", who, "claimed" if not t.startswith("claim resumed") else "claim resumed in a new worktree",
+                t.split("next:", 1)[1].strip() if "next:" in t else "", **kw)
+            prev_actor_claim, handed_to = who, ""
+        elif t.startswith("checkpoint"):
+            add(e["epoch"], "checkpoint", who, "checkpoint", t.split("next:", 1)[1].strip() if "next:" in t else "", **kw)
+        elif t.startswith("heartbeat"):
+            mm = re.search(r"lease until (\d+)", t)
+            lease_end = int(mm.group(1)) if mm else 0
+            add(e["epoch"], "lease", who, "heartbeat, lease renewed" + (" until %s" % utc(lease_end) if lease_end else ""), **kw)
+        elif t.startswith("done;"):
+            ev = t.split("evidence: ", 1)[1] if "evidence: " in t else ""
+            pr = re.search(r"PR (\S+?)(?:;|$)", t)
+            ev = re.sub(r"; reviewer: .*$", "", ev)
+            main_ev = ev.split(" · red at ")[0]
+            for sha, why in re.findall(r"red at ([0-9a-f]{4,40}): (.*?)(?= · red at |$)", ev):
+                if sha in red_seen:
+                    continue   # the engine copies every earlier red into each resubmit's evidence: one red per SHA, when first seen
+                red_seen.add(sha)
+                add(e["epoch"], "red", who, "red recorded at %s" % sha[:7], why.strip(), **kw)
+            tip = ""
+            for m in msgs:
+                if m["kind"] == "review" and m["from"] == who and abs(m["t"] - e["epoch"]) <= 120 and id(m) not in used:
+                    mt = re.search(r"SHA ([0-9a-f]{40})", m["text"])
+                    if mt:
+                        tip = mt.group(1)
+                        used.add(id(m))
+                        break
+            add(e["epoch"], "done", who, "done, PR %s" % (pr.group(1) if pr else "-") + (" · tip %s" % tip[:7] if tip else ""),
+                main_ev, sha=tip, **kw)
+            if verdict_seen:
+                prior = verdict_seen[-1]
+                files = tl_files(root, last_reviewed_sha, tip, cache)
+                if not tip:
+                    fx = "the tip's SHA was not recorded"
+                elif files is None:
+                    fx = "files changed: not available here (the base repo lacks one of the commits)"
+                else:
+                    fx = "files changed (%d): %s" % (len(files), ", ".join(files[:12]) + (" …" if len(files) > 12 else ""))
+                add(e["epoch"], "tip", who, "new tip %s after %s by %s" % (tip[:7] or "?", "a reject" if prior[0] == "reject" else "an approval", prior[1]),
+                    fx, sha=tip, **kw)
+        elif t.startswith("review;"):
+            mm = re.match(r"review; (approve|reject)(?:; SHA ([0-9a-f]+))?(?:; reviewer (\S+))?", t)
+            if not mm:
+                add(e["epoch"], "note", who, t[:200], **kw)
+                continue
+            verdict, sha, rv = mm.group(1), mm.group(2) or "", mm.group(3) or who
+            reason = ""
+            for m in msgs:
+                if m["kind"] == verdict and m["from"] == who and abs(m["t"] - e["epoch"]) <= 120 and (not sha or sha[:7] in m["text"]):
+                    reason = re.sub(r"^(Rejected|Approved) SHA \S+ by \S+\s*(?:[·.]\s*)?", "", m["text"]).strip() if verdict == "reject" else ""
+                    break
+            if verdict == "reject" and not reason:
+                reason = "reason not recorded"
+            rounds += 1
+            rejects += verdict == "reject"
+            verdict_seen.append((verdict, rv))
+            last_reviewed_sha = sha
+            add(e["epoch"], verdict, rv, ("rejected" if verdict == "reject" else "approved") + (" %s" % sha[:7] if sha else "") + (" (round %d)" % rounds),
+                reason, sha=sha, **kw)
+        elif t.startswith("merge rechazado"):
+            add(e["epoch"], "human", who, "merge refused: a human has to merge", t.split(";", 1)[1].strip() if ";" in t else "", **kw)
+        elif t.startswith("merge;"):
+            add(e["epoch"], "merge", who, "merged by the gate", t.split(";", 1)[1].strip(), **kw)
+        elif t.startswith("integrate"):
+            unrev = "unreviewed" in t
+            add(e["epoch"], "integrate", who, "integrated" + (" · Unreviewed" if unrev else "") + (" · outside the gate" if "outside the gate" in t else ""),
+                t.split(";", 1)[1].strip(), **kw)
+        elif t.startswith("handover") or t.startswith("handoff"):
+            mh = re.search(r"\u2192 (\S+)", t)
+            handed_to = mh.group(1) if mh else ""
+            add(e["epoch"], "handover", who, t.split(";")[0] + (": " + t.split(";", 1)[1].strip() if ";" in t else ""), **kw)
+        elif t.startswith("release"):
+            add(e["epoch"], "release", who, "claim released" if st != "CANCELLED" else "cancelled", t.split(";", 1)[1].strip() if ";" in t else "", **kw)
+        else:
+            add(e["epoch"], "note", who, t[:200], **kw)
+        last_state = st
+    # CI results pr-sync told, and the human queue.
+    refused = [(l["epoch"], l["detail"]) for l in lines if l["kind"] == "human"]
+    for m in msgs:
+        if m["from"] == "github" and "CI failed: " in m["text"]:
+            names = []
+            for seg in m["text"].split("CI failed: ")[1:]:
+                n = seg.split(" https://")[0].split(" · ")[0]
+                if n not in names:
+                    names.append(n)
+            add(m["t"], "ci", "github", "CI failed: " + ", ".join(names), "told by pr-sync")
+        elif m["kind"] == "human" and not any(abs(m["t"] - ep) <= 900 for ep, _ in refused):
+            add(m["t"], "human", m["from"], "in the human queue", re.sub(r"^Merge of \S+ in human queue:\s*", "", m["text"]))
+    q = fields(read(c / "queue" / (tid + ".md")))
+    if q.get("State") == "HUMAN" and q.get("Reason") and not any(l["kind"] == "human" and q["Reason"][:40] in l["detail"] for l in lines):
+        add(num(q.get("Updated")), "human", q.get("Owner", "-"), "in the human queue", q["Reason"])
+    lease = num(rec.get("Lease-Until"))
+    state = rec.get("State", "")
+    if state == "CLAIMED" and lease and lease < now:
+        add(lease, "expired", rec.get("Owner", "-"), "lease expired and nobody has renewed it")
+    lines.sort(key=lambda l: (l["epoch"], l["_s"]))
+    prev = None
+    for l in lines:
+        l["gap"] = 0 if prev is None else max(0, l["epoch"] - prev)
+        prev = l["epoch"]
+        del l["_s"]
+    # Totals. A gap belongs to the state the previous relabeling move put the task in; REVIEW splits like `status` does.
+    open_ = state not in ("INTEGRATED", "CANCELLED") and bool(lines)
+    points, r_n = [], 0
+    for l in lines:
+        k = l["kind"]
+        if k == "plan" and not any(x["kind"] == "claim" and x["epoch"] < l["epoch"] for x in lines):
+            points.append((l["epoch"], ("AVAILABLE", "waiting to be claimed")))
+        elif k == "claim":
+            points.append((l["epoch"], ("CLAIMED", "")))
+        elif k == "done":
+            points.append((l["epoch"], ("REVIEW", "waiting for a reviewer" if not r_n else "re-review (round %d)" % (r_n + 1))))
+        elif k in ("approve", "reject"):
+            r_n += 1
+            points.append((l["epoch"], ("REVIEW", "changes requested (round %d)" % r_n if k == "reject" else "approved, waiting for the merge")))
+        elif k == "human":
+            points.append((l["epoch"], ("REVIEW", "approved, waiting for a human merge")))
+        elif k == "ci" and points and (points[-1][1] or ("", ""))[1].startswith("approved"):
+            points.append((l["epoch"], ("REVIEW", "approved, CI failed: " + l["text"][11:])))
+        elif k == "release":
+            points.append((l["epoch"], ("AVAILABLE", "released, waiting to be claimed") if l["text"] == "claim released" else None))
+        elif k in ("integrate", "merge"):
+            points.append((l["epoch"], None))
+    points.append((now if open_ else (lines[-1]["epoch"] if lines else 0), None))
+    spans = []
+    for (at, lab), (nxt, _) in zip(points, points[1:]):
+        if lab is not None and nxt > at:
+            spans.append((lab, nxt - at))
+    by_state, sums = [], {}
+    for lab, secs in spans:
+        key = lab
+        sums[key] = sums.get(key, 0) + secs
+    for key in sums:
+        by_state.append({"state": key[0], "sub": key[1], "seconds": sums[key]})
+    agents = {}
+    for l in lines:
+        if l["agent"] in ("-", "github"):
+            continue
+        a = agents.setdefault(l["agent"], {"agent": l["agent"], "model": "unknown", "harness": "unknown", "moves": 0, "kinds": []})
+        a["moves"] += 1
+        if l["model"] != "unknown":
+            a["model"] = l["model"]
+        if l["harness"] != "unknown":
+            a["harness"] = l["harness"]
+        if l["kind"] not in a["kinds"]:
+            a["kinds"].append(l["kind"])
+    cmds, errs = {}, []
+    for r in ctx["ledger"].get(tid, []):
+        cm = cmds.setdefault(r["cmd"], {"command": r["cmd"], "calls": 0, "errors": 0})
+        cm["calls"] += 1
+        if r["rc"].isdigit() and r["rc"] != "0":
+            cm["errors"] += 1
+            errs.append({"epoch": r["epoch"], "command": r["cmd"], "exit": int(r["rc"]), "code": r["code"], "agent": r["agent"]})
+    hist_note, rev_hist = "not read here: `uak timeline %s` reads it" % tid, []
+    if history_root is not None:
+        rev_hist, hist_note = tl_reviews_history(history_root or None, tid)
+        have = {(l["kind"], l["sha"][:7]) for l in lines if l["kind"] in ("approve", "reject")}
+        for rv in rev_hist:
+            k = "reject" if rv["verdict"] == "reject" else "approve"
+            if (k, rv["sha"][:7]) not in have and rv["at"]:
+                lines.append({"epoch": rv["at"], "kind": k, "agent": rv["reviewer"] or "-", "model": "unknown", "harness": "unknown",
+                              "text": ("rejected" if k == "reject" else "approved") + " %s (from the reviews file history)" % rv["sha"][:7],
+                              "detail": "", "sha": rv["sha"], "gap": 0})
+                have.add((k, rv["sha"][:7]))
+        lines.sort(key=lambda l: l["epoch"])
+        for i, l in enumerate(lines):
+            l["gap"] = 0 if i == 0 else max(0, l["epoch"] - lines[i - 1]["epoch"])
+    return {"task": tid, "title": rec.get("Title", ""), "state": state or "AVAILABLE", "owner": rec.get("Owner", ""), "now": now,
+            "empty": not lines, "open": open_, "lines": lines,
+            "totals": {"states": by_state, "seconds": sum(s["seconds"] for s in by_state), "review_rounds": rounds, "rejects": rejects,
+                       "agents": sorted(agents.values(), key=lambda a: (-a["moves"], a["agent"])),
+                       "models": sorted({a["model"] for a in agents.values() if a["model"] != "unknown"}),
+                       "commands": sorted(cmds.values(), key=lambda x: (-x["calls"], x["command"])), "errors": errs,
+                       "tokens": ctx["tokens"].get(tid)},
+            "sources": {"reviews_history": hist_note}}
+
+
+def utc(epoch):
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(epoch)) if epoch else "-"
+
+
+def span_words(s):
+    if s < 90:
+        return "%ds" % s
+    if s < 5400:
+        return "%dm" % ((s + 30) // 60)
+    if s < 172800:
+        return "%dh%02dm" % (s // 3600, (s % 3600) // 60)
+    return "%dd%02dh" % (s // 86400, (s % 86400) // 3600)
+
+
+def render_timeline(tl):
+    o = ["UAK TIMELINE · %s%s · %s%s" % (tl["task"], " · " + tl["title"] if tl["title"] else "", tl["state"],
+                                          " · owner " + tl["owner"] if tl["owner"] else "")]
+    if tl["empty"]:
+        o.append("no history yet: %s has no plan line, claim or move on the claims branch." % tl["task"])
+        return "\n".join(o)
+    o.append("  %-19s  %7s  %-10s %-22s %s" % ("time (UTC)", "gap", "move", "agent (model, harness)", ""))
+    for l in tl["lines"]:
+        who = "%s (%s, %s)" % (l["agent"], l["model"], l["harness"]) if l["agent"] != "-" else "-"
+        o.append("  %-19s  %7s  %-10s %s  %s" % (utc(l["epoch"]), "+" + span_words(l["gap"]) if l["gap"] else "", l["kind"], who, l["text"]))
+        if l["detail"]:
+            o.append("  %s%s" % (" " * 42, l["detail"]))
+    t = tl["totals"]
+    o.append("totals:")
+    cur = None
+    for s in t["states"]:
+        o.append("  %-10s %-34s %s" % (s["state"] if s["state"] != cur else "", s["sub"], span_words(s["seconds"])))
+        cur = s["state"]
+    o.append("  in all %s%s" % (span_words(t["seconds"]), " (the open state counts up to now)" if tl["open"] else ""))
+    o.append("review rounds: %d (%d rejected)" % (t["review_rounds"], t["rejects"]))
+    o.append("agents: " + (" · ".join("%s %s/%s %d moves" % (a["agent"], a["model"], a["harness"], a["moves"]) for a in t["agents"]) or "none"))
+    o.append("models: " + (", ".join(t["models"]) or "unknown"))
+    o.append("commands: " + (" · ".join("%s %d%s" % (x["command"], x["calls"], " (%d failed)" % x["errors"] if x["errors"] else "")
+                                       for x in t["commands"]) or "none in the ledger"))
+    for e in t["errors"]:
+        o.append("  error: %s exit %d%s by %s" % (e["command"], e["exit"], "" if e["code"] == "-" else " " + e["code"], e["agent"]))
+    o.append("tokens: " + ("{:,}".format(t["tokens"]) if t["tokens"] is not None else "not published"))
+    o.append("reviews history: " + tl["sources"]["reviews_history"])
+    return "\n".join(o)
+
+
+def compact_timeline(tl, cut=700):
+    """The dashboard's copy: arrays, not objects, text bounded."""
+    t = tl["totals"]
+    def line(l):
+        pr = re.search(r"PR (https://\S+?/pull/(\d+))", l["text"]) if l["kind"] == "done" else None
+        text = l["text"].replace(pr.group(1), "#" + pr.group(2)) if pr else l["text"]   # the URL goes in a title, not in the flow
+        return [l["epoch"], l["kind"], l["agent"], l["model"], l["harness"], text[:300], l["detail"][:cut], l["sha"][:7], pr.group(1) if pr else ""]
+    return {"state": tl["state"], "open": tl["open"], "now": tl["now"],
+            "lines": [line(l) for l in tl["lines"]],
+            "states": [[s["state"], s["sub"], s["seconds"]] for s in t["states"]],
+            "agents": [[a["agent"], a["model"], a["harness"], a["moves"], a["kinds"]] for a in t["agents"]],
+            "rounds": t["review_rounds"], "rejects": t["rejects"], "tokens": t["tokens"],
+            "commands": [[x["command"], x["calls"], x["errors"]] for x in t["commands"][:8]], "errors": len(t["errors"]),
+            "history": tl["sources"]["reviews_history"]}
 
 
 def main():
@@ -384,7 +771,11 @@ def main():
     ap.add_argument("--open", action="store_true")
     ap.add_argument("--out")
     ap.add_argument("--claims")
+    ap.add_argument("--timeline", metavar="ID")
+    ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
+    if a.timeline:
+        return timeline_main(a)
     root = git("rev-parse", "--show-toplevel").decode().strip()
     common = Path(root) / git("rev-parse", "--git-common-dir", cwd=root).decode().strip()
     out = Path(a.out) if a.out else common.resolve() / "uak-dash"
@@ -399,7 +790,7 @@ def main():
         try:
             c, backlog = snapshot(root, a.claims)
             tmp = None if a.claims else c
-            data = build(Path(c), backlog, repo)
+            data = build(Path(c), backlog, repo, root)
             data["refresh"] = refresh
             body = "window.UAK_DATA = " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + ";\n"
             (out / "data.js.tmp").write_text(body, encoding="utf-8")
@@ -419,6 +810,46 @@ def main():
         if not a.watch:
             return 0
         time.sleep(a.watch)
+
+
+def timeline_main(a):
+    """`uak timeline ID [--json] [--claims DIR]`: one task's story, read-only from the claims branch."""
+    tid = a.timeline
+    if not re.match(r"^[A-Z][A-Z0-9]*-\d+$", tid):
+        print("timeline: %s is not a task ID" % tid, file=sys.stderr)
+        return 2
+    top = run_git("rev-parse", "--show-toplevel")
+    root = top.stdout.decode("utf-8", "replace").strip() if top.returncode == 0 else None
+    if not root and not a.claims:
+        print("timeline: not a Git repository", file=sys.stderr)
+        return 2
+    tmp = None
+    try:
+        if not a.claims and run_git("ls-remote", "--exit-code", "--heads", os.environ.get("UAK_REMOTE", "origin"), "claims", cwd=root).returncode != 0:
+            print("timeline: no remote claims branch yet", file=sys.stderr)
+            return 2
+        c, backlog = snapshot(root or ".", a.claims)
+        tmp = None if a.claims else c
+        c = Path(c)
+        now = int(os.environ.get("UAK_NOW") or time.time())
+        msgs = [{"n": num(p[0]), "t": num(p[1]), "from": p[2], "to": [x for x in p[3].split(",") if x], "kind": p[4],
+                 "task": "" if p[5] == "-" else p[5], "text": p[6]} for p in rows(read(c / "inbox/log.md"), 7) if len(p) >= 7]
+        rec = fields(read(c / "tasks" / (tid + ".md")))
+        plan = backlog_tasks(backlog + "\n" + read(c / "backlog/TASKS.md")).get(tid, {})
+        rec = dict(rec, Title=plan.get("title", ""))
+        ctx = tl_ctx(c, msgs)
+        if not rec.get("ID") and not plan and tid not in ctx["wl"] and not any(tid in d["text"] for d in ctx["decs"]):
+            print("timeline: %s is not on the claims branch" % tid, file=sys.stderr)
+            return 1
+        tl = timeline(ctx, tid, rec, now, root, {}, history_root=(False if a.claims else root))
+        print(json.dumps(tl, ensure_ascii=False, indent=1) if a.json else render_timeline(tl))
+        return 0
+    except RuntimeError as exc:
+        print("timeline: %s" % exc, file=sys.stderr)
+        return 1
+    finally:
+        if tmp:
+            shutil.rmtree(str(tmp), ignore_errors=True)
 
 
 def run():
