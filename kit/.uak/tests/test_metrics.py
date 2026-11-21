@@ -156,8 +156,75 @@ def json_has_stable_keys(r):
     return "documented keys"
 
 
+def old_lines_are_counted_apart(r):
+    """UAK-136: lines with no exit code (written before every command was timed) are counted as 'outcome not recorded'."""
+    c = claims(r["tmp"])
+    out = run(r, c)
+    bb = [x for x in out.splitlines() if x.strip().startswith("bb ") and "call(s)" in x][0]
+    expect("outcome not recorded: 1" in bb, bb)
+    st = [x for x in out.splitlines() if x.strip().startswith("status ") and "call(s)" in x][0]
+    expect("outcome not recorded" not in st, st)
+    # A command that ran with an exit code and ms never prints "errors 0 of 0" nor "median -".
+    rows = open(str(c / "metrics" / "2027-01-15-1.tsv"), encoding="utf-8", newline="").read()
+    rows += "%d\tmetrics\t-\t0\t-\t42\ta-1\tclaude-code\r\n" % (T0 + 80)
+    put(c / "metrics" / "2027-01-15-1.tsv", rows)
+    out = run(r, c)
+    mt = [x for x in out.splitlines() if x.strip().startswith("metrics ") and "call(s)" in x][0]
+    expect("errors 0 of 1" in mt and "median 42 ms" in mt and "outcome not recorded" not in mt, mt)
+    return "old lines apart"
+
+
+def git(cwd, *args, **env):
+    e = dict(os.environ, **env)
+    p = subprocess.run(["git"] + list(args), cwd=str(cwd), env=e, capture_output=True, text=True)
+    expect(p.returncode == 0, "git %s: %s" % (args, p.stderr))
+
+
+def direct_commits_inside_a_window(r):
+    """UAK-136: 'commits on the base with no task' is computed inside a --since window (first-parent commits of it)."""
+    c = claims(r["tmp"])
+    repo = Path(r["tmp"]) / "repo é"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    git(repo, "symbolic-ref", "HEAD", "refs/heads/main")
+    for i, (when, msg) in enumerate([(T0 - 10 * DAY, "old direct"), (T0 + 2 * DAY + 100, "direct in the window"),
+                                     (T0 + 2 * DAY + 200, "UAK-001 · a task commit")]):
+        (repo / "f").write_text(str(i))
+        git(repo, "add", "f")
+        d = "@%d +0000" % when
+        git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", msg, GIT_AUTHOR_DATE=d, GIT_COMMITTER_DATE=d)
+    env = dict(os.environ, UAK_METRICS_NOW=str(T0 + 3 * DAY))
+    for k in ("UAK_REMOTE", "UAK_BASE"):
+        env.pop(k, None)
+    def go(*a):
+        p = subprocess.run([r["bash"], str(r["pkg"] / "bin" / "metrics"), "--claims", str(c)] + list(a), cwd=str(repo), env=env,
+                           capture_output=True, text=True, timeout=120)
+        expect(p.returncode == 0, p.stdout + p.stderr)
+        return p.stdout
+    whole = go()
+    expect("commits on the base with no task: 2 of 3 first-parent commits" in whole, whole)
+    win = go("--since", "1")
+    expect("commits on the base with no task: 1 of 2 first-parent commits" in win, win)
+    expect("n/a" not in win.split("work outside the kit")[1].split("recorded as")[0], win)
+    return "window counts first-parent commits"
+
+
+def manual_notes_print_zero(r):
+    """UAK-136: 'manual notes' prints a count, 0 included, once a black box of the window comes from a version that records them."""
+    c = claims(r["tmp"])
+    put(c / "blackbox" / "2027-01-15.md", "# Black box\n\n- 2027-01-15T10:00Z | v6.6.0 | claude-code | solo | auto | bug | status | old kit | fix: -\n")
+    out = run(r, c)
+    expect("manual notes: not recorded yet" in out, out)   # only a version that does not record them
+    put(c / "blackbox" / "2027-01-16.md", "# Black box\n\n- 2027-01-16T10:00Z | v6.7.0 | claude-code | solo | auto | bug | status | new kit | fix: -\n")
+    out = run(r, c)
+    expect("manual notes: 0" in out, out)
+    m = json.loads(run(r, c, "--json"))
+    expect(m["outside"]["manual_notes"] == {"recorded": True, "count": 0}, m["outside"])
+    return "zero is printed"
+
+
 TESTS = [merge_paths_classified_by_base_history, throughput_is_printed_with_instability, per_command_error_rate_and_p95, small_samples_print_counts, task_view_lists_review_rounds,
-         json_has_stable_keys]
+         json_has_stable_keys, old_lines_are_counted_apart, direct_commits_inside_a_window, manual_notes_print_zero]
 
 
 def main():

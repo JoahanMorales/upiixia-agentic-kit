@@ -168,8 +168,27 @@ def output_and_exit_code_unchanged(r):
     return "same"
 
 
+def exec_commands_record_code_and_ms(r):
+    """UAK-136: a command the dispatcher runs as a script of its own (run=exec) ends with its exit code and milliseconds."""
+    f = r.fixture("ledger-exec", count=1)
+    common = common_of(r, f.worktrees[0])
+    ok = uak(f, "stats")
+    expect(ok.returncode == 0, "stats failed: " + ok.stderr[-300:])
+    bad = uak(f, "timeline")   # no ID: usage error, exit 2
+    expect(bad.returncode != 0, "timeline without an ID should fail")
+    got = rows(common)
+    expect(len(got) == 2, "expected one line per exec'd command, got %r" % got)
+    expect(got[0][1] == "stats" and got[0][3] == "0" and got[0][5].isdigit(), "stats must record exit 0 and ms: %r" % got[0])
+    expect(got[1][1] == "timeline" and got[1][3] == str(bad.returncode) and got[1][5].isdigit(), "timeline must record its exit code and ms: %r" % got[1])
+    # The same output and exit code with the ledger off.
+    off = uak(f, "timeline", UAK_BLACKBOX="off")
+    expect(off.returncode == bad.returncode and off.stdout == bad.stdout and off.stderr == bad.stderr, "exec'd command output changed")
+    expect(len(rows(common)) == 2, "UAK_BLACKBOX=off must write nothing")
+    return "exec'd commands record exit code and ms"
+
+
 TESTS = [a_command_appends_one_ledger_line, a_failed_command_records_its_code, flush_publishes_and_empties,
-         the_file_is_capped_with_counts, a_session_with_no_errors_still_publishes, blackbox_off_writes_nothing, output_and_exit_code_unchanged]
+         the_file_is_capped_with_counts, a_session_with_no_errors_still_publishes, blackbox_off_writes_nothing, output_and_exit_code_unchanged, exec_commands_record_code_and_ms]
 
 
 def main():
