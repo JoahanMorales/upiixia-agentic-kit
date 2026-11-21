@@ -140,6 +140,24 @@ integrate_new_record() {
   WHY_TEXT="The task's own diff is on $BASE"; FAILS_TEXT="-"; COMMANDS_TEXT="-"; NEXT_TEXT="Integrated"
   set_summary
 }
+# The approved SHA is already on the base and the branch has commits after it (a reviewer's nit, a review note): the
+# approval covers the SHA, so that is what is recorded, and the later commits are named. Only a valid approval of THAT
+# SHA counts (the full approval_check, claims mode), the SHA must be on the task branch and be task work. UAK-092.
+# Why (UpiixSol, Nov 2026): "UPS-031 is in main (PR #50) but stays AVAILABLE: integrate blocked by an unmerged review commit".
+integrate_approved_ancestor() { # TIP; sets INT_SHA, RM_PROOF, APPROVED_BY; fails (and records nothing) otherwise
+  local tip=$1 sha tb n=0 line
+  sha=$(field "$TX/reviews/$ID.md" SHA); INT_SHA=
+  case "$sha" in ''|*[!0-9a-f]*) return 1;; esac
+  [ "$sha" != "$tip" ] && git -C "$TX" cat-file -e "$sha^{commit}" 2>/dev/null || return 1
+  git -C "$TX" merge-base --is-ancestor "$sha" "$tip" && git -C "$TX" merge-base --is-ancestor "$sha" refs/uak/base || return 1
+  tb=$(field "$RECORD" Task-Base); case "$tb" in ''|-|*[!0-9a-f]*) return 1;; esac
+  [ "$sha" != "$tb" ] && ! git -C "$TX" diff --quiet "$tb" "$sha" || return 1
+  approval_check "$sha" "$PR_URL" && [ "$RM_REVIEW_MODE" = claims ] || return 1
+  INT_SHA=$sha; RM_PROOF="approved-ancestor:$sha"
+  while IFS= read -r line; do n=$((n + 1)); [ "$n" -gt 1 ] || INT_FIRST=$line; done < <(git -C "$TX" log --format='%h %s' "$tip" --not "$sha" refs/uak/base)
+  [ "$n" -eq 0 ] || say "NOTE integrate $ID: $n commit$([ "$n" -eq 1 ] || printf 's') after the approved SHA $([ "$n" -eq 1 ] && printf 'is' || printf 'are') not on $BASE: $INT_FIRST$([ "$n" -eq 1 ] || printf ' (+%s more)' $((n - 1)))"
+  return 0
+}
 integrate_mutate() {
   local st= outside=no approval=none owner
   # Why (UpiixSol): a human merged on GitHub while the owner agent was offline; the task sat in REVIEW and
@@ -157,6 +175,13 @@ integrate_mutate() {
     ''|AVAILABLE)
       awk -v id="$ID" '/^## / && $2==id {f=1} END {exit !f}' "$BACKLOG" || conflict "$ID is not a task (uak status lists them)."
       integrate_new_record;;
+    # A task cancelled before its PR was merged on the forge: its merge is on main, its dependents wait for a state that
+    # never comes. A human records it, with the reason (UAK-092); an agent never does.
+    CANCELLED)
+      [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ] || conflict "$ID is CANCELLED, not REVIEW; a human records its merge on $BASE: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID --reason TEXT"
+      [ -n "$WHY_TEXT" ] || conflict "$ID is CANCELLED: say why it is recorded anyway: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID --reason TEXT"
+      [ -f "$TX/DECISIONS.md" ] || printf "# DECISIONS\n" > "$TX/DECISIONS.md"
+      printf '%s\n' "- $NOW | $ID | cancelled task recorded INTEGRATED by $HUMAN | Why: $(one_line "$WHY_TEXT")" >> "$TX/DECISIONS.md";;
     *) conflict "$ID is $st, not REVIEW; integrate records the merged work of a task under review, claimed or not yet claimed.";;
   esac
   WL=$(field "$RECORD" Worklog); valid_worklog "$WL" || die "Invalid worklog path."
@@ -170,6 +195,8 @@ integrate_mutate() {
   # Why (Chilangatón): PB-027 was merged on GitHub with no approval on claims; integrate refused, and the task stayed
   # in REVIEW after the event.
   if [ "$st" = REVIEW ] && integrate_normal "$tip"; then :
+  elif [ "$st" = REVIEW ] && ! integrated_outside_check "$tip" && integrate_approved_ancestor "$tip"; then
+    tip=$INT_SHA; merged=$(git -C "$TX" rev-parse refs/uak/base)
   else
     integrated_outside_check "$tip" || conflict "${INT_WHY:+$INT_WHY. }${INT_WHY:+Not on $BASE either: }$RM_REASON"
     outside=yes
