@@ -206,6 +206,7 @@ ext_fetch() { # ext_fetch NAME URL COMMIT SUB TREE: prints the reason on failure
   ( cd "$ext_tmp/fetch" && "$g" archive "$3" "$4" | tar -x -C "$ext_tmp/out" ) >/dev/null 2>&1 || { printf 'could not unpack the skill'; return 1; }
   [ -f "$ext_tmp/out/$4/SKILL.md" ] || { printf 'the folder has no SKILL.md'; return 1; }
   for base in .claude/skills .agents/skills; do
+    [ "$base" != .agents/skills ] || has codex || has cursor || has gemini || continue
     rm -rf "$target/$base/$1"; mkdir -p "$target/$base/$1" && cp -R "$ext_tmp/out/$4/." "$target/$base/$1/" || { printf 'could not copy into %s' "$base"; return 1; }
   done
 }

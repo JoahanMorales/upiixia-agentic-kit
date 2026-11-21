@@ -26,9 +26,9 @@ else
 fi
 # A light install (UAK-127) has no .uak/tests: the kit's protocol suite runs in the kit's repository (install.sh --with-tests
 # puts it here). This project's own checks above and the product smoke below still run.
-if [ "$mode" != product ] && [ ! -d .uak/tests ]; then
+if [ ! -d .uak/tests ]; then
   printf '%s\n' "The kit's protocol suite runs in the kit's repository (install.sh --with-tests puts it here); this smoke ran the project's own checks."
-  [ "$mode" = full ] && mode=product || mode=light
+  case "$mode" in full) mode=product;; package) mode=light;; esac
 fi
 if [ "$mode" != product ] && [ "$mode" != light ]; then
   python_runtime=''

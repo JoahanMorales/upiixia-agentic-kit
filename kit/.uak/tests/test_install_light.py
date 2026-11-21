@@ -54,6 +54,9 @@ def install_has_no_kit_tests(r):
     expect(sm.returncode == 0, "smoke runs its own checks without the tests: %s %s" % (sm.stdout[-400:], sm.stderr[-400:]))
     expect("runs in the kit's repository" in sm.stdout, "and says where the suite runs: " + sm.stdout[-400:])
     expect("PACKAGE_UNVERIFIED" not in sm.stdout + sm.stderr, "not an unverified package")
+    ps = subprocess.run([r.bash, ".uak/bin/smoke"], cwd=d, capture_output=True, text=True, errors="replace", env=r.env,
+                        timeout=240, stdin=subprocess.DEVNULL)
+    expect("runs in the kit's repository" in ps.stdout, "plain smoke says it too: " + ps.stdout[-300:])
     doc = subprocess.run([r.bash, ".uak/bin/doctor"], cwd=d, capture_output=True, text=True, errors="replace", env=r.env,
                          timeout=240, stdin=subprocess.DEVNULL)
     expect(".uak/tests" not in doc.stdout + doc.stderr, "doctor does not ask for the test directory: " + doc.stdout[-500:])
@@ -126,6 +129,31 @@ def skill_add_copies_one(r):
     install(r, d2, "--mode", "sprint")
     ok = uak(r, d2, "skill", "add", "mcp-builder", env=env)
     expect(ok.returncode == 0 and (d2 / ".claude/skills/mcp-builder/SKILL.md").is_file(), "from the release: " + ok.stdout[-400:] + ok.stderr[-400:])
+    # a CRLF checkout of the release (Windows) is still the kit's file
+    crlf = r.scratch / "release-crlf"
+    shutil.copytree(w, crlf, ignore=shutil.ignore_patterns(".git"))
+    for f in (crlf / "kit/.uak/skills/mcp-builder").rglob("*"):
+        if f.is_file() and f.suffix in (".md", ".txt"):
+            f.write_bytes(f.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+    r.g(crlf, "init", "-q", "-b", "main")
+    r.g(crlf, "config", "user.name", "Ana")
+    r.g(crlf, "config", "user.email", "ana@example.invalid")
+    r.g(crlf, "config", "core.autocrlf", "false")
+    r.g(crlf, "add", "-A")
+    r.g(crlf, "commit", "-q", "-m", "release")
+    r.g(crlf, "tag", "v" + ver)
+    d4 = repo(r, "skill-add-crlf")
+    install(r, d4, "--mode", "sprint")
+    cr = uak(r, d4, "skill", "add", "mcp-builder", env={"UAK_KIT_HOME": str(r.scratch / "no-checkout"), "UAK_KIT_REPO": crlf.resolve().as_uri()})
+    expect(cr.returncode == 0 and (d4 / ".claude/skills/mcp-builder/SKILL.md").is_file(), "CRLF release: " + cr.stdout[-300:] + cr.stderr[-300:])
+    # an existing (maybe edited) folder is never overwritten, even when the other harness folder lacks the skill
+    d5 = repo(r, "skill-add-keep")
+    install(r, d5, "--mode", "sprint")
+    mine = d5 / ".agents/skills/mcp-builder/SKILL.md"
+    mine.parent.mkdir(parents=True)
+    mine.write_text("team edit\n", encoding="utf-8")
+    uak(r, d5, "skill", "add", "mcp-builder", env={"UAK_KIT_HOME": home})
+    expect(mine.read_text(encoding="utf-8") == "team edit\n" and (d5 / ".claude/skills/mcp-builder/SKILL.md").is_file(), "the edited .agents copy stays")
     # a release whose file the kit never shipped is refused
     (w / "kit/.uak/skills/mcp-builder/SKILL.md").write_text("tampered\n", encoding="utf-8")
     r.g(w, "commit", "-qam", "tamper")

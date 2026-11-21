@@ -14,9 +14,6 @@ case "$name" in ''|.*|*[!A-Za-z0-9._-]*) die "'$name' is not a skill name (lette
 root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$(pwd)
 cd "$root"
 [ -d .uak/bin ] || die "no .uak/ here: run this at the root of a project that has the kit"
-for base in .claude/skills .agents/skills; do
-  [ ! -f "$base/$name/SKILL.md" ] || [ "$base" = .agents/skills ] || { printf 'skill: %s is already in %s\n' "$name" "$base"; exit 0; }
-done
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-skill.XXXXXX") || die "no temp dir"
 trap 'rm -rf "$tmp"' EXIT
 src=
@@ -41,13 +38,19 @@ else
   known=.uak/settings/known-files.txt
   [ -f "$known" ] || die "no $known to check the release against; nothing installed"
   find "$src" -type f | while IFS= read -r f; do
-    grep -qx "$(git hash-object -- "$f")" "$known" || { printf '%s\n' "${f#$src/}" > "$tmp/bad"; break; }
+    # A CRLF checkout of a kit file is still the kit's file (the same rule as install.sh).
+    grep -qx "$(git hash-object -- "$f")" "$known" || grep -qx "$(tr -d '\r' < "$f" | git hash-object --stdin)" "$known" || { printf '%s\n' "${f#$src/}" > "$tmp/bad"; break; }
   done
   [ ! -s "$tmp/bad" ] || die "release v$ver: $(cat "$tmp/bad") of $name is not a file the kit shipped; nothing installed"
 fi
 bases=.claude/skills
 if [ -d .agents/skills ] || [ -d .codex ] || [ -d .cursor ] || [ -d .gemini ]; then bases="$bases .agents/skills"; fi
+added=
 for base in $bases; do
-  rm -rf "${base:?}/$name"; mkdir -p "$base/$name"; cp -R "$src/." "$base/$name/" || die "could not copy into $base"
+  # An existing folder is the team's (maybe edited): never overwritten.
+  if [ -e "$base/$name" ]; then printf 'skill: %s already in %s: left as it is\n' "$name" "$base"; continue; fi
+  mkdir -p "$base/$name"; cp -R "$src/." "$base/$name/" || die "could not copy into $base"
+  added="$added${added:+,}$base"
 done
-printf 'skill: %s added to %s (from %s). Commit it.\n' "$name" "$(printf '%s' "$bases" | tr ' ' ',')" "$from"
+[ -n "$added" ] || exit 0
+printf 'skill: %s added to %s (from %s). Commit it.\n' "$name" "$added" "$from"
