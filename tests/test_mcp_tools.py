@@ -80,7 +80,14 @@ class Server:
             self.p.stdin.close()
         except OSError:  # the server already died (a test terminated it)
             pass
-        self.p.wait(timeout=30)
+        try:
+            self.p.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            # Windows CI, Nov 2026: three runs ended here with every test green; the server had not exited 30 s after
+            # its stdin closed. Say so and stop it, so a slow shutdown is visible but does not fail the suite.
+            sys.stderr.write("WARN mcp server still running 30 s after stdin closed; killed\n")
+            self.p.kill()
+            self.p.wait(timeout=30)
         self.p.stdout.close()  # or Python warns "unclosed file" at exit (Windows audit, Oct 2026)
 
 
