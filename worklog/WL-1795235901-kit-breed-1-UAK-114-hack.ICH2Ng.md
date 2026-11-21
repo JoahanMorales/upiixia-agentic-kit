@@ -14,3 +14,4 @@
 - 1795235924 | AVAILABLE | kit-breed-1 | release; claim released by kit-breed-1; reason: -; summary kept
 - 1795237190 | CLAIMED | kit-taste-1 | claim; next: A human decides: amend those two tests (give them an approval or a human) or relax UAK-114
 - 1795238000 | REVIEW | kit-taste-1 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/pull/22; evidence: Verify python3 kit/.uak/tests/test_integrate_unreviewed.py: 5 PASS; test_integrate_outside and test_integrate_on_main untouched and pass; full smoke PACKAGE_PASS; kit_lint ok · red at 966fcb8: exit 1 (no assertion line recognized: the reviewer reads the log) · red at 966fcb8: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: -
+- 1795238091 | REVIEW | kit-r1 | review; reject; SHA ef634f3980cbde86c6ca0b6619722147110fe6b1; reviewer kit-r1
