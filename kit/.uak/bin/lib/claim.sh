@@ -29,7 +29,8 @@ check_collisions() {
     if [ "${UAK_MULTI_CLAIM:-}" != 1 ] && [ "$(field "$other" Owner)" = "$AGENT" ]; then
       case "$(field "$other" State)" in CLAIMED|BLOCKED)
         other_until=$(field "$other" Lease-Until)
-        case "$other_until" in ''|*[!0-9]*) other_until=0;; esac
+        # A damaged Lease-Until counts as live: it cannot be used to take a second task (audit #10).
+        case "$other_until" in ''|*[!0-9]*) other_until=$((NOW + 1));; esac
         [ "$NOW" -ge "$other_until" ] ||
           UAK_CODE=one-live-task conflict "$AGENT already holds $(field "$other" ID) ($(field "$other" State)). One identity = one live task: finish or release it, or let another agent take it: bash .uak/bin/wt new $ID (picks a free identity of this machine).";;
       esac
@@ -257,7 +258,7 @@ heartbeat_mutate() {
   if [ ! -f "$CLAIM" ] && [ -f "$RECORD" ] && [ "$(field "$RECORD" Owner)" = "$AGENT" ]; then
     say "OK heartbeat $ID | $(field "$RECORD" State): nothing to renew. Next: uak next"; MUTATE_NOOP=yes; return 0
   fi
-  require_owner; STATE=$(field "$RECORD" State)
+  require_owner; STATE=$(field "$RECORD" State); check_renewable
   refresh_lease; event "heartbeat; lease until $UNTIL"
   task_progress
 }
@@ -288,7 +289,7 @@ release_mutate() {
 }
 # log: one event line; --state moves CLAIMED <-> BLOCKED.
 log_mutate() {
-  require_owner; STATE=$(field "$RECORD" State)
+  require_owner; STATE=$(field "$RECORD" State); check_renewable
   if [ -n "$NEW_STATE" ]; then
     case "$STATE" in CLAIMED|BLOCKED) ;; *) conflict "log cannot move $ID out of $STATE.";; esac
     STATE=$NEW_STATE; put "$RECORD" State "$STATE"; put "$CLAIM" State "$STATE"
@@ -300,7 +301,7 @@ log_mutate() {
 checkpoint_mutate() {
   if [ "$SESSION_ONLY" = yes ]; then coord_checkpoint_session
   else
-    if [ -f "$CLAIM" ]; then require_owner
+    if [ -f "$CLAIM" ]; then require_owner; check_renewable
     else
       released_from_me
       [ -f "$RECORD" ] && [ "$(field "$RECORD" Owner)" = "$AGENT" ] || conflict "Checkpoint needs your own task record or --session."
@@ -319,7 +320,7 @@ checkpoint_mutate() {
 }
 # handoff: an event and the summary printed for the next session.
 handoff_mutate() {
-  if [ -f "$CLAIM" ]; then require_owner; refresh_lease
+  if [ -f "$CLAIM" ]; then require_owner; check_renewable; refresh_lease
   else
     [ -f "$RECORD" ] && [ "$(field "$RECORD" Owner)" = "$AGENT" ] || conflict "Only the owner can close a handoff."
     WL=$(field "$RECORD" Worklog)
