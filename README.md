@@ -399,6 +399,12 @@ hero composition and one identity motif; a motif the human praised survives bree
 (colonIA: 27 → 54). Bred rounds keep the picked palettes, distinct faces and a cap on three.js stages, and captures no
 longer lose a viewport to a slow page.
 
+**v6.5: what the black boxes said in November.** A harvest of 14 repos' black boxes (1,409 events) became eight fixes:
+`review` and `merge` agree on who may approve, `wt new` resumes a handed-over claim, `integrate` records reviewed code
+that is already on main and names what was not reviewed, a design critique survives commits that touch no UI, the black
+box is published even without harness hooks, and a guessed spelling (`review --approve`, `uak decisions`) gets the right
+one back.
+
 ## Deploy in one command: `uak deploy`
 
 ```text

@@ -1,5 +1,40 @@
 # Changelog
 
+## v6.5.0 · 2026-11-20 · What the black boxes said in November
+
+A harvest of the black boxes of the 14 repos that use the kit (1,409 events; `docs/blackbox/harvest-2026-11.md`): UpiixSol
+on v6.0–v6.1, a private sprint on v6.4, and the kit's own box, which had 61 errors that never left the maintainer's
+machine. Eight findings, eight tasks (UAK-087 … UAK-094), each test-first, reviewed by an agent that was not its author
+and merged with the full suite.
+
+Fixed
+- **`review` and `merge` no longer contradict each other** (UAK-087): an approval by an identity never seen on claims, or
+  retired, does not block a valid reviewer; the new verdict replaces it and says so. An approval by a seen identity
+  answers as before.
+- **`wt new ID --agent NAME` resumes a claim that already belongs to NAME** (UAK-088), after a handover or from another
+  machine: it fetches the branch, repoints the claim's worktree and says it resumed. Another identity's claim still
+  refuses, and names the owner.
+- **The black box is published without harness hooks** (UAK-089): any `uak` command starts the flush in the background
+  when pending lines are older than 10 minutes. Teams that drive agents from subagents or plain shells no longer lose it.
+- **The weekly harvest finds the repos again** (UAK-090): discovery uses `gh search code --filename`; an empty harvest
+  with a token fails the job instead of ending green with no issue (it had never opened one).
+- **`integrate` records a task whose reviewed code is already on main** (UAK-092): an approved SHA that is an ancestor of
+  main integrates even when the branch got later commits, and names them; commits on main after the approved SHA are
+  named as unreviewed; a human can record a CANCELLED task whose PR was merged, and its dependents can be claimed.
+  Code no valid reviewer approved stays refused for agents.
+- **A design critique survives commits that touch no UI** (UAK-093), and `done` names the fallback when the session does
+  not list the design-critic agent (any subagent with the critic's prompt file).
+- **The banner's version comes from `VERSION`** (UAK-094): `kit_lint` compares them and the release checklist lists it
+  (v6.4.0 found the banner still saying v6.1).
+- test_v592 and test_hook_claims: two parallel cases could share one scratch file on Windows' coarse clock.
+
+New
+- **A guessed spelling gets the right one back** (UAK-091): an unknown command names the nearest one (`decisions` →
+  `decision`), `review --approve` answers with `--verdict approve`, a bare SHA or name gets its flag, `done --pr BRANCH`
+  says a branch is not a URL. Exit codes and `UAK_CODE` are unchanged; the error keeps its first words.
+
+Design prior: unchanged (1 profile, 2 projects, 6 rounds, 12 picks).
+
 ## v6.4.0 · 2026-11-16 · Six variants that are not the same landing
 
 colonIA's second round bred six heroes from the human's two picks, and the human said it in one line: "todos son
