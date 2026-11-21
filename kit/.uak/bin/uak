@@ -112,7 +112,8 @@ case "${UAK_BLACKBOX:-}" in off|0|no|false) ;; *)
   fi;;
 esac
 # Dispatch from the registry (lib/commands.tsv): a script of its own, or a command of this engine.
-reg_find "$CMD" || UAK_CODE=unknown-command die "Unknown command: $CMD (uak help lists them)"
+# An unknown name gets the nearest registered one, error path only (lib/hints.sh; the message's first words stay as they were).
+reg_find "$CMD" || { . "$UAK_BIN/lib/hints.sh"; UAK_CODE=unknown-command die "Unknown command: $CMD (uak help lists them).$(unknown_hint)"; }
 [ "$REG_RUN" != exec ] || exec bash "$UAK_BIN/$CMD" "$@"
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac
@@ -123,7 +124,7 @@ BACKLOG="$ROOT/.uak/TASKS.md"
 OWNERS="$ROOT/.uak/OWNERS.md"
 # One file per command family (docs/ARCHITECTURE.md: where to change what).
 for uak_lib in uak-coordination lib/config.sh lib/backlog.sh lib/tx.sh lib/claim.sh lib/done.sh lib/plan.sh lib/status.sh \
-    lib/wait.sh lib/lint.sh lib/review-merge.sh lib/security.sh lib/smoke-init.sh lib/messages.sh lib/memory.sh lib/tests.sh lib/github.sh; do
+    lib/wait.sh lib/lint.sh lib/review-merge.sh lib/security.sh lib/smoke-init.sh lib/messages.sh lib/memory.sh lib/tests.sh lib/github.sh lib/hints.sh; do
   . "$UAK_BIN/$uak_lib" || gitfail "Missing $UAK_BIN/$uak_lib: reinstall the kit (install.sh --update)."
 done
 PLAN_FILE= PLAN_AMEND=no ID= BRANCH= WORKTREE= NEXT_TEXT= REQUEST_NEXT= TOKEN= NEW_STATE= LOG_TEXT= PR_URL= EVIDENCE=
@@ -183,6 +184,12 @@ case "$CMD" in
     [ "$#" -gt 0 ] || die "Usage: retire NAME... (an identity that no longer runs; its human or the agent itself)."
     while [ "$#" -gt 0 ]; do case "$1" in --*) break;; *[!A-Za-z0-9_.-]*) die "Invalid identity: $1";; *) RETIRE_NAMES="$RETIRE_NAMES $1";; esac; shift; done
     identity;;
+  # `log --task HACK-005 text`: the ID goes first, like every task command.
+  log|review|merge) if [ "${1:-}" = --task ] && [ -n "${2:-}" ]; then
+       UAK_CODE=invalid-id die "Invalid ID '--task': $CMD takes the task ID first. Usage: $(usage | grep -E "^$CMD( |\$)" | head -n 1). Put the ID first: bash .uak/bin/uak $CMD $(norm_id "$2") ..."
+     fi
+     [ "$#" -gt 0 ] || die "Missing ID. Usage: $(usage | grep -E "^$CMD( |\$)" | head -n 1)"
+     ID=$(norm_id "$1"); valid_id "$ID" || bad_id "$1"; shift; identity;;
   *) [ "$#" -gt 0 ] || die "Missing ID. Usage: $(usage | grep -E "^$CMD( |\$)" | head -n 1)"
      ID=$(norm_id "$1"); valid_id "$ID" || bad_id "$1"; shift; identity;;
 esac
@@ -252,7 +259,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     *) case "$CMD" in
          # `status --summary HACK-005`: the ID after the options, like `status HACK-005 --summary` (UAK-038).
-         status) if [ -z "$ID" ] && valid_id "$(norm_id "$opt")"; then ID=$(norm_id "$opt"); else die "Unexpected argument: $opt (quote multi-word values: --flag \"two words\")."; fi;;
+         status) if [ -z "$ID" ] && valid_id "$(norm_id "$opt")"; then ID=$(norm_id "$opt"); else unexpected_arg; fi;;
          log) LOG_TEXT="$LOG_TEXT${LOG_TEXT:+ }$opt";;
          msg) MSG_TEXT="$MSG_TEXT${MSG_TEXT:+ }$opt";;
          learn) MEM_TEXT="$MEM_TEXT${MEM_TEXT:+ }$opt";;
@@ -263,7 +270,7 @@ while [ "$#" -gt 0 ]; do
          done) [ -n "$EVIDENCE" ] || die "Unexpected argument: $opt. Usage: done ID --pr URL --evidence \"TEXT\""
                EVIDENCE="$EVIDENCE $opt";;
          checkpoint) die "checkpoint takes flags, not free text: checkpoint ID --done T --decision T --why T --fails T --commands T --next T (use - for none).";;
-         *) die "Unexpected argument: $opt (quote multi-word values: --flag \"two words\").";;
+         *) unexpected_arg;;
        esac;;
   esac
 done
@@ -277,6 +284,9 @@ if [ "$CMD" = checkpoint ]; then
     [ -n "$FAILS_TEXT" ] && [ -n "$COMMANDS_TEXT" ] && [ -n "$NEXT_TEXT" ] ||
     die "checkpoint needs all six fields; missing:$([ -n "$DONE_TEXT" ] || printf ' --done')$([ -n "$DECISION_TEXT" ] || printf ' --decision')$([ -n "$WHY_TEXT" ] || printf ' --why')$([ -n "$FAILS_TEXT" ] || printf ' --fails')$([ -n "$COMMANDS_TEXT" ] || printf ' --commands')$([ -n "$NEXT_TEXT" ] || printf ' --next') (use - for none)."
 fi
+# done --pr BRANCH (harvest 2026-11 x2): a branch name is not a URL; the PR's URL comes from wt pr. Same first words as done_args_check.
+if [ "$CMD" = done ] && [ -n "$PR_URL" ]; then case "$PR_URL" in https://*/*) ;; *)
+  die "done needs --pr HTTPS URL$([ -n "$EVIDENCE" ] || printf ' and --evidence'). '$PR_URL' is a branch name, not a URL: push, then get the URL with bash .uak/bin/wt pr. Usage: bash .uak/bin/uak done ${ID:-ID} --pr URL --evidence \"<Verify command> exit 0; <criteria checked>\"";; esac; fi
 [ "$CMD" != done ] || done_args_check
 [ "$CMD" != log ] || [ -n "$LOG_TEXT" ] || die "log needs an entry."
 [ "$CMD" != handover ] || [ -n "$DONE_TO" ] || die "Usage: handover ID --to NAME (the claim, branch and worktree pass to NAME as they are)."
