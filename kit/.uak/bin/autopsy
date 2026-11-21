@@ -360,7 +360,9 @@ def build(a, c, backlog, root, now, lo, hi):
     shown = ranked[:TOP]
 
     def nice(s):
-        return esc(s).replace(SA + "sha" + SB, "`<sha>`")
+        # esc strips SA and SB on purpose (a note cannot forge the span), so our own marker is first swapped for another
+        # private character esc keeps, after removing that one from the text itself: the `<sha>` span now renders.
+        return esc(s.replace("\ue002", "").replace(SA + "sha" + SB, "\ue002")).replace("\ue002", "`<sha>`")
     o += ["## Most repeated errors", "", "Automatic black box lines of the window, grouped by command and by the line with IDs → ID, names → name-N and SHAs → `<sha>`.", ""]
     if shown:
         o += ["| Count | Command | Error |", "|---|---|---|"] + ["| %d | %s | %s |" % (n, esc(k[0]), nice(k[1])) for k, n in shown]

@@ -217,7 +217,7 @@ def exit_codes_stay_apart(r):
     two = [l for l in errs.splitlines() if "exit 2" in l]
     expect(len(one) == 1 and one[0].startswith("| 2 |"), "exit 1 is one class of 2:\n" + errs)
     expect(len(two) == 1 and two[0].startswith("| 1 |"), "exit 2 is its own class of 1:\n" + errs)
-    expect("after N s" in one[0] and "sha" in one[0] and "aaaaaaa" not in one[0], "durations and SHAs are still normalized: " + one[0])
+    expect("after N s" in one[0] and "at `<sha>` |" in one[0] and "aaaaaaa" not in one[0], "durations and SHAs are still normalized: " + one[0])
     return "two classes with their own counts"
 
 
