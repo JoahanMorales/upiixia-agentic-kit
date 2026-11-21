@@ -11,3 +11,4 @@
 ## History
 - 1795235901 | CLAIMED | kit-breed-1 | claim; next: integrate_mutate at kit/.uak/bin/lib/done.sh:203-241
 - 1795235921 | CLAIMED | kit-breed-1 | checkpoint; next: A human decides: amend those two tests (give them an approval or a human) or relax UAK-114
+- 1795235924 | AVAILABLE | kit-breed-1 | release; claim released by kit-breed-1; reason: -; summary kept
