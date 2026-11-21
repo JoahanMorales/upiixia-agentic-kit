@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Dogfooding: this repository's own hooks (core.hooksPath=.githooks, which `wt` sets). The secret scan of the kit's
+# checkout, on exactly the index. The main-checkout guard of kit/.githooks/pre-commit is left out here on purpose:
+# releases and the lead's fixes are committed on main in this repo.
+set -u
+root=$(git rev-parse --show-toplevel) || exit 2
+exec bash "$root/.uak/bin/secret-scan" --staged

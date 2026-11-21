@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Dogfooding: the kit's own pre-push (an agent identity does not push to the base or claims branch from outside the
+# engine). It reads git's stdin, which exec hands on.
+set -u
+root=$(git rev-parse --show-toplevel) || exit 0
+exec bash "$root/kit/.githooks/pre-push" "$@"

@@ -445,6 +445,11 @@ adoption per harness, lessons, decisions and token spend, plus the pace (integra
 volume. Light and dark, works on a phone. No server, no CDN, nothing leaves the machine; it reads the
 claims branch read-only. Humans stop asking agents "where are we".
 
+<img src="docs/media/dash-task.png" alt="uak dash with a task opened: time in each state, who took part with model and harness, every move in order" width="860">
+
+A click on a task opens its story: the time in each state, who took part (agent, model, harness) and every move in
+order, the same record `bash .uak/bin/uak timeline ID` prints.
+
 ## Speed
 
 Every `uak` call is a Git round trip to the shared branch, so v5 cut the trips, not just the work:

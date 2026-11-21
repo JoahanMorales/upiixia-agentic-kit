@@ -21,18 +21,17 @@ changes after a reject with the count, CI, a human merge) with the time spent in
 says why. Clicking a task opens its whole story: every move with its time, agent, model, verdict and reason, the
 rejects and what changed after each, CI runs, tokens, drawn as a timeline a human can audit.
 
-Left from v6.7: the tasks' `Merge-Commit` field names another task's commit on some records; `uak tokens --since`
-by message time, and the `Token-Budget` warning in `next` and `status`; sub-states in `uak board` and `--json status`;
-`doctor`, `wt` and `smoke` know the pre-push hook; exit code and duration for commands that replace the shell; the
-autopsy keeps numbers that mean something apart (`exit 1` and `exit 2`); flaky on loaded or Windows runners:
-`gate_and_lease`, `test_design_pick` (the picker answers 403 before reading the body), the MCP server's slow exit; the
-suite run by an agent with its identity exported fails one stats test at its push (needs a human to allow the test
-change).
+Left from v6.7, now tasks of v6.8: the `Merge-Commit` field (UAK-132), `tokens --since` and the budget warning
+(UAK-133), sub-states in `board` and `--json status` (UAK-134), the hooks in `doctor` and `wt` (UAK-135), the ledger of
+commands that replace the shell (UAK-136), the autopsy's classes (UAK-137), the three flaky tests (UAK-138).
 
-**v6.8 · Lighter.** An install without the kit's own tests and with skills on demand (535 files → under 200); CI in
-shards instead of one job per test file (105 jobs → about a dozen per OS set); the reviewer runs Verify and the tests the
-diff touches, the full suite runs once, at the merge gate; `status` and `next` read one cached fetch of claims; a
-Merge-Engine policy so an approved engine change with every CI run green does not wait for a human.
+**v6.8 · Lighter, and what v6.7 left broken.** Plan: `docs/plans/plan-v68.md` (UAK-127…139, checked with
+`uak plan --check`, waiting for the human to publish). An install without the kit's own tests and with skills on demand
+(535 files → under 200, UAK-127); Windows CI in shards and one run per commit (121 jobs → at most 24, UAK-128); the
+reviewer runs Verify and the tests the diff touches, the full suite runs once, at the merge gate (UAK-129); `status` and
+`next` read one cached fetch of claims (UAK-130); `Merge-Engine: ci`, so an approved engine change with every check
+green does not wait for a human (38 of 39 queued tasks did, UAK-131); the demo records models (UAK-139). The process
+target of `heartbeat` (139, target 20) stays open: it is a write, and needs the claims transaction itself to change.
 
 **v7.0 · A kit that improves itself, behind a gate.** Scenario evals (`uak eval`): seeded mini-repos that replay each
 failure class of the black boxes against the engine, reported as k of n; mutation tests of the guard and the gates (remove
@@ -57,7 +56,7 @@ Waiting: the fork with the TLA+ model of claims, the revert rate in `stats`, WHY
 
 - **Process targets of the claims engine.** v6.0 shipped the redesign below (persistent claims repo, reads without a
   checkout, tip-keyed cache, reused worktree), but the counts did not reach their targets: `next` 93 processes (target
-  40), `status` 61 (30), `heartbeat` 139 (20), kept as expected failures in `test_claims_perf`. Folded into v6.8.
+  40), `status` 61 (30), `heartbeat` 139 (20), kept as expected failures in `test_claims_perf`. The reads are in v6.8 (UAK-130); `heartbeat` stays open.
 - A harness eval set from black box failures, run per release → v7.0 (`uak eval`).
 - Token budgets per task (`Token-Budget`, warned by `next`) → v6.7.
 - Lessons ranked by how often they were recalled, expiry for stale ones → v7.0.

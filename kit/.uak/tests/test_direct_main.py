@@ -93,7 +93,9 @@ def stats_counts_direct_commits(r):
     r.run([r.git, "commit", "-q", "--amend", "-m", "fix: y"], cwd=clone, env={"UAK_DIRECT_MAIN": "1"})
     commit_in(r, clone, "pr.txt", "x\n", env={"UAK_DIRECT_MAIN": "1"})
     r.run([r.git, "commit", "-q", "--amend", "-m", "tidy the docs (#81)"], cwd=clone, env={"UAK_DIRECT_MAIN": "1"})
-    r.g(clone, "push", "-q", "origin", "main")
+    # The push is the same human's as the commits above: said so, it passes pre-push even when the suite itself runs
+    # with an agent identity exported (a reviewer's shell). Why (UAK-124): the hook refused it and the test failed there.
+    r.run([r.git, "push", "-q", "origin", "main"], cwd=clone, env={"UAK_DIRECT_MAIN": "1"})
     after = stats()
     expect(after and (int(after.group(1)), int(after.group(2))) == (d0 + 3, m0 + 5), "2 direct and 1 plain counted, 2 squash PRs not: %s" % (after and after.group(0)))
     tip = rm.ready(f, 0, "HACK-001")
