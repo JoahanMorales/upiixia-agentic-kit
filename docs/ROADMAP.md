@@ -12,6 +12,11 @@ recorded INTEGRATED by its owner; temp files and Python subprocesses get names a
 reopened tasks, human interventions with their reason, work outside the kit (commits on main without a task, and a
 `manual` note for "I had to do this by hand"), tokens per task and per step. Each speed number next to an instability
 number. `uak autopsy` writes the event report (timeline, top issues, metrics) from claims.
+Who did what: every task records the agents that touched it (author, reviewers, who merged) and the model and harness
+each one ran, per step. The board explains itself: REVIEW is split into what it is really waiting for (a reviewer,
+changes after a reject with the count, CI, a human merge) with the time spent in each, so a card that sits for hours
+says why. Clicking a task opens its whole story: every move with its time, agent, model, verdict and reason, the
+rejects and what changed after each, CI runs, tokens, drawn as a timeline a human can audit.
 
 **v6.8 · Lighter.** An install without the kit's own tests and with skills on demand (535 files → under 200); CI in
 shards instead of one job per test file (105 jobs → about a dozen per OS set); the reviewer runs Verify and the tests the
