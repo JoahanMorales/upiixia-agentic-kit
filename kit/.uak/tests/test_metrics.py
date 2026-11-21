@@ -38,6 +38,12 @@ def claims(tmp, n_ledger=30):
                              (T0 + 7300, "REVIEW", "r-1", "review; approve; SHA 7654321abc; reviewer r-1"),
                              (T0 + 9000, "INTEGRATED", "h-1", "integrate; recorded by h-1"),
                              (T0 + 9500, "CLAIMED", "a-1", "claim")], extra="Unreviewed: yes\n")
+    task(c, "UAK-005", hist=[(T0, "CLAIMED", "a-1", "claim"), (T0 + 100, "REVIEW", "a-1", "done"),
+                             (T0 + 200, "REVIEW", "r-1", "review; approve; SHA aaaaaaa111; reviewer r-1"),
+                             (T0 + 300, "REVIEW", "a-1", "done"),
+                             (T0 + 400, "REVIEW", "r-1", "review; approve; SHA bbbbbbb222; reviewer r-1"),
+                             (T0 + 500, "INTEGRATED", "Ana", "integrate; recorded by Ana")])
+    put(c / "meta" / "agents" / "Ana.md", "# Ana\nAgent: Ana\nRole: human\n")
     task(c, "UAK-003", state="CLAIMED", hist=[(T0 + DAY, "CLAIMED", "a-1", "claim")])
     put(c / "backlog" / "TASKS.md", "## UAK-004 · fix (follow-up of UAK-001)\n\n- **Type:** follow-up\n- **Follow-up of:** UAK-001\n")
     put(c / "queue" / "UAK-001.md", "# q\nTask: UAK-001\nReason: Shared resource/CI needs a human: kit/x\nUpdated: %d\n" % T0)
@@ -66,14 +72,14 @@ def run(r, c, *args, extra=None):
 
 def throughput_is_printed_with_instability(r):
     out = run(r, claims(r["tmp"]))
-    expect("integrated 2 · reopened 1 · followed up 1 · Unreviewed 1" in out, out)
-    expect("reopened 1 of 2 · followed up 1 of 2 · Unreviewed 1 of 2" in out.replace("total: 2 integrated · ", ""), out)
-    expect("claim to INTEGRATED: median 2.2 h (2 tasks)" in out, out)  # 7200 s and 9000 s -> 2.25 h
-    expect("rejected at least once: 1 of 2 reviewed tasks" in out and "review rounds per task: 1.50 (3 rounds in 2 tasks, 1 of 3 rounds rejected;" in out, out)
+    expect("integrated 3 · reopened 1 · followed up 1 · Unreviewed 1" in out, out)
+    expect("reopened 1 of 3 · followed up 1 of 3 · Unreviewed 1 of 3" in out, out)
+    expect("claim to INTEGRATED: median 2.0 h (3 tasks)" in out, out)  # 7200 s, 9000 s and 500 s -> median 2 h
+    expect("rejected at least once: 1 of 3 reviewed tasks" in out and "new tip after an approval (rework without a reject): 1 of 3 reviewed" in out and "review rounds per task: 1.67 (5 rounds in 3 tasks, 1 of 5 rounds rejected;" in out, out)
     order = [out.index(k) for k in ("tasks integrated per day", "speed and its cost", "per command", "human interventions", "work outside the kit")]
     expect(order == sorted(order), "sections out of order")
-    expect("human queue: 1 (Shared resource/CI needs a human 1)" in out and "1 freeze exceptions" in out, out)
-    expect("human integrates: 1 of 2" in out and "manual notes: not recorded yet" in out, out)
+    expect("sent to a human: 1 of 2 queued tasks (Shared resource/CI needs a human 1)" in out and "1 freeze exceptions" in out, out)
+    expect("merged by the kit's gate (uak merge): 1 of 3" in out and "then recorded with uak integrate: 2 of 3" in out and "recorded by an agent: 1 of 2" in out and "recorded by a human (Role: human): 1 of 2" in out and "Unreviewed: yes (code on the base with no valid approval): 1 of 2" in out and "manual notes: not recorded yet" in out, out)
     return "throughput next to reopened, followed up, Unreviewed"
 
 
@@ -110,10 +116,10 @@ def task_view_lists_review_rounds(r):
 def json_has_stable_keys(r):
     c = claims(r["tmp"])
     m = json.loads(run(r, c, "--json"))
-    expect(list(m) == ["since_days", "tasks", "throughput", "flow", "commands", "human", "outside"], list(m))
+    expect(list(m) == ["since_days", "tasks", "throughput", "flow", "commands", "human", "merge_paths", "outside"], list(m))
     expect(sorted(m["throughput"]) == ["days", "followed_up", "integrated", "reopened", "unreviewed"], m["throughput"])
-    expect(sorted(m["flow"]) == ["claim_to_integrated_hours", "rejected_tasks", "review_rounds"], m["flow"])
-    expect(m["throughput"]["reopened"] == {"n": 1, "of": 2} and m["flow"]["rejected_tasks"] == {"n": 1, "of": 2}, m["flow"])
+    expect(sorted(m["flow"]) == ["claim_to_integrated_hours", "new_tip_after_approval", "rejected_tasks", "review_rounds"], m["flow"])
+    expect(m["throughput"]["reopened"] == {"n": 1, "of": 3} and m["flow"]["rejected_tasks"] == {"n": 1, "of": 3}, m["flow"])
     st = [x for x in m["commands"] if x["command"] == "status"][0]
     expect(st["errors"] == {"n": 3, "of": 30} and st["p95_ms"] == 290 and sorted(st) == ["calls", "command", "errors", "median_ms", "p95_ms", "timed"], st)
     expect(m["outside"]["manual_notes"] == {"recorded": False, "count": 0}, m["outside"])

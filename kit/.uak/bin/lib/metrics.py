@@ -128,6 +128,10 @@ def load(claims):
                 ledger.append({"epoch": dash.num(p[0], None) if p[0].isdigit() else None, "cmd": p[1], "task": p[2],
                                "rc": p[3], "code": p[4], "ms": int(p[5]) if p[5].isdigit() else None,
                                "agent": p[6], "harness": p[7]})
+    humans = set()   # identities with `Role: human` in meta/agents: a human recording under their own name
+    for f in sorted((c / "meta" / "agents").glob("*.md")) if (c / "meta" / "agents").is_dir() else []:
+        if dash.fields(dash.read(f).replace("\r", "")).get("Role") == "human":
+            humans.add(f.stem)
     queue = []
     for f in sorted((c / "queue").glob("*.md")) if (c / "queue").is_dir() else []:
         fl = dash.fields(dash.read(f).replace("\r", ""))
@@ -156,7 +160,7 @@ def load(claims):
             if len(p) >= 6 and p[5].strip() == "manual":
                 manual.append({"day": f.name[:10], "text": p[7].strip() if len(p) > 7 else ""})
     return {"tasks": tasks, "ledger": ledger, "sums": sums, "queue": queue, "allows": allows, "followups": followups,
-            "manual": manual}
+            "manual": manual, "humans": humans}
 
 
 def integrated_event(t):
@@ -233,6 +237,17 @@ def build(data, since_days, now, git_root, claims_given):
             hours.append((i1["epoch"] - c1["epoch"]) / 3600.0)
     rounds = {tid: [v for v in (verdict_of(e) for e in t["hist"]) if v] for tid, t in win.items()}
     reviewed = {tid: r for tid, r in rounds.items() if r}
+    # Rework with no reject: after an approve the owner pushed a new tip and recorded `done` again (a lead sent it back).
+    reworked = 0
+    for tid in reviewed:
+        seen = False
+        for e in win[tid]["hist"]:
+            v = verdict_of(e)
+            if v and v["verdict"] == "approve":
+                seen = True
+            elif seen and e["state"] == "REVIEW" and e["text"].startswith("done"):
+                reworked += 1
+                break
     rejected = sum(1 for r in reviewed.values() if any(v["verdict"] == "reject" for v in r))
     n_rounds = sum(len(r) for r in reviewed.values())
     dist = {}
@@ -262,12 +277,18 @@ def build(data, since_days, now, git_root, claims_given):
     cmds.sort(key=lambda x: (-x["calls"], x["command"]))
     # 4. Human interventions.
     reasons = {}
-    for q in data["queue"]:
-        if inwin(q["updated"]):
+    queue_in = [q for q in data["queue"] if inwin(q["updated"])]
+    for q in queue_in:
+        if True:
             reasons[q["reason"].split(": ")[0]] = reasons.get(q["reason"].split(": ")[0], 0) + 1
     gate_wait = reasons.pop("Waiting for queue", 0)
     allows = [a for a in data["allows"] if inwin(a["epoch"])]
-    by_hand = sum(1 for t in done.values() if integrated_event(t)["text"].startswith("integrate"))
+    # How each task reached INTEGRATED, by the text of its INTEGRATED event in the worklog: "merge; ..." is `uak merge` (the
+    # gate moved claims and base together); "integrate; recorded by X" is a task merged on the forge and recorded after.
+    gate = sum(1 for t in done.values() if integrated_event(t)["text"].startswith("merge"))
+    rec = [t for t in done.values() if integrated_event(t)["text"].startswith("integrate")]
+    rec_human = sum(1 for t in rec if integrated_event(t)["actor"] in data["humans"])
+    rec_unrev = sum(1 for t in rec if t["f"].get("Unreviewed") == "yes")
     # 5. Work outside the kit.
     outside = sum(1 for t in done.values() if t["f"].get("Integrated-Outside") == "yes")
     direct = direct_commits(git_root, base_ref(git_root, claims_given)) if cutoff is None else None
@@ -281,6 +302,7 @@ def build(data, since_days, now, git_root, claims_given):
                        "unreviewed": count(tot["unreviewed"], tot["integrated"])},
         "flow": {"claim_to_integrated_hours": {"n": len(hours), "median": median(hours), "p95": p95(hours)},
                  "rejected_tasks": count(rejected, len(reviewed)),
+                 "new_tip_after_approval": count(reworked, len(reviewed)),
                  "review_rounds": {"rounds": n_rounds, "rejects": sum(1 for r in reviewed.values() for v in r if v["verdict"] == "reject"), "tasks": len(reviewed),
                                    "per_task": round(n_rounds / float(len(reviewed)), 2) if reviewed else None,
                                    "distribution": dist}},
@@ -289,9 +311,14 @@ def build(data, since_days, now, git_root, claims_given):
                   "queue_total": sum(reasons.values()), "waiting_for_gate": gate_wait,
                   "allow": {"freeze": sum(1 for a in allows if a["kind"] == "freeze"),
                             "tests": sum(1 for a in allows if a["kind"] == "tests")},
-                  "human_integrates": count(by_hand, len(done))},
+                  "queue_tasks": count(sum(reasons.values()), len(queue_in))},
+        "merge_paths": {"gate_merged": count(gate, len(done)),
+                        "recorded_after_forge_merge": count(len(rec), len(done)),
+                        "recorded_by_agent": count(len(rec) - rec_human, len(rec)),
+                        "recorded_by_human": count(rec_human, len(rec)),
+                        "recorded_unreviewed": count(rec_unrev, len(rec))},
         "outside": {"direct_to_main": count(*direct) if direct else None,
-                    "integrated_outside_gate": count(outside, len(done)),
+                    "integrated_outside_field": count(outside, len(done)),
                     "manual_notes": {"recorded": bool(manual), "count": len(manual)}},
     }
 
@@ -329,6 +356,8 @@ def render(m):
     o.append("  claim to INTEGRATED: median %s (%d tasks)" % ("%.1f h" % h["median"] if h["median"] is not None else "n/a", h["n"]))
     r = f["rejected_tasks"]
     o.append("  rejected at least once: %s reviewed tasks" % ratio(r["n"], r["of"]))
+    nt = f["new_tip_after_approval"]
+    o.append("  tasks with a new tip after an approval (rework without a reject): %s reviewed tasks" % ratio(nt["n"], nt["of"]))
     rr = f["review_rounds"]
     if rr["tasks"]:
         o.append("  review rounds per task: %.2f (%d rounds in %d tasks, %s; %s)" % (
@@ -346,17 +375,27 @@ def render(m):
     hu = m["human"]
     o.append("human interventions:")
     qs = " · ".join("%s %d" % (k, v) for k, v in hu["queue_reasons"].items())
-    o.append("  human queue: %d%s" % (hu["queue_total"], " (%s)" % qs if qs else ""))
-    o.append("  allow: %d freeze exceptions · %d test changes" % (hu["allow"]["freeze"], hu["allow"]["tests"]))
-    o.append("  human integrates: %s integrated tasks (the gate's own merges are the rest)"
-             % ratio(hu["human_integrates"]["n"], hu["human_integrates"]["of"]))
+    qt = hu["queue_tasks"]
+    o.append("  tasks the merge gate sent to a human: %s queued tasks%s" % (ratio(hu["queue_total"], qt["of"]), " (%s)" % qs if qs else ""))
+    o.append("  tasks held in the queue only waiting their turn (no human): %d" % hu["waiting_for_gate"])
+    o.append("  allow: %d freeze exceptions · %d test changes (human decisions)" % (hu["allow"]["freeze"], hu["allow"]["tests"]))
+    mp = m["merge_paths"]
+    o.append("how tasks reached INTEGRATED (by their INTEGRATED event: `merge` vs `integrate`):")
+    o.append("  merged by the kit's gate (uak merge): %s integrated tasks" % ratio(mp["gate_merged"]["n"], mp["gate_merged"]["of"]))
+    rf = mp["recorded_after_forge_merge"]
+    o.append("  merged on the forge, then recorded with uak integrate: %s integrated tasks" % ratio(rf["n"], rf["of"]))
+    o.append("    recorded by an agent: %s of those" % ratio(mp["recorded_by_agent"]["n"], mp["recorded_by_agent"]["of"]))
+    o.append("    recorded by a human (Role: human): %s of those" % ratio(mp["recorded_by_human"]["n"], mp["recorded_by_human"]["of"]))
+    o.append("    carrying Unreviewed: yes (code on the base with no valid approval): %s of those"
+             % ratio(mp["recorded_unreviewed"]["n"], mp["recorded_unreviewed"]["of"]))
     ou = m["outside"]
     o.append("work outside the kit:")
     dm = ou["direct_to_main"]
     o.append("  commits on the base with no task: %s first-parent commits" % ratio(dm["n"], dm["of"]) if dm
              else "  commits on the base with no task: n/a (no base branch visible here, or a --since window)")
-    ig = ou["integrated_outside_gate"]
-    o.append("  integrated outside the gate: %s integrated tasks" % ratio(ig["n"], ig["of"]))
+    ig = ou["integrated_outside_field"]
+    o.append("  recorded as Integrated-Outside (work that reached the base with no task of its own): %s integrated tasks"
+             % ratio(ig["n"], ig["of"]))
     mn = ou["manual_notes"]
     o.append("  manual notes: %d" % mn["count"] if mn["recorded"] else "  manual notes: not recorded yet")
     return "\n".join(o)
