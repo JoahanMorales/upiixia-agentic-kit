@@ -16,12 +16,20 @@ def wt_new(r, f, task, agent, index=1):
     return r.run([r.bash, ".uak/bin/wt", "new", task, "--agent", agent], cwd=f.clones[index], env=env, allowed=None)
 
 
+def wt_of(f, index):
+    """The worktree wt new makes for HACK-001 from clone INDEX: <clone>-wt/hack-001 (a glob over both clones picked the
+    other one on Windows, where directory order differs)."""
+    clone = f.clones[index]
+    return clone.parent / (clone.name + "-wt") / "hack-001"
+
+
 def handed_over(r, name):
     """ana-1 claims HACK-001 with wt new in clone 0, pushes one commit, and hands it to bob-1."""
     f = r.fixture(name, paths={"HACK-001": "src/one.txt"}, count=2)
     first = wt_new(r, f, "HACK-001", "ana-1", index=0)
     expect(first.returncode == 0 and "WT_READY" in first.stdout + first.stderr, "ana's wt new: " + first.stdout + first.stderr)
-    wt = next(iter((r.scratch / name).glob("*-wt/hack-001")))
+    wt = wt_of(f, 0)
+    expect(wt.exists(), "ana's worktree exists at %s: %s" % (wt, first.stdout + first.stderr))
     (wt / "src").mkdir(exist_ok=True)
     (wt / "src" / "one.txt").write_text("work by ana\n", encoding="utf-8")
     r.g(wt, "add", "src/one.txt")
@@ -39,14 +47,14 @@ def resumes_own_claim_after_handover(r):
     text = out.stdout + out.stderr
     expect(out.returncode == 0 and "WT_READY" in text and "resumed the claim" in text, "resumed: rc %d %s" % (out.returncode, text[-700:]))
     expect("already has claims" not in text, "no refusal: " + text)
-    wt = next(iter((r.scratch / "wrc-resume").glob("*-wt/hack-001")))
+    wt = wt_of(f, 1)
     expect(wt.exists() and (wt / "src" / "one.txt").read_text(encoding="utf-8") == "work by ana\n", "starts from the task's branch")
     expect("UAK_AGENT=bob-1" in (wt / ".uak-env").read_text(encoding="utf-8"), "the .uak-env names bob-1")
     claim = f.show("claims/HACK-001.md")
     # The path form differs on Windows (Git Bash /c/..., C:\\..., 8.3 names): compare the tail, the engine writes what wt gave it.
     tail = wt.parent.name + "/hack-001"
     got = [l for l in claim.replace("\\", "/").splitlines() if l.startswith("Worktree: ")]
-    expect("Owner: bob-1" in claim and got and got[0].rstrip().endswith(tail), "the claim points at the new worktree (..." + tail + "): " + claim)
+    expect("Owner: bob-1" in claim and got and got[0].rstrip().endswith(tail), "the claim points at the new worktree (..." + tail + "): " + claim + " | wt new said: " + text[-800:])
     return "resumed"
 
 
