@@ -64,8 +64,16 @@ def scrub_msg(text):
     return re.sub(r"(?<![\w.])/(?:[\w.@+%-]+/)*[\w.@+%-]+", "<path>", text)
 
 
-MEANING = re.compile(r"((?<![\w-])(?:exit(?:ed)?(?: with)?(?: code| status)?|status(?: code)?|signal|http(?:/[\d.]+)?(?: status| error| code)?)[ =:]*\d+(?![\d.]*\w)"
-                     r"|\b[1-5]\d\d(?= (?:Bad|Not|Unauthorized|Forbidden|Internal|Service|Gateway|Too|Conflict)\b))|\d+", re.I)
+# Numbers that carry meaning, kept as written (everything else that is a digit run becomes N). Case does not matter for the
+# context words (exit, rc, status, response, http, signal, code), but a status given by its reason phrase is exact and
+# capitalized ("404 Not Found"), so a number before a plain English word ("line 120 not defined") still folds.
+MEANING = re.compile(
+    r"((?<![\w-])(?i:exit(?:ed)?(?: with)?(?:[ _](?:code|status))?|rc|return[ _]?code|status(?: code)?|signal|response(?: code| status)?"
+    r"|http(?:/[\d.]+)?(?: status| error| code)?)[ =:]*\d+(?![\d.]*\w)"
+    r"|(?<![\w-])(?i:returned)[ =:]+\d+(?=[.,;:)\]]*(?:\s*$|\s+(?:from|by|after|at|on)\b))"
+    r"|(?<![\w-])(?i:code)[ =:]+[1-5]\d\d(?!\d)"
+    r"|(?<![\w.-])[1-5]\d\d(?= (?:Bad Request|Unauthorized|Forbidden|Not Found|Method Not Allowed|Conflict|Too Many Requests"
+    r"|Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)\b))|\d+")
 
 
 def normalize(text, names, prefixes, anon=False):

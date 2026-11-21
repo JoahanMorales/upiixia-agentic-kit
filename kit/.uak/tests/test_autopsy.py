@@ -243,9 +243,43 @@ def anonymous_banner_says_withheld(r):
     return "withheld banner with counts by kind"
 
 
+def numbers_before_english_words_fold(r):
+    # Review of fba807be: a 3-digit number before "not"/"Too" was kept as an HTTP status (re.I on the reason words).
+    c = extra_lines(r, ["NameError at line 120 not defined", "NameError at line 130 not defined", "found 404 not matching", "found 7 not matching",
+                        "retry 300 too late", "retry 41 too late", "request failed: 404 Not Found", "request failed: 500 Internal Server Error"])
+    errs = section(run(r, c)[0], "Most repeated errors")
+    rows = errs.splitlines()
+    one = [l for l in rows if "NameError at line" in l]
+    expect(len(one) == 1 and one[0].startswith("| 2 |") and "line N not defined" in one[0], "line numbers fold:\n" + errs)
+    two = [l for l in rows if "found" in l and "not matching" in l]
+    expect(len(two) == 1 and two[0].startswith("| 2 |") and "found N not matching" in two[0], "404 before an English word folds like 7:\n" + errs)
+    three = [l for l in rows if "retry" in l]
+    expect(len(three) == 1 and three[0].startswith("| 2 |"), "300 too late folds with 41 too late:\n" + errs)
+    expect(any("404 Not Found" in l for l in rows) and any("500 Internal Server Error" in l for l in rows), "an exact reason phrase keeps its status:\n" + errs)
+    return "numbers before words fold, reason phrases keep"
+
+
+def status_variants_stay_apart(r):
+    # Review of fba807be: rc=1 / rc=2, exit_code=N, returned N and exit status N are different classes too.
+    variants = ["tool rc=%d", "tool exit_code=%d", "tool returned %d", "tool exit status %d", "tool exited with code %d", "tool response code %d", "tool status=%d"]
+    # The table shows the top 10 classes: four variants (eight classes) and the fixture's two fit in one report.
+    for group in (variants[:4], variants[4:]):
+        lines = []
+        for v in group:
+            lines += [v % 1, v % 1, v % 2]
+        errs = section(run(r, extra_lines(r, lines))[0], "Most repeated errors")
+        rows = errs.splitlines()
+        for v in group:
+            want = lambda n: (v % n).replace("_", "\\_")  # the report escapes underscores
+            a, b = [l for l in rows if l.endswith("| " + want(1) + " |")], [l for l in rows if l.endswith("| " + want(2) + " |")]
+            expect(len(a) == 1 and a[0].startswith("| 2 |") and len(b) == 1 and b[0].startswith("| 1 |"), "%r: 1 and 2 stay apart:\n%s" % (v, errs))
+    return "rc, exit_code, returned, exit status, code, status"
+
+
 TESTS = [autopsy_has_the_facts_table, top_errors_are_counted, notes_are_marked_untrusted, anonymous_hides_names, reads_an_extracted_claims_dir,
          normalization_changes_only_known_tokens, anonymous_withholds_free_text, machines_and_versions_follow_the_window,
-         exit_codes_stay_apart, http_status_stays_apart, anonymous_banner_says_withheld]
+         exit_codes_stay_apart, http_status_stays_apart, anonymous_banner_says_withheld,
+         numbers_before_english_words_fold, status_variants_stay_apart]
 
 
 def main():
