@@ -12,13 +12,15 @@ v6.7 added. Standard library only. Run: python3 kit/.uak/tests/test_demo.py [--c
 import argparse
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parents[2]
-BASH = shutil.which("bash") or "bash"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_hack import resolve_binary  # noqa: E402  (Git Bash on Windows: a bare "bash" is WSL's launcher)
+
+BASH = resolve_binary("bash")
 # The demo's lines as they were before UAK-139: steps, each agent command, the checks and the closing line.
 GOLDEN = """▶ A team repo with a backlog of N tasks (temp dir: TMP)
   planner$ bash .uak/bin/uak graph
@@ -61,8 +63,17 @@ def expect(cond, msg):
 _cache = {}
 
 
+def native(path):
+    """A path Git Bash printed, as Windows Python can open it."""
+    if os.name != "nt":
+        return Path(path)
+    out = subprocess.run([str(Path(BASH).parent / "cygpath.exe") if (Path(BASH).parent / "cygpath.exe").is_file() else "cygpath", "-w", path],
+                         capture_output=True, text=True, errors="replace")
+    return Path(out.stdout.strip() or path)
+
+
 def demo():
-    """One `uak demo --keep --fast` for both tests: (its output, the kept team repo)."""
+    """One `uak demo --keep --fast` for both tests: (its output, the team repo as printed, the same as a native path)."""
     if not _cache:
         env = {k: v for k, v in os.environ.items() if k not in ("UAK_AGENT", "UAK_HUMAN", "UAK_MODEL", "UAK_HARNESS", "UAK_NOW")}
         out = subprocess.run([BASH, str(KIT / ".uak/bin/demo"), "--keep", "--fast"], capture_output=True, text=True,
@@ -70,7 +81,8 @@ def demo():
         expect(out.returncode == 0, "demo rc %d: %s" % (out.returncode, (out.stdout + out.stderr)[-1500:]))
         m = re.search(r"^  Explore it: cd (.+)$", out.stdout, re.M)  # the path may hold spaces
         expect(m, "the demo prints where its team repo is")
-        _cache["v"] = (out.stdout, Path(m.group(1)))
+        team = m.group(1).strip()  # as the demo prints it: a Git Bash path (/tmp/...) on Windows
+        _cache["v"] = (out.stdout, team, native(team))
     return _cache["v"]
 
 
@@ -82,7 +94,7 @@ def mask(line, tmp):
 
 
 def demo_timeline_names_models():
-    _, team = demo()
+    _, _, team = demo()
     env = dict(os.environ, UAK_AGENT="tester")
     for k in ("UAK_MODEL", "UAK_HARNESS"):
         env.pop(k, None)
@@ -99,8 +111,8 @@ def demo_timeline_names_models():
 
 
 def demo_output_unchanged():
-    stdout, team = demo()
-    got = [mask(l, str(team.parent)) for l in stdout.splitlines() if re.match(r"(▶|  [A-Za-z0-9-]+\$|  ✓|✓)", l)]
+    stdout, team, _ = demo()
+    got = [mask(l, team.rsplit("/team", 1)[0]) for l in stdout.splitlines() if re.match(r"(▶|  [A-Za-z0-9-]+\$|  ✓|✓)", l)]
     want = GOLDEN.splitlines()
     expect(got == want, "the demo's printed lines changed:\n--- want\n%s\n--- got\n%s" % ("\n".join(want), "\n".join(got)))
     return "%d step and command lines identical" % len(want)
