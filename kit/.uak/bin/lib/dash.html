@@ -151,6 +151,29 @@ h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
 .card-f .pr { margin-left: auto; font-weight: 500; text-decoration: none; display: inline-flex; align-items: center; gap: 3px; flex: none; }
 .card-f .pr svg { width: 12px; height: 12px; }
 .card-f .pr:hover { text-decoration: underline; }
+/* REVIEW column: cards grouped by what they wait for. One accent per group (--k), shape and words say it too, so no
+   state hangs on color alone. Every box has a fixed shape: a card marked late changes a shadow, never a border width. */
+.grp { margin: 0 0 16px; }
+.grp-h { display: flex; align-items: center; gap: 8px; padding: 0 4px 8px; font-size: 12px; font-weight: 600; color: var(--ink-2); letter-spacing: .01em; }
+.grp-h .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--k); flex: none; }
+.grp-h .muted { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; }
+.k-changes { --k: var(--critical); } .k-waiting { --k: var(--muted); } .k-review { --k: var(--review); } .k-rereview { --k: var(--violet); }
+.k-ci { --k: var(--claimed); } .k-human { --k: var(--orange); } .k-owner { --k: var(--integrated); }
+.card.late { box-shadow: inset 3px 0 0 var(--warning), var(--shadow); }
+.sub { margin: 0 0 9px; padding: 7px 9px; border-radius: 8px; background: color-mix(in srgb, var(--k) 11%, transparent); font-size: 12.5px; line-height: 1.4; }
+.sub .what { color: var(--ink); font-weight: 600; text-wrap: pretty; overflow-wrap: anywhere; }
+.sub .for { display: block; margin-top: 1px; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; font-weight: 500; }
+.sub.late .for { color: var(--warn-ink); font-weight: 700; }
+.tag.round { background: var(--accent-wash); color: var(--accent-ink); }
+.card details.crew { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.card details.crew summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; width: fit-content; border-radius: 4px; }
+.card details.crew summary::-webkit-details-marker { display: none; }
+.card details.crew summary::before { content: "\25B8"; font-size: 10px; transition: transform .15s; }
+.card details.crew[open] summary::before { transform: rotate(90deg); }
+.card details.crew summary:hover { color: var(--ink); }
+.card details.crew ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 3px; color: var(--ink-2); }
+.card details.crew li { overflow-wrap: anywhere; }
+.card details.crew .mono { font-family: var(--mono); font-size: 11.5px; }
 .card .prog { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rows { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
 .row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px; font-size: 13px; }
@@ -487,10 +510,37 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
       var col = h("div", { style: "min-width:0" }, [h("div", { "class": "col-h" }, [h("span", { "class": "sw", style: "background:" + color(c.s) }), LABEL[c.s], h("span", { "class": "muted", text: String(c.list.length) })])]);
       if (!c.list.length) col.appendChild(h("div", { "class": "col-empty", text: c.s === "BLOCKED" ? "Nothing blocked" : c.s === "CLAIMED" ? "Nobody is on a task" : "Empty" }));
       else if (c.s === "INTEGRATED") col.appendChild(doneRows(c.list));
+      else if (c.s === "REVIEW") reviewGroups(c.list).forEach(function (n) { col.appendChild(n); });
       else c.list.forEach(function (t) { col.appendChild(card(t, c.s)); });
       g.appendChild(col);
     });
     v.appendChild(g);
+  }
+  // REVIEW: one group per sub-state (lib/dash.py review_substate; the words are the same as `uak status`). Who has to act
+  // comes first: a reject waits for its author, a human merge for a human, then the queue for a reviewer.
+  var GROUPS = [["changes", "Changes requested"], ["human", "Waiting for a human merge"], ["waiting", "Waiting for a reviewer"], ["rereview", "Re-review"],
+                ["review", "In review"], ["ci", "Approved, waiting for CI"], ["owner", "Approved, owner to merge"]];
+  function span(s) { s = Math.max(0, s); if (s < 90) return s + " s"; if (s < 5400) return Math.round(s / 60) + " min"; if (s < 172800) return Math.floor(s / 3600) + " h " + ("0" + Math.floor(s % 3600 / 60)).slice(-2) + " min"; return Math.floor(s / 86400) + " d " + ("0" + Math.floor(s % 86400 / 3600)).slice(-2) + " h"; }
+  function reviewGroups(list) {
+    var out = [];
+    GROUPS.forEach(function (g) {
+      var items = list.filter(function (t) { return (t.sub || { kind: "waiting" }).kind === g[0]; });
+      if (!items.length) return;
+      items.sort(function (a, b) { return ((a.sub || {}).since || 0) - ((b.sub || {}).since || 0) || (a.id < b.id ? -1 : 1); });
+      var late = items.filter(function (t) { return t.sub && t.sub.late; }).length;
+      var box = h("section", { "class": "grp k-" + g[0], "aria-label": g[1] }, [h("div", { "class": "grp-h" }, [h("span", { "class": "dot" }), g[1],
+        h("span", { "class": "muted", text: (late ? late + " late \u00B7 " : "") + items.length })])]);
+      items.forEach(function (t) { box.appendChild(card(t, "REVIEW")); });
+      out.push(box);
+    });
+    return out;
+  }
+  function crew(t) {
+    var rows = [];
+    if (t.participants) t.participants.split("; ").forEach(function (x) { rows.push(h("li", { text: x })); });
+    (t.harnesses || []).forEach(function (x) { rows.push(h("li", {}, [h("span", { "class": "mono", text: x.agent }), " ran on " + x.harness + " with " + x.model])); });
+    if (!rows.length) return null;
+    return h("details", { "class": "crew" }, [h("summary", { text: "Who touched it" }), h("ul", {}, rows)]);
   }
   function prLink(t) {
     if (!t.pr || !/^https:\/\//.test(t.pr)) return null;
@@ -498,13 +548,18 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     return h("a", { "class": "pr", href: t.pr, target: "_blank", rel: "noopener", title: t.pr }, [n ? "#" + n[1] : "PR", icon(I.out)]);
   }
   function card(t, s) {
-    var prog = t.progress ? t.progress.replace(/ · at \d+$/, "") : "";
-    return h("article", { "class": "card" }, [
+    var prog = t.progress ? t.progress.replace(/ · at \d+$/, "") : "", sub = s === "REVIEW" ? t.sub : null, gen = D.generated;
+    return h("article", { "class": "card" + (sub && sub.late ? " late" : "") }, [
       h("div", { "class": "card-h" }, [tid(t.id), t.priority ? h("span", { "class": "tag" + (t.priority === "P0" ? " info" : ""), text: t.priority }) : null,
-        t.stalled ? h("span", { "class": "tag crit", text: "stalled " + t.stalled + " min" }) : null, t.away ? h("span", { "class": "tag", text: "owner away" }) : null]),
+        t.stalled ? h("span", { "class": "tag crit", text: "stalled " + t.stalled + " min" }) : null, t.away ? h("span", { "class": "tag", text: "owner away" }) : null,
+        sub && sub.rounds ? h("span", { "class": "tag round", title: sub.rounds + " review verdict(s) on this task", text: "round " + (sub.kind === "rereview" ? sub.rounds + 1 : sub.rounds) }) : null,
+        sub && sub.rejects ? h("span", { "class": "tag crit", title: sub.rejects + " reject(s) so far", text: sub.rejects + (sub.rejects === 1 ? " reject" : " rejects") }) : null]),
       h("div", { "class": "title", text: t.title || t.paths, title: t.title || t.paths }),
+      sub ? h("div", { "class": "sub k-" + sub.kind + (sub.late ? " late" : ""), title: sub.late ? "Longer than the review lease" : "" }, [h("span", { "class": "what", text: sub.text }),
+        h("span", { "class": "for", text: span(gen - sub.since) + " here" + (sub.late ? " \u00B7 over the review lease" : "") })]) : null,
       h("div", { "class": "card-f" }, [t.owner && s !== "AVAILABLE" ? who(t.owner) : h("span", { "class": "muted", text: t.depends && t.depends !== "None" ? "after " + t.depends : "free to claim" }), s !== "AVAILABLE" ? prLink(t) : null]),
-      prog && s !== "INTEGRATED" ? h("div", { "class": "prog", text: prog, title: prog }) : null]);
+      prog && s !== "INTEGRATED" ? h("div", { "class": "prog", text: prog, title: prog }) : null,
+      sub ? crew(t) : null]);
   }
   function doneRows(list) {
     var sorted = list.slice().sort(function (a, b) { return (b.updated || 0) - (a.updated || 0) || (a.id < b.id ? 1 : -1); }), cut = ui.allDone ? sorted.length : 12;

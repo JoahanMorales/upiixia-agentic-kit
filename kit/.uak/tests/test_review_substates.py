@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""UAK-119: a task in REVIEW says what it waits for and for how long. One derived sub-state, computed from claims (no new
+stored state): waiting for a reviewer, in review by NAME, changes requested (round N), re-review (round N), approved
+waiting for CI, approved waiting for a human merge (with the queue reason), approved waiting for the owner to merge.
+`uak status`, `uak status --task ID` print it with the time spent in it; the dashboard data carries the same words
+(lib/dash.py) and groups REVIEW cards by it. STATE.md keeps its format. Real Git, local bare remotes.
+Why (the human, 2026-11-21): "a veces esta en In review por horas y visualmente no sabes si hubo un rejected, esta en CI
+o lo que sea"."""
+import argparse
+import concurrent.futures
+import json
+import re
+import tempfile
+import time
+from pathlib import Path
+
+from test_hack import Runner, expect, resolve_binary
+from test_coordination import config
+from test_reviewer_next import to_review, three, reviewer_env
+
+T0 = 1000010
+
+
+def tip(r, f):
+    return r.g(f.worktrees[0], "rev-parse", "HEAD").stdout.strip()
+
+
+def review(r, f, verdict, now, extra=()):
+    return r.run([r.bash, ".uak/bin/uak", "review", "HACK-001", "--sha", tip(r, f), "--verdict", verdict, *extra],
+                 cwd=f.clones[2], env=reviewer_env(UAK_NOW=str(now)))
+
+
+def task_line(r, f, now):
+    out = r.run([r.bash, ".uak/bin/uak", "status", "--task", "HACK-001", "--full"], cwd=f.worktrees[0],
+                env={"UAK_AGENT": "agent-1", "UAK_NOW": str(now), "UAK_REMOTE": "origin", "UAK_DEDUPE": "off"}).stdout
+    got = [l for l in out.splitlines() if l.startswith("Review: ")]
+    expect(len(got) == 1, "one Review: line in status --task: " + out)
+    return got[0], out
+
+
+def setup(r, name, **cfg):
+    f = three(r, name, "agent-3")
+    config(f, **cfg)
+    to_review(r, f, now=T0)
+    return f
+
+
+def push_again(r, f, now):
+    w = f.worktrees[0]
+    (w / "src" / "again.txt").write_text("a fix\n", encoding="utf-8")
+    r.g(w, "add", "-A")
+    r.g(w, "commit", "-q", "-m", "HACK-001: a fix")
+    r.g(w, "push", "-q", "origin", f.branches[0])
+    f.hack(0, "done", "HACK-001", "--pr", "https://example.invalid/pull/1", "--evidence", "a fix", "--no-red", "fixture", now=now)
+
+
+def waits_for_a_reviewer(r):
+    f = setup(r, "rs-wait")
+    line, _ = task_line(r, f, T0 + 120)
+    expect(line.startswith("Review: waiting for a reviewer · 2 min"), line)
+    return line
+
+
+def substate_after_a_reject(r):
+    f = setup(r, "rs-reject")
+    res = review(r, f, "reject", T0 + 600, ["--note", "wrong rounding"])
+    expect(res.returncode == 0, "review: " + res.stdout + res.stderr)
+    line, out = task_line(r, f, T0 + 600 + 300)
+    expect(line.startswith("Review: changes requested (round 1) · 5 min · 1 reject"), line)
+    return line
+
+
+def substate_after_a_new_tip(r):
+    f = setup(r, "rs-newtip")
+    review(r, f, "reject", T0 + 600)
+    push_again(r, f, T0 + 900)
+    line, _ = task_line(r, f, T0 + 900 + 60)
+    expect(line.startswith("Review: re-review (round 2) · 60 s · 1 reject"), line)
+    review(r, f, "reject", T0 + 1200)
+    line, _ = task_line(r, f, T0 + 1200)
+    expect(line.startswith("Review: changes requested (round 2) · 0 s · 2 rejects"), line)
+    return line
+
+
+def in_review_by_name(r):
+    f = setup(r, "rs-lock")
+    res = review(r, f, "approve", T0 + 100, ["--start"])
+    expect(res.returncode == 0, "start: " + res.stdout + res.stderr)
+    line, _ = task_line(r, f, T0 + 160)
+    expect(line.startswith("Review: in review by agent-3 · 60 s"), line)
+    return line
+
+
+def approved_waiting_for_the_owner(r):
+    f = setup(r, "rs-owner")
+    review(r, f, "approve", T0 + 300)
+    line, _ = task_line(r, f, T0 + 300 + 7200)
+    expect(line.startswith("Review: approved, waiting for the owner to merge · 2 h 00 min"), line)
+    return line
+
+
+def approved_waiting_for_a_human_names_the_reason(r):
+    f = setup(r, "rs-human")
+    config(f, Autonomy="no")
+    review(r, f, "approve", T0 + 300)
+    res = f.hack(0, "merge", "HACK-001", now=T0 + 400, allowed=None)
+    expect("MERGE_HUMAN" in res.stdout, "merge goes to the human queue: " + res.stdout + res.stderr)
+    line, _ = task_line(r, f, T0 + 460)
+    expect(line.startswith("Review: approved, waiting for a human merge: Autonomy revoked or not explicitly authorized · 60 s"), line)
+    return line
+
+
+def approved_waiting_for_ci(r):
+    f = setup(r, "rs-ci")
+    review(r, f, "approve", T0 + 300)
+    # pr-sync keeps each failed check it told in claims meta/pr/ID.md ("check KEY"): that is what "CI is known" means here.
+    work = Path(f.base) / "claims-edit"
+    r.g(f.base, "clone", "-q", "--branch", "claims", str(f.remote), str(work))
+    (work / "meta" / "pr").mkdir(parents=True, exist_ok=True)
+    (work / "meta" / "pr" / "HACK-001.md").write_text("# Sent to HACK-001\ncheck lint|https://example.invalid/runs/1\n", encoding="utf-8")
+    r.g(work, "add", "-A")
+    r.g(work, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "pr-sync fixture")
+    r.g(work, "push", "-q", "origin", "claims")
+    line, _ = task_line(r, f, T0 + 300 + 600)
+    expect(line.startswith("Review: approved, waiting for CI · 10 min"), line)
+    return line
+
+
+def time_in_substate_and_the_lease_mark(r):
+    f = setup(r, "rs-time")
+    # lease is Review-Lease-Seconds (default 4 x lease): far past it the line says so.
+    line, _ = task_line(r, f, T0 + 30 * 3600)
+    expect(re.search(r"Review: waiting for a reviewer · 30 h 00 min · OVER the review lease", line), line)
+    out = r.run([r.bash, ".uak/bin/uak", "status", "--full"], cwd=f.worktrees[0],
+                env={"UAK_AGENT": "agent-1", "UAK_NOW": str(T0 + 30 * 3600), "UAK_REMOTE": "origin", "UAK_DEDUPE": "off"}).stdout
+    expect("HACK-001 | waiting for a reviewer · 30 h 00 min" in out, "the status list: " + out)
+    return "status and status --task agree"
+
+
+def status_keeps_its_shape(r):
+    f = setup(r, "rs-shape")
+    out = r.run([r.bash, ".uak/bin/uak", "status", "--full"], cwd=f.worktrees[0],
+                env={"UAK_AGENT": "agent-1", "UAK_NOW": str(T0 + 60), "UAK_REMOTE": "origin", "UAK_DEDUPE": "off"}).stdout
+    lines = out.splitlines()
+    i = lines.index("Claims (max 12; use --task ID):")
+    expect(re.match(r"^HACK-001 \| REVIEW \| agent-1 \| active \| until \d+$", lines[i + 1]), "claims rows unchanged: " + lines[i + 1])
+    expect(lines[i + 2].startswith("Review (") and lines[i + 3].startswith("HACK-001 | waiting"), "review section after the claims: " + out)
+    expect(any(l.startswith("Smoke:") for l in lines[i + 4:]), "Smoke line still there")
+    # STATE.md keeps its format: no sub-state in it.
+    expect("waiting for a reviewer" not in f.show("STATE.md"), "STATE.md untouched")
+    return "claims rows and STATE.md unchanged"
+
+
+def dash_data(r, f, now):
+    out = f.base / "dash"
+    res = r.run([r.bash, ".uak/bin/uak", "dash", "--out", str(out)], cwd=f.worktrees[0],
+                env={"UAK_NOW": str(now), "UAK_REMOTE": "origin", "UAK_AGENT": "agent-1"}, allowed=None)
+    expect(res.returncode == 0, "dash: " + res.stdout + res.stderr)
+    body = (out / "data.js").read_text(encoding="utf-8")
+    return json.loads(body[len("window.UAK_DATA = "):].rstrip().rstrip(";"))
+
+
+def dashboard_data_groups_by_substate(r):
+    f = setup(r, "rs-dash")
+    review(r, f, "reject", T0 + 600)
+    push_again(r, f, T0 + 900)
+    now = T0 + 900 + 4 * 3600 * 4 + 5
+    data = dash_data(r, f, now)
+    t = [x for x in data["tasks"] if x["id"] == "HACK-001"][0]
+    sub = t.get("sub") or {}
+    expect(sub.get("kind") == "rereview" and sub.get("text") == "re-review (round 2)", "sub: %s" % sub)
+    expect(sub.get("rejects") == 1 and sub.get("rounds") == 1 and sub.get("since") == T0 + 900, "badge numbers: %s" % sub)
+    expect(sub.get("late") is True, "late after the review lease: %s" % sub)
+    # the words are the ones `uak status --task` prints
+    line, _ = task_line(r, f, now)
+    expect(line.startswith("Review: " + sub["text"] + " · "), "same words in status and dash: %s | %s" % (line, sub))
+    expect("author agent-1" in t.get("participants", ""), "participants carried: %s" % t.get("participants"))
+    html = (Path(__file__).resolve().parents[1] / "bin/lib/dash.html").read_text(encoding="utf-8")
+    expect("reviewGroups" in html and "sub.late" in html, "the page groups REVIEW by sub-state")
+    return sub["text"]
+
+
+TESTS = [waits_for_a_reviewer, substate_after_a_reject, substate_after_a_new_tip, in_review_by_name,
+         approved_waiting_for_the_owner, approved_waiting_for_a_human_names_the_reason, approved_waiting_for_ci,
+         time_in_substate_and_the_lease_mark, status_keeps_its_shape, dashboard_data_groups_by_substate]
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--jobs", type=int, default=3)
+    parser.add_argument("--case", action="append")
+    args = parser.parse_args()
+    with tempfile.TemporaryDirectory(prefix="uak-substates-") as tmp:
+        runner = Runner(args.package.resolve(), Path(tmp), resolve_binary("bash"), resolve_binary("git"))
+
+        def one(test):
+            started = time.monotonic()
+            try:
+                note = test(runner)
+                return test.__name__, True, "%s, %.2fs" % (note, time.monotonic() - started)
+            except Exception as exc:  # noqa: BLE001
+                return test.__name__, False, str(exc)[:2500]
+        selected = [t for t in TESTS if not args.case or t.__name__ in args.case]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            results = list(pool.map(one, selected))
+    for name, ok, info in results:
+        print(("PASS " if ok else "FAIL ") + name + " (" + info + ")")
+    passed = sum(1 for _, ok, _ in results if ok)
+    print("REVIEW_SUBSTATES_RESULT %s passed=%d failed=%d" % ("PASS" if passed == len(results) else "FAIL", passed, len(results) - passed))
+    return 0 if passed == len(results) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
