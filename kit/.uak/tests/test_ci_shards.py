@@ -141,7 +141,7 @@ def shards_cover_every_test_file_once(r):
                % (n, sorted(set(tests + ["mcp_tools"]) - set(names)), sorted({t for t in names if names.count(t) > 1})))
     ci = (REPO / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
     expect("matrix.w.tests" in ci or "matrix.shard.tests" in ci, "the shard's file list reaches the job")
-    expect(not re.findall(r"\btest_v?\w+\b", ci), "no test file is named in the workflow: a new file needs no edit")
+    expect(not set(re.findall(r"\btest_v?\w+\b", ci)) & set(tests), "no test file is named in the workflow: a new file needs no edit")
     return "every file once in each of the Windows splits"
 
 
