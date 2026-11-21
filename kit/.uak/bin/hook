@@ -424,6 +424,9 @@ case "${1:-}" in
       case "$input" in *'"model":"gpt'*|*'"model": "gpt'*) h=codex;; *'"model":"claude'*|*'"model": "claude'*) h=claude-code;; *) h=;; esac
     fi
     [ -z "$h" ] || printf '%s\n' "$h" > "$gd/uak-harness" 2>/dev/null
+    # The model this session runs (UAK-118), cut from the payload with builtins only; uak records it on every event.
+    case "$input" in *'"model"'*) m=${input#*'"model"'}; m=${m#*:}; m=${m#*\"}; m=${m%%\"*}; m=${m%%\[*}
+      case "$m" in ''|*[!A-Za-z0-9._:/-]*) ;; *) printf '%s\n' "$m" > "$gd/uak-model" 2>/dev/null;; esac;; esac
     # Lines left pending by a crashed or offline session are published now, in background.
     common=$(git rev-parse --git-common-dir 2>/dev/null)
     tokens_publish

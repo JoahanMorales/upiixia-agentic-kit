@@ -104,7 +104,8 @@ set_summary() {
   } > "$TXROOT/summary"
   mv "$TXROOT/summary" "$TX/$WL"
 }
-event() { printf '%s\n' "- $NOW | $STATE | $AGENT | $(one_line "$1")" >> "$TX/$WL"; coord_event; }
+# The tail `| Harness: H | Model: M` (UAK-118) comes after the four columns every reader takes; they ignore it.
+event() { coord_who; printf '%s\n' "- $NOW | $STATE | $AGENT | $(one_line "$1") | Harness: $coord_harness | Model: $coord_model" >> "$TX/$WL"; coord_event; }
 update_summary_field() {
   label=$1 text=$(one_line "$2")
   UAK_AWK_TEXT="$text" awk -v label="$label" '
