@@ -182,23 +182,40 @@ WINDOWS_MAX_SHARDS = 15   # 24 jobs a commit on main: discover (1) + 4 shards x 
 
 def push_trigger_problems(text):
     """A push trigger must name branches or tags: `on: [push, pull_request]` and a bare `push:` both run everything twice
-    for a branch with a PR (audit v6.7 §1, UAK-141)."""
-    head = text.split("\njobs:")[0]
+    for a branch with a PR (audit v6.7 §1, UAK-141). Only the top-level `on:` key is read, comments are dropped, and a
+    filter is a `branches:` or `tags:` key of the push trigger, not a word that appears in a value."""
     why = "runs everything twice for a branch with a PR: pull_request, and push on main and tags only"
-    if re.search(r"(?m)^on:[ \t]*(\[|push\b)", head):
-        return ["`on: [push, ...]` " + why]
-    lines = head.splitlines()
+    lines = [re.sub(r"(^|\s)#.*$", "", l).rstrip() for l in text.split("\njobs:")[0].splitlines()]
     for i, line in enumerate(lines):
-        m = re.match(r"^(\s+)push:(.*)$", line)
+        m = re.match(r"""^(?:on|"on"|'on'):[ \t]*(.*)$""", line)
         if not m:
             continue
-        block = [m.group(2)]
+        rest = m.group(1).strip()
+        block = []
         for nxt in lines[i + 1:]:
-            if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= len(m.group(1)):
+            if nxt.strip() and not nxt[0].isspace():
                 break
             block.append(nxt)
-        if not re.search(r"\b(branches|tags)\b", "\n".join(block)):
-            return ["`push:` names no branches or tags: it " + why]
+        if rest.startswith("["):
+            items = [x.strip(" '\"") for x in rest.strip("[]").split(",")]
+            return ["`on: [push, ...]` " + why] if "push" in items else []
+        if rest == "push":
+            return ["`on: push` " + why]
+        if rest.startswith("{"):
+            block = [rest]
+        for j, l in enumerate(block):
+            pm = re.match(r"""^(\s*)(?:push|"push"|'push'):[ \t]*(.*)$""", l) if not rest.startswith("{") else \
+                re.match(r"""^()\{.*?\bpush:[ \t]*(.*)$""", l)
+            if not pm:
+                continue
+            sub = [pm.group(2)]
+            for nxt in block[j + 1:]:
+                if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= len(pm.group(1)):
+                    break
+                sub.append(nxt)
+            if not re.search(r"(?m)(^|[{,])\s*(branches|tags)\s*:", "\n".join(sub)):
+                return ["`push:` names no branches or tags: it " + why]
+        return []
     return []
 
 

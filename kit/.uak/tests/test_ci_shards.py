@@ -225,6 +225,19 @@ def lint_flags_a_push_trigger_without_a_filter(r):
     expect(f("on:\n  push:\n    branches:\n      - main\njobs:\n  a: {}\n") == [], "a branches block list is a filter")
     ci = (REPO / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
     expect(f(ci) == [], "the real workflow passes: %s" % f(ci))
+    # Variants (kit-r1 review): comments and values are not filters; the key may be quoted; other keys are not triggers.
+    for why, text in (("a comment naming branches", "on:\n  push: # branches later\njobs:\n  a: {}\n"),
+                      ("a path glob naming branches", "on:\n  push:\n    paths: ['branches/**']\njobs:\n  a: {}\n"),
+                      ("a quoted on key", '"on": [push]\njobs:\n  a: {}\n'),
+                      ("a quoted on key, block", '"on":\n  push:\njobs:\n  a: {}\n'),
+                      ("a bare scalar", "on: push\njobs:\n  a: {}\n")):
+        expect(len(f(text)) >= 1, "%s must be flagged: %s" % (why, f(text)))
+    for why, text in (("a pull_request list", "on: [pull_request]\njobs:\n  a: {}\n"),
+                      ("a top-level env key named push", "on:\n  pull_request:\nenv:\n  push:\n    x: 1\njobs:\n  a: {}\n"),
+                      ("a top-level permissions key named push", "on:\n  pull_request:\npermissions:\n  push: write\njobs:\n  a: {}\n"),
+                      ("a flow filter", "on: {push: {branches: [main]}}\njobs:\n  a: {}\n"),
+                      ("a filter after a comment", "on:\n  push: # only these\n    branches: [main]\njobs:\n  a: {}\n")):
+        expect(f(text) == [], "%s must pass: %s" % (why, f(text)))
     return "bare push flagged, filtered push passes"
 
 
@@ -233,12 +246,14 @@ def an_empty_shard_fails_instead_of_passing(r):
     ci = (REPO / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
     guards = [l.strip() for l in ci.splitlines() if l.strip().startswith('[ -n "$(echo $SHARD_TESTS)" ]')]
     expect(len(guards) == 2, "the suite and the Windows job each guard an empty SHARD_TESTS: %s" % guards)
+    suite = ci.split("mkfifo", 1)[0]
+    expect(guards[0] in suite, "the suite's guard comes before the stdin holder (sleep 7200) starts")
     for g in guards:
         for empty in ("", "   ", "\n"):
-            out = subprocess.run(["bash", "-c", g], env=dict(os.environ, SHARD_TESTS=empty), stdout=subprocess.PIPE,
+            out = subprocess.run([resolve_binary("bash"), "-c", g], env=dict(os.environ, SHARD_TESTS=empty), stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, universal_newlines=True)
             expect(out.returncode != 0 and "no test files" in out.stdout, "SHARD_TESTS=%r must fail with a message: rc %d %r" % (empty, out.returncode, out.stdout))
-        ok = subprocess.run(["bash", "-c", g], env=dict(os.environ, SHARD_TESTS="test_a test_b"), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        ok = subprocess.run([resolve_binary("bash"), "-c", g], env=dict(os.environ, SHARD_TESTS="test_a test_b"), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         expect(ok.returncode == 0, "a shard with files goes on: rc %d" % ok.returncode)
     return "2 guards"
 
