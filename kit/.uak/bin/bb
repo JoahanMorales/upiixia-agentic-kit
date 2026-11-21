@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # uak black box: a flight recorder of what went wrong with the kit, so the kit itself can improve.
-#   bb add KIND TEXT... [--fix IDEA] [--cmd CMD]   KIND: bug|friction|idea|need|praise (agents and humans)
+#   bb add KIND TEXT... [--fix IDEA] [--cmd CMD] [--task ID]   KIND: bug|friction|idea|need|praise|manual (agents and humans)
+#   bb note manual "what I did by hand" --fix "what the kit should do"   (note = add; UAK-121: work done outside the kit)
 #   bb auto CODE CMD TEXT                           internal: uak/guard call this on every error (local, ~1 ms)
 #   bb flush [--quiet]                              publish pending lines to claims:blackbox/ (one push)
 #   bb show [N] · bb export [FILE] · bb status
@@ -68,6 +69,18 @@ line() { # kind src cmd text fix
     "$(mode)" "$2" "$1" "${c:--}" "$t" "${f:--}"
 }
 
+# The manual moves the black boxes show most (UAK-121): a fixed text per kind, so no command text can reach the line.
+manual_line() { # kind [task]
+  case "$1" in
+    worktree) w="git worktree add by hand"; f="wt new ID makes the worktree, the identity and the claim";;
+    direct-main) w="commit on the base branch from the main checkout"; f="work in a task worktree (wt new ID) so the change has a task and a review";;
+    merge-human) w="gh pr merge run after MERGE_HUMAN"; f="a uak command a human runs to merge and integrate in one step";;
+    claims-push) w="git push to claims refused by the guard"; f="a uak command for what the push was meant to write";;
+    *) return 0;;
+  esac
+  [ -z "${2:-}" ] || w="$w ($2)"
+  line manual auto - "$w" "$f"
+}
 # metrics/<day>-<machine>.tsv: the ledger's lines (UAK-116), capped at UAK_LEDGER_CAP data lines per file (default 5000);
 # the oldest beyond it become "#sum<TAB>command<TAB>ok|fail<TAB>count" rows (merged on every flush), so claims stays small.
 ledger_merge() { # $1 existing file (may not exist) $2 new lines → stdout
@@ -166,22 +179,32 @@ case "$cmd" in
   auto)
     enabled || exit 0
     code=${1:-?} c=${2:-?}; shift 2 2>/dev/null || true
-    line "exit$code" auto "uak $c" "$*" - >> "$pending" 2>/dev/null; exit 0;;
+    line "exit$code" auto "uak $c" "$*" - >> "$pending" 2>/dev/null
+    # The guard refused a push to claims: someone tried it by hand (the kind only, never the command).
+    case "$*" in *"claims branch is written only by uak commands"*) manual_line claims-push >> "$pending" 2>/dev/null;; esac
+    exit 0;;
+  manual) # internal (the output hook): bb manual KIND [TASK]; the KIND of manual move, never the command that showed it
+    enabled || exit 0
+    l=$(manual_line "${1:-}" "${2:-}"); [ -n "$l" ] || exit 0
+    printf '%s\n' "$l" >> "$pending" 2>/dev/null; exit 0;;
   call) enabled || exit 0; printf '%s\n' "${1:-?}" >> "$calls" 2>/dev/null; exit 0;;
   harness) harness; printf '\n'; exit 0;;
-  add)
+  add|note)
     enabled || { say "BB: off (Blackbox: off in PROJECT.md or UAK_BLACKBOX=off); nothing recorded"; exit 0; }
     kind=${1:-}; [ "$#" -eq 0 ] || shift
-    case "$kind" in bug|friction|idea|need|praise) ;; *) die "Usage: bb add bug|friction|idea|need|praise TEXT [--fix IDEA] [--cmd CMD]";; esac
-    text= fix=- c=-
+    case "$kind" in bug|friction|idea|need|praise|manual) ;; *) die "Usage: bb add bug|friction|idea|need|praise|manual TEXT [--fix IDEA] [--cmd CMD] [--task ID]";; esac
+    text= fix=- c=- tk=${UAK_TASK:-}
+    if [ -z "$tk" ] && [ -f "$top/.uak-env" ]; then tk=$(sed -n 's/^UAK_TASK=//p' "$top/.uak-env" | head -n 1 | tr -d '\r'); fi
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --fix) fix=${2:-}; shift 2 || shift;;
         --cmd) c=${2:-}; shift 2 || shift;;
+        --task) tk=${2:-}; shift 2 || shift;;
         *) text="$text${text:+ }$1"; shift;;
       esac
     done
     [ -n "$text" ] || die "bb add needs a text: what happened, in one line."
+    [ "$kind" != manual ] || [ -z "$tk" ] || text="$text ($tk)"
     l=$(line "$kind" agent "$c" "$text" "$fix")
     [ -n "$l" ] || die "dropped: the text looks like it contains a secret, a credential URL or is empty."
     printf '%s\n' "$l" >> "$pending"
@@ -213,7 +236,8 @@ case "$cmd" in
     rm -f "$tmp"; say "BB: wrote ${out#$top/} (commit it in a PR to share it)";;
   status)
     if enabled; then st=on; else st=off; fi
-    say "BB: $st · pending $(awk 'END{print NR+0}' "$pending" 2>/dev/null || echo 0) line(s) · harness $(harness) · kit v$(version)";;
-  *) die "Usage: bb add KIND TEXT [--fix IDEA] · bb flush · bb show [N] · bb export [FILE] · bb status";;
+    say "BB: $st · pending $(awk 'END{print NR+0}' "$pending" 2>/dev/null || echo 0) line(s) · harness $(harness) · kit v$(version)"
+    say "BB: did something by hand the kit should do (refused or failed command, worktree, merge, push)? bash .uak/bin/uak bb note manual \"what you did\" --fix \"what the kit should do\"";;
+  *) die "Usage: bb add KIND TEXT [--fix IDEA] · bb note manual TEXT [--fix IDEA] · bb flush · bb show [N] · bb export [FILE] · bb status";;
 esac
 exit 0
