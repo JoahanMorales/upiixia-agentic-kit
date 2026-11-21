@@ -145,3 +145,21 @@
 - **Tests:** push_to_base_is_refused_for_an_agent, push_to_claims_is_refused, engine_pushes_pass, human_override_passes, guard_reads_mode_case_insensitively
 - **Verify:** `python3 kit/.uak/tests/test_pre_push.py`
 - **Next step:** kit/.githooks/pre-commit (the pattern to copy) and where install.sh places it (~line 285)
+
+## UAK-125 · `uak plan FILE --check`: a plan is validated before a human publishes it
+
+- **Type:** feature
+- **Priority:** P1
+- **Estimate:** 2 h
+- **Depends on:** None
+- **Paths:** kit/.uak/bin/lib/plan.sh, kit/.uak/tests/test_plan_check.py
+- **Acceptance:**
+  - `uak plan FILE --check` (and `uak plan FILE --amend --check`) runs every validation the publish runs (required fields, ID format and duplicates against main's TASKS.md and the claims backlog, Depends on pointing at existing tasks, Paths overlaps with live claims and with tasks of the same file, OWNERS, a Verify that parses, the amend rules such as a task in REVIEW) and writes nothing: no commit, no push, no message to owners
+  - it needs no UAK_HUMAN: any agent or human may run it; without `--check` the command needs a human as today
+  - it reports every problem of the file in one run, one line per problem naming the task and the field, in the words the publish uses, and exits 0 with `OK plan --check | N tasks would be published` when there is none; the publish itself keeps stopping at its first error (its messages are an API)
+  - the output says what it cannot promise: the board can change between the check and the publish
+  - the usage line in commands.tsv is not changed by this task (`--check` is listed in the help text plan.sh prints for a wrong usage); if the registry check needs the flag in commands.tsv, say so in the report instead of widening the scope
+  - Why (2026-11-20 and 21): the v6.5 plan failed at publish on a missing `Depends on` and the human ran the command twice; an amend of UAK-083 was refused for a task in REVIEW; the v6.6 and v6.7 plans were handed to the human unvalidated, because the only way to validate a plan was to publish it, and publishing is the one step reserved to the human
+- **Tests:** check_writes_nothing, check_needs_no_human, check_reports_every_problem, check_passes_a_valid_plan, amend_check_names_a_task_in_review
+- **Verify:** `python3 kit/.uak/tests/test_plan_check.py`
+- **Next step:** plan_mutate in kit/.uak/bin/lib/plan.sh (split the validation from the write) and where `uak` requires UAK_HUMAN for `plan`
