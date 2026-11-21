@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1795257871
+Updated: 1795258387
 AVAILABLE: UAK-117 UAK-120 UAK-121 UAK-123 
 CLAIMED: -
 BLOCKED: -
@@ -10,7 +10,7 @@ INTEGRATED: (96; last 12) ... UAK-092 UAK-093 UAK-094 UAK-110 UAK-111 UAK-112 UA
 CANCELLED: UAK-002 UAK-005 
 
 Claims (first 24; status --task ID shows detail):
-UAK-116 | REVIEW | kit-breed-1 | until 1795342362
+UAK-116 | REVIEW | kit-breed-1 | until 1795344787
 UAK-119 | REVIEW | kit-taste-1 | until 1795343383
 UAK-122 | REVIEW | kit-taste-1 | until 1795344219
 
