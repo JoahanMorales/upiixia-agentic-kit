@@ -44,6 +44,9 @@ VERSION = re.compile(r"(?<=^uak v)[0-9]+\.[0-9]+\.[0-9]+(?= \|)", re.M)
 # UAK-118 records who ran each step: the event tail `| Harness: H | Model: M`, those two lines of a session record and the
 # task record's `Participants:`. The old engine has none of them on purpose; every other byte is still compared.
 WHO = re.compile(r" \| Harness: [^|\n]* \| Model: [^|\n]*$|^(?:Harness|Model|Participants): .*\n", re.M)
+# UAK-119 prints what a REVIEW task waits for: `Review: ...` in status --task and, in status, a `Review (...)` list after
+# the claims (one `ID | sub-state · time` row each). The old engine has none; the claims rows above it stay compared.
+SUBSTATE = re.compile(r"^Review: .*\n|^Review \(what each REVIEW task waits for[^\n]*\n(?:[A-Z][A-Z0-9]*-[0-9]+ \| [^\n]*\n)*", re.M)
 
 
 def git_bytes(r, cwd, *args):
@@ -91,7 +94,7 @@ def normalize(text, base, shas=None):
     for sha, label in (shas or {}).items():
         text = re.sub(r"(?<![0-9a-f])%s[0-9a-f]{0,33}(?![0-9A-Za-z])" % sha[:7], "<SHA %s>" % label, text)
     text = TOKEN.sub("<CKSUM>", AGO.sub("(<AGO>)", TEMP.sub("<TMP>", text.replace("\r\n", "\n"))))
-    return WHO.sub("", VERSION.sub("<VERSION>", text))
+    return SUBSTATE.sub("", WHO.sub("", VERSION.sub("<VERSION>", text)))
 
 
 def fixture_shas(r, f):

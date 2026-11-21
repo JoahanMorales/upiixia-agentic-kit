@@ -1,6 +1,112 @@
 # Reads: status, digest, a task's detail, and the de-duplication of repeated reads in one session.
 # Sourced by .uak/bin/uak (docs/ARCHITECTURE.md: where to change what). Bash 3.2+, POSIX tools.
 
+# Failed checks pr-sync told about task $1 since $2 (the epoch the tip was recorded with `done`): RS_CI is the first
+# name, plus " +N" for N more, RS_CI_AT when the first one was told. pr-sync stores only failures, per check name and
+# without a SHA, as a message from `github` to task:ID ("#N CI failed: NAME URL"); the time of that message against the
+# time of the tip is what ties a failure to this tip: a failure told before the tip was pushed again does not count.
+# A later green run leaves no trace (pr-sync does not record passes), so a failure stays until the next `done`.
+review_ci_failed() {
+  local l r t from to kind task text seg name names= n=0
+  RS_CI= RS_CI_AT=0 RS_CI_N=0
+  [ -f "$TX/$MSG_LOG" ] || return 0
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in "- "[0-9]*" | "[0-9]*" | github | "*"CI failed: "*) ;; *) continue;; esac
+    r=${l#* | }; t=${r%% | *}; r=${r#* | }; from=${r%% | *}; r=${r#* | }; to=${r%% | *}; r=${r#* | }
+    kind=${r%% | *}; r=${r#* | }; task=${r%% | *}; text=${r#* | }
+    [ "$task" = "$1" ] && [ "$t" -ge "$2" ] 2>/dev/null || continue
+    while :; do
+      case "$text" in *"CI failed: "*) ;; *) break;; esac
+      text=${text#*CI failed: }; name=${text%% https://*}; name=${name%% · *}
+      case "|$names|" in *"|$name|"*) continue;; esac
+      names="$names|$name"; n=$((n + 1))
+      [ "$n" -gt 1 ] || { RS_CI=$name; RS_CI_AT=$t; }
+    done
+  done < "$TX/$MSG_LOG"
+  RS_CI_N=$n
+  [ "$n" -le 1 ] || RS_CI="$RS_CI +$((n - 1))"
+}
+# One derived sub-state per task in REVIEW, from what claims already hold (no new stored state): the task's Task-Tip, the
+# last verdict (reviews/ID.md), a live reviewer lock (reviews/ID.reviewing), the human merge queue (queue/ID.md), the
+# failed checks pr-sync told (messages from github) and the worklog (every `done` and `review` event). Sets RS_TEXT (the words every
+# surface prints: lib/dash.py computes the same ones, test_review_substates compares them), RS_SINCE (epoch it began),
+# RS_ROUNDS (review verdicts so far), RS_REJECTS, RS_LATE (yes: it sat longer than the review lease).
+# Builtins only: status runs this per REVIEW task and its process count is tested.
+# Why (the human, 2026-11-21): "a veces esta en In review por horas y visualmente no sabes si hubo un rejected, esta en
+# CI o lo que sea"; v6.6: UAK-111 and UAK-114 went through a reject and several rounds under one REVIEW label.
+review_substate() {
+  local id=$1 tip rsha verdict rtime wl line t rest last_done=0 lock_who lock_sha lock_until lock_start qs reason qtime lease
+  RS_TEXT= RS_SINCE=0 RS_ROUNDS=0 RS_REJECTS=0 RS_LATE=no
+  fv "$TX/tasks/$id.md" Task-Tip; tip=$FV
+  fv "$TX/tasks/$id.md" Worklog; wl=$FV
+  fv "$TX/tasks/$id.md" Updated; last_done=$FV
+  case "$last_done" in ''|*[!0-9]*) last_done=0;; esac
+  if [ -n "$wl" ] && [ -f "$TX/$wl" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in "- "[0-9]*" | "*) ;; *) continue;; esac
+      t=${line#- }; t=${t%% *}; rest=${line#*|}; rest=${rest#*|}; rest=${rest#*|}; rest=${rest# }
+      case "$rest" in
+        "done;"*) last_done=$t;;
+        "review; reject;"*) RS_ROUNDS=$((RS_ROUNDS + 1)); RS_REJECTS=$((RS_REJECTS + 1));;
+        "review; "*) RS_ROUNDS=$((RS_ROUNDS + 1));;
+      esac
+    done < "$TX/$wl"
+  fi
+  fv "$TX/reviews/$id.md" SHA; rsha=$FV
+  fv "$TX/reviews/$id.md" Verdict; verdict=$FV
+  fv "$TX/reviews/$id.md" Reviewed; rtime=$FV; case "$rtime" in ''|*[!0-9]*) rtime=$last_done;; esac
+  fv "$TX/reviews/$id.reviewing" Reviewer; lock_who=$FV
+  fv "$TX/reviews/$id.reviewing" SHA; lock_sha=$FV
+  fv "$TX/reviews/$id.reviewing" Until; lock_until=$FV; case "$lock_until" in ''|*[!0-9]*) lock_until=0;; esac
+  fv "$TX/reviews/$id.reviewing" Started; lock_start=$FV; case "$lock_start" in ''|*[!0-9]*) lock_start=$last_done;; esac
+  if [ -n "$rsha" ] && [ "$rsha" = "$tip" ] && [ "$verdict" = approve ]; then
+    fv "$TX/queue/$id.md" State; qs=$FV
+    fv "$TX/queue/$id.md" Reason; reason=$FV
+    fv "$TX/queue/$id.md" Updated; qtime=$FV; case "$qtime" in ''|*[!0-9]*) qtime=$rtime;; esac
+    review_ci_failed "$id" "$last_done"
+    if [ "$qs" = HUMAN ]; then RS_TEXT="approved, waiting for a human merge${reason:+: $reason}"; RS_SINCE=$qtime
+    elif [ -n "$RS_CI" ]; then RS_TEXT="approved, CI failed: $RS_CI"; RS_SINCE=$RS_CI_AT
+    else RS_TEXT="approved, waiting for the owner to merge"; RS_SINCE=$rtime; fi
+  elif [ -n "$rsha" ] && [ "$rsha" = "$tip" ]; then
+    RS_TEXT="changes requested (round $RS_ROUNDS)"; RS_SINCE=$rtime
+  elif [ -n "$lock_who" ] && [ "$lock_sha" = "$tip" ] && [ "$NOW" -lt "$lock_until" ]; then
+    RS_TEXT="in review by $lock_who"; RS_SINCE=$lock_start
+  elif [ -n "$rsha" ]; then
+    RS_TEXT="re-review (round $((RS_ROUNDS + 1)))"; RS_SINCE=$last_done
+  else
+    RS_TEXT="waiting for a reviewer"; RS_SINCE=$last_done
+  fi
+  lease=${REVIEW_LEASE:-0}; case "$lease" in ''|*[!0-9]*) lease=0;; esac
+  if [ "$lease" -gt 0 ] && [ "$RS_SINCE" -gt 0 ] && [ $((NOW - RS_SINCE)) -gt "$lease" ]; then RS_LATE=yes; fi
+  return 0
+}
+# Seconds as the board writes them: 45 s, 12 min, 3 h 05 min, 2 d 04 h.
+review_age() {
+  local s=$1; [ "$s" -ge 0 ] 2>/dev/null || s=0
+  if [ "$s" -lt 90 ]; then RS_AGE="$s s"
+  elif [ "$s" -lt 5400 ]; then RS_AGE="$(((s + 30) / 60)) min"
+  elif [ "$s" -lt 172800 ]; then RS_AGE="$((s / 3600)) h $(printf %02d $(((s % 3600) / 60))) min"
+  else RS_AGE="$((s / 86400)) d $(printf %02d $(((s % 86400) / 3600))) h"; fi
+}
+# "text · 12 min · 2 rejects · OVER the review lease": the line `status` and `status --task` print.
+review_line() {
+  review_substate "$1"; review_age $((NOW - RS_SINCE))
+  RS_LINE="$RS_TEXT · $RS_AGE"
+  [ "$RS_REJECTS" -eq 0 ] || RS_LINE="$RS_LINE · $RS_REJECTS reject$([ "$RS_REJECTS" -eq 1 ] || printf s)"
+  [ "$RS_LATE" != yes ] || RS_LINE="$RS_LINE · OVER the review lease"
+}
+# Who ran the task, on which harness and model, from the task-session records (UAK-118): "agent-1 codex/model-a; ...".
+review_harnesses() {
+  local d f who h m seen=
+  RS_HARNESS=
+  for d in "$TX/meta/task-sessions/$1"/agent-*; do
+    [ -d "$d" ] || continue
+    who=${d##*/agent-}; h= m=
+    for f in "$d"/session-*.md; do [ -f "$f" ] || continue; fv "$f" Harness; h=$FV; fv "$f" Model; m=$FV; done
+    [ -n "$h$m" ] || continue
+    RS_HARNESS="$RS_HARNESS${RS_HARNESS:+; }$who ${h:-unknown}/${m:-unknown}"
+  done
+}
 print_task() {
   # Direct reads (fv), no state cache: handoff prints this inside its own transaction, after writing.
   local away updated
@@ -18,6 +124,13 @@ print_task() {
       say "Paths: $(task_field Paths)"; say "Verify: $(task_field Verify)"
       task_criteria
     fi
+    if [ "$st" = REVIEW ]; then review_line "$ID"; say "Review: $RS_LINE"; fi
+    # Who took part and on what (UAK-118): where a reviewer or the human reads it, not on every live task (agents and
+    # tests read the output of a CLAIMED task as it was).
+    case "$st" in REVIEW|INTEGRATED)
+      fv "$RECORD" Participants; [ -z "$FV" ] || say "Participants: $FV"
+      review_harnesses "$ID"; [ -z "$RS_HARNESS" ] || say "Harness: $RS_HARNESS";;
+    esac
     fv "$RECORD" Next; say "Next: $FV"
     fv "$RECORD" Progress; [ -z "$FV" ] || say "Progress: $FV"
     fv "$RECORD" Away; away=$FV; fv "$RECORD" Updated; updated=$FV
@@ -64,6 +177,13 @@ print_status() {
     [ "$NOW" -lt "$until" ] || expiry=EXPIRED
     sv claims "$id" ID; line="$SV | "; sv claims "$id" State; line="$line$SV | "; sv claims "$id" Owner
     say "$line$SV | $expiry | until $until"
+  done
+  n=0
+  for id in $UAK_S_tasks; do
+    sv tasks "$id" State; [ "$SV" = REVIEW ] || continue
+    [ "$n" -gt 0 ] || say "Review (what each REVIEW task waits for; --task ID has the detail):"
+    [ "$n" -lt 12 ] || break
+    n=$((n + 1)); review_line "$id"; say "$id | $RS_LINE"
   done
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in "# UAK_SMOKE_SCOPE: "*) scope=${line#"# UAK_SMOKE_SCOPE: "}; scope=${scope%$'\r'}; break;; esac
@@ -188,6 +308,15 @@ seen_normal() {
   SEEN_TEXT=
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in Clock*|'Remote clock'*|CLOCK_SKEW*) continue;; esac
+    # The time a task has spent in its REVIEW sub-state grows with every call: it is not "something new" (UAK-119).
+    case "$line" in "Review: "*|[A-Z]*-[0-9]*" | "*" · "[0-9]*)
+      pre=${line%% · [0-9]*}
+      if [ "$pre" != "$line" ]; then
+        rest=${line#"$pre · "}
+        case "$rest" in *" · "*) rest=" · ${rest#* · }";; *) rest=;; esac
+        line=$pre$rest
+      fi;;
+    esac
     case "$line" in *"epoch "[0-9]*)
       pre=${line%%epoch [0-9]*}; rest=${line#"$pre"epoch }
       while :; do case "$rest" in [0-9]*) rest=${rest#?};; *) break;; esac; done

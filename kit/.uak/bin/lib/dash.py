@@ -130,6 +130,86 @@ def human_of(name, humans):
     return humans.get(name) or base
 
 
+def ci_failed(c, tid, since):
+    """Failed checks pr-sync told about the task since the tip was recorded (messages from `github` to task:ID,
+    "#N CI failed: NAME URL"); same rule as review_ci_failed in lib/status.sh. pr-sync stores no SHA and no passes: the
+    message time against the tip's time ties a failure to this tip. Returns "NAME" or "NAME +N", and when it was told."""
+    names, first_at = [], 0
+    for line in read(c / "inbox/log.md").splitlines():
+        if not line.startswith("- "):
+            continue
+        p = line[2:].split(" | ", 6)
+        if len(p) < 7 or p[2] != "github" or p[5] != tid or not p[1].isdigit() or int(p[1]) < since:
+            continue
+        for seg in p[6].split("CI failed: ")[1:]:
+            name = seg.split(" https://")[0].split(" · ")[0]
+            if name not in names:
+                names.append(name)
+                first_at = first_at or int(p[1])
+    if not names:
+        return "", 0
+    return names[0] + (" +%d" % (len(names) - 1) if len(names) > 1 else ""), first_at
+
+
+def review_substate(c, tid, rec, now, lease):
+    """What a task in REVIEW waits for: the same words and rules as review_substate in lib/status.sh (the test compares
+    them on one fixture). Derived from claims: Task-Tip, reviews/ID.md, reviews/ID.reviewing, queue/ID.md, messages
+    (a failed check pr-sync told) and the worklog's `done` and `review` events. Returns kind, text, since, rounds, rejects, late."""
+    tip = rec.get("Task-Tip", "")
+    last_done = num(rec.get("Updated"))
+    rounds = rejects = 0
+    wl = c / rec.get("Worklog", "") if rec.get("Worklog") else None
+    if wl and wl.is_file():
+        for line in read(wl).splitlines():
+            m = re.match(r"^- (\d+) \| [^|]*\| [^|]*\| ?(.*)$", line.rstrip("\r"))
+            if not m:
+                continue
+            text = m.group(2)
+            if text.startswith("done;"):
+                last_done = int(m.group(1))
+            elif text.startswith("review; reject;"):
+                rounds += 1
+                rejects += 1
+            elif text.startswith("review; "):
+                rounds += 1
+    rv = fields(read(c / "reviews" / (tid + ".md")))
+    lk = fields(read(c / "reviews" / (tid + ".reviewing")))
+    rsha, verdict = rv.get("SHA", ""), rv.get("Verdict", "")
+    rtime = num(rv.get("Reviewed")) or last_done
+    if rsha and rsha == tip and verdict == "approve":
+        q = fields(read(c / "queue" / (tid + ".md")))
+        ci, ci_at = ci_failed(c, tid, last_done)
+        if q.get("State") == "HUMAN":
+            kind, text, since = "human", "approved, waiting for a human merge" + (": " + q["Reason"] if q.get("Reason") else ""), num(q.get("Updated")) or rtime
+        elif ci:
+            kind, text, since = "cifail", "approved, CI failed: " + ci, ci_at
+        else:
+            kind, text, since = "owner", "approved, waiting for the owner to merge", rtime
+    elif rsha and rsha == tip:
+        kind, text, since = "changes", "changes requested (round %d)" % rounds, rtime
+    elif lk.get("Reviewer") and lk.get("SHA", "") == tip and now < num(lk.get("Until")):
+        kind, text, since = "review", "in review by " + lk["Reviewer"], num(lk.get("Started")) or last_done
+    elif rsha:
+        kind, text, since = "rereview", "re-review (round %d)" % (rounds + 1), last_done
+    else:
+        kind, text, since = "waiting", "waiting for a reviewer", last_done
+    return {"kind": kind, "text": text, "since": since, "rounds": rounds, "rejects": rejects,
+            "late": bool(lease and since and now - since > lease)}
+
+
+def harnesses(c, tid):
+    """Who ran the task, on which harness and model (UAK-118 task-session records)."""
+    out = []
+    for d in sorted((c / "meta/task-sessions" / tid).glob("agent-*")):
+        h = m = ""
+        for f in sorted(d.glob("session-*.md")):
+            r = fields(read(f))
+            h, m = r.get("Harness", h), r.get("Model", m)
+        if h or m:
+            out.append({"agent": d.name[len("agent-"):], "harness": h or "unknown", "model": m or "unknown"})
+    return out
+
+
 def build(c, backlog_text, repo):
     now = int(time.time()) if not os.environ.get("UAK_NOW") else int(os.environ["UAK_NOW"])
     cfg = fields(read(c / "meta/config.md"))
@@ -149,7 +229,11 @@ def build(c, backlog_text, repo):
         t = tasks.setdefault(tid, {"id": tid, "title": "", "priority": r.get("Priority", ""), "paths": r.get("Paths", ""), "depends": ""})
         t.update(state=r.get("State", "AVAILABLE"), owner=r.get("Owner", ""), pr=r.get("PR", ""), progress=r.get("Progress", ""),
                  progress_changed=num(r.get("Progress-Changed")), updated=num(r.get("Updated")), lease=num(r.get("Lease-Until")),
-                 next=r.get("Next", ""), away=num(r.get("Away")), outside=r.get("Integrated-Outside") == "yes")
+                 next=r.get("Next", ""), away=num(r.get("Away")), outside=r.get("Integrated-Outside") == "yes",
+                 participants=r.get("Participants", ""), harnesses=harnesses(c, tid))
+        if t["state"] == "REVIEW":
+            lease_s = num(cfg.get("Review-Lease-Seconds")) or 4 * (num(cfg.get("Lease-Seconds")) or (14400 if cfg.get("Mode") == "marathon" else 2700))
+            t["sub"] = review_substate(c, tid, r, now, lease_s)
         if not t.get("paths"):
             t["paths"] = r.get("Paths", "")
         stall = num(cfg.get("Stall-Seconds"), STALL)
