@@ -6,7 +6,7 @@
 - Why: Parallel work without touching the main checkout
 - Failing: No validation run yet
 - Commands: `python3 kit/.uak/tests/test_tokens_elsewhere.py`
-- Next: Another agent reviews https://github.com/JoahanMorales/upiixia-agentic-kit/pull/25; run .uak/bin/smoke
+- Next: Integrated in main: f43411f56028bcccf177f89646d66e608d7ebc48 (recorded by joahanmorales-11)
 
 ## History
 - 1795250369 | CLAIMED | kit-taste-1 | claim; next: the "a transcript belongs to this project" rule at the top of kit/.uak/bin/tokens
@@ -16,3 +16,4 @@
 - 1795252894 | REVIEW | kit-r1 | review; approve; SHA 761ff0b169b080fc0249dab8068b44896002c620; reviewer kit-r1
 - 1795257819 | REVIEW | kit-taste-1 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/pull/25; evidence: merged origin/main (merge commit); test_tokens_elsewhere, test_tokens_coverage, test_v5, test_pre_push green; kit_lint ok; kit_hashes regenerated; full smoke rc=0 (gate_and_lease flaked in 2 of 4 runs under load, passes alone) · red at ca8b6fb: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: - | Harness: unknown | Model: unknown
 - 1795257871 | REVIEW | kit-r1 | review; approve; SHA 852bf5686a956c2620d7f0c2367b88ae395807d2; reviewer kit-r1 | Harness: unknown | Model: unknown
+- 1795259491 | INTEGRATED | joahanmorales-11 | integrate; recorded by joahanmorales-11; PR https://github.com/JoahanMorales/upiixia-agentic-kit/pull/25; merged f43411f56028bcccf177f89646d66e608d7ebc48; proof ancestry | Harness: unknown | Model: unknown
