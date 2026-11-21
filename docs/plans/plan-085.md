@@ -1,0 +1,22 @@
+## UAK-085 · A bred round keeps a praised parent's motif even when the parent predates motifs, and its TASK.md does not tell the child to keep the parent's layout at creativity 3+
+
+- **Type:** bug
+- **Priority:** P1
+- **Estimate:** 1 h
+- **Depends on:** UAK-084
+- **Paths:** kit/.uak/bin/lib/design_creativity.py, kit/.uak/bin/lib/design_breed.py, kit/.uak/tests/test_design_creativity_inherit.py
+- **Acceptance:**
+  - a child of a praised parent inherits the parent's motif when the parent's genome has no `motif.family` but its index.html has a `<!-- motif: -->` comment. The family is taken from the parent's genome when present, else it is the first family no sibling uses, and the inherited text is quoted
+  - when the parent has neither, TASK.md tells the child to read the parent's page and name its motif. This already exists as "(its index.html has no motif comment: read the page)", but it was unreachable because `assign` required the family first
+  - at creativity 3 or higher, `child_task` no longer says "keep the rest of the parent's look". It says the other genes are kept, and that the composition and motif above replace the parent's hero layout. At 1-2 the old sentence stays
+  - the creativity line and the inheritance line no longer contradict each other: level 4 says "a clearly different composition; a new motif unless the human praised the parent's"
+  - Why (colonIA R3, 2026-11-15): bred from R1 at creativity 4, the child of R1/v1 got the motif family "specimen sheet" instead of R1/v1's papel picado, which the human loved: "tenía muy bonitas banderas encima, una identidad muy marcada". R1's genomes come from before UAK-084, so `assign` saw no `motif.family` and skipped the inheritance. TASK.md also still said "keep the rest of the parent's look", which pulls the child back to the parent's layout, the same convergence that made R2's six heroes identical. The lead added motif comments to R1/v1 and R1/v5 and fixed R3/v1, v2 and v6 by hand
+- **Tests:**
+  - inherits_motif_text_without_family
+  - no_motif_comment_says_read_the_page
+  - child_task_layout_sentence_by_level
+  - level4_text_mentions_praised_motif
+- **Verify:** `python3 kit/.uak/tests/test_design_creativity_inherit.py`
+- **Next step:**
+  - the `inherit = par and praised(note) and (par.get("motif") or {}).get("family")` line in `assign()` (design_creativity.py:~97);
+  - `child_task` in design_breed.py:326.

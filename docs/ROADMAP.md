@@ -30,64 +30,43 @@ that are there, writes a short PROJECT.md and a map for a human to trim, takes o
 issues the team already has; a pilot scope (one module's paths) before the whole repo; quality gates that use the
 project's own checks. Two modes stay (sprint, marathon): adoption is a way to install marathon, not a third mode.
 
+**v7.2 · The project's video.** `uak video`: a script built only from the repo's facts, ElevenLabs narration with word
+timings, real captures of the app, the terminal and the dashboard, a HyperFrames render with burned captions and a
+measured MP4; `/uak-video` runs it end to end. Plan: `docs/plans/video.md` (written 2026-11-10, not published yet).
+
 Waiting: the fork with the TLA+ model of claims, the revert rate in `stats`, WHY.md enforcers and verification skills
 (merge when its author finishes); external PR #2 (visual setup).
 
-## v5.0 — shipped
-- [x] Speed: one round trip per call, SSH reuse, clock cache, `next` prefilter (next 10–12 s → 1.5–2 s on GitHub)
-- [x] `uak wait` · messages in ~20 s · `uak map` (code graph) · `msg impact:ID` · path-anchored memory (`learn`/`recall`)
-- [x] `karpathy-guidelines` skill
-- [x] `uak tokens`: the real token bill per task, model, harness and lead vs subagent, from Claude Code and Codex
-  transcripts; published per machine to claims; in `stats` and `digest`
-- [x] `uak loop`: stops on no progress and on an edited test (the verifier); `--parallel N --each` (one loop per
-  failing test file, in temporary worktrees, fixes applied back)
-- [x] `uak handover ID --to NAME` · [x] `uak graph --assign` · [x] opt-in scheduled `uak tick` (GitHub Action)
-- [x] Weekly black box harvest Action in this repo (needs the `HARVEST_TOKEN` secret)
-- [x] Stack presets: Next.js, Django, Go, Expo, Python data/ML, AI agent (MCP server + evals)
-- [x] Gemini CLI hooks: guard, session context, output cap (Gemini CLI was replaced by Antigravity CLI in June 2026)
-- [x] An animated demo (`docs/media/demo.svg`, regenerated from a real run by `scripts/render_demo.py`)
-- [x] Everything from the MLB autopsy (v4.3, folded into this release): approvals that survive clean merges of main,
-  merge by any agent after 20 min, gate `.venv`, `retire`, `followup`, output cap on Windows and Codex
+## Still open from earlier roadmaps
 
-## v5.1 (open)
-- [ ] A live Windows Cursor session with the base64 rewrite, and a live Codex session with `updatedInput`; record drift with `uak bb`.
-- [ ] Antigravity CLI support (the successor of Gemini CLI) once its hook and config docs settle.
-- [ ] Token budgets: `Token-Budget` per task in PROJECT.md, warned by `next` when `uak tokens` crosses it.
-- [ ] Cursor token spend, if Cursor publishes a usage API or a local log.
-- [ ] `uak map`: optional tree-sitter backend when available, and call edges (not only imports).
-- [ ] Lessons ranked by how often they were recalled; expiry for stale ones.
-- [ ] A harness eval set: 20–50 frozen tasks from black box failures, run per release.
-- [ ] `uak board --watch` in the demo animation.
+- **Process targets of the claims engine.** v6.0 shipped the redesign below (persistent claims repo, reads without a
+  checkout, tip-keyed cache, reused worktree), but the counts did not reach their targets: `next` 93 processes (target
+  40), `status` 61 (30), `heartbeat` 139 (20), kept as expected failures in `test_claims_perf`. Folded into v6.8.
+- A harness eval set from black box failures, run per release → v7.0 (`uak eval`).
+- Token budgets per task (`Token-Budget`, warned by `next`) → v6.7.
+- Lessons ranked by how often they were recalled, expiry for stale ones → v7.0.
+- A live Windows Cursor session and a live Codex session with the rewritten hooks, drift recorded with `uak bb`.
+- Antigravity CLI support (the successor of Gemini CLI) once its hook and config docs settle.
+- Cursor token spend, if Cursor publishes a usage API or a local log.
+- `uak map`: optional tree-sitter backend, and call edges (not only imports).
+- `uak board --watch` in the demo animation.
+- Ideas: Linear and Jira ID prefixes with two-way sync (see v7.1's issue import); localized agent-facing texts
+  (`UAK_LANG`); `uak loop --parallel` for more test runners.
 
-## Next: the claims transaction without the process storm (Windows)
-The tasks are in `.uak/TASKS.md` (UAK-001 … UAK-008): this repo develops the kit with the kit since v5.11. What
-follows is the design they implement.
+## Shipped
 
-Why: on Git Bash a process costs 20–50 ms, and `uak next` starts about 200 (`status` 173, `inbox` 67, `heartbeat`
-70; measured on Linux by PID, v5.9.2), most of them the claims transaction: `mktemp`, `git init`, five `git config`,
-`remote add`, `fetch --depth 2`, `checkout`, then one `sed` per field read (`field()`), then commit and push. v5.9.2
-cut the hooks (35 → 1, 85 → 3) but left this, because it needs a design, not builtins: 4–8 s per `next` on a laptop.
-- [ ] **A persistent claims repo per clone**: `<git-common-dir>/uak-claims/` instead of `git init` per call. One
-  `git fetch` refreshes it; config is set once (or `git init --template`). A `mkdir` lock serializes the machine's
-  processes; a corrupt or locked repo (antivirus, OneDrive) falls back to today's temporary one.
-- [ ] **Reads without a checkout**: `status`, `next`, `inbox --peek` and `board` read `claims/*.md`, `tasks/*.md` and
-  the messages through one `git cat-file --batch` (or `git archive | tar`) into ONE awk pass that builds the state in
-  memory; no file per field, no `sed` per key.
-- [ ] **Tip-keyed cache**: the hook already runs `ls-remote` of claims every 20 s (`uak-claims.tip`). A read whose tip
-  is unchanged reuses the parsed state; only the clock-dependent parts (leases, the freeze, `ago`) are recomputed.
-- [ ] **Mutations on a reused worktree** of that repo: `checkout -f refs/uak/claims`, write, commit, push; retries keep
-  today's semantics (fresh clock per attempt, the secret check before commit, append-only lint on `HEAD^`).
-- [ ] **Proof of no change**: the protocol suites run old and new side by side on the same fixtures; every command's
-  stdout and the resulting claims tree must be identical (the v5.9.2 guard method). Targets: `next` ≤ 40 processes,
-  `status` ≤ 30, `heartbeat` ≤ 20, `test_v592` counts them, `scripts/perf_hooks.sh` times them on Windows.
-- [ ] Then `hook stop` (one `inbox --peek` per turn, 19 git calls) and `session-start` (once per session) ride on it.
-- [ ] Every 5 min `tick` runs `pace --caps` in the foreground (about 40 processes): move it to the background like the poll.
+What each release shipped is in `CHANGELOG.md`; the plans they were built from are in `docs/plans/`.
 
-## Ideas
-- Linear and Jira ID prefixes with two-way AVAILABLE/INTEGRATED sync.
-- Localized agent-facing texts (`UAK_LANG`).
-- `uak loop --parallel` for test runners beyond pytest, jest/vitest and go.
-
-## Earlier releases
-- v4.3 (MLB autopsy) and v4.2 (Reap autopsy): see CHANGELOG.md and `docs/blackbox/`.
-- v3.1: `uak stats`, `uak board`, `uak up`, `uak demo`.
+- **v6.5** (Nov 2026): eight fixes from the black box harvest of 14 repos. **v6.4**: the creativity index for design
+  rounds. **v6.3**: a design taste the kit learns and ships. **v6.2**: landing rounds with human picks.
+  **v6.1**: what two hackathons taught.
+- **v6.0 · The claims transaction without the process storm.** The design this file used to list as "next", built as
+  UAK-001 … UAK-008: a persistent claims repo per clone, reads through one `git cat-file --batch` into one awk pass, a
+  tip-keyed cache of the parsed state, mutations on a reused worktree, old and new engines proven identical on the
+  protocol suites, `hook stop` and `session-start` on the new read path. Why: on Git Bash a process costs 20–50 ms and
+  `uak next` started about 200.
+- **v5.11**: the kit developed with itself; one config reader, a command registry, result codes and `--json`.
+  Porting the engine to Go or Rust was estimated and decided against (`docs/plans/port-go.md`).
+- **v5.0**: one round trip per call, `uak wait`, `uak map`, path-anchored memory, `uak tokens`, `uak loop`,
+  `handover`, stack presets, the weekly black box harvest, the animated demo.
+- v4.3 (MLB autopsy) and v4.2 (Reap autopsy): `docs/blackbox/`. v3.1: `uak stats`, `uak board`, `uak up`, `uak demo`.
