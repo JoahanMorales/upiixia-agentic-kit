@@ -6,6 +6,7 @@ ask for, and `uak skill add NAME` copies one more from the kit's checkout or fro
 file checked against known-files.txt). --update removes the kit's own test and library files by hash and keeps the
 team's. Real install.sh and real Git, a local bare repo as the release remote, never the network."""
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
@@ -16,7 +17,10 @@ from pathlib import Path
 from test_hack import Runner, expect, resolve_binary
 from test_skills_windows_clone import repo
 
-BOUND = 200
+BOUND = 260
+SUB = "plugins/ext/skills/motionsites-web-builder"
+NAME = "motionsites-web-builder"
+REAL_PINNED_FILES = 63  # the real pinned skill (settings/external-skills.tsv) places this many files under .claude/skills
 
 
 def install(r, d, *args, env=None):
@@ -90,8 +94,20 @@ def update_removes_only_known_test_files(r):
     skill_md.write_text(skill_md.read_text(encoding="utf-8") + "\nteam edit\n", encoding="utf-8")
     shutil.copytree(r.package / ".uak/skills/webapp-testing", lib / "webapp-testing")
     install(r, d, "--mode", "sprint", "--update")
+    # What must stay: the edit, the team's own, and any kit test whose hash known-files.txt does not list (a stale list is
+    # kit_hashes --check's finding, not this test's). Every other kit test goes.
+    known = set((r.package / ".uak/settings/known-files.txt").read_text(encoding="utf-8").split())
+    unlisted = set()
+    def blob(b):
+        return hashlib.sha1(b"blob %d\0" % len(b) + b).hexdigest()
+    for p in (r.package / ".uak/tests").iterdir():
+        if p.is_file():
+            raw = p.read_bytes()
+            if blob(raw) not in known and blob(raw.replace(b"\r", b"")) not in known:
+                unlisted.add(p.name)
+    want = sorted({"test_hack.py", "test_ours.py"} | unlisted)
     left = sorted(p.name for p in tests.iterdir()) if tests.exists() else []
-    expect(left == ["test_hack.py", "test_ours.py"], "only the edited and the added test stay: %s" % left[:8])
+    expect(left == want, "only the edited, the added and the unlisted tests stay: got %s want %s" % (left[:8], want[:8]))
     expect("team's edit" in edited.read_text(encoding="utf-8"), "the edit is intact")
     expect((lib / "ours/SKILL.md").is_file() and skill_md.is_file(), "the team's skill and the edited one stay")
     expect(not (lib / "webapp-testing").exists(), "an unedited library skill goes")
@@ -168,18 +184,45 @@ def skill_add_copies_one(r):
     return "copied one, two sources"
 
 
-def marathon_install_under_200_files(r):
+def external_remote(r):
+    """A bare repo standing in for the pinned external skill; returns the TSV row. The real one places REAL_PINNED_FILES
+    files; the fixture has as many, so the count below is the count of a default install."""
+    w = r.scratch / "ext-fixture-src"
+    for i in range(REAL_PINNED_FILES - 1):
+        f = w / SUB / ("references" if i % 2 else "examples") / ("f%d.md" % i)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("fixture %d\n" % i, encoding="utf-8")
+    (w / SUB / "SKILL.md").write_text("---\nname: motionsites-web-builder\n---\nbody\n", encoding="utf-8")
+    r.g(w, "init", "-q", "-b", "main")
+    r.g(w, "config", "user.name", "Ana")
+    r.g(w, "config", "user.email", "ana@example.invalid")
+    r.g(w, "add", "-A")
+    r.g(w, "commit", "-q", "-m", "skill")
+    commit = r.g(w, "rev-parse", "HEAD").stdout.strip()
+    tree = r.g(w, "rev-parse", "HEAD:" + SUB).stdout.strip()
+    bare = r.scratch / "ext-fixture.git"
+    r.g(r.scratch, "clone", "-q", "--bare", w, bare)
+    tsv = r.scratch / "ext-fixture.tsv"
+    tsv.write_text("\t".join([NAME, bare.resolve().as_uri(), commit, SUB, tree]) + "\n", encoding="utf-8", newline="\n")
+    return tsv
+
+
+def marathon_install_under_260_files(r):
     d = repo(r, "marathon")
-    install(r, d, "--mode", "marathon", "--harness", "claude")
+    tsv = external_remote(r)
+    # default install for Claude Code: external skills ON (fetched from the local fixture, never the network)
+    out = install(r, d, "--mode", "marathon", "--harness", "claude", env={"UAK_EXTERNAL_SKILLS": "on", "UAK_EXTERNAL_SKILLS_TSV": str(tsv)})
+    expect("+ external skill %s" % NAME in out.stdout, "the external skill was fetched: " + out.stdout[-400:])
+    expect((d / ".claude/skills" / NAME / "SKILL.md").is_file(), "and placed")
     fs = files(d)
     size = sum(p.stat().st_size for p in fs)
-    print("marathon install for Claude Code: %d files, %d bytes (was 535 files, 9.3 MB)" % (len(fs), size))
-    expect(len(fs) < BOUND, "%d files, bound %d: %s" % (len(fs), BOUND, sorted({p.relative_to(d).parts[0] + "/" + p.relative_to(d).parts[1] if len(p.relative_to(d).parts) > 2 else p.relative_to(d).parts[0] for p in fs})))
+    print("marathon install for Claude Code, external skills on: %d files, %d bytes (was 535 files, 9.3 MB)" % (len(fs), size))
+    expect(len(fs) < BOUND, "%d files, bound %d" % (len(fs), BOUND))
     return "%d files, %d bytes" % (len(fs), size)
 
 
 TESTS = [install_has_no_kit_tests, with_tests_installs_them, update_removes_only_known_test_files, skill_add_copies_one,
-         marathon_install_under_200_files]
+         marathon_install_under_260_files]
 
 
 def main():
