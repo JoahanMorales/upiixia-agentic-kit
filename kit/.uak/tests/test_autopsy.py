@@ -199,8 +199,87 @@ def machines_and_versions_follow_the_window(r):
     return "cut"
 
 
+def extra_lines(r, lines, name="2027-01-15-mach-99.md"):
+    """The fixture's claims plus one more black box file of automatic lines (cmd `uak done`) from `lines`."""
+    c = claims(r["tmp"])
+    head = "# Black box\n\nOne line per event: time | kit | harness | mode | source | kind | command | what | fix\n\n"
+    put(c / "blackbox" / name, head + "".join(
+        "- 2027-01-15T12:%02dZ | v6.7.0 | claude-code | sprint | auto | exit1 | uak done | %s | fix: -\n" % (i, w) for i, w in enumerate(lines)))
+    return c
+
+
+def exit_codes_stay_apart(r):
+    # UAK-137: the normalizer merged `exit 1` with `exit 2`; only what varies (durations, SHAs) may change.
+    c = extra_lines(r, ["step failed with exit 1 after 3 s at %s" % ("a" * 7 + "1"), "step failed with exit 1 after 40 s at %s" % ("b" * 7 + "2"),
+                        "step failed with exit 2 after 7 s at %s" % ("c" * 7 + "3")])
+    errs = section(run(r, c)[0], "Most repeated errors")
+    one = [l for l in errs.splitlines() if "exit 1" in l]
+    two = [l for l in errs.splitlines() if "exit 2" in l]
+    expect(len(one) == 1 and one[0].startswith("| 2 |"), "exit 1 is one class of 2:\n" + errs)
+    expect(len(two) == 1 and two[0].startswith("| 1 |"), "exit 2 is its own class of 1:\n" + errs)
+    expect("after N s" in one[0] and "at `<sha>` |" in one[0] and "aaaaaaa" not in one[0], "durations and SHAs are still normalized: " + one[0])
+    return "two classes with their own counts"
+
+
+def http_status_stays_apart(r):
+    c = extra_lines(r, ["request failed: HTTP 404 after 12 ms", "request failed: HTTP 404 after 98 ms", "request failed: HTTP 500 after 12 ms",
+                        "killed by signal 9 on step 4", "killed by signal 11 on step 5"])
+    errs = section(run(r, c)[0], "Most repeated errors")
+    for want, n in (("HTTP 404", 2), ("HTTP 500", 1), ("signal 9", 1), ("signal 11", 1)):
+        rows = [l for l in errs.splitlines() if want + " " in l]
+        expect(len(rows) == 1 and rows[0].startswith("| %d |" % n), "%r must be one class of %d:\n%s" % (want, n, errs))
+    return "status and signal stay apart"
+
+
+def anonymous_banner_says_withheld(r):
+    c = claims(r["tmp"])
+    full, _ = run(r, c, name="f.md")
+    anon, _ = run(r, c, name="g.md", anon=True)
+    expect("verbatim" in section(full, "Agent notes"), "the full report keeps its verbatim banner")
+    notes = section(anon, "Agent notes")
+    expect("verbatim" not in notes, "the anonymous notes must not say verbatim over text that is not there:\n" + notes)
+    expect("free text was withheld" in notes, notes)
+    expect("counts by kind" in notes and "friction 1" in notes and "bug 1" in notes and "idea 1" in notes, notes)
+    return "withheld banner with counts by kind"
+
+
+def numbers_before_english_words_fold(r):
+    # Review of fba807be: a 3-digit number before "not"/"Too" was kept as an HTTP status (re.I on the reason words).
+    c = extra_lines(r, ["NameError at line 120 not defined", "NameError at line 130 not defined", "found 404 not matching", "found 7 not matching",
+                        "retry 300 too late", "retry 41 too late", "request failed: 404 Not Found", "request failed: 500 Internal Server Error"])
+    errs = section(run(r, c)[0], "Most repeated errors")
+    rows = errs.splitlines()
+    one = [l for l in rows if "NameError at line" in l]
+    expect(len(one) == 1 and one[0].startswith("| 2 |") and "line N not defined" in one[0], "line numbers fold:\n" + errs)
+    two = [l for l in rows if "found" in l and "not matching" in l]
+    expect(len(two) == 1 and two[0].startswith("| 2 |") and "found N not matching" in two[0], "404 before an English word folds like 7:\n" + errs)
+    three = [l for l in rows if "retry" in l]
+    expect(len(three) == 1 and three[0].startswith("| 2 |"), "300 too late folds with 41 too late:\n" + errs)
+    expect(any("404 Not Found" in l for l in rows) and any("500 Internal Server Error" in l for l in rows), "an exact reason phrase keeps its status:\n" + errs)
+    return "numbers before words fold, reason phrases keep"
+
+
+def status_variants_stay_apart(r):
+    # Review of fba807be: rc=1 / rc=2, exit_code=N, returned N and exit status N are different classes too.
+    variants = ["tool rc=%d", "tool exit_code=%d", "tool returned %d", "tool exit status %d", "tool exited with code %d", "tool response code %d", "tool status=%d"]
+    # The table shows the top 10 classes: four variants (eight classes) and the fixture's two fit in one report.
+    for group in (variants[:4], variants[4:]):
+        lines = []
+        for v in group:
+            lines += [v % 1, v % 1, v % 2]
+        errs = section(run(r, extra_lines(r, lines))[0], "Most repeated errors")
+        rows = errs.splitlines()
+        for v in group:
+            want = lambda n: (v % n).replace("_", "\\_")  # the report escapes underscores
+            a, b = [l for l in rows if l.endswith("| " + want(1) + " |")], [l for l in rows if l.endswith("| " + want(2) + " |")]
+            expect(len(a) == 1 and a[0].startswith("| 2 |") and len(b) == 1 and b[0].startswith("| 1 |"), "%r: 1 and 2 stay apart:\n%s" % (v, errs))
+    return "rc, exit_code, returned, exit status, code, status"
+
+
 TESTS = [autopsy_has_the_facts_table, top_errors_are_counted, notes_are_marked_untrusted, anonymous_hides_names, reads_an_extracted_claims_dir,
-         normalization_changes_only_known_tokens, anonymous_withholds_free_text, machines_and_versions_follow_the_window]
+         normalization_changes_only_known_tokens, anonymous_withholds_free_text, machines_and_versions_follow_the_window,
+         exit_codes_stay_apart, http_status_stays_apart, anonymous_banner_says_withheld,
+         numbers_before_english_words_fold, status_variants_stay_apart]
 
 
 def main():
