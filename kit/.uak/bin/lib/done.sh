@@ -190,6 +190,15 @@ integrate_approved_ancestor() { # TIP; sets INT_SHA, RM_PROOF, APPROVED_BY; fail
   integrate_name_unreviewed "$sha" "$tip"
   return 0
 }
+# A human, not an agent that set UAK_HUMAN to its own name: the human acts under their own identity (UAK_AGENT empty,
+# so AGENT is HUMAN) and that name is no identity that ever worked on claims as an agent (coord_mark_human gives a
+# human `Role: human`). Why (review of UAK-114): UAK_AGENT=agent-1 UAK_HUMAN=agent-1 passed the plain check.
+integrate_human_only() {
+  [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ] || return 1
+  case "$HUMAN" in *[!A-Za-z0-9_.-]*) return 1;; esac
+  [ ! -f "$TX/meta/agents/$HUMAN.md" ] || [ "$(coord_read "$TX/meta/agents/$HUMAN.md" Role)" = human ] || return 1
+  [ -z "${UAK_AGENT:-}" ]
+}
 integrate_mutate() {
   local st= outside=no approval=none owner unreviewed=no rsha
   # Why (UpiixSol): a human merged on GitHub while the owner agent was offline; the task sat in REVIEW and
@@ -229,6 +238,8 @@ integrate_mutate() {
   if [ "$st" = REVIEW ] && integrate_normal "$tip"; then :
   elif [ "$st" = REVIEW ] && ! integrated_outside_check "$tip" && integrate_approved_ancestor "$tip"; then
     tip=$INT_SHA; merged=$(git -C "$TX" rev-parse refs/uak/base)
+    # Later commits of the branch that are already ON the base are code in main nobody reviewed (UAK-092 names them).
+    [ -z "${INT_UNREVIEWED:-}" ] || unreviewed=yes
   else
     integrated_outside_check "$tip" || conflict "${INT_WHY:+$INT_WHY. }${INT_WHY:+Not on $BASE either: }$RM_REASON"
     outside=yes
@@ -238,9 +249,11 @@ integrate_mutate() {
     fi
     # Valid = the full approval check of the approved SHA (another seen identity, claims mode). Without one the code is on
     # the base unreviewed: sprint records it and says so; marathon needs a human and a reason (UAK-114, audit #7).
+    # What landed is what was approved only when the approved SHA is the branch tip (no commit after it) and the content
+    # checked on the base is the tip's: a review of an older SHA covers none of the later commits.
     unreviewed=yes
     rsha=$(field "$TX/reviews/$ID.md" SHA 2>/dev/null)
-    if [ "$approval" != none ] && [ -n "$rsha" ] && approval_check "$rsha" "$PR_URL" && [ "$RM_REVIEW_MODE" = claims ]; then unreviewed=no; fi
+    if [ "$approval" != none ] && [ -n "$rsha" ] && [ "$rsha" = "$tip" ] && approval_check "$rsha" "$PR_URL" && [ "$RM_REVIEW_MODE" = claims ]; then unreviewed=no; fi
     # Unreviewed work under review is a human's to record, as before (v5.x); an approval of any earlier SHA, or a task
     # whose owner records its own claim, or one nobody claimed, needs no human.
     [ "$st" != REVIEW ] || [ "$approval" != none ] || { [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ]; } || conflict "${INT_WHY:-No approval on claims}"
@@ -248,27 +261,28 @@ integrate_mutate() {
     # be credited as integrated. Two or more matching files, or any approval, are proof enough for an agent.
     [ "$RM_PROOF" != outside:content:1 ] || [ "$approval" != none ] || { [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ]; } ||
       conflict "only one file matched $BASE and nobody approved it: a human records it (UAK_HUMAN=NAME uak integrate $ID)"
-    if [ "$unreviewed" = yes ]; then
-      # The mode is read from PROJECT.md on the remote base: a branch cannot switch it.
-      if [ "$(git -C "$TX" show "refs/uak/base:.uak/PROJECT.md" 2>/dev/null | tr -d '\r' | sed -n 's/^Mode:[[:space:]]*//p' | head -n 1)" = marathon ]; then
-        { [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ]; } ||
-          conflict "marathon mode: the work of $ID is on $BASE with no valid approval; a human records it: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID --reason TEXT"
-        [ -n "$WHY_TEXT" ] || conflict "marathon mode: say why $ID is recorded without a review: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID --reason TEXT"
-        [ -f "$TX/DECISIONS.md" ] || printf "# DECISIONS\n" > "$TX/DECISIONS.md"
-        printf '%s\n' "- $NOW | $ID | recorded INTEGRATED without a review by $HUMAN | Why: $(one_line "$WHY_TEXT")" >> "$TX/DECISIONS.md"
-      fi
-      say "NOTE integrate $ID: the code reached $BASE without a review (recorded Unreviewed: yes)"
-    fi
     if [ -n "$MERGE_COMMIT" ]; then
       merged=$(git -C "$TX" rev-parse --verify "$MERGE_COMMIT^{commit}" 2>/dev/null) || conflict "COMMIT not in the remote history of $BASE."
     else merged=$(git -C "$TX" rev-parse refs/uak/base); fi
     APPROVED_BY=
   fi
+  if [ "$unreviewed" = yes ]; then
+    # The mode is read with the one config reader from PROJECT.md on the remote base (a branch cannot switch it):
+    # spaces, CR and bold are trimmed there; the case is folded here.
+    uak_cfg_var - Mode sprint < <(git -C "$TX" show "refs/uak/base:.uak/PROJECT.md" 2>/dev/null)
+    case "$CFG" in [Mm][Aa][Rr][Aa][Tt][Hh][Oo][Nn])
+      integrate_human_only || conflict "marathon mode: the work of $ID is on $BASE with no valid review of its tip; a human records it: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID --reason TEXT"
+      [ -n "$WHY_TEXT" ] || conflict "marathon mode: say why $ID is recorded without a review: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID --reason TEXT"
+      [ -f "$TX/DECISIONS.md" ] || printf "# DECISIONS\n" > "$TX/DECISIONS.md"
+      printf '%s\n' "- $NOW | $ID | recorded INTEGRATED without a review by $HUMAN | Why: $(one_line "$WHY_TEXT")" >> "$TX/DECISIONS.md";;
+    esac
+    say "NOTE integrate $ID: the code reached $BASE without a review (recorded Unreviewed: yes)"
+  fi
   STATE=INTEGRATED
   put "$RECORD" Integration-Proof "$RM_PROOF"; put "$RECORD" Merge-Commit "$merged"
   if [ "$outside" = yes ]; then put "$RECORD" Integrated-Outside yes; put "$RECORD" Approval "$approval"; put "$RECORD" Recorded-By "$AGENT"
     [ "$unreviewed" != yes ] || put "$RECORD" Unreviewed yes
-  else put "$RECORD" Reviewer "$APPROVED_BY"; fi
+  else put "$RECORD" Reviewer "$APPROVED_BY"; [ "$unreviewed" != yes ] || put "$RECORD" Unreviewed yes; fi
   put "$RECORD" Task-Tip "$tip"; put "$RECORD" State INTEGRATED
   put "$RECORD" Next "Integrated in $BASE: $merged; claim next P0"
   put "$RECORD" Lease-Until 0; put "$RECORD" Updated "$NOW"

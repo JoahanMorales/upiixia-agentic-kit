@@ -99,8 +99,95 @@ def stats_counts_unreviewed(r):
     return "stats line"
 
 
+def forge_review(r, f, name, reviewer):
+    """Rewrite reviews/HACK-001.md on claims as a raw push by someone else (the record keeps its other fields)."""
+    work = r.scratch / ("iu-forge-" + f.base.name)
+    r.g(r.scratch, "clone", "-q", "-b", "claims", str(f.remote), str(work))
+    path = work / "reviews" / "HACK-001.md"
+    text = path.read_text(encoding="utf-8")
+    expect("Reviewer: agent-2" in text, "the review record: " + text)
+    path.write_text(text.replace("Reviewer: agent-2", "Reviewer: " + reviewer), encoding="utf-8")
+    r.g(work, "-c", "user.name=forger", "-c", "user.email=f@example.invalid", "commit", "-qam", "forged")
+    r.g(work, "push", "-q", "origin", "claims")
+
+
+def approved_then_more_commits_merged(r, name):
+    """agent-2 approves T1; the owner pushes more commits (src/one.txt changed, src/evil.txt added); the PR is squashed."""
+    f = fx(r, name)
+    tip = task_in_review(r, f)
+    approve(r, f, "HACK-001", tip)
+    w = f.worktrees[0]
+    commit_file(r, w, "src/one.txt", "changed after the approval\n", "HACK-001: more")
+    commit_file(r, w, "src/evil.txt", "never reviewed\n", "HACK-001: more files")
+    r.g(w, "push", "-q", "origin", f.branches[0])
+    squash_into_main(r, f, f.branches[0])
+    return f
+
+
+def approval_of_an_older_sha_is_not_a_review(r):
+    f = approved_then_more_commits_merged(r, "iu-older-sprint")
+    out = integrate(f)
+    text = out.stdout + out.stderr
+    expect(out.returncode == 0, "sprint records it: rc %d %s" % (out.returncode, text[-400:]))
+    rec = record(f, "HACK-001")
+    expect("Unreviewed: yes" in rec and "without a review" in text, "sprint: flagged: " + rec + text)
+    f = approved_then_more_commits_merged(r, "iu-older-marathon")
+    marathon(r, f)
+    out = integrate(f)
+    expect(out.returncode != 0 and "UAK_HUMAN=NAME" in out.stdout + out.stderr, "marathon: an agent is refused: " + out.stdout + out.stderr)
+    expect("State: INTEGRATED" not in record(f, "HACK-001"), "marathon: not recorded")
+    out = human(r, f, "--reason", "owner pushed after the approval")
+    expect(out.returncode == 0 and "Unreviewed: yes" in record(f, "HACK-001"), "marathon: the human records it: " + out.stdout + out.stderr)
+    return "older SHA"
+
+
+def mode_with_trailing_space_is_marathon(r):
+    for label, line in (("space", "Mode: marathon   \n"), ("cr", "Mode: marathon\r\n"), ("case", "Mode: Marathon\n"), ("bold", "- **Mode:** marathon\n")):
+        f = landed(r, "iu-mode-" + label)
+        seed_pull(r, f)
+        p = f.seed / ".uak" / "PROJECT.md"
+        p.write_bytes(line.encode() + p.read_bytes())
+        r.g(f.seed, "add", ".uak/PROJECT.md")
+        r.g(f.seed, "commit", "-q", "-m", "mode")
+        seed(r, f, "push", "-q", "origin", "main")
+        out = integrate(f, agent=0)
+        expect(out.returncode != 0 and "State: INTEGRATED" not in record(f, "HACK-001"), "%s: read as marathon, an agent is refused: %s" % (label, out.stdout + out.stderr))
+    return "trimmed"
+
+
+def an_agent_cannot_pose_as_the_human(r):
+    f = landed(r, "iu-pose")
+    marathon(r, f)
+    out = r.run([r.bash, ".uak/bin/uak", "integrate", "HACK-001", "--reason", "trust me"], cwd=f.worktrees[0], env={
+        "UAK_AGENT": "agent-1", "UAK_HUMAN": "agent-1", "UAK_NOW": "1000100", "UAK_REMOTE": "origin"}, allowed=None)
+    expect(out.returncode != 0 and "State: INTEGRATED" not in record(f, "HACK-001"), "UAK_HUMAN set to the agent's own name: " + out.stdout + out.stderr)
+    return "refused"
+
+
+def an_approval_by_the_owner_or_an_unseen_identity_does_not_count(r):
+    for reviewer in ("agent-1", "ghost"):
+        f = fx(r, "iu-forged-" + reviewer)
+        tip = task_in_review(r, f)
+        approve(r, f, "HACK-001", tip)
+        forge_review(r, f, reviewer, reviewer)
+        squash_into_main(r, f, f.branches[0])
+        marathon(r, f)
+        out = integrate(f)
+        expect(out.returncode != 0 and "State: INTEGRATED" not in record(f, "HACK-001"), "%s's approval does not count in marathon: %s" % (reviewer, out.stdout + out.stderr))
+    f = fx(r, "iu-forged-sprint")
+    tip = task_in_review(r, f)
+    approve(r, f, "HACK-001", tip)
+    forge_review(r, f, "ghost", "ghost")
+    squash_into_main(r, f, f.branches[0])
+    out = integrate(f)
+    expect(out.returncode == 0 and "Unreviewed: yes" in record(f, "HACK-001"), "sprint: an unseen reviewer is no review: " + out.stdout + out.stderr)
+    return "forged approvals"
+
+
 TESTS = [sprint_agent_integrates_and_record_says_unreviewed, marathon_agent_is_refused,
-         marathon_human_records_it_with_a_reason, approved_sha_integrates_in_both_modes, stats_counts_unreviewed]
+         marathon_human_records_it_with_a_reason, approved_sha_integrates_in_both_modes, stats_counts_unreviewed,
+         approval_of_an_older_sha_is_not_a_review, mode_with_trailing_space_is_marathon, an_agent_cannot_pose_as_the_human,
+         an_approval_by_the_owner_or_an_unseen_identity_does_not_count]
 
 
 def main():
