@@ -411,6 +411,13 @@ renews a lease, a guard that checks substitutions inside quotes and blocks `gh â
 claims, an MCP tool that cannot run a command unseen, a merge lock that dies with its merge, and an integrate outside
 the gate that says whether anyone reviewed it (marathon asks a human).
 
+**v6.7: everything measurable.** Every command leaves a line (outcome and milliseconds), and `uak metrics` puts each
+speed number next to an instability number: tasks per day and what came back, hours to merge and rejects, error rate
+per command, why a human had to step in. Every task records who touched it and with which model; REVIEW says what it
+is waiting for; `uak timeline ID`, or a click on a dashboard card, shows a task's whole story for an audit; `uak
+autopsy` writes an event's report from the claims branch; `uak plan --check` validates a plan before a human publishes
+it; and a pre-push hook stops an agent's push to the base whatever built the ref.
+
 ## Deploy in one command: `uak deploy`
 
 ```text

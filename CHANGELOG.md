@@ -1,5 +1,52 @@
 # Changelog
 
+## v6.7.0 · 2026-11-21 · Everything measurable
+
+The audit of v6.5 asked six questions the kit could not answer (how often each command runs and fails, who did a task
+and with which model, why a card sits in REVIEW, what happened outside the kit, what a task cost). Eleven tasks
+(UAK-116 … UAK-126), each test-first and reviewed by an agent that was not its author. The reviews rejected seven of
+them at least once with a reproduction: a ledger that a healthy session never published, token totals carried to the
+last task, a "waiting for CI" label that meant a failed CI, prose counted as a manual step, a merge count that mixed
+three things, a red test shown twice, an anonymous report that kept paths and names.
+
+New
+- **A ledger of every command** (UAK-116): name, task, exit code, result code and milliseconds, with no extra process;
+  published with the black box as `metrics/<day>-<machine>.tsv`, also from a session with no errors.
+- **`uak metrics`** (UAK-117): every speed number next to an instability number, counts with denominators: tasks per
+  day and what came back, hours to INTEGRATED and tasks rejected or reworked after an approval, calls, error rate,
+  median and p95 per command, human interventions by reason, and how tasks reached the base, read from the base's own
+  history (pushed by the gate, built by the gate and landed by a human, merged on the forge).
+- **Who did what** (UAK-118): every event carries the harness and the model (`UAK_MODEL`, else what the hook saw, else
+  `unknown`), and every task lists its participants by role.
+- **REVIEW says what it waits for** (UAK-119): waiting for a reviewer, in review, changes requested (round N),
+  re-review, approved and CI failed, approved and waiting for a human merge with the reason, approved and waiting for
+  the owner; with the time in each, in `uak status` and on the dashboard, where late cards are marked.
+- **A task's whole story** (UAK-120): `uak timeline ID`, and a click on a dashboard card: every move with its time,
+  gap, agent, model, verdict and reason, the time in each state as a bar, who took part. Text from claims is rendered
+  as text; only `https://` links become links.
+- **"I had to do this by hand"** (UAK-121): `uak bb note manual "…"`, and the hook records the manual moves it
+  recognizes (a worktree made by hand, a commit on the base, a forge merge after the queue asked, a refused push to
+  claims) with a fixed text, only when they are the command itself.
+- **`uak autopsy`** (UAK-123): the report of an event written from claims: facts, the metrics, the ten most repeated
+  errors, agent notes marked as untrusted data, the slowest and most-reviewed tasks, and findings left for a person.
+  `--anonymous` withholds every free text and keeps counts, kinds, roles and timings.
+- **`uak plan FILE --check`** (UAK-125): every validation of a publish, nothing written, no human needed, every problem
+  in one run.
+- **A pre-push hook** (UAK-124, UAK-126): git itself refuses an agent's push to the base or to claims, whatever built
+  the ref; an agent may still create the base on a remote that has none (`uak demo`, a new repo).
+
+Fixed
+- **Tokens** (UAK-122): a session started outside the repo counts where its tool calls ran; a session that leaves the
+  repo stops counting; `uak tokens --by step` splits author, review, merge and lead; `tokens --budget-check ID`.
+- `guard` reads `Mode` trimmed and case-insensitively.
+
+Known limits: a green CI re-run leaves no trace on claims, so "CI failed" stays until the next `done`; commands that
+replace the shell record no exit code or duration; on bash 3.2 durations are whole seconds; `uak tokens --since` cuts by
+a transcript's modification time, so a long resumed session brings its whole history; `uak board` and `--json status`
+do not show the sub-states yet.
+
+Design prior: unchanged (1 profile, 2 projects, 6 rounds, 12 picks).
+
 ## v6.6.0 · 2026-11-21 · The defects the audit found
 
 A read-only audit of the engine at v6.5.0 (`docs/audit-2026-11.md`) found eleven defects; the seven that could let an

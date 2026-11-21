@@ -39,6 +39,8 @@ Then open your agent in the repo:
 | How much did a round cost | `bash .uak/bin/uak design report R<k>` (tokens, minutes, per picked variant) |
 | Variants all look the same | `bash .uak/bin/uak design round --from R<k> --creativity 4` (clone warnings and a 0-100 score in `design shoot`) |
 | A task was merged on GitHub and stays in REVIEW | `bash .uak/bin/uak integrate ID` (records the approved SHA that is on main; names commits nobody reviewed) |
+| Why is a card stuck in review | `bash .uak/bin/uak timeline ID` (every move, who, which model, each reject with its reason), or click the card in `uak dash` |
+| How the event went, in numbers | `bash .uak/bin/uak metrics`, and `bash .uak/bin/uak autopsy --out report.md` afterwards |
 | The landing needs another look | `bash .uak/bin/uak design round --from R<k>` breeds new variants from the human's picks; `uak design pick R<k>` to choose |
 | `uak next` offers nothing | read its `Why not` lines, or run `bash .uak/bin/uak start` |
 | See the team | `bash .uak/bin/uak board --watch 10` |
