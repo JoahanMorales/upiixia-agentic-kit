@@ -3,7 +3,7 @@
 - **Type:** feature
 - **Priority:** P1
 - **Estimate:** 2 h
-- **Depends on:** None
+- **Depends on:** UAK-125
 - **Paths:** kit/.uak/bin/uak, kit/.uak/bin/bb, kit/.uak/tests/test_command_ledger.py
 - **Acceptance:**
   - every `uak` command appends one line when it ends to `<git-common-dir>/uak-ledger.pending`: epoch, command (with the `UAK_CALLER` prefix the calls file already uses), task ID when it has one, exit code, UAK_CODE when set, milliseconds, agent, harness. No extra process on the way (shell builtins; the clock from the cache the engine already has, or `$SECONDS`/`EPOCHREALTIME` where bash has them, falling back to whole seconds on bash 3.2)
@@ -152,7 +152,7 @@
 - **Priority:** P1
 - **Estimate:** 2 h
 - **Depends on:** None
-- **Paths:** kit/.uak/bin/lib/plan.sh, kit/.uak/tests/test_plan_check.py
+- **Paths:** kit/.uak/bin/lib/plan.sh, kit/.uak/bin/uak, kit/.uak/tests/test_plan_check.py
 - **Acceptance:**
   - `uak plan FILE --check` (and `uak plan FILE --amend --check`) runs every validation the publish runs (required fields, ID format and duplicates against main's TASKS.md and the claims backlog, Depends on pointing at existing tasks, Paths overlaps with live claims and with tasks of the same file, OWNERS, a Verify that parses, the amend rules such as a task in REVIEW) and writes nothing: no commit, no push, no message to owners
   - it needs no UAK_HUMAN: any agent or human may run it; without `--check` the command needs a human as today
@@ -162,4 +162,4 @@
   - Why (2026-11-20 and 21): the v6.5 plan failed at publish on a missing `Depends on` and the human ran the command twice; an amend of UAK-083 was refused for a task in REVIEW; the v6.6 and v6.7 plans were handed to the human unvalidated, because the only way to validate a plan was to publish it, and publishing is the one step reserved to the human
 - **Tests:** check_writes_nothing, check_needs_no_human, check_reports_every_problem, check_passes_a_valid_plan, amend_check_names_a_task_in_review
 - **Verify:** `python3 kit/.uak/tests/test_plan_check.py`
-- **Next step:** plan_mutate in kit/.uak/bin/lib/plan.sh (split the validation from the write) and where `uak` requires UAK_HUMAN for `plan`
+- **Next step:** plan_mutate in kit/.uak/bin/lib/plan.sh (split the validation from the write) and the UAK_HUMAN requirement for `plan` at kit/.uak/bin/uak:177
