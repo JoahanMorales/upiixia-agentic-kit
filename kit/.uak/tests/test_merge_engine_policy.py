@@ -34,10 +34,11 @@ ENGINE_FILE = ".uak/bin/lib/engine-note.txt"
 GH_STUB = """#!/usr/bin/env bash
 # gh api repos/org/repo/commits/SHA/check-runs | .../status | .../branches/main/protection/required_status_checks
 [ -z "${MOCK_GH_DOWN:-}" ] || exit 1
-[ "$1" = auth ] && exit 0
+[ "$1" = auth ] || [ "$1" = pr ] && exit 0
 case "$2" in
   */check-runs) cat "$MOCK_CHECKS";;
   */commits/*/status) cat "$MOCK_STATUS";;
+  repos/org/repo) echo true,false,false;;
   */protection/required_status_checks) [ -n "${MOCK_REQUIRED:-}" ] && cat "$MOCK_REQUIRED" || exit 1;;
   *) exit 1;;
 esac
@@ -66,7 +67,7 @@ def checks(r, text, status=STATUS_NONE):
 
 
 def fixture(r, name, path, project="", content="ready-HACK-001\n"):
-    f = r.fixture("pol-" + name, paths={"HACK-001": path}, count=1)
+    f = r.fixture("pol-" + name, paths={"HACK-001": path}, count=1, owners={path: "HACK-001"})
     (f.seed / ".uak/PROJECT.md").write_text(
         "# Fixture\nMode: sprint\nAutonomy: yes\nAuto-Merge: yes\nBacklog-Approved: yes\nBacklog-Proposed-Epoch: 1000000\n"
         "Freeze-Epoch: 9999999\nReview-Mode: claims\nEvents-Per-Session: 100000\nCheckpoint-Percent: 60\n"
