@@ -68,14 +68,14 @@ def demo():
         out = subprocess.run([BASH, str(KIT / ".uak/bin/demo"), "--keep", "--fast"], capture_output=True, text=True,
                              errors="replace", encoding="utf-8", env=env, timeout=600)
         expect(out.returncode == 0, "demo rc %d: %s" % (out.returncode, (out.stdout + out.stderr)[-1500:]))
-        m = re.search(r"Explore it: cd (\S+)", out.stdout)
+        m = re.search(r"^  Explore it: cd (.+)$", out.stdout, re.M)  # the path may hold spaces
         expect(m, "the demo prints where its team repo is")
         _cache["v"] = (out.stdout, Path(m.group(1)))
     return _cache["v"]
 
 
-def mask(line):
-    return re.sub(r"[0-9]+", "N", re.sub(r"[0-9a-f]{7,40}", "SHA", re.sub(r"/\S*uak-demo\.[A-Za-z0-9]+", "TMP", line)))
+def mask(line, tmp):
+    return re.sub(r"[0-9]+", "N", re.sub(r"[0-9a-f]{7,40}", "SHA", line.replace(tmp, "TMP").replace(tmp.replace(" ", "\\ "), "TMP")))  # the loop line prints the path shell-quoted
 
 
 def demo_timeline_names_models():
@@ -96,8 +96,8 @@ def demo_timeline_names_models():
 
 
 def demo_output_unchanged():
-    stdout, _ = demo()
-    got = [mask(l) for l in stdout.splitlines() if re.match(r"(▶|  [A-Za-z0-9-]+\$|  ✓|✓)", l)]
+    stdout, team = demo()
+    got = [mask(l, str(team.parent)) for l in stdout.splitlines() if re.match(r"(▶|  [A-Za-z0-9-]+\$|  ✓|✓)", l)]
     want = GOLDEN.splitlines()
     expect(got == want, "the demo's printed lines changed:\n--- want\n%s\n--- got\n%s" % ("\n".join(want), "\n".join(got)))
     return "%d step and command lines identical" % len(want)
