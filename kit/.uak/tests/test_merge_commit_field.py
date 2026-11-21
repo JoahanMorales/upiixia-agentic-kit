@@ -147,7 +147,7 @@ def metrics_counts_untrusted_records(r):
         p.write_text(p.read_text() + "Merge-Commit: %s\n" % val)
     out = test_metrics.run(r, c)
     m = json.loads(test_metrics.run(r, c, "--json"))["merge_paths"]
-    expect(m["classified_by_history"] == {"n": 3, "of": 4}, "UAK-011 (wrong field), UAK-012 (none) and UAK-013 (unknown) were classified by history: %s" % m)
+    expect(m.get("classified_by_history") == {"n": 3, "of": 4}, "UAK-011 (wrong field), UAK-012 (none) and UAK-013 (unknown) were classified by history: %s" % m)
     expect(m["gate_built_human_landed"]["n"] == 1 and m["forge"]["n"] == 2, "UAK-010 by its field; UAK-011 and UAK-012 by history: %s" % m)
     expect("3 of 4 recorded tasks had a wrong, missing or unknown Merge-Commit and were classified by the base's history" in out, out)
     return "wrong, missing and unknown fields are counted"
