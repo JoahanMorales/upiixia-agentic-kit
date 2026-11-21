@@ -284,17 +284,20 @@ fi
 mkdir -p "$(dirname "$path")"
 # --no-track: no upstream means no .git/config write (avoids lock contention).
 added=no
+# mktemp, not a name with $$ in a shared temp dir (predictable); removed on every exit path, die included.
+wt_err=$(mktemp "${TMPDIR:-/tmp}/wt-add.XXXXXX") || die "Could not create a temporary file in ${TMPDIR:-/tmp}."
+trap 'rm -f "$wt_err"' EXIT
 for attempt in 1 2 3 4 5; do
-  if git -C "$root" worktree add -q --no-track -b "$branch" "$path" "$start" 2> "${TMPDIR:-/tmp}/wt-add.$$"; then added=yes; break; fi
+  if git -C "$root" worktree add -q --no-track -b "$branch" "$path" "$start" 2> "$wt_err"; then added=yes; break; fi
   # A failed attempt may leave the branch without a worktree: reuse it only if still at base.
   if [ ! -e "$path" ] && git -C "$root" show-ref --verify --quiet "refs/heads/$branch" &&
      [ -z "$(git -C "$root" rev-list "$start..$branch" 2>/dev/null)" ]; then
-    git -C "$root" worktree add -q "$path" "$branch" 2>> "${TMPDIR:-/tmp}/wt-add.$$" && { added=yes; break; }
+    git -C "$root" worktree add -q "$path" "$branch" 2>> "$wt_err" && { added=yes; break; }
   fi
   sleep "$attempt"
 done
-[ "$added" = yes ] || { cat "${TMPDIR:-/tmp}/wt-add.$$" >&2; rm -f "${TMPDIR:-/tmp}/wt-add.$$"; die "Could not create the worktree."; }
-rm -f "${TMPDIR:-/tmp}/wt-add.$$"
+[ "$added" = yes ] || { cat "$wt_err" >&2; die "Could not create the worktree."; }
+rm -f "$wt_err"
 write_env "$path" "$agent" "$human" "$id"
 # The git-ignored .env files of the main checkout reach the worktree (a link; a copy on Windows), so the app finds its
 # keys there too. Why (HackADA): the map said "needs a key" in every worktree; the keys lived in the main checkout only.
