@@ -136,9 +136,14 @@ def registry():
             c = line.rstrip("\r").split("\t")
             if line and not line.startswith("#") and len(c) == 6 and c[1] != "-":
                 out.setdefault(c[0], c[4])
+                if re.search(r"\b(CMD|COMMAND)\b", c[5]):  # its usage takes a command (red, loop, up…)
+                    TAKES_COMMAND.add(c[0])
     except OSError:
         pass
     return out
+
+
+TAKES_COMMAND = set()
 
 
 REGISTRY = registry()
@@ -391,15 +396,20 @@ def shape(text):
 # Subcommands that run a command given as an argument: through MCP, guard (a Bash PreToolUse hook) never sees it.
 # Why (audit, Oct 2026): uak_cli ["loop", "--verify", "git reset --hard …"] ran with no prompt and no guard.
 # The registry marks them "shell"; q and smoke are scripts, not uak commands.
-RUNS_COMMANDS = {n for n, m in REGISTRY.items() if m == "shell"} | {"loop", "init-smoke", "deploy", "up", "q", "smoke"}
+# Also the commands whose usage line shows a COMMAND/CMD placeholder (red ID -- COMMAND), so a new one is covered by
+# the registry alone. Why (audit of v6.5.0, #2): `red ID -- CMD` and ["--json", "loop", …] reached eval with no guard.
+RUNS_COMMANDS = ({n for n, m in REGISTRY.items() if m == "shell"} | TAKES_COMMAND
+                 | {"loop", "init-smoke", "deploy", "up", "q", "smoke", "red"})
 
 
 def cli_args(a):
     args = a["args"]
     if not isinstance(args, list) or not all(isinstance(x, str) and "\x00" not in x for x in args):
         raise ValueError("args is a list of strings, e.g. [\"board\"]")
-    if args and args[0] in RUNS_COMMANDS:
-        raise ValueError("uak %s runs a command you pass; run it in the shell (bash .uak/bin/uak %s …), where guard checks it" % (args[0], args[0]))
+    # uak takes global flags before the command (--json): the command is the first argument that is not a flag.
+    name = next((x for x in args if not x.startswith("-")), "")
+    if name in RUNS_COMMANDS:
+        raise ValueError("uak %s runs a command you pass; run it in the shell (bash .uak/bin/uak %s …), where guard checks it" % (name, name))
     return ["uak"] + args
 
 
