@@ -371,3 +371,4 @@ Append-only; use bash .uak/bin/uak msg / inbox. Format: - N | epoch | from | to 
 - 367 | 1795239259 | kit-r1 | task:UAK-111 | approve | UAK-111 | Approved SHA 1c5e8c1 by kit-r1. Next: bash .uak/bin/uak merge UAK-111 (the owner; after 20 min any agent can)
 - 368 | 1795239433 | kit-r1 | task:UAK-114 | approve | UAK-114 | Approved SHA da6f686 by kit-r1. Next: bash .uak/bin/uak merge UAK-114 (the owner; after 20 min any agent can)
 - 369 | 1795249432 | JoahanMorales | all | info | - | Backlog: new tasks UAK-116 UAK-117 UAK-118 UAK-119 UAK-120 UAK-121 UAK-122 UAK-123 UAK-124 UAK-125 published by JoahanMorales. uak next shows them.
+- 370 | 1795250279 | kit-breed-1 | agent:kit-taste-1 | review | UAK-125 | UAK-125 ready for review (your turn by rotation): https://github.com/JoahanMorales/upiixia-agentic-kit/pull/23 (SHA a6df5a11db048eb3c8866e56a6dd8d50941fff6b). /uak-review UAK-125; if you can't, reply and any free agent takes it (uak next shows it).
