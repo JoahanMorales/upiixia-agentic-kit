@@ -75,7 +75,10 @@ def demo():
 
 
 def mask(line, tmp):
-    return re.sub(r"[0-9]+", "N", re.sub(r"[0-9a-f]{7,40}", "SHA", line.replace(tmp, "TMP").replace(tmp.replace(" ", "\\ "), "TMP")))  # the loop line prints the path shell-quoted
+    # The loop line prints the fake agent's path shell-quoted (printf %q): spaces, accents and $'...' escapes all
+    # depend on the machine's TMPDIR, so what sits between "--agent bash " and " --max" is masked whole.
+    line = re.sub(r"(--agent bash ).*?( --max )", r"\1TMP/fake-agent.sh\2", line.replace(tmp, "TMP"))
+    return re.sub(r"[0-9]+", "N", re.sub(r"[0-9a-f]{7,40}", "SHA", line))
 
 
 def demo_timeline_names_models():
