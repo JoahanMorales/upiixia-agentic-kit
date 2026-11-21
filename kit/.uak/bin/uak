@@ -114,15 +114,7 @@ esac
 # Dispatch from the registry (lib/commands.tsv): a script of its own, or a command of this engine.
 # An unknown name gets the nearest registered one, error path only (lib/hints.sh; the message's first words stay as they were).
 reg_find "$CMD" || { . "$UAK_BIN/lib/hints.sh"; UAK_CODE=unknown-command die "Unknown command: $CMD (uak help lists them).$(unknown_hint)"; }
-# A script of its own runs as a child, not exec'd, so this shell is still there to write the ledger line with the script's
-# exit code and milliseconds (UAK-136; before, the line was written at launch with both "-": six commands showed calls and no
-# outcome). The cost is one process (the child) for each exec'd command; `uak` waits for it, signals reach it with this group.
-if [ "$REG_RUN" = exec ]; then
-  bash "$UAK_BIN/$CMD" "$@"
-  uak_rc=$?
-  ledger_end "$uak_rc" "${1:-}"
-  exit "$uak_rc"
-fi
+[ "$REG_RUN" != exec ] || { bash "$UAK_BIN/$CMD" "$@"; uak_rc=$?; ledger_end "$uak_rc" "${1:-}"; exit "$uak_rc"; }  # child, not exec: the line gets its exit and ms (UAK-136)
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   case "$CMD" in lint|init-smoke) ;; *) gitfail "Run inside a Git repository with a remote.";; esac
   ROOT=$(pwd -P)
