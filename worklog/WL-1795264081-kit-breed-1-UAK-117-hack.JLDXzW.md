@@ -1,7 +1,7 @@
 # worklog/WL-1795264081-kit-breed-1-UAK-117-hack.JLDXzW.md · UAK-117
 
 ## Live summary
-- Done: test_metrics.py 5 passed; smoke PACKAGE_PASS; kit_lint 0; gen_registry --check ok; real claims: 14 gate merges + 86 recorded after forge merge of 100; 13 of 103 reviewed tasks with a new tip after approval · red at 46dc5c9: exit 1 (no assertion line recognized: the reviewer reads the log) · red at 46dc5c9: exit 1 (no assertion line recognized: the reviewer reads the log)
+- Done: test_metrics.py 6 passed (new: merge paths from a fixture base history); smoke PACKAGE_PASS; kit_lint 0; gen_registry --check ok; real claims 14 gate / 46 engine+human / 25 forge / 15 not found · red at 46dc5c9: exit 1 (no assertion line recognized: the reviewer reads the log) · red at 46dc5c9: exit 1 (no assertion line recognized: the reviewer reads the log)
 - Decision: Own branch and worktree
 - Why: Parallel work without touching the main checkout
 - Failing: No validation run yet
@@ -14,3 +14,4 @@
 - 1795265155 | REVIEW | kit-r1 | review; reject; SHA 8defa850ef26a7a88e798740e884117e1331094c; reviewer kit-r1 | Harness: unknown | Model: unknown
 - 1795265994 | REVIEW | kit-breed-1 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/pull/31; evidence: test_metrics.py 5 passed; smoke PACKAGE_PASS; kit_lint 0; gen_registry --check ok; real claims: 14 gate merges + 86 recorded after forge merge of 100; 13 of 103 reviewed tasks with a new tip after approval · red at 46dc5c9: exit 1 (no assertion line recognized: the reviewer reads the log) · red at 46dc5c9: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: - | Harness: unknown | Model: claude-sonnet-5-5
 - 1795266086 | REVIEW | kit-r1 | review; reject; SHA 94859680b64d5653dba83f0b51596db9e3e253d7; reviewer kit-r1 | Harness: unknown | Model: unknown
+- 1795266801 | REVIEW | kit-breed-1 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/pull/31; evidence: test_metrics.py 6 passed (new: merge paths from a fixture base history); smoke PACKAGE_PASS; kit_lint 0; gen_registry --check ok; real claims 14 gate / 46 engine+human / 25 forge / 15 not found · red at 46dc5c9: exit 1 (no assertion line recognized: the reviewer reads the log) · red at 46dc5c9: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: - | Harness: unknown | Model: claude-sonnet-5-5
