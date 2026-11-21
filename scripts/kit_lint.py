@@ -165,20 +165,41 @@ def _split(tests, n):
     return [{"n": i + 1, "tests": " ".join(sorted(picked[i]))} for i in range(n)]
 
 
-# Windows is slower at forking than the macOS runner the table was measured on. Why (UAK-128): one job per file took
-# about 8 min for the longest file, test_review_merge (84 s on macOS), of which about 90 s was checkout and setup:
-# (480 - 90) / 84 is about 4.6, rounded up to 5. A shard's time is WINDOWS_SETUP_S + WINDOWS_SCALE * its macOS seconds.
-WINDOWS_SCALE = 5
-WINDOWS_SETUP_S = 90
+# Windows is slower at forking than the macOS runner the table was measured on. Calibrated on real runs (UAK-141), not
+# guessed: on main, run 44953858464 (6 shards of about 255 macOS seconds each) took 1558 1202 1096 1373 1596 912 s, and
+# the PR run 44951402176 took 1374 1435 1290 1221 1386 1263 s. Checkout and setup are about 15 s of that (the job's
+# steps: 6 s checkout), the rest is the tests, 3.6 to 6.2 s of Windows per macOS second depending on the shard's files.
+# The longest is what fails a run, so the scale is the worst measured one: (1596 - 15) / 255 = 6.2. UAK-128 had guessed
+# 90 s and 5 and predicted 1320 s where 1435 s happened. A shard's time is WINDOWS_SETUP_S + WINDOWS_SCALE * its macOS
+# seconds, and the longest must stay at or under WINDOWS_MARGIN of the bound, so noise does not turn the job red.
+WINDOWS_SCALE = 6.2
+WINDOWS_SETUP_S = 15
 WINDOWS_BOUND_S = 25 * 60
-WINDOWS_MARGIN = 1.0   # stub (UAK-141)
+WINDOWS_MARGIN = 0.85
+WINDOWS_MAX_SHARDS = 15   # 24 jobs a commit on main: discover (1) + 4 shards x 2 OS (8) + these
+
 
 
 def push_trigger_problems(text):
-    return []   # stub
-
-
-WINDOWS_MAX_SHARDS = 15   # 24 jobs a commit on main: discover (1) + 4 shards x 2 OS (8) + these
+    """A push trigger must name branches or tags: `on: [push, pull_request]` and a bare `push:` both run everything twice
+    for a branch with a PR (audit v6.7 §1, UAK-141)."""
+    head = text.split("\njobs:")[0]
+    why = "runs everything twice for a branch with a PR: pull_request, and push on main and tags only"
+    if re.search(r"(?m)^on:[ \t]*(\[|push\b)", head):
+        return ["`on: [push, ...]` " + why]
+    lines = head.splitlines()
+    for i, line in enumerate(lines):
+        m = re.match(r"^(\s+)push:(.*)$", line)
+        if not m:
+            continue
+        block = [m.group(2)]
+        for nxt in lines[i + 1:]:
+            if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= len(m.group(1)):
+                break
+            block.append(nxt)
+        if not re.search(r"\b(branches|tags)\b", "\n".join(block)):
+            return ["`push:` names no branches or tags: it " + why]
+    return []
 
 
 def ci_windows_shards(n):
@@ -191,10 +212,10 @@ def windows_seconds(shard):
 
 
 def windows_shard_count():
-    """The smallest shard count whose longest shard stays under WINDOWS_BOUND_S (capped at WINDOWS_MAX_SHARDS)."""
+    """The smallest shard count whose longest shard stays under WINDOWS_MARGIN of WINDOWS_BOUND_S (capped at WINDOWS_MAX_SHARDS)."""
     total = len(ci_tests())
     for n in range(1, min(total, WINDOWS_MAX_SHARDS) + 1):
-        if max(windows_seconds(s) for s in ci_windows_shards(n)) <= WINDOWS_BOUND_S:
+        if max(windows_seconds(s) for s in ci_windows_shards(n)) <= WINDOWS_BOUND_S * WINDOWS_MARGIN:
             return n
     return min(total, WINDOWS_MAX_SHARDS)
 
@@ -211,8 +232,7 @@ def check_test_discovery(findings):
         findings.append("kit/.uak/bin/smoke · hand-kept-tests · names %s: let the discovery run them" % ", ".join(listed))
     if "python3 scripts/kit_lint.py --ci-windows" not in ci or "fromJSON(needs.discover.outputs.wshards)" not in ci:
         findings.append(".github/workflows/test.yml · no-test-discovery · the Windows shards must come from the discover job (kit_lint.py --ci-windows)")
-    if re.search(r"(?m)^on: \[", ci):
-        findings.append(".github/workflows/test.yml · double-run · `on: [push, pull_request]` runs everything twice for a branch with a PR: pull_request, and push on main and tags only")
+    findings.extend(".github/workflows/test.yml · double-run · " + x for x in push_trigger_problems(ci))
     # The macOS and Linux suites run in shards (UAK-018): their lists come from --ci-shards, and smoke must run only them.
     if "python3 scripts/kit_lint.py --ci-shards" not in ci or "fromJSON(needs.discover.outputs.shards)" not in ci \
             or "SHARD_TESTS: ${{ matrix.shard.tests }}" not in ci or "UAK_SMOKE_TESTS=$t" not in ci:

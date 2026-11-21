@@ -62,6 +62,7 @@ jobs:
           mkfifo "$RUNNER_TEMP/stdin"; sleep 7200 > "$RUNNER_TEMP/stdin" 2>/dev/null & holder=$!
           # Linux: temp paths with a space and an accent, like C:\Users\José Pérez
           if [ "$RUNNER_OS" = Linux ]; then export TMPDIR="$RUNNER_TEMP/José Pérez"; mkdir -p "$TMPDIR"; fi
+          [ -n "$(echo $SHARD_TESTS)" ] || { echo "FAILED: this shard has no test files (empty SHARD_TESTS)"; exit 1; }
           failed=''
           for t in $SHARD_TESTS; do
             echo "::group::$t"
@@ -107,6 +108,7 @@ jobs:
         env:
           SHARD_TESTS: ${{ matrix.w.tests }}
         run: |
+          [ -n "$(echo $SHARD_TESTS)" ] || { echo "FAILED: this shard has no test files (empty SHARD_TESTS)"; exit 1; }
           failed=''
           for t in $SHARD_TESTS; do
             echo "::group::$t"
