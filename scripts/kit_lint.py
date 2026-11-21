@@ -112,7 +112,7 @@ def ci_tests():
 
 
 # Seconds each test file took in the macOS suite (run 42310349789 on 4854882, Nov 2026), the slowest CI runner for the
-# sequential suite. Only the balance of the shards depends on them: a file not listed counts 60 s and still runs.
+# sequential suite; later files are estimated (see below). Only the balance of the shards depends on them: a file not listed counts 60 s and still runs.
 CI_SECONDS = {
     "test_review_merge": 84, "test_v54": 75, "test_claims_perf": 75, "test_v57": 59, "test_next_prefilter": 58,
     "test_hack": 55, "test_v51": 54, "test_v5": 53, "test_v55": 45, "test_v42": 40, "test_coordination": 38,
@@ -120,6 +120,29 @@ CI_SECONDS = {
     "test_v21_security": 19, "test_claims_read": 19, "test_v52": 18, "test_ci_shards": 15, "test_v59": 14,
     "test_v57_tools": 13, "test_v511": 11, "test_v510": 11, "test_v58": 9, "test_claims_cache": 9, "test_v591": 7,
     "test_v57_install": 6, "test_v592": 5, "test_snapshot": 2, "test_gate_scope": 2, "test_policy": 1,
+    # UAK-128: the files added since, timed on a Jetson (aarch64) running 3 at a time, divided by 2.5 (the ratio of its
+    # test_review_merge, 212 s, to the macOS 84 s above); mcp_tools is tests/test_mcp_tools.py (42 s there).
+    "test_integrate_unreviewed": 55, "test_pre_push": 43, "test_review_substates": 28, "test_skills_windows_clone":
+    23, "test_one_live_renew": 19, "test_wt_refused_identity": 15, "test_design_perf": 13, "test_command_ledger":
+    12, "test_merge_affected": 12, "test_plan_amend_overlap": 12, "test_review_unseen_approval": 12,
+    "test_design_breed_notes": 11, "test_direct_main": 11, "test_merge_renewer_orphan": 11, "test_tokens_coverage":
+    11, "test_design_density": 9, "test_integrate_on_main": 9, "test_tokens_elsewhere": 9, "test_integrate_outside":
+    8, "test_plan_check": 8, "test_task_participants": 8, "test_ui_shot_names": 8, "test_reviewer_next": 7,
+    "test_wt_resume_claim": 7, "test_bb_flush_no_hooks": 6, "test_manual_notes": 6, "test_smoke_parallel": 6,
+    "test_status_planned": 6, "test_external_skills": 5, "test_critic_stale_ui_only": 4, "test_design_breed": 4,
+    "test_design_color": 4, "test_design_shoot_full": 4, "test_design_shoot_qa": 4, "test_harness_commands": 4,
+    "test_plan_owners": 4, "test_review_identity": 4, "test_cursor_skills_keep": 3, "test_design_breed_rules": 3,
+    "test_design_shoot_timeout": 3, "test_doctor_skills_compare": 3, "test_gitleaks_exception": 3,
+    "test_lint_paths_hint": 3, "test_temp_and_timeouts": 3, "test_cli_spelling_hints": 2, "test_design_aspect": 2,
+    "test_design_breed_twins": 2, "test_design_creativity": 2, "test_design_creativity_inherit": 2,
+    "test_design_metrics": 2, "test_design_pick": 2, "test_git_identity_msg": 2, "test_guard_substitution": 2,
+    "test_task_timeline": 2, "test_autopsy": 1, "test_banner_version": 1, "test_ci_web_deps": 1,
+    "test_design_brief_real": 1, "test_design_fonts": 1, "test_design_ground": 1, "test_design_lint_html": 1,
+    "test_design_lint_scale": 1, "test_design_lock_round": 1, "test_design_prior": 1, "test_design_round": 1,
+    "test_design_round_taste": 1, "test_design_stage": 1, "test_design_taste": 1, "test_design_taste_cli": 1,
+    "test_design_taste_team": 1, "test_freeze_claim": 1, "test_gallery_lint": 1, "test_harvest_discovery": 1,
+    "test_landing_skills": 1, "test_mcp_runs_commands": 1, "test_metrics": 1, "test_q_string": 1, "test_smoke_env":
+    1, "mcp_tools": 17
 }
 
 
@@ -130,13 +153,43 @@ def ci_seconds(test):
 def ci_shards(n):
     """The suite's test files in n shards for the CI matrix, [{"n": 1, "tests": "test_a test_b"}, …]: longest first,
     each to the shard with the least seconds so far (ties to the lower shard), so every file is in exactly one."""
-    tests = [t for t in ci_tests() if t != "mcp_tools"]
+    return _split([t for t in ci_tests() if t != "mcp_tools"], n)
+
+
+def _split(tests, n):
     load, picked = [0] * n, [[] for _ in range(n)]
     for t in sorted(tests, key=lambda x: (-ci_seconds(x), x)):
         i = min(range(n), key=lambda k: (load[k], k))
         load[i] += ci_seconds(t)
         picked[i].append(t)
     return [{"n": i + 1, "tests": " ".join(sorted(picked[i]))} for i in range(n)]
+
+
+# Windows is slower at forking than the macOS runner the table was measured on. Why (UAK-128): one job per file took
+# about 8 min for the longest file, test_review_merge (84 s on macOS), of which about 90 s was checkout and setup:
+# (480 - 90) / 84 is about 4.6, rounded up to 5. A shard's time is WINDOWS_SETUP_S + WINDOWS_SCALE * its macOS seconds.
+WINDOWS_SCALE = 5
+WINDOWS_SETUP_S = 90
+WINDOWS_BOUND_S = 25 * 60
+WINDOWS_MAX_SHARDS = 15   # 24 jobs a commit on main: discover (1) + 4 shards x 2 OS (8) + these
+
+
+def ci_windows_shards(n):
+    """Every test file plus mcp_tools in n Windows shards, balanced like ci_shards."""
+    return _split(ci_tests(), n)
+
+
+def windows_seconds(shard):
+    return WINDOWS_SETUP_S + WINDOWS_SCALE * sum(ci_seconds(t) for t in shard["tests"].split())
+
+
+def windows_shard_count():
+    """The smallest shard count whose longest shard stays under WINDOWS_BOUND_S (capped at WINDOWS_MAX_SHARDS)."""
+    total = len(ci_tests())
+    for n in range(1, min(total, WINDOWS_MAX_SHARDS) + 1):
+        if max(windows_seconds(s) for s in ci_windows_shards(n)) <= WINDOWS_BOUND_S:
+            return n
+    return min(total, WINDOWS_MAX_SHARDS)
 
 
 def check_test_discovery(findings):
@@ -149,11 +202,13 @@ def check_test_discovery(findings):
     listed = sorted(set(re.findall(r"\.uak/tests/(test_\w+)\.py", smoke)))
     if listed:
         findings.append("kit/.uak/bin/smoke · hand-kept-tests · names %s: let the discovery run them" % ", ".join(listed))
-    if "python3 scripts/kit_lint.py --ci-tests" not in ci or "fromJSON(needs.discover.outputs.tests)" not in ci:
-        findings.append(".github/workflows/test.yml · no-test-discovery · the Windows matrix must come from the discover job (kit_lint.py --ci-tests)")
+    if "python3 scripts/kit_lint.py --ci-windows" not in ci or "fromJSON(needs.discover.outputs.wshards)" not in ci:
+        findings.append(".github/workflows/test.yml · no-test-discovery · the Windows shards must come from the discover job (kit_lint.py --ci-windows)")
+    if re.search(r"(?m)^on: \[", ci):
+        findings.append(".github/workflows/test.yml · double-run · `on: [push, pull_request]` runs everything twice for a branch with a PR: pull_request, and push on main and tags only")
     # The macOS and Linux suites run in shards (UAK-018): their lists come from --ci-shards, and smoke must run only them.
     if "python3 scripts/kit_lint.py --ci-shards" not in ci or "fromJSON(needs.discover.outputs.shards)" not in ci \
-            or "UAK_SMOKE_TESTS: ${{ matrix.shard.tests }}" not in ci:
+            or "SHARD_TESTS: ${{ matrix.shard.tests }}" not in ci or "UAK_SMOKE_TESTS=$t" not in ci:
         findings.append(".github/workflows/test.yml · no-test-shards · the suite's shards must come from the discover job (kit_lint.py --ci-shards) into UAK_SMOKE_TESTS")
     if "UAK_SMOKE_TESTS" not in smoke:
         findings.append("kit/.uak/bin/smoke · no-test-shards · smoke must run only the files UAK_SMOKE_TESTS names when it is set")
@@ -249,10 +304,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--ci-tests", action="store_true", help="print the Windows matrix for $GITHUB_OUTPUT")
+    ap.add_argument("--ci-windows", action="store_true", help="print the Windows shards for $GITHUB_OUTPUT")
     ap.add_argument("--ci-shards", type=int, metavar="N", help="print the suite's N shards for $GITHUB_OUTPUT")
     a = ap.parse_args()
     if a.ci_tests:
         print("tests=" + json.dumps(ci_tests()))
+        return 0
+    if a.ci_windows:
+        print("wshards=" + json.dumps(ci_windows_shards(windows_shard_count())))
         return 0
     if a.ci_shards:
         print("shards=" + json.dumps(ci_shards(a.ci_shards)))

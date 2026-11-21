@@ -1,20 +1,26 @@
 name: test
-on: [push, pull_request]
+# Once per commit: a branch with an open pull request ran everything on push and again on pull_request (audit v6.7 §1:
+# about 200 checks per PR). Pull requests, then main and tags only.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['*']
 permissions:
   contents: read
 jobs:
   discover:
-    # The Windows matrix is every kit/.uak/tests/test_*.py, and the suite's shards split the same list: a new test file
-    # runs in both with no edit here.
+    # The suite's shards (Linux, macOS) and the Windows shards split every kit/.uak/tests/test_*.py by measured seconds:
+    # a new test file runs on the three systems with no edit here.
     runs-on: ubuntu-latest
     outputs:
-      tests: ${{ steps.list.outputs.tests }}
+      wshards: ${{ steps.list.outputs.wshards }}
       shards: ${{ steps.list.outputs.shards }}
     steps:
       - uses: actions/checkout@v4
       - id: list
         run: |
-          python3 scripts/kit_lint.py --ci-tests >> "$GITHUB_OUTPUT"
+          python3 scripts/kit_lint.py --ci-windows >> "$GITHUB_OUTPUT"
           python3 scripts/kit_lint.py --ci-shards 4 >> "$GITHUB_OUTPUT"
   suite:
     # 4 shards per OS, balanced by each file's measured seconds (UAK-018): one sequential macOS job took 15.6 min.
@@ -49,14 +55,24 @@ jobs:
       - name: Protocol suite (real Git, local bare remotes), this shard's files
         working-directory: kit
         env:
-          UAK_SMOKE_TESTS: ${{ matrix.shard.tests }}
-        # stdin held open, as in a terminal: a command that reads it (BSD awk -W version did) hangs here, not on a laptop
+          SHARD_TESTS: ${{ matrix.shard.tests }}
+        # stdin held open, as in a terminal: a command that reads it (BSD awk -W version did) hangs here, not on a laptop.
+        # One smoke per file: a failing file is named in the job summary, and the rest of the shard still runs.
         run: |
           mkfifo "$RUNNER_TEMP/stdin"; sleep 7200 > "$RUNNER_TEMP/stdin" 2>/dev/null & holder=$!
           # Linux: temp paths with a space and an accent, like C:\Users\José Pérez
           if [ "$RUNNER_OS" = Linux ]; then export TMPDIR="$RUNNER_TEMP/José Pérez"; mkdir -p "$TMPDIR"; fi
-          rc=0; bash .uak/bin/smoke --package-only < "$RUNNER_TEMP/stdin" || rc=$?
-          kill "$holder"; exit "$rc"
+          failed=''
+          for t in $SHARD_TESTS; do
+            echo "::group::$t"
+            UAK_SMOKE_TESTS=$t bash .uak/bin/smoke --package-only < "$RUNNER_TEMP/stdin" || failed="$failed $t"
+            echo "::endgroup::"
+          done
+          kill "$holder"
+          if [ -n "$failed" ]; then
+            echo "### Failed test files (${{ matrix.os }}, shard ${{ matrix.shard.n }}):$failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "FAILED test files:$failed"; exit 1
+          fi
       - name: MCP tools, one by one (tests/)
         if: matrix.shard.n == 1
         run: python3 tests/test_mcp_tools.py
@@ -66,14 +82,17 @@ jobs:
           t=$(mktemp -d) && git -C "$t" init -q -b main && bash install.sh --mode marathon "$t" && test -f "$t/.uak/PROJECT.md"
   windows:
     # Git Bash, a CRLF checkout (core.autocrlf=true, as on a new Windows machine) and the MCP server started the way
-    # Claude Code starts it. One job per test file (from the discover job): the Windows runner is slow at forking.
+    # Claude Code starts it. Shards from the discover job (kit_lint.py --ci-windows): the Windows runner is slow at
+    # forking, so the count is the smallest that keeps the longest shard under 25 minutes. The MCP tools of tests/ are in
+    # a shard as `mcp_tools`.
     needs: discover
+    name: windows (${{ matrix.w.n }})
     strategy:
       fail-fast: false
       matrix:
-        t: ${{ fromJSON(needs.discover.outputs.tests) }}
+        w: ${{ fromJSON(needs.discover.outputs.wshards) }}
     runs-on: windows-latest
-    timeout-minutes: 30   # one test file per job: about 8 min for the longest
+    timeout-minutes: 45   # the bound is 25 minutes of tests; a hang fails here
     defaults:
       run:
         shell: bash
@@ -84,7 +103,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Git identity for fixtures
         run: git config --global user.name ci && git config --global user.email ci@example.invalid
-      - name: ${{ matrix.t }}
+      - name: This shard's files
+        env:
+          SHARD_TESTS: ${{ matrix.w.tests }}
         run: |
-          if [ "${{ matrix.t }}" = mcp_tools ]; then exec python tests/test_mcp_tools.py; fi
-          cd kit && python .uak/tests/${{ matrix.t }}.py --package "$PWD"
+          failed=''
+          for t in $SHARD_TESTS; do
+            echo "::group::$t"
+            if [ "$t" = mcp_tools ]; then python tests/test_mcp_tools.py || failed="$failed $t"
+            else (cd kit && python ".uak/tests/$t.py" --package "$PWD") || failed="$failed $t"; fi
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "### Failed test files (windows, shard ${{ matrix.w.n }}):$failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "FAILED test files:$failed"; exit 1
+          fi
