@@ -187,7 +187,7 @@ def direct_commits_inside_a_window(r):
     repo.mkdir()
     git(repo, "init", "-q")
     git(repo, "symbolic-ref", "HEAD", "refs/heads/main")
-    for i, (when, msg) in enumerate([(T0 - 10 * DAY, "old direct"), (T0 + 2 * DAY + 100, "direct in the window"),
+    for i, (when, msg) in enumerate([(T0 - 20 * DAY, "root"), (T0 - 10 * DAY, "old direct"), (T0 + 2 * DAY + 100, "direct in the window"),
                                      (T0 + 2 * DAY + 200, "UAK-001 · a task commit")]):
         (repo / "f").write_text(str(i))
         git(repo, "add", "f")
@@ -202,7 +202,7 @@ def direct_commits_inside_a_window(r):
         expect(p.returncode == 0, p.stdout + p.stderr)
         return p.stdout
     whole = go()
-    expect("commits on the base with no task: 2 of 3 first-parent commits" in whole, whole)
+    expect("commits on the base with no task: 2 of 4 first-parent commits" in whole, whole)
     win = go("--since", "1")
     expect("commits on the base with no task: 1 of 2 first-parent commits" in win, win)
     expect("n/a" not in win.split("work outside the kit")[1].split("recorded as")[0], win)

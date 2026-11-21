@@ -11,8 +11,8 @@ ledger_start() { # DIR: the git common dir (the same place as the calls file); c
   LG_DIR=$1 LG_ON=1 LG_CODE=
   lg_clock; LG_T0=${LG_US:-$SECONDS}
 }
-# EXIT status of the command → one line. An exec'd script (lib/commands.tsv run=exec) replaces this shell and cannot report
-# its end: uak records it at launch with exit and milliseconds "-" (a parent process kept alive to wait would cost a process).
+# EXIT status of the command → one line. A script of its own (lib/commands.tsv run=exec) is run by uak as a child and
+# waited for (UAK-136), so it ends the same way: exit code and milliseconds. "-" stays only for lines older than that.
 ledger_end() { # EXIT_CODE ["TASK" when the command has not set ID]
   [ "$LG_ON" = 1 ] || return 0
   LG_ON=0
