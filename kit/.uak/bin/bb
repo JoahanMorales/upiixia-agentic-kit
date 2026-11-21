@@ -68,12 +68,27 @@ line() { # kind src cmd text fix
     "$(mode)" "$2" "$1" "${c:--}" "$t" "${f:--}"
 }
 
-publish() { # $1 file with lines
+# metrics/<day>-<machine>.tsv: the ledger's lines (UAK-116), capped at UAK_LEDGER_CAP data lines per file (default 5000);
+# the oldest beyond it become "#sum<TAB>command<TAB>ok|fail<TAB>count" rows (merged on every flush), so claims stays small.
+ledger_merge() { # $1 existing file (may not exist) $2 new lines → stdout
+  awk -F'\t' -v cap="${UAK_LEDGER_CAP:-5000}" '
+    $1 == "#sum" { k = $2 "\t" $3; if (!(k in s)) { so[++sn] = k }; s[k] += $4; next }
+    $1 == "#" || $1 == "" { next }
+    { d[++n] = $0 }
+    END {
+      drop = n - cap
+      for (i = 1; i <= drop; i++) { split(d[i], f, "\t"); k = f[2] "\t" (f[4] == "0" ? "ok" : "fail")
+        if (!(k in s)) so[++sn] = k; s[k]++ }
+      print "# ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)"
+      for (i = 1; i <= sn; i++) print "#sum\t" so[i] "\t" s[so[i]]
+      for (i = (drop > 0 ? drop + 1 : 1); i <= n; i++) print d[i] }' "$1" "$2"
+}
+publish() { # $1 file with black box lines (may be empty) · $2 ledger lines (optional)
   url=$(git config --get "remote.$REMOTE.url" 2>/dev/null) || return 1
   case "$url" in /*|[A-Za-z]:*|*://*|*@*:*) ;; *) url="${common:-$top/.git}/../$url";; esac
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-bb.XXXXXX") || return 1
   host=$( (hostname 2>/dev/null || uname -n) | cksum | awk '{print $1 % 100000}')
-  rel="blackbox/$(date -u +%Y-%m-%d)-$host.md"
+  day=$(date -u +%Y-%m-%d); rel="blackbox/$day-$host.md"; mrel="metrics/$day-$host.tsv"
   ok=1
   git -C "$tmp" init -q && git -C "$tmp" remote add origin "$url" &&
     git -C "$tmp" config user.name "${UAK_AGENT:-uak}" && git -C "$tmp" config user.email uak@localhost || { rm -rf "$tmp"; return 1; }
@@ -83,10 +98,18 @@ publish() { # $1 file with lines
     else
       git -C "$tmp" checkout -q --orphan claims 2>/dev/null || git -C "$tmp" checkout -q claims || break
     fi
-    mkdir -p "$tmp/blackbox"
-    [ -f "$tmp/$rel" ] || printf '# Black box · %s\n\nOne line per event: time | kit | harness | mode | source | kind | command | what | fix\n\n' "$rel" > "$tmp/$rel"
-    cat "$1" >> "$tmp/$rel"
-    git -C "$tmp" add "$rel" && git -C "$tmp" commit -q -m "uak: blackbox +$(awk 'END{print NR}' "$1")" || break
+    nb=$(awk 'END{print NR+0}' "$1"); nl=0
+    if [ "$nb" -gt 0 ]; then
+      mkdir -p "$tmp/blackbox"
+      [ -f "$tmp/$rel" ] || printf '# Black box · %s\n\nOne line per event: time | kit | harness | mode | source | kind | command | what | fix\n\n' "$rel" > "$tmp/$rel"
+      cat "$1" >> "$tmp/$rel"; git -C "$tmp" add "$rel" || break
+    fi
+    if [ -n "${2:-}" ]; then
+      nl=$(awk 'END{print NR+0}' "$2"); mkdir -p "$tmp/metrics"; : >> "$tmp/$mrel"
+      ledger_merge "$tmp/$mrel" "$2" > "$tmp/ledger.new" && mv "$tmp/ledger.new" "$tmp/$mrel" || break
+      git -C "$tmp" add "$mrel" || break
+    fi
+    git -C "$tmp" commit -q -m "uak: blackbox +$nb, metrics +$nl" || break
     if git -C "$tmp" push -q origin HEAD:refs/heads/claims 2>/dev/null; then ok=0; break; fi
     sleep "$attempt"
   done
@@ -99,8 +122,15 @@ flush() {
   [ -s "$calls" ] && {
     summary=$(sort "$calls" | uniq -c | awk '{printf "%s%s:%s", (NR>1?" ":""), $2, $1}')
     line usage auto calls "$summary" - >> "$pending"; : > "$calls"; }
-  [ -s "$pending" ] || { [ -n "$quiet" ] || say "BB: nothing pending"; return 0; }
-  snap="$pending.$$"; mv "$pending" "$snap" || return 0
+  lpend="${common:-${TMPDIR:-/tmp}}/uak-ledger.pending"; lsnap=
+  if [ -s "$lpend" ]; then
+    lsnap="$lpend.$$"
+    # Lines from bash 3.2 have no epoch (-): they get the flush time, which is within minutes of the command.
+    mv "$lpend" "$lsnap" || lsnap=
+  fi
+  [ -s "$pending" ] || [ -n "$lsnap" ] || { [ -n "$quiet" ] || say "BB: nothing pending"; return 0; }
+  snap="$pending.$$"
+  if [ -s "$pending" ]; then mv "$pending" "$snap" || { [ -z "$lsnap" ] || mv "$lsnap" "$lpend"; return 0; }; else : > "$snap"; fi
   # Identical lines (same everything but the minute) become one line with (xN).
   # Why (Reap buildathon): one FREEZE refusal was published 153 times.
   awk -F' [|] ' '{
@@ -111,11 +141,15 @@ flush() {
     END { for (i = 1; i <= m; i++) { k = order[i]; line = first[k] k
         if (n[k] > 1) { c = split(line, f, / [|] /); f[8] = f[8] " (x" n[k] ")"; line = f[1]; for (j = 2; j <= c; j++) line = line " | " f[j] }
         print line } }' "$snap" > "$snap.d" && mv "$snap.d" "$snap"
-  if publish "$snap"; then
+  if [ -n "$lsnap" ]; then
+    awk -F'\t' -v OFS='\t' -v now="$(date +%s)" '$1 !~ /^[0-9]+$/ { $1 = now } { print }' "$lsnap" > "$lsnap.d" && mv "$lsnap.d" "$lsnap"
+  fi
+  if publish "$snap" "$lsnap"; then
     [ -n "$quiet" ] || say "BB: published $(awk 'END{print NR}' "$snap") line(s) to claims:blackbox/"
-    rm -f "$snap"; touch "${common:-${TMPDIR:-/tmp}}/uak-blackbox.flushed" 2>/dev/null
+    rm -f "$snap" "$lsnap"; touch "${common:-${TMPDIR:-/tmp}}/uak-blackbox.flushed" 2>/dev/null
   else
     cat "$snap" >> "$pending"; rm -f "$snap"
+    [ -z "$lsnap" ] || { cat "$lsnap" >> "$lpend"; rm -f "$lsnap"; }
     [ -n "$quiet" ] || say "BB: could not push (offline?); lines stay pending" >&2
   fi
   return 0
