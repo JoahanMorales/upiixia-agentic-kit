@@ -74,8 +74,8 @@ def dynamic_ref_asks(r):
     expect_all(r, "gs-dyn", [
         ("git push origin $BRANCH", ASK),
         ("git push origin HEAD:$B", ASK),
-        ("git push origin $(git branch --show-current)", ASK),
-        ("git push origin `git branch --show-current`", ASK),
+        ("git push origin $(cat ref.txt)", ASK),
+        ("git push origin `cat ref.txt`", ASK),
         ("git push origin ma\\in", ASK),
         ("gh pr $verb 3", ASK),
         ("git push --force origin $B", BLOCK),
@@ -84,6 +84,45 @@ def dynamic_ref_asks(r):
         ("gh pr view $N", ALLOW),
     ])
     return "ask"
+
+
+def narrowed_checks_stay_quiet(r):
+    """Review of UAK-111: an `ask` stops an autonomous agent, so only what the guard cannot read asks."""
+    nl = chr(10)
+    expect_all(r, "gs-narrow", [
+        ("gh pr view $PR --json mergeable", ALLOW),
+        ("gh pr checks $PR", ALLOW),
+        ('gh issue comment 5 --body "merge gate note $(date)"', ALLOW),
+        ('gh pr create --title "x" --body "merge the $5 thing now"', ALLOW),
+        ("gh pr create --title t --body merge $5", ALLOW),
+        ("gh -R $REPO pr view 3", ALLOW),
+        ("gh pr $verb 3", ASK),
+        ("gh $sub list", ASK),
+        ("gh pr merge $N", BLOCK),
+        ('git -C "$WT" push origin feat/x', ALLOW),
+        ('git -C "$(pwd)" push -u origin HEAD', ALLOW),
+        ("git --git-dir=$G push origin feat/x", ALLOW),
+        ('git push origin "$(git branch --show-current)"', ALLOW),
+        ('git push -u origin "$(git rev-parse --abbrev-ref HEAD)"', ALLOW),
+        ("git push origin `git branch --show-current`", ALLOW),
+        ("git push -u origin `git rev-parse --abbrev-ref HEAD`", ALLOW),
+        ('git push origin "$(git branch --show-current):main"', BLOCK),
+        ('git push origin "$(echo other)"', ASK),
+        ("git push origin $B", ASK),
+        ("cat > f <<'EOF'" + nl + "git push --force" + nl + "gh pr merge 3" + nl + "`sudo ls` $(sudo ls)" + nl + "EOF", ALLOW),
+        ('cat > f <<"EOF"' + nl + "git push --force" + nl + "EOF", ALLOW),
+        ("cat > f <<\\EOF" + nl + "git push --force $(x)" + nl + "EOF", ALLOW),
+        ("git commit -F - <<'EOF'" + nl + "docs: `gh pr merge` and $(git push $X)" + nl + "EOF", ALLOW),
+        ("cat > f <<EOF" + nl + "$(git push --force)" + nl + "EOF", BLOCK),
+        ("cat > f <<'EOF'" + nl + "x" + nl + "EOF" + nl + "git push --force", BLOCK),
+        ("bash <<'EOF'" + nl + "git push --force" + nl + "EOF", BLOCK),
+        ('git commit -m "docs: `gh pr merge` is blocked"', BLOCK),
+        ('git commit -m "fix: `git push` handling"', ALLOW),
+    ])
+    d = repo(r, "gs-reason")
+    out = check(r, d, 'git commit -m "docs: `gh pr merge` is blocked"')
+    expect("single quotes or a heredoc with a quoted delimiter" in out.stderr and "gh pr merge skips the merge gate" in out.stderr, out.stderr)
+    return "quiet"
 
 
 def plain_commands_stay_on_builtins(r):
@@ -105,7 +144,7 @@ def plain_commands_stay_on_builtins(r):
 
 
 TESTS = [substitution_in_double_quotes_is_checked, gh_merge_with_flags_is_blocked, push_to_claims_is_blocked,
-         dynamic_ref_asks, plain_commands_stay_on_builtins]
+         dynamic_ref_asks, narrowed_checks_stay_quiet, plain_commands_stay_on_builtins]
 
 
 def main():
