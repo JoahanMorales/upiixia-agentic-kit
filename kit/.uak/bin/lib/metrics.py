@@ -197,19 +197,42 @@ def base_subjects(root, ref):
     return dict(l.split("|", 1) for l in out.stdout.decode("utf-8", "replace").splitlines() if "|" in l)
 
 
+def subject_kind(tid, pr, sub):
+    """What one base subject says about task `tid` (PR number `pr` or None): engine / forge when it is this task's merge,
+    other when it is some other task's or PR's merge, none when it names neither."""
+    if sub.startswith("Merge %s reviewed by " % tid):
+        return "engine"
+    if pr and (sub.startswith("Merge pull request #%s " % pr) or sub.endswith("(#%s)" % pr)):
+        return "forge"
+    if re.match(r"^Merge [A-Z][A-Z0-9]*-\d+ reviewed by ", sub) or sub.startswith("Merge pull request #") \
+            or re.search(r"\(#\d+\)$", sub):
+        return "other"
+    return "none"
+
+
 def merge_kind(t, subjects):
-    """How the task's code reached the base, from the base's subjects: engine = the gate's own merge commit of THIS task
-    ("Merge UAK-N reviewed by ..."); forge = the task's PR number in a "Merge pull request #N" or squash "(#N)" subject;
-    other = none found. (The Merge-Commit field is not trusted: for some tasks it names another task's merge.)"""
+    """(kind, by_history): how the task's code reached the base. The Merge-Commit field is used when it names a commit of
+    the base that is not another task's merge or another PR's (UAK-132 writes the task's own merge, or `unknown`); a field
+    that is missing, `unknown`, not on the base or another task's merge is the one that is not trusted: then the kind is
+    read from the base's history by subjects (engine = the gate's "Merge UAK-N reviewed by", forge = the task's PR number
+    in a "Merge pull request #N" or squash "(#N)" subject, other = none found), and by_history is True.
+    Why (review of UAK-117): on UAK-030 and UAK-013 the field named another task's merge."""
     tid = t["id"]
-    pr = re.search(r"/pull/(\d+)", t["f"].get("PR", ""))
+    pr_m = re.search(r"/pull/(\d+)", t["f"].get("PR", ""))
+    pr = pr_m.group(1) if pr_m else None
+    field = t["f"].get("Merge-Commit", "").strip()
+    sub = subjects.get(field) if re.match(r"^[0-9a-f]{40}$", field) else None
+    if sub is not None:
+        k = subject_kind(tid, pr, sub)
+        if k != "other":
+            return (k if k in ("engine", "forge") else "other"), False
     forge = False
     for sub in subjects.values():
-        if sub.startswith("Merge %s reviewed by " % tid):
-            return "engine"
-        if pr and (sub.startswith("Merge pull request #%s " % pr.group(1)) or sub.endswith("(#%s)" % pr.group(1))):
-            forge = True
-    return "forge" if forge else "other"
+        k = subject_kind(tid, pr, sub)
+        if k == "engine":
+            return "engine", True
+        forge = forge or k == "forge"
+    return ("forge" if forge else "other"), True
 
 
 def direct_commits(root, ref):
@@ -314,6 +337,7 @@ def build(data, since_days, now, git_root, claims_given):
     subjects = base_subjects(git_root, base_ref(git_root, claims_given))
     paths = {"gate_pushed": 0, "gate_built_human_landed": 0, "forge": 0, "recorded_unclassified": 0}
     rec = []
+    by_hist = 0
     for t in done.values():
         ev = integrated_event(t)
         if ev["text"].startswith("merge"):
@@ -322,7 +346,11 @@ def build(data, since_days, now, git_root, claims_given):
         if not ev["text"].startswith("integrate"):
             continue
         rec.append(t)
-        kind = merge_kind(t, subjects) if subjects is not None else "unknown"
+        if subjects is not None:
+            kind, hist_used = merge_kind(t, subjects)
+            by_hist += 1 if hist_used else 0
+        else:
+            kind = "unknown"
         paths[{"engine": "gate_built_human_landed", "forge": "forge"}.get(kind, "recorded_unclassified")] += 1
     rec_human = sum(1 for t in rec if integrated_event(t)["actor"] in data["humans"])
     rec_unrev = sum(1 for t in rec if t["f"].get("Unreviewed") == "yes")
@@ -356,6 +384,7 @@ def build(data, since_days, now, git_root, claims_given):
                         "forge": count(paths["forge"], len(done)),
                         "recorded_unclassified": count(paths["recorded_unclassified"], len(done)),
                         "recorded_with_integrate": count(len(rec), len(done)),
+                        "classified_by_history": count(by_hist, len(rec)) if classified else None,
                         "recorded_with_agent_identity": count(len(rec) - rec_human, len(rec)),
                         "recorded_by_human": count(rec_human, len(rec)),
                         "recorded_unreviewed": count(rec_unrev, len(rec))},
@@ -432,6 +461,9 @@ def render(m):
         o.append("  recorded with integrate, merge commit not found or of another kind: %s" % n_of("recorded_unclassified"))
     else:
         o.append("  recorded with integrate (forge merge, or gate merge a human landed; not told apart): %s" % n_of("recorded_with_integrate"))
+    if mp["classified_by_history"]:
+        bh = mp["classified_by_history"]
+        o.append("  %d of %d recorded tasks had a wrong, missing or unknown Merge-Commit and were classified by the base's history" % (bh["n"], bh["of"]))
     rr = mp["recorded_with_integrate"]
     o.append("  of the %d recorded with integrate: with an agent identity %s · by a human (Role: human) %s · Unreviewed: yes %s"
              % (rr["n"], n_of("recorded_with_agent_identity"), n_of("recorded_by_human"), n_of("recorded_unreviewed")))

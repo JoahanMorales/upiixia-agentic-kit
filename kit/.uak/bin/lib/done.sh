@@ -139,6 +139,65 @@ integrate_normal() { # TIP: the approval and the proof of the reviewed content; 
   else merged=$(git -C "$TX" rev-parse refs/uak/base); fi
   integrated_check "$1" "$merged" || { INT_WHY="$RM_REASON (squash merge: pass --integrated COMMIT)"; return 1; }
 }
+# The commit on the base that brought this task's tip in, for the Merge-Commit field. Sets MERGE_REC (a full SHA, or
+# "unknown") and MERGE_WHY. Ancestry: the earliest first-parent commit of the base that contains the tip (found by
+# bisection: containment only grows along the chain); it is the task's when it is the tip itself or a merge with the tip as
+# a parent, else the first commit from there on whose subject names the task (its ID or its PR number): another task's
+# merge that carried this tip along does not count. Not an ancestor (squash, rebase): the first commit since the fork whose
+# tree is the tip's, else the first single-parent commit whose subject names the task. Never the base's tip by default.
+# Why (review of UAK-117, 2026-11-21): UAK-030 and UAK-013 recorded another task's merge, so metrics stopped trusting it.
+# Does the subject on stdin name this task (its ID, as a whole word) or its PR number (#N)?
+merge_names_task() { # ID PR_NUMBER
+  awk -v id="$1" -v pr="$2" '
+    { t = tolower($0); i = tolower(id); k = index(t, i); s = 0
+      while (k > 0) { a = substr(t, k + length(i), 1); b = k > 1 ? substr(t, k - 1, 1) : " "
+        if (a !~ /[0-9a-z-]/ && b !~ /[0-9a-z-]/) s = 1
+        t = substr(t, k + 1); k = index(t, i) }
+      if (pr != "" && ($0 ~ ("#" pr "[^0-9]") || $0 ~ ("#" pr "$"))) s = 1
+      if (s) f = 1 }
+    END { exit !f }'
+}
+find_merge_commit() { # TIP
+  local tip=$1 base=refs/uak/base chain lo hi mid n c p pr ttree sub
+  MERGE_REC=unknown MERGE_WHY=
+  pr=$(printf '%s' "$PR_URL" | sed -n 's#.*/pull/\([0-9][0-9]*\).*#\1#p')
+  git -C "$TX" cat-file -e "$tip^{commit}" 2>/dev/null || { MERGE_WHY="the task tip is not in the repository"; return 0; }
+  if git -C "$TX" merge-base --is-ancestor "$tip" "$base"; then
+    chain=$TXROOT/merge-chain
+    git -C "$TX" log --first-parent --format='%H %s' "$base" > "$chain" 2>/dev/null
+    n=$(wc -l < "$chain" | tr -d ' ')
+    # Line 1 is the base's tip, line n the oldest. The largest line whose commit still contains the tip is the earliest one.
+    lo=1 hi=$n
+    git -C "$TX" merge-base --is-ancestor "$tip" "$(sed -n 1p "$chain" | cut -d' ' -f1)" || { MERGE_WHY="the tip is not in the first-parent history of $BASE"; return 0; }
+    while [ "$lo" -lt "$hi" ]; do
+      mid=$(( (lo + hi + 1) / 2 ))
+      if git -C "$TX" merge-base --is-ancestor "$tip" "$(sed -n "${mid}p" "$chain" | cut -d' ' -f1)"; then lo=$mid; else hi=$((mid - 1)); fi
+    done
+    c=$(sed -n "${lo}p" "$chain" | cut -d' ' -f1)
+    if [ "$c" = "$tip" ]; then MERGE_REC=$c; return 0; fi
+    for p in $(git -C "$TX" rev-list --parents -n 1 "$c" | cut -d' ' -f3-); do
+      [ "$p" != "$tip" ] || { MERGE_REC=$c; return 0; }
+    done
+    while [ "$lo" -ge 1 ]; do
+      if sed -n "${lo}p" "$chain" | cut -d' ' -f2- | merge_names_task "$ID" "$pr"; then MERGE_REC=$(sed -n "${lo}p" "$chain" | cut -d' ' -f1); return 0; fi
+      lo=$((lo - 1))
+    done
+    MERGE_WHY="no merge of $ID on $BASE: the first commit with this tip is another task's merge and none names $ID"; return 0
+  fi
+  # Not an ancestor: a squash or a rebase. The commit with the tip's own tree, else a single-parent commit that names the task.
+  ttree=$(git -C "$TX" rev-parse "$tip^{tree}" 2>/dev/null)
+  while IFS=' ' read -r c p sub; do
+    [ -n "$c" ] || continue
+    if [ "$(git -C "$TX" rev-parse "$c^{tree}")" = "$ttree" ]; then MERGE_REC=$c; return 0; fi
+  done < <(git -C "$TX" log --first-parent --reverse --format='%H %P' "$base" --not "$tip" 2>/dev/null | awk 'NF == 2')
+  while IFS=' ' read -r c p sub; do
+    [ -n "$c" ] || continue
+    if [ -z "$p" ] || [ "${p#* }" != "$p" ]; then continue; fi
+    printf '%s\n' "$sub" | merge_names_task "$ID" "$pr" && { MERGE_REC=$c; return 0; }
+  done < <(git -C "$TX" log --first-parent --reverse --format='%H %P %s' "$base" --not "$tip" 2>/dev/null)
+  MERGE_WHY="the tip is not in the history of $BASE (squash or rebase) and no commit has its tree or names $ID"
+  return 0
+}
 # A task nobody claimed (or whose claim never reached REVIEW) gets its record here, from the backlog and the branch
 # feat/<id> by the kit's own naming; the claim, if any, is released below with the rest.
 integrate_new_record() {
@@ -200,7 +259,7 @@ integrate_human_only() {
   [ -z "${UAK_AGENT:-}" ]
 }
 integrate_mutate() {
-  local st= outside=no approval=none owner unreviewed=no rsha
+  local st= outside=no approval=none owner unreviewed=no rsha mrec
   # Why (UpiixSol): a human merged on GitHub while the owner agent was offline; the task sat in REVIEW and
   # blocked its dependents for hours. The proof is verifiable, so any identity may record it.
   [ ! -f "$RECORD" ] || st=$(field "$RECORD" State)
@@ -279,17 +338,21 @@ integrate_mutate() {
     say "NOTE integrate $ID: the code reached $BASE without a review (recorded Unreviewed: yes)"
   fi
   STATE=INTEGRATED
-  put "$RECORD" Integration-Proof "$RM_PROOF"; put "$RECORD" Merge-Commit "$merged"
+  # Merge-Commit: the forge's own answer or the COMMIT given, else the commit that brought this tip in; `unknown` when
+  # none is found (never the base's tip by default, UAK-132).
+  if [ -n "$MERGE_COMMIT" ] || { [ "$RM_REVIEW_MODE" = gh ] && [ -n "$RM_GH_MERGE" ]; }; then mrec=$merged; MERGE_WHY=
+  else find_merge_commit "$tip"; mrec=$MERGE_REC; fi
+  put "$RECORD" Integration-Proof "$RM_PROOF"; put "$RECORD" Merge-Commit "$mrec"
   if [ "$outside" = yes ]; then put "$RECORD" Integrated-Outside yes; put "$RECORD" Approval "$approval"; put "$RECORD" Recorded-By "$AGENT"
     [ "$unreviewed" != yes ] || put "$RECORD" Unreviewed yes
   else put "$RECORD" Reviewer "$APPROVED_BY"; [ "$unreviewed" != yes ] || put "$RECORD" Unreviewed yes; fi
   put "$RECORD" Task-Tip "$tip"; put "$RECORD" State INTEGRATED
-  put "$RECORD" Next "Integrated in $BASE: $merged; claim next P0"
+  put "$RECORD" Next "Integrated in $BASE: $mrec; claim next P0"
   put "$RECORD" Lease-Until 0; put "$RECORD" Updated "$NOW"
-  update_summary_field Next "Integrated in $BASE: $merged (recorded by $AGENT)"
+  update_summary_field Next "Integrated in $BASE: $mrec (recorded by $AGENT)"
   rm -f "$CLAIM"
-  event "integrate; recorded by $AGENT; PR $PR_URL; merged $merged; proof $RM_PROOF$([ "$outside" != yes ] || printf '; outside the gate, approval %s' "$approval")$([ "$unreviewed" != yes ] || printf '; unreviewed')$([ -z "${INT_UNREVIEWED:-}" ] || printf '; %s' "$INT_UNREVIEWED")"
-  msg_notify_related "$ID" integrated "$ID integrated in $BASE ($merged), recorded by $AGENT. If you depend on it: git fetch origin && git merge --no-edit origin/$BASE"
+  event "integrate; recorded by $AGENT; PR $PR_URL; merged $mrec; proof $RM_PROOF$([ -z "$MERGE_WHY" ] || printf '; Merge-Commit unknown: %s' "$MERGE_WHY")$([ "$outside" != yes ] || printf '; outside the gate, approval %s' "$approval")$([ "$unreviewed" != yes ] || printf '; unreviewed')$([ -z "${INT_UNREVIEWED:-}" ] || printf '; %s' "$INT_UNREVIEWED")"
+  msg_notify_related "$ID" integrated "$ID integrated in $BASE ($mrec), recorded by $AGENT. If you depend on it: git fetch origin && git merge --no-edit origin/$BASE"
 }
 # done: REVIEW with the PR and evidence after the gates (UI shots, test-first), and one reviewer asked; or, with
 # --integrated, INTEGRATED after a human merge with a verified approval.
@@ -330,6 +393,7 @@ done_mutate() {
     REVIEWER=$APPROVED_BY
     put "$RECORD" Integration-Proof "$RM_PROOF"
     STATE=INTEGRATED
+    find_merge_commit "$tip"; [ "$MERGE_REC" = unknown ] || merged=$MERGE_REC
     put "$RECORD" Merge-Commit "$merged"; put "$RECORD" Reviewer "$REVIEWER"
   fi
   [ "$STATE" != REVIEW ] || ui_gate "$tip" "$task_worktree"
