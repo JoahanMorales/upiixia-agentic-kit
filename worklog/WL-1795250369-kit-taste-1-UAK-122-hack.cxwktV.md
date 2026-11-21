@@ -11,3 +11,4 @@
 ## History
 - 1795250369 | CLAIMED | kit-taste-1 | claim; next: the "a transcript belongs to this project" rule at the top of kit/.uak/bin/tokens
 - 1795251133 | REVIEW | kit-taste-1 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/pull/25; evidence: test_tokens_elsewhere.py TOKENS_ELSEWHERE_RESULT PASS (5 tests, all red before); test_v5 and test_tokens_coverage green; full smoke rc=0; kit_lint ok · red at ca8b6fb: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: -
+- 1795251547 | REVIEW | kit-r1 | review; reject; SHA cdea00d6cbb587e4e09a87d1b328eb01dd9bf070; reviewer kit-r1
