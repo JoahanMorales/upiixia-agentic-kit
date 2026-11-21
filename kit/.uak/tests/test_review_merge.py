@@ -157,6 +157,22 @@ def concurrent_merges(r):
 
 
 def gate_and_lease(r):
+    """Every engine call of this test takes its deadlines from the injected clock (UAK_NOW): the calls below pass
+    their own, and any that does not gets a fixed one from here, never the machine's clock. Why (CI, Nov 2026):
+    a slow runner must not be able to expire a lease or reach a freeze mid-test (UAK-138;
+    test_flaky_guard runs it with the machine clock at 2100 and at 1970)."""
+    saved = r.env.get("UAK_NOW")
+    r.env["UAK_NOW"] = "1000040"
+    try:
+        return _gate_and_lease(r)
+    finally:
+        if saved is None:
+            r.env.pop("UAK_NOW", None)
+        else:
+            r.env["UAK_NOW"] = saved
+
+
+def _gate_and_lease(r):
     f = fixture(r, "gate-red", count=1, verify_fail=True)
     tip = ready(f, 0, "HACK-001"); judge(f); approve(f, "HACK-001", tip)
     result = f.hack(0, "merge", "HACK-001", now=1000030, allowed=None)

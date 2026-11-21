@@ -34,6 +34,8 @@ from design_round import GENES, project_root, qa_warnings, read_qa  # noqa: E402
 DEFAULT_K = 3
 FIRST_PORT = 8791
 MAX_NOTE = 400
+MAX_BODY = 200000  # a save larger than this is refused with 413
+DRAIN_MAX = 1048576  # the most a handler reads of any POST body before it answers
 
 
 def tailscale_ip():
@@ -387,7 +389,35 @@ def make_handler(rnd, k, hosts):
                 self.path = "/pick.html"
             return super().do_GET()
 
+        timeout = 15  # a client that stalls mid-body must not hold a handler thread for ever
+
+        def _drain(self, n):
+            """Read up to `n` body bytes (bounded) and return them. An answer sent while the client is still sending
+            makes Windows reset the connection (WinError 10053) and the client never sees the status. Why (CI, Nov
+            2026): `FAIL json_content_type_required ([WinError 10053] ...)`. Every answer to a POST goes after this."""
+            data, left = [], min(max(n, 0), DRAIN_MAX)
+            try:
+                while left > 0:
+                    chunk = self.rfile.read(min(left, 65536))
+                    if not chunk:
+                        break
+                    data.append(chunk)
+                    left -= len(chunk)
+            except OSError:  # a timeout or a reset: answer what we can
+                pass
+            return b"".join(data)
+
         def do_POST(self):
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                n = -1
+            body = self._drain(n)
+            if n < 0:
+                self.close_connection = True
+                return self._json(400, {"ok": False, "error": "bad Content-Length"})
+            if n > DRAIN_MAX:  # more than the bound was announced: the rest is never read, so the connection ends here
+                self.close_connection = True
             if not self._host_ok():
                 return self._json(403, {"ok": False, "error": "foreign Host"})
             if self.path.split("?", 1)[0] != "/save":
@@ -400,10 +430,9 @@ def make_handler(rnd, k, hosts):
             if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
                 return self._json(415, {"ok": False, "error": "Content-Type must be application/json"})
             try:
-                n = int(self.headers.get("Content-Length") or 0)
-                if n > 200000:
+                if n > MAX_BODY:
                     return self._json(413, {"ok": False, "error": "too large"})
-                data = json.loads(self.rfile.read(n).decode("utf-8"))
+                data = json.loads(body.decode("utf-8"))
             except (ValueError, UnicodeDecodeError):
                 return self._json(400, {"ok": False, "error": "bad JSON"})
             try:
