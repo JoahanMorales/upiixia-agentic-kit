@@ -923,12 +923,16 @@ merge_run() {
   # Its own temp dir: coord_init rewrites the backlog and config files there, which the gate is reading. No stdio of
   # ours (an orphaned sleep holding the caller's pipe made a harness wait 240 s on macOS), and sleeps of 5 s, so a
   # TERM ends it at once (the trap kills the sleep it waits on) and nothing outlives the merge for long.
+  # The parent pid is captured before the subshell ($$ is the merge, $BASHPID is not portable to Bash 3.2); each round
+  # asks `kill -0` whether the merge still lives, so a SIGKILL (no EXIT trap) leaves no renewer behind (audit #6).
+  rm_parent=$$
   ( RM_ATTEMPT_PREFIX=renew; TXROOT=$(mktemp -d "$TMP_BASE/hack.XXXXXX") || exit 0; trap 'rm -rf "$TXROOT"' EXIT
     COORD_INITIALIZED_TX=; COORD_BASE_FROM=; rm_sleep_pid=; rm_slept=0
     trap '[ -z "$rm_sleep_pid" ] || kill "$rm_sleep_pid" 2>/dev/null; exit 0' TERM INT
     rm_every=$(( RM_LOCK_LEASE / 3 > 5 ? RM_LOCK_LEASE / 3 : 5 ))
     while :; do
       sleep 5 & rm_sleep_pid=$!; wait "$rm_sleep_pid"; rm_sleep_pid=
+      kill -0 "$rm_parent" 2>/dev/null || exit 0
       rm_slept=$((rm_slept + 5)); [ "$rm_slept" -ge "$rm_every" ] || continue; rm_slept=0
       NOW=${UAK_NOW:-$(date +%s)}; RM_ACTION=renew
       rm_coord_update renew || break
