@@ -274,10 +274,13 @@ def picker_reads_the_body_before_403(e):
                  ("foreign Origin 403", [("Host", host), ("Origin", "http://evil.example"), json_ct], 403, 4000, 4000),
                  ("415", [("Host", host), ("Content-Type", "text/plain")], 415, 4000, 4000),
                  ("413", [("Host", host), json_ct], 413, 100000, 200000),
-                 ("beyond the bound: 413 and a closed connection", [("Host", host), json_ct], 413, 1000000, 100000))
+                 ("beyond the bound: 413 and a closed connection", [("Host", host), json_ct], 413, 1000000, 48576))  # exactly the bound: nothing unread when the server closes, so no reset
         for name, headers, want, first, rest in cases:
             size = first + rest if "bound" not in name else 50 * 1048576
-            got = attempt(headers, size, first, rest)
+            try:
+                got = attempt(headers, size, first, rest)
+            except OSError as exc:
+                raise AssertionError("%s: %s" % (name, exc))
             expect(got == want, "%s: got %s" % (name, got))
         expect(not (d / ".uak/design/rounds/R1/picks.json").exists(), "nothing written")
         st, _ = raw_request(port, "POST", "/save", {"Host": host, "Content-Type": "application/json"}, json.dumps({"picked": ["v1"], "notes": {}}).encode("utf-8"))
