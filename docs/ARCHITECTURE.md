@@ -47,6 +47,7 @@ agent ──CLI or MCP──▶ .uak/bin/uak ──▶ lib/commands.tsv (the reg
 | `lib/status.sh` · `lib/wait.sh` · `lib/lint.sh` | Reads (status, next, digest, de-duplication); wait; lint |
 | `lib/messages.sh` · `lib/memory.sh` · `lib/review-merge.sh` · `lib/tests.sh` · `lib/github.sh` · `lib/security.sh` | Messages and inbox; lessons and recall; review and the merge gate; test-first checks; pr-sync; secret exceptions |
 | `uak-coordination` | Config from the remote base, deadlines (tick), decisions, `next`'s choice |
+| `lib/hints.sh` | Spelling hints: what a wrong command or argument should have been (the error keeps its first words, exit code and UAK_CODE) |
 | `lib/json.sh` | `uak --json`: runs the command as a child and prints the envelope |
 
 ## Where to change what

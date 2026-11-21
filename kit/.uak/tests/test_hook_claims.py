@@ -7,6 +7,7 @@ at (uak-claims.tip) and only reads it again when that tip moves. Now stop and se
 `tick` checked the plan pace (`pace --caps`) in the foreground every 5 minutes, about 40 processes the agent waited
 for; it now runs in the background like the poll, and its note comes on a later tick.
 Real Git, a local bare remote; the engine is wrapped so the test sees each full read."""
+import uuid
 import argparse
 import concurrent.futures
 import json
@@ -21,7 +22,7 @@ STOP = json.dumps({"session_id": "hook-claims", "hook_event_name": "Stop", "stop
 
 
 def hook(r, w, args, payload, env=None):
-    stdin = r.scratch / ("hook-in-%d" % time.monotonic_ns())
+    stdin = r.scratch / ("hook-in-%d" % uuid.uuid4().int)
     stdin.write_text(payload, encoding="utf-8")
     return r.run([r.bash, "-c", 'exec < "$1"; shift; exec "$@"', "_", stdin.as_posix(), r.bash] + args,
                  cwd=w, env=env or {}, allowed=None)

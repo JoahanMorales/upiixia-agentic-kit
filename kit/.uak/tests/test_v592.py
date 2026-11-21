@@ -4,6 +4,7 @@ and Claude Code runs guard bash before every command and hook tick + hook output
 about 3.5 s per command on a teammate's laptop (Nov 2026). A 300-line heredoc took guard 35 s, past the 5 s hook
 timeout, which lets the command run. Processes are counted as distinct PIDs in an xtrace (PS4 prints $BASHPID,
 children inherit SHELLOPTS) with a traced shim in front of each program. Real Git, local bare remote."""
+import uuid
 import argparse
 import concurrent.futures
 import json
@@ -31,7 +32,7 @@ def shims(r):
 
 def call(r, cwd, args, payload, env=None):
     """One hook call with the payload on stdin."""
-    stdin = r.scratch / ("v592-in-%d" % time.monotonic_ns())
+    stdin = r.scratch / ("v592-in-%d" % uuid.uuid4().int)
     stdin.write_text(payload, encoding="utf-8")
     return r.run([r.bash, "-c", 'exec < "$1"; shift; exec "$@"', "_", stdin.as_posix(), r.bash] + args,
                  cwd=cwd, env=env or {}, allowed=None)
@@ -47,8 +48,8 @@ def processes(r, cwd, args, payload, env=None):
     them apart: there the call runs and counts as 0, and the counts are checked on Linux and Windows."""
     if bash_major(r) < 4:
         return 0, call(r, cwd, args, payload, env)
-    trace = r.scratch / ("v592-trace-%d" % time.monotonic_ns())
-    stdin = r.scratch / ("v592-in-%d" % time.monotonic_ns())
+    trace = r.scratch / ("v592-trace-%d" % uuid.uuid4().int)
+    stdin = r.scratch / ("v592-in-%d" % uuid.uuid4().int)
     stdin.write_text(payload, encoding="utf-8")
     script = ('exec 9>>"$1" < "$3"; PATH="$2:$PATH"; export PATH; shift 3; '
               "exec env BASH_XTRACEFD=9 'PS4=+$BASHPID ' SHELLOPTS=xtrace \"$@\"")
