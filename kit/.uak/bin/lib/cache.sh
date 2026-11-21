@@ -183,3 +183,7 @@ cache_drop() {
   cache_dir || return 0
   [ ! -d "$CACHE_DIR" ] || rm -rf -- "$CACHE_DIR" 2>/dev/null || :
 }
+# UAK-130 stub: the read cache of the fetched claims clone (rc_get TX / rc_put TX / rc_drop).
+rc_get() { RC_AGE=; return 1; }
+rc_put() { return 1; }
+rc_drop() { return 0; }
