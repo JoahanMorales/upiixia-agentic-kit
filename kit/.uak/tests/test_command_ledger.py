@@ -40,6 +40,12 @@ def a_command_appends_one_ledger_line(r):
     row = got[0]
     expect(len(row) == 8, "expected 8 fields (epoch cmd task rc code ms agent harness), got %r" % row)
     expect(row[0].isdigit() and row[1] == "status" and row[3] == "0", "epoch/cmd/rc wrong: %r" % row)
+    # The 3.2 path (forced by UAK_LEDGER_CLOCK=seconds; the real thing on macOS): the engine's NOW, whole seconds.
+    uak(f, "status", UAK_LEDGER_CLOCK="seconds")
+    row = rows(common)[-1]
+    expect(row[0].isdigit() and row[5].isdigit() and int(row[5]) % 1000 == 0, "bash 3.2 path: epoch and whole-second ms expected: %r" % row)
+    f.r.run([f.r.bash, "-c", ": > uak-ledger.pending"], cwd=common, allowed=None, env={})
+    uak(f, "status")
     expect(row[5].isdigit(), "milliseconds must be a number: %r" % row)
     expect(row[6] == "agent-1" and row[7] == "codex", "agent/harness wrong: %r" % row)
     uak(f, "status", "--task", "NOPE-999", UAK_CALLER="hook")
@@ -120,6 +126,17 @@ def a_session_with_no_errors_still_publishes(r):
         time.sleep(0.5)
     expect("metrics/" in tree, "a ledger 20 min old was not published by a plain command: " + tree)
     expect((common / "uak-blackbox.flushed").exists(), "the stamp is taken first")
+    # a first line without epoch (bash 3.2) is due by the file's age
+    f3 = r.fixture("ledger-noepoch", count=1)
+    c3 = common_of(r, f3.worktrees[0])
+    p3 = c3 / "uak-ledger.pending"
+    p3.write_text("-\tstatus\t-\t0\t-\t0\tagent-1\tcodex\n", encoding="utf-8")
+    os.utime(p3, (t, t))
+    uak(f3, "status")
+    end = time.time() + 40
+    while time.time() < end and "metrics/" not in r.g(f3.remote, "ls-tree", "-r", "--name-only", "claims").stdout:
+        time.sleep(0.5)
+    expect("metrics/" in r.g(f3.remote, "ls-tree", "-r", "--name-only", "claims").stdout, "a line without epoch, 20 min old, was never due")
     # fresh ledger lines wait
     f2 = r.fixture("ledger-fresh", count=1)
     c2 = common_of(r, f2.worktrees[0])
