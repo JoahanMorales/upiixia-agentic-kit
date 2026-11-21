@@ -172,10 +172,18 @@ gh_dynamic() { # $1 segment
 }
 # The idioms that resolve to the current branch or directory read as HEAD and `.`: the existing HEAD rules apply.
 idioms() { # sets rcmd
-  [ "${#rcmd}" -le "$SHORT" ] || return 0
-  rcmd=${rcmd//'$(git branch --show-current)'/HEAD}; rcmd=${rcmd//'`git branch --show-current`'/HEAD}
-  rcmd=${rcmd//'$(git rev-parse --abbrev-ref HEAD)'/HEAD}; rcmd=${rcmd//'`git rev-parse --abbrev-ref HEAD`'/HEAD}
-  rcmd=${rcmd//'$(pwd)'/.}; rcmd=${rcmd//'`pwd`'/.}
+  # Only a command with one of the idioms gets here past the case: plain commands spawn nothing. Long input (and every
+  # input on bash 3.2, where SHORT is 0) goes through sed: ${//} is quadratic there.
+  case "$rcmd" in *'git branch --show-current'*|*'git rev-parse --abbrev-ref HEAD'*|*'pwd'*) ;; *) return 0;; esac
+  if [ "${#rcmd}" -gt "$SHORT" ]; then
+    rcmd=$(printf '%s' "$rcmd" | sed -e 's/\$(git branch --show-current)/HEAD/g' -e 's/`git branch --show-current`/HEAD/g' \
+      -e 's/\$(git rev-parse --abbrev-ref HEAD)/HEAD/g' -e 's/`git rev-parse --abbrev-ref HEAD`/HEAD/g' \
+      -e 's/\$(pwd)/./g' -e 's/`pwd`/./g')
+    return 0
+  fi
+  rcmd=${rcmd//'$(git branch --show-current)'/HEAD}; rcmd=${rcmd//'`git branch --show-current`'/HEAD}   # kit-lint: ok (at most SHORT chars)
+  rcmd=${rcmd//'$(git rev-parse --abbrev-ref HEAD)'/HEAD}; rcmd=${rcmd//'`git rev-parse --abbrev-ref HEAD`'/HEAD}   # kit-lint: ok (at most SHORT chars)
+  rcmd=${rcmd//'$(pwd)'/.}; rcmd=${rcmd//'`pwd`'/.}   # kit-lint: ok (at most SHORT chars)
 }
 
 check_bash() {
