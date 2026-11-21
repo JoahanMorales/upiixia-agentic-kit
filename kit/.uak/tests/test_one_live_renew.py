@@ -113,8 +113,31 @@ def damaged_lease_counts_as_live(r):
     return "live"
 
 
+def resume(r, f, now):
+    env = {"UAK_AGENT": "agent-1", "UAK_NOW": str(now), "UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_WT_RESUME": "1"}
+    return r.run([r.bash, ".uak/bin/uak", "claim", "HACK-001", "--branch", f.branches[0], "--worktree",
+                  f.worktrees[0].as_posix(), "--next", "resume"], cwd=f.worktrees[0], env=env, allowed=None)
+
+
+def resume_of_expired_claim_refuses_with_another_live(r):
+    f = r.fixture("olr-resume", count=1)
+    f.claim(0, "HACK-001", now=T0)
+    # Alone, an expired claim resumes (UAK-088 keeps working).
+    out = resume(r, f, LATER)
+    expect(out.returncode == 0, "resume with no other live claim: " + out.stdout + out.stderr)
+    g = r.fixture("olr-resume2", count=1)
+    g.claim(0, "HACK-001", now=T0)
+    second_claim(r, g)
+    before = lease_of(g, "HACK-001")
+    out = resume(r, g, LATER + 10)
+    text = out.stdout + out.stderr
+    expect(out.returncode != 0 and "one live task" in text.lower() and "HACK-002" in text, "resume refused: rc %d %s" % (out.returncode, text[-500:]))
+    expect(lease_of(g, "HACK-001") == before, "the lease was not renewed: " + lease_of(g, "HACK-001"))
+    return "refused"
+
+
 TESTS = [expired_claim_cannot_be_renewed_with_another_live, log_and_checkpoint_refuse_too, unexpired_claim_renews,
-         damaged_lease_counts_as_live]
+         damaged_lease_counts_as_live, resume_of_expired_claim_refuses_with_another_live]
 
 
 def main():

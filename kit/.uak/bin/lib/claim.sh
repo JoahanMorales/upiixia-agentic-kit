@@ -215,6 +215,7 @@ claim_mutate() {
   # agent had to git worktree add by hand. Only the owner, only on the claim's own branch, only from wt (UAK_WT_RESUME).
   if [ "${UAK_WT_RESUME:-}" = 1 ] && [ -f "$CLAIM" ] && [ -f "$RECORD" ] && [ "$(field "$CLAIM" Owner)" = "$AGENT" ] &&
      [ "$(field "$CLAIM" Branch)" = "$BRANCH" ]; then
+    check_renewable
     put "$RECORD" Worktree "$WORKTREE"; put "$CLAIM" Worktree "$WORKTREE"
     WL=$(field "$RECORD" Worklog); STATE=$(field "$RECORD" State)
     refresh_lease; event "claim resumed in a new worktree"
