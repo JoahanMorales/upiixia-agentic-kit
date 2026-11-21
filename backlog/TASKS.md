@@ -1137,3 +1137,15 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Tests:** check_writes_nothing, check_needs_no_human, check_reports_every_problem, check_passes_a_valid_plan, amend_check_names_a_task_in_review
 - **Verify:** `python3 kit/.uak/tests/test_plan_check.py`
 - **Next step:** plan_mutate in kit/.uak/bin/lib/plan.sh (split the validation from the write) and the UAK_HUMAN requirement for `plan` at kit/.uak/bin/uak:177
+
+## UAK-126 · pre-push lets an agent create the base branch on a remote that does not have it yet (uak demo failed for agents) (follow-up of UAK-124)
+
+- **Type:** follow-up
+- **Priority:** P1
+- **Depends on:** UAK-124
+- **Follow-up of:** UAK-124
+- **Paths:** kit/.githooks/pre-push, kit/.uak/bin/guard, install.sh, kit/.uak/tests/test_pre_push.py
+- **Freeze-Allowed:** no
+- **Acceptance:**
+  - pre-push lets an agent create the base branch on a remote that does not have it yet (uak demo failed for agents)
+- **Verify:** `python3 kit/.uak/tests/test_pre_push.py`
