@@ -139,6 +139,19 @@ def ci_shards(n):
     return [{"n": i + 1, "tests": " ".join(sorted(picked[i]))} for i in range(n)]
 
 
+WINDOWS_SCALE = 0
+WINDOWS_SETUP_S = 0
+WINDOWS_BOUND_S = 0
+
+
+def windows_shard_count():
+    return 0
+
+
+def ci_windows_shards(n):
+    return []
+
+
 def check_test_discovery(findings):
     """smoke and CI find the test files themselves: no hand-kept list to forget (a list made every task that added a
     test edit the workflow, and the merge gate sends every workflow change to a human)."""

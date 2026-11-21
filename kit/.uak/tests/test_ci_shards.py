@@ -92,7 +92,93 @@ def a_name_that_is_not_a_test_fails_the_shard(r):
     return "4 bad lists refused"
 
 
-TESTS = [shards_cover_every_test_once, smoke_runs_only_its_shard, a_name_that_is_not_a_test_fails_the_shard]
+def windows_shards_of(lint, n):
+    return lint.ci_windows_shards(n)
+
+
+def windows_matrix_is_shards(r):
+    """The Windows job is a matrix of shards, not of test files: the count is the smallest that meets the bound."""
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    ci = (REPO / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+    n = lint.windows_shard_count()
+    expect(1 <= n <= 15, "the Windows shard count leaves room for 24 jobs a commit: %r" % n)
+    out = subprocess.run([sys.executable, str(REPO / "scripts" / "kit_lint.py"), "--ci-windows"],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    m = re.fullmatch(r"wshards=(\[.*\])\n", out.stdout)
+    expect(out.returncode == 0 and m is not None, "--ci-windows prints one wshards=JSON line: %r" % out.stdout[:300])
+    expect(json.loads(m.group(1)) == lint.ci_windows_shards(n), "the printed shards are ci_windows_shards(%d)" % n)
+    expect(len(json.loads(m.group(1))) == n, "as many Windows shards as windows_shard_count(): %d" % n)
+    expect("fromJSON(needs.discover.outputs.wshards)" in ci, "the windows job's matrix is the discover job's wshards")
+    expect("fromJSON(needs.discover.outputs.tests)" not in ci, "no job per test file is left")
+    expect("--ci-windows" in ci, "discover prints the Windows shards")
+    if n > 1:
+        expect(len(lint.ci_windows_shards(n - 1)) == n - 1 and windows_load(lint, n - 1) > lint.WINDOWS_BOUND_S,
+               "one shard fewer must break the bound: %d shards give %d s" % (n - 1, windows_load(lint, n - 1)))
+    return "%d Windows shards" % n
+
+
+def windows_load(lint, n):
+    """The longest Windows shard in seconds: the files' macOS seconds scaled for Windows plus the job's setup."""
+    return max(lint.WINDOWS_SETUP_S + lint.WINDOWS_SCALE * sum(lint.ci_seconds(t) for t in s["tests"].split())
+               for s in lint.ci_windows_shards(n))
+
+
+def shards_cover_every_test_file_once(r):
+    """Linux, macOS and Windows each run every test file, and the MCP tools of tests/, exactly once."""
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    tests = sorted(t.stem for t in (REPO / "kit" / ".uak" / "tests").glob("test_*.py"))
+    for n in (1, 2, lint.windows_shard_count(), 15):
+        shards = lint.ci_windows_shards(n)
+        expect(len(shards) == n and all(s["tests"] for s in shards), "%d Windows shards, none empty" % n)
+        expect([s["n"] for s in shards] == list(range(1, n + 1)), "Windows shards are numbered 1..%d" % n)
+        names = [t for s in shards for t in s["tests"].split()]
+        expect(sorted(names) == sorted(tests + ["mcp_tools"]),
+               "with %d Windows shards every file and mcp_tools run exactly once: missing %s, twice %s"
+               % (n, sorted(set(tests + ["mcp_tools"]) - set(names)), sorted({t for t in names if names.count(t) > 1})))
+    ci = (REPO / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+    expect("matrix.w.tests" in ci or "matrix.shard.tests" in ci, "the shard's file list reaches the job")
+    expect(not re.findall(r"\btest_v?\w+\b", ci), "no test file is named in the workflow: a new file needs no edit")
+    return "every file once in each of the Windows splits"
+
+
+def longest_shard_under_the_bound(r):
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    n = lint.windows_shard_count()
+    longest = windows_load(lint, n)
+    expect(lint.WINDOWS_BOUND_S == 25 * 60, "the bound is 25 minutes: %r" % lint.WINDOWS_BOUND_S)
+    expect(longest <= lint.WINDOWS_BOUND_S, "%d Windows shards: the longest takes %d s, over %d" % (n, longest, lint.WINDOWS_BOUND_S))
+    expect(n == 1 or windows_load(lint, n - 1) > lint.WINDOWS_BOUND_S, "%d is not the smallest count" % n)
+    ci = (REPO / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+    m = re.search(r"(?s)\n  windows:.*?timeout-minutes: (\d+)", ci)
+    expect(m is not None and int(m.group(1)) > 25, "the Windows job's timeout leaves room over the 25 minute bound")
+    return "%d shards, longest %d s" % (n, longest)
+
+
+def workflow_runs_once_per_commit(r):
+    """on: push + pull_request ran the suite twice for a branch with a PR; a commit on main starts at most 24 jobs."""
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    ci = (REPO / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+    head = ci.split("\njobs:")[0]
+    expect("pull_request" in head, "the workflow runs on pull_request: %r" % head)
+    expect(re.search(r"(?s)push:.*branches:\s*\[\s*main\s*\]", head) is not None, "pushes run on main only: %r" % head)
+    expect(re.search(r"(?s)push:.*tags:", head) is not None, "and on tags: %r" % head)
+    expect("on: [push, pull_request]" not in head, "the bare push trigger is gone")
+    jobs = 1 + 2 * 4 + lint.windows_shard_count()
+    expect(jobs <= 24, "a commit on main starts %d jobs (discover, 4 shards x 2 OS, Windows shards), over 24" % jobs)
+    expect("GITHUB_STEP_SUMMARY" in ci, "a failing shard names its test file in the job summary")
+    return "%d jobs on main" % jobs
+
+
+TESTS = [windows_matrix_is_shards, shards_cover_every_test_file_once, longest_shard_under_the_bound, workflow_runs_once_per_commit,
+         shards_cover_every_test_once, smoke_runs_only_its_shard, a_name_that_is_not_a_test_fails_the_shard]
 
 
 def main():
