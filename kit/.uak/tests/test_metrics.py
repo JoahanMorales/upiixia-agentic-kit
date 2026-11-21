@@ -79,7 +79,7 @@ def throughput_is_printed_with_instability(r):
     order = [out.index(k) for k in ("tasks integrated per day", "speed and its cost", "per command", "human interventions", "work outside the kit")]
     expect(order == sorted(order), "sections out of order")
     expect("sent to a human: 1 of 2 queued tasks (Shared resource/CI needs a human 1)" in out and "1 freeze exceptions" in out, out)
-    expect("merged by the kit's gate (uak merge): 1 of 3" in out and "then recorded with uak integrate: 2 of 3" in out and "recorded by an agent: 1 of 2" in out and "recorded by a human (Role: human): 1 of 2" in out and "Unreviewed: yes (code on the base with no valid approval): 1 of 2" in out and "manual notes: not recorded yet" in out, out)
+    expect("no human (event `merge`): 1 of 3" in out and "base history is not available here" in out and "not told apart): 2 of 3" in out and "with an agent identity 1 of 2 · by a human (Role: human) 1 of 2 · Unreviewed: yes 1 of 2" in out and "manual notes: not recorded yet" in out, out)
     return "throughput next to reopened, followed up, Unreviewed"
 
 
@@ -100,6 +100,32 @@ def small_samples_print_counts(r):
     expect("errors 1 of 5" in line and "%" not in line and "p95 -" in line, line)
     expect("%" not in out.split("work outside")[0].split("human interventions")[0].split("tasks integrated per day")[1], "percentage under 20 events")
     return "counts, no percentage under 20"
+
+
+def merge_paths_classified_by_base_history(r):
+    c = claims(r["tmp"])
+    # More tasks: engine merge commit + integrate, forge PR merge, forge squash, none found. PR numbers come from the PR field.
+    for tid, pr in (("UAK-010", "pull/3"), ("UAK-011", "pull/7"), ("UAK-012", "pull/9"), ("UAK-013", "pull/new/feat/uak-013")):
+        task(c, tid, hist=[(T0, "CLAIMED", "a-1", "claim"), (T0 + 60, "INTEGRATED", "a-3", "integrate; recorded by a-3")],
+             extra="PR: https://github.com/o/r/%s\n" % pr)
+    # A task whose own Merge-Commit field names another task's merge must not take that one's class.
+    put(c / "tasks" / "UAK-013.md", (c / "tasks" / "UAK-013.md").read_text() + "Merge-Commit: deadbeef\n")
+    repo = c.parent
+    g = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"] + list(a), cwd=str(repo),
+                                  capture_output=True, text=True, check=True)
+    g("init", "-q")
+    for subject in ("root", "Merge UAK-010 reviewed by kit-r1 (human-authorized merge: engine file)", "Merge pull request #7 from o/feat/uak-011",
+                    "UAK-012: a squash (#9)", "harness: regenerate (UAK-013 changed its source)"):
+        g("commit", "-q", "--allow-empty", "-m", subject)
+    out = run(r, c)
+    for want in ("by the gate, no human (event `merge`): 1 of 7", "engine merge commit, then integrate): 1 of 7",
+                 "then recorded with integrate: 2 of 7", "merge commit not found or of another kind: 3 of 7",
+                 "classified by the base's own history"):
+        expect(want in out, want + "\n" + out)
+    m = json.loads(run(r, c, "--json"))["merge_paths"]
+    expect(m["basis"] == "base history" and m["gate_built_human_landed"] == {"n": 1, "of": 7} and m["forge"] == {"n": 2, "of": 7}
+           and m["gate_pushed"] == {"n": 1, "of": 7} and m["recorded_unclassified"] == {"n": 3, "of": 7}, m)
+    return "gate / engine merge landed by a human / forge, from the base history"
 
 
 def task_view_lists_review_rounds(r):
@@ -130,7 +156,7 @@ def json_has_stable_keys(r):
     return "documented keys"
 
 
-TESTS = [throughput_is_printed_with_instability, per_command_error_rate_and_p95, small_samples_print_counts, task_view_lists_review_rounds,
+TESTS = [merge_paths_classified_by_base_history, throughput_is_printed_with_instability, per_command_error_rate_and_p95, small_samples_print_counts, task_view_lists_review_rounds,
          json_has_stable_keys]
 
 

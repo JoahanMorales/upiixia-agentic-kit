@@ -187,6 +187,31 @@ def base_ref(root, claims_given):
     return None
 
 
+def base_subjects(root, ref):
+    """{commit sha: subject} of the base's history, one git call; None when the base is not visible."""
+    if not ref:
+        return None
+    out = dash.run_git("log", "--format=%H|%s", ref, cwd=root)
+    if out.returncode != 0:
+        return None
+    return dict(l.split("|", 1) for l in out.stdout.decode("utf-8", "replace").splitlines() if "|" in l)
+
+
+def merge_kind(t, subjects):
+    """How the task's code reached the base, from the base's subjects: engine = the gate's own merge commit of THIS task
+    ("Merge UAK-N reviewed by ..."); forge = the task's PR number in a "Merge pull request #N" or squash "(#N)" subject;
+    other = none found. (The Merge-Commit field is not trusted: for some tasks it names another task's merge.)"""
+    tid = t["id"]
+    pr = re.search(r"/pull/(\d+)", t["f"].get("PR", ""))
+    forge = False
+    for sub in subjects.values():
+        if sub.startswith("Merge %s reviewed by " % tid):
+            return "engine"
+        if pr and (sub.startswith("Merge pull request #%s " % pr.group(1)) or sub.endswith("(#%s)" % pr.group(1))):
+            forge = True
+    return "forge" if forge else "other"
+
+
 def direct_commits(root, ref):
     """(direct, all) first-parent commits on the base: a merge, the root, or a squash-merged task PR is not direct."""
     if not ref:
@@ -283,15 +308,28 @@ def build(data, since_days, now, git_root, claims_given):
             reasons[q["reason"].split(": ")[0]] = reasons.get(q["reason"].split(": ")[0], 0) + 1
     gate_wait = reasons.pop("Waiting for queue", 0)
     allows = [a for a in data["allows"] if inwin(a["epoch"])]
-    # How each task reached INTEGRATED, by the text of its INTEGRATED event in the worklog: "merge; ..." is `uak merge` (the
-    # gate moved claims and base together); "integrate; recorded by X" is a task merged on the forge and recorded after.
-    gate = sum(1 for t in done.values() if integrated_event(t)["text"].startswith("merge"))
-    rec = [t for t in done.values() if integrated_event(t)["text"].startswith("integrate")]
+    # How each task reached INTEGRATED. With the base's history: the task's Merge-Commit on the base, by its subject (the
+    # gate's "Merge UAK-N reviewed by", a forge "Merge pull request #N" or squash "(#N)", or neither / not found). Without
+    # it (--claims runs, no base): the text of the INTEGRATED event, `merge` (the gate) vs `integrate` (recorded after).
+    subjects = base_subjects(git_root, base_ref(git_root, claims_given))
+    paths = {"gate_pushed": 0, "gate_built_human_landed": 0, "forge": 0, "recorded_unclassified": 0}
+    rec = []
+    for t in done.values():
+        ev = integrated_event(t)
+        if ev["text"].startswith("merge"):
+            paths["gate_pushed"] += 1
+            continue
+        if not ev["text"].startswith("integrate"):
+            continue
+        rec.append(t)
+        kind = merge_kind(t, subjects) if subjects is not None else "unknown"
+        paths[{"engine": "gate_built_human_landed", "forge": "forge"}.get(kind, "recorded_unclassified")] += 1
     rec_human = sum(1 for t in rec if integrated_event(t)["actor"] in data["humans"])
     rec_unrev = sum(1 for t in rec if t["f"].get("Unreviewed") == "yes")
     # 5. Work outside the kit.
     outside = sum(1 for t in done.values() if t["f"].get("Integrated-Outside") == "yes")
     direct = direct_commits(git_root, base_ref(git_root, claims_given)) if cutoff is None else None
+    classified = subjects is not None
     manual = [m for m in data["manual"] if cutoff is None or m["day"] >= day_of(cutoff)]
     return {
         "since_days": since_days or None,
@@ -312,9 +350,13 @@ def build(data, since_days, now, git_root, claims_given):
                   "allow": {"freeze": sum(1 for a in allows if a["kind"] == "freeze"),
                             "tests": sum(1 for a in allows if a["kind"] == "tests")},
                   "queue_tasks": count(sum(reasons.values()), len(queue_in))},
-        "merge_paths": {"gate_merged": count(gate, len(done)),
-                        "recorded_after_forge_merge": count(len(rec), len(done)),
-                        "recorded_by_agent": count(len(rec) - rec_human, len(rec)),
+        "merge_paths": {"basis": "base history" if classified else "event text",
+                        "gate_pushed": count(paths["gate_pushed"], len(done)),
+                        "gate_built_human_landed": count(paths["gate_built_human_landed"], len(done)),
+                        "forge": count(paths["forge"], len(done)),
+                        "recorded_unclassified": count(paths["recorded_unclassified"], len(done)),
+                        "recorded_with_integrate": count(len(rec), len(done)),
+                        "recorded_with_agent_identity": count(len(rec) - rec_human, len(rec)),
                         "recorded_by_human": count(rec_human, len(rec)),
                         "recorded_unreviewed": count(rec_unrev, len(rec))},
         "outside": {"direct_to_main": count(*direct) if direct else None,
@@ -380,14 +422,20 @@ def render(m):
     o.append("  tasks held in the queue only waiting their turn (no human): %d" % hu["waiting_for_gate"])
     o.append("  allow: %d freeze exceptions · %d test changes (human decisions)" % (hu["allow"]["freeze"], hu["allow"]["tests"]))
     mp = m["merge_paths"]
-    o.append("how tasks reached INTEGRATED (by their INTEGRATED event: `merge` vs `integrate`):")
-    o.append("  merged by the kit's gate (uak merge): %s integrated tasks" % ratio(mp["gate_merged"]["n"], mp["gate_merged"]["of"]))
-    rf = mp["recorded_after_forge_merge"]
-    o.append("  merged on the forge, then recorded with uak integrate: %s integrated tasks" % ratio(rf["n"], rf["of"]))
-    o.append("    recorded by an agent: %s of those" % ratio(mp["recorded_by_agent"]["n"], mp["recorded_by_agent"]["of"]))
-    o.append("    recorded by a human (Role: human): %s of those" % ratio(mp["recorded_by_human"]["n"], mp["recorded_by_human"]["of"]))
-    o.append("    carrying Unreviewed: yes (code on the base with no valid approval): %s of those"
-             % ratio(mp["recorded_unreviewed"]["n"], mp["recorded_unreviewed"]["of"]))
+    n_of = lambda k: ratio(mp[k]["n"], mp[k]["of"])
+    o.append("how tasks reached INTEGRATED (classified by %s):" % ("the base's own history" if mp["basis"] == "base history"
+             else "the INTEGRATED event only: the base history is not available here"))
+    o.append("  merged and pushed by the gate, no human (event `merge`): %s integrated tasks" % n_of("gate_pushed"))
+    if mp["basis"] == "base history":
+        o.append("  built by the gate, landed by a human after the queue asked (engine merge commit, then integrate): %s" % n_of("gate_built_human_landed"))
+        o.append("  merged on the forge (PR merge commit or squash), then recorded with integrate: %s" % n_of("forge"))
+        o.append("  recorded with integrate, merge commit not found or of another kind: %s" % n_of("recorded_unclassified"))
+    else:
+        o.append("  recorded with integrate (forge merge, or gate merge a human landed; not told apart): %s" % n_of("recorded_with_integrate"))
+    rr = mp["recorded_with_integrate"]
+    o.append("  of the %d recorded with integrate: with an agent identity %s · by a human (Role: human) %s · Unreviewed: yes %s"
+             % (rr["n"], n_of("recorded_with_agent_identity"), n_of("recorded_by_human"), n_of("recorded_unreviewed")))
+    o.append("  (names like joahanmorales-11 are agent identities a person may drive: `Role: human` only marks a person's own name)")
     ou = m["outside"]
     o.append("work outside the kit:")
     dm = ou["direct_to_main"]
