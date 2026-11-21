@@ -127,7 +127,7 @@ for uak_lib in uak-coordination lib/config.sh lib/backlog.sh lib/tx.sh lib/claim
     lib/wait.sh lib/lint.sh lib/review-merge.sh lib/security.sh lib/smoke-init.sh lib/messages.sh lib/memory.sh lib/tests.sh lib/github.sh lib/hints.sh; do
   . "$UAK_BIN/$uak_lib" || gitfail "Missing $UAK_BIN/$uak_lib: reinstall the kit (install.sh --update)."
 done
-PLAN_FILE= PLAN_AMEND=no ID= BRANCH= WORKTREE= NEXT_TEXT= REQUEST_NEXT= TOKEN= NEW_STATE= LOG_TEXT= PR_URL= EVIDENCE=
+PLAN_FILE= PLAN_AMEND=no PLAN_CHECK=no PLAN_CHECKING=no ID= BRANCH= WORKTREE= NEXT_TEXT= REQUEST_NEXT= TOKEN= NEW_STATE= LOG_TEXT= PR_URL= EVIDENCE=
 MERGE_COMMIT= REVIEWER= CANCEL_REASON=
 REVIEW_LEARN=no WAIT_FOR=message WAIT_TIMEOUT=${UAK_WAIT_TIMEOUT:-540} WAIT_EVERY=${UAK_WAIT_EVERY:-15}
 EXPIRED=no SHOW_SUMMARY=no LINT_SECRETS=no QUIET=no SESSION_ONLY=no ALLOW_INFLIGHT=no ALLOW_IDS= ALLOW_DONE= REVIEW_NOTE= FULL=no REVIEW_START=no REVIEW_STARTED=no
@@ -172,9 +172,9 @@ case "$CMD" in
     if [ "$#" -gt 0 ] && valid_id "$(norm_id "$1")"; then ID=$(norm_id "$1"); shift
     elif [ "$#" -gt 0 ]; then case "$1" in --*) ;; *) MEM_PATHS=$1; shift;; esac; fi;;
   plan)
-    [ "$#" -gt 0 ] && [ -f "$1" ] || die "Usage: plan FILE [--amend] (## ID sections in TASKS.md format)."
+    [ "$#" -gt 0 ] && [ -f "$1" ] || die "Usage: plan FILE [--amend] (## ID sections in TASKS.md format); add --check to validate without publishing."
     PLAN_FILE=$(cd "$(dirname "$1")" && pwd -P)/$(basename "$1"); shift
-    [ -n "$HUMAN" ] || die "plan publishes backlog: needs UAK_HUMAN (a human authorizes it)."
+    case " $* " in *" --check "*) ;; *) [ -n "$HUMAN" ] || die "plan publishes backlog: needs UAK_HUMAN (a human authorizes it).";; esac
     identity;;
   away) identity;;
   pr-sync)
@@ -205,6 +205,7 @@ while [ "$#" -gt 0 ]; do
     --decline) [ "$CMD" = review ] || bad_opt; REVIEW_DECLINE=yes;;
     --learn) [ "$CMD" = review ] || bad_opt; REVIEW_LEARN=yes;;
     --amend) [ "$CMD" = plan ] || bad_opt; PLAN_AMEND=yes;;
+    --check) [ "$CMD" = plan ] || bad_opt; PLAN_CHECK=yes;;
     --similar) [ "$CMD" = recall ] || bad_opt; MEM_SIMILAR=yes;;
     --ack|--all|--peek|--human)
       [ "$CMD" = inbox ] || bad_opt
