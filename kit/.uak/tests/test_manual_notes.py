@@ -100,6 +100,34 @@ def human_merge_after_merge_human_is_counted(r):
     return "counted"
 
 
+def prose_is_never_a_move(r):
+    f, w, common = setup(r, "mn-prose")
+    prose = ['git commit -m "docs: explain git worktree add usage"', "echo see git worktree add for details",
+             "grep -rn 'x git worktree add' docs", 'echo "a;git worktree add b"',
+             "git commit -F - <<'EOF'\nnote\n git worktree add ../x\nEOF", 'echo "x gh pr merge 5"']
+    hook(r, w, "bash .uak/bin/uak merge HACK-001", "MERGE_HUMAN HACK-001 | needs a human")
+    prose += ["echo run gh pr merge later", 'git commit -m "do not gh pr merge by hand"']
+    for i, cmd in enumerate(prose):
+        hook(r, w, cmd, sid="p%d" % i)
+    expect(not manual_lines(common), "prose recorded: %r" % [l.group(0) for l in manual_lines(common)])
+    return "none"
+
+
+def real_moves_at_command_position(r):
+    for i, cmd in enumerate(["git worktree add ../x feat/y", "cd a && git worktree add b", "git -C /repo worktree add b",
+                             "FOO=1 git worktree add b", "cd a;\r\ngit worktree add b"]):
+        f, w, common = setup(r, "mn-real%d" % i)
+        hook(r, w, cmd)
+        expect(len(manual_lines(common)) == 1, "not counted: %r" % cmd)
+    f, w, common = setup(r, "mn-realgh")
+    hook(r, w, "bash .uak/bin/uak merge HACK-001", "MERGE_HUMAN HACK-001 | x")
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    expect((gd / "uak-merge-human").exists(), "one small state file per git dir")
+    hook(r, w, "gh -R o/r pr merge 5 --merge")
+    expect(len(manual_lines(common)) == 1 and not (gd / "uak-merge-human").exists(), "counted, and the state is consumed")
+    return "counted"
+
+
 def other_moves_and_off(r):
     f, w, common = setup(r, "mn-other")
     # A commit on the base branch from the main checkout: the pre-commit log has it.
@@ -134,7 +162,7 @@ def direct_main_commit_is_noticed(r):
     return "noticed"
 
 
-TESTS = [manual_note_is_recorded_with_task, worktree_add_by_hand_is_noticed_once, human_merge_after_merge_human_is_counted,
+TESTS = [prose_is_never_a_move, real_moves_at_command_position, manual_note_is_recorded_with_task, worktree_add_by_hand_is_noticed_once, human_merge_after_merge_human_is_counted,
          other_moves_and_off, direct_main_commit_is_noticed]
 
 
