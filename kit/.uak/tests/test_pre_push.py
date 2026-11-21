@@ -131,7 +131,43 @@ def guard_reads_mode_case_insensitively(r):
     return "case-insensitive"
 
 
-TESTS = [push_to_base_is_refused_for_an_agent, push_to_claims_is_refused, engine_pushes_pass, human_override_passes, guard_reads_mode_case_insensitively]
+def an_agent_can_seed_a_new_remote(r):
+    f = with_hook(r, "pp-seed")
+    clone = f.clones[0]
+    fresh = r.scratch / "pp-seed-fresh.git"
+    r.g(r.scratch, "init", "-q", "--bare", fresh)
+    r.g(clone, "remote", "add", "fresh", fresh.as_posix())
+    out = push(r, clone, "fresh", "main", env=AGENT)
+    expect(out.returncode == 0 and r.g(fresh, "rev-parse", "main").stdout.strip() == r.g(clone, "rev-parse", "HEAD").stdout.strip(),
+           "creating the base on a remote without it passes: " + text(out)[-300:])
+    # Claims is never created by a push of an agent's, and the base cannot be deleted.
+    out = push(r, clone, "fresh", "HEAD:refs/heads/claims", env=AGENT)
+    expect(out.returncode != 0 and "claims branch is written only by uak commands" in text(out), "claims stays refused: " + text(out)[-300:])
+    out = push(r, clone, "fresh", ":main", env=AGENT)
+    expect(out.returncode != 0 and "a push to main skips the merge gate" in text(out), "deleting the base stays refused: " + text(out)[-300:])
+    return "seeded"
+
+
+def an_agent_cannot_update_an_existing_base(r):
+    f = with_hook(r, "pp-existing")
+    clone = f.clones[0]
+    fresh = r.scratch / "pp-existing-fresh.git"
+    r.g(r.scratch, "init", "-q", "--bare", fresh)
+    r.g(clone, "remote", "add", "fresh", fresh.as_posix())
+    expect(push(r, clone, "fresh", "main", env=AGENT).returncode == 0, "seed")
+    commit_main(r, clone, "later.txt")
+    out = push(r, clone, "fresh", "main", env=AGENT)
+    expect(out.returncode != 0 and "a push to main skips the merge gate" in text(out), "an update of an existing base is refused: " + text(out)[-300:])
+    return "refused"
+
+
+def the_demo_runs_with_an_agent_identity(r):
+    out = r.run([r.bash, str(r.package / ".uak/bin/uak"), "demo", "--fast"], cwd=r.scratch, env={"UAK_AGENT": "agent-1", "UAK_DIRECT_MAIN": ""}, allowed=None, timeout=600)
+    expect(out.returncode == 0 and "setup failed" not in text(out), "demo --fast with UAK_AGENT set: rc %d %s" % (out.returncode, text(out)[-400:]))
+    return "demo ok"
+
+
+TESTS = [push_to_base_is_refused_for_an_agent, push_to_claims_is_refused, engine_pushes_pass, human_override_passes, guard_reads_mode_case_insensitively, an_agent_can_seed_a_new_remote, an_agent_cannot_update_an_existing_base, the_demo_runs_with_an_agent_identity]
 
 
 def main():
