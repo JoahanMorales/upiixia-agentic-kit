@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 # uak tokens: what the agents of this project really spent, per task, harness, model and lead vs subagent.
-#   tokens [--team] [--by task|harness|model|scope|agent] [--since DAYS] [--publish] [--quiet] [--json]
+#   tokens [--team] [--by task|harness|model|scope|agent|step] [--since DAYS] [--publish] [--quiet] [--json]
+#   tokens --budget-check ID   one line when the task's tokens crossed `Token-Budget: N` of PROJECT.md, nothing otherwise
 # Reads the local transcripts that Claude Code and Codex already write. No API key, no network for the local view:
 #   Claude Code  ~/.claude/projects/<encoded cwd>/*.jsonl (+ <session>/subagents/*.jsonl): message.usage, deduped by id
 #   Codex        ~/.codex/sessions/**/rollout-*.jsonl: the last token_count (total_token_usage) of each session
 #   Cursor       no local token log: read the Cursor dashboard (uak pace set covers plan pacing)
 # A transcript belongs to this project when its cwd is the main checkout or a worktree under <repo>-wt/ (where
 # `wt new` puts them), so a removed worktree still counts. The task is the worktree name (hack-016 → HACK-016).
+# A session that started elsewhere (the home directory: the usual place to drive a repo from) counts too, from the
+# moment its calls run in the main checkout or in a worktree: each message goes to the place of its tool calls (their
+# paths and `cd`, or the cwd the line records), so its subagents land on the task whose worktree they worked in.
+# Step of a task: author (work in its worktree), review (`uak review ID`), merge (`uak merge ID`: the gate), lead
+# (coordination: the main checkout, `uak claim|done|status … ID` from there). Only counts, model names and task IDs
+# are read out of a transcript, never its text.
 # --publish writes this machine's totals to claims:tokens/<machine>.md (one file per machine, replaced); a failed
 # publish leaves one black box line with the reason. --team adds every machine's file (the agent column comes from the
 # task owner on claims), names the machines that worked but never published, and shows the main checkout's share.
@@ -17,11 +24,12 @@ MSYS2_ARG_CONV_EXCL="refs/;origin/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXC
 LC_ALL=C; export LC_ALL
 say() { printf '%s\n' "$*"; }
 die() { printf 'tokens: %s\n' "$*" >&2; exit 2; }
-team=no by=task since=30 publish=no quiet=no json=no
+team=no by=task since=30 publish=no quiet=no json=no budget_id=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --team) team=yes;;
-    --by) by=${2:-}; shift; case "$by" in task|harness|model|scope|agent) ;; *) die "--by task|harness|model|scope|agent";; esac;;
+    --by) by=${2:-}; shift; case "$by" in task|harness|model|scope|agent|step) ;; *) die "--by task|harness|model|scope|agent|step";; esac;;
+    --budget-check) budget_id=${2:-}; shift; case "$budget_id" in [A-Za-z]*-[0-9]*) ;; *) die "--budget-check takes a task ID (UAK-124)";; esac;;
     --since) since=${2:-}; shift; case "$since" in ''|*[!0-9]*) die "--since takes days";; esac;;
     --publish) publish=yes;;
     --quiet) quiet=yes;;
@@ -35,6 +43,7 @@ common=$(git -C "$top" rev-parse --path-format=absolute --git-common-dir 2>/dev/
 main=$(cd "$common/.." && pwd -P)
 REMOTE=${UAK_REMOTE:-origin}
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$here/lib/config.sh"
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-tokens.XXXXXX") || exit 2
 trap 'rm -rf "$tmp"' EXIT
 # The transcript directory name is the cwd with every non-alphanumeric character turned into "-", counted the
@@ -49,37 +58,88 @@ prefixes() {
   printf '%s\n' "$(enc "$m")"
   w=$(cygpath -m "$m" 2>/dev/null) && [ -n "$w" ] && printf '%s\n' "$(enc "$w")"
 }
-# Rows: task|harness|model|scope|sessions|input|cache_write|cache_read|output
+# Rows: task|harness|model|scope|sessions|input|cache_write|cache_read|output|step (rows published by an older
+# machine have no step: they fold under "")
 scan_local() {
   local claude=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects codex=${CODEX_HOME:-$HOME/.codex}/sessions p d name task f
   : > "$tmp/rows"
   if [ -d "$claude" ]; then
-    for p in $(prefixes | sort -u); do
-      for d in "$claude/$p" "$claude/$p"-wt-*; do
-        [ -d "$d" ] || continue
-        name=${d##*/}
-        # A session started in a subfolder of the worktree (hack-016-app) still belongs to HACK-016.
-        case "$name" in "$p") task=main;; *) task=$(printf '%s' "${name#"$p"-wt-}" | sed -E 's/^([A-Za-z][A-Za-z0-9]*-[0-9]+).*/\1/' | tr '[:lower:]' '[:upper:]');; esac
-        find "$d" -maxdepth 3 -name '*.jsonl' -mtime "-$since" 2>/dev/null | while IFS= read -r f; do
-          case "$f" in */subagents/*) scope=subagent;; *) scope=lead;; esac
-          awk -v task="$task" -v scope="$scope" '
-            /"type": ?"assistant"/ && /"usage"/ {
-              id = str("id"); if (id !~ /^msg_/) next
-              model = str("model"); if (model == "") model = "?"
-              m[id] = model
-              in_[id] = num("input_tokens"); cw[id] = num("cache_creation_input_tokens")
-              cr[id] = num("cache_read_input_tokens"); out[id] = num("output_tokens")
-            }
-            # First "key": value on the line (the message comes before its nested usage details; a key inside
-            # message text is escaped as \"key\" and never matches).
-            function str(key,   v) { if (!match($0, "\"" key "\": ?\"[^\"]+\"")) return ""; v = substr($0, RSTART, RLENGTH); sub(/^"[^"]*": ?"/, "", v); sub(/"$/, "", v); return v }
-            function num(key,   v) { if (!match($0, "\"" key "\": ?[0-9]+")) return 0; v = substr($0, RSTART, RLENGTH); sub(/^"[^"]*": ?/, "", v); return v + 0 }
-            END { for (id in m) { k = m[id]; I[k] += in_[id]; W[k] += cw[id]; R[k] += cr[id]; O[k] += out[id] }
-                  for (k in I) if (I[k] + W[k] + R[k] + O[k] > 0)
-                    printf "%s|claude-code|%s|%s|1|%d|%d|%d|%d\n", task, k, scope, I[k], W[k], R[k], O[k] }' "$f"
-        done >> "$tmp/rows"
+    # Where a transcript lives tells where its session started: the main checkout, a worktree of it, or elsewhere. A
+    # session from elsewhere is read only when it names this repository at all (a plain grep of the paths).
+    plist=$(prefixes | sort -u)
+    { printf '%s\n' "$main"; w=$(cygpath -m "$main" 2>/dev/null) && [ -n "$w" ] && { printf '%s\n' "$w"; printf '%s\n' "$w" | sed 's,/,\\\\,g'; }; } > "$tmp/pats"
+    find "$claude" -maxdepth 4 -name '*.jsonl' -mtime "-$since" 2>/dev/null | while IFS= read -r f; do
+      rel=${f#"$claude"/}; name=${rel%%/*}; start=known
+      for p in $plist; do
+        case "$name" in
+          "$p") start=main;;
+          "$p"-wt-*) start=$(printf '%s' "${name#"$p"-wt-}" | sed -E 's/^([A-Za-z][A-Za-z0-9]*-[0-9]+).*/\1/' | tr '[:lower:]' '[:upper:]');;
+        esac
+        [ "$start" = known ] || break
       done
-    done
+      if [ "$start" = known ]; then grep -q -F -f "$tmp/pats" "$f" 2>/dev/null || continue; start=; fi
+      case "$f" in */subagents/*) scope=subagent;; *) scope=lead;; esac
+      awk -v start="$start" -v scope="$scope" -v main="$main" -v wmain="$(cygpath -m "$main" 2>/dev/null)" '
+        function norm(s) { gsub(/\\\\/, "/", s); return s }
+        # A worktree name is a task (hack-016-app → HACK-016); a folder that is not a task name stays as it is.
+        function task_of(t) {
+          sub(/[\/"'"'"' \;)].*/, "", t)
+          if (match(t, /^[A-Za-z][A-Za-z0-9]*-[0-9]+/)) t = substr(t, 1, RLENGTH)
+          return toupper(t) }
+        # The place of a path: "main" (the main checkout), a task ID (its worktree) or "". anchored: the path starts
+        # the text (a cwd); otherwise the first mention of the repository anywhere in it (a tool call).
+        function find_loc(s, anchored,   i, r, p, c, rest) {
+          for (i = 1; i <= 2; i++) { r = (i == 1) ? main : wmain; if (r == "") continue
+            if (anchored) { if (index(s, r "-wt/") == 1) return task_of(substr(s, length(r) + 5)); continue }
+            p = index(s, r "-wt/"); if (p) return task_of(substr(s, p + length(r) + 4)) }
+          for (i = 1; i <= 2; i++) { r = (i == 1) ? main : wmain; if (r == "") continue
+            if (anchored) { if (s == r || index(s, r "/") == 1) return "main"; continue }
+            rest = s
+            while ((p = index(rest, r)) > 0) { c = substr(rest, p + length(r), 1)
+              if (c !~ /[A-Za-z0-9_.-]/) return "main"
+              rest = substr(rest, p + length(r)) } }
+          return "" }
+        # The first `uak COMMAND` of a tool call: review and merge by name, any other command with a task ID as
+        # coordination. Sets sig and sigid.
+        function uak_cmd(s,   c, rest) {
+          sig = ""; sigid = ""
+          if (!match(s, /(bin\/uak|[ "'"'"'`;(&|]uak)[ ]+[a-z][a-z-]*/)) return
+          c = substr(s, RSTART, RLENGTH); sub(/^.*uak[ ]+/, "", c)
+          rest = substr(s, RSTART + RLENGTH); sub(/["\\].*/, "", rest)
+          if (match(rest, /[A-Z][A-Z0-9]*-[0-9][0-9]*/)) sigid = substr(rest, RSTART, RLENGTH)
+          if (c == "merge" || c == "review") sig = c; else if (sigid != "") sig = "coord" }
+        function str(key,   v) { if (!match($0, "\"" key "\": ?\"[^\"]+\"")) return ""; v = substr($0, RSTART, RLENGTH); sub(/^"[^"]*": ?"/, "", v); sub(/"$/, "", v); return v }
+        function num(key,   v) { if (!match($0, "\"" key "\": ?[0-9]+")) return 0; v = substr($0, RSTART, RLENGTH); sub(/^"[^"]*": ?/, "", v); return v + 0 }
+        BEGIN { cur = start }
+        {
+          isa = ($0 ~ /"type": ?"assistant"/ && index($0, "\"usage\"") > 0)
+          loc = ""
+          # The cwd the line records, then the paths of its tool calls: the call is where the work ran.
+          if (match($0, /"cwd": ?"[^"]*"/)) { c = substr($0, RSTART, RLENGTH); sub(/^"cwd": ?"/, "", c); sub(/"$/, "", c); loc = find_loc(norm(c), 1) }
+          tu = 0; sig = ""; sigid = ""
+          if (isa && $0 ~ /"type": ?"tool_use"/) { tu = 1; L = norm($0); p = find_loc(L, 0); if (p != "") loc = p; uak_cmd(L) }
+          # A call outside the repository takes the session out of it; a message with no call keeps the place of the
+          # latest call, inside or outside.
+          if (loc != "") cur = loc; else if (tu) cur = ""
+          if (tu) {
+            if (sig == "merge" || sig == "review") { if (sigid != "") cur = sigid; curstep = sig }
+            else { curstep = ""; if (sig == "coord" && (loc == "main" || loc == "")) { if (cur == "main" || cur == "") { cur = sigid; } } }
+          }
+          if (!isa) next
+          id = str("id"); if (id !~ /^msg_/) next
+          if (!(id in m)) { it[id] = cur; is_[id] = curstep }
+          if (tu) { it[id] = cur; if (sig == "merge" || sig == "review") is_[id] = sig; else if (sig == "coord" && it[id] == sigid) is_[id] = "lead" }
+          model = str("model"); if (model == "") model = "?"
+          m[id] = model
+          in_[id] = num("input_tokens"); cw[id] = num("cache_creation_input_tokens")
+          cr[id] = num("cache_read_input_tokens"); out[id] = num("output_tokens")
+        }
+        END { for (id in m) { t = it[id]; if (t == "") continue
+                st = is_[id]; if (st == "") st = (t == "main") ? "lead" : "author"
+                k = t "|" m[id] "|" st; I[k] += in_[id]; W[k] += cw[id]; R[k] += cr[id]; O[k] += out[id] }
+              for (k in I) if (I[k] + W[k] + R[k] + O[k] > 0) { split(k, a, "|")
+                printf "%s|claude-code|%s|%s|1|%d|%d|%d|%d|%s\n", a[1], a[2], scope, I[k], W[k], R[k], O[k], a[3] } }' "$f"
+    done >> "$tmp/rows"
   fi
   if [ -d "$codex" ]; then
     find "$codex" -name 'rollout-*.jsonl' -mtime "-$since" 2>/dev/null | while IFS= read -r f; do
@@ -87,25 +147,31 @@ scan_local() {
         function norm(s) { gsub(/\\\\/, "/", s); return s }
         function sval(s, key,   v) { if (!match(s, "\"" key "\": ?\"[^\"]+\"")) return ""; v = substr(s, RSTART, RLENGTH); sub(/^"[^"]*": ?"/, "", v); sub(/"$/, "", v); return v }
         function val(s, key,   v) { if (!match(s, "\"" key "\": ?[0-9]+")) return 0; v = substr(s, RSTART, RLENGTH); sub(/^"[^"]*": ?/, "", v); return v + 0 }
+        # The task of a working directory: main, a task ID (its worktree) or "".
+        function where(d,   i, r, t) {
+          for (i = 1; i <= 2; i++) { r = (i == 1) ? main : wmain; if (r == "") continue
+            if (d == r) return "main"
+            if (index(d, r "-wt/") == 1) { t = substr(d, length(r) + 5); sub(/\/.*/, "", t); return toupper(t) } }
+          return "" }
         cwd == "" && /"cwd"/ { cwd = norm(sval($0, "cwd")) }
+        # A session started elsewhere: its first tool call (workdir) that ran in the repository decides.
+        wloc == "" && /workdir/ && match($0, /workdir\\?": ?\\?"[^"\\]+/) {
+          v = substr($0, RSTART, RLENGTH); sub(/^workdir\\?": ?\\?"/, "", v); wloc = where(norm(v)) }
         /"model"/ { v = sval($0, "model"); if (v != "") model = v }
         /"total_token_usage"/ {
           s = substr($0, index($0, "\"total_token_usage\""))
           I = val(s, "input_tokens"); C = val(s, "cached_input_tokens"); O = val(s, "output_tokens") }
         END {
           if (cwd == "" || I + O == 0) exit
-          task = ""
-          for (i = 1; i <= 2; i++) { r = (i == 1) ? main : wmain; if (r == "") continue
-            if (cwd == r) task = "main"
-            else if (index(cwd, r "-wt/") == 1) { t = substr(cwd, length(r) + 5); sub(/\/.*/, "", t); task = toupper(t) } }
+          task = where(cwd); if (task == "") task = wloc
           if (task == "") exit
-          printf "%s|codex|%s|lead|1|%d|0|%d|%d\n", task, (model == "" ? "?" : model), I - C, C, O }' "$f"
+          printf "%s|codex|%s|lead|1|%d|0|%d|%d|%s\n", task, (model == "" ? "?" : model), I - C, C, O, (task == "main" ? "lead" : "author") }' "$f"
     done >> "$tmp/rows"
   fi
 }
-# Sums rows by key columns 1-4 (sessions added too).
-fold() { awk -F'|' '{k = $1 "|" $2 "|" $3 "|" $4; s[k] += $5; i[k] += $6; w[k] += $7; r[k] += $8; o[k] += $9}
-  END {for (k in s) printf "%s|%d|%d|%d|%d|%d\n", k, s[k], i[k], w[k], r[k], o[k]}' | sort; }
+# Sums rows by key columns 1-4 and the step (sessions added too).
+fold() { awk -F'|' '{k = $1 "|" $2 "|" $3 "|" $4 "|" $10; s[k] += $5; i[k] += $6; w[k] += $7; r[k] += $8; o[k] += $9}
+  END {for (k in s) { split(k, a, "|"); printf "%s|%s|%s|%s|%d|%d|%d|%d|%d|%s\n", a[1], a[2], a[3], a[4], s[k], i[k], w[k], r[k], o[k], a[5] }}' | sort; }
 machine() { (hostname 2>/dev/null || uname -n) | cksum | awk '{print $1 % 100000}'; }
 publish_rows() {
   local url ok=1 rel attempt
@@ -124,7 +190,7 @@ publish_rows() {
     mkdir -p "$tmp/repo/tokens"
     { printf '# Tokens · machine %s · updated %s · last %s days\n\n' "$(machine)" "$(date -u +%Y-%m-%dT%H:%MZ)" "$since"
       printf 'Root: %s\nRoot: %s-wt\n' "$main" "$main"
-      printf 'task | harness | model | scope | sessions | input | cache_write | cache_read | output\n\n'
+      printf 'task | harness | model | scope | sessions | input | cache_write | cache_read | output | step\n\n'
       sed 's/|/ | /g; s/^/- /' "$1"; } > "$tmp/repo/$rel"
     git -C "$tmp/repo" add "$rel"
     git -C "$tmp/repo" diff --cached --quiet && { ok=0; break; }
@@ -195,10 +261,11 @@ main_share() { # view file
 }
 report() {
   local col
-  case "$by" in task) col=1;; harness) col=2;; model) col=3;; scope) col=4;; agent) col=0;; esac
+  case "$by" in task) col=1;; harness) col=2;; model) col=3;; scope) col=4;; agent) col=0;; step) col=10;; esac
   awk -F'|' -v col="$col" -v owners="$tmp/owners" -v json="$json" '
     BEGIN { while ((getline l < owners) > 0) { split(l, a, " "); own[a[1]] = a[2] } }
     { key = (col == 0) ? (($1 == "main") ? "main" : (($1 in own) ? own[$1] : "?")) : $col
+      if (key == "") key = "unknown"
       s[key] += $5; i[key] += $6; w[key] += $7; r[key] += $8; o[key] += $9
       T += $6 + $7 + $8 + $9; TR += $8; TO += $9; TS += $5 }
     function h(n) { if (n >= 1e9) return sprintf("%.1fB", n / 1e9); if (n >= 1e6) return sprintf("%.1fM", n / 1e6); if (n >= 1e3) return sprintf("%.0fk", n / 1e3); return n "" }
@@ -216,7 +283,22 @@ report() {
       if (n > 25) printf "... %d more\n", n - 25
     }' "$1"
 }
+# `Token-Budget: N` of .uak/PROJECT.md (per task; 500k, 1.5M or a plain number). One line when the task's tokens crossed
+# it, nothing when there is no budget or the task is under it. The published totals of every machine when claims has
+# them, this machine's transcripts otherwise. `uak next` and `uak status --task` call this to warn.
+budget_check() { # ID
+  local id limit used src=published
+  id=$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')
+  uak_cfg_var "$top/.uak/PROJECT.md" Token-Budget
+  limit=$(printf '%s' "$CFG" | tr -d ' ,_' | awk '{ n = $0 + 0; u = tolower(substr($0, length($0))); if (u == "k") n *= 1e3; else if (u == "m") n *= 1e6; else if (u == "b") n *= 1e9; printf "%.0f", n }')
+  case "$limit" in ''|0) return 0;; esac
+  if ! ( team_rows ) > "$tmp/view" 2>/dev/null || [ ! -s "$tmp/view" ]; then scan_local; fold < "$tmp/rows" > "$tmp/view"; src="this machine"; fi
+  used=$(awk -F'|' -v id="$id" '$1 == id { t += $6 + $7 + $8 + $9 } END { printf "%.0f", t }' "$tmp/view")
+  [ "${used:-0}" -gt "$limit" ] || return 0
+  say "TOKENS_BUDGET: $id spent $(awk -v n="$used" 'BEGIN { if (n >= 1e6) printf "%.1fM", n / 1e6; else printf "%.0fk", n / 1e3 }') tokens, over its Token-Budget of $CFG ($src; Token-Budget in .uak/PROJECT.md). Split it, narrow it or raise the budget with the human."
+}
 : > "$tmp/owners"
+if [ -n "$budget_id" ]; then budget_check "$budget_id"; exit 0; fi
 if [ "$team" = yes ]; then
   team_rows > "$tmp/view"
 else
