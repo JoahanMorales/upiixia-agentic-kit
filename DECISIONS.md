@@ -99,3 +99,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1795249432 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-116 UAK-117 UAK-118 UAK-119 UAK-120 UAK-121 UAK-122 UAK-123 UAK-124 UAK-125 | Why: backlog without PR (Plan-Channel: claims)
 - 1795258471 | UAK-126 | follow-up of UAK-124 by joahanmorales-11: pre-push lets an agent create the base branch on a remote that does not have it yet (uak demo failed for agents) | Why: same Paths, no scope change
 - 1795294770 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-127 UAK-128 UAK-129 UAK-130 UAK-131 UAK-132 UAK-133 UAK-134 UAK-135 UAK-136 UAK-137 UAK-138 UAK-139 | Why: backlog without PR (Plan-Channel: claims)
+- 1795297417 | UAK-140 | follow-up of UAK-132 by joahanmorales-11: find_merge_commit compares trees from one git log, not one process per commit (2000 commits with a stale tip: 1995 git calls, 45 s) | Why: same Paths, no scope change

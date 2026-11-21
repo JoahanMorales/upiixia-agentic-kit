@@ -1304,3 +1304,15 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Tests:** demo_timeline_names_models, demo_output_unchanged
 - **Verify:** `python3 kit/.uak/tests/test_demo.py`
 - **Next step:** where the demo sets each agent's environment in kit/.uak/bin/demo
+
+## UAK-140 · find_merge_commit compares trees from one git log, not one process per commit (2000 commits with a stale tip: 1995 git calls, 45 s) (follow-up of UAK-132)
+
+- **Type:** follow-up
+- **Priority:** P1
+- **Depends on:** UAK-132
+- **Follow-up of:** UAK-132
+- **Paths:** kit/.uak/bin/lib/done.sh, kit/.uak/bin/lib/metrics.py, kit/.uak/tests/test_merge_commit_field.py
+- **Freeze-Allowed:** no
+- **Acceptance:**
+  - find_merge_commit compares trees from one git log, not one process per commit (2000 commits with a stale tip: 1995 git calls, 45 s)
+- **Verify:** `python3 kit/.uak/tests/test_merge_commit_field.py`
