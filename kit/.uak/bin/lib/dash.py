@@ -516,7 +516,7 @@ def timeline(ctx, tid, rec, now, root=None, cache=None, history_root=None):
     used = set()
     verdict_seen, last_reviewed_sha, rejected_before, prev_actor_claim, last_state, lease_end = [], "", 0, None, "", 0
     rounds = rejects = 0
-    red_seen, handed_to = {}, ""
+    red_seen, handed_to = set(), ""
     for e in hist:
         t, st, who = e["text"], e["state"], e["actor"]
         kw = dict(model=e["model"], harness=e["harness"])
@@ -541,13 +541,11 @@ def timeline(ctx, tid, rec, now, root=None, cache=None, history_root=None):
             pr = re.search(r"PR (\S+?)(?:;|$)", t)
             ev = re.sub(r"; reviewer: .*$", "", ev)
             main_ev = ev.split(" · red at ")[0]
-            now_red = {}
             for sha, why in re.findall(r"red at ([0-9a-f]{4,40}): (.*?)(?= · red at |$)", ev):
-                now_red[(sha, why.strip())] = now_red.get((sha, why.strip()), 0) + 1
-                if now_red[(sha, why.strip())] <= red_seen.get((sha, why.strip()), 0):
-                    continue   # the evidence repeats the reds of earlier rounds: only a new one is a new move
+                if sha in red_seen:
+                    continue   # the engine copies every earlier red into each resubmit's evidence: one red per SHA, when first seen
+                red_seen.add(sha)
                 add(e["epoch"], "red", who, "red recorded at %s" % sha[:7], why.strip(), **kw)
-            red_seen = {k: max(v, red_seen.get(k, 0)) for k, v in now_red.items()}
             tip = ""
             for m in msgs:
                 if m["kind"] == "review" and m["from"] == who and abs(m["t"] - e["epoch"]) <= 120 and id(m) not in used:
@@ -580,6 +578,8 @@ def timeline(ctx, tid, rec, now, root=None, cache=None, history_root=None):
                 if m["kind"] == verdict and m["from"] == who and abs(m["t"] - e["epoch"]) <= 120 and (not sha or sha[:7] in m["text"]):
                     reason = re.sub(r"^(Rejected|Approved) SHA \S+ by \S+\s*(?:[·.]\s*)?", "", m["text"]).strip() if verdict == "reject" else ""
                     break
+            if verdict == "reject" and not reason:
+                reason = "reason not recorded"
             rounds += 1
             rejects += verdict == "reject"
             verdict_seen.append((verdict, rv))
@@ -752,9 +752,12 @@ def render_timeline(tl):
 def compact_timeline(tl, cut=700):
     """The dashboard's copy: arrays, not objects, text bounded."""
     t = tl["totals"]
+    def line(l):
+        pr = re.search(r"PR (https://\S+?/pull/(\d+))", l["text"]) if l["kind"] == "done" else None
+        text = l["text"].replace(pr.group(1), "#" + pr.group(2)) if pr else l["text"]   # the URL goes in a title, not in the flow
+        return [l["epoch"], l["kind"], l["agent"], l["model"], l["harness"], text[:300], l["detail"][:cut], l["sha"][:7], pr.group(1) if pr else ""]
     return {"state": tl["state"], "open": tl["open"], "now": tl["now"],
-            "lines": [[l["epoch"], l["kind"], l["agent"], l["model"], l["harness"], l["text"][:300], l["detail"][:cut], l["sha"][:7]]
-                      for l in tl["lines"]],
+            "lines": [line(l) for l in tl["lines"]],
             "states": [[s["state"], s["sub"], s["seconds"]] for s in t["states"]],
             "agents": [[a["agent"], a["model"], a["harness"], a["moves"], a["kinds"]] for a in t["agents"]],
             "rounds": t["review_rounds"], "rejects": t["rejects"], "tokens": t["tokens"],

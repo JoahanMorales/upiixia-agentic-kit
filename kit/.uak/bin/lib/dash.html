@@ -896,7 +896,7 @@ dialog#story::backdrop { background: rgba(20, 20, 19, .42); }
       h("span", { "class": "node", text: sk[1], "aria-hidden": "true" }),
       h("div", { "class": "body" }, [
         h("div", { "class": "tm" }, [clock(l[0]), gap ? gapEl(gap) : null]),
-        h("div", { "class": "head" }, [h("span", { "class": "kd", text: sk[2] }), h("span", { "class": "tx", text: l[5] })]),
+        h("div", { "class": "head" }, [h("span", { "class": "kd", text: sk[2] }), h("span", { "class": "tx", text: l[5], title: l[8] || null })]),
         quiet && l[2] === "-" ? null : h("div", { "class": "by" }, whoModel(l[2], l[3], l[4])),
         det ? h("div", { "class": "dt" + (long && !open ? " clamp" : ""), text: det }) : null,
         long ? h("button", { "class": "more", text: open ? "Show less" : "Show all", on: function () { ui.open["st" + storyId + i] = !open; fillStory(true); } }) : null])]);

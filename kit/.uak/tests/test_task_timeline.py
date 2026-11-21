@@ -124,7 +124,35 @@ def dashboard_embeds_the_timeline(r):
     return "%d stories embedded of %d tasks" % (len(d["timelines"]), d["timeline_bound"]["tasks"])
 
 
-TESTS = [timeline_orders_every_move, a_reject_shows_reason_and_the_next_tip, totals_match_the_lines, json_has_stable_keys, dashboard_embeds_the_timeline]
+def a_red_shows_once_per_sha(r):
+    c = claims(r["tmp"])
+    # the engine copies the red of round 1 into the evidence of round 2 (already so in claims()), and UAK-114's first done holds it twice
+    wl = c / "worklog" / "WL-1-ana-1-UAK-001-x.md"
+    wl.write_text(wl.read_text(encoding="utf-8").replace("3 PASS \u00B7 red at abc1234: exit 1 (assertion)", "3 PASS \u00B7 red at abc1234: exit 1 (assertion) \u00B7 red at abc1234: exit 1 (assertion)"), encoding="utf-8")
+    tl = json.loads(run(r, c, "UAK-001", "--json").stdout)
+    reds = [l for l in tl["lines"] if l["kind"] == "red"]
+    expect(len(reds) == 1 and reds[0]["epoch"] == T0 + H, reds)
+    return "one red for abc1234"
+
+
+def a_reject_without_a_message_says_so(r):
+    c = claims(r["tmp"])
+    log = c / "inbox" / "log.md"
+    log.write_text("\n".join(l for l in log.read_text(encoding="utf-8").splitlines() if "| reject |" not in l) + "\n", encoding="utf-8")
+    out = run(r, c, "UAK-001")
+    tl = json.loads(run(r, c, "UAK-001", "--json").stdout)
+    rej = [l for l in tl["lines"] if l["kind"] == "reject"][0]
+    expect(rej["detail"] == "reason not recorded" and "reason not recorded" in out.stdout, rej)
+    sys.path.insert(0, str(r["pkg"] / "bin" / "lib"))
+    import dash
+    cp = dash.compact_timeline(tl)
+    expect([l for l in cp["lines"] if l[1] == "reject"][0][6] == "reason not recorded", cp["lines"])
+    done = [l for l in cp["lines"] if l[1] == "done"]
+    expect(done and done[0][5].startswith("done, PR") and "https://" not in done[0][5] or done[0][8] == "", done[0])
+    return "reason not recorded"
+
+
+TESTS = [timeline_orders_every_move, a_reject_shows_reason_and_the_next_tip, totals_match_the_lines, json_has_stable_keys, dashboard_embeds_the_timeline, a_red_shows_once_per_sha, a_reject_without_a_message_says_so]
 
 
 def main():
