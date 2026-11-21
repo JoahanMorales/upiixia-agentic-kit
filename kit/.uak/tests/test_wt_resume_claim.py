@@ -43,7 +43,10 @@ def resumes_own_claim_after_handover(r):
     expect(wt.exists() and (wt / "src" / "one.txt").read_text(encoding="utf-8") == "work by ana\n", "starts from the task's branch")
     expect("UAK_AGENT=bob-1" in (wt / ".uak-env").read_text(encoding="utf-8"), "the .uak-env names bob-1")
     claim = f.show("claims/HACK-001.md")
-    expect("Owner: bob-1" in claim and wt.as_posix() in claim.replace("\\", "/"), "the claim points at the new worktree: " + claim)
+    # The path form differs on Windows (Git Bash /c/..., C:\\..., 8.3 names): compare the tail, the engine writes what wt gave it.
+    tail = wt.parent.name + "/hack-001"
+    got = [l for l in claim.replace("\\", "/").splitlines() if l.startswith("Worktree: ")]
+    expect("Owner: bob-1" in claim and got and got[0].rstrip().endswith(tail), "the claim points at the new worktree (..." + tail + "): " + claim)
     return "resumed"
 
 
