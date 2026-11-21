@@ -35,7 +35,24 @@ def task_line(r, f, now):
                 env={"UAK_AGENT": "agent-1", "UAK_NOW": str(now), "UAK_REMOTE": "origin", "UAK_DEDUPE": "off"}).stdout
     got = [l for l in out.splitlines() if l.startswith("Review: ")]
     expect(len(got) == 1, "one Review: line in status --task: " + out)
+    # The Python twin (lib/dash.py) says the same words, the same time and the same late mark, word for word.
+    sub = [x for x in dash_data(r, f, now)["tasks"] if x["id"] == "HACK-001"][0].get("sub") or {}
+    ago = now - sub.get("since", now)
+    expect(got[0].startswith("Review: " + sub.get("text", "?") + " · "), "bash and python words differ: %s | %s" % (got[0], sub))
+    expect(("OVER the review lease" in got[0]) == bool(sub.get("late")), "late mark differs: %s | %s" % (got[0], sub))
+    expect(got[0].count(" reject") == (1 if sub.get("rejects") else 0) or sub.get("rejects", 0) > 1, "rejects differ: %s | %s" % (got[0], sub))
+    expect(" · %s" % age_words(ago) in got[0], "time differs: %s | %s s" % (got[0], ago))
     return got[0], out
+
+
+def age_words(s):
+    if s < 90:
+        return "%d s" % s
+    if s < 5400:
+        return "%d min" % ((s + 30) // 60)
+    if s < 172800:
+        return "%d h %02d min" % (s // 3600, (s % 3600) // 60)
+    return "%d d %02d h" % (s // 86400, (s % 86400) // 3600)
 
 
 def setup(r, name, **cfg):
@@ -110,19 +127,46 @@ def approved_waiting_for_a_human_names_the_reason(r):
     return line
 
 
-def approved_waiting_for_ci(r):
-    f = setup(r, "rs-ci")
-    review(r, f, "approve", T0 + 300)
-    # pr-sync keeps each failed check it told in claims meta/pr/ID.md ("check KEY"): that is what "CI is known" means here.
-    work = Path(f.base) / "claims-edit"
+def claims_edit(r, f, name, change):
+    """Write to the claims branch the way pr-sync does (a message from github), with plain Git."""
+    work = Path(f.base) / ("claims-edit-" + name)
     r.g(f.base, "clone", "-q", "--branch", "claims", str(f.remote), str(work))
-    (work / "meta" / "pr").mkdir(parents=True, exist_ok=True)
-    (work / "meta" / "pr" / "HACK-001.md").write_text("# Sent to HACK-001\ncheck lint|https://example.invalid/runs/1\n", encoding="utf-8")
+    change(work)
     r.g(work, "add", "-A")
     r.g(work, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "pr-sync fixture")
     r.g(work, "push", "-q", "origin", "claims")
-    line, _ = task_line(r, f, T0 + 300 + 600)
-    expect(line.startswith("Review: approved, waiting for CI · 10 min"), line)
+
+
+def github_says(f, r, at, text, name="m"):
+    def change(work):
+        log = work / "inbox" / "log.md"
+        body = log.read_text(encoding="utf-8") if log.exists() else ""
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text(body + "- 900 | %d | github | task:HACK-001 | request | HACK-001 | %s\n" % (at, text), encoding="utf-8")
+    claims_edit(r, f, name, change)
+
+
+def approved_ci_failed_names_the_check(r):
+    f = setup(r, "rs-ci")
+    review(r, f, "approve", T0 + 300)
+    github_says(f, r, T0 + 400, "GitHub: #1 CI failed: lint https://example.invalid/runs/1 · read it: gh run view 1 --log-failed · #1 CI failed: unit (linux) https://example.invalid/runs/2", "a")
+    line, _ = task_line(r, f, T0 + 400 + 600)
+    expect(line.startswith("Review: approved, CI failed: lint +1 · 10 min"), line)
+    expect("waiting for CI" not in line, "there is no waiting-for-CI state: pr-sync knows failures only")
+    return line
+
+
+def a_failure_of_an_older_tip_does_not_count(r):
+    f = setup(r, "rs-ci-old")
+    review(r, f, "approve", T0 + 300)
+    github_says(f, r, T0 + 400, "GitHub: #1 CI failed: lint https://example.invalid/runs/1", "a")
+    push_again(r, f, T0 + 900)
+    review(r, f, "approve", T0 + 1000)
+    line, _ = task_line(r, f, T0 + 1100)
+    expect(line.startswith("Review: approved, waiting for the owner to merge · 100 s") or line.startswith("Review: approved, waiting for the owner to merge · 2 min"), line)
+    github_says(f, r, T0 + 1050, "GitHub: #1 CI failed: lint https://example.invalid/runs/3", "b")
+    line, _ = task_line(r, f, T0 + 1100)
+    expect(line.startswith("Review: approved, CI failed: lint · 50 s"), line)
     return line
 
 
@@ -177,11 +221,12 @@ def dashboard_data_groups_by_substate(r):
     expect("author agent-1" in t.get("participants", ""), "participants carried: %s" % t.get("participants"))
     html = (Path(__file__).resolve().parents[1] / "bin/lib/dash.html").read_text(encoding="utf-8")
     expect("reviewGroups" in html and "sub.late" in html, "the page groups REVIEW by sub-state")
+    expect('"waiting" || t.sub.kind === "rereview"' in html and "waiting for CI" not in html, "the tile counts tasks waiting for a reviewer")
     return sub["text"]
 
 
 TESTS = [waits_for_a_reviewer, substate_after_a_reject, substate_after_a_new_tip, in_review_by_name,
-         approved_waiting_for_the_owner, approved_waiting_for_a_human_names_the_reason, approved_waiting_for_ci,
+         approved_waiting_for_the_owner, approved_waiting_for_a_human_names_the_reason, approved_ci_failed_names_the_check, a_failure_of_an_older_tip_does_not_count,
          time_in_substate_and_the_lease_mark, status_keeps_its_shape, dashboard_data_groups_by_substate]
 
 

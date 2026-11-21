@@ -1,16 +1,41 @@
 # Reads: status, digest, a task's detail, and the de-duplication of repeated reads in one session.
 # Sourced by .uak/bin/uak (docs/ARCHITECTURE.md: where to change what). Bash 3.2+, POSIX tools.
 
+# Failed checks pr-sync told about task $1 since $2 (the epoch the tip was recorded with `done`): RS_CI is the first
+# name, plus " +N" for N more, RS_CI_AT when the first one was told. pr-sync stores only failures, per check name and
+# without a SHA, as a message from `github` to task:ID ("#N CI failed: NAME URL"); the time of that message against the
+# time of the tip is what ties a failure to this tip: a failure told before the tip was pushed again does not count.
+# A later green run leaves no trace (pr-sync does not record passes), so a failure stays until the next `done`.
+review_ci_failed() {
+  local l r t from to kind task text seg name names= n=0
+  RS_CI= RS_CI_AT=0 RS_CI_N=0
+  [ -f "$TX/$MSG_LOG" ] || return 0
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in "- "[0-9]*" | "[0-9]*" | github | "*"CI failed: "*) ;; *) continue;; esac
+    r=${l#* | }; t=${r%% | *}; r=${r#* | }; from=${r%% | *}; r=${r#* | }; to=${r%% | *}; r=${r#* | }
+    kind=${r%% | *}; r=${r#* | }; task=${r%% | *}; text=${r#* | }
+    [ "$task" = "$1" ] && [ "$t" -ge "$2" ] 2>/dev/null || continue
+    while :; do
+      case "$text" in *"CI failed: "*) ;; *) break;; esac
+      text=${text#*CI failed: }; name=${text%% https://*}; name=${name%% · *}
+      case "|$names|" in *"|$name|"*) continue;; esac
+      names="$names|$name"; n=$((n + 1))
+      [ "$n" -gt 1 ] || { RS_CI=$name; RS_CI_AT=$t; }
+    done
+  done < "$TX/$MSG_LOG"
+  RS_CI_N=$n
+  [ "$n" -le 1 ] || RS_CI="$RS_CI +$((n - 1))"
+}
 # One derived sub-state per task in REVIEW, from what claims already hold (no new stored state): the task's Task-Tip, the
 # last verdict (reviews/ID.md), a live reviewer lock (reviews/ID.reviewing), the human merge queue (queue/ID.md), the
-# checks pr-sync told (meta/pr/ID.md) and the worklog (every `done` and `review` event). Sets RS_TEXT (the words every
+# failed checks pr-sync told (messages from github) and the worklog (every `done` and `review` event). Sets RS_TEXT (the words every
 # surface prints: lib/dash.py computes the same ones, test_review_substates compares them), RS_SINCE (epoch it began),
 # RS_ROUNDS (review verdicts so far), RS_REJECTS, RS_LATE (yes: it sat longer than the review lease).
 # Builtins only: status runs this per REVIEW task and its process count is tested.
 # Why (the human, 2026-11-21): "a veces esta en In review por horas y visualmente no sabes si hubo un rejected, esta en
 # CI o lo que sea"; v6.6: UAK-111 and UAK-114 went through a reject and several rounds under one REVIEW label.
 review_substate() {
-  local id=$1 tip rsha verdict rtime wl line t rest last_done=0 lock_who lock_sha lock_until lock_start qs reason qtime ci= lease
+  local id=$1 tip rsha verdict rtime wl line t rest last_done=0 lock_who lock_sha lock_until lock_start qs reason qtime lease
   RS_TEXT= RS_SINCE=0 RS_ROUNDS=0 RS_REJECTS=0 RS_LATE=no
   fv "$TX/tasks/$id.md" Task-Tip; tip=$FV
   fv "$TX/tasks/$id.md" Worklog; wl=$FV
@@ -38,11 +63,9 @@ review_substate() {
     fv "$TX/queue/$id.md" State; qs=$FV
     fv "$TX/queue/$id.md" Reason; reason=$FV
     fv "$TX/queue/$id.md" Updated; qtime=$FV; case "$qtime" in ''|*[!0-9]*) qtime=$rtime;; esac
-    if [ -f "$TX/meta/pr/$id.md" ]; then
-      while IFS= read -r line || [ -n "$line" ]; do case "$line" in "check "*) ci=yes; break;; esac; done < "$TX/meta/pr/$id.md"
-    fi
+    review_ci_failed "$id" "$last_done"
     if [ "$qs" = HUMAN ]; then RS_TEXT="approved, waiting for a human merge${reason:+: $reason}"; RS_SINCE=$qtime
-    elif [ -n "$ci" ]; then RS_TEXT="approved, waiting for CI"; RS_SINCE=$rtime
+    elif [ -n "$RS_CI" ]; then RS_TEXT="approved, CI failed: $RS_CI"; RS_SINCE=$RS_CI_AT
     else RS_TEXT="approved, waiting for the owner to merge"; RS_SINCE=$rtime; fi
   elif [ -n "$rsha" ] && [ "$rsha" = "$tip" ]; then
     RS_TEXT="changes requested (round $RS_ROUNDS)"; RS_SINCE=$rtime

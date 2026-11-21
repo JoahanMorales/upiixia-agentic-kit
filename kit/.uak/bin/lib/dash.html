@@ -157,8 +157,8 @@ h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
 .grp-h { display: flex; align-items: center; gap: 8px; padding: 0 4px 8px; font-size: 12px; font-weight: 600; color: var(--ink-2); letter-spacing: .01em; }
 .grp-h .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--k); flex: none; }
 .grp-h .muted { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; }
-.k-changes { --k: var(--critical); } .k-waiting { --k: var(--muted); } .k-review { --k: var(--review); } .k-rereview { --k: var(--violet); }
-.k-ci { --k: var(--claimed); } .k-human { --k: var(--orange); } .k-owner { --k: var(--integrated); }
+.k-changes { --k: var(--claimed); } .k-waiting { --k: var(--muted); } .k-review { --k: var(--review); } .k-rereview { --k: var(--violet); }
+.k-cifail { --k: var(--critical); } .k-human { --k: var(--orange); } .k-owner { --k: var(--integrated); }
 .card.late { box-shadow: inset 3px 0 0 var(--warning), var(--shadow); }
 .sub { margin: 0 0 9px; padding: 7px 9px; border-radius: 8px; background: color-mix(in srgb, var(--k) 11%, transparent); font-size: 12.5px; line-height: 1.4; }
 .sub .what { color: var(--ink); font-weight: 600; text-wrap: pretty; overflow-wrap: anywhere; }
@@ -441,13 +441,15 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
     var online = d.agents.filter(function (a) { return a.status === "online" && !a.is_human; });
     var stalled = d.tasks.filter(function (t) { return t.stalled; });
     var human = d.queue.filter(function (q) { return q.state === "HUMAN" || q.reason; });
-    var oldest = d.offers.reduce(function (m, o) { return Math.min(m, o.since); }, Infinity);
+    // Reviews waiting: the REVIEW tasks no reviewer has taken yet (sub-states "waiting for a reviewer" and "re-review").
+    var rw = d.tasks.filter(function (t) { return t.state === "REVIEW" && t.sub && (t.sub.kind === "waiting" || t.sub.kind === "rereview"); });
+    var oldest = rw.reduce(function (m, t) { return Math.min(m, t.sub.since); }, Infinity);
     function tile(label, value, det, cls, onclick) {
       return h("button", { "class": "tile" + (cls ? " " + cls : ""), on: onclick }, [h("span", { "class": "lbl" }, label), h("span", { "class": "val", text: String(value) }), h("span", { "class": "det" }, det)]);
     }
     var faces = h("span", { "class": "faces" }, online.slice(0, 7).map(function (a) { return avatar(a.name, 20); }));
     tiles.appendChild(tile([pres("online"), "Agents online"], online.length, online.length ? [faces, online.length > 7 ? "+" + (online.length - 7) : null] : ["none in the last 30 min"], "", function () { go("agents"); }));
-    tiles.appendChild(tile(["Reviews waiting"], d.offers.length, [d.offers.length ? "oldest " + ago(oldest, d.generated) : "none waiting"], d.offers.length && d.generated - oldest > 3600 ? "warm" : "", function () { go("board"); }));
+    tiles.appendChild(tile(["Reviews waiting"], rw.length, [rw.length ? "oldest " + ago(oldest, d.generated) : "none waiting"], rw.length && d.generated - oldest > 3600 ? "warm" : "", function () { go("board"); }));
     tiles.appendChild(tile(["Stalled"], stalled.length, [stalled.length ? stalled.map(function (t) { return t.id; }).join(", ") : "every task is moving"], stalled.length ? "hot" : "", function () { go("board"); }));
     tiles.appendChild(tile(["Needs a human"], human.length, [human.length ? human.map(function (q) { return q.task; }).join(", ") : "nothing for you"], human.length ? "warm" : "", function () { go("talk", { kind: "human", task: "", agent: "", q: "" }); }));
   }
@@ -518,8 +520,8 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
   }
   // REVIEW: one group per sub-state (lib/dash.py review_substate; the words are the same as `uak status`). Who has to act
   // comes first: a reject waits for its author, a human merge for a human, then the queue for a reviewer.
-  var GROUPS = [["changes", "Changes requested"], ["human", "Waiting for a human merge"], ["waiting", "Waiting for a reviewer"], ["rereview", "Re-review"],
-                ["review", "In review"], ["ci", "Approved, waiting for CI"], ["owner", "Approved, owner to merge"]];
+  var GROUPS = [["cifail", "Approved, CI failed"], ["changes", "Changes requested"], ["human", "Waiting for a human merge"], ["waiting", "Waiting for a reviewer"], ["rereview", "Re-review"],
+                ["review", "In review"], ["owner", "Approved, owner to merge"]];
   function span(s) { s = Math.max(0, s); if (s < 90) return s + " s"; if (s < 5400) return Math.round(s / 60) + " min"; if (s < 172800) return Math.floor(s / 3600) + " h " + ("0" + Math.floor(s % 3600 / 60)).slice(-2) + " min"; return Math.floor(s / 86400) + " d " + ("0" + Math.floor(s % 86400 / 3600)).slice(-2) + " h"; }
   function reviewGroups(list) {
     var out = [];

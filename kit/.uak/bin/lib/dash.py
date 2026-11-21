@@ -130,10 +130,31 @@ def human_of(name, humans):
     return humans.get(name) or base
 
 
+def ci_failed(c, tid, since):
+    """Failed checks pr-sync told about the task since the tip was recorded (messages from `github` to task:ID,
+    "#N CI failed: NAME URL"); same rule as review_ci_failed in lib/status.sh. pr-sync stores no SHA and no passes: the
+    message time against the tip's time ties a failure to this tip. Returns "NAME" or "NAME +N", and when it was told."""
+    names, first_at = [], 0
+    for line in read(c / "inbox/log.md").splitlines():
+        if not line.startswith("- "):
+            continue
+        p = line[2:].split(" | ", 6)
+        if len(p) < 7 or p[2] != "github" or p[5] != tid or not p[1].isdigit() or int(p[1]) < since:
+            continue
+        for seg in p[6].split("CI failed: ")[1:]:
+            name = seg.split(" https://")[0].split(" · ")[0]
+            if name not in names:
+                names.append(name)
+                first_at = first_at or int(p[1])
+    if not names:
+        return "", 0
+    return names[0] + (" +%d" % (len(names) - 1) if len(names) > 1 else ""), first_at
+
+
 def review_substate(c, tid, rec, now, lease):
     """What a task in REVIEW waits for: the same words and rules as review_substate in lib/status.sh (the test compares
-    them on one fixture). Derived from claims: Task-Tip, reviews/ID.md, reviews/ID.reviewing, queue/ID.md, meta/pr/ID.md
-    (a check pr-sync told) and the worklog's `done` and `review` events. Returns kind, text, since, rounds, rejects, late."""
+    them on one fixture). Derived from claims: Task-Tip, reviews/ID.md, reviews/ID.reviewing, queue/ID.md, messages
+    (a failed check pr-sync told) and the worklog's `done` and `review` events. Returns kind, text, since, rounds, rejects, late."""
     tip = rec.get("Task-Tip", "")
     last_done = num(rec.get("Updated"))
     rounds = rejects = 0
@@ -157,11 +178,11 @@ def review_substate(c, tid, rec, now, lease):
     rtime = num(rv.get("Reviewed")) or last_done
     if rsha and rsha == tip and verdict == "approve":
         q = fields(read(c / "queue" / (tid + ".md")))
-        ci = any(l.startswith("check ") for l in read(c / "meta/pr" / (tid + ".md")).splitlines())
+        ci, ci_at = ci_failed(c, tid, last_done)
         if q.get("State") == "HUMAN":
             kind, text, since = "human", "approved, waiting for a human merge" + (": " + q["Reason"] if q.get("Reason") else ""), num(q.get("Updated")) or rtime
         elif ci:
-            kind, text, since = "ci", "approved, waiting for CI", rtime
+            kind, text, since = "cifail", "approved, CI failed: " + ci, ci_at
         else:
             kind, text, since = "owner", "approved, waiting for the owner to merge", rtime
     elif rsha and rsha == tip:
