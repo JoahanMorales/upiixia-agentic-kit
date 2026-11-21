@@ -28,7 +28,10 @@ case $0 in */*|*\\*) here=${0%[/\\]*};; *) here=.;; esac   # a Windows caller ma
 # The one PROJECT.md reader (builtins, no process).
 . "$here/lib/config.sh" 2>/dev/null || . "$(dirname "$0")/lib/config.sh"
 # Every block also goes to the black box: a rule that fires often is friction worth fixing.
-block() { printf 'UAK_GUARD: blocked · %s\n' "$*" >&2; bash "$here/bb" auto guard guard "$*" >/dev/null 2>&1 || true; exit 2; }
+SUBQ=
+block() {
+  [ -z "$SUBQ" ] || set -- "$* (If the text is inside double quotes: backticks and \$( ) inside double quotes run as a command; use single quotes or a heredoc with a quoted delimiter for the message.)"
+  printf 'UAK_GUARD: blocked · %s\n' "$*" >&2; bash "$here/bb" auto guard guard "$*" >/dev/null 2>&1 || true; exit 2; }
 
 # Split into segments on ; && || | and newlines (including JSON-escaped \n). `<` becomes a space: `cat<.env` is a read.
 # Parameter expansion, not awk: no process. A doubled delimiter (|| or a lone & next to &&) only adds an empty
@@ -56,6 +59,21 @@ rule_segments() { # sets SEGS
   fi
   s=${s//"$bs"n/$NL}; s=${s//$P_RULE/$NL}   # kit-lint: ok (at most SHORT chars: longer went to awk)
   SEGS=$s
+}
+# A backtick is a substitution: it becomes " $( " so the rule split still cuts there and the segment keeps a $ the
+# dynamic-ref check sees (the split removes backticks). Builtins only for short input.
+bt_marks() { # sets rs
+  rs=$1
+  case "$rs" in *'`'*) ;; *) return 0;; esac
+  if [ "${#rs}" -gt "$SHORT" ]; then
+    rs=$(printf '%s' "$rs" | awk '{ o = ""; while ((i = index($0, "`")) > 0) { o = o substr($0, 1, i - 1) (k++ % 2 ? " ) " : " $( "); $0 = substr($0, i + 1) } print o $0 }'); return 0
+  fi
+  local o= open=1   # the opening backtick becomes " $( ", the closing one " ) "
+  while case "$rs" in *'`'*) true;; *) false;; esac; do
+    o=$o${rs%%'`'*}; rs=${rs#*'`'}
+    if [ "$open" = 1 ]; then o="$o \$( "; open=0; else o="$o ) "; open=1; fi
+  done
+  rs=$o$rs
 }
 # The command as the rules read it. JSON escapes the hook payload keeps: a backslash-newline continuation (\\ + \n)
 # and \t are spaces. Why (audit, Oct 2026): `git push \<newline> --force` and `git push<TAB>--force` passed.
@@ -98,6 +116,76 @@ ask_human() {
   block "$* This harness cannot ask the human, so the human runs it in their own terminal."
 }
 
+# The body of a heredoc with a quoted delimiter (<<'EOF', <<"EOF", <<\EOF) is data: nothing in it runs. Dropped,
+# unless the command that reads it runs it (a shell, an interpreter, ssh, eval, xargs, sudo). Why (review of UAK-111):
+# `git commit -F - <<'EOF'` with `git push` or backticks in the message must not block or ask. One awk, and only
+# for a command with `<<` and a quote; JSON keeps \n as two characters, so those split lines too.
+strip_heredocs() { # sets cmd
+  cmd=$(printf '%s' "$1" | awk 'BEGIN { RS = "\001"; ORS = ""; q = sprintf("%c", 39)
+    re = "<<-?[ \t]*(\\\\[A-Za-z_][A-Za-z0-9_]*|" q "[^" q "]*" q "|\"[^\"]*\")"
+    ex = "(^|[^A-Za-z0-9_])(sh|bash|zsh|dash|ksh|ssh|eval|xargs|source|sudo|python[0-9.]*|node|perl|ruby|php)([^A-Za-z0-9_]|$)" }
+  { gsub(/\\n/, "\n"); n = split($0, L, "\n"); inh = 0; out = ""
+    for (i = 1; i <= n; i++) {
+      line = L[i]
+      if (inh) { t = line; if (dash) sub(/^\t+/, "", t); if (t == delim) inh = 0; continue }
+      out = out (i > 1 ? "\n" : "") line
+      if (match(line, re) && substr(line, RSTART - 1, 1) != "<" && substr(line, 1, RSTART - 1) !~ ex) {
+        d = substr(line, RSTART, RLENGTH); dash = (substr(d, 3, 1) == "-")
+        sub(/^<<-?[ \t]*/, "", d); gsub(/[\\"\047]/, "", d); delim = d; inh = 1
+      }
+    }
+    print out }')
+}
+# A git push whose remote or refspec argument is dynamic (a $ or a backslash; a backtick became $). Only those
+# arguments count: `git -C "$WT" push origin feat/x` is a plain push.
+push_dynamic() { # $1 segment
+  local t st=0 skip=0
+  set -f; set -- $1; set +f
+  for t; do
+    if [ "$skip" = 1 ]; then skip=0; continue; fi
+    case $st in
+      0) case "$t" in git|*/git) st=1;; esac;;
+      1) case "$t" in -C|-c|--git-dir|--work-tree|--namespace) skip=1;; -*) ;; push) st=2;; *) return 1;; esac;;
+      2) case "$t" in -o|--push-option|--repo|--receive-pack|--exec) skip=1;; -*) ;; *'$'*|*'\'*) return 0;; esac;;
+    esac
+  done
+  return 1
+}
+# A gh command whose subcommand word (gh [flags] pr [flags] VERB) is a variable or substitution.
+gh_dynamic() { # $1 segment
+  local t st=0 skip=0
+  set -f; set -- $1; set +f
+  for t; do
+    if [ "$skip" = 1 ]; then skip=0; continue; fi
+    case $st in
+      0) case "$t" in gh|*/gh) st=1;; esac;;
+      1|2) case "$t" in
+             -R|--repo) skip=1;;
+             -*) ;;
+             *'$'*|*'\'*) return 0;;
+             pr) [ "$st" = 1 ] && st=2 || return 1;;
+             *) return 1;;
+           esac;;
+    esac
+  done
+  return 1
+}
+# The idioms that resolve to the current branch or directory read as HEAD and `.`: the existing HEAD rules apply.
+idioms() { # sets rcmd
+  # Only a command with one of the idioms gets here past the case: plain commands spawn nothing. Long input (and every
+  # input on bash 3.2, where SHORT is 0) goes through sed: ${//} is quadratic there.
+  case "$rcmd" in *'git branch --show-current'*|*'git rev-parse --abbrev-ref HEAD'*|*'pwd'*) ;; *) return 0;; esac
+  if [ "${#rcmd}" -gt "$SHORT" ]; then
+    rcmd=$(printf '%s' "$rcmd" | sed -e 's/\$(git branch --show-current)/HEAD/g' -e 's/`git branch --show-current`/HEAD/g' \
+      -e 's/\$(git rev-parse --abbrev-ref HEAD)/HEAD/g' -e 's/`git rev-parse --abbrev-ref HEAD`/HEAD/g' \
+      -e 's/\$(pwd)/./g' -e 's/`pwd`/./g')
+    return 0
+  fi
+  rcmd=${rcmd//'$(git branch --show-current)'/HEAD}; rcmd=${rcmd//'`git branch --show-current`'/HEAD}   # kit-lint: ok (at most SHORT chars)
+  rcmd=${rcmd//'$(git rev-parse --abbrev-ref HEAD)'/HEAD}; rcmd=${rcmd//'`git rev-parse --abbrev-ref HEAD`'/HEAD}   # kit-lint: ok (at most SHORT chars)
+  rcmd=${rcmd//'$(pwd)'/.}; rcmd=${rcmd//'`pwd`'/.}   # kit-lint: ok (at most SHORT chars)
+}
+
 check_bash() {
   norm_cmd "$1"; m=
   # Quoted prose (3+ words: a commit message, a uak msg) is not a command, unless the command runs it as code.
@@ -105,16 +193,21 @@ check_bash() {
   # remote branch delete, and `git push "--force"` passed.
   # Speed (Windows, a process costs 20-50 ms in Git Bash): each rule runs grep only when its words are in the
   # segment (case is a builtin), and a command with no quotes has no prose to strip.
-  rcmd=$cmd code=no
-  if runs_code "$cmd"; then code=yes; else case "$cmd" in *[\"\']*) rcmd=$(strip_prose "$cmd");; esac; fi
+  rcmd=$cmd code=no SUBQ=
+  if runs_code "$cmd"; then code=yes; else
+    case "$cmd" in *'<<'*[\"\'\\]*) strip_heredocs "$cmd"; rcmd=$cmd;; esac
+    case "$cmd" in *'"'*'`'*|*'"'*'$('*) SUBQ=yes;; esac
+    case "$cmd" in *[\"\']*) rcmd=$(strip_prose "$rcmd");; esac
+  fi
   # envcmd: the .env checks read the command with its prose removed but its quotes kept.
   envcmd=$rcmd
   if [ "${#rcmd}" -le "$SHORT" ]; then rcmd=${rcmd//[\"\']/}; else rcmd=$(printf '%s' "$rcmd" | tr -d "\"'"); fi
-  human_cmd=
+  human_cmd= dyn=
   base=${UAK_BASE:-main}
+  case "$rcmd" in *'$('*|*'`'*) idioms;; esac
   # Only segments with a risky word go through the rules: a 300-line heredoc took 7.5 s, past the hook's 5 s
   # timeout (and a timed-out hook lets the command run). A command with none of them has no such segment.
-  case "$rcmd" in *git*|*rm*|*kill*|*sudo*|*curl*|*wget*|*publish*|*upload*|*gh*|*docker*|*npm*|*pnpm*|*yarn*|*pip*|*uv*|*UAK_*) rule_segments "$rcmd";; *) SEGS=;; esac
+  case "$rcmd" in *git*|*rm*|*kill*|*sudo*|*curl*|*wget*|*publish*|*upload*|*gh*|*docker*|*npm*|*pnpm*|*yarn*|*pip*|*uv*|*UAK_*) bt_marks "$rcmd"; rule_segments "$rs";; *) SEGS=;; esac
   # No segment, no here-document: Git Bash forks a child to feed one (Windows CI: 4 processes for `ls`).
   [ -z "$SEGS" ] || while IFS= read -r seg; do
     s=" $seg "
@@ -128,8 +221,17 @@ check_bash() {
     # Merges reach main only through the gate (uak merge) or a human on the forge. Why (Hacktoberfest second
     # autopsy): 5 of 33 sprint merges were an agent's gh pr merge, and the only out-of-Paths merges were among them.
     case "$s" in *gh*merge*)
-      grep -Eq '(^|[[:space:]/])gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)|(^|[[:space:]/])gh[[:space:]]+api[[:space:]].*pulls/[0-9]+/merge' <<< "$s" &&
+      # Flags (and their values) may sit between the words: gh -R o/r pr merge 3, gh pr --repo o/r merge 3.
+      grep -Eq '(^|[[:space:]/])gh[[:space:]]+(-[^[:space:]]+[[:space:]]+([^-[:space:]][^[:space:]]*[[:space:]]+)?)*pr[[:space:]]+(-[^[:space:]]+[[:space:]]+([^-[:space:]][^[:space:]]*[[:space:]]+)?)*merge([[:space:]]|$)|(^|[[:space:]/])gh[[:space:]]+api[[:space:]].*pulls/[0-9]+/merge' <<< "$s" &&
         block "gh pr merge skips the merge gate. Run bash .uak/bin/uak merge ID (Verify, scope and review on the merged result); a human merges on GitHub themselves.";;
+    esac
+    # A ref the text filter cannot read (a variable, a substitution, a backslash) in a gh merge or a git push: the
+    # human decides (audit #5). A backtick became " $( " before the split, so it shows as a $ here.
+    case "$s" in *gh*)
+      case "$s" in *'$'*|*'\'*)
+        gh_dynamic "$s" &&
+          dyn="a gh command whose subcommand is dynamic (variable, substitution, backslash): the guard cannot read it. Run it only if the human asked for exactly this.";;
+      esac;;
     esac
     # A URL with user@ goes to the host after the @: `curl http://localhost:1@other-host/` passes an allow rule for
     # localhost (audit). A credential in a URL also lands in shell history and logs.
@@ -146,7 +248,14 @@ check_bash() {
         block "deleting remote branches is for the branch's human owner."
       fi
       grep -Eq -- "(^|[[:space:]/])git[[:space:]].*push[[:space:]].*[[:space:]:+](refs/heads/)?(main|master|$base)([[:space:]]|$)" <<< "$s" &&
-        block "a push to $base skips the merge gate. Push your feat/ branch; bash .uak/bin/uak merge ID lands it on $base.";;
+        block "a push to $base skips the merge gate. Push your feat/ branch; bash .uak/bin/uak merge ID lands it on $base."
+      # The claims branch holds the coordination state; only uak commands write it (their pushes skip this hook).
+      grep -Eq -- '(^|[[:space:]/])git[[:space:]].*push[[:space:]].*[[:space:]:+](refs/heads/)?claims([[:space:]]|$)' <<< "$s" &&
+        block "the claims branch is written only by uak commands (claim, done, release…), never by a push of yours."
+      case "$s" in *'$'*|*'\'*)
+        push_dynamic "$s" &&
+          dyn="a git push whose ref is dynamic (variable, substitution, backslash): the guard cannot read it. Run it only if the human asked for exactly this.";;
+      esac;;
     esac
     case "$s" in *git*reset*--ha*)
       grep -Eq '(^|[[:space:]/])git[[:space:]].*reset[[:space:]](.*[[:space:]])?--ha(r(d)?)?([[:space:]]|$)' <<< "$s" &&
@@ -232,6 +341,7 @@ UAK_SEGMENTS
   done <<UAK_SEGMENTS
 $SEGS
 UAK_SEGMENTS
+  [ -z "$dyn" ] || ask_human "$dyn"
   [ -z "$human_cmd" ] || ask_human "UAK_HUMAN is human authority (plan, allow, retire, register-reviewer, handover of another agent's task, a human integrate). Run it only if the human asked for exactly this."
   return 0
 }
@@ -241,7 +351,9 @@ strip_prose() {
     s = $0; out = ""
     while (match(s, re)) {
       t = substr(s, RSTART, RLENGTH); n = split(t, w, /[[:space:]]+/)
-      out = out substr(s, 1, RSTART - 1) (n >= 3 ? "\"\"" : t); s = substr(s, RSTART + RLENGTH)
+      # A double-quoted span with $( or a backtick runs a command: the rules read it (audit of v6.5.0, #3).
+      sub_ = (substr(t, 1, 1) == "\"" && (index(t, "$(") || index(t, "`")))
+      out = out substr(s, 1, RSTART - 1) (n >= 3 && !sub_ ? "\"\"" : t); s = substr(s, RSTART + RLENGTH)
     }
     print out s }' <<< "$1"
 }
