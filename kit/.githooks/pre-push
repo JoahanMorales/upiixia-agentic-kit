@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Refuses a push by an agent to the base branch or to the claims branch from outside the engine. Git passes the refs it
+# is about to update on stdin ("<local ref> <local sha> <remote ref> <remote sha>"), so a ref built by a command or a
+# script written to a file is seen as what it is; the guard's text filter cannot see it (review of UAK-111).
+# The engine's own pushes (claims transactions, the merge gate) run in a temporary repository, where no project hook
+# exists, so they need no marker. A human pushes with UAK_DIRECT_MAIN=1 (as pre-commit); no identity at all (the
+# maintainer's own shell) passes too: only an agent identity (UAK_AGENT, the worktree's .uak-env, uak.agent) is refused.
+# Deleting a ref is refused only for those two branches as well.
+set -u
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+[ -f "$root/.uak/TASKS.md" ] && [ -f "$root/.uak/bin/guard" ] || exit 0
+if [ "${UAK_DIRECT_MAIN:-}" = 1 ]; then
+  cd "$root" 2>/dev/null && gd=$(git rev-parse --git-common-dir 2>/dev/null) &&
+    printf '%s %s push\n' "$(date +%s 2>/dev/null)" "${UAK_AGENT:-${UAK_HUMAN:-human}}" >> "$gd/uak-direct-main.log" 2>/dev/null
+  exit 0
+fi
+# UAK_AGENT set but empty is a human who said so (UAK_HUMAN=NAME UAK_AGENT=): no other source overrules it.
+[ "${UAK_AGENT+set}" != set ] || [ -n "$UAK_AGENT" ] || exit 0
+agent=${UAK_AGENT:-}
+if [ -z "$agent" ] && [ -f "$root/.uak-env" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in UAK_AGENT=*) agent=${line#UAK_AGENT=}; agent=$(printf '%s' "$agent" | tr -d "\"' \r");; esac
+  done < "$root/.uak-env"
+fi
+[ -n "$agent" ] || agent=$(git config --get uak.agent 2>/dev/null) || agent=
+[ -n "$agent" ] || exit 0
+while read -r _lref _lsha rref _rsha; do
+  [ -n "${rref:-}" ] || continue
+  UAK_AGENT=$agent bash "$root/.uak/bin/guard" push-ref "$rref" || {
+    printf '%s\n' "pre-push: $rref refused (a human, for a hotfix: UAK_DIRECT_MAIN=1 git push …)" >&2; exit 1; }
+done
+exit 0
