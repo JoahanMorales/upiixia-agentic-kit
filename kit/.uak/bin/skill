@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# uak skill add NAME: copy one more skill of the kit into this project (.claude/skills, and .agents/skills for Codex,
+# Cursor and Gemini). A light install (UAK-127) places only the skills its mode, stack and --skills ask for; the rest of
+# the library stays in the kit. Source 1: the kit's checkout (UAK_KIT_HOME, default ~/.uak-kit). Source 2, with no
+# checkout: the release this project runs (tag v<VERSION> of UAK_KIT_REPO), fetched with git only, and every file must be
+# one the kit shipped (.uak/settings/known-files.txt): a file nobody released installs nothing.
+# Bash 3.2, Git and POSIX tools, no jq.
+set -eu
+die() { printf 'skill: %s\n' "$*" >&2; exit 1; }
+usage() { printf '%s\n' 'Usage: uak skill add NAME' >&2; exit 2; }
+[ "${1:-}" = add ] && [ "$#" -eq 2 ] || usage
+name=$2
+case "$name" in ''|.*|*[!A-Za-z0-9._-]*) die "'$name' is not a skill name (letters, digits, . _ -)";; esac
+root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$(pwd)
+cd "$root"
+[ -d .uak/bin ] || die "no .uak/ here: run this at the root of a project that has the kit"
+for base in .claude/skills .agents/skills; do
+  [ ! -f "$base/$name/SKILL.md" ] || [ "$base" = .agents/skills ] || { printf 'skill: %s is already in %s\n' "$name" "$base"; exit 0; }
+done
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/uak-skill.XXXXXX") || die "no temp dir"
+trap 'rm -rf "$tmp"' EXIT
+src=
+kit_home=${UAK_KIT_HOME:-${HOME:-/nonexistent}/.uak-kit}
+if [ -f "$kit_home/kit/.uak/skills/$name/SKILL.md" ]; then
+  src=$kit_home/kit/.uak/skills/$name; from="the kit checkout $kit_home"
+else
+  ver=$(tr -d '\r\n ' < .uak/VERSION 2>/dev/null) || ver=
+  [ -n "$ver" ] || die "no .uak/VERSION: cannot tell which release to fetch $name from"
+  url=${UAK_KIT_REPO:-https://github.com/JoahanMorales/upiixia-agentic-kit}
+  command -v git >/dev/null 2>&1 || die "no checkout at $kit_home and git is not installed"
+  ( cd "$tmp" && git init -q fetch ) >/dev/null 2>&1 || die "git init failed"
+  ( cd "$tmp/fetch" && GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 fetch -q --depth 1 "$url" "refs/tags/v$ver" ) >/dev/null 2>&1 \
+    || die "no skill $name in a kit checkout ($kit_home) and could not fetch release v$ver from $url (offline or refused)"
+  ( cd "$tmp/fetch" && git rev-parse -q --verify "FETCH_HEAD^{commit}:kit/.uak/skills/$name" ) >/dev/null 2>&1 \
+    || die "release v$ver has no skill named $name"
+  mkdir -p "$tmp/out"
+  ( cd "$tmp/fetch" && git archive FETCH_HEAD "kit/.uak/skills/$name" | tar -x -C "$tmp/out" ) >/dev/null 2>&1 || die "could not unpack $name"
+  src=$tmp/out/kit/.uak/skills/$name; from="release v$ver"
+  [ -f "$src/SKILL.md" ] || die "release v$ver: $name has no SKILL.md"
+  [ -z "$(find "$src" -type l)" ] || die "release v$ver: $name has a symbolic link; nothing installed"
+  known=.uak/settings/known-files.txt
+  [ -f "$known" ] || die "no $known to check the release against; nothing installed"
+  find "$src" -type f | while IFS= read -r f; do
+    grep -qx "$(git hash-object -- "$f")" "$known" || { printf '%s\n' "${f#$src/}" > "$tmp/bad"; break; }
+  done
+  [ ! -s "$tmp/bad" ] || die "release v$ver: $(cat "$tmp/bad") of $name is not a file the kit shipped; nothing installed"
+fi
+bases=.claude/skills
+if [ -d .agents/skills ] || [ -d .codex ] || [ -d .cursor ] || [ -d .gemini ]; then bases="$bases .agents/skills"; fi
+for base in $bases; do
+  rm -rf "${base:?}/$name"; mkdir -p "$base/$name"; cp -R "$src/." "$base/$name/" || die "could not copy into $base"
+done
+printf 'skill: %s added to %s (from %s). Commit it.\n' "$name" "$(printf '%s' "$bases" | tr ' ' ',')" "$from"

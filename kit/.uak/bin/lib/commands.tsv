@@ -65,3 +65,4 @@ inbox	msg_inbox_run	msg_ack_mutate	messages.sh	uak_inbox	inbox [--ack] [--all] [
 wait	wait_run	-	wait.sh	uak_wait	wait [ID] --for approve|integrated|message [--timeout S]   one call that returns when it happens (instead of polling)
 learn	tx	learn_mutate	memory.sh	uak_memory	learn "TEXT" [--path P,Q|all] [--task ID] · learn --forget N   a lesson tied to paths; next shows it to the next agent there
 recall	recall_run	-	memory.sh	uak_memory	recall [ID|PATH] [--similar | --search "words"]   lessons for a task or a path; --similar/--search: lessons, rejects, contracts and decisions ranked by words (BM25)
+skill	exec	-	skill	uak_cli	skill add NAME   copy one more skill from the kit (its checkout, or the pinned release when there is none) into .claude/skills and .agents/skills
