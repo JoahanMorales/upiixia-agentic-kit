@@ -95,3 +95,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1795216675 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-087 UAK-088 UAK-089 UAK-090 UAK-091 UAK-092 UAK-093 UAK-094 | Why: backlog without PR (Plan-Channel: claims)
 - 1795233636 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-110 UAK-111 UAK-112 UAK-113 UAK-114 UAK-115 | Why: backlog without PR (Plan-Channel: claims)
 - 1795235921 | UAK-114 | Stopped: existing tests encode the old behaviour | Why: Tests only grow
+- 1795237140 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-114 Paths: kit/.uak/bin/lib/done.sh, kit/.uak/tests/test_integrate_unreviewed.py → kit/.uak/bin/lib/done.sh, kit/.uak/bin/stats, kit/.uak/tests/test_integrate_unreviewed.py; | Why: scope or criteria fixed before review
