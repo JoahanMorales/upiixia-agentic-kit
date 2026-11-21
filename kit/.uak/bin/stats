@@ -24,6 +24,8 @@ printf 'tasks: %s\n' "${states% · }"
 # Work recorded by `uak integrate` after it reached the base outside the gate, apart from the gated merges.
 outside=$(for f in "$dir"/tasks/*.md; do [ -f "$f" ] && grep -l '^Integrated-Outside: yes' "$f"; done 2>/dev/null | wc -l | tr -d ' ')
 [ "${outside:-0}" -eq 0 ] || printf 'integrated outside the gate: %s (the rest went through uak merge)\n' "$outside"
+unrev=$(for f in "$dir"/tasks/*.md; do [ -f "$f" ] && grep -l '^Unreviewed: yes' "$f"; done 2>/dev/null | wc -l | tr -d ' ')
+[ "${outside:-0}" -eq 0 ] || printf '  unreviewed: %s of them (code on %s with no valid approval)\n' "${unrev:-0}" "${UAK_BASE:-main}"
 if [ -f "$log" ]; then
   awk -F' [|] ' '/^- [0-9]/ {
       n++; kind[$5]++; from[$3]++; if (first == "" || $2 < first) first = $2; if ($2 > last) last = $2
