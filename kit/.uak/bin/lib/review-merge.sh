@@ -33,6 +33,11 @@ rm_task_value() {
   [ -n "$v" ] || v=$(field "$RECORD" "$1")
   printf '%s\n' "$v"
 }
+# An approval counts only if its reviewer is an identity uak has seen on claims and not retired (the merge gate's rule).
+# Why (private sprint v6.4.0): an approval by an unseen name made review SKIP while merge rejected it: a human-only dead end.
+rm_approval_seen() {
+  [ -f "$TX/meta/agents/$1.md" ] && [ ! -f "$TX/meta/retired/$1.md" ]
+}
 review_identity_eligible() {
   local who=${1:-$AGENT} c until state
   RM_ELIGIBLE_VIA=
@@ -179,7 +184,7 @@ review_mutate() {
     [ -n "$REVIEW_SHA" ] || REVIEW_SHA=$RM_TIP
     [ "$REVIEW_SHA" = "$RM_TIP" ] || conflict "The task's current HEAD is ${RM_TIP%"${RM_TIP#???????}"}; review that SHA."
     if [ -f "$TX/reviews/$ID.md" ] && [ "$(field "$TX/reviews/$ID.md" SHA)" = "$RM_TIP" ] &&
-       [ "$(field "$TX/reviews/$ID.md" Verdict)" = approve ]; then
+       [ "$(field "$TX/reviews/$ID.md" Verdict)" = approve ] && rm_approval_seen "$(field "$TX/reviews/$ID.md" Reviewer)"; then
       say "SKIP review $ID | already approved by $(field "$TX/reviews/$ID.md" Reviewer) on this SHA; it needs a merge, not a reviewer."
       return 0
     fi
@@ -234,15 +239,22 @@ review_mutate() {
   rm -f "$TX/reviews/$ID.reviewing"
   # An approval of a SHA that already has one is duplicate work (Reap: HACK-005 got 7 approvals, 3 on one SHA).
   if [ -f "$TX/reviews/$ID.md" ] && [ "$(field "$TX/reviews/$ID.md" SHA)" = "$RM_TIP" ] &&
-     [ "$(field "$TX/reviews/$ID.md" Verdict)" = approve ] && [ "$REVIEW_VERDICT" = approve ]; then
+     [ "$(field "$TX/reviews/$ID.md" Verdict)" = approve ] && [ "$REVIEW_VERDICT" = approve ] &&
+     rm_approval_seen "$(field "$TX/reviews/$ID.md" Reviewer)"; then
     say "OK review $ID | already approved by $(field "$TX/reviews/$ID.md" Reviewer) on this SHA; nothing recorded. Next: the owner runs uak merge $ID"
     return 0
+  fi
+  local unseen=
+  if [ -f "$TX/reviews/$ID.md" ] && [ "$(field "$TX/reviews/$ID.md" SHA)" = "$RM_TIP" ] &&
+     [ "$(field "$TX/reviews/$ID.md" Verdict)" = approve ] && ! rm_approval_seen "$(field "$TX/reviews/$ID.md" Reviewer)"; then
+    unseen=$(field "$TX/reviews/$ID.md" Reviewer)
   fi
   mkdir -p "$TX/reviews"
   printf '%s\n' "ID: $ID" "SHA: $RM_TIP" "Reviewer: $AGENT" "Owner: $(field "$RECORD" Owner)" \
     "Verdict: $REVIEW_VERDICT" "Reviewed: $NOW" "Eligible-Via: $RM_ELIGIBLE_VIA" 'Command: uak review' > "$TX/reviews/$ID.md"
   [ -z "$carried" ] || printf '%s\n' "Carried-From: $carried (later commits are clean merges of $BASE)" >> "$TX/reviews/$ID.md"
   [ "$REVIEW_VERDICT" != reject ] || printf '%s\n' "Rejected-By: $AGENT" >> "$TX/reviews/$ID.md"
+  [ -z "$unseen" ] || say "NOTE review $ID | replaces an approval by $unseen, never seen on claims or retired (merge would have refused it)."
   put "$RECORD" Task-Tip "$RM_TIP"
   WL=$(field "$RECORD" Worklog); STATE=$(field "$RECORD" State)
   event "review; $REVIEW_VERDICT; SHA $RM_TIP; reviewer $AGENT"
