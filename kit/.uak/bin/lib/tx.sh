@@ -114,6 +114,24 @@ update_summary_field() {
     {print}' "$TX/$WL" > "$TXROOT/summary"
   mv "$TXROOT/summary" "$TX/$WL"
 }
+# One identity = one live task also when renewing: an expired claim on this task cannot be renewed once the identity
+# holds another live one (a damaged Lease-Until counts as live). Why (audit of v6.5.0 #1 and #10; a TLA+ model of
+# claims found: claim t1, lease expires, claim t2, heartbeat t1).
+check_renewable() {
+  [ "${UAK_MULTI_CLAIM:-}" != 1 ] || return 0
+  local until c cu
+  until=$(field "$CLAIM" Lease-Until)
+  case "$until" in ''|*[!0-9]*) return 0;; esac
+  [ "$NOW" -ge "$until" ] || return 0
+  case "$(field "$CLAIM" State)" in CLAIMED|BLOCKED) ;; *) return 0;; esac
+  for c in "$TX"/claims/*.md; do
+    [ -f "$c" ] && [ "$c" != "$CLAIM" ] && [ "$(field "$c" Owner)" = "$AGENT" ] || continue
+    case "$(field "$c" State)" in CLAIMED|BLOCKED) ;; *) continue;; esac
+    cu=$(field "$c" Lease-Until)
+    case "$cu" in ''|*[!0-9]*) ;; *) [ "$NOW" -lt "$cu" ] || continue;; esac
+    UAK_CODE=one-live-task conflict "The lease of $ID expired and $AGENT now holds $(field "$c" ID) ($(field "$c" State)): one identity = one live task, so $ID cannot be renewed. Give $ID up: uak release $ID; or take it back: release $(field "$c" ID) first, then renew."
+  done
+}
 refresh_lease() {
   UNTIL=$((NOW + LEASE))
   [ "$(field "$RECORD" State)" != REVIEW ] || UNTIL=$((NOW + ${REVIEW_LEASE:-$LEASE}))
@@ -180,7 +198,9 @@ snapshot() {
     snap_k=0
     while [ "$snap_k" -lt "${#snap_c[@]}" ] && [ "$snap_k" -lt 96 ]; do
       # An expired lease says so (Hacktoberfest: STATE.md showed a stale Lease-Until as if the claim were live).
-      lu=${snap_c[$((snap_k + 3))]}; case "$lu" in ''|*[!0-9]*) lu=0;; esac
+      lu=${snap_c[$((snap_k + 3))]}
+      # tick reports a damaged lease (it counts as live for one-live-task); STATE.md keeps its format.
+      case "$lu" in ''|*[!0-9]*) lu=0; [ "${CMD:-}" != tick ] || printf "%s\n" "DAMAGED LEASE ${snap_c[$snap_k]} (${snap_c[$((snap_k + 2))]}): Lease-Until is not a number; it counts as live. Fix the claim file or release it." >&2;; esac
       snap_x=
       [ "${snap_c[$((snap_k + 1))]}" = REVIEW ] || [ "$lu" -eq 0 ] || [ "$NOW" -lt "$lu" ] || snap_x=' (EXPIRED: release --expired --read-summary TOKEN)'
       printf '%s | %s | %s | until %s%s\n' "${snap_c[$snap_k]}" "${snap_c[$((snap_k + 1))]}" "${snap_c[$((snap_k + 2))]}" "$lu" "$snap_x"
