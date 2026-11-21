@@ -1,6 +1,7 @@
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
+# ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 1795254685	lint	-	0	-	831	kit-breed-1	claude-code
 1795254725	lint	-	0	-	909	kit-breed-1	claude-code
 1795254734	lint	-	0	-	830	kit-breed-1	claude-code
@@ -49,3 +50,13 @@
 1795265282	lint	-	0	-	864	kit-breed-1	claude-code
 1795265326	lint	-	0	-	946	kit-taste-1	claude-code
 1795265340	lint	-	0	-	934	kit-taste-1	claude-code
+1795265998	done	UAK-117	0	-	11022	kit-breed-1	claude-code
+1795266020	done	UAK-121	0	-	6042	kit-taste-1	claude-code
+1795266032	metrics	-	-	-	-	kit-r1	claude-code
+1795266034	metrics	-	-	-	-	kit-r1	claude-code
+1795266043	metrics	-	-	-	-	kit-r1	claude-code
+1795266078	status	UAK-121	0	-	3234	kit-r1	claude-code
+1795266090	review	UAK-117	0	-	3905	kit-r1	claude-code
+1795266213	review	UAK-121	0	-	3940	kit-r1	claude-code
+1795266347	lint	-	0	-	839	kit-breed-1	claude-code
+1795266360	lint	-	0	-	851	kit-breed-1	claude-code
