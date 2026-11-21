@@ -156,7 +156,22 @@ def no_content_leaves_the_machine(r):
     return "counts only"
 
 
-TESTS = [a_session_started_elsewhere_counts, subagent_tokens_go_to_their_task, tokens_by_step, budget_warns_once_crossed, no_content_leaves_the_machine]
+def a_session_that_leaves_the_repo_is_split(r):
+    f, main, cfg, home = setup(r, "leaves")
+    call = lambda i, n, path: line("msg_%s" % i, n, home, tool=("Bash", {"command": "ls " + path}))
+    put(cfg, enc(home) + "/s1.jsonl", [
+        call("l1", 100, main + "-wt/hack-001/x"),
+        call("l2", 1000, "/other"),
+        line("msg_l3", 10, home, text="still in /other"),
+        call("l4", 2000, main + "2/x"),
+        call("l5", 3000, main + "-wt-old/x"),
+        call("l6", 100, main + "/README.md")])
+    got = by(r, f, cfg, "task")
+    expect(got == {"HACK-001": 100, "main": 100}, "only the calls inside the repository count: %s" % got)
+    return "split"
+
+
+TESTS = [a_session_started_elsewhere_counts, subagent_tokens_go_to_their_task, tokens_by_step, budget_warns_once_crossed, no_content_leaves_the_machine, a_session_that_leaves_the_repo_is_split]
 
 
 def main():

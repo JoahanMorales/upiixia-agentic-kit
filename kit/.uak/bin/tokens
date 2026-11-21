@@ -118,7 +118,9 @@ scan_local() {
           if (match($0, /"cwd": ?"[^"]*"/)) { c = substr($0, RSTART, RLENGTH); sub(/^"cwd": ?"/, "", c); sub(/"$/, "", c); loc = find_loc(norm(c), 1) }
           tu = 0; sig = ""; sigid = ""
           if (isa && $0 ~ /"type": ?"tool_use"/) { tu = 1; L = norm($0); p = find_loc(L, 0); if (p != "") loc = p; uak_cmd(L) }
-          if (loc != "") cur = loc
+          # A call outside the repository takes the session out of it; a message with no call keeps the place of the
+          # latest call, inside or outside.
+          if (loc != "") cur = loc; else if (tu) cur = ""
           if (tu) {
             if (sig == "merge" || sig == "review") { if (sigid != "") cur = sigid; curstep = sig }
             else { curstep = ""; if (sig == "coord" && (loc == "main" || loc == "")) { if (cur == "main" || cur == "") { cur = sigid; } } }
