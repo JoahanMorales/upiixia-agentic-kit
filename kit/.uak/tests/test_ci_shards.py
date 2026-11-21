@@ -114,8 +114,8 @@ def windows_matrix_is_shards(r):
     expect("fromJSON(needs.discover.outputs.tests)" not in ci, "no job per test file is left")
     expect("--ci-windows" in ci, "discover prints the Windows shards")
     if n > 1:
-        expect(len(lint.ci_windows_shards(n - 1)) == n - 1 and windows_load(lint, n - 1) > lint.WINDOWS_BOUND_S,
-               "one shard fewer must break the bound: %d shards give %d s" % (n - 1, windows_load(lint, n - 1)))
+        expect(len(lint.ci_windows_shards(n - 1)) == n - 1 and windows_load(lint, n - 1) > lint.WINDOWS_BOUND_S * lint.WINDOWS_MARGIN,
+               "one shard fewer must break the bound with its margin (UAK-141): %d shards give %d s" % (n - 1, windows_load(lint, n - 1)))
     return "%d Windows shards" % n
 
 
@@ -153,7 +153,7 @@ def longest_shard_under_the_bound(r):
     longest = windows_load(lint, n)
     expect(lint.WINDOWS_BOUND_S == 25 * 60, "the bound is 25 minutes: %r" % lint.WINDOWS_BOUND_S)
     expect(longest <= lint.WINDOWS_BOUND_S, "%d Windows shards: the longest takes %d s, over %d" % (n, longest, lint.WINDOWS_BOUND_S))
-    expect(n == 1 or windows_load(lint, n - 1) > lint.WINDOWS_BOUND_S, "%d is not the smallest count" % n)
+    expect(n == 1 or windows_load(lint, n - 1) > lint.WINDOWS_BOUND_S * lint.WINDOWS_MARGIN, "%d is not the smallest count that keeps the margin" % n)
     ci = (REPO / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
     m = re.search(r"(?s)\n  windows:.*?timeout-minutes: (\d+)", ci)
     expect(m is not None and int(m.group(1)) > 25, "the Windows job's timeout leaves room over the 25 minute bound")
@@ -177,7 +177,74 @@ def workflow_runs_once_per_commit(r):
     return "%d jobs on main" % jobs
 
 
-TESTS = [windows_matrix_is_shards, shards_cover_every_test_file_once, longest_shard_under_the_bound, workflow_runs_once_per_commit,
+# UAK-141. Measured on main, run 44953858464 (the merge of UAK-128, 6 shards, each about 255 s of macOS time):
+# 1558 1202 1096 1373 1596 912 s; the PR run 44951402176 gave 1374 1435 1290 1221 1386 1263 s. The slowest was 1596 s.
+MEASURED_WORST_S, MEASURED_MAC_S = 1596, 255
+
+
+def windows_prediction_covers_the_measured_run(r):
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    predicted = lint.WINDOWS_SETUP_S + lint.WINDOWS_SCALE * MEASURED_MAC_S
+    expect(predicted >= MEASURED_WORST_S, "a shard of %d macOS seconds took %d s on Windows, the prediction says %d: recalibrate"
+           % (MEASURED_MAC_S, MEASURED_WORST_S, predicted))
+    expect(predicted <= MEASURED_WORST_S * 1.1, "the prediction %d s is not padded far beyond the measured %d s" % (predicted, MEASURED_WORST_S))
+    return "predicts %d s for a measured %d s" % (predicted, MEASURED_WORST_S)
+
+
+def windows_longest_shard_keeps_a_margin(r):
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    expect(getattr(lint, "WINDOWS_MARGIN", None) == 0.85, "WINDOWS_MARGIN is 0.85: %r" % getattr(lint, "WINDOWS_MARGIN", None))
+    n = lint.windows_shard_count()
+    longest = windows_load(lint, n)
+    expect(longest <= lint.WINDOWS_BOUND_S * 0.85, "%d shards: the longest is predicted at %d s, over 85%% of the bound (%d s)"
+           % (n, longest, lint.WINDOWS_BOUND_S * 0.85))
+    expect(windows_load(lint, n - 1) > lint.WINDOWS_BOUND_S * 0.85, "%d is not the smallest count with the margin" % n)
+    return "%d shards, longest %d s of %d" % (n, longest, lint.WINDOWS_BOUND_S)
+
+
+GOOD_ON = "on:\n  pull_request:\n  push:\n    branches: [main]\n    tags: ['*']\npermissions:\n  contents: read\n"
+
+
+def lint_flags_a_push_trigger_without_a_filter(r):
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    f = getattr(lint, "push_trigger_problems", None)
+    expect(f is not None, "kit_lint.py has no push_trigger_problems(workflow_text)")
+    expect(f("name: t\n" + GOOD_ON + "jobs:\n  a: {}\n") == [], "branches and tags named: no finding: %s" % f("name: t\n" + GOOD_ON))
+    for why, text in (("bare push:", "on:\n  pull_request:\n  push:\npermissions: {}\n"),
+                      ("push with only paths", "on:\n  push:\n    paths: ['a']\npermissions: {}\n"),
+                      ("list form", "on: [push, pull_request]\npermissions: {}\n"),
+                      ("push last in the block", "on:\n  pull_request:\n  push:\njobs:\n  a: {}\n")):
+        expect(len(f(text)) >= 1, "%s must be flagged: %s" % (why, f(text)))
+    expect(f("on:\n  push:\n    tags: ['v*']\njobs:\n  a: {}\n") == [], "tags alone are a filter")
+    expect(f("on:\n  push:\n    branches:\n      - main\njobs:\n  a: {}\n") == [], "a branches block list is a filter")
+    ci = (REPO / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+    expect(f(ci) == [], "the real workflow passes: %s" % f(ci))
+    return "bare push flagged, filtered push passes"
+
+
+def an_empty_shard_fails_instead_of_passing(r):
+    """A shard with no files ran no test and went green. Each job that runs a shard stops on an empty list."""
+    ci = (REPO / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+    guards = [l.strip() for l in ci.splitlines() if l.strip().startswith('[ -n "$(echo $SHARD_TESTS)" ]')]
+    expect(len(guards) == 2, "the suite and the Windows job each guard an empty SHARD_TESTS: %s" % guards)
+    for g in guards:
+        for empty in ("", "   ", "\n"):
+            out = subprocess.run(["bash", "-c", g], env=dict(os.environ, SHARD_TESTS=empty), stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT, universal_newlines=True)
+            expect(out.returncode != 0 and "no test files" in out.stdout, "SHARD_TESTS=%r must fail with a message: rc %d %r" % (empty, out.returncode, out.stdout))
+        ok = subprocess.run(["bash", "-c", g], env=dict(os.environ, SHARD_TESTS="test_a test_b"), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        expect(ok.returncode == 0, "a shard with files goes on: rc %d" % ok.returncode)
+    return "2 guards"
+
+
+TESTS = [windows_prediction_covers_the_measured_run, windows_longest_shard_keeps_a_margin, lint_flags_a_push_trigger_without_a_filter,
+         an_empty_shard_fails_instead_of_passing, windows_matrix_is_shards, shards_cover_every_test_file_once, longest_shard_under_the_bound, workflow_runs_once_per_commit,
          shards_cover_every_test_once, smoke_runs_only_its_shard, a_name_that_is_not_a_test_fails_the_shard]
 
 

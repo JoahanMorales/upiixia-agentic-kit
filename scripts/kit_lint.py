@@ -171,6 +171,13 @@ def _split(tests, n):
 WINDOWS_SCALE = 5
 WINDOWS_SETUP_S = 90
 WINDOWS_BOUND_S = 25 * 60
+WINDOWS_MARGIN = 1.0   # stub (UAK-141)
+
+
+def push_trigger_problems(text):
+    return []   # stub
+
+
 WINDOWS_MAX_SHARDS = 15   # 24 jobs a commit on main: discover (1) + 4 shards x 2 OS (8) + these
 
 
