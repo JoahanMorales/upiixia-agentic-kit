@@ -3,6 +3,7 @@
 import argparse
 import concurrent.futures
 import json
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -217,8 +218,45 @@ def guard_subagent_budget(r):
     return {"parallel_cap": 2, "opus_budget": 1}
 
 
+def guard_budget_ignores_the_machine_pace(r):
+    """UAK-012: on a machine whose real Codex usage reads critical (Dylan's Mac, 2026-11-11), the fixture keeps its
+    own caps. The machine is simulated with a Codex session log at 95 % used; guard_subagent_budget runs unchanged."""
+    home = Path(r.scratch) / "machine-codex-home"
+    sessions = home / "sessions" / "2026" / "11" / "11"
+    sessions.mkdir(parents=True, exist_ok=True)
+    (sessions / "rollout-critical.jsonl").write_text(
+        '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":95,'
+        '"window_minutes":300,"resets_in_seconds":9000}}}}\n', encoding="utf-8")
+    saved = os.environ.get("CODEX_HOME")
+    os.environ["CODEX_HOME"] = str(home)
+    try:
+        machine = Runner(r.package, Path(r.scratch) / "machine-pace", r.bash, r.git)
+    finally:
+        if saved is None:
+            os.environ.pop("CODEX_HOME", None)
+        else:
+            os.environ["CODEX_HOME"] = saved
+    return guard_subagent_budget(machine)
+
+
+def fixtures_are_not_taken_for_codex(r):
+    """Review of d53a0eb (P2): pinning the pace with a non-empty CODEX_HOME made every fixture look like Codex to the
+    harness detection (bb harness, hook session-start), so test_v42's check of the recorded-harness fallback passed
+    even with the fallback broken. Fixtures carry no Codex marker; the recorded harness is what bb reads."""
+    for key in ("CODEX_HOME", "CODEX_SANDBOX", "CODEX_THREAD_ID", "CLAUDECODE"):
+        expect(not r.env.get(key), "the runner hands fixtures no %s (it names the harness)" % key)
+    f = r.fixture("v3-harness", count=1)
+    w = f.worktrees[0]
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    (gd / "uak-harness").write_text("claude-code\n", encoding="utf-8")
+    out = r.run([r.bash, ".uak/bin/bb", "harness"], cwd=w, env={"UAK_HARNESS": ""}, allowed=None)
+    expect(out.stdout.strip() == "claude-code", "bb reads the harness recorded at session start: %r" % out.stdout)
+    return "recorded harness"
+
+
 TESTS = [plan_publishes_without_pr, plan_requires_channel, dependency_parentheses_ignored,
-         lease_from_project, guard_commands, guard_prompt_secrets, graph_waves_and_cycles, loop_bounded, board_stats_up, demo_runs, guard_subagent_budget]
+         lease_from_project, guard_commands, guard_prompt_secrets, graph_waves_and_cycles, loop_bounded, board_stats_up, demo_runs, guard_subagent_budget,
+         guard_budget_ignores_the_machine_pace, fixtures_are_not_taken_for_codex]
 
 
 def main():

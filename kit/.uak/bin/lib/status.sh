@@ -250,6 +250,28 @@ freeze_warning() {
   [ "$f" -gt 0 ] && [ "$NOW" -lt "$f" ] && [ $((f - NOW)) -le 1800 ] || return 0
   say "FREEZE in $(((f - NOW + 59) / 60)) min: finish the criterion and run uak done, or release; after the freeze a task needs a human uak allow."
 }
+# A registered reviewer (not retired) is never offered implementation work by `next`: the candidate loop runs on a
+# missing backlog, and the "no candidate" lines it then prints are replaced by what a reviewer can do. An identity that
+# is not a reviewer runs coord_next untouched. Why (test round 2026-11-13, r3 P3-6): `UAK_AGENT=luis-r uak next`
+# offered HACK-001 to claim to the registered reviewer identity. Tasks it holds and reviews waiting stay offered.
+next_for_role() {
+  local saved_backlog=$BACKLOG line out= rc=0 text
+  if [ -z "$AGENT" ] || [ ! -f "$TX/roles/reviewers/$AGENT.md" ] || [ -f "$TX/meta/retired/$AGENT.md" ]; then coord_next; return; fi
+  BACKLOG=$TXROOT/no-backlog-for-reviewers
+  text=$(coord_next) || rc=$?
+  BACKLOG=$saved_backlog
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "No eligible candidate"*) line="Nothing to review right now. $AGENT is a registered reviewer: it is offered reviews, never implementation work. Wait for one: bash .uak/bin/uak wait --for message";;
+      "Why: the backlog has no tasks"*) continue;;
+    esac
+    out="$out$line"$'\n'
+  done <<EOF2
+$text
+EOF2
+  printf '%s' "$out"
+  return "$rc"
+}
 # status and next: the deadline reconcile (a tick transaction) first, then the read on its fresh clone.
 # The reconcile is housekeeping: if it fails, status/next still answer from a plain read. Why (MLB hackathon): a failed
 # tick made `uak status` and `uak next` exit with GIT_ERROR on Cursor/Windows.
@@ -272,7 +294,7 @@ status_run() {
   # The output is taken whole, then deduplicated in this shell: a pipe into seen_print was two more subshells.
   case "$CMD" in
     status) out=$(print_status) || rc=$?; seen_print "status${ID:+-$ID}" "$out"; return "$rc";;
-    next) out=$(coord_next) || rc=$?; seen_print next "$out"; preflight_note;;
+    next) out=$(next_for_role) || rc=$?; seen_print next "$out"; preflight_note;;
   esac
 }
 digest_run() { local out rc=0; ATTEMPT=1; fresh_state; out=$(print_digest) || rc=$?; seen_print digest "$out"; return "$rc"; }

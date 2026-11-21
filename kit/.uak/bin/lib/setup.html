@@ -1,0 +1,3895 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Set up your AI coding team, one clear step at a time. A private, local setup for UPIIXIA Agentic Kit."
+    />
+    <title>Set up your team · UPIIXIA</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f6f3;
+        --paper: #fff;
+        --ink: #182b28;
+        --secondary: #52645e;
+        --muted: #67756e;
+        --line: #dce4dc;
+        --accent: #14634e;
+        --accent-hover: #104f3e;
+        --wash: #e8f1e9;
+        --error: #a12e24;
+        --error-bg: #fff0ed;
+        --radius: 20px;
+        --small: 10px;
+        --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.6 var(--sans);
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button,
+      a,
+      input,
+      select {
+        touch-action: manipulation;
+      }
+      button {
+        cursor: pointer;
+      }
+      /* Blocked is not busy (UI-018): a button that waits for an earlier step shows not-allowed and says why;
+         the wait cursor and the spinner are only for the button whose request is running. */
+      button:disabled,
+      button[aria-disabled="true"] {
+        cursor: not-allowed;
+        opacity: 0.6;
+      }
+      button[aria-busy="true"] {
+        cursor: wait;
+        opacity: 0.85;
+      }
+      button[aria-busy="true"]::before {
+        content: "";
+        display: inline-block;
+        width: 0.9em;
+        height: 0.9em;
+        margin-right: 8px;
+        vertical-align: -0.1em;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .action-result {
+        min-height: 1.6em;
+        margin: 8px 0 0;
+        font-size: 14px;
+        color: var(--secondary);
+      }
+      .action-result.error {
+        color: var(--error);
+      }
+      .blocked-reason {
+        color: var(--secondary);
+      }
+      .spotlight {
+        outline: 3px solid var(--accent);
+        outline-offset: 4px;
+        box-shadow: 0 0 0 8px var(--wash);
+        transition: box-shadow 0.3s;
+      }
+      .toast {
+        position: fixed;
+        z-index: 20;
+        right: 24px;
+        bottom: 24px;
+        width: min(380px, calc(100vw - 48px));
+        background: var(--paper);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--accent);
+        border-radius: var(--small);
+        box-shadow: 0 16px 40px -20px #173d2d88;
+        padding: 14px 16px;
+        font-size: 15px;
+        overflow-wrap: anywhere;
+        transition: opacity 0.2s, transform 0.2s;
+      }
+      .toast-title {
+        font-weight: 650;
+        margin-bottom: 4px;
+      }
+      .toast-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .toast-close {
+        border: 0;
+        background: transparent;
+        min-width: 44px;
+        min-height: 44px;
+        font-size: 22px;
+        line-height: 1;
+      }
+      @media (max-width: 600px) {
+        .toast {
+          left: 16px;
+          right: 16px;
+          bottom: 16px;
+          width: auto;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .toast,
+        .spotlight {
+          transition: none;
+        }
+      }
+      /* Until the first status arrives the panel shows no step (it flashed the welcome screen, UI-018). */
+      #content[data-loading] > section {
+        display: none;
+      }
+      a {
+        color: var(--accent);
+      }
+      :focus-visible {
+        outline: 3px solid var(--accent);
+        outline-offset: 4px;
+      }
+      input,
+      select {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: var(--small);
+        min-height: 48px;
+        padding: 10px 14px;
+      }
+      input[type="text"] {
+        width: 100%;
+      }
+      input[type="radio"],
+      input[type="checkbox"] {
+        accent-color: var(--accent);
+        min-height: auto;
+        width: 19px;
+        height: 19px;
+        flex: none;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: clamp(38px, 5vw, 64px);
+        line-height: 1.07;
+        letter-spacing: -0.045em;
+        max-width: 650px;
+        font-weight: 650;
+      }
+      h2 {
+        font-size: 30px;
+        line-height: 1.2;
+        letter-spacing: -0.025em;
+      }
+      h3 {
+        font-size: 19px;
+        line-height: 1.35;
+      }
+      .secondary {
+        color: var(--secondary);
+      }
+      /* A folder path has no spaces to break at: let it wrap so 390px never scrolls sideways. */
+      #selected-project,
+      #dashboard-project {
+        overflow-wrap: anywhere;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .skip {
+        position: absolute;
+        left: -9999px;
+      }
+      .skip:focus {
+        left: 16px;
+        top: 16px;
+        background: var(--paper);
+        padding: 10px;
+        z-index: 10;
+      }
+      .header {
+        max-width: 1240px;
+        margin: auto;
+        padding: 24px 40px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+      }
+      .mark {
+        background: var(--ink);
+        color: var(--paper);
+        display: grid;
+        place-items: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 11px;
+        font-size: 21px;
+      }
+      .profile {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 14px;
+      }
+      .profile select {
+        min-height: 40px;
+        padding: 6px 10px;
+      }
+      .shell {
+        max-width: 1240px;
+        margin: 16px auto 0;
+        padding: 0 40px 32px;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 48px;
+      }
+      .sidebar {
+        padding-top: 40px;
+      }
+      .sidebar p {
+        margin-bottom: 26px;
+      }
+      .steps {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .steps li {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 14px 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+      .step-number {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--line);
+        font-size: 13px;
+      }
+      .steps li[aria-current="step"] {
+        color: var(--accent);
+        font-weight: 650;
+      }
+      .steps li[aria-current="step"] .step-number {
+        background: var(--accent);
+        color: var(--paper);
+        border-color: var(--accent);
+      }
+      .steps .done .step-number {
+        background: var(--wash);
+        border-color: var(--wash);
+        color: var(--accent);
+      }
+      .local-note {
+        margin-top: 40px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        font-size: 13px;
+        color: var(--secondary);
+      }
+      .surface {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        min-height: 590px;
+        padding: 44px 48px;
+        box-shadow: 0 16px 50px -36px #173d2d55;
+      }
+      .intro {
+        max-width: 640px;
+        margin: 20px 0 28px;
+        color: var(--secondary);
+        font-size: 18px;
+      }
+      .eyeline {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--accent);
+        font-size: 14px;
+        margin-bottom: 24px;
+      }
+      .dot {
+        height: 8px;
+        width: 8px;
+        background: var(--accent);
+        border-radius: 50%;
+      }
+      .journey {
+        margin: 36px 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .journey-node {
+        font-size: 14px;
+        padding: 8px 13px;
+        background: var(--wash);
+        border-radius: 8px;
+        color: var(--accent);
+      }
+      .journey-line {
+        width: 20px;
+        height: 1px;
+        background: var(--line);
+      }
+      .journey-bar {
+        max-width: 1160px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+      .journey-bar ol {
+        list-style: none;
+        margin: 8px 0 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .journey-bar li {
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font-size: 14px;
+        color: var(--secondary);
+        min-width: 0;
+      }
+      .journey-bar li strong {
+        display: block;
+        color: inherit;
+      }
+      .journey-bar li small {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .journey-bar li.done {
+        color: var(--accent);
+      }
+      .journey-bar li[aria-current="step"] {
+        border-color: var(--accent);
+        background: var(--wash);
+        color: var(--accent);
+      }
+      .benefit {
+        border-top: 1px solid var(--line);
+        padding: 20px 0;
+        margin-bottom: 16px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        font-size: 14px;
+      }
+      .benefit strong {
+        display: block;
+        font-size: 15px;
+        margin-bottom: 4px;
+      }
+      .demo {
+        border-top: 1px solid var(--line);
+        margin-top: 24px;
+        padding-top: 20px;
+      }
+      .demo h2 {
+        font-size: 18px;
+        margin: 0 0 4px;
+      }
+      .demo p {
+        margin: 0 0 12px;
+        font-size: 14px;
+      }
+      .demo video {
+        display: block;
+        width: 100%;
+        max-width: 640px;
+        height: auto;
+        aspect-ratio: 16 / 9;
+        border-radius: var(--small);
+        border: 1px solid var(--line);
+        background: #000;
+      }
+      .primary,
+      .secondary-button {
+        border-radius: var(--small);
+        min-height: 48px;
+        padding: 11px 22px;
+        font-weight: 600;
+      }
+      .primary {
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--paper);
+      }
+      .primary:hover {
+        background: var(--accent-hover);
+      }
+      .secondary-button {
+        border: 1px solid var(--line);
+        background: transparent;
+      }
+      .actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        margin-top: 32px;
+        padding-top: 24px;
+        border-top: 1px solid var(--line);
+      }
+      .actions .primary {
+        margin-left: auto;
+      }
+      .field {
+        margin: 26px 0;
+      }
+      label.field-label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+      .hint {
+        font-size: 14px;
+        color: var(--secondary);
+        margin-top: 8px;
+      }
+      .field-error {
+        color: var(--error);
+        font-size: 14px;
+        margin-top: 8px;
+      }
+      fieldset {
+        border: 0;
+        padding: 0;
+        margin: 28px 0;
+      }
+      legend {
+        font-weight: 600;
+        margin-bottom: 12px;
+      }
+      .choice {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: var(--small);
+        cursor: pointer;
+        margin: 10px 0;
+      }
+      .choice:has(input:checked) {
+        border-color: var(--accent);
+        background: var(--wash);
+      }
+      .choice input {
+        margin-top: 5px;
+      }
+      .choice strong {
+        display: block;
+      }
+      .choice small {
+        font-size: 14px;
+        color: var(--secondary);
+        display: block;
+        margin-top: 4px;
+      }
+      .tools {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .tools label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--line);
+        padding: 10px 14px;
+        border-radius: var(--small);
+        cursor: pointer;
+      }
+      .tools label:has(input:checked) {
+        border-color: var(--accent);
+        background: var(--wash);
+      }
+      details {
+        margin: 24px 0;
+        border-top: 1px solid var(--line);
+        padding-top: 16px;
+      }
+      summary {
+        cursor: pointer;
+        min-height: 44px;
+        display: list-item;
+        color: var(--secondary);
+        font-size: 14px;
+      }
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: var(--bg);
+        padding: 18px;
+        border-radius: var(--small);
+        font-size: 12px;
+        max-height: 320px;
+        overflow: auto;
+      }
+      .review {
+        margin-top: 26px;
+      }
+      .review div {
+        display: grid;
+        grid-template-columns: 140px 1fr;
+        gap: 16px;
+        padding: 13px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .review dt {
+        color: var(--secondary);
+      }
+      .review dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .notice {
+        padding: 16px 20px;
+        background: var(--wash);
+        border-radius: var(--small);
+        margin: 22px 0;
+        color: var(--accent);
+        font-size: 14px;
+        /* Git messages carry long paths and URLs (a refused push names the remote): wrap, never scroll sideways. */
+        overflow-wrap: anywhere;
+      }
+      .notice.error {
+        background: var(--error-bg);
+        color: var(--error);
+      }
+      .checklist {
+        padding: 0;
+        list-style: none;
+        margin: 24px 0;
+      }
+      .checklist li {
+        padding: 14px 0;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        white-space: pre-line;
+        font-size: 14px;
+      }
+      .check-mark {
+        font-weight: 700;
+        color: var(--accent);
+        flex: none;
+      }
+      .checklist .todo .check-mark {
+        color: var(--error);
+      }
+      .status-heading {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+      }
+      .status-icon {
+        background: var(--wash);
+        color: var(--accent);
+        border-radius: 50%;
+        height: 48px;
+        width: 48px;
+        display: grid;
+        place-items: center;
+        font-size: 24px;
+        flex: none;
+      }
+      .working .status-icon {
+        animation: pulse 1.6s infinite;
+      }
+      .footer {
+        max-width: 1240px;
+        margin: auto;
+        padding: 20px 40px 28px;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        font-size: 13px;
+        color: var(--secondary);
+      }
+      .footer span {
+        max-width: 580px;
+      }
+      .advanced-only {
+        display: none;
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #111b18;
+        --paper: #1a2722;
+        --ink: #e5eee9;
+        --secondary: #b7c8be;
+        --muted: #a2b6aa;
+        --line: #34483d;
+        --accent: #a3d8bc;
+        --accent-hover: #b7e8cd;
+        --wash: #243c30;
+        --error: #ffc2b8;
+        --error-bg: #442a27;
+      }
+      :root[data-theme="dark"] .primary {
+        color: #10291e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]):not([data-theme="dark"]) {
+          color-scheme: dark;
+          --bg: #111b18;
+          --paper: #1a2722;
+          --ink: #e5eee9;
+          --secondary: #b7c8be;
+          --muted: #a2b6aa;
+          --line: #34483d;
+          --accent: #a3d8bc;
+          --accent-hover: #b7e8cd;
+          --wash: #243c30;
+          --error: #ffc2b8;
+          --error-bg: #442a27;
+        }
+        :root:not([data-theme="light"]):not([data-theme="dark"]) .primary {
+          color: #10291e;
+        }
+      }
+      .header {
+        flex-wrap: wrap;
+      }
+      .workspace-nav {
+        display: flex;
+        gap: 6px;
+      }
+      .workspace-nav button {
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 16px;
+        background: transparent;
+        min-height: 44px;
+      }
+      .workspace-nav button[aria-pressed="true"] {
+        background: var(--wash);
+        color: var(--accent);
+        font-weight: 650;
+      }
+      .actions {
+        flex-wrap: wrap;
+      }
+      .dashboard-shell {
+        max-width: 1240px;
+        margin: auto;
+        padding: 0 40px 24px;
+      }
+      .dashboard-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin: 16px 0;
+      }
+      .dashboard-bar h1 {
+        font-size: 32px;
+      }
+      #dashboard-frame {
+        width: 100%;
+        min-height: 560px;
+        border: 0;
+        border-radius: 20px;
+        background: var(--paper);
+      }
+      #beginner-dashboard {
+        padding: 32px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--paper);
+      }
+      .dashboard-metrics {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 32px;
+        margin: 24px 0;
+      }
+      .dashboard-metrics strong {
+        display: block;
+        font-size: 40px;
+        line-height: 1.2;
+        font-variant-numeric: tabular-nums;
+      }
+      .dashboard-metrics span {
+        color: var(--secondary);
+      }
+      #simple-next {
+        padding-top: 24px;
+        border-top: 1px solid var(--line);
+      }
+      #simple-next h3 {
+        margin: 12px 0;
+      }
+      .beginner-checklist {
+        list-style: none;
+        padding: 0;
+        margin: 4px 0 0;
+        color: var(--secondary);
+      }
+      .beginner-checklist li {
+        padding: 4px 0;
+        overflow-wrap: anywhere;
+      }
+      .team-step,
+      .advanced-next {
+        margin: 0 0 24px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid var(--line);
+      }
+      .team-step:focus {
+        outline: none;
+      }
+      .team-block {
+        margin-top: 18px;
+      }
+      .team-block h3 {
+        margin-bottom: 6px;
+      }
+      .team-block .next-command code,
+      #publish-way-out .next-command code {
+        flex-basis: 100%;
+      }
+      .team-block fieldset {
+        margin: 12px 0 0;
+      }
+      #team-claimed {
+        padding-left: 18px;
+      }
+      #team-claimed li {
+        margin: 8px 0;
+        overflow-wrap: anywhere;
+      }
+      #team-note-actions {
+        margin-top: 8px;
+      }
+      .your-app {
+        margin-top: 24px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+      }
+      .your-app a {
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+      #live-url-input {
+        width: 100%;
+        max-width: 520px;
+        margin: 4px 0;
+      }
+      /* Planning (UI-004): the idea, the proposed plan as cards, and the typed approval. */
+      /* Prepare (UI-005): the steps a terminal used to do, in order, and the terminal box for the rest. */
+      #prepare {
+        margin-top: 26px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+        display: grid;
+        gap: 18px;
+      }
+      .prepare-step {
+        border: 1px solid var(--line);
+        border-radius: var(--small);
+        padding: 16px;
+        display: grid;
+        gap: 10px;
+      }
+      .prepare-step.current {
+        border-color: var(--accent);
+        background: var(--wash);
+      }
+      .prepare-step h4 {
+        margin: 0;
+        font-size: 16px;
+      }
+      .prepare-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: end;
+      }
+      .prepare-row > div {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+        flex: 1 1 180px;
+      }
+      #prepare input[type="text"],
+      #prepare input[type="datetime-local"] {
+        width: 100%;
+        box-sizing: border-box;
+      }
+      #publish-files {
+        max-height: 220px;
+      }
+      #terminal-step {
+        display: grid;
+        gap: 10px;
+      }
+      #terminal-step ul {
+        margin: 0;
+        padding-left: 20px;
+        overflow-wrap: anywhere;
+      }
+      #planning {
+        margin-top: 26px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+      }
+      #planning textarea,
+      #planning input[type="number"],
+      #approve-name {
+        width: 100%;
+        box-sizing: border-box;
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: var(--small);
+        padding: 10px 14px;
+        font: inherit;
+        color: inherit;
+      }
+      #planning .field-label {
+        display: block;
+        margin: 14px 0 4px;
+      }
+      .field-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .plan-cards {
+        list-style: none;
+        padding: 0;
+        margin: 14px 0;
+        display: grid;
+        gap: 10px;
+      }
+      .plan-cards li {
+        border: 1px solid var(--line);
+        border-radius: var(--small);
+        padding: 12px 14px;
+        overflow-wrap: anywhere;
+      }
+      .plan-cards strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+      .plan-cards span {
+        display: block;
+        font-size: 14px;
+        color: var(--secondary);
+      }
+      .plan-problems {
+        margin: 10px 0;
+        padding-left: 20px;
+        overflow-wrap: anywhere;
+      }
+      #plan-review {
+        margin-top: 28px;
+      }
+      #planning + #preferences {
+        margin-top: 28px;
+      }
+      /* The app link row: input, hint and button each on their own line, at any width (UI-018). */
+      #preferences input[type="url"] {
+        display: block;
+        width: 100%;
+      }
+      #live-url-hint {
+        display: block;
+        margin: 6px 0 14px;
+      }
+      #approve-project {
+        display: block;
+        margin: 2px 0 10px;
+        overflow-wrap: anywhere;
+      }
+      #idea-saved pre {
+        margin-top: 8px;
+      }
+      #approve-confirm {
+        margin-top: 16px;
+        padding: 16px;
+        border: 1px solid var(--accent);
+        border-radius: var(--small);
+      }
+      #plan-review .actions,
+      #approve-confirm .actions {
+        margin-top: 14px;
+      }
+      .next-command,
+      .ready-next {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        margin: 12px 0;
+      }
+      .next-command code,
+      .ready-next code {
+        flex: 1 1 260px;
+        min-width: 0;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      #simple-tasks {
+        list-style: none;
+        padding: 0;
+      }
+      #simple-tasks li {
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 14px 0;
+        border-top: 1px solid var(--line);
+      }
+      #simple-tasks li > span:first-child {
+        overflow-wrap: anywhere;
+      }
+      .running-review {
+        margin: 0 0 24px;
+      }
+      @media (max-width: 600px) {
+        .dashboard-shell {
+          padding: 0 16px 20px;
+        }
+        .header {
+          gap: 12px;
+        }
+        .workspace-nav {
+          order: 3;
+          width: 100%;
+        }
+        .workspace-nav button {
+          flex: 1;
+          padding: 8px;
+        }
+        .profile {
+          margin-left: auto;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+        .dashboard-bar {
+          flex-wrap: wrap;
+        }
+        #beginner-dashboard {
+          padding: 24px 20px;
+        }
+        .dashboard-metrics {
+          gap: 20px;
+        }
+        .dashboard-metrics strong {
+          font-size: 32px;
+        }
+      }
+      body[data-profile="advanced"] .advanced-only {
+        display: block;
+      }
+      @keyframes pulse {
+        50% {
+          opacity: 0.45;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          scroll-behavior: auto !important;
+        }
+      }
+      @media (max-width: 850px) {
+        .layout {
+          grid-template-columns: 1fr;
+          gap: 20px;
+        }
+        .sidebar {
+          padding-top: 0;
+        }
+        .sidebar > p,
+        .local-note {
+          display: none;
+        }
+        .steps {
+          display: flex;
+          justify-content: space-between;
+          gap: 8px;
+        }
+        .steps li {
+          font-size: 12px;
+          gap: 6px;
+        }
+        .step-number {
+          width: 24px;
+          height: 24px;
+        }
+        .surface {
+          padding: 32px;
+          min-height: 0;
+        }
+        .header {
+          padding: 20px 24px;
+        }
+        .shell {
+          padding: 0 24px 20px;
+        }
+        .footer {
+          padding: 20px 24px;
+        }
+      }
+      @media (max-width: 480px) {
+        .header {
+          gap: 12px;
+          padding: 16px;
+        }
+        .brand {
+          font-size: 16px;
+        }
+        .profile > label {
+          display: none;
+        }
+        .shell {
+          padding: 0 16px 16px;
+          margin-top: 4px;
+        }
+        .surface {
+          padding: 26px 20px;
+        }
+        .steps .step-label {
+          display: none;
+        }
+        .steps li[aria-current="step"] .step-label {
+          display: inline;
+        }
+        .steps li {
+          gap: 5px;
+        }
+        .steps {
+          gap: 4px;
+        }
+        .benefit {
+          grid-template-columns: 1fr;
+          gap: 16px;
+        }
+        .intro {
+          font-size: 16px;
+        }
+        .review div {
+          grid-template-columns: 1fr;
+          gap: 4px;
+        }
+        .actions {
+          gap: 8px;
+        }
+        .primary,
+        .secondary-button {
+          padding: 10px 14px;
+        }
+        .footer {
+          padding: 16px;
+          flex-direction: column;
+        }
+        .journey-bar {
+          padding: 0 16px;
+        }
+        .journey-bar ol {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .journey {
+          gap: 6px;
+        }
+        .journey-line {
+          width: 8px;
+        }
+        .journey-node {
+          padding: 7px 9px;
+          font-size: 13px;
+        }
+      }
+    </style>
+  </head>
+  <body data-profile="beginner">
+    <a class="skip" href="#content">Skip to setup</a>
+    <header class="header">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">u</span> UPIIXIA
+        <span class="muted">/ setup</span>
+      </div>
+      <div class="profile">
+        <label for="language" data-i18n-aria="Language">Language</label>
+        <select
+          id="language"
+          aria-label="Language"
+          data-i18n-aria="Language"
+          data-no-i18n
+        >
+          <option value="es">Español</option>
+          <option value="en">English</option>
+        </select>
+        <label for="profile">View</label
+        ><select
+          id="profile"
+          aria-label="Interface profile"
+          data-i18n-aria="Interface profile"
+        >
+          <option value="beginner">Beginner</option>
+          <option value="advanced">Advanced</option>
+        </select>
+        <select id="workspace-theme" aria-label="Theme" data-i18n-aria="Theme">
+          <option value="">Auto</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
+      <nav class="workspace-nav" aria-label="Workspace">
+        <button type="button" id="open-setup" aria-pressed="true">
+          Configuration
+        </button>
+        <button type="button" id="open-dashboard" aria-pressed="false">
+          Dashboard
+        </button>
+      </nav>
+    </header>
+    <nav class="journey-bar" id="journey" aria-label="Your journey">
+      <ol>
+        <li data-step="install"><strong>1. Install</strong><small data-where="page">in this page</small></li>
+        <li data-step="prepare"><strong>2. Prepare</strong><small data-where="page">in this page</small></li>
+        <li data-step="plan"><strong>3. Plan</strong><small data-where="page">in this page</small></li>
+        <li data-step="team"><strong>4. Start the team</strong><small data-where="terminal">in a terminal</small></li>
+        <li data-step="progress"><strong>5. Follow progress</strong><small data-where="agents">your agents do it</small></li>
+      </ol>
+    </nav>
+    <div class="shell" id="setup-shell">
+      <div class="layout">
+        <aside class="sidebar" aria-label="Setup progress">
+          <p>
+            <strong>Your team starts here.</strong><br /><span class="secondary"
+              >A few decisions. A clear next step.</span
+            >
+          </p>
+          <ol class="steps" id="steps">
+            <li aria-current="step">
+              <span class="step-number">1</span
+              ><span class="step-label">Welcome</span>
+            </li>
+            <li>
+              <span class="step-number">2</span
+              ><span class="step-label">Your project</span>
+            </li>
+            <li>
+              <span class="step-number">3</span
+              ><span class="step-label">Your workflow</span>
+            </li>
+            <li>
+              <span class="step-number">4</span
+              ><span class="step-label">Review &amp; install</span>
+            </li>
+            <li>
+              <span class="step-number">5</span
+              ><span class="step-label">Get ready</span>
+            </li>
+          </ol>
+          <div class="local-note">
+            Runs on your computer.<br />No account or API key is needed for this
+            setup. Your coding tools keep their own sign-in.
+          </div>
+        </aside>
+        <main class="surface" id="content" tabindex="-1" data-loading>
+          <div
+            class="notice running-review"
+            id="running-review"
+            hidden
+            role="status"
+          >
+            <p>
+              An operation is running. You can review earlier steps; editing is
+              available when it finishes.
+            </p>
+            <button
+              type="button"
+              class="secondary-button"
+              id="back-to-progress"
+            >
+              Return to progress
+            </button>
+          </div>
+          <section id="welcome">
+            <div class="eyeline">
+              <span class="dot" aria-hidden="true"></span> A workspace for your
+              AI coding team
+            </div>
+            <h1>Build together.<br />Keep a clear path.</h1>
+            <p class="intro">
+              Give your coding agents a shared plan, clear responsibilities, and
+              a review before changes ship. We’ll help you set it up.
+            </p>
+            <p class="intro">
+              This page installs the kit into this project and guides you to the moment your agents start. The kit
+              itself is downloaded only once; each project gets its own copy.
+            </p>
+            <div class="benefit">
+              <div>
+                <strong>One step at a time</strong
+                ><span class="secondary"
+                  >Choose your project and tools. We explain the decisions as
+                  you go.</span
+                >
+              </div>
+              <div>
+                <strong>You stay in control</strong
+                ><span class="secondary"
+                  >Review what will change before anything is installed.</span
+                >
+              </div>
+            </div>
+            <button class="primary" id="begin">Set up my project</button>
+            <p class="hint">
+              Already using the kit? Choose your project to continue
+              configuration.
+            </p>
+            <section
+              id="demo"
+              class="demo"
+              aria-labelledby="demo-heading"
+              hidden
+            >
+              <h2 id="demo-heading">Watch the 75-second demo</h2>
+              <p class="secondary">
+                A simulated walkthrough: from an empty project to a deployed
+                app. Captions in English and Spanish.
+              </p>
+              <video
+                id="demo-video"
+                data-src="/media/tutorial.mp4"
+                data-poster="/media/tutorial-poster.jpg"
+                controls
+                preload="none"
+                playsinline
+                width="1280"
+                height="720"
+                aria-labelledby="demo-heading"
+              >
+                <track
+                  kind="captions"
+                  srclang="en"
+                  label="English"
+                  data-src="/media/tutorial-en.vtt"
+                /><track
+                  kind="captions"
+                  srclang="es"
+                  label="Español"
+                  data-src="/media/tutorial-es.vtt"
+                />
+              </video>
+            </section>
+          </section>
+          <section id="project" hidden>
+            <h2>Where are you building?</h2>
+            <p class="intro">
+              Choose the folder that contains your Git repository. The kit will
+              live alongside your project.
+            </p>
+            <form id="project-form">
+              <div class="field">
+                <label class="field-label" for="target">Project folder</label
+                ><input
+                  type="text"
+                  id="target"
+                  required
+                  autocomplete="off"
+                  spellcheck="false"
+                  aria-describedby="target-hint target-error"
+                />
+                <p class="hint" id="target-hint">
+                  Use the full folder path, for example C:\Projects\my-app or
+                  /Users/you/my-app.
+                </p>
+                <p class="field-error" id="target-error" role="alert"></p>
+              </div>
+              <p class="hint">
+                The folder needs to be a Git repository. Nothing is installed
+                when you check it.
+              </p>
+              <div class="actions">
+                <button type="button" class="secondary-button" data-back="0">
+                  Back</button
+                ><button class="primary" type="submit">
+                  Check project folder
+                </button>
+              </div>
+            </form>
+          </section>
+          <section id="workflow" hidden>
+            <h2>How will your team work?</h2>
+            <p class="secondary" id="selected-project" data-no-i18n></p>
+            <form id="workflow-form">
+              <fieldset>
+                <legend>Choose your goal</legend>
+                <label class="choice"
+                  ><input
+                    type="radio"
+                    name="mode"
+                    value="sprint"
+                    required
+                  /><span
+                    ><strong>Hackathon or prototype</strong
+                    ><small
+                      >Build toward a deadline. Reviewed changes can merge
+                      automatically after the checks pass.</small
+                    ></span
+                  ></label
+                ><label class="choice"
+                  ><input
+                    type="radio"
+                    name="mode"
+                    value="marathon"
+                    required
+                  /><span
+                    ><strong>Product with real users</strong
+                    ><small
+                      >Plan for security and maintainability. A human makes the
+                      final merge decision.</small
+                    ></span
+                  ></label
+                >
+              </fieldset>
+              <fieldset>
+                <legend>Which coding tools do you use?</legend>
+                <div class="tools">
+                  <label
+                    ><input
+                      type="checkbox"
+                      name="harness"
+                      value="claude"
+                      checked
+                    />Claude Code</label
+                  ><label
+                    ><input
+                      type="checkbox"
+                      name="harness"
+                      value="codex"
+                      checked
+                    />Codex</label
+                  ><label
+                    ><input
+                      type="checkbox"
+                      name="harness"
+                      value="cursor"
+                    />Cursor</label
+                  ><label
+                    ><input
+                      type="checkbox"
+                      name="harness"
+                      value="gemini"
+                    />Gemini CLI</label
+                  >
+                </div>
+                <p class="hint">
+                  Select the tools you already use. Setup adds their project
+                  instructions; it does not install or sign in to them.
+                </p>
+                <p class="hint" id="tool-roles">
+                  One tool implements, the other reviews its work as a second
+                  identity, so no change merges unchecked. We recommend Claude Code + Codex: Claude Code
+                  writes the code and Codex reviews it.
+                </p>
+                <p class="hint">With only one tool, it does both jobs under two names.</p>
+              </fieldset>
+              <label class="choice"
+                ><input id="solo" type="checkbox" /><span
+                  ><strong>I’m the only human on this repository</strong
+                  ><small
+                    >Nobody else reviews here, so your agents review each other
+                    under a second name you register (for example ana-r). Product
+                    mode still leaves the final merge to you.</small
+                  ></span
+                ></label
+              >
+              <details id="installation-options">
+                <summary>More installation options</summary>
+                <div class="field">
+                  <label for="stack" class="field-label"
+                    >Project technology preset</label
+                  ><select id="stack">
+                    <option value="none">No preset / decide later</option>
+                    <option value="fastapi-react">FastAPI + React</option>
+                    <option value="nextjs">Next.js</option>
+                    <option value="django">Django</option>
+                    <option value="go">Go</option>
+                    <option value="expo">Expo</option>
+                    <option value="python-data">Python data</option>
+                    <option value="ai-agent">AI agent</option>
+                    <option value="spring-boot">Spring Boot</option>
+                  </select>
+                </div>
+                <label class="choice"
+                  ><input type="checkbox" id="blackbox" checked /><span
+                    ><strong>Keep anonymous kit diagnostics</strong
+                    ><small
+                      >Records filtered kit events on your repository’s
+                      coordination branch. Those events are public if your
+                      repository is public. You can turn this off here or
+                      later.</small
+                    ></span
+                  ></label
+                >
+              </details>
+              <div class="actions">
+                <button type="button" class="secondary-button" data-back="1">
+                  Back</button
+                ><button class="primary" type="submit">
+                  Review installation
+                </button>
+              </div>
+            </form>
+          </section>
+          <section id="review" hidden>
+            <h2>A quick check before we install.</h2>
+            <p class="intro">
+              These choices control the files added to your project. You can go
+              back to change them.
+            </p>
+            <dl class="review" id="summary"></dl>
+            <div class="notice">
+              Adds the kit’s coordination tools, project instructions, hooks and
+              review workflow. Existing files are preserved; conflicting
+              versions are saved beside them as .uak-new.
+            </div>
+            <p class="hint">
+              Installation does not commit or push your code. Signing in to a
+              coding tool and approving your project plan remain separate steps.
+            </p>
+            <div class="actions">
+              <button class="secondary-button" data-back="2">
+                Edit choices</button
+              ><button class="primary" id="install">
+                Install into this project
+              </button>
+            </div>
+          </section>
+          <section id="finish" hidden>
+            <div class="status-heading" id="status-heading">
+              <span class="status-icon" id="status-icon" aria-hidden="true"
+                >…</span
+              >
+              <h2 id="result-title">Installing your workspace</h2>
+            </div>
+            <p class="intro" id="result-description">
+              Keep this window open while the kit adds the files. We’ll show you
+              what to do next.
+            </p>
+            <p
+              class="notice"
+              id="operation-status"
+              role="status"
+              aria-live="polite"
+            ></p>
+            <ul class="checklist" id="checks"></ul>
+            <div class="notice" id="terminal-step" hidden>
+              <h3>Do this in a terminal</h3>
+              <p>
+                Open a terminal (any window; no coding agent is needed for
+                this). First go to your project:
+              </p>
+              <div class="next-command">
+                <code id="terminal-cd" data-no-i18n></code>
+                <button type="button" class="secondary-button" id="copy-terminal-cd">Copy</button>
+              </div>
+              <p>Then do this:</p>
+              <ul id="terminal-steps" data-no-i18n></ul>
+              <p>When it is done, come back and press Check again.</p>
+            </div>
+            <div id="prepare" hidden>
+              <h3 id="prepare-heading" tabindex="-1">Prepare your project</h3>
+              <p class="notice" id="identity-warning" role="status" data-no-i18n hidden></p>
+              <p class="hint">
+                These steps used to need a terminal. Do them here, in order;
+                the check below confirms each one.
+              </p>
+              <div class="prepare-step" id="name-step">
+                <h4>1. Your name</h4>
+                <p class="hint">
+                  Some steps only a person may do (publishing, approving). Setup
+                  records them with this name.
+                </p>
+                <div class="prepare-row">
+                  <div>
+                    <label class="field-label" for="human-name">Your name (lowercase, for example ana)</label>
+                    <input type="text" id="human-name" maxlength="32" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <button type="button" class="secondary-button" id="human-save">Save name</button>
+                </div>
+                <p class="hint" id="human-status" role="status"></p>
+              </div>
+              <form class="prepare-step" id="schedule-form" novalidate>
+                <h4>2. Event schedule</h4>
+                <p class="hint">
+                  The kit stops new work before the deadline (the freeze), so the
+                  last minutes go to the demo.
+                </p>
+                <div class="prepare-row">
+                  <div>
+                    <label class="field-label" for="schedule-start">Start</label>
+                    <input type="datetime-local" id="schedule-start" required />
+                  </div>
+                  <div>
+                    <label class="field-label" for="schedule-end">End</label>
+                    <input type="datetime-local" id="schedule-end" required />
+                  </div>
+                  <div>
+                    <label class="field-label" for="schedule-zone">Time zone</label>
+                    <input type="text" id="schedule-zone" autocomplete="off" spellcheck="false" />
+                  </div>
+                </div>
+                <button type="submit" class="secondary-button" id="schedule-save">Save schedule</button>
+                <p class="hint" id="schedule-status" role="status"></p>
+              </form>
+              <div class="prepare-step" id="publish-step">
+                <h4>3. Publish the kit to main</h4>
+                <p class="hint">
+                  Your agents read the kit from the main branch on GitHub. This
+                  uploads only the kit's files; your idea and plan wait until you
+                  approve them.
+                </p>
+                <button type="button" class="secondary-button" id="publish-preview" aria-describedby="publish-preview-why">Review the files</button>
+                <p class="hint blocked-reason" id="publish-preview-why" hidden></p>
+                <div id="publish-confirm" hidden>
+                  <p id="publish-count"></p>
+                  <details open>
+                    <summary>Files to publish</summary>
+                    <pre id="publish-files"></pre>
+                  </details>
+                  <div class="actions">
+                    <button type="button" class="secondary-button" id="publish-cancel">Cancel</button>
+                    <button type="button" class="primary" id="publish-kit">Publish the kit to main</button>
+                  </div>
+                </div>
+                <div class="notice error" id="publish-way-out" role="status" hidden>
+                  <strong>The remote already has its own history</strong>
+                  <p id="publish-way-out-error"></p>
+                  <div id="publish-way-out-run" hidden>
+                    <p class="hint">Run this in a terminal, then press Review the files again:</p>
+                    <div class="next-command">
+                      <code id="publish-way-out-command" data-no-i18n></code>
+                      <button type="button" class="secondary-button" id="copy-publish-way-out">Copy</button>
+                    </div>
+                  </div>
+                  <ul id="publish-way-out-steps"></ul>
+                  <p class="hint" id="publish-way-out-status" role="status"></p>
+                </div>
+              </div>
+            </div>
+            <div id="planning" hidden>
+              <h3 id="planning-heading" tabindex="-1">Plan your project</h3>
+              <p class="hint">
+                Describe what you are building. Your coding tool drafts the plan
+                in the background; you review it here, and nothing is published
+                until you approve it.
+              </p>
+              <form id="idea-form" novalidate>
+                <label class="field-label" for="idea-text"
+                  >What are you building? One line.</label
+                ><input type="text" id="idea-text" maxlength="300" autocomplete="off" required />
+                <label class="field-label" for="idea-audience">Who is it for?</label
+                ><input type="text" id="idea-audience" maxlength="300" autocomplete="off" required />
+                <label class="field-label" for="idea-goal" id="idea-goal-label"
+                  >Judging rubric</label
+                ><textarea id="idea-goal" maxlength="1000" rows="3" required></textarea>
+                <div class="field-row">
+                  <div>
+                    <label class="field-label" for="idea-length">Event length</label
+                    ><input type="text" id="idea-length" maxlength="60" placeholder="24 h" required />
+                  </div>
+                  <div>
+                    <label class="field-label" for="idea-team">Team size</label
+                    ><input type="number" id="idea-team" min="1" max="50" value="3" required />
+                  </div>
+                </div>
+                <label class="choice" id="idea-overwrite-row" hidden
+                  ><input type="checkbox" id="idea-overwrite" /><span
+                    ><strong>Replace the existing IDEA.md</strong
+                    ><small
+                      >Your project already has an idea file. Setup replaces it
+                      only with this confirmation.</small
+                    ></span
+                  ></label
+                ><button class="secondary-button" type="submit" id="idea-save">
+                  Save the idea
+                </button>
+                <p class="hint" id="idea-status" role="status"></p>
+                <details id="idea-saved" hidden>
+                  <summary>Your saved idea (IDEA.md)</summary>
+                  <pre id="idea-saved-text"></pre>
+                </details>
+              </form>
+              <fieldset id="planner-choice" tabindex="-1">
+                <legend>Coding tool that drafts the plan</legend>
+                <div id="planner-options"></div>
+              </fieldset>
+              <p class="notice error" id="plan-remote-note" role="status" hidden></p>
+              <p class="notice" id="plan-onmain-note" hidden>
+                Publish the kit to main first (step 3 above): the plan's
+                checks read the kit from main.
+              </p>
+              <div class="notice" id="plan-trust">
+                <p>
+                  Claude Code only: open it once in this folder and accept its trust question (yes), then close it.
+                  Until then it ignores this project's permissions and the plan stops early.
+                </p>
+                <div class="next-command">
+                  <code id="plan-trust-command" data-no-i18n></code>
+                  <button type="button" class="secondary-button" id="copy-plan-trust">Copy</button>
+                </div>
+              </div>
+              <button class="primary" type="button" id="plan-create" aria-describedby="plan-create-why">
+                Create the plan
+              </button>
+              <p class="hint blocked-reason" id="plan-create-why" hidden></p>
+              <p class="action-result" id="plan-create-result" role="status" aria-live="polite" data-no-i18n></p>
+              <p class="hint" id="plan-progress" role="status" data-no-i18n hidden></p>
+              <section id="plan-review" hidden aria-labelledby="plan-review-heading">
+                <h3 id="plan-review-heading">Proposed plan</h3>
+                <div class="notice error" id="plan-violations" role="alert" hidden>
+                  <p>
+                    The planner changed things only you may change. Undo those
+                    changes, then create the plan again.
+                  </p>
+                  <ul class="plan-problems" id="plan-violation-list" data-no-i18n></ul>
+                </div>
+                <div class="notice" id="plan-lint" role="status">
+                  <p id="plan-lint-summary"></p>
+                  <ul class="plan-problems" id="plan-lint-lines" data-no-i18n></ul>
+                </div>
+                <ul class="plan-cards" id="plan-cards"></ul>
+                <details>
+                  <summary>Plan files as written</summary>
+                  <pre id="plan-files"></pre>
+                </details>
+                <div id="plan-ask">
+                <label class="field-label" for="plan-note">Ask for changes</label
+                ><textarea id="plan-note" maxlength="4000" rows="3"></textarea>
+                <div class="actions">
+                  <button class="secondary-button" type="button" id="plan-recheck">
+                    Check the plan again
+                  </button>
+                  <button class="secondary-button" type="button" id="plan-change">
+                    Ask for changes
+                  </button>
+                  <button class="primary" type="button" id="plan-approve" aria-describedby="plan-approve-why">
+                    Approve and publish
+                  </button>
+                </div>
+                <p class="hint blocked-reason" id="plan-approve-why" hidden></p>
+                </div>
+                <div id="approve-confirm" hidden>
+                  <p>
+                    Publishing sets Backlog-Approved: yes, commits only IDEA.md,
+                    .uak/TASKS.md, .uak/OWNERS.md and .uak/PROJECT.md as your Git
+                    identity, and pushes them to the main branch. Agents can then
+                    claim tasks.
+                  </p>
+                  <label class="field-label" for="approve-name"
+                    >Type the project folder name to confirm:</label
+                  >
+                  <p><strong id="approve-project" data-no-i18n></strong></p>
+                  <input type="text" id="approve-name" autocomplete="off" spellcheck="false" />
+                  <div class="actions">
+                    <button class="secondary-button" type="button" id="approve-cancel">
+                      Cancel
+                    </button>
+                    <button class="primary" type="button" id="approve-publish" disabled>
+                      Publish the plan
+                    </button>
+                  </div>
+                  <p class="hint" id="approve-hint" data-no-i18n></p>
+                </div>
+              </section>
+            </div>
+            <div id="preferences" hidden>
+              <h3>Project preferences</h3>
+              <p class="hint">
+                Changes stay local until you commit and push your project
+                configuration.
+              </p>
+              <label class="choice"
+                ><input type="checkbox" id="diagnostics" /><span
+                  ><strong>Anonymous kit diagnostics</strong
+                  ><small
+                    >Store filtered kit events on the coordination branch. A
+                    public repository makes these events public.</small
+                  ></span
+                ></label
+              ><label class="choice"
+                ><input type="checkbox" id="pacing" /><span
+                  ><strong>Automatic usage pacing</strong
+                  ><small
+                    >Adjust agent activity to your available usage
+                    allowance.</small
+                  ></span
+                ></label
+              ><label class="field-label" for="live-url-input"
+                >Deployed app link (optional)</label
+              ><input
+                type="url"
+                id="live-url-input"
+                inputmode="url"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="https://"
+                aria-describedby="live-url-hint"
+              /><small class="hint" id="live-url-hint"
+                >Only an https:// address. The dashboard shows it as a link to
+                your app.</small
+              ><button class="secondary-button" id="save">
+                Save preferences
+              </button>
+              <p class="hint" id="save-status" role="status"></p>
+            </div>
+            <details id="technical-details">
+              <summary>Technical details</summary>
+              <pre id="output"></pre>
+            </details>
+            <div class="actions">
+              <button
+                class="secondary-button"
+                type="button"
+                id="back-from-finish"
+              >
+                Back
+              </button>
+              <button class="secondary-button" id="repair" hidden>
+                Repair or update kit</button
+              ><button class="secondary-button" id="change-project">
+                Choose another project</button
+              ><button class="primary" id="check">Check what’s next</button>
+            </div>
+            <p class="action-result" id="check-result" role="status" aria-live="polite" data-no-i18n></p>
+          </section>
+          <div id="error" class="notice error" role="alert" hidden></div>
+        </main>
+      </div>
+    </div>
+    <main
+      class="dashboard-shell"
+      id="dashboard-shell"
+      hidden
+      aria-label="Dashboard"
+      tabindex="-1"
+    >
+      <div class="dashboard-bar">
+        <div>
+          <h1>Your project at a glance</h1>
+          <p class="secondary" id="dashboard-project" data-no-i18n></p>
+        </div>
+        <button class="secondary-button" id="refresh-dashboard">
+          Refresh dashboard
+        </button>
+      </div>
+      <p class="notice" id="dashboard-status" role="status">
+        Loading your project dashboard…
+      </p>
+      <p class="notice error" id="dashboard-freeze" role="status" hidden></p>
+      <button class="primary" id="dashboard-choose-project" hidden>
+        Choose another project
+      </button>
+      <section id="team-step" class="team-step" hidden aria-labelledby="team-heading" tabindex="-1">
+        <h2 id="team-heading" tabindex="-1">Start your team</h2>
+        <p class="hint">
+          Setup steps (install, publish, plan) need no agent; agents start only here.
+        </p>
+        <div class="team-block" id="team-reviewer">
+          <h3>1. Register the reviewer</h3>
+          <p>
+            <strong id="team-reviewer-name" data-no-i18n></strong>
+            <span>reviews your agents' work. In Hackathon mode an approved change can merge automatically after the checks pass.</span>
+          </p>
+          <button type="button" class="primary" id="team-register">Register the reviewer</button>
+          <p class="hint" id="team-reviewer-status" role="status" aria-live="polite"></p>
+        </div>
+        <p class="notice" id="team-note" role="status" hidden></p>
+        <p class="notice" id="team-review-note" role="status" hidden></p>
+        <div class="actions" id="team-note-actions" hidden>
+          <button type="button" class="secondary-button" id="team-retry" hidden>Retry</button>
+          <button type="button" class="secondary-button" id="team-check" hidden>Check what's next</button>
+        </div>
+        <div class="team-block" id="team-roles" hidden>
+          <h3>Your tools</h3>
+          <p class="hint">
+            Choose which of your coding tools writes the code and which one reviews it. This choice is yours and stays
+            on this computer; teammates choose their own.
+          </p>
+          <fieldset>
+            <legend>Who implements?</legend>
+            <div class="tools" id="team-implement-options"></div>
+          </fieldset>
+          <fieldset>
+            <legend>Who reviews?</legend>
+            <div class="tools" id="team-review-options"></div>
+          </fieldset>
+          <p class="hint" id="team-same-tool" hidden>
+            <span id="team-same-tool-text" data-no-i18n></span>
+            <span>The reviewer never reviews its own identity's work.</span>
+          </p>
+          <p class="hint" id="team-roles-note" role="status" hidden></p>
+          <div id="team-unavailable" hidden>
+            <p class="hint">Not available here:</p>
+            <ul class="hint" id="team-unavailable-list"></ul>
+          </div>
+        </div>
+        <div class="team-block" id="team-implement" hidden>
+          <h3 id="team-implement-heading" data-no-i18n>2. Claude Code implements</h3>
+          <p class="hint" id="team-implement-terminal"></p>
+          <div class="next-command">
+            <code id="team-implement-command" data-no-i18n></code>
+            <button type="button" class="secondary-button" id="copy-team-implement">Copy</button>
+          </div>
+          <p class="hint" data-tool="claude">
+            It claims the task, creates its own folder (a worktree) and opens Claude Code there with its first prompt.
+            The first time, Claude Code asks whether you trust the task folder: accept it (yes), then approve this
+            project's uak server (MCP).
+          </p>
+          <p class="hint" data-tool="codex" hidden>
+            It claims the task, creates its own folder (a worktree) and opens Codex there with its first prompt. Codex
+            runs in its workspace sandbox with write access to the project's .git folder and the network on, so it can
+            claim, commit and push.
+          </p>
+          <p class="hint">If you closed that terminal, reopen the agent with:</p>
+          <div class="next-command">
+            <code id="team-implement-resume" data-no-i18n></code>
+            <button type="button" class="secondary-button" id="copy-team-resume">Copy</button>
+          </div>
+        </div>
+        <div class="team-block" id="team-review" hidden>
+          <h3 id="team-review-heading" data-no-i18n>3. Codex reviews</h3>
+          <p class="hint" id="team-review-terminal"></p>
+          <div class="next-command">
+            <code id="team-review-command" data-no-i18n></code>
+            <button type="button" class="secondary-button" id="copy-team-review">Copy</button>
+          </div>
+          <p class="hint" data-tool="codex">
+            UAK_AGENT gives Codex the reviewer's name, so it acts as a second identity: it never reviews as the
+            agent that wrote the code. It waits for work with uak next and reviews with $uak-review.
+            The first time, Codex asks to approve this project's uak server (MCP): approve it.
+          </p>
+          <p class="hint" data-tool="claude" hidden>
+            UAK_AGENT gives Claude Code the reviewer's name, so it acts as a second identity: it never reviews as the
+            agent that wrote the code. It waits for work with uak next and reviews with /uak-review. The first time,
+            Claude Code asks whether you trust this folder and to approve this project's uak server (MCP): accept both.
+          </p>
+        </div>
+        <div class="team-block" id="team-claimed-block" hidden>
+          <h3>Tasks already claimed</h3>
+          <ul id="team-claimed"></ul>
+        </div>
+        <p class="hint" id="team-windows" hidden>
+          On Windows, paste these in Git Bash, not PowerShell.
+        </p>
+        <p class="hint" id="team-copy-status" role="status"></p>
+      </section>
+      <section id="beginner-dashboard" hidden>
+        <div class="dashboard-metrics">
+          <div>
+            <strong id="simple-completed">0</strong><span>Completed</span>
+          </div>
+          <div><strong id="simple-working">0</strong><span>Working</span></div>
+          <div>
+            <strong id="simple-review">0</strong><span>Waiting for review</span>
+          </div>
+        </div>
+        <div id="simple-next">
+          <div id="beginner-step">
+          <p class="secondary">Your next step</p>
+          <h3 id="next-heading"></h3>
+          <p id="next-description"></p>
+          <p class="hint" id="beginner-why"></p>
+          <ul class="next-steps" id="next-steps" data-no-i18n hidden></ul>
+          <div class="next-command" id="next-command-box" hidden>
+            <code id="next-command" data-no-i18n></code>
+            <button type="button" class="secondary-button" id="copy-next-command">
+              Copy
+            </button>
+          </div>
+          <button type="button" class="primary" id="next-check" hidden>
+            Check what’s next
+          </button>
+          <p class="hint" id="copy-status" role="status"></p>
+          <p class="secondary" id="beginner-done-label" hidden>Already done</p>
+          <ul class="beginner-checklist" id="beginner-checklist" data-no-i18n hidden></ul>
+          </div>
+        </div>
+        <ul id="simple-tasks"></ul>
+      </section>
+      <section class="your-app" id="your-app" aria-labelledby="your-app-heading">
+        <h3 id="your-app-heading">Your app</h3>
+        <a
+          id="live-url-link"
+          data-no-i18n
+          target="_blank"
+          rel="noopener noreferrer"
+          hidden
+        ></a>
+        <p class="hint" id="live-url-empty">
+          Not deployed yet. When your app is online, add its link in
+          Configuration, under Project preferences.
+        </p>
+      </section>
+      <section id="advanced-next" class="advanced-next" hidden aria-labelledby="advanced-next-heading">
+        <p class="secondary">Your next step</p>
+        <h3 id="advanced-next-heading"></h3>
+        <p id="advanced-next-description"></p>
+        <div class="next-command" id="advanced-next-box" hidden>
+          <code id="advanced-next-command" data-no-i18n></code>
+          <button type="button" class="secondary-button" id="copy-advanced-next">Copy</button>
+        </div>
+      </section>
+      <iframe
+        id="dashboard-frame"
+        title="Project dashboard"
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+        hidden
+      ></iframe>
+    </main>
+    <footer class="footer">
+      <span>UPIIXIA Agentic Kit · Your coding team, coordinated.</span
+      ><span
+        >Keep the terminal open while using setup. Stop it with Ctrl+C when you
+        finish.</span
+      >
+    </footer>
+    <div class="toast-region" id="toast-region" role="status" aria-live="polite" aria-atomic="true">
+      <div class="toast" id="toast" hidden>
+        <p class="toast-title">Not yet</p>
+        <p id="toast-text"></p>
+        <div class="toast-actions">
+          <button type="button" class="secondary-button" id="toast-go">Go there</button>
+          <button type="button" class="toast-close" id="toast-close" aria-label="Dismiss" data-i18n-aria="Dismiss">
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+      </div>
+    </div>
+    <script nonce="__NONCE__" src="/workspace.js"></script>
+    <script nonce="__NONCE__">
+      (function () {
+        "use strict";
+        var token = location.hash.slice(1);
+        try {
+          if (token) sessionStorage.setItem("uak-setup-token", token);
+          else token = sessionStorage.getItem("uak-setup-token") || "";
+        } catch (e) {}
+        history.replaceState(null, "", location.pathname);
+        var state = {},
+          choices = {},
+          step = 0,
+          timer = null,
+          requestBusy = false;
+        var panels = ["welcome", "project", "workflow", "review", "finish"];
+        var latestDashboard = null,
+          dashboardTimer = null,
+          currentSection = "setup",
+          dashboardLoading = false,
+          dashboardAgain = false,
+          checkRequested = false,
+          lastStepTitle = "";
+        function el(id) {
+          return document.getElementById(id);
+        }
+        function operationRunning() {
+          return isBusy(state.phase);
+        }
+        function syncRunningControls() {
+          var busy = operationRunning();
+          document
+            .querySelectorAll(
+              "#project-form input,#workflow-form input,#workflow-form select",
+            )
+            .forEach(function (input) {
+              if (busy && !input.hasAttribute("data-job-disabled")) {
+                input.dataset.jobDisabled = input.disabled ? "true" : "false";
+                input.disabled = true;
+              } else if (!busy && input.hasAttribute("data-job-disabled")) {
+                input.disabled = input.dataset.jobDisabled === "true";
+                delete input.dataset.jobDisabled;
+              }
+            });
+          document
+            .querySelectorAll(
+              "#project-form button[type=submit],#workflow-form button[type=submit],#install",
+            )
+            .forEach(function (button) {
+              button.disabled = busy;
+            });
+          el("running-review").hidden = !busy || step === 4;
+        }
+        function openSection(section) {
+          currentSection = section;
+          el("setup-shell").hidden = section !== "setup";
+          el("dashboard-shell").hidden = section !== "dashboard";
+          el("open-setup").setAttribute(
+            "aria-pressed",
+            String(section === "setup"),
+          );
+          el("open-dashboard").setAttribute(
+            "aria-pressed",
+            String(section === "dashboard"),
+          );
+          document.querySelector(".skip").href =
+            section === "dashboard" ? "#dashboard-shell" : "#content";
+          if (section === "setup" && dashboardTimer)
+            clearTimeout(dashboardTimer);
+        }
+        function sendDashboard() {
+          el("dashboard-frame").title = UAKWorkspace.t("Dashboard");
+          if (latestDashboard && el("dashboard-frame").contentWindow)
+            el("dashboard-frame").contentWindow.postMessage(
+              {
+                type: "uak:dashboard",
+                snapshot: latestDashboard,
+                language: UAKWorkspace.language(),
+                theme: el("workspace-theme").value,
+              },
+              "*",
+            );
+        }
+        // One way to start a task: once Start your team shows its commands, the bare claim command is not offered
+        // again (two Copy buttons for the same claim confused the simulation's person).
+        var teamReady = false,
+          teamTool = "Claude Code";
+        function teamGuide(g) {
+          return g.kind === "ready" && teamReady
+            ? { kind: g.kind, title: g.title, detail: UAKWorkspace.format("Use Start your team above: its first command claims this task for {tool}.", { tool: teamTool }), commands: [], steps: [] }
+            : g;
+        }
+        function drawNext(g) {
+          g = teamGuide(g);
+          el("next-heading").textContent = UAKWorkspace.gate(UAKWorkspace.t(g.title || "Check what your project needs"));
+          el("next-description").textContent = UAKWorkspace.t(g.detail || "");
+          // Only `commands` (the exact claim command) is copyable; the gate's fix lines are text.
+          var command = (g.commands || []).join("\n");
+          el("next-command").textContent = command;
+          el("next-command-box").hidden = !command;
+          el("next-steps").replaceChildren();
+          (g.steps || []).forEach(function (line) {
+            var li = document.createElement("li");
+            li.textContent = UAKWorkspace.t(line);
+            el("next-steps").append(li);
+          });
+          el("next-steps").hidden = !(g.steps || []).length;
+          el("next-check").hidden = ["check", "todo", "ready", "error", "waiting"].indexOf(g.kind) < 0;
+          el("next-check").disabled = operationBusy();
+          setLabel(el("next-check"), UAKWorkspace.t(
+            g.kind === "check" ? "Check what’s next" : "Check again",
+          ));
+          el("copy-status").textContent = "";
+          // Guided Beginner: why this step matters, and what the readiness check already passed.
+          el("beginner-why").textContent = UAKWorkspace.t(
+            {
+              install:
+                "The kit adds the files your coding tools read to work as a team.",
+              todo: "Agents cannot start until this is done. The check below confirms it for you.",
+              check:
+                "It only reads your project; nothing is changed.",
+              ready:
+                "Your coding tool creates a separate workspace for this task, so agents never overwrite each other.",
+              frozen:
+                "After the deadline, new work needs a person's decision.",
+              error: "Fix this first; the next step appears right after.",
+              busy: "",
+            }[g.kind] || "",
+          );
+          var done = state.completed || [];
+          el("beginner-checklist").replaceChildren();
+          done.forEach(function (line) {
+            var li = document.createElement("li");
+            li.textContent = "✓ " + UAKWorkspace.gate(line);
+            el("beginner-checklist").append(li);
+          });
+          el("beginner-checklist").hidden = !done.length;
+          el("beginner-done-label").hidden = !done.length;
+          // A step that changed after an automatic re-check is announced, politely.
+          if (lastStepTitle && g.title && g.title !== lastStepTitle && g.kind !== "busy")
+            el("copy-status").textContent =
+              UAKWorkspace.t("Step complete. Next:") + " " + UAKWorkspace.t(g.title);
+          if (g.kind !== "busy") lastStepTitle = g.title || "";
+        }
+        function drawLiveUrl(url) {
+          var link = el("live-url-link"),
+            valid = typeof url === "string" && url.indexOf("https://") === 0;
+          link.hidden = !valid;
+          el("live-url-empty").hidden = valid;
+          if (valid) {
+            link.href = url;
+            link.textContent = url;
+          } else {
+            link.removeAttribute("href");
+            link.textContent = "";
+          }
+        }
+        // Guided re-check: when the person comes back to the tab, and every minute while a blocker is shown,
+        // in whichever section shows it (Configuration reads the status guidance, the Dashboard its own).
+        function autoCheck() {
+          var g =
+            (currentSection === "dashboard" &&
+              latestDashboard &&
+              latestDashboard.guidance) ||
+            state.guidance ||
+            {};
+          if (
+            document.hidden ||
+            document.body.dataset.profile !== "beginner" ||
+            !state.installed ||
+            operationBusy() ||
+            requestBusy ||
+            g.kind !== "todo"
+          )
+            return;
+          startCheck(false);
+          lastButton = currentSection === "dashboard" ? "next-check" : "check";
+          api("check", {})
+            .then(function () {
+              checkRequested = true;
+              return refresh();
+            })
+            .catch(function () {});
+        }
+        document.addEventListener("visibilitychange", autoCheck);
+        setInterval(autoCheck, 60000);
+        function operationBusy() {
+          return isBusy(state.phase);
+        }
+        function isBusy(phase) {
+          return ["installing", "checking", "planning", "approving", "publishing", "registering"].indexOf(phase) >= 0;
+        }
+        // The status heading (UI-012, r3): ✓ only when nothing is left to do; the gate's line in the page's language.
+        function statusIcon(data) {
+          if (isBusy(data.phase)) return "…";
+          if (data.ready) return "✓";
+          var todo = (data.checks || []).some(function (c) { return c.state === "todo"; });
+          return data.phase === "error" || todo || !data.installed ? "!" : "✓";
+        }
+        function statusTitle(data) {
+          var title = isBusy(data.phase)
+            ? {
+                installing: "Installing your workspace",
+                planning: "Creating your plan",
+                approving: "Publishing your plan",
+                publishing: "Publishing the kit",
+                registering: "Registering the reviewer…",
+              }[data.phase] || "Checking your next steps"
+            : data.ready
+              ? "Your workspace is ready"
+              : data.phase === "error"
+                ? "Let’s resolve this step"
+                : data.installed && (data.checks || []).length && data.guidance
+                  ? data.guidance.title
+                  : data.installed
+                    ? data.phase === "installed"
+                      ? "The kit is installed. Let’s get ready."
+                      : "Kit files found. Let’s check your project."
+                    : "Continue setting up your project";
+          return UAKWorkspace.gate(UAKWorkspace.t(title || ""));
+        }
+        // Planning (UI-004). Plan text comes from files an agent wrote: it is shown with textContent only.
+        var planView = null,
+          planFor = "",
+          plannerNames = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", cursor: "Cursor" };
+        function selectedPlanner() {
+          var input = document.querySelector("input[name=planner]:checked");
+          return input ? input.value : "";
+        }
+        function setPlanBusy(busy) {
+          var blocked = busy || !planView;
+          // Waiting for an earlier step is blocked, not busy: it says why, next to the button (UI-018).
+          el("plan-create").disabled = blocked;
+          setBlocked(el("plan-create"), planBlock(busy ? null : planView, selectedPlanner()));
+          el("plan-recheck").disabled = blocked || !planView.planned;
+          el("plan-onmain-note").hidden = !planView || !!planView.kit_on_main || !!planView.remote_note;
+          el("plan-remote-note").hidden = !planView || !planView.remote_note;
+          el("plan-remote-note").textContent = planView && planView.remote_note ? UAKWorkspace.t(planView.remote_note) : "";
+          el("plan-trust").hidden = !planView || !planView.trust_command;
+          el("plan-trust-command").textContent = (planView && planView.trust_command) || "";
+          el("plan-change").disabled = blocked;
+          setBlocked(el("plan-change"), busy || !planView || selectedPlanner() ? null : planBlock(planView, ""));
+          el("plan-approve").disabled =
+            blocked || !planView.planned || planView.failed || !!planView.violations.length || !planView.lint.ok;
+          // A plan with problems: the click says to ask for changes first.
+          var fix = !busy && planView && planView.planned && el("plan-approve").disabled;
+          if (fix) el("plan-approve").disabled = false;
+          setBlocked(el("plan-approve"), fix ? { text: "Fix the plan's problems first: ask for changes.", target: "plan-note" } : null);
+          el("idea-save").disabled = busy;
+          if (busy) el("approve-confirm").hidden = true;
+        }
+        async function loadPlan() {
+          try {
+            drawPlan(await api("plan"));
+          } catch (e) {
+            error(e.message);
+          }
+        }
+        function drawPlan(view) {
+          var chosen = selectedPlanner();
+          planView = view;
+          el("idea-goal-label").textContent = UAKWorkspace.t(
+            view.mode === "marathon" ? "Spec goal" : "Judging rubric",
+          );
+          el("idea-status").textContent = view.idea
+            ? UAKWorkspace.t("IDEA.md is saved. To replace it, fill in the form and save again.")
+            : "";
+          el("idea-saved").hidden = !view.idea;
+          el("idea-saved-text").textContent = view.idea;
+          el("planner-options").replaceChildren();
+          view.planners.forEach(function (offer) {
+            var label = document.createElement("label"),
+              input = document.createElement("input"),
+              text = document.createElement("span"),
+              name = document.createElement("strong"),
+              why = document.createElement("small");
+            label.className = "choice";
+            input.type = "radio";
+            input.name = "planner";
+            input.value = offer.harness;
+            input.disabled = !offer.available;
+            input.checked = offer.available && (chosen ? chosen === offer.harness : !document.querySelector("input[name=planner]:checked"));
+            input.onchange = function () {
+              setPlanBusy(operationBusy());
+            };
+            name.textContent = plannerNames[offer.harness] || offer.harness;
+            why.textContent = UAKWorkspace.t(offer.available ? "Ready to draft the plan." : offer.reason);
+            text.append(name, why);
+            label.append(input, text);
+            el("planner-options").append(label);
+          });
+          // A run that wrote no plan is a failed plan (UI-010): only what it changed is shown, the notice above says why
+          // and "Create the plan" is the retry; there is no lint verdict, plan or approve button.
+          el("plan-review").hidden = !view.planned && !(view.failed && view.violations.length);
+          ["plan-lint", "plan-cards"].forEach(function (id) {
+            el(id).hidden = !!view.failed;
+          });
+          el("plan-files").parentNode.hidden = !!view.failed;
+          el("plan-ask").hidden = !!view.failed;
+          el("plan-violations").hidden = !view.violations.length;
+          el("plan-violation-list").replaceChildren();
+          view.violations.forEach(function (line) {
+            var li = document.createElement("li");
+            li.textContent = line;
+            el("plan-violation-list").append(li);
+          });
+          el("plan-lint").classList.toggle("error", !view.lint.ok);
+          el("plan-lint-summary").textContent = UAKWorkspace.t(
+            view.lint.ok
+              ? "The plan passes the kit's checks (uak lint)."
+              : "The kit's checks (uak lint) found problems. Ask for changes:",
+          );
+          el("plan-lint-lines").replaceChildren();
+          view.lint.lines.forEach(function (line) {
+            var li = document.createElement("li");
+            li.textContent = line;
+            el("plan-lint-lines").append(li);
+          });
+          el("plan-cards").replaceChildren();
+          view.cards.forEach(function (card) {
+            var li = document.createElement("li"),
+              title = document.createElement("strong"),
+              meta = document.createElement("span"),
+              tests = document.createElement("span");
+            title.textContent = card.id + " · " + card.title;
+            title.dataset.noI18n = "";
+            meta.textContent = UAKWorkspace.format("Priority {p} · wave {w} · depends on {d}", {
+              p: card.priority || "?",
+              w: card.wave || "?",
+              d: card.depends.length ? card.depends.join(", ") : UAKWorkspace.t("nothing"),
+            });
+            tests.textContent = card.tests.length
+              ? UAKWorkspace.t("Checks it must pass:") + " " + card.tests.join(", ").replace(/_/g, " ")
+              : UAKWorkspace.t("Nothing to test first:") + " " + (card.test_first || "-");
+            tests.dataset.noI18n = "";
+            li.append(title, meta, tests);
+            el("plan-cards").append(li);
+          });
+          el("plan-files").textContent =
+            "# .uak/TASKS.md\n\n" + view.tasks + "\n\n# .uak/OWNERS.md\n\n" + view.owners;
+          el("approve-project").textContent = view.project;
+          el("approve-publish").disabled = el("approve-name").value !== view.project;
+          setPlanBusy(operationBusy());
+        }
+        // While the coding tool plans (4 to 8 minutes in the test rounds) the page shows how long and its last output line.
+        var planClock = null;
+        function drawPlanProgress(data) {
+          var progress = data.phase === "planning" ? data.plan_progress || {} : {};
+          if (progress.elapsed === undefined) {
+            planClock = null;
+            el("plan-progress").hidden = true;
+            return;
+          }
+          planClock = { at: Date.now() - progress.elapsed * 1000, last: progress.last || "" };
+          tickPlanProgress();
+        }
+        function tickPlanProgress() {
+          if (!planClock) return;
+          var seconds = Math.max(0, Math.floor((Date.now() - planClock.at) / 1000)),
+            time = Math.floor(seconds / 60) + ":" + (seconds % 60 < 10 ? "0" : "") + (seconds % 60);
+          el("plan-progress").hidden = false;
+          el("plan-progress").textContent = planClock.last
+            ? UAKWorkspace.format("Planning for {time}. Last output: {line}", { time: time, line: planClock.last })
+            : UAKWorkspace.format("Planning for {time}. Waiting for the first output.", { time: time });
+        }
+        setInterval(tickPlanProgress, 1000);
+        function ideaFields() {
+          var fields = {
+            idea: el("idea-text").value,
+            audience: el("idea-audience").value,
+            event_length: el("idea-length").value,
+            team_size: parseInt(el("idea-team").value, 10),
+          };
+          fields[planView && planView.mode === "marathon" ? "goal" : "rubric"] = el("idea-goal").value;
+          if (!el("idea-overwrite-row").hidden) fields.overwrite = el("idea-overwrite").checked;
+          return fields;
+        }
+        el("idea-form").onsubmit = function (event) {
+          event.preventDefault();
+          action(el("idea-save"), async function () {
+            try {
+              await api("idea", ideaFields());
+            } catch (e) {
+              if (e.status === 409) {
+                el("idea-overwrite-row").hidden = false;
+                el("idea-overwrite").focus();
+              }
+              throw e;
+            }
+            el("idea-overwrite-row").hidden = true;
+            el("idea-overwrite").checked = false;
+            await loadPlan();
+            el("idea-status").textContent = UAKWorkspace.t("IDEA.md is saved. Next: create the plan.");
+          });
+        };
+        function startPlanning(button, note) {
+          action(button, async function () {
+            var body = { harness: selectedPlanner() };
+            if (note) body.note = note;
+            await api("plan", body);
+            el("approve-confirm").hidden = true;
+            await refresh();
+          });
+        }
+        el("plan-create").onclick = function () {
+          startPlanning(this, "");
+        };
+        el("plan-change").onclick = function () {
+          var note = el("plan-note").value.trim();
+          if (!note) {
+            error("Write what should change in the plan first.");
+            el("plan-note").focus();
+            return;
+          }
+          startPlanning(this, note);
+        };
+        // The typed approval says exactly what to type (UI-007): the folder name as placeholder, and under the disabled
+        // button "Type NAME to enable publishing".
+        function approveHint() {
+          var project = (planView && planView.project) || "";
+          el("approve-hint").textContent = UAKWorkspace.format("Type {name} to enable publishing", { name: project });
+          el("approve-hint").hidden = !el("approve-publish").disabled;
+        }
+        el("plan-approve").onclick = function () {
+          el("approve-confirm").hidden = false;
+          el("approve-name").value = "";
+          el("approve-name").placeholder = (planView && planView.project) || "";
+          el("approve-publish").disabled = true;
+          approveHint();
+          el("approve-name").focus();
+        };
+        el("approve-name").oninput = function () {
+          el("approve-publish").disabled = !planView || this.value !== planView.project;
+          approveHint();
+        };
+        el("approve-cancel").onclick = function () {
+          el("approve-confirm").hidden = true;
+          el("plan-approve").focus();
+        };
+        el("approve-publish").onclick = function () {
+          var typed = el("approve-name").value;
+          action(this, async function () {
+            await api("plan/approve", { confirm: typed, digest: planView.digest });
+            el("approve-confirm").hidden = true;
+            el("plan-note").value = "";
+            await refresh();
+          });
+        };
+        // The journey (UI-007): where the person is, from the server's state only; it stays visible above every view.
+        function journeyStep(data) {
+          if (!data || !data.installed) return "install";
+          if (data.ready || data.team) return latestDashboard && (latestDashboard.tasks || []).some(function (t) { return t.state !== "AVAILABLE"; }) ? "progress" : "team";
+          if (["planning", "planned", "approving"].indexOf(data.phase) >= 0 || (data.guidance || {}).action === "plan") return "plan";
+          return "prepare";
+        }
+        // Whose identity signs (UI-007): the project's Git name/email and gh's login, as the server parsed them. On someone
+        // else's computer they are not the person's: say so before anything is published under that name.
+        // UI-012: each account is checked on its own (r4: "ana" matched the Git name and hid that the pull requests
+        // opened as someone else), and names match without case or accents (José = jose, Ana García = anagarcia).
+        // Words also break where camelCase or digits start (AnaLopez, ana_garcia92 → ana lopez, ana garcia 92).
+        function plainWords(text) {
+          return String(text || "")
+            .normalize("NFD")
+            .replace(new RegExp("\\p{M}", "gu"), "")
+            .replace(new RegExp("(\\p{Ll})(\\p{Lu})", "gu"), "$1 $2")
+            .replace(new RegExp("(\\p{Lu})(\\p{Lu}\\p{Ll})", "gu"), "$1 $2")
+            .replace(new RegExp("(\\p{L})(\\p{N})", "gu"), "$1 $2")
+            .replace(new RegExp("(\\p{N})(\\p{L})", "gu"), "$1 $2")
+            .toLowerCase()
+            .split(new RegExp("[^\\p{L}\\p{N}]+", "u"))
+            .filter(Boolean);
+        }
+        // True when an account word STARTS with the person's whole name, letters or digits after it allowed: dylan
+        // = DylanMCDS, ana = analopez, luis = luisg, and a name of several words may run across the account's words
+        // (ana-garcia = "Ana García", anagarcia, ana_garcia92). The name inside a word (ana in mariana, banana) or one
+        // shared word of a longer name (maria-garcia vs Juan Garcia, mariana vs Ana Lopez) is not enough (reviews of
+        // 4af5789 and 3bc4018: a whole-word-only match warned on people's own accounts).
+        function sameName(words, human) {
+          var me = plainWords(human).join("");
+          if (!me) return false;
+          for (var i = 0; i < words.length; i++) {
+            var w = "";
+            for (var j = i; j < words.length; j++) {
+              w += words[j];
+              if (w.indexOf(me) === 0) return true; // the name, then anything: DylanMCDS, ana_garcia92
+              if (me.indexOf(w) !== 0) break; // whole words of the name so far ("ana" of ana-garcia), or not this run
+            }
+          }
+          return false;
+        }
+        // Which account looks like someone else's: {git, gh}. An empty account (no gh login) is nobody's, never someone
+        // else's; without the person's name nothing can be compared. The Git name and the email are each a whole.
+        function sharedIdentity(ident, human) {
+          ident = ident || {};
+          if (!plainWords(human).length) return { git: false, gh: false };
+          var name = plainWords(ident.git_name),
+            mail = plainWords(String(ident.git_email || "").split("@")[0]),
+            login = plainWords(ident.gh_login);
+          return {
+            git: !!(name.length || mail.length) && !(sameName(name, human) || sameName(mail, human)),
+            gh: !!login.length && !sameName(login, human),
+          };
+        }
+        // The notice: who signs the commits and opens the pull requests, then which account belongs to someone else.
+        function identityWarning(ident, human) {
+          ident = ident || {};
+          var git = (ident.git_name || "?") + (ident.git_email ? " <" + ident.git_email + ">" : ""),
+            gh = ident.gh_login ? "@" + ident.gh_login : UAKWorkspace.t("nobody (gh is not signed in)"),
+            text = UAKWorkspace.format("Commits will be signed as {git} and pull requests opened as {gh}.", { git: git, gh: gh }),
+            unnamed = !human,
+            other = sharedIdentity(ident, human);
+          if (unnamed)
+            text += " " + UAKWorkspace.t("Tell setup your name (Your name, below) so it can check that this identity is yours.");
+          else if (other.git && other.gh)
+            text += " " + UAKWorkspace.t("This looks like someone else's identity. If this is not your computer, set your own before publishing: git config user.name and user.email, and gh auth login.");
+          else if (other.gh)
+            text += " " + UAKWorkspace.format("The GitHub login {gh} does not match your name, so it looks like someone else's account: sign in as yourself with gh auth login before publishing.", { gh: gh });
+          else if (other.git)
+            text += " " + UAKWorkspace.format("The Git name and email {git} do not match your name, so they look like someone else's: set your own with git config user.name and user.email before publishing.", { git: git });
+          return { text: text, git: unnamed || other.git, gh: unnamed || other.gh };
+        }
+        function drawIdentity(data) {
+          var ident = data.identity || {},
+            box = el("identity-warning");
+          if (!ident.git_name && !ident.gh_login) {
+            box.hidden = true;
+            return;
+          }
+          // With no name the notice asks for it (review of 949eca1).
+          var unnamed = !data.human,
+            shown = identityWarning(ident, unnamed ? "" : data.human);
+          box.textContent = shown.text;
+          box.classList.toggle("error", shown.git || shown.gh);
+          box.hidden = false;
+        }
+        function drawJourney() {
+          var current = journeyStep(state),
+            seen = false,
+            items = Array.from(el("journey").querySelectorAll("li"));
+          items.forEach(function (li) {
+            var here = li.dataset.step === current;
+            if (here) li.setAttribute("aria-current", "step");
+            else li.removeAttribute("aria-current");
+            li.classList.toggle("done", !seen && !here);
+            if (here) seen = true;
+          });
+        }
+        // A finished operation moves the person to the heading of the step that comes next (amendment 8).
+        var identityTries = 0;
+        var NEXT_FOCUS = {"installing": "prepare-heading", "publishing": "planning-heading", "approving": "team-heading"};
+        function drawDashboard(data) {
+          latestDashboard = data;
+          drawJourney();
+          el("dashboard-project").textContent = state.target || "";
+          // The notice under the title says only what needs saying (a warning); it never repeats the heading.
+          var warning = data.warning ? UAKWorkspace.t(data.warning) : "";
+          el("dashboard-status").textContent = warning;
+          el("dashboard-status").hidden = !warning;
+          el("dashboard-status").classList.remove("error");
+          drawLiveUrl(data.live_url);
+          var p = data.progress,
+            states = p.states;
+          el("simple-completed").textContent =
+            (states.INTEGRATED || 0) + " / " + p.total;
+          el("simple-working").textContent = states.CLAIMED || 0;
+          el("simple-review").textContent = states.REVIEW || 0;
+          var frozen =
+            !!data.freeze &&
+            data.freeze <=
+              Math.max(data.generated, Math.floor(Date.now() / 1000));
+          el("dashboard-freeze").hidden = !data.freeze;
+          el("dashboard-freeze").classList.toggle("error", frozen);
+          el("dashboard-freeze").textContent =
+            UAKWorkspace.t(
+              frozen
+                ? "Project changes are frozen. A human must authorize any new work."
+                : "A project freeze is scheduled. Check the deadline before taking new work.",
+            ) +
+            (data.freeze
+              ? " · " +
+                new Date(data.freeze * 1000).toLocaleString(
+                  UAKWorkspace.language(),
+                )
+              : "");
+          // The next step comes from the server, which derives it from `uak start` (the same gate as
+          // Configuration), so this view never offers work that the gate still blocks.
+          drawNext(data.guidance || state.guidance || {});
+          el("simple-tasks").replaceChildren();
+          var labels = {
+            AVAILABLE: "Available",
+            CLAIMED: "In progress",
+            BLOCKED: "Blocked",
+            REVIEW: "In review",
+            INTEGRATED: "Integrated",
+          };
+          data.tasks.slice(0, 8).forEach(function (task) {
+            var row = document.createElement("li"),
+              title = document.createElement("span"),
+              status = document.createElement("span");
+            title.dataset.noI18n = "";
+            title.textContent = task.id + " · " + task.title;
+            status.textContent = UAKWorkspace.t(
+              labels[task.state] || task.state,
+            );
+            row.append(title, status);
+            el("simple-tasks").append(row);
+          });
+          var advanced = document.body.dataset.profile === "advanced";
+          // Advanced keeps the same next step as Beginner (its guidance), above the dashboard frame.
+          drawAdvancedNext(data.guidance || state.guidance || {});
+          if (teamFor !== [state.target, state.human, state.ready, state.team].join(":")) {
+            teamFor = [state.target, state.human, state.ready, state.team].join(":");
+            loadTeam();
+          }
+          el("beginner-dashboard").hidden = advanced;
+          el("dashboard-frame").hidden = !advanced;
+          if (advanced && !el("dashboard-frame").getAttribute("src"))
+            el("dashboard-frame").src = "/dashboard";
+          sendDashboard();
+        }
+        async function loadDashboard() {
+          // A request while one is in flight (e.g. a check just finished) loads again right after it.
+          if (dashboardLoading) {
+            dashboardAgain = true;
+            return;
+          }
+          if (dashboardTimer) clearTimeout(dashboardTimer);
+          // Opened before the first status arrived (a fast click after load): ask the server, not the empty page state.
+          if (!state.target) {
+            try {
+              state = await api("status");
+            } catch (e) {}
+          }
+          if (!state.target || state.phase === "welcome") {
+            el("dashboard-status").hidden = false;
+            el("dashboard-status").textContent = UAKWorkspace.t(
+              "Choose a project to see its dashboard.",
+            );
+            el("dashboard-choose-project").hidden = false;
+            return;
+          }
+          el("dashboard-choose-project").hidden = true;
+          el("dashboard-status").hidden = false;
+            el("dashboard-status").textContent = UAKWorkspace.t(
+            "Loading your project dashboard…",
+          );
+          el("refresh-dashboard").disabled = true;
+          dashboardLoading = true;
+          var target = state.target;
+          try {
+            var data = await api("dashboard");
+            if (state.target === target) drawDashboard(data);
+          } catch (e) {
+            el("dashboard-status").hidden = false;
+            el("dashboard-status").textContent = UAKWorkspace.t(e.message);
+          } finally {
+            dashboardLoading = false;
+            el("refresh-dashboard").disabled = false;
+            if (dashboardAgain && currentSection === "dashboard") {
+              dashboardAgain = false;
+              loadDashboard();
+            } else if (currentSection === "dashboard")
+              dashboardTimer = setTimeout(loadDashboard, 20000);
+          }
+        }
+        function show(index, focus) {
+          openSection("setup");
+          drawJourney();
+          step = index;
+          panels.forEach(function (id, n) {
+            el(id).hidden = n !== index;
+          });
+          Array.from(el("steps").children).forEach(function (node, n) {
+            node.classList.toggle("done", n < index);
+            if (n === index) node.setAttribute("aria-current", "step");
+            else node.removeAttribute("aria-current");
+          });
+          el("error").hidden = true;
+          syncRunningControls();
+          if (focus !== false) el("content").focus();
+        }
+        function error(message) {
+          // The dashboard hides the setup panel: show the failure where the person is looking.
+          if (currentSection === "dashboard") {
+            el("dashboard-status").hidden = false;
+            el("dashboard-status").textContent = UAKWorkspace.t(message);
+            el("dashboard-status").classList.add("error");
+            return;
+          }
+          el("error").textContent = UAKWorkspace.t(message);
+          el("error").hidden = false;
+        }
+        async function api(path, data) {
+          var options = { headers: { "X-UAK-Token": token } };
+          if (data !== undefined) {
+            options.method = "POST";
+            options.headers["Content-Type"] = "application/json";
+            options.body = JSON.stringify(data);
+          }
+          var response = await fetch("/api/" + path, options);
+          var body = await response.json();
+          if (!response.ok) {
+            var failure = Error(
+              body.error || "The action could not finish. Please retry.",
+            );
+            failure.status = response.status;
+            failure.body = body;
+            throw failure;
+          }
+          return body;
+        }
+        // Every request: the busy label in its button while it runs, then a result line next to it (UI-018). An
+        // operation that goes on in the background keeps its button busy; render says how it ended. fn() returning
+        // false reports by itself (a check reports what it found).
+        async function action(button, fn) {
+          if (requestBusy) return;
+          requestBusy = true;
+          lastButton = (button && button.id) || "";
+          button.disabled = true;
+          setBusy(button, true);
+          el("error").hidden = true;
+          var outcome, failure = null;
+          try {
+            outcome = await fn();
+          } catch (e) {
+            failure = e;
+            error(e.message);
+          } finally {
+            requestBusy = false;
+            button.disabled =
+              step === 4 && isBusy(state.phase);
+            var running = isBusy(state.phase) && phaseOwner(state.phase) === button;
+            if (!running) setBusy(button, false);
+            if (failure) failed(button, failure.message);
+            else if (!running && outcome !== false) done(button);
+          }
+        }
+        // UI-018 feedback: begin. Dylan's run (2026-11-13): a blocked button looked busy and said nothing, and a check
+        // seemed to do nothing. Every request shows its busy label inside its button and how it ended right next to it;
+        // a button that waits for an earlier step says why (aria-disabled, so a click can explain it in a toast).
+        // team-roles is a block, not a button (saving the roles guards it): setBusy leaves non-buttons as they are.
+        var BUSY_LABEL = {
+          check: "Checking…",
+          "next-check": "Checking…",
+          "team-retry": "Checking…",
+          install: "Installing…",
+          "publish-preview": "Reading the files…",
+          "publish-kit": "Publishing…",
+          "human-save": "Saving…",
+          "schedule-save": "Saving…",
+          "idea-save": "Saving…",
+          save: "Saving…",
+          "plan-create": "Creating the plan…",
+          "plan-change": "Creating the plan…",
+          "plan-recheck": "Checking the plan…",
+          "approve-publish": "Publishing…",
+          "team-register": "Registering…",
+          "team-roles": "Saving…",
+        };
+        // The background operation of each phase and the buttons that start it (the one pressed, or the first).
+        var PHASE_BUTTONS = {
+          checking: ["check", "next-check"],
+          installing: ["install"],
+          publishing: ["publish-kit"],
+          planning: ["plan-create", "plan-change"],
+          approving: ["approve-publish"],
+          registering: ["team-register"],
+        };
+        var lastButton = "",
+          checkBefore = null,
+          pointAfterCheck = false,
+          checksKey = "",
+          toastTimer = null,
+          toastLeft = 0,
+          toastAt = 0,
+          toastFrom = null,
+          TOAST_MS = 8000;
+        function clock(date) {
+          var pad = function (n) {
+            return (n < 10 ? "0" : "") + n;
+          };
+          return pad(date.getHours()) + ":" + pad(date.getMinutes());
+        }
+        function isButton(node) {
+          return !!node && node.tagName === "BUTTON" && !!node.id;
+        }
+        // A label drawn while the button is busy waits until the request ends.
+        function setLabel(button, text) {
+          button.dataset.label = text;
+          if (button.getAttribute("aria-busy") !== "true") button.textContent = text;
+        }
+        function setBusy(button, busy) {
+          if (!isButton(button)) return;
+          if (busy && button.getAttribute("aria-busy") !== "true") {
+            // Not busy, the text is the current label (code may have changed it since the last request).
+            button.dataset.label = button.textContent.trim();
+            button.setAttribute("aria-busy", "true");
+            button.textContent = UAKWorkspace.t(BUSY_LABEL[button.id] || "Working…");
+          } else if (!busy && button.getAttribute("aria-busy") === "true") {
+            button.removeAttribute("aria-busy");
+            button.textContent = button.dataset.label || "";
+          }
+        }
+        // A confirmation that closes when it succeeds reports next to the button that opened it.
+        var RESULT_AT = { "publish-kit": "publish-preview", "approve-publish": "plan-approve" };
+        // The result line of a button: under its row of actions, or right after it.
+        function resultLine(button) {
+          var line = el(button.id + "-result");
+          if (!line) {
+            line = document.createElement("p");
+            line.id = button.id + "-result";
+            line.className = "action-result";
+            line.setAttribute("role", "status");
+            line.setAttribute("aria-live", "polite");
+            line.dataset.noI18n = "";
+            var row = button.parentNode;
+            (row && row.classList.contains("actions") ? row : button).after(line);
+          }
+          return line;
+        }
+        function report(button, text, failed) {
+          if (button && RESULT_AT[button.id] && el(RESULT_AT[button.id])) button = el(RESULT_AT[button.id]);
+          if (!isButton(button)) return;
+          var line = resultLine(button);
+          line.textContent = text;
+          line.classList.toggle("error", !!failed);
+        }
+        function done(button) {
+          report(button, UAKWorkspace.format("Done at {time}.", { time: clock(new Date()) }));
+        }
+        function failed(button, message) {
+          report(
+            button,
+            UAKWorkspace.format("Failed at {time}: {error}", { time: clock(new Date()), error: UAKWorkspace.t(message) }),
+            true,
+          );
+        }
+        function phaseOwner(phase) {
+          var ids = PHASE_BUTTONS[phase] || [];
+          return el(ids.indexOf(lastButton) >= 0 ? lastButton : ids[0]);
+        }
+        function checkOwner() {
+          return phaseOwner("checking");
+        }
+        // While a background operation runs, the button that started it stays busy; when it ends it says how.
+        function drawPhaseButtons(data, previous) {
+          Object.keys(PHASE_BUTTONS).forEach(function (phase) {
+            var owner = phaseOwner(phase);
+            PHASE_BUTTONS[phase].forEach(function (id) {
+              setBusy(el(id), data.phase === phase && el(id) === owner);
+            });
+          });
+          if (isBusy(previous) && previous !== "checking" && !isBusy(data.phase)) {
+            if (data.error) failed(phaseOwner(previous), data.error);
+            else done(phaseOwner(previous));
+          }
+        }
+        // "Checked at 21:04 · nothing changed · 2 things to do": a check that changed nothing still says so.
+        function checkSummary(before, data, now) {
+          var checks = data.checks || [],
+            todo = checks.filter(function (c) {
+              return c.state === "todo";
+            }).length,
+            parts = [UAKWorkspace.format("Checked at {time}", { time: clock(now) })];
+          if (before && JSON.stringify(before) === JSON.stringify(checks)) parts.push(UAKWorkspace.t("nothing changed"));
+          parts.push(
+            data.ready || !todo
+              ? UAKWorkspace.t("everything is ready")
+              : todo === 1
+                ? UAKWorkspace.t("1 thing to do")
+                : UAKWorkspace.format("{count} things to do", { count: todo }),
+          );
+          return parts.join(" · ");
+        }
+        function startCheck(byPerson) {
+          checkBefore = state.checks || [];
+          if (byPerson) pointAfterCheck = true;
+        }
+        // The gate's next step, when it is something this page does: its control.
+        function nextControl(data) {
+          var action = (data.guidance || {}).action;
+          if ((action === "publish" || action === "schedule") && !data.human) return "human-name";
+          if (action === "publish") return "publish-preview";
+          if (action === "schedule") return "schedule-start";
+          if (action === "plan") return planView && planView.planned ? "plan-approve" : "plan-create";
+          return "";
+        }
+        function pointTo(id) {
+          var node = el(id);
+          if (!node || node.offsetParent === null) return false;
+          var still = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+          node.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+          node.focus({ preventScroll: true });
+          node.classList.add("spotlight");
+          setTimeout(function () {
+            node.classList.remove("spotlight");
+          }, 4000);
+          return true;
+        }
+        // Why Create the plan waits, in the order of the page's steps.
+        function planBlock(view, planner) {
+          if (!view) return null;
+          if (!view.kit_on_main) return { text: "Publish the kit to main first (step 3).", target: "publish-preview" };
+          if (!view.idea) return { text: "Save the idea first.", target: "idea-text" };
+          if (!planner) return { text: "Choose the coding tool that drafts the plan.", target: "planner-choice" };
+          return null;
+        }
+        function nameBlock(data) {
+          return data.installed && !data.human ? { text: "Save your name first (step 1).", target: "human-name" } : null;
+        }
+        // Blocked is not busy: aria-disabled (the button stays focusable and its click explains itself), the reason
+        // in text next to it when the page has a place for it (#ID-why), and the not-allowed cursor.
+        function setBlocked(button, why) {
+          if (why) {
+            button.setAttribute("aria-disabled", "true");
+            button.dataset.blockedText = why.text;
+            button.dataset.blockedTarget = why.target || "";
+          } else {
+            button.removeAttribute("aria-disabled");
+            delete button.dataset.blockedText;
+            delete button.dataset.blockedTarget;
+          }
+          var line = el(button.id + "-why");
+          if (line) {
+            line.textContent = why ? UAKWorkspace.t(why.text) : "";
+            line.hidden = !why;
+          }
+        }
+        function showToast(why, from) {
+          el("toast-text").textContent = UAKWorkspace.t(why.text || "");
+          el("toast-go").hidden = !why.target;
+          el("toast-go").dataset.target = why.target || "";
+          el("toast").hidden = false;
+          toastFrom = from || null;
+          toastLeft = TOAST_MS;
+          armToast();
+        }
+        function armToast() {
+          clearTimeout(toastTimer);
+          toastAt = Date.now();
+          toastTimer = setTimeout(hideToast, toastLeft);
+        }
+        function pauseToast() {
+          if (toastTimer === null) return;
+          clearTimeout(toastTimer);
+          toastTimer = null;
+          toastLeft = Math.max(2000, toastLeft - (Date.now() - toastAt));
+        }
+        function resumeToast() {
+          if (!el("toast").hidden && toastTimer === null) armToast();
+        }
+        function hideToast() {
+          clearTimeout(toastTimer);
+          toastTimer = null;
+          el("toast").hidden = true;
+        }
+        function onBlockedClick(event) {
+          var button = event.target && event.target.closest ? event.target.closest('button[aria-disabled="true"]') : null;
+          if (!button) return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          showToast({ text: button.dataset.blockedText, target: button.dataset.blockedTarget }, button);
+        }
+        document.addEventListener("click", onBlockedClick, true);
+        el("toast").addEventListener("mouseenter", pauseToast);
+        el("toast").addEventListener("mouseleave", resumeToast);
+        el("toast").addEventListener("focusin", pauseToast);
+        el("toast").addEventListener("focusout", function (event) {
+          if (!event.relatedTarget || !el("toast").contains(event.relatedTarget)) resumeToast();
+        });
+        el("toast-close").onclick = function () {
+          var back = toastFrom;
+          hideToast();
+          if (back) back.focus();
+        };
+        el("toast-go").onclick = function () {
+          var id = this.dataset.target;
+          hideToast();
+          pointTo(id);
+        };
+        document.addEventListener("keydown", function (event) {
+          if (event.key === "Escape" && !el("toast").hidden) el("toast-close").onclick();
+        });
+        // The checklist is redrawn only when its data changes, so polling never rebuilds (or resizes) it.
+        function drawChecks(data) {
+          var key = JSON.stringify([UAKWorkspace.language(), data.checks || [], !!data.ready, data.guidance || null]);
+          if (key === checksKey) return false;
+          checksKey = key;
+          el("checks").replaceChildren();
+          (data.checks || []).forEach(function (check) {
+            var li = document.createElement("li"),
+              mark = document.createElement("span"),
+              text = document.createElement("span");
+            li.className = check.state;
+            mark.className = "check-mark";
+            mark.textContent = check.state === "ok" ? "✓" : check.state === "todo" ? "!" : "i";
+            mark.setAttribute(
+              "aria-label",
+              check.state === "ok" ? "Passed" : check.state === "todo" ? "Action needed" : "Information",
+            );
+            // The gate's first line in the page's language.
+            // The lines under it (doctor's failures, the fix) through the catalog: a command stays as it is (UI-012).
+            var lines = String(check.text || "").split("\n");
+            text.textContent = [UAKWorkspace.gate(lines[0])].concat(lines.slice(1).map(function (line) {
+              var indent = line.match(/^\s*/)[0];
+              return indent + UAKWorkspace.t(line.slice(indent.length));
+            })).join("\n");
+            li.append(mark, text);
+            el("checks").append(li);
+          });
+          if (data.ready) {
+            // The next action is visible here, never only in Technical details.
+            var li = document.createElement("li"),
+              text = document.createElement("span"),
+              code = document.createElement("code"),
+              progress = document.createElement("button");
+            li.className = "ready-next";
+            text.textContent = UAKWorkspace.t("Next: run this in your coding tool's terminal.");
+            code.dataset.noI18n = "";
+            var ready = data.guidance || {};
+            code.textContent = (ready.commands || []).join("\n");
+            code.hidden = !code.textContent;
+            if (code.hidden) text.textContent = UAKWorkspace.t(ready.detail || "Your project is ready");
+            progress.type = "button";
+            progress.className = "primary";
+            progress.textContent = UAKWorkspace.t("See project progress");
+            progress.onclick = function () {
+              openSection("dashboard");
+              loadDashboard();
+            };
+            li.append(text, code, progress);
+            el("checks").append(li);
+          }
+          return true;
+        }
+        // UI-018 feedback: end
+        function profile(value) {
+          document.body.dataset.profile = value;
+          el("profile").value = value;
+          el("installation-options").open = value === "advanced";
+          el("technical-details").open = value === "advanced";
+          try {
+            localStorage.setItem("uak-profile", value);
+          } catch (e) {}
+          if (latestDashboard) drawDashboard(latestDashboard);
+        }
+        var saved = "beginner";
+        try {
+          saved = localStorage.getItem("uak-profile") || saved;
+        } catch (e) {}
+        profile(saved === "advanced" ? "advanced" : "beginner");
+        el("profile").addEventListener("change", function () {
+          profile(this.value);
+        });
+        UAKWorkspace.start(document.body);
+        function workspaceTheme(value) {
+          if (value) document.documentElement.dataset.theme = value;
+          else delete document.documentElement.dataset.theme;
+          try {
+            localStorage.setItem("uak-dash-theme", value);
+          } catch (e) {}
+          sendDashboard();
+        }
+        try {
+          var savedTheme = localStorage.getItem("uak-dash-theme");
+          if (savedTheme === "dark" || savedTheme === "light")
+            el("workspace-theme").value = savedTheme;
+        } catch (e) {}
+        workspaceTheme(el("workspace-theme").value);
+        el("workspace-theme").onchange = function () {
+          workspaceTheme(this.value);
+        };
+        el("language").value = UAKWorkspace.language();
+        el("language").onchange = function () {
+          UAKWorkspace.setLanguage(this.value);
+        };
+        // UI-017: the demo video on the welcome screen. Shown only when the server has the four files, whose addresses
+        // are set then (a hidden block requests nothing); never started by the page (it waits for the play button,
+        // preload none); the captions follow the page's language.
+        function showDemo(available) {
+          var video = el("demo-video");
+          el("demo").hidden = !available;
+          if (!available || video.getAttribute("src")) return;
+          video.querySelectorAll("track").forEach(function (track) {
+            track.src = track.dataset.src;
+          });
+          video.poster = video.dataset.poster;
+          video.src = video.dataset.src;
+          demoCaptions();
+        }
+        function demoCaptions() {
+          var tracks = el("demo-video").querySelectorAll("track");
+          for (var i = 0; i < tracks.length; i++) {
+            var mine = tracks[i].srclang === UAKWorkspace.language();
+            tracks[i].default = mine;
+            if (tracks[i].track) tracks[i].track.mode = mine ? "showing" : "disabled";
+          }
+        }
+        el("demo-video").addEventListener("error", function () {
+          showDemo(false);
+        });
+        window.addEventListener("uak:language", function () {
+          demoCaptions();
+          // The heading, the checklist and who signs are drawn in the page's language, not by the body translation.
+          if (state.installed || state.can_repair) render(state);
+          if (latestDashboard) drawDashboard(latestDashboard);
+        });
+        el("open-setup").onclick = function () {
+          openSection("setup");
+        };
+        el("open-dashboard").onclick = function () {
+          openSection("dashboard");
+          loadDashboard();
+        };
+        el("refresh-dashboard").onclick = loadDashboard;
+        el("next-check").onclick = function () {
+          action(this, async function () {
+            startCheck(false);
+            await api("check", {});
+            checkRequested = true; // only once the server accepted it
+            el("dashboard-status").hidden = false;
+            el("dashboard-status").textContent = UAKWorkspace.t(
+              "Checking your next steps",
+            );
+            await refresh();
+            return false; // render reports what the check found
+          });
+        };
+        // Start your team (UI-006): the reviewer registration (a human act) and one Copy command per agent, all
+        // from /api/team; the commands are built by the server from its own values and shown as text.
+        var teamFor = "";
+        function copyText(text, status) {
+          function done(ok) {
+            el(status).textContent = UAKWorkspace.t(
+              ok ? "Copied. Paste it where the block says." : "Select the command and copy it.",
+            );
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText)
+            navigator.clipboard.writeText(text).then(
+              function () { done(true); },
+              function () { done(false); },
+            );
+          else done(false);
+        }
+        function drawAdvancedNext(guide) {
+          guide = teamGuide(guide);
+          el("advanced-next").hidden = document.body.dataset.profile !== "advanced" || !guide.title;
+          el("advanced-next-heading").textContent = UAKWorkspace.gate(UAKWorkspace.t(guide.title || ""));
+          el("advanced-next-description").textContent = UAKWorkspace.t(guide.detail || "");
+          el("advanced-next-command").textContent = (guide.commands || []).join("\n");
+          el("advanced-next-box").hidden = !(guide.commands || []).length;
+        }
+        // UI-009: the reviewer's state comes from this project's claims (null: could not be read); each person picks
+        // which available tool implements and which reviews; claimed tasks stay listed with their resume line.
+        var teamView = null;
+        function toolLabel(id) {
+          return id === "codex" ? "Codex" : "Claude Code";
+        }
+        function drawRoles(view) {
+          var tools = view.tools || [],
+            roles = view.roles || {},
+            usable = tools.filter(function (t) { return t.available; }),
+            missing = tools.filter(function (t) { return !t.available; });
+          el("team-roles").hidden = !tools.length;
+          ["implement", "review"].forEach(function (role) {
+            var box = el("team-" + role + "-options");
+            box.replaceChildren();
+            usable.forEach(function (tool) {
+              var label = document.createElement("label"),
+                input = document.createElement("input"),
+                name = document.createElement("span");
+              input.type = "radio";
+              input.name = "team-" + role;
+              input.value = tool.id;
+              input.checked = roles[role] === tool.id;
+              input.disabled = operationBusy();
+              input.onchange = function () { pickRole(role, tool.id); };
+              name.textContent = tool.label;
+              name.dataset.noI18n = "";
+              label.append(input, name);
+              box.append(label);
+            });
+          });
+          el("team-same-tool").hidden = !roles.same_tool;
+          el("team-same-tool-text").textContent = roles.same_tool
+            ? UAKWorkspace.format("{tool} does both jobs under two names: {impl} writes the code and {who} reviews it in a separate session.", {
+                tool: toolLabel(roles.implement),
+                impl: (((view.commands || []).filter(function (c) { return c.id === "implement"; })[0]) || {}).identity || roles.implement + "-" + view.human,
+                who: view.reviewer,
+              })
+            : "";
+          el("team-roles-note").hidden = !roles.note;
+          el("team-roles-note").textContent = UAKWorkspace.t(roles.note || "");
+          el("team-unavailable").hidden = !missing.length;
+          el("team-unavailable-list").replaceChildren();
+          missing.forEach(function (tool) {
+            var li = document.createElement("li");
+            li.textContent = tool.label + ": " + UAKWorkspace.t(tool.reason);
+            el("team-unavailable-list").append(li);
+          });
+        }
+        function pickRole(role, tool) {
+          var roles = (teamView && teamView.roles) || {},
+            pick = { implement: roles.implement, review: roles.review };
+          pick[role] = tool;
+          if (!pick.implement || !pick.review) return;
+          action(el("team-roles"), async function () {
+            await api("team/roles", pick);
+            await loadTeam();
+          });
+        }
+        function drawClaimed(view) {
+          var rows = view.claimed || [];
+          el("team-claimed-block").hidden = !rows.length;
+          el("team-claimed").replaceChildren();
+          rows.forEach(function (row) {
+            var li = document.createElement("li"),
+              line = document.createElement("span");
+            line.dataset.noI18n = "";
+            line.textContent = row.task + " · " + UAKWorkspace.t({ CLAIMED: "In progress", BLOCKED: "Blocked", REVIEW: "In review" }[row.state] || row.state) + " · " + row.owner;
+            li.append(line);
+            if (row.resume) {
+              var hint = document.createElement("p"),
+                box = document.createElement("div"),
+                code = document.createElement("code"),
+                copy = document.createElement("button");
+              hint.className = "hint";
+              hint.textContent = UAKWorkspace.format("Reopen your agent for {task}:", { task: row.task });
+              box.className = "next-command";
+              code.dataset.noI18n = "";
+              code.textContent = row.resume;
+              copy.type = "button";
+              copy.className = "secondary-button";
+              copy.textContent = UAKWorkspace.t("Copy");
+              copy.setAttribute("aria-label", UAKWorkspace.format("Copy the command for {task}", { task: row.task }));
+              copy.onclick = function () { copyText(row.resume, "team-copy-status"); };
+              box.append(code, copy);
+              li.append(hint, box);
+            }
+            el("team-claimed").append(li);
+          });
+        }
+        function drawTeam(view) {
+          teamView = view;
+          var reviewer = view.registered || {};
+          el("team-step").hidden = false;
+          el("team-reviewer-name").textContent = view.reviewer;
+          el("team-register").textContent = UAKWorkspace.format("Register {name}", { name: view.reviewer });
+          // Unknown (offline) or retired: no Register button and no claim about the reviewer's state.
+          el("team-register").hidden = reviewer.registered !== false || !!reviewer.retired;
+          el("team-reviewer-status").textContent = reviewer.retired
+            ? UAKWorkspace.t(reviewer.message || "")
+            : reviewer.registered === null
+              ? UAKWorkspace.format("{name}'s registration could not be read right now.", { name: view.reviewer })
+              : reviewer.registered
+                ? UAKWorkspace.format(
+                    reviewer.registered_by && reviewer.registered_by !== view.human
+                      ? "{name} was already registered by {by}."
+                      : "{name} is registered: it reviews your agents' work.",
+                    { name: view.reviewer, by: reviewer.registered_by || "" },
+                  )
+                : "";
+          var byId = {};
+          (view.commands || []).forEach(function (c) { byId[c.id] = c; });
+          el("team-note").hidden = !view.note;
+          el("team-note").textContent = UAKWorkspace.t(view.note || "");
+          el("team-review-note").hidden = !view.review_note || view.review_note === view.note;
+          el("team-review-note").textContent = UAKWorkspace.t(view.review_note || "");
+          el("team-retry").hidden = !view.retry;
+          el("team-check").hidden = !view.can_check;
+          el("team-note-actions").hidden = !view.retry && !view.can_check;
+          drawRoles(view);
+          el("team-implement").hidden = !byId.implement;
+          el("team-review").hidden = !byId.review;
+          el("team-windows").hidden = !/Win/.test(navigator.platform || navigator.userAgent || "");
+          if (byId.implement) {
+            el("team-implement-heading").textContent = UAKWorkspace.format("2. {tool} implements", { tool: byId.implement.tool });
+            el("team-implement-terminal").textContent = UAKWorkspace.t(byId.implement.terminal);
+            el("team-implement-command").textContent = byId.implement.command;
+            el("team-implement-resume").textContent = byId.implement.resume;
+            el("team-implement").querySelectorAll("[data-tool]").forEach(function (p) { p.hidden = p.dataset.tool !== byId.implement.harness; });
+          }
+          if (byId.review) {
+            el("team-review-heading").textContent = UAKWorkspace.format("3. {tool} reviews", { tool: byId.review.tool });
+            el("team-review-terminal").textContent = UAKWorkspace.t(byId.review.terminal);
+            el("team-review-command").textContent = byId.review.command;
+            el("team-review").querySelectorAll("[data-tool]").forEach(function (p) { p.hidden = p.dataset.tool !== byId.review.harness; });
+          }
+          drawClaimed(view);
+          teamReady = !!byId.implement;
+          teamTool = byId.implement ? byId.implement.tool : "Claude Code";
+          var guide = (latestDashboard && latestDashboard.guidance) || state.guidance || {};
+          drawNext(guide);
+          drawAdvancedNext(guide);
+        }
+        async function loadTeam() {
+          if (!state.ready && !state.team) {
+            el("team-step").hidden = true;
+            return;
+          }
+          try {
+            drawTeam(await api("team"));
+          } catch (e) {
+            // Only a refusal (400) hides the step; a busy server or a network error keeps what is drawn.
+            if (e.status === 400) {
+              el("team-step").hidden = true;
+            } else if (!el("team-step").hidden) {
+              el("team-note").hidden = false;
+              el("team-note").textContent = UAKWorkspace.t(e.message);
+            }
+          }
+        }
+        window.addEventListener("uak:language", function () {
+          if (teamView && !el("team-step").hidden) drawTeam(teamView);
+        });
+        el("team-retry").onclick = function () {
+          action(this, loadTeam);
+        };
+        el("team-check").onclick = function () {
+          el("next-check").click();
+        };
+        el("copy-publish-way-out").onclick = function () {
+          copyText(el("publish-way-out-command").textContent, "publish-way-out-status");
+        };
+        function drawWayOut(out, message) {
+          el("publish-way-out").hidden = !out;
+          if (!out) return;
+          el("publish-way-out-error").textContent = UAKWorkspace.t(message || "");
+          el("publish-way-out-run").hidden = !out.command;
+          el("publish-way-out-command").textContent = out.command || "";
+          el("publish-way-out-steps").replaceChildren();
+          (out.steps || []).forEach(function (line) {
+            var li = document.createElement("li");
+            li.textContent = UAKWorkspace.t(line);
+            el("publish-way-out-steps").append(li);
+          });
+        }
+        el("team-register").onclick = function () {
+          var name = el("team-reviewer-name").textContent;
+          action(this, async function () {
+            var answer = await api("team/reviewer", { confirm: name });
+            if (answer.phase === "registering") {
+              el("team-reviewer-status").textContent = UAKWorkspace.t("Registering the reviewer…");
+              await refresh();
+            }
+            await loadTeam();
+          });
+        };
+        el("copy-plan-trust").onclick = function () {
+          copyText(el("plan-trust-command").textContent, "idea-status");
+        };
+        el("copy-team-implement").onclick = function () {
+          copyText(el("team-implement-command").textContent, "team-copy-status");
+        };
+        el("copy-team-resume").onclick = function () {
+          copyText(el("team-implement-resume").textContent, "team-copy-status");
+        };
+        el("copy-team-review").onclick = function () {
+          copyText(el("team-review-command").textContent, "team-copy-status");
+        };
+        el("copy-advanced-next").onclick = function () {
+          copyText(el("advanced-next-command").textContent, "team-copy-status");
+        };
+        el("copy-next-command").onclick = function () {
+          var command = el("next-command").textContent;
+          function done(ok) {
+            el("copy-status").textContent = UAKWorkspace.t(
+              ok
+                ? "Copied. Paste it in your coding tool's terminal."
+                : "Select the command and copy it.",
+            );
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText)
+            navigator.clipboard.writeText(command).then(
+              function () {
+                done(true);
+              },
+              function () {
+                done(false);
+              },
+            );
+          else done(false);
+        };
+        el("dashboard-choose-project").onclick = function () {
+          show(1);
+        };
+        el("dashboard-frame").onload = sendDashboard;
+        window.addEventListener("message", function (event) {
+          if (
+            event.source !== el("dashboard-frame").contentWindow ||
+            !event.data ||
+            event.data.type !== "uak:dashboard-size"
+          )
+            return;
+          var height = Number(event.data.height);
+          if (Number.isFinite(height))
+            el("dashboard-frame").style.height =
+              Math.min(6000, Math.max(560, height)) + "px";
+        });
+        el("back-from-finish").onclick = function () {
+          show(Object.keys(choices).length ? 3 : 1);
+        };
+        el("back-to-progress").onclick = function () {
+          show(4);
+        };
+        el("begin").onclick = function () {
+          show(1);
+          el("target").focus();
+        };
+        document.querySelectorAll("[data-back]").forEach(function (button) {
+          button.onclick = function () {
+            show(Number(button.dataset.back));
+          };
+        });
+        el("project-form").onsubmit = function (event) {
+          event.preventDefault();
+          el("target-error").textContent = "";
+          action(this.querySelector("button[type=submit]"), async function () {
+            try {
+              var previousTarget = state.target;
+              state = await api("inspect", { target: el("target").value });
+              if (previousTarget !== state.target) {
+                latestDashboard = null;
+                el("dashboard-frame").removeAttribute("src");
+                el("beginner-dashboard").hidden = true;
+                el("dashboard-frame").hidden = true;
+              }
+              if (state.installed || state.can_repair) {
+                show(4);
+                render(state);
+              } else {
+                document
+                  .querySelectorAll("input[name=mode]")
+                  .forEach(function (input) {
+                    input.disabled = false;
+                    if (previousTarget !== state.target) input.checked = false;
+                  });
+                el("install").textContent = "Install into this project";
+                el("selected-project").textContent = state.target;
+                show(2);
+              }
+            } catch (e) {
+              el("target-error").textContent = e.message;
+              el("target").focus();
+            }
+          });
+        };
+        el("workflow-form").onsubmit = function (event) {
+          event.preventDefault();
+          var modes = document.querySelector("input[name=mode]:checked");
+          var tools = Array.from(
+            document.querySelectorAll("input[name=harness]:checked"),
+          ).map(function (input) {
+            return input.value;
+          });
+          if (!tools.length) {
+            error("Choose at least one coding tool.");
+            return;
+          }
+          choices = {
+            mode: modes.value,
+            harness: tools,
+            stack: el("stack").value,
+            solo: el("solo").checked,
+            blackbox: el("blackbox").checked,
+          };
+          var rows = [
+            ["Project", state.target],
+            [
+              "Workflow",
+              choices.mode === "sprint"
+                ? "Hackathon or prototype"
+                : "Product with real users",
+            ],
+            [
+              "Coding tools",
+              tools
+                .map(function (tool) {
+                  return (
+                    {
+                      claude: "Claude Code",
+                      codex: "Codex",
+                      cursor: "Cursor",
+                      gemini: "Gemini CLI",
+                    }[tool] || tool
+                  );
+                })
+                .join(", "),
+            ],
+            [
+              "Team",
+              choices.solo
+                ? "One human, independent agent reviewers"
+                : "Multiple collaborators",
+            ],
+            ["Technology preset", el("stack").selectedOptions[0].textContent],
+            [
+              "Also adds",
+              "Project files for the selected tools and .mcp.json, so they can use the kit's commands directly",
+            ],
+            [
+              "Kit diagnostics",
+              choices.blackbox
+                ? "On · stored on your coordination branch"
+                : "Off",
+            ],
+          ];
+          el("summary").replaceChildren();
+          rows.forEach(function (row) {
+            var wrap = document.createElement("div"),
+              term = document.createElement("dt"),
+              value = document.createElement("dd");
+            term.textContent = row[0];
+            value.textContent = row[1];
+            if (row[0] === "Project") value.dataset.noI18n = "";
+            wrap.append(term, value);
+            el("summary").append(wrap);
+          });
+          show(3);
+        };
+        el("install").onclick = function () {
+          action(this, async function () {
+            await api(state.can_repair ? "repair" : "install", choices);
+            show(4);
+            await refresh();
+          });
+        };
+        el("repair").onclick = function () {
+          var mode = (state.settings || {}).Mode;
+          document
+            .querySelectorAll("input[name=mode]")
+            .forEach(function (input) {
+              input.disabled = !!mode && input.value !== mode;
+              if (mode) input.checked = input.value === mode;
+            });
+          el("selected-project").textContent =
+            state.target +
+            " · " +
+            UAKWorkspace.t(
+              "Repair preserves the existing workflow and project configuration.",
+            );
+          el("install").textContent = "Repair or update this project";
+          show(2);
+        };
+        el("change-project").onclick = function () {
+          if (timer) clearTimeout(timer);
+          show(1);
+        };
+        // Prepare (UI-005). The page does the gate's terminal steps itself; anything else gets a terminal box.
+        function storedHuman() {
+          try {
+            return localStorage.getItem("uak-human") || "";
+          } catch (e) {
+            return "";
+          }
+        }
+        function localInput(date) {
+          var pad = function (n) {
+            return (n < 10 ? "0" : "") + n;
+          };
+          return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) + "T" +
+            pad(date.getHours()) + ":" + pad(date.getMinutes());
+        }
+        function drawPrepare(data) {
+          var g = data.guidance || {},
+            show = !!data.installed && !data.ready && data.phase !== "installing";
+          el("prepare").hidden = !show;
+          ["name-step", "schedule-form", "publish-step"].forEach(function (id) {
+            el(id).classList.remove("current");
+          });
+          if (g.action === "schedule") el("schedule-form").classList.add("current");
+          if (g.action === "publish") el("publish-step").classList.add("current");
+          if ((g.action === "schedule" || g.action === "publish") && !data.human) el("name-step").classList.add("current");
+          if (document.activeElement !== el("human-name"))
+            el("human-name").value = data.human || el("human-name").value || storedHuman();
+          el("human-status").textContent = data.human
+            ? UAKWorkspace.format("Saved: {name}.", { name: data.human })
+            : "";
+          // The dates are never guessed (UI-010): the fields stay empty until the person chooses them.
+          if (!el("schedule-zone").value) {
+            try {
+              el("schedule-zone").value = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+            } catch (e) {
+              el("schedule-zone").value = "UTC";
+            }
+          }
+          var box = g.terminal;
+          el("terminal-step").hidden = !box;
+          if (box) {
+            el("terminal-cd").textContent = box.cd;
+            el("terminal-steps").replaceChildren();
+            (box.steps || []).forEach(function (line) {
+              var li = document.createElement("li");
+              // A doctor line reads in the page's language; a command matches no pattern and stays as it is (UI-012).
+              li.textContent = UAKWorkspace.t(line);
+              el("terminal-steps").append(li);
+            });
+          }
+          var busy = isBusy(data.phase);
+          ["human-save", "schedule-save", "publish-preview", "publish-kit"].forEach(function (id) {
+            el(id).disabled = busy;
+          });
+          // Publishing is a human act: before a name is saved, the button says so instead of failing (UI-018).
+          setBlocked(el("publish-preview"), busy ? null : nameBlock(data));
+        }
+        el("copy-terminal-cd").onclick = function () {
+          var text = el("terminal-cd").textContent,
+            done = function () {
+              el("copy-terminal-cd").textContent = UAKWorkspace.t("Copied");
+            };
+          try {
+            navigator.clipboard.writeText(text).then(done, function () {});
+          } catch (e) {}
+        };
+        el("human-save").onclick = function () {
+          var name = el("human-name").value.trim().toLowerCase();
+          action(this, async function () {
+            await api("human", { name: name });
+            try {
+              localStorage.setItem("uak-human", name);
+            } catch (e) {}
+            await refresh();
+          });
+        };
+        el("schedule-form").onsubmit = function (event) {
+          event.preventDefault();
+          var body = {
+            start: el("schedule-start").value.replace("T", " "),
+            end: el("schedule-end").value.replace("T", " "),
+            zone: el("schedule-zone").value.trim(),
+          };
+          if (!el("schedule-start").value || !el("schedule-end").value) {
+            error("Choose the start and end dates of the event.");
+            el(el("schedule-start").value ? "schedule-end" : "schedule-start").focus();
+            return;
+          }
+          action(el("schedule-save"), async function () {
+            // Nothing is written until the person has seen a freeze that is past or about to start.
+            var look = await api("schedule", Object.assign({ preview: true }, body));
+            if (
+              look.soon &&
+              !window.confirm(
+                UAKWorkspace.t("That freeze is in the past or less than an hour away. Save it anyway?") +
+                  "\n" +
+                  UAKWorkspace.when(look.freeze),
+              )
+            )
+              return;
+            var result = await api("schedule", body);
+            el("schedule-status").textContent = UAKWorkspace.format(
+              "Saved. New work stops at {freeze}; take the first task by {first}.",
+              // The engine writes the weekday in English ("Fri 03:30"), in the event's zone (UI-012, r1).
+              { freeze: UAKWorkspace.when(result.freeze), first: UAKWorkspace.when(result.first_claim || "-") },
+            );
+            startCheck(false);
+            await api("check", {});
+            checkRequested = true;
+            await refresh();
+          });
+        };
+        var publishDigest = "";
+        el("publish-preview").onclick = function () {
+          action(this, async function () {
+            var preview;
+            try {
+              preview = await api("publish-kit");
+            } catch (e) {
+              drawWayOut(e.body && e.body.way_out, e.message);
+              throw e;
+            }
+            drawWayOut(null);
+            publishDigest = preview.digest;
+            el("publish-count").textContent = UAKWorkspace.format(
+              "{count} kit files will be committed as your Git identity and uploaded to main. IDEA.md and the plan are not included.",
+              { count: preview.files.length },
+            );
+            el("publish-files").textContent = preview.files.join("\n");
+            el("publish-confirm").hidden = false;
+            el("publish-kit").focus();
+          });
+        };
+        el("publish-cancel").onclick = function () {
+          el("publish-confirm").hidden = true;
+          el("publish-preview").focus();
+        };
+        el("publish-kit").onclick = function () {
+          action(this, async function () {
+            try {
+              await api("publish-kit", { digest: publishDigest });
+            } catch (e) {
+              drawWayOut(e.body && e.body.way_out, e.message);
+              throw e;
+            }
+            el("publish-confirm").hidden = true;
+            await refresh();
+          });
+        };
+        el("plan-recheck").onclick = function () {
+          action(this, async function () {
+            await api("plan/check", {});
+            await loadPlan();
+          });
+        };
+        el("check").onclick = function () {
+          action(this, async function () {
+            if (!state.installed) {
+              el("repair").click();
+              return false; // it only opens the choices
+            }
+            startCheck(true);
+            await api("check", {});
+            checkRequested = true; // only once the server accepted it
+            await refresh();
+            return false; // render reports what the check found
+          });
+        };
+        el("save").onclick = function () {
+          action(this, async function () {
+            var settings = {
+              Blackbox: el("diagnostics").checked ? "on" : "off",
+              Pace: el("pacing").checked ? "auto" : "off",
+            };
+            var link = el("live-url-input").value.trim();
+            if (link) {
+              if (link.indexOf("https://") !== 0)
+                throw Error(
+                  UAKWorkspace.t("The app link must start with https://"),
+                );
+              settings["Live-URL"] = link;
+            }
+            await api("settings", settings);
+            el("save-status").textContent =
+              "Preferences saved locally. Run the readiness check again.";
+            await refresh();
+          });
+        };
+        function render(data) {
+          var previous = state.phase;
+          state = data;
+          var busy = isBusy(data.phase);
+          el("status-heading").classList.toggle("working", busy);
+          el("status-icon").textContent = statusIcon(data);
+          el("result-title").textContent = statusTitle(data);
+          el("result-description").textContent = busy
+            ? "This can take a moment. Keep the terminal and this page open."
+            : data.ready
+              ? "Your project passed the existing readiness checks. Continue with the next action below."
+              : data.installed
+                ? (data.phase === "installed"
+                    ? "Installation is complete. "
+                    : "") +
+                  "Your project may still need a plan, a remote connection, or approval before agents can work. You can also repair or update the kit."
+                : "Review the details below, correct the issue, and try again. Existing files are preserved.";
+          el("operation-status").textContent =
+            data.error ||
+            (busy
+              ? "Working in the background. You can expand technical details below."
+              : data.ready
+                ? "Ready for the next task."
+                : data.installed && (data.checks || []).length && data.guidance
+                  ? UAKWorkspace.t(data.guidance.detail)
+                  : "Next: check what your project needs before starting work.");
+          el("operation-status").classList.toggle("error", !!data.error);
+          drawPlanProgress(data);
+          el("output").textContent = data.details || UAKWorkspace.t("No technical output yet.");
+          drawChecks(data);
+          // Preferences and Repair stay in place while an operation runs (hiding them made the page jump, UI-018).
+          el("preferences").hidden = !data.installed;
+          el("save").disabled = busy;
+          el("diagnostics").checked = (data.settings || {}).Blackbox !== "off";
+          el("pacing").checked = (data.settings || {}).Pace !== "off";
+          if (document.activeElement !== el("live-url-input"))
+            el("live-url-input").value = (data.settings || {})["Live-URL"] || "";
+          el("check").disabled = busy;
+          el("next-check").disabled = busy;
+          el("change-project").disabled = busy;
+          el("repair").hidden = !data.can_repair;
+          el("repair").disabled = busy;
+          setLabel(el("check"), data.installed
+            ? data.ready
+              ? "Check again"
+              : "Check what’s next"
+            : "Review choices");
+          // Planning shows while the kit is installed and the project is not ready yet.
+          el("planning").hidden = !data.installed || !!data.ready || data.phase === "installing";
+          drawPrepare(data);
+          if (!el("planning").hidden && !isBusy(data.phase) && (previous === "planning" || previous === "publishing" || planFor !== data.target)) {
+            planFor = data.target;
+            loadPlan();
+          }
+          setPlanBusy(isBusy(data.phase));
+          syncRunningControls();
+          drawPhaseButtons(data, previous);
+          if (previous === "registering" && !isBusy(data.phase)) {
+            if (data.error) el("team-reviewer-status").textContent = UAKWorkspace.t(data.error);
+            else loadTeam();
+          } else if (isBusy(previous) && !isBusy(data.phase) && (data.ready || data.team)) {
+            loadTeam();
+          }
+          // A finished readiness check moves on by itself: to project progress when ready, and it refreshes the
+          // dashboard's next step when the check was started from there.
+          // A fast check can finish before the first poll ever sees "checking": remember that one was asked.
+          if (
+            (previous === "checking" || previous === "approving" || checkRequested) &&
+            !isBusy(data.phase)
+          ) {
+            // The check says what it found next to the button that asked, even when nothing changed (UI-018), and
+            // when the next step is one this page does, it points there.
+            if (previous === "checking" || checkRequested) {
+              if (data.error) failed(checkOwner(), data.error);
+              else report(checkOwner(), checkSummary(checkBefore, data, new Date()));
+              var control = pointAfterCheck && !data.ready && currentSection === "setup" ? nextControl(data) : "";
+              pointAfterCheck = false;
+              if (control) setTimeout(function () { pointTo(control); }, 0);
+            }
+            checkRequested = false;
+            if (data.ready || currentSection === "dashboard") {
+              var moved = currentSection !== "dashboard";
+              openSection("dashboard");
+              loadDashboard();
+              if (moved) el("dashboard-shell").focus();
+            }
+          }
+          drawJourney();
+          drawIdentity(data);
+          // Who signs is read in the background after choosing the project: ask again until it arrives (a few tries).
+          if (data.target && !data.identity && identityTries < 8 && !isBusy(data.phase)) {
+            identityTries += 1;
+            setTimeout(refresh, 700);
+          } else if (data.identity) identityTries = 0;
+          if (NEXT_FOCUS[previous] && !isBusy(data.phase) && !data.error) {
+            (function wait(id, tries) {
+              var node = el(id);
+              if (node && node.offsetParent !== null) node.focus();
+              else if (tries > 0) setTimeout(function () { wait(id, tries - 1); }, 150);
+            })(NEXT_FOCUS[previous], 20);
+          }
+        }
+        async function refresh() {
+          if (timer) clearTimeout(timer);
+          try {
+            var data = await api("status");
+            render(data);
+            if (isBusy(data.phase))
+              timer = setTimeout(refresh, 1200);
+          } catch (e) {
+            error(
+              "Lost connection to setup. Keep the terminal open, then reload the original address printed there. " +
+                e.message,
+            );
+          }
+        }
+        api("status")
+          .then(function (data) {
+            // The person may already have opened the dashboard: restore setup's step without leaving it.
+            var stay = currentSection === "dashboard";
+            state = data;
+            drawJourney();
+            showDemo(data.demo);
+            el("target").value = data.target || "";
+            if (data.phase === "options") {
+              el("selected-project").textContent = data.target;
+              show(2, false);
+            } else if (data.phase !== "welcome") {
+              show(4, false);
+              render(data);
+              if (isBusy(data.phase))
+                refresh();
+            }
+            if (stay) openSection("dashboard");
+          })
+          .catch(function (e) {
+            error(e.message);
+          })
+          .then(function () {
+            // The panel shows once it knows which step is current: no welcome screen flashing first (UI-018).
+            el("content").removeAttribute("data-loading");
+          });
+      })();
+    </script>
+  </body>
+</html>

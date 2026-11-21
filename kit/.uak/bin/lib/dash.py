@@ -22,6 +22,7 @@ import tarfile
 import io
 import tempfile
 import time
+import urllib.parse
 import webbrowser
 from pathlib import Path
 
@@ -30,7 +31,10 @@ STALL = 5400
 
 
 def git(*args, cwd=None, check=True):
-    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True)
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never")
+    for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"):
+        env.pop(key, None)
+    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, env=env, timeout=30)
     if check and r.returncode != 0:
         raise RuntimeError(r.stderr.decode("utf-8", "replace").strip() or "git " + " ".join(args))
     return r.stdout
@@ -81,8 +85,7 @@ def snapshot(root, claims_dir=None):
     tmp = Path(tempfile.mkdtemp(prefix="uak-dash-"))
     # Before the first claim there is no claims branch: the page shows the backlog, all AVAILABLE.
     # Why: `uak dash` right after /uak-plan failed with "couldn't find remote ref refs/heads/claims".
-    has_claims = subprocess.run(["git", "ls-remote", "--exit-code", "--heads", remote, "claims"], cwd=root,
-                                capture_output=True).returncode == 0
+    has_claims = bool(git("ls-remote", "--exit-code", "--heads", remote, "claims", cwd=root, check=False).strip())
     if has_claims:
         git("fetch", "-q", remote, "+refs/heads/claims:refs/uak/dash-claims", cwd=root)
         data = git("archive", "refs/uak/dash-claims", cwd=root)
@@ -94,6 +97,67 @@ def snapshot(root, claims_dir=None):
                 t.extract(m, tmp)
     backlog = git("show", "refs/uak/dash-base:.uak/TASKS.md", cwd=root, check=False).decode("utf-8", "replace")
     return tmp, backlog
+
+
+# Live-URL in PROJECT.md: where the team's app is deployed. Claims' meta/config.md carries only the engine's keys,
+# so the dashboard reads it from the base branch's PROJECT.md (the copy the team agreed on) or the local one.
+LIVE_URL_KEY = re.compile(r"(?m)^[-* ]*\**Live-URL\**:\**[ \t]*`?([^`\r\n]*?)`?[ \t]*$")
+
+
+def live_url(value):
+    """An absolute https:// link with a host and no credentials, or None: never a guessed or scriptable URL."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value.startswith("https://") or len(value) > 2048:
+        return None
+    if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        return None
+    # The key is optional and hand-edited: a malformed value (an unclosed IPv6 bracket, a bad port) is absent, never
+    # an error that stops setup or the dashboard from reading the project.
+    try:
+        parts = urllib.parse.urlsplit(value)
+        if parts.scheme != "https" or not parts.hostname or "@" in parts.netloc:
+            return None
+        parts.port  # raises ValueError on a non-numeric or out-of-range port
+    except ValueError:
+        return None
+    return value
+
+
+def project_live_url(text):
+    match = LIVE_URL_KEY.search(text or "")
+    return live_url(match.group(1)) if match else None
+
+
+def base_live_url(root):
+    text = git("show", "refs/uak/dash-base:.uak/PROJECT.md", cwd=root, check=False).decode("utf-8", "replace")
+    return project_live_url(text)
+
+
+def workspace_data(root):
+    """The same dashboard model, including a clearly labelled offline/local-plan state."""
+    remote = os.environ.get("UAK_REMOTE", "origin")
+    configured = git("config", "--get", "remote.%s.url" % remote, cwd=root, check=False).strip()
+    extracted = None
+    warning = "No remote is connected. Showing the local plan."
+    if configured:
+        try:
+            extracted, backlog = snapshot(root)
+            data = build(extracted, backlog, Path(root).name)
+            data.update(source="remote", connection="ok", warning="", refresh=20, live_url=base_live_url(root))
+            return data
+        except (OSError, RuntimeError, subprocess.SubprocessError):
+            # A remote that exists but cannot be read is a different problem from no remote at all.
+            warning = "Coordination could not refresh. Showing the local plan."
+        finally:
+            if extracted:
+                shutil.rmtree(extracted, ignore_errors=True)
+    with tempfile.TemporaryDirectory(prefix="uak-local-dashboard-") as folder:
+        data = build(Path(folder), read(Path(root) / ".uak/TASKS.md"), Path(root).name)
+    data.update(source="local", connection="unreachable" if configured else "none", warning=warning, refresh=20,
+                live_url=project_live_url(read(Path(root) / ".uak/PROJECT.md")))
+    return data
 
 
 def backlog_tasks(text):
@@ -297,6 +361,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     tpl = Path(__file__).with_name("dash.html")
     shutil.copyfile(tpl, out / "index.html")
+    shutil.copyfile(tpl.with_name("workspace.js"), out / "workspace.js")
     repo = Path(root).name
     refresh = a.watch or 20
     opened = False
@@ -307,6 +372,8 @@ def main():
             tmp = None if a.claims else c
             data = build(Path(c), backlog, repo)
             data["refresh"] = refresh
+            data["live_url"] = (project_live_url(read(Path(root) / ".uak/PROJECT.md")) if a.claims
+                                else base_live_url(root))
             body = "window.UAK_DATA = " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + ";\n"
             (out / "data.js.tmp").write_text(body, encoding="utf-8")
             os.replace(out / "data.js.tmp", out / "data.js")
