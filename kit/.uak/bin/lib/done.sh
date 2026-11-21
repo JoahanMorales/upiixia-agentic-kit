@@ -140,6 +140,21 @@ integrate_new_record() {
   WHY_TEXT="The task's own diff is on $BASE"; FAILS_TEXT="-"; COMMANDS_TEXT="-"; NEXT_TEXT="Integrated"
   set_summary
 }
+# Commits after the approved SHA that are ALREADY on the base: unreviewed code in main. Named (say + the event), never refused:
+# it is there already. Sets INT_UNREVIEWED.
+integrate_name_unreviewed() { # APPROVED_SHA TIP
+  local sha=$1 tip=$2 n=0 line sub
+  INT_UNREVIEWED=
+  git -C "$TX" merge-base --is-ancestor "$sha" "$tip" 2>/dev/null || return 0
+  while IFS=' ' read -r line sub; do
+    git -C "$TX" merge-base --is-ancestor "$line" refs/uak/base || continue
+    n=$((n + 1)); INT_UNREVIEWED="$INT_UNREVIEWED${INT_UNREVIEWED:+; }$line $sub"
+  done < <(git -C "$TX" log --no-merges --format='%h %s' "$sha..$tip")
+  if [ "$n" -gt 0 ]; then
+    INT_UNREVIEWED="$n commit$([ "$n" -eq 1 ] || printf 's') after the approved SHA $([ "$n" -eq 1 ] && printf 'is' || printf 'are') on $BASE without a review: $INT_UNREVIEWED"
+    say "NOTE integrate $ID: $INT_UNREVIEWED"
+  fi
+}
 # The approved SHA is already on the base and the branch has commits after it (a reviewer's nit, a review note): the
 # approval covers the SHA, so that is what is recorded, and the later commits are named. Only a valid approval of THAT
 # SHA counts (the full approval_check, claims mode), the SHA must be on the task branch and be task work. UAK-092.
@@ -156,6 +171,7 @@ integrate_approved_ancestor() { # TIP; sets INT_SHA, RM_PROOF, APPROVED_BY; fail
   INT_SHA=$sha; RM_PROOF="approved-ancestor:$sha"
   while IFS= read -r line; do n=$((n + 1)); [ "$n" -gt 1 ] || INT_FIRST=$line; done < <(git -C "$TX" log --format='%h %s' "$tip" --not "$sha" refs/uak/base)
   [ "$n" -eq 0 ] || say "NOTE integrate $ID: $n commit$([ "$n" -eq 1 ] || printf 's') after the approved SHA $([ "$n" -eq 1 ] && printf 'is' || printf 'are') not on $BASE: $INT_FIRST$([ "$n" -eq 1 ] || printf ' (+%s more)' $((n - 1)))"
+  integrate_name_unreviewed "$sha" "$tip"
   return 0
 }
 integrate_mutate() {
@@ -202,6 +218,7 @@ integrate_mutate() {
     outside=yes
     if [ -f "$TX/reviews/$ID.md" ] && [ "$(field "$TX/reviews/$ID.md" Verdict)" = approve ]; then
       approval="$(field "$TX/reviews/$ID.md" Reviewer)@$(field "$TX/reviews/$ID.md" SHA | cut -c 1-7)"
+      integrate_name_unreviewed "$(field "$TX/reviews/$ID.md" SHA)" "$tip"
     fi
     # Unreviewed work under review is a human's to record, as before (v5.x); an approval of any earlier SHA, or a task
     # whose owner records its own claim, or one nobody claimed, needs no human.
@@ -224,7 +241,7 @@ integrate_mutate() {
   put "$RECORD" Lease-Until 0; put "$RECORD" Updated "$NOW"
   update_summary_field Next "Integrated in $BASE: $merged (recorded by $AGENT)"
   rm -f "$CLAIM"
-  event "integrate; recorded by $AGENT; PR $PR_URL; merged $merged; proof $RM_PROOF$([ "$outside" != yes ] || printf '; outside the gate, approval %s' "$approval")"
+  event "integrate; recorded by $AGENT; PR $PR_URL; merged $merged; proof $RM_PROOF$([ "$outside" != yes ] || printf '; outside the gate, approval %s' "$approval")$([ -z "${INT_UNREVIEWED:-}" ] || printf '; %s' "$INT_UNREVIEWED")"
   msg_notify_related "$ID" integrated "$ID integrated in $BASE ($merged), recorded by $AGENT. If you depend on it: git fetch origin && git merge --no-edit origin/$BASE"
 }
 # done: REVIEW with the PR and evidence after the gates (UI shots, test-first), and one reviewer asked; or, with

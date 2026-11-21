@@ -51,6 +51,21 @@ def approved_ancestor_with_leftover_commit_integrates(r):
     return "integrated at the approved SHA"
 
 
+def unreviewed_commits_on_main_are_named(r):
+    f = fx(r, "iom-unreviewed")
+    sha = task_in_review(r, f)
+    approve(r, f, "HACK-001", sha)
+    late = leftover(r, f)
+    merge_branch_into_main(r, f, f.branches[0])  # the merge brings the later commit into main too
+    out = integrate(f)
+    text = out.stdout + out.stderr
+    expect(out.returncode == 0, "recorded, not refused: rc %d %s" % (out.returncode, text[-600:]))
+    expect("1 commit after the approved SHA is on main without a review: %s HACK-001: after the review" % late[:7] in text,
+           "the unreviewed commit on main is named: " + text)
+    expect("State: INTEGRATED" in record(f, "HACK-001") and "@" + sha[:7] in record(f, "HACK-001"), "record names the approved SHA: " + record(f, "HACK-001"))
+    return "named"
+
+
 def cancelled_with_merged_pr_recorded_by_human(r):
     f = fx(r, "iom-cancelled")
     f.claim(0, "HACK-003")
@@ -117,7 +132,7 @@ def unapproved_code_still_refused(r):
 
 
 TESTS = [approved_ancestor_with_leftover_commit_integrates, cancelled_with_merged_pr_recorded_by_human,
-         dependents_claimable_after, unapproved_code_still_refused]
+         dependents_claimable_after, unapproved_code_still_refused, unreviewed_commits_on_main_are_named]
 
 
 def main():
