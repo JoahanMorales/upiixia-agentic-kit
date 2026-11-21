@@ -25,7 +25,7 @@ loop_hint() {
 die() { result_code error; say "ERROR: $*" >&2; bb_auto 2 "ERROR: $*"; exit 2; }
 conflict() { result_code conflict; say "CONFLICT: $*" >&2; bb_auto 3 "CONFLICT: $*"; exit 3; }
 gitfail() { result_code git-error; say "GIT_ERROR: $*" >&2; bb_auto 1 "GIT_ERROR: $*"; exit 1; }
-result_code() { [ -z "${UAK_JSON_META:-}" ] || [ -n "${UAK_PROBE:-}" ] || printf 'code\t%s\n' "${UAK_CODE:-$1}" >> "$UAK_JSON_META" 2>/dev/null || true; }
+result_code() { LG_CODE=${UAK_CODE:-$1}; [ -z "${UAK_JSON_META:-}" ] || [ -n "${UAK_PROBE:-}" ] || printf 'code\t%s\n' "${UAK_CODE:-$1}" >> "$UAK_JSON_META" 2>/dev/null || true; }
 valid_id() { printf '%s\n' "$1" | grep -Eq '^[A-Z][A-Z0-9]*-[0-9][0-9][0-9]+$'; }
 # hack-021 means HACK-021. Why (MLB hackathon): 4 "Invalid ID." errors from Cursor with no hint of the value.
 norm_id() { case "$1" in *[a-z]*-[0-9]*) printf '%s' "$1" | tr '[:lower:]' '[:upper:]';; *) printf '%s' "$1";; esac; }
@@ -121,6 +121,7 @@ identity() {
   case "$AGENT" in *[!A-Za-z0-9_.-]*) die "Identity: use letters, digits, dot, dash or underscore.";; esac
 }
 cleanup() {
+  ledger_end "$?"  # first: $? is the command's exit status
   # --json: what the envelope needs from this run, written before the temp dir goes.
   if [ -n "${UAK_JSON_META:-}" ]; then
     { printf 'id\t%s\n' "${ID:-}"
@@ -162,3 +163,4 @@ reg_usage() {
     printf '%s\n' "${u%$'\r'}"
   done < "$UAK_BIN/lib/commands.tsv"
 }
+. "$UAK_BIN/lib/ledger.sh"
