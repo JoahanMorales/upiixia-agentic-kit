@@ -29,8 +29,19 @@ PRESENCE = 1800
 STALL = 5400
 
 
+GIT_TIMEOUT = 30  # seconds: an unreachable remote must end in a message, not a hang (audit of v6.5.0, #9)
+
+
+def run_git(*args, cwd=None):
+    """subprocess.run of git with the timeout; a timeout becomes a RuntimeError of one line."""
+    try:
+        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, timeout=GIT_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("git %s timed out after %d s: is the remote reachable?" % (args[0] if args else "", GIT_TIMEOUT)) from None
+
+
 def git(*args, cwd=None, check=True):
-    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True)
+    r = run_git(*args, cwd=cwd)
     if check and r.returncode != 0:
         raise RuntimeError(r.stderr.decode("utf-8", "replace").strip() or "git " + " ".join(args))
     return r.stdout
@@ -81,8 +92,7 @@ def snapshot(root, claims_dir=None):
     tmp = Path(tempfile.mkdtemp(prefix="uak-dash-"))
     # Before the first claim there is no claims branch: the page shows the backlog, all AVAILABLE.
     # Why: `uak dash` right after /uak-plan failed with "couldn't find remote ref refs/heads/claims".
-    has_claims = subprocess.run(["git", "ls-remote", "--exit-code", "--heads", remote, "claims"], cwd=root,
-                                capture_output=True).returncode == 0
+    has_claims = run_git("ls-remote", "--exit-code", "--heads", remote, "claims", cwd=root).returncode == 0
     if has_claims:
         git("fetch", "-q", remote, "+refs/heads/claims:refs/uak/dash-claims", cwd=root)
         data = git("archive", "refs/uak/dash-claims", cwd=root)
@@ -327,5 +337,13 @@ def main():
         time.sleep(a.watch)
 
 
+def run():
+    try:
+        return main()
+    except RuntimeError as exc:  # a git failure or timeout before the loop: one line, not a traceback
+        print(f"DASH_ERROR: {exc}", file=sys.stderr, flush=True)
+        return 1
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run())

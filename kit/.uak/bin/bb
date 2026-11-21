@@ -158,7 +158,9 @@ case "$cmd" in
     all_lines | tail -n "$n";;
   export)
     out=${1:-${top:-.}/.uak/BLACKBOX.md}
-    tmp="${TMPDIR:-/tmp}/uak-bb-export.$$"; all_lines | sort -u > "$tmp"
+    tmp=$(mktemp "${TMPDIR:-/tmp}/uak-bb-export.XXXXXX") || die "Could not create a temporary file in ${TMPDIR:-/tmp}."
+    trap 'rm -f "$tmp"' EXIT
+    all_lines | sort -u > "$tmp"
     {
       printf '%s\n' '# BLACKBOX' '' \
         '> What went wrong with the uak kit in this repo, recorded by agents and by uak itself.' \
