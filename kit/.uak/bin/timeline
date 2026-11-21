@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# uak timeline: one task's whole story, every move in order, from the claims branch. Read-only.
+#   bash .uak/bin/uak timeline ID [--json] [--claims DIR]
+# Python 3.8+ standard library (lib/dash.py, the reader `uak dash` uses); the rest of uak works without it.
+set -u
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+case "${1:-}" in -h|--help|"") printf '%s\n' 'Usage: uak timeline ID [--json] [--claims DIR]'; exit 0;; esac
+id=$1; shift
+for p in python3 python py; do
+  "$p" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null && exec "$p" "$here/lib/dash.py" --timeline "$id" "$@"
+done
+printf '%s\n' 'uak timeline needs Python 3.8+ (python3, python or py). The rest of uak works without it.' >&2
+exit 2
