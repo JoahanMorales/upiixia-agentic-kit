@@ -56,8 +56,31 @@ def start_merge(r, f, task="HACK-001"):
     env.pop("UAK_NOW", None)
     out, err = tempfile.TemporaryFile(), tempfile.TemporaryFile()
     kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
-    proc = subprocess.Popen([r.bash, ".uak/bin/uak", "merge", task], cwd=f.worktrees[0], env=env, stdout=out, stderr=err, **kw)
+    # The merge writes its own pid first and then execs into uak, so that pid is the process the renewer watches
+    # ($$ of the uak script). On Windows Python's Popen pid is Git for Windows' bin\bash.exe launcher, a different
+    # process from the MSYS bash that runs the merge: killing the launcher leaves the merge (and its renewer) alive.
+    pidfile = f.base / "merge.pid"
+    script = 'echo $$ > "$1"; shift; exec bash .uak/bin/uak "$@"'
+    proc = subprocess.Popen([r.bash, "-c", script, "_", pidfile.as_posix(), "merge", task], cwd=f.worktrees[0], env=env,
+                            stdout=out, stderr=err, **kw)
+    proc.pidfile = pidfile
     return proc, out, err
+
+
+def real_pid(proc):
+    got = wait_for(lambda: proc.pidfile.read_text(encoding="utf-8").strip() if proc.pidfile.exists() else "", 30)
+    expect(got, "the merge wrote its pid")
+    return got
+
+
+def kill_from_bash(r, f, pid):
+    """SIGKILL the merge through bash, which knows MSYS pids (Python's pids differ on Windows)."""
+    return r.run([r.bash, "-c", 'kill -9 "$1"', "_", pid], cwd=f.worktrees[0], allowed=None)
+
+
+def ps_text(r, f):
+    out = r.run([r.bash, "-c", "ps 2>&1 || ps -ef 2>&1"], cwd=f.worktrees[0], allowed=None)
+    return (out.stdout + out.stderr)[-1500:]
 
 
 def wait_for(check, seconds, step=0.5):
@@ -79,13 +102,15 @@ def renewer_exits_after_parent_is_killed(r):
         expect(first, "the merge took the lock")
         renewed = wait_for(lambda: lock_field(f, "Updated") not in ("", first) and lock_field(f, "Updated"), 40)
         expect(renewed, "a running merge renews its lock (Updated stayed %s)" % first)
-        proc.kill()  # SIGKILL: no trap runs
+        pid = real_pid(proc)
+        killed = kill_from_bash(r, f, pid)  # SIGKILL: no trap runs
         proc.wait(timeout=20)
         time.sleep(2)  # a renewal already in flight may still land
         settled = lock_field(f, "Updated")
         time.sleep(13)  # more than two renewal intervals (5 s each) while the lock lease (15 s) is still valid
         after = lock_field(f, "Updated")
-        expect(after == settled, "the orphaned renewer kept renewing: Updated %s -> %s" % (settled, after))
+        expect(after == settled, "the orphaned renewer kept renewing: Updated %s -> %s; watched/killed merge pid %s (kill rc %s %s); ps:\n%s"
+               % (settled, after, pid, killed.returncode, (killed.stdout + killed.stderr).strip(), ps_text(r, f)))
     finally:
         if proc.poll() is None:
             proc.kill()
