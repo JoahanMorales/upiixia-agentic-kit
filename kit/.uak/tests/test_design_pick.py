@@ -232,7 +232,62 @@ def json_content_type_required(e):
     return "415 unless JSON"
 
 
-TESTS = [encoded_dotfile_is_refused, cross_origin_save_is_refused, json_content_type_required, pick_page_lists_every_variant, save_writes_picks_json, wrong_count_warns_but_saves, server_binds_local_only]
+def picker_reads_the_body_before_403(e):
+    """Windows resets a connection that is answered while the client is still sending (WinError 10053): every early
+    refusal (403 Host and Origin, 404, 415, 413) waits for the body, within a bound, and then answers."""
+    import socket
+    import time
+    d = e.project("rb")
+    port, _ = e.start(d)
+    host = "127.0.0.1:%d" % port
+
+    def attempt(headers, size, first, rest):
+        s = socket.create_connection(("127.0.0.1", port), timeout=15)
+        try:
+            head = "POST /save HTTP/1.1\r\n" + "".join("%s: %s\r\n" % kv for kv in headers) + "Content-Length: %d\r\n\r\n" % size
+            s.sendall(head.encode("ascii") + b"x" * first)
+            time.sleep(0.5)
+            s.setblocking(False)
+            try:
+                early = s.recv(4096)
+            except (BlockingIOError, InterruptedError):
+                early = b""
+            s.setblocking(True)
+            expect(not early, "answered %r before the body arrived" % early[:30])
+            try:
+                s.sendall(b"x" * rest)
+            except OSError:
+                pass  # past the bound the server may already have closed; the status below is what counts
+            data = b""
+            while b"\r\n\r\n" not in data:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            return int(data.split(b" ", 2)[1]) if data.startswith(b"HTTP/") else 0
+        finally:
+            s.close()
+
+    try:
+        json_ct = ("Content-Type", "application/json")
+        cases = (("foreign Host 403", [("Host", "evil.example"), json_ct], 403, 4000, 4000),
+                 ("foreign Origin 403", [("Host", host), ("Origin", "http://evil.example"), json_ct], 403, 4000, 4000),
+                 ("415", [("Host", host), ("Content-Type", "text/plain")], 415, 4000, 4000),
+                 ("413", [("Host", host), json_ct], 413, 100000, 200000),
+                 ("beyond the bound: 413 and a closed connection", [("Host", host), json_ct], 413, 1000000, 100000))
+        for name, headers, want, first, rest in cases:
+            size = first + rest if "bound" not in name else 50 * 1048576
+            got = attempt(headers, size, first, rest)
+            expect(got == want, "%s: got %s" % (name, got))
+        expect(not (d / ".uak/design/rounds/R1/picks.json").exists(), "nothing written")
+        st, _ = raw_request(port, "POST", "/save", {"Host": host, "Content-Type": "application/json"}, json.dumps({"picked": ["v1"], "notes": {}}).encode("utf-8"))
+        expect(st == 200, "a normal save still works: %s" % st)
+    finally:
+        e.stop(d)
+    return "body read, then answered"
+
+
+TESTS = [picker_reads_the_body_before_403, encoded_dotfile_is_refused, cross_origin_save_is_refused, json_content_type_required, pick_page_lists_every_variant, save_writes_picks_json, wrong_count_warns_but_saves, server_binds_local_only]
 
 
 def main():

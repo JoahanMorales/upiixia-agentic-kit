@@ -75,20 +75,23 @@ class Server:
         text = "".join(c.get("text", "") for c in result.get("content", []))
         return result.get("isError", False), text
 
-    def close(self):
+    def close(self, within=30):
+        """Close stdin and wait for the server to leave. A server that needs the kill below is a failure: Windows CI,
+        Nov 2026, three runs had every test green and a server still running 30 s after its stdin closed."""
         try:
             self.p.stdin.close()
         except OSError:  # the server already died (a test terminated it)
             pass
+        needed_kill = False
         try:
-            self.p.wait(timeout=30)
+            self.p.wait(timeout=within)
         except subprocess.TimeoutExpired:
-            # Windows CI, Nov 2026: three runs ended here with every test green; the server had not exited 30 s after
-            # its stdin closed. Say so and stop it, so a slow shutdown is visible but does not fail the suite.
-            sys.stderr.write("WARN mcp server still running 30 s after stdin closed; killed\n")
-            self.p.kill()
+            needed_kill = True
+            self.p.kill()  # the net: a stuck server never outlives the test run
             self.p.wait(timeout=30)
         self.p.stdout.close()  # or Python warns "unclosed file" at exit (Windows audit, Oct 2026)
+        if needed_kill:
+            raise AssertionError("mcp server still running %s s after stdin closed; it had to be killed" % within)
 
 
 class McpTools(unittest.TestCase):
@@ -120,8 +123,10 @@ class McpTools(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        cls.mcp.close()
-        shutil.rmtree(cls.tmp, ignore_errors=True)
+        try:
+            cls.mcp.close()
+        finally:
+            shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def test_1_discovery(self):
         init = self.mcp.call("initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
@@ -353,6 +358,40 @@ class McpProcess(unittest.TestCase):
             self.assertEqual(self.raw(s, [{"jsonrpc": "2.0", "id": "a", "method": "ping"}])["error"]["code"], -32600)
         finally:
             s.close()
+
+    def test_server_exits_when_stdin_closes(self):
+        """A tool the client cancelled, whose child left a grandchild holding its output pipe (on Windows: a git or
+        sleep that taskkill missed), kept the worker, and so the server, alive for the tool's whole timeout after
+        stdin closed. The server leaves within 2 s of its input closing."""
+        repo = self.tmp / "orphan"
+        shutil.copytree(self.repo, repo)
+        fake = repo / ".uak/bin/uak"
+        if os.name == "nt":
+            fake.write_text("#!/usr/bin/env bash\nsleep 40\n", encoding="utf-8", newline="\n")
+        else:  # setsid: out of the tool's process group, so the cancel's kill misses it; it keeps the pipe open
+            fake.write_text("#!/usr/bin/env bash\nsetsid sleep 40 &\necho $! > \"$(dirname \"$0\")/orphan.pid\"\nsleep 40\n", encoding="utf-8", newline="\n")
+        s = Server(repo, self.env)
+        try:
+            s.call("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}})
+            s.n += 1
+            rid = s.n
+            s.p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": rid, "method": "tools/call", "params": {
+                "name": "uak_status", "arguments": {}}}) + "\n")
+            s.p.stdin.flush()
+            time.sleep(2)
+            s.p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/cancelled",
+                                        "params": {"requestId": rid, "reason": "test"}}) + "\n")
+            s.p.stdin.flush()
+            self.assertIn("result", s.call("ping", timeout=30))
+            started = time.time()
+            s.close(within=2)
+            self.assertLess(time.time() - started, 2.5)
+        finally:
+            if s.p.poll() is None:
+                s.p.kill()
+            pid = repo / ".uak/bin/orphan.pid"
+            if pid.exists():
+                subprocess.run(["kill", pid.read_text().strip()], capture_output=True)
 
     @unittest.skipIf(os.name == "nt", "process groups and signals are POSIX")
     def test_kill_reaches_a_child_that_ignores_term(self):
