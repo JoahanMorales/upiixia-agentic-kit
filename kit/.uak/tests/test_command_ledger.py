@@ -172,16 +172,16 @@ def exec_commands_record_code_and_ms(r):
     """UAK-136: a command the dispatcher runs as a script of its own (run=exec) ends with its exit code and milliseconds."""
     f = r.fixture("ledger-exec", count=1)
     common = common_of(r, f.worktrees[0])
-    ok = uak(f, "stats")
-    expect(ok.returncode == 0, "stats failed: " + ok.stderr[-300:])
-    bad = uak(f, "timeline")   # no ID: usage error, exit 2
-    expect(bad.returncode != 0, "timeline without an ID should fail")
+    ok = uak(f, "pace")
+    expect(ok.returncode == 0, "pace failed: " + ok.stderr[-300:])
+    bad = uak(f, "metrics", "--since", "0")   # a bad option: exit 2
+    expect(bad.returncode != 0, "metrics --since 0 should fail")
     got = rows(common)
     expect(len(got) == 2, "expected one line per exec'd command, got %r" % got)
-    expect(got[0][1] == "stats" and got[0][3] == "0" and got[0][5].isdigit(), "stats must record exit 0 and ms: %r" % got[0])
-    expect(got[1][1] == "timeline" and got[1][3] == str(bad.returncode) and got[1][5].isdigit(), "timeline must record its exit code and ms: %r" % got[1])
+    expect(got[0][1] == "pace" and got[0][3] == "0" and got[0][5].isdigit(), "pace must record exit 0 and ms: %r" % got[0])
+    expect(got[1][1] == "metrics" and got[1][3] == str(bad.returncode) and got[1][5].isdigit(), "metrics must record its exit code and ms: %r" % got[1])
     # The same output and exit code with the ledger off.
-    off = uak(f, "timeline", UAK_BLACKBOX="off")
+    off = uak(f, "metrics", "--since", "0", UAK_BLACKBOX="off")
     expect(off.returncode == bad.returncode and off.stdout == bad.stdout and off.stderr == bad.stderr, "exec'd command output changed")
     expect(len(rows(common)) == 2, "UAK_BLACKBOX=off must write nothing")
     return "exec'd commands record exit code and ms"
