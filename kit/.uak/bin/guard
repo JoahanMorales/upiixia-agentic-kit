@@ -18,9 +18,14 @@ mode_var() { # sets m: sprint or marathon
   m=sprint
   top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
   uak_cfg_var "$top/.uak/PROJECT.md" Mode
-  [ "$CFG" != marathon ] || m=marathon
+  # Trimmed by the reader, case-insensitive here: "Mode: Marathon" was not marathon for the guard (review of UAK-111).
+  case "$CFG" in [Mm][Aa][Rr][Aa][Tt][Hh][Oo][Nn]) m=marathon;; esac
 }
 mode() { mode_var; printf '%s' "$m"; }
+
+# The reasons for a push to the base or the claims branch, said by the text filter and by the pre-push hook alike.
+push_base_msg() { printf 'a push to %s skips the merge gate. Push your feat/ branch; bash .uak/bin/uak merge ID lands it on %s.' "$1" "$1"; }
+push_claims_msg() { printf 'the claims branch is written only by uak commands (claim, done, release…), never by a push of yours.'; }
 
 # No dirname and no subshell: guard never changes directory, so the relative path works. Why (Windows): a process
 # costs 20-50 ms in Git Bash, and guard runs before every command of the agent.
@@ -248,10 +253,10 @@ check_bash() {
         block "deleting remote branches is for the branch's human owner."
       fi
       grep -Eq -- "(^|[[:space:]/])git[[:space:]].*push[[:space:]].*[[:space:]:+](refs/heads/)?(main|master|$base)([[:space:]]|$)" <<< "$s" &&
-        block "a push to $base skips the merge gate. Push your feat/ branch; bash .uak/bin/uak merge ID lands it on $base."
+        block "$(push_base_msg "$base")"
       # The claims branch holds the coordination state; only uak commands write it (their pushes skip this hook).
       grep -Eq -- '(^|[[:space:]/])git[[:space:]].*push[[:space:]].*[[:space:]:+](refs/heads/)?claims([[:space:]]|$)' <<< "$s" &&
-        block "the claims branch is written only by uak commands (claim, done, release…), never by a push of yours."
+        block "$(push_claims_msg)"
       case "$s" in *'$'*|*'\'*)
         push_dynamic "$s" &&
           dyn="a git push whose ref is dynamic (variable, substitution, backslash): the guard cannot read it. Run it only if the human asked for exactly this.";;
@@ -583,6 +588,14 @@ case "${1:-}" in
     json_field_var prompt "$input"; check_prompt "$JF";;
   check) GUARD_HARNESS=check; check_bash "${2:-}"; printf 'UAK_GUARD: allowed\n';;
   check-prompt) check_prompt "${2:-}"; printf 'UAK_GUARD: allowed\n';;
+  # The pre-push hook asks about the ref git is about to update (its real name, not text): blocked when it is the base
+  # branch or the claims branch. Why (review of UAK-111): a ref built by a command or a script is invisible to the text
+  # filter above; at push time git knows it.
+  push-ref) ref=${2:-}; ref=${ref#refs/heads/}; base=${UAK_BASE:-main}
+    case "$ref" in
+      "$base"|main|master) block "$(push_base_msg "$base")";;
+      claims) block "$(push_claims_msg)";;
+    esac; exit 0;;
   tier) printf '%s\n' "$(tier_class "${2:-}")";;
   *) printf '%s\n' 'Usage: guard bash|shell|prompt|agent|agent-stop (hook JSON on stdin) · guard check "CMD" · guard check-prompt "TEXT" · guard tier MODEL' >&2; exit 2;;
 esac
