@@ -242,6 +242,87 @@ coach_dir() { # sets CDIR; 1 when it cannot be made
   x=${x//[!$ID_CHARS]/}; CDIR="$gd/uak-coach-${x:0:60}"   # kit-lint: ok (a session id)
   [ -d "$CDIR" ] || mkdir -p "$CDIR" 2>/dev/null
 }
+# Manual moves (UAK-121): the moves the black boxes show most, done by hand instead of through the kit, become one
+# `manual` line (auto) per kind per session. Only the KIND is recorded (bb holds a fixed text per kind), never the
+# command. A move counts only as the command itself at a command position: quoted text, a heredoc body and the
+# arguments of echo/grep/git commit -m are prose and never count (a missed exotic move is better than a counted one).
+# Hot path: one `case` on the payload's first 4 KB; builtins only, and a process starts only when a move is recognized.
+# The command's skeleton: quoted spans become Q, ; & | ( ) ` $ and newlines become line breaks, a heredoc body is cut.
+manual_skeleton() { # $1 command; sets SKEL
+  local c=$1 n i=0 ch q= hd= x
+  SKEL=; n=${#c}
+  while [ "$i" -lt "$n" ]; do
+    ch=${c:i:1}
+    if [ -n "$q" ]; then
+      if [ "$q" = d ] && [ "$ch" = '\' ]; then i=$((i + 2)); continue; fi
+      case "$q$ch" in "s'"|'d"') q=;; esac
+      i=$((i + 1)); continue
+    fi
+    case "$ch" in
+      "'") q=s; SKEL=${SKEL}Q;;
+      '"') q=d; SKEL=${SKEL}Q;;
+      '\') SKEL=${SKEL}Q; i=$((i + 1));;
+      ';'|'&'|'|'|'('|')'|'`'|"$NL") [ "$ch" != "$NL" ] || [ -z "$hd" ] || break; SKEL=$SKEL$NL;;
+      '<') x=${c:i:2}; [ "$x" = '<<' ] && { hd=1; i=$((i + 1)); }; SKEL=${SKEL}' ';;
+      *) SKEL=$SKEL$ch;;
+    esac
+    i=$((i + 1))
+  done
+}
+manual_kind_of() { # $1 one segment of the skeleton; sets MK (worktree|merge-human|commit|push|uakmerge) or empty
+  local seg=$1 w
+  MK=
+  seg=${seg#"${seg%%[![:space:]]*}"}
+  while :; do
+    w=${seg%%[[:space:]]*}
+    case "$w" in [A-Za-z_]*=*|env) seg=${seg#"$w"}; seg=${seg#"${seg%%[![:space:]]*}"};; *) break;; esac
+  done
+  set -f; set -- $seg; set +f
+  case "${1:-}" in
+    git) shift
+      while :; do case "${1:-}" in -C|-c|--git-dir|--work-tree|--namespace) shift 2;; -*) shift;; *) break;; esac; done
+      case "${1:-} ${2:-}" in "worktree add") MK=worktree;; "commit "*) MK=commit;; "push "*) MK=push;; esac;;
+    gh) shift
+      while :; do case "${1:-}" in -R|--repo) shift 2;; -*) shift;; *) break;; esac; done
+      [ "${1:-} ${2:-}" != "pr merge" ] || MK=merge-human;;
+    bash|sh) shift; case "${1:-}" in uak|*/uak) [ "${2:-}" != merge ] || MK=uakmerge;; esac;;
+    uak|*/uak) [ "${2:-}" != merge ] || MK=uakmerge;;
+  esac
+}
+manual_move() {
+  local cmd kind= x last rest seg tr
+  case "${UAK_BLACKBOX:-}" in off|0|no|false) return 0;; esac
+  case "$IN_HEAD" in *"worktree add"*|*"pr merge"*|*"git commit"*|*"git push"*|*" merge"*) ;; *) return 0;; esac
+  [ -d .uak/bin ] || return 0
+  tool_name; case "$TOOL" in Bash|PowerShell|Shell|run_shell_command|shell) ;; *) return 0;; esac
+  jdecode_var tool_input command; cmd=${JD//$CR/}
+  [ "${#cmd}" -le 4000 ] || return 0
+  manual_skeleton "$cmd"
+  rest=$SKEL
+  while [ -n "$rest" ] && [ -z "$kind" ]; do
+    seg=${rest%%"$NL"*}
+    case "$rest" in *"$NL"*) rest=${rest#*"$NL"};; *) rest=;; esac
+    manual_kind_of "$seg"
+    case "$MK" in
+      worktree) kind=worktree;;
+      merge-human) [ -f "$gd/uak-merge-human" ] && fresh "$gd/uak-merge-human" 1440 && kind=merge-human;;
+      commit) [ ! -f "$gd/commondir" ] && [ -s "$gd/uak-direct-main.log" ] && {
+          last=$(tail -n 1 "$gd/uak-direct-main.log" 2>/dev/null); last=${last//$CR/}; set -- $last
+          case "${1:-x}" in ''|*[!0-9]*) ;; *) [ "${3:-}" != push ] && [ $((NOW - $1)) -lt 120 ] && kind=direct-main;; esac; };;
+      push) case "$input" in *"pre-push: "*"/claims refused"*) kind=claims-push;; esac;;
+      uakmerge) # one small file per git dir, overwritten, dropped when a gh pr merge uses it or after a day
+        if [ "${#input}" -lt 20000 ]; then tr=${input##*'"tool_response"'}; case "$tr" in *MERGE_HUMAN*) stamp "$gd/uak-merge-human";; esac; fi;;
+    esac
+  done
+  [ -n "$kind" ] || return 0
+  x=${sid:-nosid}; x=${x//[!$ID_CHARS]/}; x="$gd/uak-manual-$kind-${x:0:60}"   # kit-lint: ok (a session id)
+  [ ! -e "$x" ] || return 0
+  : > "$x" 2>/dev/null || return 0
+  # Markers of old sessions: at most a day (only here, where a move was recognized).
+  find "$gd" -maxdepth 1 -name 'uak-manual-*' -mtime +0 -exec rm -f {} + 2>/dev/null
+  [ "$kind" != merge-human ] || rm -f "$gd/uak-merge-human"
+  bash .uak/bin/bb manual "$kind" "$task" > /dev/null 2>&1 || true
+}
 # Reminder templates (.uak/reminders.md, "key: text"); {n} {m} {id} {files} {tasks} are filled by `remind`.
 tmpl() { sed -n "s/^$1: //p" .uak/reminders.md 2>/dev/null; }
 # coach: event-driven reminders at the moment of decision, each capped per session (OpenDev-style). Prints one
@@ -490,6 +571,7 @@ case "${1:-}" in
       [ "$h" != codex ] || tokens_publish
     fi
     # Called, not run in $(…): a subshell is a fork. Their stderr is silenced as it was.
+    manual_move 2>/dev/null
     coach 2>/dev/null; coach_note=$NOTE
     lens 2>/dev/null; lens_note=$NOTE
     uilint 2>/dev/null; ui_note=$NOTE
@@ -665,6 +747,7 @@ $act"
     #                  (the command already ran; no permission or sandbox decision is involved).
     # Cursor cannot replace a shell result after it runs: see `wrap` (preToolUse).
     harness=${2:-claude}
+    manual_move 2>/dev/null
     cap_chars; cap=$CAP; [ "$cap" -gt 0 ] || exit 0
     [ "${#input}" -gt "$cap" ] || exit 0
     case "$input" in *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*|*'"tool_name":"PowerShell"'*|*'"tool_name": "PowerShell"'*) ;; *) exit 0;; esac
