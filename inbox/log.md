@@ -354,3 +354,4 @@ Append-only; use bash .uak/bin/uak msg / inbox. Format: - N | epoch | from | to 
 - 350 | 1795236101 | kit-r1 | task:UAK-111 | approve | UAK-111 | Approved SHA 82061fa by kit-r1. Next: bash .uak/bin/uak merge UAK-111 (the owner; after 20 min any agent can)
 - 351 | 1795236104 | kit-r1 | task:UAK-112 | approve | UAK-112 | Approved SHA f9676e8 by kit-r1. Next: bash .uak/bin/uak merge UAK-112 (the owner; after 20 min any agent can)
 - 352 | 1795236108 | kit-r1 | task:UAK-115 | approve | UAK-115 | Approved SHA f8421df by kit-r1. Next: bash .uak/bin/uak merge UAK-115 (the owner; after 20 min any agent can)
+- 353 | 1795236182 | scheduler | agent:kit-r1 | review | UAK-110 | UAK-110 ready for review (reassigned: kit-taste-1 did not start it in 19 min): https://github.com/JoahanMorales/upiixia-agentic-kit/pull/18 (SHA 841db115d59f9869493e65273f6c8f6ac80ca8c9). /uak-review UAK-110. Not free? Leave it: it moves to another agent in 15 min.
