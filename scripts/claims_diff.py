@@ -41,6 +41,11 @@ AGO = re.compile(r"\([0-9]+ (?:second|minute|hour)s? ago\)")
 VERSION = re.compile(r"(?<=^uak v)[0-9]+\.[0-9]+\.[0-9]+(?= \|)", re.M)
 
 
+# UAK-118 records who ran each step: the event tail `| Harness: H | Model: M`, those two lines of a session record and the
+# task record's `Participants:`. The old engine has none of them on purpose; every other byte is still compared.
+WHO = re.compile(r" \| Harness: [^|\n]* \| Model: [^|\n]*$|^(?:Harness|Model|Participants): .*\n", re.M)
+
+
 def git_bytes(r, cwd, *args):
     out = subprocess.run([r.git, *args], cwd=str(cwd), env=r.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     expect(out.returncode == 0, "git %s: %s" % (" ".join(args), out.stderr.decode("utf-8", "replace")[-400:]))
@@ -86,7 +91,7 @@ def normalize(text, base, shas=None):
     for sha, label in (shas or {}).items():
         text = re.sub(r"(?<![0-9a-f])%s[0-9a-f]{0,33}(?![0-9A-Za-z])" % sha[:7], "<SHA %s>" % label, text)
     text = TOKEN.sub("<CKSUM>", AGO.sub("(<AGO>)", TEMP.sub("<TMP>", text.replace("\r\n", "\n"))))
-    return VERSION.sub("<VERSION>", text)
+    return WHO.sub("", VERSION.sub("<VERSION>", text))
 
 
 def fixture_shas(r, f):

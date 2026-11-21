@@ -357,6 +357,45 @@ coord_session() {
   coord_sid=${UAK_SESSION:-stable}
   printf '%s\n' "$coord_sid" | grep -Eq '^[A-Za-z0-9_.-]{1,64}$' || die "UAK_SESSION must be 1-64 letters, digits, dot or dash."
 }
+# Who runs this process (UAK-118): the harness and the model, else what the session-start hook saw in this worktree
+# (.git/uak-harness, .git/uak-model), else unknown. A subagent sets its own UAK_MODEL.
+coord_who() {
+  [ -z "${coord_who_done:-}" ] || return 0
+  coord_who_done=yes coord_harness=${UAK_HARNESS:-} coord_model=${UAK_MODEL:-}
+  local gd= l=
+  if [ -z "$coord_harness" ] || [ -z "$coord_model" ]; then
+    # This worktree's git dir with builtins only (a linked worktree's .git is a file "gitdir: PATH"): no process on the hot path.
+    if [ -d "$ROOT/.git" ]; then gd=$ROOT/.git
+    elif [ -f "$ROOT/.git" ]; then IFS= read -r l < "$ROOT/.git" || :; l=${l%$'\r'}; gd=${l#gitdir: }; fi
+  fi
+  if [ -n "$gd" ]; then
+    [ -n "$coord_harness" ] || [ ! -f "$gd/uak-harness" ] || { IFS= read -r coord_harness < "$gd/uak-harness" || :; }
+    [ -n "$coord_model" ] || [ ! -f "$gd/uak-model" ] || { IFS= read -r coord_model < "$gd/uak-model" || :; }
+  fi
+  coord_harness=${coord_harness%$'\r'} coord_model=${coord_model%$'\r'}
+  case "$coord_harness" in ''|*[!A-Za-z0-9._:/-]*) coord_harness=unknown;; esac
+  case "$coord_model" in ''|*[!A-Za-z0-9._:/-]*) coord_model=unknown;; esac
+  coord_harness=${coord_harness:0:40} coord_model=${coord_model:0:64}
+}
+# A field of a record read with builtins (coord_read forks awk; this runs on every event).
+coord_bi_read() {
+  coord_bi_v=; local l
+  while IFS= read -r l || [ -n "$l" ]; do case "$l" in "$2: "*) coord_bi_v=${l#"$2: "}; return 0;; esac; done < "$1"
+}
+# The task record lists participants by role, once each: author, reviewer (with the verdict), merged-by, integrated-by, human.
+coord_participant() {
+  local role entry
+  case "$CMD" in
+    review) [ -n "${REVIEW_VERDICT:-}" ] || return 0; role=reviewer;;
+    merge) role=merged-by;; integrate) role=integrated-by;;
+    claim|checkpoint|done|handover|log|heartbeat|release) role=author; [ -z "$HUMAN" ] || [ "$AGENT" != "$HUMAN" ] || role=human;;
+    *) return 0;;
+  esac
+  entry="$role $AGENT ($coord_model)"; [ "$role" != reviewer ] || entry="$entry $REVIEW_VERDICT"
+  coord_bi_read "$RECORD" Participants
+  case "; $coord_bi_v;" in *"; $entry;"*) return 0;; esac
+  coord_put "$RECORD" Participants "${coord_bi_v:+$coord_bi_v; }$entry"
+}
 coord_counter_inc() {
   coord_counter_file=$1 coord_counter_key=$2
   coord_n=$(coord_read "$coord_counter_file" "$coord_counter_key")
@@ -400,6 +439,10 @@ coord_event() {
     printf '%s\n' "Agent: $AGENT" "Session: $coord_sid" "Started: $NOW" > "$coord_tf"
     coord_counter_inc "$coord_taskstats" Sessions
   fi
+  coord_who
+  coord_bi_read "$coord_tf" Harness; [ "$coord_bi_v" = "$coord_harness" ] || coord_put "$coord_tf" Harness "$coord_harness"
+  coord_bi_read "$coord_tf" Model; [ "$coord_bi_v" = "$coord_model" ] || coord_put "$coord_tf" Model "$coord_model"
+  coord_participant
   coord_counter_inc "$coord_af" Events; coord_counter_inc "$coord_sf" Events
   coord_counter_inc "$coord_taskstats" Events
   if [ "$CMD" = checkpoint ]; then

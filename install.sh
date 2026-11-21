@@ -275,14 +275,15 @@ done
 # The pre-commit secret scanner lives in .uak/githooks (engine, refreshed by --update). An older install's
 # .githooks/pre-commit that is the kit's own is removed; a changed one stays and keeps working until you move it.
 # Why: an --update removed a pre-commit the team had extended (it still called secret-scan) with everything they added.
-mkdir -p "$target/.uak/githooks"; cp "$kit/.githooks/pre-commit" "$target/.uak/githooks/pre-commit"
-chmod +x "$target/.uak/githooks/pre-commit" 2>/dev/null || true
+# pre-push (UAK-124) sits next to it under the same rules: an agent's push to the base or claims branch is refused.
+mkdir -p "$target/.uak/githooks"; cp "$kit/.githooks/pre-commit" "$kit/.githooks/pre-push" "$target/.uak/githooks/"
+chmod +x "$target/.uak/githooks/pre-commit" "$target/.uak/githooks/pre-push" 2>/dev/null || true
 hooks_path=.uak/githooks
 if [ -f "$target/.githooks/pre-commit" ]; then
   if { cmp -s "$kit/.githooks/pre-commit" "$target/.githooks/pre-commit" || known "$target/.githooks/pre-commit"; } &&
      [ -z "$(ls -A "$target/.githooks" 2>/dev/null | grep -v '^pre-commit$')" ]; then
     rm -rf "$target/.githooks"; say "  > .githooks moved to .uak/githooks"
-  else hooks_path=.githooks; say "  ~ .githooks has your own hooks: kept (core.hooksPath stays .githooks)"; fi
+  else hooks_path=.githooks; say "  ~ .githooks has your own hooks: kept (core.hooksPath stays .githooks). To refuse an agent's push to the base or claims branch: call 'bash .uak/githooks/pre-push \"\$@\"' from your pre-push"; fi
 fi
 put "$kit/.github/pull_request_template.md" "$target/.github/pull_request_template.md"
 put "$kit/.github/workflows/uak.yml" "$target/.github/workflows/uak.yml"
@@ -325,7 +326,7 @@ case "$cur_hooks" in .githooks|.githooks/)
 [ -z "$own_hooks" ] || cur_hooks="${cur_hooks:-.git/hooks} (with hooks of its own: $(basename "$own_hooks"))"
 case "$cur_hooks" in
   ''|.githooks|.githooks/|.uak/githooks|.uak/githooks/) git -C "$target" config core.hooksPath "$hooks_path";;
-  *) say "  ~ core.hooksPath is $cur_hooks (another hook manager): kept. Add the secret scan to its pre-commit: bash .uak/githooks/pre-commit";;
+  *) say "  ~ core.hooksPath is $cur_hooks (another hook manager): kept. Add the secret scan to its pre-commit: bash .uak/githooks/pre-commit; and, to refuse an agent's push to the base or claims branch, call 'bash .uak/githooks/pre-push \"\$@\"' from its pre-push (it reads git's stdin)";;
 esac
 
 cat <<EOF

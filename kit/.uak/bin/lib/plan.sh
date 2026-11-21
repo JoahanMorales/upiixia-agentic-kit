@@ -56,6 +56,7 @@ plan_amend_mutate() {
           [ "$st" != AVAILABLE ] || { say "$id's new Paths overlap $other (CLAIMED/REVIEW): its claim will wait for it"; continue; }
           conflict "The new Paths of $id overlap $other (claimed by $(field "$c" Owner)): split the work or ask them."; }
       done ) || exit $?
+    [ "$PLAN_CHECKING" != yes ] || continue
     if [ -f "$TX/tasks/$id.md" ] && [ "$st" != AVAILABLE ]; then
       put "$TX/tasks/$id.md" Paths "$(one_line "$new_p")"; put "$TX/tasks/$id.md" Verify "$(one_line "$new_v")"
       [ ! -f "$TX/claims/$id.md" ] || { put "$TX/claims/$id.md" Paths "$(one_line "$new_p")"; put "$TX/claims/$id.md" Verify "$(one_line "$new_v")"; }
@@ -65,6 +66,7 @@ plan_amend_mutate() {
     [ "$old_v" = "$new_v" ] || changes="$changes Verify changed;"
     msg_append "task:$id" info "$id" "$id amended by $HUMAN: Paths $(one_line "$new_p") · Verify $(one_line "$new_v"). uak status --task $id; the merge gate checks the new Paths."
   done
+  [ "$PLAN_CHECKING" != yes ] || return 0
   # Why (UAK-050): a first amend of tasks that live only in main's TASKS.md found no backlog/ directory and wrote nothing.
   mkdir -p "$TX/backlog"
   [ -f "$TX/backlog/AMEND.md" ] || printf '%s\n' '# Amended tasks (uak plan --amend)' '' \
@@ -78,10 +80,39 @@ plan_amend_mutate() {
   [ -f "$TX/DECISIONS.md" ] || printf "# DECISIONS\n\nCoordination decisions on the claims branch.\n" > "$TX/DECISIONS.md"
   printf '%s\n' "- $NOW | plan --amend | $HUMAN/$AGENT | amended:$(one_line "$changes" | tr '|' '/') | Why: scope or criteria fixed before review" >> "$TX/DECISIONS.md"
 }
+# `plan FILE --check` (UAK-125): the publish's own validations, run to the end with die/conflict recording their
+# message instead of exiting, and nothing written: the writes after them return early while PLAN_CHECKING is yes.
+# Why (2026-11-20 and 21): a plan failed at publish twice for one error each, and publishing is the human's step.
+plan_check_run() {
+  local n problems="$TXROOT/plan-problems"
+  : > "$problems"
+  die() { printf 'ERROR: %s\n' "$*" >> "$problems"; }
+  conflict() { printf 'CONFLICT: %s\n' "$*" >> "$problems"; }
+  PLAN_CHECKING=yes
+  plan_mutate
+  plan_ids=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$PLAN_FILE")
+  for ID in $plan_ids; do
+    for dep in $(BACKLOG=$PLAN_FILE task_field "Depends on" | grep -Eo '[A-Z][A-Z0-9]*-[0-9]+'); do
+      awk -v id="$dep" '/^## / && $2==id {f=1} END {exit !f}' "$BACKLOG" "$PLAN_FILE" ||
+        printf "ERROR: %s's Depends on names %s, which is neither in the backlog nor in this file.\n" "$ID" "$dep" >> "$problems"
+    done
+  done
+  [ -z "${DONE_HINT:-}" ] || say "$DONE_HINT"
+  n=$(wc -l < "$problems" | tr -d ' ')
+  if [ "$n" -gt 0 ]; then
+    cat "$problems" >&2
+    say "PLAN CHECK FAILED: $n problem(s); nothing was written. The publish stops at its first one." >&2
+    exit 2
+  fi
+  say "OK plan --check | $(printf '%s\n' $plan_ids | wc -l | tr -d ' ') tasks would be published"
+  say "Not promised: the board can change between this check and the publish (a claim, another plan); nothing was written."
+  exit 0
+}
 plan_mutate() {
   # A plan written on Windows is CRLF: "## PB-030\r" was an invalid ID and a list-form Verify kept a \r that broke
   # the gate's bash -c (portability audit, Oct 2026). Read an LF copy.
   [ "$PLAN_FILE" = "$TXROOT/plan-lf.md" ] || { tr -d '\r' < "$PLAN_FILE" > "$TXROOT/plan-lf.md" && coord_fold_backlog "$TXROOT/plan-lf.md" && PLAN_FILE="$TXROOT/plan-lf.md"; }
+  [ "$PLAN_CHECK" != yes ] || [ "${PLAN_CHECKING:-no}" = yes ] || plan_check_run
   [ "$(coord_source_field Plan-Channel main)" = claims ] ||
     conflict "Plan-Channel is not claims in .uak/PROJECT.md: publish the backlog by PR to $BASE."
   plan_ids=$(awk '/^## [A-Z][A-Z0-9]*-[0-9]/ {print $2}' "$PLAN_FILE")
@@ -106,6 +137,7 @@ plan_mutate() {
   DONE_HINT=$(BACKLOG="$TXROOT/plan-backlog" OWNERS="$TXROOT/plan-owners" owner_conflicts $plan_ids | while IFS='|' read -r id pat owner; do
     printf 'PLAN WARNING: %s can never be claimed: its Paths fall under %s, owned by %s. Drop the path (uak plan FILE --amend), give the OWNERS row to %s, or make %s depend on %s.\n' "$id" "$pat" "$owner" "$id" "$owner" "$id"
   done)
+  [ "$PLAN_CHECKING" != yes ] || return 0
   mkdir -p "$TX/backlog"
   [ -f "$TX/backlog/TASKS.md" ] || printf '%s\n' '# Backlog published on claims (uak plan)' '' \
     'Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for a PR.' > "$TX/backlog/TASKS.md"
