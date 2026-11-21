@@ -1,5 +1,38 @@
 # Roadmap
 
+## Now: v6.6 → v7.0 (from the audit of Nov 2026, `docs/audit-2026-11.md`)
+
+**v6.6 · The defects the audit found.** One live task per identity holds for heartbeat, log and checkpoint; the MCP
+`uak_cli` cannot run a passed command unseen; the guard treats substitutions inside quotes as code, sees `gh … merge`
+with flags and refuses a plain push to claims; the merge lock's renewer dies with its parent; an unapproved task cannot be
+recorded INTEGRATED by its owner; temp files and Python subprocesses get names and timeouts.
+
+**v6.7 · Everything measurable.** A ledger of every command (name, outcome, milliseconds) published with the black box;
+`uak metrics`: calls and error rate per command, time per step, review rejections, rework after a reject, reverts and
+reopened tasks, human interventions with their reason, work outside the kit (commits on main without a task, and a
+`manual` note for "I had to do this by hand"), tokens per task and per step. Each speed number next to an instability
+number. `uak autopsy` writes the event report (timeline, top issues, metrics) from claims.
+
+**v6.8 · Lighter.** An install without the kit's own tests and with skills on demand (535 files → under 200); CI in
+shards instead of one job per test file (105 jobs → about a dozen per OS set); the reviewer runs Verify and the tests the
+diff touches, the full suite runs once, at the merge gate; `status` and `next` read one cached fetch of claims; a
+Merge-Engine policy so an approved engine change with every CI run green does not wait for a human.
+
+**v7.0 · A kit that improves itself, behind a gate.** Scenario evals (`uak eval`): seeded mini-repos that replay each
+failure class of the black boxes against the engine, reported as k of n; mutation tests of the guard and the gates (remove
+a rule, a scenario must fail). While agents work: a repeated error in a session brings its lesson into context, and a
+correction made twice becomes a candidate check. After an event: `uak improve` clusters the black box, proposes a
+lesson, a hint or a rule as a PR, and it is adopted only if the evals pass and a human approves; it never edits the guard
+or the gates, and every adoption can be reverted.
+
+**v7.1 · Marathon in a codebase that already exists.** `install --adopt`: reads the stack, the test command and the CI
+that are there, writes a short PROJECT.md and a map for a human to trim, takes over no file; tasks imported from the
+issues the team already has; a pilot scope (one module's paths) before the whole repo; quality gates that use the
+project's own checks. Two modes stay (sprint, marathon): adoption is a way to install marathon, not a third mode.
+
+Waiting: the fork with the TLA+ model of claims, the revert rate in `stats`, WHY.md enforcers and verification skills
+(merge when its author finishes); external PR #2 (visual setup).
+
 ## v5.0 — shipped
 - [x] Speed: one round trip per call, SSH reuse, clock cache, `next` prefilter (next 10–12 s → 1.5–2 s on GitHub)
 - [x] `uak wait` · messages in ~20 s · `uak map` (code graph) · `msg impact:ID` · path-anchored memory (`learn`/`recall`)
