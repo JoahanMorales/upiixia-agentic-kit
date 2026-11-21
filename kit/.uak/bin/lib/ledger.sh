@@ -34,3 +34,14 @@ ledger_end() { # EXIT_CODE ["TASK" when the command has not set ID]
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ep" "${UAK_CALLER:+$UAK_CALLER-}${CMD:-?}" "$t" "$rc" "${LG_CODE:--}" "$ms" "$ag" "$hn" \
     >> "$LG_DIR/uak-ledger.pending" 2>/dev/null || :
 }
+# Is the oldest pending ledger line more than 10 min old? Bash 5: the first line's epoch against the clock, builtins only
+# (a find per command would cost a process on every call); bash 3.2 has no epoch, so there it asks find.
+ledger_due() { # DIR
+  local f=$1/uak-ledger.pending e=
+  [ -s "$f" ] || return 1
+  lg_clock
+  if [ -z "$LG_EP" ]; then [ -n "$(find "$f" -mmin +10 2>/dev/null)" ]; return; fi
+  IFS=$'\t' read -r e _ < "$f" || :
+  case "$e" in ''|*[!0-9]*) return 1;; esac
+  [ $((LG_EP - e)) -gt 600 ]
+}

@@ -4,6 +4,7 @@ Why (audit of v6.5.0, docs/audit-2026-11.md section 4): calls were names only, w
 Every `uak` command appends one line to <git-common-dir>/uak-ledger.pending when it ends; `bb flush` publishes it
 to claims as metrics/<day>-<machine>.tsv in the black box's transaction and empties it. Real Git, local bare remote."""
 import argparse
+import os
 import tempfile
 from pathlib import Path
 
@@ -99,6 +100,36 @@ def the_file_is_capped_with_counts(r):
     return "capped"
 
 
+def a_session_with_no_errors_still_publishes(r):
+    import time
+    f = r.fixture("ledger-idle", count=1)
+    w = f.worktrees[0]
+    common = common_of(r, w)
+    old = int(time.time()) - 1200
+    pending = common / "uak-ledger.pending"
+    pending.write_text("%d\tstatus\t-\t0\t-\t5\tagent-1\tcodex\n" % old, encoding="utf-8")
+    t = time.time() - 1200
+    os.utime(pending, (t, t))
+    expect(not (common / "uak-blackbox.pending").exists(), "the session must have no black box lines")
+    uak(f, "status")
+    end = time.time() + 40
+    while time.time() < end:
+        tree = r.g(f.remote, "ls-tree", "-r", "--name-only", "claims").stdout
+        if "metrics/" in tree:
+            break
+        time.sleep(0.5)
+    expect("metrics/" in tree, "a ledger 20 min old was not published by a plain command: " + tree)
+    expect((common / "uak-blackbox.flushed").exists(), "the stamp is taken first")
+    # fresh ledger lines wait
+    f2 = r.fixture("ledger-fresh", count=1)
+    c2 = common_of(r, f2.worktrees[0])
+    uak(f2, "status")
+    uak(f2, "status")
+    time.sleep(2)
+    expect(not (c2 / "uak-blackbox.flushed").exists() and len(rows(c2)) == 2, "a fresh ledger must wait its 10 minutes")
+    return "published when old, waits when fresh"
+
+
 def blackbox_off_writes_nothing(r):
     f = r.fixture("ledger-off", count=1)
     common = common_of(r, f.worktrees[0])
@@ -121,7 +152,7 @@ def output_and_exit_code_unchanged(r):
 
 
 TESTS = [a_command_appends_one_ledger_line, a_failed_command_records_its_code, flush_publishes_and_empties,
-         the_file_is_capped_with_counts, blackbox_off_writes_nothing, output_and_exit_code_unchanged]
+         the_file_is_capped_with_counts, a_session_with_no_errors_still_publishes, blackbox_off_writes_nothing, output_and_exit_code_unchanged]
 
 
 def main():
