@@ -191,7 +191,7 @@ integrate_approved_ancestor() { # TIP; sets INT_SHA, RM_PROOF, APPROVED_BY; fail
   return 0
 }
 integrate_mutate() {
-  local st= outside=no approval=none owner
+  local st= outside=no approval=none owner unreviewed=no rsha
   # Why (UpiixSol): a human merged on GitHub while the owner agent was offline; the task sat in REVIEW and
   # blocked its dependents for hours. The proof is verifiable, so any identity may record it.
   [ ! -f "$RECORD" ] || st=$(field "$RECORD" State)
@@ -236,6 +236,11 @@ integrate_mutate() {
       approval="$(field "$TX/reviews/$ID.md" Reviewer)@$(field "$TX/reviews/$ID.md" SHA | cut -c 1-7)"
       integrate_name_unreviewed "$(field "$TX/reviews/$ID.md" SHA)" "$tip"
     fi
+    # Valid = the full approval check of the approved SHA (another seen identity, claims mode). Without one the code is on
+    # the base unreviewed: sprint records it and says so; marathon needs a human and a reason (UAK-114, audit #7).
+    unreviewed=yes
+    rsha=$(field "$TX/reviews/$ID.md" SHA 2>/dev/null)
+    if [ "$approval" != none ] && [ -n "$rsha" ] && approval_check "$rsha" "$PR_URL" && [ "$RM_REVIEW_MODE" = claims ]; then unreviewed=no; fi
     # Unreviewed work under review is a human's to record, as before (v5.x); an approval of any earlier SHA, or a task
     # whose owner records its own claim, or one nobody claimed, needs no human.
     [ "$st" != REVIEW ] || [ "$approval" != none ] || { [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ]; } || conflict "${INT_WHY:-No approval on claims}"
@@ -243,6 +248,17 @@ integrate_mutate() {
     # be credited as integrated. Two or more matching files, or any approval, are proof enough for an agent.
     [ "$RM_PROOF" != outside:content:1 ] || [ "$approval" != none ] || { [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ]; } ||
       conflict "only one file matched $BASE and nobody approved it: a human records it (UAK_HUMAN=NAME uak integrate $ID)"
+    if [ "$unreviewed" = yes ]; then
+      # The mode is read from PROJECT.md on the remote base: a branch cannot switch it.
+      if [ "$(git -C "$TX" show "refs/uak/base:.uak/PROJECT.md" 2>/dev/null | tr -d '\r' | sed -n 's/^Mode:[[:space:]]*//p' | head -n 1)" = marathon ]; then
+        { [ -n "$HUMAN" ] && [ "$AGENT" = "$HUMAN" ]; } ||
+          conflict "marathon mode: the work of $ID is on $BASE with no valid approval; a human records it: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID --reason TEXT"
+        [ -n "$WHY_TEXT" ] || conflict "marathon mode: say why $ID is recorded without a review: UAK_HUMAN=NAME UAK_AGENT= bash .uak/bin/uak integrate $ID --reason TEXT"
+        [ -f "$TX/DECISIONS.md" ] || printf "# DECISIONS\n" > "$TX/DECISIONS.md"
+        printf '%s\n' "- $NOW | $ID | recorded INTEGRATED without a review by $HUMAN | Why: $(one_line "$WHY_TEXT")" >> "$TX/DECISIONS.md"
+      fi
+      say "NOTE integrate $ID: the code reached $BASE without a review (recorded Unreviewed: yes)"
+    fi
     if [ -n "$MERGE_COMMIT" ]; then
       merged=$(git -C "$TX" rev-parse --verify "$MERGE_COMMIT^{commit}" 2>/dev/null) || conflict "COMMIT not in the remote history of $BASE."
     else merged=$(git -C "$TX" rev-parse refs/uak/base); fi
@@ -251,13 +267,14 @@ integrate_mutate() {
   STATE=INTEGRATED
   put "$RECORD" Integration-Proof "$RM_PROOF"; put "$RECORD" Merge-Commit "$merged"
   if [ "$outside" = yes ]; then put "$RECORD" Integrated-Outside yes; put "$RECORD" Approval "$approval"; put "$RECORD" Recorded-By "$AGENT"
+    [ "$unreviewed" != yes ] || put "$RECORD" Unreviewed yes
   else put "$RECORD" Reviewer "$APPROVED_BY"; fi
   put "$RECORD" Task-Tip "$tip"; put "$RECORD" State INTEGRATED
   put "$RECORD" Next "Integrated in $BASE: $merged; claim next P0"
   put "$RECORD" Lease-Until 0; put "$RECORD" Updated "$NOW"
   update_summary_field Next "Integrated in $BASE: $merged (recorded by $AGENT)"
   rm -f "$CLAIM"
-  event "integrate; recorded by $AGENT; PR $PR_URL; merged $merged; proof $RM_PROOF$([ "$outside" != yes ] || printf '; outside the gate, approval %s' "$approval")$([ -z "${INT_UNREVIEWED:-}" ] || printf '; %s' "$INT_UNREVIEWED")"
+  event "integrate; recorded by $AGENT; PR $PR_URL; merged $merged; proof $RM_PROOF$([ "$outside" != yes ] || printf '; outside the gate, approval %s' "$approval")$([ "$unreviewed" != yes ] || printf '; unreviewed')$([ -z "${INT_UNREVIEWED:-}" ] || printf '; %s' "$INT_UNREVIEWED")"
   msg_notify_related "$ID" integrated "$ID integrated in $BASE ($merged), recorded by $AGENT. If you depend on it: git fetch origin && git merge --no-edit origin/$BASE"
 }
 # done: REVIEW with the PR and evidence after the gates (UI shots, test-first), and one reviewer asked; or, with
