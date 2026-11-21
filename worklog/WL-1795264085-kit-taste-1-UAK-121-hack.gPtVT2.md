@@ -6,7 +6,7 @@
 - Why: Parallel work without touching the main checkout
 - Failing: No validation run yet
 - Commands: `python3 kit/.uak/tests/test_manual_notes.py`
-- Next: Another agent reviews https://github.com/JoahanMorales/upiixia-agentic-kit/pull/30; run .uak/bin/smoke
+- Next: Integrated in main: dd6a079f88cb03d25988a1f07c16b01da228cfb0 (recorded by joahanmorales-11)
 
 ## History
 - 1795264085 | CLAIMED | kit-taste-1 | claim; next: the note kinds in kit/.uak/bin/bb and the output hook in kit/.uak/bin/hook:~657 | Harness: unknown | Model: unknown
@@ -14,3 +14,4 @@
 - 1795265109 | REVIEW | kit-r1 | review; reject; SHA 05754ec5d644743428401ff3dcbf14986e7d8ec1; reviewer kit-r1 | Harness: unknown | Model: unknown
 - 1795266014 | REVIEW | kit-taste-1 | done; PR https://github.com/JoahanMorales/upiixia-agentic-kit/pull/30; evidence: test_manual_notes PASS (7 cases incl. prose negatives); test_v592, test_hook_claims, bb tests PASS; kit_lint 0; smoke PACKAGE_PASS · red at 46dc5c9: exit 1 (no assertion line recognized: the reviewer reads the log); reviewer: - | Harness: unknown | Model: claude-sonnet-5-5
 - 1795266209 | REVIEW | kit-r1 | review; approve; SHA e210b233b517b11757909999a75c0677048b759c; reviewer kit-r1 | Harness: unknown | Model: unknown
+- 1795269010 | INTEGRATED | joahanmorales-11 | integrate; recorded by joahanmorales-11; PR https://github.com/JoahanMorales/upiixia-agentic-kit/pull/30; merged dd6a079f88cb03d25988a1f07c16b01da228cfb0; proof ancestry | Harness: unknown | Model: unknown
