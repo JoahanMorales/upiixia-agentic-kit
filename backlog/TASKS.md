@@ -1388,3 +1388,15 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Acceptance:**
   - doctor compares hook dirs with -ef instead of lowercase text (a different .UAK/githooks is not the kit's on a case-sensitive disk); wt new does not replace a valid core.hooksPath of another hook manager
 - **Verify:** `python3 kit/.uak/tests/test_hooks_health.py`
+
+## UAK-147 · the dashboard computes the review lease like status and board: UAK_LEASE_SECONDS, else Lease-Seconds (default 1800, no marathon default), Review-Lease-Seconds else 4 times the lease, so the late mark agrees with the OVER mark in a default setup (follow-up of UAK-119)
+
+- **Type:** follow-up
+- **Priority:** P1
+- **Depends on:** UAK-119
+- **Follow-up of:** UAK-119
+- **Paths:** kit/.uak/bin/lib/status.sh, kit/.uak/bin/lib/dash.py, kit/.uak/bin/lib/dash.html, kit/.uak/tests/test_review_substates.py
+- **Freeze-Allowed:** no
+- **Acceptance:**
+  - the dashboard computes the review lease like status and board: UAK_LEASE_SECONDS, else Lease-Seconds (default 1800, no marathon default), Review-Lease-Seconds else 4 times the lease, so the late mark agrees with the OVER mark in a default setup
+- **Verify:** `python3 kit/.uak/tests/test_review_substates.py`
