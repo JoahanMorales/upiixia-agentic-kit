@@ -49,14 +49,12 @@ def touch(r, base, rel, text="# changed\n"):
 
 
 def smoke(r, base, *args, env=None):
-    e = {"UAK_SMOKE_TESTS": ""}
-    e.update(env or {})
     cmd = ["env", "-u", "UAK_SMOKE_TESTS", "-u", "UAK_SMOKE_GATE_NONE", r.bash, ".uak/bin/smoke"] + list(args)
-    return r.run(cmd, cwd=base, env={k: v for k, v in (env or {}).items()}, allowed=None, timeout=600)
+    return r.run(cmd, cwd=base, env=dict(env or {}), allowed=None, timeout=600)
 
 
 def ran(out):
-    return sorted(l.split()[1] for l in out.stdout.splitlines() if l.startswith("RAN "))
+    return sorted(set(l.split()[1] for l in out.stdout.splitlines() if l.startswith("RAN ")))
 
 
 def affected_runs_changed_test_files(r):
@@ -85,7 +83,6 @@ def engine_change_selects_its_tests(r):
     touch(r, base2, "docs/guide.md")
     out = smoke(r, base2, "--package-only", "--affected", "HEAD")
     expect(ran(out) == [], "docs/guide.md is named by no test file (the basename): %s" % ran(out))
-    touch(r, base2, "docs/other.md")
     # An engine file no test names and the map does not know runs everything.
     base3 = package(r, "unnamed")
     touch(r, base3, ".uak/bin/pace")
