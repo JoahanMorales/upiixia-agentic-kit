@@ -120,8 +120,8 @@ def ci_tests():
 # counted the default 60 s and ran 25 min on Windows and 8 min on macOS. To measure again, take each file's group time
 # (from its ::group:: line to its ::endgroup:: line) in `gh run view RUN --log --job JOB` of recent runs on main.
 CI_SECONDS = {
-    "test_flaky_guard": 508, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_review_merge": 93,
-    "test_merge_commit_field": 91, "test_review_substates": 90, "test_claims_perf": 84, "test_v51": 73,
+    "test_flaky_guard_race": 440, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_review_merge": 93,
+    "test_flaky_guard": 70, "test_merge_commit_field": 91, "test_review_substates": 90, "test_claims_perf": 84, "test_v51": 73,
     "test_design_taste_cli": 72, "test_integrate_unreviewed": 72, "test_design_perf": 67, "test_v54": 66,
     "test_hack": 61, "test_smoke_affected": 58, "test_v5": 58, "test_command_ledger": 46, "test_v57": 46,
     "test_design_shoot_qa": 45, "test_v42": 45, "test_design_color": 43, "test_design_metrics": 39, "test_pre_push":
@@ -151,7 +151,7 @@ CI_SECONDS = {
     "test_policy": 1, "test_q_string": 1
 }
 CI_WINDOWS_SECONDS = {
-    "test_flaky_guard": 1500, "test_merge_engine_policy": 905, "test_merge_commit_field": 455,
+    "test_flaky_guard_race": 1340, "test_merge_engine_policy": 905, "test_merge_commit_field": 455, "test_flaky_guard": 165,
     "test_integrate_unreviewed": 420, "test_claims_perf": 385, "test_review_merge": 380, "test_v51": 374,
     "test_review_substates": 330, "test_v57": 300, "test_hack": 254, "test_smoke_affected": 244, "test_pre_push":
     230, "test_v43": 216, "test_v42": 213, "test_v5": 210, "test_v55": 198, "test_coordination": 196, "test_v54":
@@ -193,10 +193,40 @@ def ci_windows_seconds(test):
     return CI_WINDOWS_SECONDS.get(test, ci_seconds(test) * 5)
 
 
-def timing_problems(tests):
-    """One finding per test file (or mcp_tools) missing from CI_SECONDS or CI_WINDOWS_SECONDS: the default hid a 25 minute file."""
-    return ["scripts/kit_lint.py · no-timing · %s has no entry in %s: measure it (see the comment above CI_SECONDS)" % (t, "CI_SECONDS" if t not in CI_SECONDS else "CI_WINDOWS_SECONDS")
-            for t in tests if t not in CI_SECONDS or t not in CI_WINDOWS_SECONDS]
+# A test file over half of WINDOWS_BOUND_S cannot share a shard with anything else and one slow measurement turns it red:
+# the lint says to split it (UAK-150). These files are over and are not split yet: each entry says why and what follows.
+# Not a way to raise the limit: a new file over half is refused, and an entry whose file is not over half any more is
+# reported (so the list shrinks as files are split).
+HALF_BOUND_EXCEPTIONS = {
+    "test_merge_engine_policy": "905 s on Windows, 5 s over the limit: not split yet (a task of its own, outside UAK-150's paths); until then it takes a shard with little else",
+    "test_flaky_guard_race": "about 1340 s on Windows: twenty_runs_under_load, 60 runs under CPU hogs in one case; splitting it by kind (picker, mcp, lease) changes case names, so it waits for a human's decision",
+}
+
+
+def timing_problems(tests, seconds=None, windows=None, exceptions=None):
+    """Findings about the timing tables (the defaults hid a 25 minute file): a test file (or mcp_tools) missing from
+    CI_SECONDS or CI_WINDOWS_SECONDS (the message names each table it is missing from); a file over half of
+    WINDOWS_BOUND_S on Windows that is not in HALF_BOUND_EXCEPTIONS (split it); an exception that is not over half
+    any more; and a stale entry, in either table, of a test file that no longer exists."""
+    seconds = CI_SECONDS if seconds is None else seconds
+    windows = CI_WINDOWS_SECONDS if windows is None else windows
+    exceptions = HALF_BOUND_EXCEPTIONS if exceptions is None else exceptions
+    half = WINDOWS_BOUND_S // 2
+    out = []
+    for t in tests:
+        missing = [name for name, table in (("CI_SECONDS", seconds), ("CI_WINDOWS_SECONDS", windows)) if t not in table]
+        if missing:
+            out.append("scripts/kit_lint.py · no-timing · %s has no entry in %s: measure it (see the comment above CI_SECONDS)" % (t, " or ".join(missing)))
+        elif windows[t] > half and t not in exceptions:
+            out.append("scripts/kit_lint.py · over-half-the-bound · %s takes %d s on Windows, over half of WINDOWS_BOUND_S (%d s): split it" % (t, windows[t], half))
+    for t in sorted(exceptions):
+        if t in windows and windows[t] <= half:
+            out.append("scripts/kit_lint.py · stale-exception · %s is in HALF_BOUND_EXCEPTIONS but takes %d s, not over %d: remove it" % (t, windows[t], half))
+    for name, table in (("CI_SECONDS", seconds), ("CI_WINDOWS_SECONDS", windows)):
+        for t in sorted(table):
+            if t != "mcp_tools" and not (ROOT / "kit/.uak/tests" / (t + ".py")).is_file():
+                out.append("scripts/kit_lint.py · stale-timing · %s has an entry in %s but no test file: remove it" % (t, name))
+    return out
 
 
 def ci_shards(n):
@@ -217,7 +247,7 @@ def _split(tests, n, seconds=None):
 
 # A Windows shard's time is WINDOWS_SETUP_S (checkout and setup, about 15 s) plus the Windows seconds of its files
 # (CI_WINDOWS_SECONDS, measured per file). The bound is 30 minutes, not UAK-128's 25: test_flaky_guard alone took 1496 s,
-# and no split can put it under 25. The longest shard must stay at or under WINDOWS_MARGIN of the bound (25.5 min against
+# and no split can put it under 25 (UAK-150 split it in two files). The longest shard must stay at or under WINDOWS_MARGIN of the bound (25.5 min against
 # the job's 45 minute timeout, which is not raised), so noise does not turn the job red.
 WINDOWS_SETUP_S = 15
 WINDOWS_BOUND_S = 30 * 60

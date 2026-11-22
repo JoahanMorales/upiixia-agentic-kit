@@ -181,9 +181,9 @@ def workflow_runs_once_per_commit(r):
 # UAK-144. Measured on main (the 12 latest runs up to 45037067147 and five before them; the median of each
 # test file's group in the job logs): Windows seconds and macOS seconds. Before, test_flaky_guard had no entry and counted
 # 60 s: it took 1496 s on Windows (shard 5: 34m39s) and about 495 s on macOS (shard 4: 25m31s).
-MEASURED_WINDOWS_S = {"test_flaky_guard": 1500, "test_merge_engine_policy": 905, "test_review_merge": 380, "test_claims_perf": 385,
+MEASURED_WINDOWS_S = {"test_flaky_guard": 165, "test_flaky_guard_race": 1340, "test_merge_engine_policy": 905, "test_review_merge": 380, "test_claims_perf": 385,
                       "test_v51": 374, "test_review_substates": 330, "test_read_cache": 192, "test_hooks_health": 194, "mcp_tools": 104}
-MEASURED_MACOS_S = {"test_flaky_guard": 508, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_review_merge": 93,
+MEASURED_MACOS_S = {"test_flaky_guard": 70, "test_flaky_guard_race": 440, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_review_merge": 93,
                     "test_v51": 73, "test_read_cache": 35, "test_hooks_health": 34}
 
 
@@ -219,6 +219,82 @@ def every_test_file_has_a_timing(r):
     expect("timing_problems(" in src.split("def check_test_discovery", 1)[1].split("def check_structure", 1)[0],
            "check_test_discovery runs timing_problems, so the lint refuses a file with no entry")
     return "%d files, all timed" % len(real)
+
+
+BEFORE_THE_SPLIT = ["picker_reads_the_body_before_403", "mcp_server_exits_when_stdin_closes", "engine_renewer_never_runs_the_owners_cleanup",
+                    "lease_test_uses_the_injected_clock", "twenty_runs_under_load"]
+
+
+def flaky_guard_cases_are_all_kept(r):
+    """UAK-150: test_flaky_guard is two files; every case is in exactly one, none lost, no count lowered, helpers imported."""
+    d = REPO / "kit" / ".uak" / "tests"
+    texts = [(d / n).read_text(encoding="utf-8") for n in ("test_flaky_guard.py", "test_flaky_guard_race.py")]
+    cases = []
+    for t in texts:
+        m = re.search(r"(?m)^TESTS = \[(.*?)\]$", t)
+        expect(m is not None, "a file has no TESTS list")
+        cases.append([x.strip() for x in m.group(1).split(",")])
+    expect(sorted(cases[0] + cases[1]) == sorted(BEFORE_THE_SPLIT), "the two files' cases are the five before the split: %s" % cases)
+    expect(set(cases[0]).isdisjoint(cases[1]), "no case runs twice: %s" % cases)
+    expect(re.search(r"(?m)^RUNS = 20\b", texts[0]) and re.search(r"(?m)^RACE_RUNS = 60\b", texts[0]), "RUNS is 20 and RACE_RUNS 60")
+    expect(not re.search(r"(?m)^(RUNS|RACE_RUNS) =", texts[1]), "the second file imports the counts, it does not copy them")
+    for helper in ("picker_once", "mcp_once", "lease_once", "sh", "expect", "Failure"):
+        expect(not re.search(r"(?m)^def %s\(|^class %s\b" % (helper, helper), texts[1]), "%s is imported, not copied" % helper)
+    expect("from test_flaky_guard import" in texts[1], "the helpers come from test_flaky_guard")
+    out = subprocess.run([sys.executable, str(d / "test_flaky_guard_race.py"), "--case", "no_such_case"], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, universal_newlines=True)
+    expect(out.returncode == 0 and "FLAKY_GUARD_RACE_RESULT PASS" in out.stdout, "the new file imports and runs the way smoke runs it: %s" % out.stdout[-300:])
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    for t in ("test_flaky_guard", "test_flaky_guard_race"):
+        expect(t in lint.CI_SECONDS and t in lint.CI_WINDOWS_SECONDS, "%s has a macOS and a Windows entry" % t)
+    jobs = 1 + 2 * 4 + lint.windows_shard_count()
+    expect(jobs <= 18, "a commit starts %d jobs (discover, 4 shards x 2 OS, Windows shards), over 18" % jobs)
+    return "5 cases in 2 files, %d jobs per commit" % jobs
+
+
+def no_file_over_half_the_bound(r):
+    """UAK-150: a test file over half of WINDOWS_BOUND_S cannot share a shard with anything else: the lint says to split it."""
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    half = lint.WINDOWS_BOUND_S // 2
+    win = dict(lint.CI_WINDOWS_SECONDS, test_ci_shards=half + 1)
+    got = lint.timing_problems(["test_ci_shards"], windows=win)
+    expect(len(got) == 1 and "test_ci_shards" in got[0] and "split" in got[0] and "over-half" in got[0], "a file over half the bound is refused: %s" % got)
+    expect(lint.timing_problems(["test_ci_shards"], windows=dict(lint.CI_WINDOWS_SECONDS, test_ci_shards=half)) == [], "exactly half passes")
+    exc = lint.HALF_BOUND_EXCEPTIONS
+    expect(exc and all(isinstance(why, str) and len(why) > 40 for why in exc.values()), "each exception says why and what follows: %r" % exc)
+    expect(lint.timing_problems(["test_ci_shards"], windows=win, exceptions={"test_ci_shards": "x" * 50}) == [], "a listed exception passes")
+    over = sorted(t for t in lint.ci_tests() if lint.ci_windows_seconds(t) > half)
+    expect(sorted(over) == sorted(exc), "the files over half the bound are exactly the excepted ones: over %s, excepted %s" % (over, sorted(exc)))
+    expect(lint.timing_problems(lint.ci_tests()) == [], "the real tables pass: %s" % lint.timing_problems(lint.ci_tests()))
+    return "limit %d s, %d excepted: %s" % (half, len(exc), ", ".join(sorted(exc)))
+
+
+def stale_timing_entry_is_reported(r):
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    got = lint.timing_problems(["test_ci_shards"], windows=dict(lint.CI_WINDOWS_SECONDS, test_removed_long_ago=50))
+    expect(len(got) == 1 and "test_removed_long_ago" in got[0] and "stale" in got[0] and "CI_WINDOWS_SECONDS" in got[0], "a Windows entry of a missing file is stale: %s" % got)
+    got = lint.timing_problems(["test_ci_shards"], seconds=dict(lint.CI_SECONDS, test_removed_long_ago=50))
+    expect(len(got) == 1 and "stale" in got[0] and "CI_SECONDS" in got[0], "a macOS entry of a missing file is stale: %s" % got)
+    expect(lint.timing_problems(lint.ci_tests()) == [], "the real tables have no stale entry")
+    return "both tables checked against the files on disk"
+
+
+def message_names_both_tables(r):
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    got = lint.timing_problems(["test_added_later"])
+    expect(len(got) == 1 and "CI_SECONDS" in got[0] and "CI_WINDOWS_SECONDS" in got[0], "a file in neither table names both: %s" % got)
+    only = lint.timing_problems(["test_added_later"], seconds=dict(lint.CI_SECONDS, test_added_later=5))
+    only = [x for x in only if "no-timing" in x]
+    expect(len(only) == 1 and "CI_WINDOWS_SECONDS" in only[0] and "no entry in CI_SECONDS" not in only[0], "a file missing from one names that one: %s" % only)
+    return "named: %s" % got[0][:60]
 
 
 def windows_longest_shard_keeps_a_margin(r):
@@ -286,7 +362,7 @@ def an_empty_shard_fails_instead_of_passing(r):
     return "2 guards"
 
 
-TESTS = [tables_match_the_measured_runs, every_test_file_has_a_timing, windows_longest_shard_keeps_a_margin, lint_flags_a_push_trigger_without_a_filter,
+TESTS = [flaky_guard_cases_are_all_kept, no_file_over_half_the_bound, stale_timing_entry_is_reported, message_names_both_tables, tables_match_the_measured_runs, every_test_file_has_a_timing, windows_longest_shard_keeps_a_margin, lint_flags_a_push_trigger_without_a_filter,
          an_empty_shard_fails_instead_of_passing, windows_matrix_is_shards, shards_cover_every_test_file_once, longest_shard_under_the_bound, workflow_runs_once_per_commit,
          shards_cover_every_test_once, smoke_runs_only_its_shard, a_name_that_is_not_a_test_fails_the_shard]
 

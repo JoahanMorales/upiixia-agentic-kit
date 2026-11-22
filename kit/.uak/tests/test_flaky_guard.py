@@ -4,18 +4,17 @@
   picker_reads_the_body_before_403   the design picker reads (a bounded) request body before any early answer
   mcp_server_exits_when_stdin_closes the MCP server leaves within 2 s of its input closing; a teardown that has to kill it fails
   lease_test_uses_the_injected_clock gate_and_lease passes while the machine's own clock reads the far future and 1970
-  twenty_runs_under_load             each of the three passes 20 times in a row beside a CPU hog (about 4 min; skipped
-                                     only when UAK_SMOKE_FAST=1)
+  engine_renewer_never_runs_the_owners_cleanup  a lease renewer killed right after the fork removes nothing (60 runs)
+  (twenty_runs_under_load, 20 runs of each of the three beside a CPU hog, lives in test_flaky_guard_race.py since UAK-150:
+  on Windows it takes about nine tenths of the time of the whole file, so it is the half of its own shard.)
 
 Why (CI of v6.5.0 to v6.7.0): these three failed and passed on a rerun on at least five pushes, and "every run green"
 meant rerunning jobs by hand. Standard library only. Run: python3 kit/.uak/tests/test_flaky_guard.py [--case NAME]."""
 import argparse
-import concurrent.futures
 import os
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -159,31 +158,7 @@ def lease_test_uses_the_injected_clock():
     return "gate_and_lease passes at clock 2100 and 1970 with UAK_NOW on every process"
 
 
-def twenty_runs_under_load():
-    if os.environ.get("UAK_SMOKE_FAST") == "1":
-        return "skipped: UAK_SMOKE_FAST=1"
-    jobs = [("lease", lease_once)] * RUNS + [("mcp", mcp_once)] * RUNS + [("picker", picker_once)] * RUNS
-    if not MCP_TEST.is_file():
-        jobs = [j for j in jobs if j[0] != "mcp"]
-    hogs = [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(max(1, (os.cpu_count() or 2) // 2))]
-    started, failures = time.time(), []
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-            futures = {pool.submit(fn): (i, name) for i, (name, fn) in enumerate(jobs)}
-            for f in concurrent.futures.as_completed(futures):
-                try:
-                    f.result()
-                except Exception as exc:  # noqa: BLE001
-                    failures.append("%s #%d: %s" % (futures[f][1], futures[f][0], str(exc)[:400]))
-    finally:
-        for h in hogs:
-            h.kill()
-            h.wait()
-    expect(not failures, "%d of %d runs failed under load: %s" % (len(failures), len(jobs), " | ".join(failures[:3])))
-    return "%d runs green beside %d CPU hogs in %d s" % (len(jobs), len(hogs), time.time() - started)
-
-
-TESTS = [picker_reads_the_body_before_403, mcp_server_exits_when_stdin_closes, engine_renewer_never_runs_the_owners_cleanup, lease_test_uses_the_injected_clock, twenty_runs_under_load]
+TESTS = [picker_reads_the_body_before_403, mcp_server_exits_when_stdin_closes, engine_renewer_never_runs_the_owners_cleanup, lease_test_uses_the_injected_clock]
 
 
 def main():
