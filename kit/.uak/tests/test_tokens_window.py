@@ -150,8 +150,10 @@ def a_malformed_timestamp_counts_like_a_missing_one(r):
     f, main, cfg = setup(r, "badts")
     raw_session(cfg, main, [("msg_ok", 10, stamp(0.1)), ("msg_bad", 100, "not-a-time"), ("msg_nokey", 1000, None),
                             ("msg_range", 10000, "2026-99-99T99:99:99.000Z"), ("msg_old", 100000, stamp(40))])
-    inside = total(r, f, cfg, "--since", "5")
-    expect(inside == {"HACK-001": 10}, "inside an explicit window only valid stamps count: %s" % inside)
+    probe = r.run([r.bash, ".uak/bin/tokens", "--json", "--since", "5"], cwd=f.clones[0], env=env(f, cfg), allowed=None)
+    inside = {row["key"]: row["output"] for row in json.loads(probe.stdout)}
+    expect(inside == {"HACK-001": 10}, "inside an explicit window only valid stamps count: %s stderr=%s transcript=%s" % (
+        inside, probe.stderr[-600:], (Path(cfg) / "projects").rglob("*.jsonl").__next__().read_text()[:900]))
     plain = total(r, f, cfg)
     expect(plain == {"HACK-001": 11110}, "no --since: bad and missing stamps count, the old one is out of 30 days: %s" % plain)
     return "rule"
