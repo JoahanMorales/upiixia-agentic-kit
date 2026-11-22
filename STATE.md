@@ -1,17 +1,16 @@
 # STATE
 
 Phase: execution
-Updated: 1795364856
+Updated: 1795364873
 AVAILABLE: -
 CLAIMED: UAK-144 
 BLOCKED: -
-REVIEW: UAK-147 
-INTEGRATED: (123; last 12) ... UAK-134 UAK-135 UAK-136 UAK-137 UAK-138 UAK-139 UAK-140 UAK-141 UAK-142 UAK-143 UAK-145 UAK-146 
+REVIEW: -
+INTEGRATED: (124; last 12) ... UAK-135 UAK-136 UAK-137 UAK-138 UAK-139 UAK-140 UAK-141 UAK-142 UAK-143 UAK-145 UAK-146 UAK-147 
 CANCELLED: UAK-002 UAK-005 
 
 Claims (first 24; status --task ID shows detail):
 UAK-144 | CLAIMED | kit-a1 | until 1795352826 (EXPIRED: release --expired --read-summary TOKEN)
-UAK-147 | REVIEW | kit-a4 | until 1795450297
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
