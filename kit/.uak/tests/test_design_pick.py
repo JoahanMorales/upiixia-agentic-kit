@@ -309,6 +309,38 @@ def picker_reads_the_body_before_403(e):
     return "body read, then answered, then a lingering close"
 
 
+def picker_refuses_a_short_body(e):
+    """1000 bytes declared, 60 bytes of valid JSON sent, then a stall: when the request's time is up the pick is refused
+    (400), never saved."""
+    import socket
+    import time
+    d = e.project("short")
+    os.environ["UAK_PICK_REQUEST_SECONDS"] = "2"
+    try:
+        port, _ = e.start(d)
+    finally:
+        del os.environ["UAK_PICK_REQUEST_SECONDS"]
+    try:
+        body = json.dumps({"picked": ["v1"], "notes": {}}).encode("utf-8")
+        s = socket.create_connection(("127.0.0.1", port), timeout=20)
+        try:
+            s.sendall(("POST /save HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n" % port).encode("ascii") + body)
+            data = b""
+            end = time.time() + 15
+            while b"\r\n\r\n" not in data and time.time() < end:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+        finally:
+            s.close()
+        expect(data.startswith(b"HTTP/") and b" 400 " in data.split(b"\r\n", 1)[0], "a short body was answered %r" % data[:40])
+        expect(not (d / ".uak/design/rounds/R1/picks.json").exists(), "a short body was saved")
+    finally:
+        e.stop(d)
+    return "declared 1000, sent %d: 400, nothing saved" % len(json.dumps({"picked": ["v1"], "notes": {}}))
+
+
 def picker_never_shares_a_port(e):
     """Two galleries started together get two ports, and each answers for its own round (on Windows a second bind of a
     served port used to succeed: a save went to the other round's picks.json)."""
@@ -367,7 +399,7 @@ def picker_total_time_is_bounded(e):
     return "a 1 byte/s drip is cut at the request's time"
 
 
-TESTS = [picker_reads_the_body_before_403, picker_total_time_is_bounded, picker_never_shares_a_port, encoded_dotfile_is_refused, cross_origin_save_is_refused, json_content_type_required, pick_page_lists_every_variant, save_writes_picks_json, wrong_count_warns_but_saves, server_binds_local_only]
+TESTS = [picker_reads_the_body_before_403, picker_total_time_is_bounded, picker_never_shares_a_port, picker_refuses_a_short_body, encoded_dotfile_is_refused, cross_origin_save_is_refused, json_content_type_required, pick_page_lists_every_variant, save_writes_picks_json, wrong_count_warns_but_saves, server_binds_local_only]
 
 
 def main():

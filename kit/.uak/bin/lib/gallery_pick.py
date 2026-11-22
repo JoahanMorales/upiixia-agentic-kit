@@ -517,6 +517,8 @@ def make_handler(rnd, k, hosts):
             try:
                 if n > MAX_BODY:
                     return self._json(413, {"ok": False, "error": "too large"})
+                if len(body) != n:  # the client stalled or left: valid JSON that is shorter than it declared is not a save
+                    return self._json(400, {"ok": False, "error": "body shorter than its Content-Length"})
                 data = json.loads(body.decode("utf-8"))
             except (ValueError, UnicodeDecodeError):
                 return self._json(400, {"ok": False, "error": "bad JSON"})
