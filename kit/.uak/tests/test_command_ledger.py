@@ -200,6 +200,8 @@ trap 'printf "own-trap\\n" >> "$PROBE_OUT"' EXIT
 printf '%s %s\\n' "$$" "$PPID" >> "$PROBE_OUT"
 case "${1:-}" in
   loop) sleep 30 & wait $!;;
+  fg) sleep 30;;
+  trapexit) trap 'printf "x6\\n" >> "$PROBE_OUT"; exit 6' EXIT; exit 2;;
   nested) bash .uak/bin/uak status > /dev/null 2>&1;;
   code) exit 7;;
 esac
@@ -234,27 +236,53 @@ def exec_script_keeps_the_callers_process(r):
 
 
 def term_stops_an_exec_script_at_once(r):
-    """UAK-136: TERM on the process stops the script within a second (it is not held by a wrapper or a deferred trap)."""
+    """UAK-136: TERM or HUP stops the script within a second (no wrapper, no deferred trap), and its ledger line never says
+    success: bash runs the EXIT trap with $? 0 after a fatal signal, so a live job in the trap means "outcome not recorded"."""
     import signal
     import subprocess
     import time
     f = r.fixture("ledger-term", count=1)
     w, out = probe(f)
+    common = common_of(r, w)
     env = dict(os.environ, **dict(ENV, PROBE_OUT=str(out)))
-    p = subprocess.Popen([f.r.bash, ".uak/bin/uak", "lgprobe", "loop"], cwd=str(w), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for _ in range(100):
-        if out.exists() and out.read_text(encoding="utf-8").strip():
-            break
-        time.sleep(0.1)
-    t0 = time.time()
-    p.send_signal(signal.SIGTERM)
-    try:
-        p.wait(timeout=5)
-    finally:
-        if p.poll() is None:
-            p.kill()
-    expect(time.time() - t0 < 1.5 and p.returncode != 0, "TERM must stop the script at once: rc %s after %.1f s" % (p.returncode, time.time() - t0))
-    return "TERM stops it"
+    seen = 0
+    for mode in ("loop", "fg"):   # `wait` on a background job, and a foreground command
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            out.write_text("", encoding="utf-8")
+            p = subprocess.Popen([f.r.bash, ".uak/bin/uak", "lgprobe", mode], cwd=str(w), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for _ in range(100):
+                if out.read_text(encoding="utf-8").strip():
+                    break
+                time.sleep(0.1)
+            t0 = time.time()
+            p.send_signal(sig)
+            try:
+                p.wait(timeout=5)
+            finally:
+                if p.poll() is None:
+                    p.kill()
+            expect(time.time() - t0 < 1.5 and p.returncode != 0, "%s/%s must stop the script at once: rc %s after %.1f s" % (mode, sig.name, p.returncode, time.time() - t0))
+            seen += 1
+            got = rows(common)
+            expect(len(got) == seen and got[-1][1] == "lgprobe", "one line per killed script: %r" % got)
+            expect(got[-1][3] != "0", "%s/%s: a script killed by a signal must not be recorded as success: %r" % (mode, sig.name, got[-1]))
+    # A real exit 0 (the script ends by itself) stays 0.
+    ok = f.r.run([f.r.bash, ".uak/bin/uak", "lgprobe", "plain"], cwd=w, allowed=None, env=dict(ENV, PROBE_OUT=str(out)))
+    expect(ok.returncode == 0 and rows(common)[-1][3] == "0", "a normal exit 0 stays 0: %r" % rows(common)[-1])
+    return "signal deaths are never success"
+
+
+def an_exit_in_the_scripts_own_trap_keeps_the_line(r):
+    """UAK-136: a script whose own EXIT trap calls `exit N` still leaves its line (written first, with the code at trap entry)."""
+    f = r.fixture("ledger-trapexit", count=1)
+    w, out = probe(f)
+    common = common_of(r, w)
+    res = f.r.run([f.r.bash, ".uak/bin/uak", "lgprobe", "trapexit"], cwd=w, allowed=None, env=dict(ENV, PROBE_OUT=str(out)))
+    expect(res.returncode == 6, "the script's own exit code must win: %d" % res.returncode)
+    expect("x6" in out.read_text(encoding="utf-8"), "the script's own trap must run")
+    got = rows(common)
+    expect(len(got) == 1 and got[0][1] == "lgprobe" and got[0][3] == "2", "line with the code at trap entry (2): %r" % got)
+    return "ledger line first, then the script's trap"
 
 
 def one_line_when_the_script_calls_uak_again(r):
@@ -271,7 +299,8 @@ def one_line_when_the_script_calls_uak_again(r):
 
 TESTS = [a_command_appends_one_ledger_line, a_failed_command_records_its_code, flush_publishes_and_empties,
          the_file_is_capped_with_counts, a_session_with_no_errors_still_publishes, blackbox_off_writes_nothing, output_and_exit_code_unchanged, exec_commands_record_code_and_ms,
-         exec_script_keeps_the_callers_process, term_stops_an_exec_script_at_once, one_line_when_the_script_calls_uak_again]
+         exec_script_keeps_the_callers_process, term_stops_an_exec_script_at_once, one_line_when_the_script_calls_uak_again,
+         an_exit_in_the_scripts_own_trap_keeps_the_line]
 
 
 def main():

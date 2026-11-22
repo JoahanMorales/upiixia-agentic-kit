@@ -42,8 +42,14 @@ ledger_end() { # EXIT_CODE ["TASK" when the command has not set ID]
 # ledger_owed once at its top, and an EXIT trap writes the line with the real exit code and milliseconds. The script's own EXIT
 # traps are chained through a `trap` function (they all read `trap 'CMD' EXIT`). Not covered, so written at launch with exit and
 # ms "-": wrappers that exec Python themselves (autopsy, design, design-gallery) and `pace set` (re-execs itself). dash, timeline
-# and metrics close the line from Python (lib/ledger_py.py). A signal death writes no line: bash defers a trap while a foreground
-# command runs (measured: TERM waited 4 s for a sleep), so a trap would make the script outlive the signal.
+# and metrics close the line from Python (lib/ledger_py.py).
+# Signals: bash runs the EXIT trap of a script killed by TERM or HUP with $? still 0, and defers a TERM/HUP trap while a foreground
+# command runs (measured: a TERM trap waited 4 s for a `sleep 5`), so the script cannot be made to outlive the signal to learn the
+# code. What a builtin can see in the trap is the child it was waiting for: `kill -0 %1` succeeds there (foreground command,
+# pipeline, subshell, `wait`) and fails after a normal exit. So a 0 with a live job is written as exit "-" (outcome not recorded),
+# never as a success. Residual (documented, not detectable without a process): a signal during a `$(...)` or a builtin loop
+# still reads as 0, and a script that leaves a background job and exits 0 is also "-". A signal death records no code (143 or 129
+# is not knowable here). Python commands killed by a signal write no line.
 ledger_handoff() { # ["TASK"]: the dispatcher, just before `exec bash script`
   unset UAK_LG_OWED
   [ "$LG_ON" = 1 ] || return 0
@@ -63,14 +69,19 @@ ledger_owed() { # an exec'd engine script, once, at its top (before it sets trap
     if [ "$#" -eq 2 ] && { [ "$2" = EXIT ] || [ "$2" = 0 ]; }; then
       case "$1" in
         -|'') builtin trap 'lg_rc=$?; ledger_exit "$lg_rc"' EXIT;;
-        *) builtin trap "lg_rc=\$?; $1
-ledger_exit \"\$lg_rc\"" EXIT;;
+        *) builtin trap "lg_rc=\$?; ledger_exit \"\$lg_rc\"; lg_st \"\$lg_rc\"
+$1" EXIT;;   # the line first (a trap that calls exit still leaves it), then the script's own trap with its $?
       esac
     else builtin trap "$@"; fi
   }
   builtin trap 'lg_rc=$?; ledger_exit "$lg_rc"' EXIT
 }
-ledger_exit() { CMD=$LG_X_CMD AGENT=$LG_X_AG; ledger_end "$1" "$LG_X_TASK"; }
+lg_st() { return "$1"; }   # restores $? for the script's own trap without a process
+ledger_exit() { # EXIT_CODE as the trap saw it
+  local rc=$1
+  [ "$rc" != 0 ] || ! kill -0 %1 2>/dev/null || rc=-   # a job still running: a signal killed the script, not an exit 0
+  CMD=$LG_X_CMD AGENT=$LG_X_AG; ledger_end "$rc" "$LG_X_TASK"
+}
 # Is the oldest pending ledger line more than 10 min old? Bash 5: the first line's epoch against the clock, builtins only
 # (a find per command would cost a process on every call); bash 3.2 or a first line without epoch asks find (the file's age).
 ledger_due() { # DIR
