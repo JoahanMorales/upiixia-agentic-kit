@@ -184,7 +184,7 @@ def _gate_and_lease(r):
     r.g(f.seed, "add", ".uak/PROJECT.md"); r.g(f.seed, "commit", "-m", "Human revokes autonomy"); r.g(f.seed, "push", "origin", "main")
     expected = r.g(f.remote, "rev-parse", "main").stdout.strip()
     revoked = f.hack(0, "merge", "HACK-001", now=1000031, allowed=None)
-    expect(revoked.returncode == 3 and "Autonomy" in revoked.stdout, "Current human autonomy revocation must block merge: rc %s %s %s" % (revoked.returncode, revoked.stdout[-600:], revoked.stderr[-600:]))
+    expect(revoked.returncode == 3 and "Autonomy" in revoked.stdout, "Current human autonomy revocation must block merge")
     expect(r.g(f.remote, "rev-parse", "main").stdout.strip() == expected and "queue/merge-lock.md" not in f.files("."), "Permission rejection must not merge and must release lock")
     config_path.write_text(config_path.read_text(encoding="utf-8").replace("Autonomy: no", "Autonomy: yes").replace("Freeze-Epoch: 9999999", "Freeze-Epoch: 1000032"), encoding="utf-8")
     r.g(f.seed, "add", ".uak/PROJECT.md"); r.g(f.seed, "commit", "-m", "Human schedules freeze"); r.g(f.seed, "push", "origin", "main")
