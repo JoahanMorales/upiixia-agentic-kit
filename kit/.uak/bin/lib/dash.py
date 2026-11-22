@@ -27,6 +27,7 @@ from pathlib import Path
 
 PRESENCE = 1800
 STALL = 5400
+BASE_PROJECT = "base-project.md"  # snapshot() leaves the base branch's PROJECT.md here, inside the claims directory
 
 
 GIT_TIMEOUT = 30  # seconds: an unreachable remote must end in a message, not a hang (audit of v6.5.0, #9)
@@ -102,8 +103,25 @@ def snapshot(root, claims_dir=None):
                 if m.name.startswith("/") or ".." in Path(m.name).parts or not (m.isfile() or m.isdir()):
                     continue
                 t.extract(m, tmp)
-    backlog = git("show", "refs/uak/dash-base:.uak/TASKS.md", cwd=root, check=False).decode("utf-8", "replace")
-    return tmp, backlog
+    # TASKS.md and PROJECT.md of the base branch in one git process (UAK-147: the leases are read from the base's PROJECT.md, as status and board do).
+    names = ["refs/uak/dash-base:.uak/TASKS.md", "refs/uak/dash-base:.uak/PROJECT.md"]
+    try:
+        blob = subprocess.run(["git", "cat-file", "--batch"], cwd=root, input="\n".join(names).encode() + b"\n", capture_output=True, timeout=GIT_TIMEOUT).stdout
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("git cat-file timed out after %d s" % GIT_TIMEOUT) from None
+    texts, pos = [], 0
+    for _ in names:
+        end = blob.find(b"\n", pos)
+        head = blob[pos:end].split() if end >= 0 else []
+        if len(head) == 3 and head[1] == b"blob" and head[2].isdigit():
+            size = int(head[2])
+            texts.append(blob[end + 1:end + 1 + size].decode("utf-8", "replace"))
+            pos = end + 2 + size
+        else:
+            texts.append("")
+            pos = end + 1 if end >= 0 else len(blob)
+    (tmp / BASE_PROJECT).write_text(texts[1], encoding="utf-8")
+    return tmp, texts[0]
 
 
 def backlog_tasks(text):
@@ -210,9 +228,24 @@ def harnesses(c, tid):
     return out
 
 
+def review_lease(project):
+    """The review lease as status.sh review_lease_of: UAK_LEASE_SECONDS, else Lease-Seconds, else 1800; Review-Lease-Seconds, else 4 x the lease."""
+    lease = 0
+    for v in (os.environ.get("UAK_LEASE_SECONDS"), project.get("Lease-Seconds")):
+        n = num(v) if str(v or "").strip().isdigit() else 0
+        lease = lease or n
+        if lease:
+            break
+    lease = lease or 1800
+    v = str(project.get("Review-Lease-Seconds") or "").strip()
+    return int(v) if v.isdigit() and int(v) > 0 else 4 * lease
+
+
 def build(c, backlog_text, repo, root=None):
     now = int(time.time()) if not os.environ.get("UAK_NOW") else int(os.environ["UAK_NOW"])
     cfg = fields(read(c / "meta/config.md"))
+    # The base branch's PROJECT.md (--claims: the checkout's, no fetch): where Lease-Seconds and Review-Lease-Seconds live.
+    project = fields(read(c / BASE_PROJECT) if (c / BASE_PROJECT).exists() else read(Path(root) / ".uak/PROJECT.md") if root else "")
     presence = num(cfg.get("Presence-Seconds"), PRESENCE)
     plan = backlog_tasks(backlog_text + "\n" + read(c / "backlog/TASKS.md"))
     amended = backlog_tasks(read(c / "backlog/AMEND.md"))
@@ -232,7 +265,7 @@ def build(c, backlog_text, repo, root=None):
                  next=r.get("Next", ""), away=num(r.get("Away")), outside=r.get("Integrated-Outside") == "yes",
                  participants=r.get("Participants", ""), harnesses=harnesses(c, tid))
         if t["state"] == "REVIEW":
-            lease_s = num(cfg.get("Review-Lease-Seconds")) or 4 * (num(cfg.get("Lease-Seconds")) or (14400 if cfg.get("Mode") == "marathon" else 2700))
+            lease_s = review_lease(project)
             t["sub"] = review_substate(c, tid, r, now, lease_s)
         if not t.get("paths"):
             t["paths"] = r.get("Paths", "")

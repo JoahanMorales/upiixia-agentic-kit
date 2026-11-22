@@ -335,6 +335,31 @@ def board_reads_the_lease_of_the_config_ref_not_the_checkout(r):
     return str(got)
 
 
+def dash_late_agrees_with_the_over_mark(r):
+    """UAK-147: the dashboard's late flag is the OVER mark of status, board and json, by the same lease rule."""
+    f = setup(r, "rs-dash-lease")
+    got = marks(r, f, T0 + 9000)   # between 7200 s (2 h) and 10800 s (3 h) in a default setup
+    expect(set(got.values()) == {True}, "9000 s in REVIEW is over the default review lease on every surface: %s" % got)
+    got = marks(r, f, T0 + 12000, UAK_LEASE_SECONDS="3600")   # review lease 14400 s
+    expect(set(got.values()) == {False}, "UAK_LEASE_SECONDS=3600: 12000 s is not over on any surface: %s" % got)
+    got = marks(r, f, T0 + 15000, UAK_LEASE_SECONDS="3600")
+    expect(set(got.values()) == {True}, "and 15000 s is: %s" % got)
+    return str(got)
+
+
+def dash_late_agrees_under_marathon_and_explicit_leases(r):
+    f = setup(r, "rs-dash-marathon", Mode="marathon")
+    got = marks(r, f, T0 + 9000)   # Mode: marathon changes no lease default: 1800 s, review 7200 s
+    expect(set(got.values()) == {True}, "marathon: 9000 s is over the review lease on every surface: %s" % got)
+    config(f, Mode="marathon", Lease_Seconds="3600", Review_Lease_Seconds="20000")
+    got = marks(r, f, T0 + 15000)
+    expect(set(got.values()) == {False}, "Review-Lease-Seconds wins on every surface: %s" % got)
+    config(f, Mode="marathon", Lease_Seconds="3600")
+    got = marks(r, f, T0 + 15000)
+    expect(set(got.values()) == {True}, "Lease-Seconds 3600: review lease 14400 s, 15000 s is over: %s" % got)
+    return str(got)
+
+
 def a_tab_in_free_text_keeps_the_record(r):
     f = setup(r, "rs-tab-q")
     config(f, Autonomy="no")
@@ -382,6 +407,7 @@ TESTS = [waits_for_a_reviewer, substate_after_a_reject, substate_after_a_new_tip
          time_in_substate_and_the_lease_mark, status_keeps_its_shape, dashboard_data_groups_by_substate,
          board_prints_the_substate, json_status_has_the_substate, three_surfaces_agree,
          board_and_status_agree_on_the_lease_env, board_reads_the_lease_of_the_config_ref_not_the_checkout,
+         dash_late_agrees_with_the_over_mark, dash_late_agrees_under_marathon_and_explicit_leases,
          a_tab_in_free_text_keeps_the_record, a_tab_in_a_reviewer_name_keeps_the_record]
 
 
