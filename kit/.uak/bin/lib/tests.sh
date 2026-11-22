@@ -89,3 +89,114 @@ tf_red_kind() {
   if [ -n "$line" ]; then printf 'wrong %s\n' "$line"; return 0; fi
   printf 'unknown\n'
 }
+
+# Which test files `smoke --affected` runs for a diff (UAK-129). The same idea as the gate's `Merge-Smoke: affected`
+# (a test file that was changed or names a changed file, by `grep -F`), with a conservative rule on top: only a person or an
+# agent calling smoke by hand uses it. The merge gate never passes --affected and no variable turns it on: the gate's run on
+# the merged result stays the whole suite. Why (audit section 1): the suite took 8-10 min and ran three times per task.
+#   tf_affected_select ROOT CHANGED TESTS
+#     ROOT: the kit root (holds .uak/tests); CHANGED: a file of root-relative paths, one per line (../x is outside ROOT);
+#     TESTS: a file of test file names (test_x.py), one per line.
+# The floor of 3 test files does not count test_smoke_affected.py: it only lists engine file names (UAK-129 review).
+# Prints TAB-separated lines: `ALL<TAB>why` (run everything, and nothing else), or `test_x.py<TAB>why` per chosen file, or
+# `-<TAB>why` for a changed file no test names (a note). A shared engine file, a test helper (test_hack.py, a module another
+# test imports, anything else under .uak/tests), install.sh, a file it cannot classify, or an engine file no test names and
+# the small map below does not know: everything.
+tf_affected_select() {
+  local root=$1 changed=$2 tests=$3 tab f t base mod hits sel='' mapped cmds
+  tab=$(printf '\t')
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    base=${f##*/}; hits=''
+    case "$f" in
+      .uak/tests/test_*.py)
+        t=$base; mod=${t%.py}
+        grep -qx -- "$t" "$tests" || continue   # a deleted test file has nothing to run
+        if [ "$mod" = test_hack ] || (cd "$root/.uak/tests" && grep -lE -- "^[[:space:]]*(import|from)[[:space:]]+$mod([[:space:]]|[.]|,|\$)" $(grep -vx -- "$t" "$tests") 2>/dev/null | grep -q .); then
+          printf 'ALL%s%s is a test helper (another test imports it)\n' "$tab" "$f"; return 0
+        fi
+        sel="$sel$t${tab}changed test file
+"; continue;;
+      .uak/tests/*) printf 'ALL%s%s is under .uak/tests and is not a test file (a helper or data)\n' "$tab" "$f"; return 0;;
+      .uak/bin/lib/core.sh|.uak/bin/lib/tx.sh|.uak/bin/lib/cache.sh|.uak/bin/uak|.uak/bin/uak-coordination|install.sh|../install.sh)
+        printf 'ALL%s%s is shared by every command\n' "$tab" "$f"; return 0;;
+      .uak/bin/lib/*)
+        # A library is tested through the commands that use it, not through its own file name (review of UAK-129: lib/claim.sh
+        # selected 1 of 115 test files and test_coordination, which runs `claim`, was missed). The commands come from the
+        # engine itself: the rows of commands.tsv that name the file, and the scripts in .uak/bin that mention it (one hop
+        # through a python module for lib/*.py). A shell or awk library no row names is shared plumbing: everything.
+        cmds=$(tf_lib_commands "$root" "$base")
+        case "$base" in
+          *.py|*.html) [ -n "$cmds" ] || { printf 'ALL%s%s is a library no command is known to use\n' "$tab" "$f"; return 0; };;
+          *) if ! awk -F'\t' -v f="$base" '$1 !~ /^#/ && $4 == f { n++ } END { exit n ? 0 : 1 }' "$root/.uak/bin/lib/commands.tsv" 2>/dev/null; then
+               printf 'ALL%s%s is shared plumbing: no command of commands.tsv is implemented in it\n' "$tab" "$f"; return 0; fi;;
+        esac
+        mapped=''
+        case "$base" in
+          review-merge.sh) mapped='test_review_merge.py test_merge_affected.py';;
+          smoke-init.sh) mapped='test_smoke_env.py';;
+        esac
+        for t in $mapped; do grep -qx -- "$t" "$tests" && hits="$hits $t"; done
+        hits="$hits $(tf_command_tests "$root" "$tests" $cmds) $(cd "$root/.uak/tests" && grep -lF -e "$base" $(cat "$tests") 2>/dev/null | tr '\n' ' ')"
+        hits=$(printf '%s\n' $hits | LC_ALL=C sort -u)
+        if [ "$(printf '%s\n' $hits | grep -v '^test_smoke_affected.py$' | grep -c .)" -lt 3 ]; then
+          printf 'ALL%s%s: fewer than 3 test files run its commands (%s), too few to trust\n' "$tab" "$f" "$(printf '%s' "$cmds" | tr '\n' ' ' | sed 's/ $//')"; return 0; fi
+        sel="$sel$(printf '%s\n' $hits | sed "s/\$/${tab}runs its commands ($(printf '%s' "$cmds" | tr '\n' ' ' | sed 's/ $//'))/")
+"; continue;;
+      .uak/bin/*)
+        hits=$(cd "$root/.uak/tests" && { grep -lF -e "bin/$base" $(cat "$tests") 2>/dev/null; [ "${#base}" -lt 5 ] || grep -lF -e "$base" $(cat "$tests") 2>/dev/null; } | LC_ALL=C sort -u)
+        if [ "$(printf '%s\n' $hits | grep -v '^test_smoke_affected.py$' | grep -c .)" -lt 3 ]; then   # too few: widen with the tests that run it as a command
+          hits=$(printf '%s\n%s\n' "$hits" "$(tf_command_tests "$root" "$tests" "$base")" | grep . | LC_ALL=C sort -u)
+        fi
+        if [ "$(printf '%s\n' $hits | grep -v '^test_smoke_affected.py$' | grep -c .)" -lt 3 ]; then printf 'ALL%s%s is an engine file fewer than 3 test files name or run\n' "$tab" "$f"; return 0; fi;;
+      .uak/docs/*|.uak/modes/*|.uak/templates/*|.uak/skills/*|.uak/stacks/*|.uak/settings/*|.claude/*|.codex/*|.cursor/*|.gemini/*|.github/*|.githooks/*|docs/*|scripts/*|*.md|\
+../docs/*|../scripts/*|../skills/*|../.claude-plugin/*|../.github/*|../llms.txt|../*.md)
+        hits=$(cd "$root/.uak/tests" && grep -lF -e "$base" $(cat "$tests") 2>/dev/null | LC_ALL=C sort -u)
+        if [ -z "$hits" ]; then sel="$sel-${tab}$f: no test file names it
+"; continue; fi;;
+      *) printf 'ALL%s%s: the kit cannot classify it\n' "$tab" "$f"; return 0;;
+    esac
+    for t in $hits; do sel="$sel$t${tab}names $f
+"; done
+  done < "$changed"
+  printf '%s' "$sel" | LC_ALL=C sort -t "$tab" -u -k1,1
+}
+
+# The commands a library file takes part in: the rows of commands.tsv whose file column is it, and the scripts of .uak/bin
+# (not the dispatcher uak, nor uak-coordination, which source every library) that mention it, one hop through the python
+# modules of lib/ that mention it (design_color.py is reached through design_round.py). One command name per line.
+#   tf_lib_commands ROOT FILE
+tf_lib_commands() {
+  local root=$1 file=$2 seen=" $2 " add m g round names stem
+  for round in 1 2; do
+    add=''
+    for m in $seen; do
+      case "$m" in *.py|*.html) ;; *) continue;; esac
+      stem=${m%.*}; [ "${#stem}" -ge 6 ] || stem=$m   # a python module is imported by its stem
+      for g in $(cd "$root/.uak/bin/lib" && grep -lF -e "$m" -e "$stem" *.py 2>/dev/null); do
+        [ "$g" != "$m" ] || continue
+        case "$seen" in *" $g "*) ;; *) add="$add $g";; esac
+      done
+    done
+    seen="$seen$add "
+  done
+  names=$(for m in $seen; do
+    awk -F'\t' -v f="$m" '$1 !~ /^#/ && $4 == f { print $1 }' "$root/.uak/bin/lib/commands.tsv" 2>/dev/null
+    for g in $(cd "$root/.uak/bin" && grep -slF -e "$m" * 2>/dev/null); do
+      [ -f "$root/.uak/bin/$g" ] || continue
+      if [ "$g" != uak ] && [ "$g" != uak-coordination ] && [ "$g" != smoke ]; then printf '%s\n' "$g"; fi
+    done
+  done | LC_ALL=C sort -u)
+  printf '%s\n' "$names" | grep .
+  return 0
+}
+
+# The test files that run a command: its name as a quoted argument (`"claim"`, 'claim'), after `uak ` or as `bin/NAME`.
+# A short or common name matches many tests: wider is the safe side.
+#   tf_command_tests ROOT TESTS NAME...      prints test file names, one per line
+tf_command_tests() {
+  local root=$1 tests=$2 n; shift 2
+  for n in "$@"; do
+    (cd "$root/.uak/tests" && grep -lF -e "\"$n\"" -e "'$n'" -e "uak $n" -e "bin/$n" $(cat "$tests") 2>/dev/null)
+  done | LC_ALL=C sort -u
+}

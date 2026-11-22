@@ -7,6 +7,7 @@
 # A red on "file not found" says nothing; a red on the wrong result does. Write the test, add the stub (the
 # signature returning a wrong value), see this red, then implement until the same command is green.
 set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$here/lib/tests.sh"
 top=$(git rev-parse --show-toplevel 2>/dev/null) || { printf 'RED_ERROR: run inside the task worktree\n' >&2; exit 2; }
