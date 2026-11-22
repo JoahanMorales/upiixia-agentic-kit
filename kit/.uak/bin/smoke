@@ -209,6 +209,8 @@ for line in sys.stdin:
           if (index(s, "Verify:") == 1) { sub(/^Verify:[[:space:]]*/, "", s); print s; exit } }' "$tf")
       fi
     done
+    # The roadmap of a coordinated repository lives on the claims branch, not in TASKS.md: ask uak, as `uak red` does.
+    if [ -n "$task" ] && [ -z "$verify" ]; then verify=$(bash .uak/bin/uak status --task "$task" 2>/dev/null | sed -n 's/^Verify: //p' | head -n 1); fi
     verify=${verify#\`}; verify=${verify%\`}
     if [ -n "$verify" ]; then
       printf 'Verify (%s): %s\n' "$task" "$verify"
