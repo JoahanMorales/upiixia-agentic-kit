@@ -1328,3 +1328,15 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Acceptance:**
   - A seventh Windows shard: the longest took 23m55s of a 25 min bound; the lint also flags a bare push: with no branches filter
 - **Verify:** `python3 kit/.uak/tests/test_ci_shards.py`
+
+## UAK-142 · The read cache's lock is taken over atomically: clearing a dead holder's lock let two writers into the critical section (15-20 of 1,200 acquisitions with dead locks planted) (follow-up of UAK-130)
+
+- **Type:** follow-up
+- **Priority:** P1
+- **Depends on:** UAK-130
+- **Follow-up of:** UAK-130
+- **Paths:** kit/.uak/bin/lib/cache.sh, kit/.uak/bin/lib/status.sh, kit/.uak/bin/lib/net.sh, kit/.uak/bin/uak-coordination, kit/.uak/tests/test_read_cache.py, kit/.uak/tests/test_claims_perf.py
+- **Freeze-Allowed:** no
+- **Acceptance:**
+  - The read cache's lock is taken over atomically: clearing a dead holder's lock let two writers into the critical section (15-20 of 1,200 acquisitions with dead locks planted)
+- **Verify:** `python3 kit/.uak/tests/test_read_cache.py`
