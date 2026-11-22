@@ -1,0 +1,3 @@
+# ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
+1795305066	status	UAK-131	0	-	2009	kit-a1	claude-code
+1795305130	status	-	0	-	2279	-	claude-code
