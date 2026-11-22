@@ -142,7 +142,9 @@ CI_SECONDS = {
     "test_design_round_taste": 1, "test_design_stage": 1, "test_design_taste": 1, "test_design_taste_cli": 1,
     "test_design_taste_team": 1, "test_freeze_claim": 1, "test_gallery_lint": 1, "test_harvest_discovery": 1,
     "test_landing_skills": 1, "test_mcp_runs_commands": 1, "test_metrics": 1, "test_q_string": 1, "test_smoke_env":
-    1, "mcp_tools": 17
+    1, "mcp_tools": 17,
+    # UAK-131: test_merge_engine_policy, 142 s alone on the same Jetson, divided by 2.5.
+    "test_merge_engine_policy": 57,
 }
 
 

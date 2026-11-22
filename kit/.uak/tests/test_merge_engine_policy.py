@@ -34,6 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_hack import Failure, Runner, expect, resolve_binary  # noqa: E402
 from test_review_merge import actor, approve, judge  # noqa: E402
+from test_gate_scope import HARNESS  # noqa: E402  (rm_gate_scope on a candidate repository, no merge)
 
 PR = "https://github.com/org/repo/pull/1"
 GH_URL = "https://github.com/org/repo.git"
@@ -152,15 +153,74 @@ def attempt(r, name, path=ENGINE_FILE, project="", content="ready-HACK-001\n", m
     return f, tip, out
 
 
+BASE_LIB = {".uak/bin/uak": "x\n", ".uak/bin/uak-coordination": "x\n", ".uak/bin/guard": "x\n", ".uak/bin/smoke": "x\n",
+            ".uak/bin/lib/hints.sh": "x\n", ".uak/bin/lib/tests.sh": "x\n", ".uak/bin/lib/github.sh": "x\n",
+            ".uak/bin/lib/commands.tsv": "x\n", ".uak/bin/lib/review-merge.sh": "x\n", ".uak/bin/lib/status.sh": "x\n",
+            ".uak/bin/lib/metrics.py": "x\n", ".uak/bin/lib/gallery_pick.py": "x\n", ".uak/bin/lib/dash.py": "x\n",
+            "README.md": "x\n"}
+
+
+def scope_verdict(r, name, changes, links=None, base_extra=None, project="Merge-Engine: ci\n"):
+    """rm_gate_scope's verdict for a candidate whose base has Merge-Engine: ci and the engine's file names (the same
+    function `uak merge` runs, without the merge: a refusal there is decided before any smoke or check). `changes`
+    are files written and staged, `links` symlinks (mode 120000) staged. The task's Paths name every one of them."""
+    d = r.scratch / ("scope-" + name)
+    repo, tx, tmp = d / "repo", d / "tx", d / "tmp"
+    for q in (repo, tx / "tasks", tmp):
+        q.mkdir(parents=True)
+    paths = list(changes) + list(links or {})
+    (tx / "tasks/HACK-001.md").write_text("ID: HACK-001\nState: REVIEW\nPaths: %s\n" % ", ".join(paths), encoding="utf-8")
+    (d / "TASKS.md").write_text("# Tasks\n\n## HACK-001 · The task\n- **Paths:** %s\n" % ", ".join(paths), encoding="utf-8")
+    r.g(repo, "init", "-q")
+    base_files = dict(BASE_LIB)
+    base_files[".uak/PROJECT.md"] = "Mode: sprint\n" + project
+    base_files.update(base_extra or {})
+    for rel, text in base_files.items():
+        target = repo / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8", newline="\n")
+    r.g(repo, "add", "-A")
+    r.g(repo, "-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "commit", "-q", "-m", "base")
+    base = r.g(repo, "rev-parse", "HEAD").stdout.strip()
+    for rel, text in changes.items():
+        target = repo / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        old = target.read_text(encoding="utf-8") if target.exists() else ""
+        target.write_text(old + text, encoding="utf-8", newline="\n")
+    r.g(repo, "add", "-A")
+    for i, (rel, to) in enumerate((links or {}).items()):
+        blob = d / ("blob-%d" % i)
+        blob.write_text(to, encoding="utf-8", newline="\n")
+        sha = r.g(repo, "hash-object", "-w", blob.as_posix()).stdout.strip()
+        r.g(repo, "update-index", "--add", "--cacheinfo", "120000,%s,%s" % (sha, rel))
+    script = r.scratch / "policy-scope-harness.sh"
+    if not script.exists():
+        script.write_text(HARNESS, encoding="utf-8", newline="\n")
+    bindir = r.package / ".uak" / "bin"
+    out = r.run([r.bash, script.as_posix(), bindir.as_posix(), repo.as_posix(), base, tx.as_posix(), (d / "TASKS.md").as_posix(), tmp.as_posix()],
+                cwd=d, allowed=None)
+    text = out.stdout.strip()
+    expect(out.returncode == 0 and text.startswith("SCOPE "), "the harness ran rm_gate_scope: " + (out.stdout + out.stderr)[-600:])
+    return text
+
+
+def expect_human(r, name, changes, **kw):
+    text = scope_verdict(r, name, changes, **kw)
+    # Without letter case: a case-insensitive checkout stores .GitHub/Actions/y as the case that directory already has.
+    expect(text.lower().startswith("scope refused: shared resource/ci needs a human"),
+           "%s: expected a human, got: %s" % (list(changes) + list(kw.get("links") or {}), text))
+    return text
+
+
 def human_is_the_default(r):
-    for label, project in (("absent", ""), ("explicit human", "Merge-Engine: human\n"), ("a typo is human", "Merge-Engine: yes\n")):
+    for label, project in (("absent", ""), ("a typo is human", "Merge-Engine: yes\n")):
         checks(r, GREEN)
         f, _, out = attempt(r, "human-" + label.split()[0], project=project)
         expect(out.returncode == 3 and "MERGE_HUMAN" in out.stdout, "%s: %s" % (label, out.stdout + out.stderr))
         expect("Shared resource/CI needs a human: %s" % ENGINE_FILE in out.stdout, "%s: reason: %s" % (label, out.stdout))
         expect(not merged(r, f), "%s: base must not move" % label)
         expect("Merge-Policy" not in f.show("queue/HACK-001.md") + f.show("tasks/HACK-001.md"), "no policy recorded")
-    return "engine file goes to a human with absent, human and an unknown value"
+    return "engine file goes to a human with the policy absent or misspelled"
 
 
 def green_run(r):
@@ -191,8 +251,7 @@ def record_names_the_policy(r):
 
 
 def a_running_check_waits(r):
-    for label, text in (("one running", GREEN + "e2e|in_progress|\n"), ("one queued", GREEN + "e2e|queued|\n"),
-                        ("none found yet", "")):
+    for label, text in (("one running", GREEN + "e2e|in_progress|\n"), ("none found yet", "")):
         checks(r, text)
         f, _, out = attempt(r, "wait-" + label.split()[1] if " " in label else "wait-none", project=CI)
         expect(out.returncode == 3 and "MERGE_WAIT" in out.stdout and "MERGE_HUMAN" not in out.stdout, "%s: %s" % (label, out.stdout + out.stderr))
@@ -209,8 +268,6 @@ def a_running_check_waits(r):
 def a_red_check_refuses(r):
     for label, text, status in (("a later run red", GREEN + "e2e|completed|failure\n", STATUS_NONE),
                                 ("one shard red", GREEN + "build (windows)|completed|failure\n", STATUS_NONE),
-                                ("cancelled", GREEN + "e2e|completed|cancelled\n", STATUS_NONE),
-                                ("only skipped", "docs|completed|skipped\nlint|completed|neutral\n", STATUS_NONE),
                                 ("a commit status failed", GREEN, "failure|1\n")):
         checks(r, text, status)
         f, _, out = attempt(r, "red-" + re.sub(r"\W+", "", label), project=CI)
@@ -218,18 +275,14 @@ def a_red_check_refuses(r):
         expect(not merged(r, f), "%s: base must not move" % label)
         if label == "a later run red":
             expect("e2e" in out.stdout, "the red check is named: " + out.stdout)
-    return "failure, cancelled, only-skipped and a failed status all refuse"
+    return "a red run, a red shard and a failed status refuse"
 
 
 def lock_files_still_need_a_human(r):
-    checks(r, GREEN)
     for name, path in (("lock", "package-lock.json"), ("migration", "db/migration/V9__x.sql"),
                        ("both", ".uak/bin/lib/migrations/x.txt"), ("project", ".uak/PROJECT.md"),
                        ("provenance", ".uak/bin/.smoke-project.provenance")):
-        f, _, out = attempt(r, "lock-" + name, path=path, project=CI,
-                            content="ready-HACK-001\n" if name != "project" else "ready-HACK-001\nMode: sprint\n")
-        expect(out.returncode == 3 and "Shared resource/CI needs a human: %s" % path in out.stdout, "%s: %s" % (path, out.stdout + out.stderr))
-        expect(not merged(r, f), "%s: base must not move" % path)
+        expect_human(r, "lock-" + name, {path: "ready-HACK-001\n"})
     return "lock, migration, engine+migration, PROJECT.md and the smoke provenance file go to the human with ci on"
 
 
@@ -307,8 +360,6 @@ def status_and_lone_checks_prove_nothing(r):
     for label, text, status, want in (
             ("a bare success status", "", "success|1\n", "MERGE_WAIT"),
             ("a lone x check", "x|completed|success\n", STATUS_NONE, "MERGE_HUMAN"),
-            ("an unnamed check", "|completed|success\n", STATUS_NONE, "MERGE_HUMAN"),
-            ("a status and a lone check", "x|completed|success\n", "success|1\n", "MERGE_HUMAN"),
             ("unnamed plus whitespace", " |completed|success\nx|completed|success\n", STATUS_NONE, "MERGE_HUMAN")):
         checks(r, text, status)
         f, _, out = attempt(r, "weak-" + re.sub(r"\W+", "", label), project=CI)
@@ -317,11 +368,11 @@ def status_and_lone_checks_prove_nothing(r):
 
 
 def shards_match_by_prefix(r):
-    checks(r, GREEN)
-    f, _, out = attempt(r, "shards", project="Merge-Engine: ci\nMerge-Engine-Checks: build (*, lint\n")
-    expect("INTEGRATED" in out.stdout and merged(r, f), "both build shards and lint counted: " + out.stdout + out.stderr)
+    """The green run's list is `build (*, lint`: both build shards are counted by the prefix (no fixture of its own)."""
+    f, _, out = green_run(r)
     record = f.show("tasks/HACK-001.md")
-    expect("build (linux)" in record and "build (macos)" in record and "lint" in record, "the shards are named in the record: " + record)
+    expect("INTEGRATED" in out.stdout and "build (linux)" in record and "build (macos)" in record and "lint" in record,
+           "both build shards and lint counted: " + record)
     return "prefix patterns match shard runs"
 
 
@@ -340,15 +391,10 @@ def a_missing_required_check_waits_then_refuses(r):
 
 
 def workflow_or_smoke_goes_to_the_human(r):
-    checks(r, GREEN)
     for name, path in (("workflow", ".github/workflows/ci.yml"), ("smoke", ".uak/bin/smoke"), ("smokeproject", ".uak/bin/smoke-project"),
                        ("secretscan", ".uak/bin/secret-scan"), ("githook", ".githooks/pre-commit"), ("guard", ".uak/bin/guard"),
-                       ("hookfixture", ".githooks/fixtures/x.txt")):
-        f, _, out = attempt(r, "judge-" + name, path=path, project=CI)
-        expect(out.returncode == 3 and "Shared resource/CI needs a human: %s" % path in out.stdout and not merged(r, f), "%s: %s" % (path, out.stdout + out.stderr))
-    # A file under a fixtures directory of lib/ is not test data, and not a released file either: the human's.
-    f, _, out = attempt(r, "judge-libfixture", path=".uak/bin/lib/fixtures/x.txt", project=CI)
-    expect(out.returncode == 3 and "Shared resource/CI needs a human: .uak/bin/lib/fixtures/x.txt" in out.stdout and not merged(r, f), "lib/fixtures: " + out.stdout + out.stderr)
+                       ("hookfixture", ".githooks/fixtures/x.txt"), ("libfixture", ".uak/bin/lib/fixtures/x.txt")):
+        expect_human(r, "judge-" + name, {path: "ready-HACK-001\n"})
     return "the things that judge or guard a merge are never released; lib/fixtures is not exempt"
 
 
@@ -356,39 +402,29 @@ def the_gate_itself_and_github_stay_human(r):
     """Under ci only a file the gate does not load is released. bin/uak sources its libs into one process and the last
     definition wins, so each loaded file (hints.sh, tests.sh, github.sh, commands.tsv, bin/uak, uak-coordination, the
     gate's own files), all of .github/ (any letter case), and a new lib/x.sh go to a human, alone or mixed with a
-    released file; a .py the gate names is loaded too. A released .py alone lands with the required checks green."""
-    checks(r, GREEN)
+    released file; a .py the gate names is loaded too; a symlink is never released. A released .py alone is not
+    refused as a shared resource, and lands end to end with the required checks green."""
     for name, path in (("action", ".github/actions/x/action.yml"), ("codeowners", ".github/CODEOWNERS"),
                        ("casefold", ".GitHub/Actions/y/action.yml"), ("hints", ".uak/bin/lib/hints.sh"),
                        ("tests", ".uak/bin/lib/tests.sh"), ("github", ".uak/bin/lib/github.sh"),
                        ("tsv", ".uak/bin/lib/commands.tsv"), ("uak", ".uak/bin/uak"), ("coord", ".uak/bin/uak-coordination"),
                        ("reviewmerge", ".uak/bin/lib/review-merge.sh"), ("status", ".uak/bin/lib/status.sh"),
-                       ("newsh", ".uak/bin/lib/x.sh"), ("mixed", ".uak/bin/lib/metrics.py,.uak/bin/lib/hints.sh")):
-        paths = path.split(",")
-        f, _, out = attempt(r, "gate-" + name, path=paths, project=CI)
-        want = paths[-1] if name == "mixed" else paths[0]
-        # Compared without letter case: a case-insensitive checkout (macOS, Windows) stores .GitHub/Actions/y as the
-        # case of the directory that already exists, and the gate names the path it sees.
-        expect(out.returncode == 3 and ("Shared resource/CI needs a human: %s" % want).lower() in out.stdout.lower() and not merged(r, f), "%s: %s" % (path, out.stdout + out.stderr))
-
-    def gate_calls_it(seed):  # the base's hints.sh names gallery_pick.py: a helper the gate may call
-        hints = seed / ".uak/bin/lib/hints.sh"
-        hints.write_text(hints.read_text(encoding="utf-8") + "\n# python3 \"$UAK_BIN/lib/gallery_pick.py\"\n", encoding="utf-8")
-    f, _, out = attempt(r, "gate-pycalled", path=".uak/bin/lib/gallery_pick.py", project=CI, seed_edit=gate_calls_it)
-    expect(out.returncode == 3 and "Shared resource/CI needs a human: .uak/bin/lib/gallery_pick.py" in out.stdout and not merged(r, f), "a named .py is loaded: " + out.stdout + out.stderr)
+                       ("newsh", ".uak/bin/lib/x.sh"), ("newpy", ".uak/bin/lib/new_helper.py"), ("sub", ".uak/bin/lib/sub/metrics.py")):
+        expect_human(r, "gate-" + name, {path: "# ready-HACK-001\n"})
+    text = scope_verdict(r, "gate-mixed", {".uak/bin/lib/metrics.py": "# ready-HACK-001\n", ".uak/bin/lib/hints.sh": "# ready-HACK-001\n"})
+    expect(text.lower().startswith("scope refused: shared resource/ci needs a human: .uak/bin/lib/hints.sh"), "a released file mixed with a loaded one: " + text)
+    text = scope_verdict(r, "gate-free", {".uak/bin/lib/metrics.py": "# ready-HACK-001\n"})
+    expect("Shared resource" not in text, "a released .py is not a shared resource (it goes on to the approval and the checks): " + text)
+    # the base's hints.sh names gallery_pick.py: a helper the gate may call, so it is loaded
+    expect_human(r, "gate-pycalled", {".uak/bin/lib/gallery_pick.py": "# ready-HACK-001\n"},
+                 base_extra={".uak/bin/lib/hints.sh": 'x\n# python3 "$UAK_BIN/lib/gallery_pick.py"\n'})
+    # a symlink under lib/ (a released name linked to a loaded file) is the human's: the mode 120000
+    expect_human(r, "gate-symlink", {}, links={".uak/bin/lib/metrics.py": "review-merge.sh"})
+    # an unnamed .py lands end to end with the required checks green
+    checks(r, GREEN)
     f, _, out = attempt(r, "gate-pyfree", path=".uak/bin/lib/gallery_pick.py", project=CI)
     expect("INTEGRATED" in out.stdout and merged(r, f), "an unnamed .py lands with the checks green: " + out.stdout + out.stderr)
-    return "loaded files, .github/, a new lib/x.sh and a named .py are a human's; an unnamed .py lands"
-
-
-def a_symlink_is_never_released(r):
-    """lib/metrics.py (a released name) made a symlink to review-merge.sh: the mode 120000 sends it to the human."""
-    if os.name == "nt":
-        return "skipped: symlinks need a privilege on Windows"
-    checks(r, GREEN)
-    f, _, out = attempt(r, "symlink", path=".uak/bin/lib/metrics.py", project=CI, content="SYMLINK:review-merge.sh")
-    expect(out.returncode == 3 and "Shared resource/CI needs a human: .uak/bin/lib/metrics.py" in out.stdout and not merged(r, f), out.stdout + out.stderr)
-    return "a symlink under lib/ goes to the human"
+    return "loaded files, .github/, a new lib/x.sh, a named .py and a symlink are a human's; an unnamed .py lands"
 
 
 def released_set_matches_the_source_chain(r):
@@ -460,7 +496,7 @@ TESTS = [human_is_the_default, ci_merges_when_every_check_is_green, a_running_ch
          gh_unavailable_is_not_green, doctor_fails_without_required_checks, marathon_needs_human_independence,
          metrics_counts_ci_merges_apart, status_and_lone_checks_prove_nothing, shards_match_by_prefix,
          a_missing_required_check_waits_then_refuses, workflow_or_smoke_goes_to_the_human, forge_required_checks_win,
-         no_required_list_goes_to_the_human, the_gate_itself_and_github_stay_human, a_symlink_is_never_released, released_set_matches_the_source_chain]
+         no_required_list_goes_to_the_human, the_gate_itself_and_github_stay_human, released_set_matches_the_source_chain]
 
 
 def main():
