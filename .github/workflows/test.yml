@@ -90,7 +90,7 @@ jobs:
   windows:
     # Git Bash, a CRLF checkout (core.autocrlf=true, as on a new Windows machine) and the MCP server started the way
     # Claude Code starts it. Shards from the discover job (kit_lint.py --ci-windows): the Windows runner is slow at
-    # forking, so the count is the smallest that keeps the longest shard under 25 minutes. The MCP tools of tests/ are in
+    # forking, so the count is the smallest that keeps the longest shard within its margin of 30 minutes. The MCP tools of tests/ are in
     # a shard as `mcp_tools`.
     needs: discover
     name: windows (${{ matrix.w.n }})
@@ -99,7 +99,7 @@ jobs:
       matrix:
         w: ${{ fromJSON(needs.discover.outputs.wshards) }}
     runs-on: windows-latest
-    timeout-minutes: 45   # the bound is 25 minutes of tests; a hang fails here
+    timeout-minutes: 45   # the bound is 30 minutes of tests (kit_lint.py); a hang fails here
     defaults:
       run:
         shell: bash

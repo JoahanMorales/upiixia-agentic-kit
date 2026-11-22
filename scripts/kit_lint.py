@@ -111,45 +111,90 @@ def ci_tests():
     return sorted(t.stem for t in (ROOT / "kit/.uak/tests").glob("test_*.py")) + ["mcp_tools"]
 
 
-# Seconds each test file took in the macOS suite (run 42310349789 on 4854882, Nov 2026), the slowest CI runner for the
-# sequential suite; later files are estimated (see below). Only the balance of the shards depends on them: a file not listed counts 60 s and still runs.
+# Seconds each test file took on the CI runners, the median of its group in the job logs of five runs on main
+# (45001302339 and four before it, 2026-11-22; UAK-144). Two tables because the platforms disagree by file: test_design_pick
+# takes 285 s on macOS and 7 to 21 s on Windows, test_flaky_guard 495 s and 1496 s. CI_SECONDS is the macOS time and
+# balances the Linux and macOS shards; CI_WINDOWS_SECONDS is the Windows time (mcp_tools is tests/test_mcp_tools.py).
+# The lint refuses a test file with no entry in both (timing_problems): UAK-141's table had none for test_flaky_guard, it
+# counted the default 60 s and ran 25 min on Windows and 8 min on macOS. To measure again, take each file's group time
+# (from its ::group:: line to its ::endgroup:: line) in `gh run view RUN --log --job JOB` of recent runs on main.
 CI_SECONDS = {
-    "test_review_merge": 84, "test_v54": 75, "test_claims_perf": 75, "test_v57": 59, "test_next_prefilter": 58,
-    "test_hack": 55, "test_v51": 54, "test_v5": 53, "test_v55": 45, "test_v42": 40, "test_coordination": 38,
-    "test_v43": 37, "test_v3": 35, "test_v41": 29, "test_v571": 25, "test_hook_claims": 25, "test_v53": 20,
-    "test_v21_security": 19, "test_claims_read": 19, "test_v52": 18, "test_ci_shards": 15, "test_v59": 14,
-    "test_v57_tools": 13, "test_v511": 11, "test_v510": 11, "test_v58": 9, "test_claims_cache": 9, "test_v591": 7,
-    "test_v57_install": 6, "test_v592": 5, "test_snapshot": 2, "test_gate_scope": 2, "test_policy": 1,
-    # UAK-128: the files added since, timed on a Jetson (aarch64) running 3 at a time, divided by 2.5 (the ratio of its
-    # test_review_merge, 212 s, to the macOS 84 s above); mcp_tools is tests/test_mcp_tools.py (42 s there).
-    "test_integrate_unreviewed": 55, "test_pre_push": 43, "test_review_substates": 28, "test_skills_windows_clone":
-    23, "test_one_live_renew": 19, "test_wt_refused_identity": 15, "test_design_perf": 13, "test_command_ledger":
-    12, "test_merge_affected": 12, "test_plan_amend_overlap": 12, "test_review_unseen_approval": 12,
-    "test_design_breed_notes": 11, "test_direct_main": 11, "test_merge_renewer_orphan": 11, "test_tokens_coverage":
-    11, "test_design_density": 9, "test_integrate_on_main": 9, "test_tokens_elsewhere": 9, "test_integrate_outside":
-    8, "test_plan_check": 8, "test_task_participants": 8, "test_ui_shot_names": 8, "test_reviewer_next": 7,
-    "test_wt_resume_claim": 7, "test_bb_flush_no_hooks": 6, "test_manual_notes": 6, "test_smoke_parallel": 6,
-    "test_status_planned": 6, "test_external_skills": 5, "test_critic_stale_ui_only": 4, "test_design_breed": 4,
-    "test_design_color": 4, "test_design_shoot_full": 4, "test_design_shoot_qa": 4, "test_harness_commands": 4,
-    "test_plan_owners": 4, "test_review_identity": 4, "test_cursor_skills_keep": 3, "test_design_breed_rules": 3,
-    "test_design_shoot_timeout": 3, "test_doctor_skills_compare": 3, "test_gitleaks_exception": 3,
-    "test_lint_paths_hint": 3, "test_temp_and_timeouts": 3, "test_cli_spelling_hints": 2, "test_design_aspect": 2,
-    "test_design_breed_twins": 2, "test_design_creativity": 2, "test_design_creativity_inherit": 2,
-    "test_design_metrics": 2, "test_design_pick": 2, "test_git_identity_msg": 2, "test_guard_substitution": 2,
-    "test_task_timeline": 2, "test_autopsy": 1, "test_banner_version": 1, "test_ci_web_deps": 1,
-    "test_design_brief_real": 1, "test_design_fonts": 1, "test_design_ground": 1, "test_design_lint_html": 1,
-    "test_design_lint_scale": 1, "test_design_lock_round": 1, "test_design_prior": 1, "test_design_round": 1,
-    "test_design_round_taste": 1, "test_design_stage": 1, "test_design_taste": 1, "test_design_taste_cli": 1,
-    "test_design_taste_team": 1, "test_freeze_claim": 1, "test_gallery_lint": 1, "test_harvest_discovery": 1,
-    "test_landing_skills": 1, "test_mcp_runs_commands": 1, "test_metrics": 1, "test_q_string": 1, "test_smoke_env":
-    1, "mcp_tools": 17,
-    # UAK-131: test_merge_engine_policy, 142 s alone on the same Jetson, divided by 2.5.
-    "test_merge_engine_policy": 57,
+    "test_flaky_guard": 496, "test_design_pick": 286, "test_merge_engine_policy": 163, "test_review_merge": 91,
+    "test_design_taste_cli": 72, "test_v51": 67, "test_claims_perf": 65, "test_v54": 65, "test_merge_commit_field":
+    63, "test_v5": 62, "test_v57": 60, "test_integrate_unreviewed": 59, "test_smoke_affected": 55,
+    "test_design_shoot_full": 45, "test_hack": 45, "test_design_shoot_qa": 44, "test_command_ledger": 42,
+    "test_review_substates": 41, "test_coordination": 40, "test_design_color": 40, "test_v42": 40, "test_v43": 39,
+    "test_design_taste_team": 37, "test_read_cache": 37, "test_v55": 34, "test_pre_push": 32, "test_design_perf":
+    31, "test_merge_renewer_orphan": 30, "test_tokens_coverage": 27, "test_v3": 26, "test_v571": 26, "test_v41": 25,
+    "test_direct_main": 23, "test_design_density": 22, "test_integrate_outside": 22, "test_demo": 21,
+    "test_merge_affected": 21, "test_integrate_on_main": 19, "test_bb_flush_no_hooks": 18, "test_v53": 18,
+    "mcp_tools": 17, "test_install_light": 17, "test_one_live_renew": 16, "test_v57_tools": 15,
+    "test_wt_refused_identity": 15, "test_claims_read": 14, "test_external_skills": 14, "test_skills_windows_clone":
+    14, "test_tokens_elsewhere": 14, "test_tokens_window": 14, "test_v510": 14, "test_v52": 14,
+    "test_design_breed_notes": 13, "test_manual_notes": 13, "test_review_unseen_approval": 13, "test_v511": 13,
+    "test_hook_claims": 12, "test_reviewer_next": 12, "test_v21_security": 12, "test_task_participants": 11,
+    "test_v59": 11, "test_critic_stale_ui_only": 10, "test_doctor_skills_compare": 10, "test_plan_amend_overlap":
+    10, "test_cursor_skills_keep": 9, "test_design_shoot_timeout": 9, "test_gitleaks_exception": 9,
+    "test_next_prefilter": 9, "test_smoke_parallel": 9, "test_claims_cache": 8, "test_plan_check": 8,
+    "test_ui_shot_names": 8, "test_v58": 8, "test_cli_spelling_hints": 7, "test_plan_owners": 7,
+    "test_review_identity": 7, "test_status_planned": 7, "test_wt_resume_claim": 7, "test_design_aspect": 6,
+    "test_lint_paths_hint": 6, "test_v57_install": 6, "test_v591": 6, "test_ci_shards": 5, "test_design_breed": 5,
+    "test_design_breed_rules": 5, "test_design_creativity": 5, "test_harness_commands": 5, "test_temp_and_timeouts":
+    5, "test_autopsy": 4, "test_design_metrics": 4, "test_git_identity_msg": 4, "test_guard_substitution": 4,
+    "test_v592": 4, "test_design_breed_twins": 3, "test_design_lint_scale": 3, "test_gate_scope": 3, "test_metrics":
+    3, "test_design_creativity_inherit": 2, "test_design_fonts": 2, "test_design_ground": 2, "test_design_prior": 2,
+    "test_design_round": 2, "test_design_round_taste": 2, "test_design_taste": 2, "test_freeze_claim": 2,
+    "test_snapshot": 2, "test_task_timeline": 2, "test_banner_version": 1, "test_ci_web_deps": 1,
+    "test_design_brief_real": 1, "test_design_lint_html": 1, "test_design_lock_round": 1, "test_design_stage": 1,
+    "test_gallery_lint": 1, "test_harvest_discovery": 1, "test_landing_skills": 1, "test_mcp_runs_commands": 1,
+    "test_policy": 1, "test_q_string": 1, "test_smoke_env": 1
+}
+CI_WINDOWS_SECONDS = {
+    "test_flaky_guard": 1496, "test_merge_engine_policy": 606, "test_review_merge": 405,
+    "test_integrate_unreviewed": 403, "test_claims_perf": 375, "test_v51": 338, "test_v57": 299, "test_pre_push":
+    226, "test_hack": 209, "test_v42": 205, "test_v5": 204, "test_review_substates": 202, "test_smoke_affected":
+    194, "test_coordination": 192, "test_read_cache": 191, "test_v55": 185, "test_v43": 184, "test_v54": 183,
+    "test_v3": 160, "test_command_ledger": 157, "test_integrate_outside": 147, "test_integrate_on_main": 144,
+    "test_v41": 134, "test_direct_main": 127, "test_v53": 127, "test_skills_windows_clone": 123,
+    "test_merge_affected": 117, "test_external_skills": 109, "test_v571": 108, "test_v510": 103, "mcp_tools": 100,
+    "test_manual_notes": 100, "test_merge_commit_field": 100, "test_install_light": 96, "test_one_live_renew": 93,
+    "test_v52": 90, "test_wt_refused_identity": 86, "test_demo": 84, "test_claims_read": 82, "test_tokens_window":
+    82, "test_v21_security": 82, "test_v511": 81, "test_tokens_coverage": 73, "test_merge_renewer_orphan": 71,
+    "test_plan_check": 70, "test_tokens_elsewhere": 69, "test_plan_amend_overlap": 66, "test_next_prefilter": 62,
+    "test_task_participants": 62, "test_v57_tools": 61, "test_cursor_skills_keep": 60,
+    "test_review_unseen_approval": 60, "test_v59": 60, "test_hook_claims": 59, "test_wt_resume_claim": 57,
+    "test_claims_cache": 56, "test_critic_stale_ui_only": 52, "test_doctor_skills_compare": 52, "test_plan_owners":
+    51, "test_status_planned": 48, "test_bb_flush_no_hooks": 47, "test_reviewer_next": 47, "test_v58": 46,
+    "test_ui_shot_names": 45, "test_lint_paths_hint": 44, "test_v591": 44, "test_gitleaks_exception": 42,
+    "test_v57_install": 40, "test_cli_spelling_hints": 39, "test_review_identity": 37, "test_design_perf": 31,
+    "test_harness_commands": 31, "test_git_identity_msg": 30, "test_v592": 29, "test_smoke_parallel": 24,
+    "test_design_density": 22, "test_guard_substitution": 21, "test_temp_and_timeouts": 20, "test_ci_shards": 19,
+    "test_design_breed_notes": 16, "test_design_lint_scale": 13, "test_snapshot": 13, "test_design_shoot_full": 12,
+    "test_design_shoot_qa": 11, "test_gate_scope": 10, "test_design_creativity": 9, "test_design_breed": 8,
+    "test_design_breed_rules": 8, "test_design_color": 8, "test_design_shoot_timeout": 8, "test_freeze_claim": 8,
+    "test_design_metrics": 7, "test_design_pick": 7, "test_autopsy": 6, "test_design_aspect": 6,
+    "test_design_breed_twins": 4, "test_design_creativity_inherit": 4, "test_design_ground": 4,
+    "test_design_lint_html": 4, "test_design_round": 4, "test_metrics": 4, "test_design_fonts": 3,
+    "test_design_taste_cli": 3, "test_banner_version": 2, "test_ci_web_deps": 2, "test_design_round_taste": 2,
+    "test_design_taste_team": 2, "test_q_string": 2, "test_smoke_env": 2, "test_task_timeline": 2,
+    "test_design_brief_real": 1, "test_design_lock_round": 1, "test_design_prior": 1, "test_design_stage": 1,
+    "test_design_taste": 1, "test_gallery_lint": 1, "test_harvest_discovery": 1, "test_landing_skills": 1,
+    "test_mcp_runs_commands": 1, "test_policy": 1
 }
 
 
 def ci_seconds(test):
     return CI_SECONDS.get(test, 60)
+
+
+def ci_windows_seconds(test):
+    return CI_WINDOWS_SECONDS.get(test, ci_seconds(test) * 5)
+
+
+def timing_problems(tests):
+    """One finding per test file (or mcp_tools) missing from CI_SECONDS or CI_WINDOWS_SECONDS: the default hid a 25 minute file."""
+    return ["scripts/kit_lint.py · no-timing · %s has no entry in %s: measure it (see the comment above CI_SECONDS)" % (t, "CI_SECONDS" if t not in CI_SECONDS else "CI_WINDOWS_SECONDS")
+            for t in tests if t not in CI_SECONDS or t not in CI_WINDOWS_SECONDS]
 
 
 def ci_shards(n):
@@ -158,25 +203,22 @@ def ci_shards(n):
     return _split([t for t in ci_tests() if t != "mcp_tools"], n)
 
 
-def _split(tests, n):
+def _split(tests, n, seconds=None):
+    seconds = seconds or ci_seconds
     load, picked = [0] * n, [[] for _ in range(n)]
-    for t in sorted(tests, key=lambda x: (-ci_seconds(x), x)):
+    for t in sorted(tests, key=lambda x: (-seconds(x), x)):
         i = min(range(n), key=lambda k: (load[k], k))
-        load[i] += ci_seconds(t)
+        load[i] += seconds(t)
         picked[i].append(t)
     return [{"n": i + 1, "tests": " ".join(sorted(picked[i]))} for i in range(n)]
 
 
-# Windows is slower at forking than the macOS runner the table was measured on. Calibrated on real runs (UAK-141), not
-# guessed: on main, run 44953858464 (6 shards of about 255 macOS seconds each) took 1558 1202 1096 1373 1596 912 s, and
-# the PR run 44951402176 took 1374 1435 1290 1221 1386 1263 s. Checkout and setup are about 15 s of that (the job's
-# steps: 6 s checkout), the rest is the tests, 3.6 to 6.2 s of Windows per macOS second depending on the shard's files.
-# The longest is what fails a run, so the scale is the worst measured one: (1596 - 15) / 255 = 6.2. UAK-128 had guessed
-# 90 s and 5 and predicted 1320 s where 1435 s happened. A shard's time is WINDOWS_SETUP_S + WINDOWS_SCALE * its macOS
-# seconds, and the longest must stay at or under WINDOWS_MARGIN of the bound, so noise does not turn the job red.
-WINDOWS_SCALE = 6.2
+# A Windows shard's time is WINDOWS_SETUP_S (checkout and setup, about 15 s) plus the Windows seconds of its files
+# (CI_WINDOWS_SECONDS, measured per file). The bound is 30 minutes, not UAK-128's 25: test_flaky_guard alone took 1496 s,
+# and no split can put it under 25. The longest shard must stay at or under WINDOWS_MARGIN of the bound (25.5 min against
+# the job's 45 minute timeout, which is not raised), so noise does not turn the job red.
 WINDOWS_SETUP_S = 15
-WINDOWS_BOUND_S = 25 * 60
+WINDOWS_BOUND_S = 30 * 60
 WINDOWS_MARGIN = 0.85
 WINDOWS_MAX_SHARDS = 15   # 24 jobs a commit on main: discover (1) + 4 shards x 2 OS (8) + these
 
@@ -223,11 +265,11 @@ def push_trigger_problems(text):
 
 def ci_windows_shards(n):
     """Every test file plus mcp_tools in n Windows shards, balanced like ci_shards."""
-    return _split(ci_tests(), n)
+    return _split(ci_tests(), n, ci_windows_seconds)
 
 
 def windows_seconds(shard):
-    return WINDOWS_SETUP_S + WINDOWS_SCALE * sum(ci_seconds(t) for t in shard["tests"].split())
+    return WINDOWS_SETUP_S + sum(ci_windows_seconds(t) for t in shard["tests"].split())
 
 
 def windows_shard_count():
@@ -252,6 +294,7 @@ def check_test_discovery(findings):
     if "python3 scripts/kit_lint.py --ci-windows" not in ci or "fromJSON(needs.discover.outputs.wshards)" not in ci:
         findings.append(".github/workflows/test.yml · no-test-discovery · the Windows shards must come from the discover job (kit_lint.py --ci-windows)")
     findings.extend(".github/workflows/test.yml · double-run · " + x for x in push_trigger_problems(ci))
+    findings.extend(timing_problems(ci_tests()))
     # The macOS and Linux suites run in shards (UAK-018): their lists come from --ci-shards, and smoke must run only them.
     if "python3 scripts/kit_lint.py --ci-shards" not in ci or "fromJSON(needs.discover.outputs.shards)" not in ci \
             or "SHARD_TESTS: ${{ matrix.shard.tests }}" not in ci or "UAK_SMOKE_TESTS=$t" not in ci:
