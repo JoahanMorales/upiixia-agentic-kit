@@ -54,29 +54,67 @@ def mcp_once():
     expect(rc == 0, "mcp: " + out)
 
 
-def lease_once(epoch="4102444800"):
+# What a merge that fails right after it started its lease renewer leaves behind (finding of UAK-138, in
+# kit/.uak/bin/lib/review-merge.sh, at the `( RM_ATTEMPT_PREFIX=renew; ... ) &` that starts the renewer): the parent has
+# set `trap 'exit 143' TERM` and `trap 'rm_exit_cleanup $?' EXIT` before forking, and a subshell that gets the parent's
+# `kill` before its own first `trap` line runs the inherited TERM trap, so `exit 143` runs the inherited EXIT trap, and
+# `cleanup` removes the PARENT's temp dir ($TXROOT is inherited) while the merge still needs it: "Cannot create
+# transaction" and exit 1 where the gate says exit 3. "Autonomy revoked" and a freeze fail at rm_authority_check a few
+# ms after the renewer starts, so gate_and_lease meets the window on a loaded machine (3 of 40 runs beside 4 CPU hogs).
+# Until the engine is fixed this is an XFAIL line, counted and printed, never silent; UAK_FLAKY_ENGINE_RACE=fail
+# turns it back into a failure.
+ENGINE_RACE = ("Cannot create transaction", "No record of process")
+XFAIL_LINE = "LEASE_JOB_XFAIL_ENGINE_RACE"
+
+
+def lease_once(epoch="4102444800", spy=False):
     """gate_and_lease in a child process whose `date +%s` says `epoch`: a deadline read from the machine's clock
-    instead of the engine's injected one would expire or never expire, and the test would fail."""
+    instead of the engine's injected one would expire or never expire. With `spy`, every process the test starts must
+    carry UAK_NOW. Returns "pass", or "xfail" when only the engine race above hit."""
     with tempfile.TemporaryDirectory(prefix="uak-lease-") as tmp:
         shim = Path(tmp) / "shim"
         shim.mkdir()
         (shim / "date").write_text(FAKE_DATE, encoding="utf-8", newline="\n")
         os.chmod(str(shim / "date"), 0o755)
         env = dict(os.environ, FAKE_EPOCH=epoch, UAK_FLAKY_SHIM=str(shim), UAK_FLAKY_WORK=str(Path(tmp) / "work"))
-        rc, out = sh([sys.executable, str(Path(__file__).resolve()), "--job", "lease"], env=env)
+        cmd = [sys.executable, str(Path(__file__).resolve()), "--job", "lease"] + (["--spy"] if spy else [])
+        rc, out = sh(cmd, env=env)
+        if rc == 0 and XFAIL_LINE in out:
+            print("XFAIL gate_and_lease met the renewer/EXIT-trap race of review-merge.sh (UAK-138 finding): "
+                  + out.strip().splitlines()[-1][:300], flush=True)
+            return "xfail"
         expect(rc == 0 and "LEASE_JOB_PASS" in out, "gate_and_lease with the clock at %s: %s" % (epoch, out))
+        return "pass"
 
 
-def job_lease():
+def job_lease(spy):
     sys.path.insert(0, str(HERE))
     import test_review_merge as trm
-    from test_hack import Runner, resolve_binary
+    from test_hack import Failure as HackFailure, Runner, resolve_binary
+    calls = []
+
+    class Spy(Runner):
+        def run(self, command, cwd=None, env=None, allowed=(0,), timeout=240):
+            effective = dict(self.env, **(env or {}))
+            calls.append((list(map(str, command))[:4], effective.get("UAK_NOW")))
+            return super().run(command, cwd=cwd, env=env, allowed=allowed, timeout=timeout)
+
     work = Path(os.environ["UAK_FLAKY_WORK"])
     work.mkdir(parents=True)
-    r = Runner(KIT.resolve(), work.resolve(), resolve_binary("bash"), resolve_binary("git"))
+    r = (Spy if spy else Runner)(KIT.resolve(), work.resolve(), resolve_binary("bash"), resolve_binary("git"))
     r.env["PATH"] = os.environ["UAK_FLAKY_SHIM"] + os.pathsep + r.env.get("PATH", os.environ.get("PATH", ""))
     r.env["FAKE_EPOCH"] = os.environ["FAKE_EPOCH"]
-    trm.gate_and_lease(r)
+    try:
+        trm.gate_and_lease(r)
+    except HackFailure as exc:
+        if os.environ.get("UAK_FLAKY_ENGINE_RACE") != "fail" and any(m in str(exc) for m in ENGINE_RACE):
+            print(XFAIL_LINE + " " + str(exc).replace("\n", " | ")[-300:])
+            return
+        raise
+    if spy:
+        loose = [c for c, now in calls if not now]
+        expect(calls and not loose, "%d of %d processes of gate_and_lease would read the machine's clock (no UAK_NOW), e.g. %s"
+               % (len(loose), len(calls), loose[:2]))
     print("LEASE_JOB_PASS")
 
 
@@ -93,9 +131,12 @@ def mcp_server_exits_when_stdin_closes():
 
 
 def lease_test_uses_the_injected_clock():
-    lease_once("4102444800")  # the year 2100: a real-clock lease would be long expired
-    lease_once("1")  # 1970: a real-clock deadline would never come
-    return "gate_and_lease passes at clock 2100 and 1970"
+    # spy: every process of the test carries UAK_NOW, so none can read the clock. Without gate_and_lease's own default
+    # clock (its git calls and any call that forgot `now=`) this fails: main's test_review_merge.py before UAK-138.
+    got = [lease_once("4102444800", spy=True),  # the year 2100: a real-clock lease would be long expired
+           lease_once("1", spy=True)]  # 1970: a real-clock deadline would never come
+    return "gate_and_lease passes at clock 2100 and 1970 with UAK_NOW on every process%s" % (
+        " (%d XFAIL: engine race, see above)" % got.count("xfail") if "xfail" in got else "")
 
 
 def twenty_runs_under_load():
@@ -105,13 +146,13 @@ def twenty_runs_under_load():
     if not MCP_TEST.is_file():
         jobs = [j for j in jobs if j[0] != "mcp"]
     hogs = [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(max(1, (os.cpu_count() or 2) // 2))]
-    started, failures = time.time(), []
+    started, failures, results = time.time(), [], []
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             futures = {pool.submit(fn): (i, name) for i, (name, fn) in enumerate(jobs)}
             for f in concurrent.futures.as_completed(futures):
                 try:
-                    f.result()
+                    results.append(f.result())
                 except Exception as exc:  # noqa: BLE001
                     failures.append("%s #%d: %s" % (futures[f][1], futures[f][0], str(exc)[:400]))
     finally:
@@ -119,7 +160,8 @@ def twenty_runs_under_load():
             h.kill()
             h.wait()
     expect(not failures, "%d of %d runs failed under load: %s" % (len(failures), len(jobs), " | ".join(failures[:3])))
-    return "%d runs green beside %d CPU hogs in %d s" % (len(jobs), len(hogs), time.time() - started)
+    return "%d runs green beside %d CPU hogs in %d s%s" % (len(jobs), len(hogs), time.time() - started,
+                                                          " (%d XFAIL: the renewer race of review-merge.sh)" % results.count("xfail") if "xfail" in results else "")
 
 
 TESTS = [picker_reads_the_body_before_403, mcp_server_exits_when_stdin_closes, lease_test_uses_the_injected_clock, twenty_runs_under_load]
@@ -129,10 +171,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--case")
     parser.add_argument("--job")
+    parser.add_argument("--spy", action="store_true")
     parser.add_argument("--package")  # smoke passes it to every test; this one reads its own tree
     args = parser.parse_args()
     if args.job == "lease":
-        job_lease()
+        job_lease(args.spy)
         return 0
     failed = 0
     for t in [t for t in TESTS if not args.case or t.__name__ == args.case]:

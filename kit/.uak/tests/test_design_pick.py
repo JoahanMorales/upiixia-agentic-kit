@@ -274,7 +274,8 @@ def picker_reads_the_body_before_403(e):
                  ("foreign Origin 403", [("Host", host), ("Origin", "http://evil.example"), json_ct], 403, 4000, 4000),
                  ("415", [("Host", host), ("Content-Type", "text/plain")], 415, 4000, 4000),
                  ("413", [("Host", host), json_ct], 413, 100000, 200000),
-                 ("beyond the bound: 413 and a closed connection", [("Host", host), json_ct], 413, 1000000, 48576))  # exactly the bound: nothing unread when the server closes, so no reset
+                 ("beyond the bound: 413 and a closed connection", [("Host", host), json_ct], 413, 1000000, 48576),
+                 ("far beyond the bound: still answered, then drained", [("Host", host), json_ct], 413, 1000000, 2000000))  # exactly the bound: nothing unread when the server closes, so no reset
         for name, headers, want, first, rest in cases:
             size = first + rest if "bound" not in name else 50 * 1048576
             try:
@@ -282,15 +283,91 @@ def picker_reads_the_body_before_403(e):
             except OSError as exc:
                 raise AssertionError("%s: %s" % (name, exc))
             expect(got == want, "%s: got %s" % (name, got))
+        # A chunked body is never accepted (411), and is not answered before the client has stopped sending it.
+        s = socket.create_connection(("127.0.0.1", port), timeout=15)
+        try:
+            s.sendall(("POST /save HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n" % host).encode("ascii"))
+            s.sendall(b"%x\r\n" % 5000 + b"x" * 5000 + b"\r\n")
+            time.sleep(0.5)
+            s.setblocking(False)
+            try:
+                early = s.recv(100)
+            except (BlockingIOError, InterruptedError):
+                early = b""
+            s.setblocking(True)
+            expect(not early, "a chunked body was answered before its end: %r" % early[:30])
+            s.sendall(b"0\r\n\r\n")
+            data = s.recv(4096)
+            expect(data.startswith(b"HTTP/") and b" 411 " in data.split(b"\r\n", 1)[0], "chunked: %r" % data[:40])
+        finally:
+            s.close()
         expect(not (d / ".uak/design/rounds/R1/picks.json").exists(), "nothing written")
         st, _ = raw_request(port, "POST", "/save", {"Host": host, "Content-Type": "application/json"}, json.dumps({"picked": ["v1"], "notes": {}}).encode("utf-8"))
         expect(st == 200, "a normal save still works: %s" % st)
     finally:
         e.stop(d)
-    return "body read, then answered"
+    return "body read, then answered, then a lingering close"
 
 
-TESTS = [picker_reads_the_body_before_403, encoded_dotfile_is_refused, cross_origin_save_is_refused, json_content_type_required, pick_page_lists_every_variant, save_writes_picks_json, wrong_count_warns_but_saves, server_binds_local_only]
+def picker_never_shares_a_port(e):
+    """Two galleries started together get two ports, and each answers for its own round (on Windows a second bind of a
+    served port used to succeed: a save went to the other round's picks.json)."""
+    a, b = e.project("pa"), e.project("pb")
+    pa, _ = e.start(a)
+    try:
+        pb, _ = e.start(b)
+        try:
+            expect(pa != pb, "both galleries are on port %d" % pa)
+            st, _ = raw_request(pb, "POST", "/save", {"Host": "127.0.0.1:%d" % pb, "Content-Type": "application/json"}, json.dumps({"picked": ["v1"], "notes": {}}).encode("utf-8"))
+            expect(st == 200 and (b / ".uak/design/rounds/R1/picks.json").exists() and not (a / ".uak/design/rounds/R1/picks.json").exists(),
+                   "the save reached the other round")
+        finally:
+            e.stop(b)
+    finally:
+        e.stop(a)
+    return "two ports, each round writes its own picks.json"
+
+
+def picker_total_time_is_bounded(e):
+    """A drip of one byte a second holds a handler for the request's whole time and no longer (UAK_PICK_REQUEST_SECONDS
+    is the knob; 3 s here, 20 s by default), where a per-read timeout let it hold a thread for minutes."""
+    import socket
+    import time
+    d = e.project("drip")
+    os.environ["UAK_PICK_REQUEST_SECONDS"] = "3"
+    try:
+        port, _ = e.start(d)
+    finally:
+        del os.environ["UAK_PICK_REQUEST_SECONDS"]
+    try:
+        s = socket.create_connection(("127.0.0.1", port), timeout=30)
+        s.sendall(("POST /save HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nContent-Type: application/json\r\nContent-Length: 100000\r\n\r\n" % port).encode("ascii"))
+        started, closed = time.time(), None
+        s.settimeout(0.2)
+        while time.time() - started < 12:
+            try:
+                s.sendall(b"x")
+            except OSError:
+                closed = time.time() - started
+                break
+            try:
+                if s.recv(4096) == b"":  # the server answered and closed
+                    closed = time.time() - started
+                    break
+            except socket.timeout:
+                pass
+            except OSError:
+                closed = time.time() - started
+                break
+            time.sleep(0.8)
+        s.close()
+        expect(closed is not None and closed < 8, "the handler held the connection %s s (3 s allowed)" % (closed if closed is not None else "more than 12"))
+    finally:
+        e.stop(d)
+    return "a 1 byte/s drip is cut at the request's time"
+
+
+TESTS = [picker_reads_the_body_before_403, picker_total_time_is_bounded, picker_never_shares_a_port, encoded_dotfile_is_refused, cross_origin_save_is_refused, json_content_type_required, pick_page_lists_every_variant, save_writes_picks_json, wrong_count_warns_but_saves, server_binds_local_only]
 
 
 def main():

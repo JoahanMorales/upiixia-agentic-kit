@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -36,6 +37,8 @@ FIRST_PORT = 8791
 MAX_NOTE = 400
 MAX_BODY = 200000  # a save larger than this is refused with 413
 DRAIN_MAX = 1048576  # the most a handler reads of any POST body before it answers
+LINGER_MAX = 8 * 1048576  # what it drops after answering while the client still sends
+REQUEST_SECONDS = 20  # the whole of a POST: reading, answering and lingering (UAK_PICK_REQUEST_SECONDS: tests)
 
 
 def tailscale_ip():
@@ -358,6 +361,20 @@ def save_picks(rnd, data, k):
     return 200, body
 
 
+class Server(http.server.ThreadingHTTPServer):
+    """On Windows, SO_REUSEADDR (which HTTPServer sets) lets a second socket bind a port that is already being served:
+    the probe for a free port never failed, two galleries answered on one port, a request reached the wrong round (a
+    save in the other's picks.json) or a server that was stopping (WinError 10054). SO_EXCLUSIVEADDRUSE refuses the
+    second bind, so the probe moves on. Why (CI, Nov 2026): 13 of 60 parallel runs of the picker test on Windows failed
+    with a reset or with another run's picks.json."""
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def make_handler(rnd, k, hosts):
     class H(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *a):
@@ -389,35 +406,103 @@ def make_handler(rnd, k, hosts):
                 self.path = "/pick.html"
             return super().do_GET()
 
-        timeout = 15  # a client that stalls mid-body must not hold a handler thread for ever
+        timeout = 15  # one read of a client that stalls
 
-        def _drain(self, n):
-            """Read up to `n` body bytes (bounded) and return them. An answer sent while the client is still sending
-            makes Windows reset the connection (WinError 10053) and the client never sees the status. Why (CI, Nov
-            2026): `FAIL json_content_type_required ([WinError 10053] ...)`. Every answer to a POST goes after this."""
-            data, left = [], min(max(n, 0), DRAIN_MAX)
+        def _read(self, want):
+            """At most `want` bytes (at least one, unless the client closed or the request's time is up) within the
+            time left of this request: the socket timeout is reset before every read, so a drip of one byte per ten
+            seconds cannot hold the handler past REQUEST_SECONDS in all."""
+            left = self._deadline - time.monotonic()
+            if left <= 0:
+                return b""
             try:
-                while left > 0:
-                    chunk = self.rfile.read(min(left, 65536))
-                    if not chunk:
-                        break
-                    data.append(chunk)
-                    left -= len(chunk)
+                self.connection.settimeout(min(left, self.timeout))
+                return self.rfile.read1(want)
             except OSError:  # a timeout or a reset: answer what we can
-                pass
+                return b""
+
+        def _take(self, n):
+            """Up to `n` bytes of the body, no more than DRAIN_MAX, returned. An answer sent while the client is still
+            sending makes Windows reset the connection (WinError 10053/10054) and the client never sees the status.
+            Why (CI, Nov 2026): `FAIL json_content_type_required ([WinError 10053] ...)`. Every answer to a POST goes
+            after this, and the connection then closes by `_linger`."""
+            data, left = [], min(max(n, 0), DRAIN_MAX)
+            while left > 0:
+                chunk = self._read(min(left, 65536))
+                if not chunk:
+                    break
+                data.append(chunk)
+                left -= len(chunk)
             return b"".join(data)
 
+        def _chunked(self):
+            """Read and discard a chunked body (bounded: DRAIN_MAX bytes, REQUEST_SECONDS): it is never accepted (411),
+            but never answered before the client has stopped sending it either."""
+            total = 0
+
+            def line():
+                out = b""
+                while len(out) < 100 and not out.endswith(b"\n"):
+                    c = self._read(1)
+                    if not c:
+                        return None
+                    out += c
+                return out
+            while total <= DRAIN_MAX:
+                ln = line()
+                try:
+                    size = int((ln or b"").split(b";")[0].strip() or b"x", 16)
+                except ValueError:
+                    return
+                if size == 0:
+                    while line() not in (None, b"\r\n", b"\n"):  # trailers up to the blank line
+                        pass
+                    return
+                total += size
+                left = size + 2
+                while left > 0:
+                    got = self._read(min(left, 65536))
+                    if not got:
+                        return
+                    left -= len(got)
+
+        def _linger(self):
+            """A lingering close: our side stops writing (the client reads the status and the end of the answer), then
+            what the client still sends is read and dropped, bounded by LINGER_MAX bytes and the request's time, so the
+            client's send never meets a closed socket (a reset that destroys the status on Windows)."""
+            if not getattr(self, "_posted", False):
+                return
+            try:
+                self.wfile.flush()
+                self.connection.shutdown(socket.SHUT_WR)
+            except OSError:
+                return
+            left = LINGER_MAX
+            while left > 0:
+                chunk = self._read(65536)
+                if not chunk:
+                    return
+                left -= len(chunk)
+
+        def finish(self):
+            try:
+                self._linger()
+            finally:
+                super().finish()
+
         def do_POST(self):
+            self._posted = True
+            self._deadline = time.monotonic() + float(os.environ.get("UAK_PICK_REQUEST_SECONDS") or REQUEST_SECONDS)
+            if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+                self._chunked()
+                return self._json(411, {"ok": False, "error": "Content-Length required (chunked bodies are not accepted)"})
             try:
                 n = int(self.headers.get("Content-Length") or 0)
             except ValueError:
                 n = -1
-            body = self._drain(n)
             if n < 0:
-                self.close_connection = True
                 return self._json(400, {"ok": False, "error": "bad Content-Length"})
-            if n > DRAIN_MAX:  # more than the bound was announced: the rest is never read, so the connection ends here
-                self.close_connection = True
+            body = self._take(n)
             if not self._host_ok():
                 return self._json(403, {"ok": False, "error": "foreign Host"})
             if self.path.split("?", 1)[0] != "/save":
@@ -452,7 +537,7 @@ def serve_foreground(rnd, name, k, port, project):
         handler = functools.partial(make_handler(rnd, k, hosts), directory=str(rnd))
         for a in addrs:
             try:
-                servers.append(http.server.ThreadingHTTPServer((a, p), handler))
+                servers.append(Server((a, p), handler))
                 bound.append(a)
             except OSError:
                 if a == "127.0.0.1":
