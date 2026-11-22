@@ -25,7 +25,8 @@ def shim(r):
     if not d.exists():
         d.mkdir()
         real = r.run([r.bash, "-c", "type -P git"], cwd=r.scratch).stdout.strip()
-        script = ('#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = fetch ] && { echo fetch >> "$UAK_FETCH_LOG"; break; }; done\n'
+        # 0.3 s per fetch stands for the network round trip a local bare remote does not have.
+        script = ('#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = fetch ] && { echo fetch >> "$UAK_FETCH_LOG"; sleep 0.3; break; }; done\n'
                   'exec "%s" "$@"\n' % real)
         (d / "git").write_text(script, encoding="utf-8", newline="\n")
         (d / "git").chmod(0o755)
@@ -51,10 +52,9 @@ def fetches(f):
 
 def uak(r, f, index, args, now, allowed=(0,)):
     env = {"UAK_AGENT": "agent-%d" % (index + 1), "UAK_NOW": str(now), "UAK_REMOTE": "origin", "UAK_HUMAN": "",
-           "UAK_DEDUPE": "off", "UAK_READ_CACHE": "on", "UAK_FETCH_LOG": f.log.as_posix(),
-           "PATH": shim(r).as_posix() + os.pathsep + os.environ["PATH"]}
+           "UAK_DEDUPE": "off", "UAK_READ_CACHE": "on", "UAK_FETCH_LOG": f.log.as_posix()}
     started = time.monotonic()
-    out = r.run([r.bash, ".uak/bin/uak"] + args, cwd=f.worktrees[index], env=env, allowed=allowed)
+    out = r.run([r.bash, "-c", 'PATH="$1:$PATH"; export PATH; shift; exec bash .uak/bin/uak "$@"', "_", shim(r).as_posix()] + args, cwd=f.worktrees[index], env=env, allowed=allowed)
     return out, time.monotonic() - started
 
 
@@ -181,8 +181,8 @@ def a_simulated_clock_does_not_read_the_cache(r):
     f = fixture(r, "rc-sim")
     f.claim(0, "HACK-001", now=T0)
     env = {"UAK_AGENT": "agent-1", "UAK_NOW": str(T0 + 1), "UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_DEDUPE": "off",
-           "UAK_FETCH_LOG": f.log.as_posix(), "PATH": shim(r).as_posix() + os.pathsep + os.environ["PATH"]}
-    outs = [r.run([r.bash, ".uak/bin/uak", "status"], cwd=f.worktrees[0], env=env) for _ in range(2)]
+           "UAK_FETCH_LOG": f.log.as_posix()}
+    outs = [r.run([r.bash, "-c", 'PATH="$1:$PATH"; export PATH; shift; exec bash .uak/bin/uak "$@"', "_", shim(r).as_posix(), "status"], cwd=f.worktrees[0], env=env) for _ in range(2)]
     expect(fetches(f) >= 2, "two reads at a simulated instant fetch twice: got %d" % fetches(f))
     expect(all(age_line(o) is None for o in outs), "no age line under a simulated clock")
     return "two fetches"
