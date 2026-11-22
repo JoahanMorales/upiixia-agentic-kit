@@ -263,6 +263,121 @@ def a_dead_lock_does_not_stall_a_put(r):
     expect(os.environ.get("CI") or took < 4, "a dead lock must not cost a 5 s wait: took %.1f s" % took)
     return "cleared at once (%.1f s)" % took
 
+# UAK-142: the lock functions run straight from bash shells, stopped between steps by gates (files), not by timing.
+LOCK_HEAD = ('d=$(cygpath -u "$1" 2>/dev/null) || d=$1; G=$(cygpath -u "$2" 2>/dev/null) || G=$2; RC_DIR=$(cygpath -u "$3" 2>/dev/null) || RC_DIR=$3\n'
+             'UAK_BIN=$d/.uak/bin; . "$d/.uak/bin/lib/cache.sh"\n'
+             'w() { n=0; while [ ! -e "$G/$1" ] && [ "$n" -lt 150 ]; do sleep 0.1; n=$((n + 1)); done; }\n')
+# A cleaner stopped right after it judged the lock stale (its kill -0 said dead), and again after any rename it makes.
+PAUSED_CLEANER = LOCK_HEAD + (
+    'kill() { builtin kill "$@"; local rc=$?; if [ ! -e "$G/at-kill" ]; then : > "$G/at-kill"; w go1; fi; return $rc; }\n'
+    'mv() { command mv "$@"; local rc=$?; : > "$G/at-mv"; w go2; return $rc; }\n'
+    'rc_lock; echo "lock=$?" > "$G/a-result"; rc_held && echo held >> "$G/a-result"; w go3; rc_unlock\n')
+HOLDER = LOCK_HEAD + 'rc_lock; : > "$G/$4-held"; w "$4-go"; if rc_held; then echo held > "$G/$4-end"; else echo lost > "$G/$4-end"; fi; rc_unlock\n'
+
+
+def lock_fixture(r, name):
+    base = r.scratch / name
+    d = base / "rc"
+    (d).mkdir(parents=True)
+    (base / "g").mkdir()
+    dead = r.run([r.bash, "-c", "echo $$"], cwd=r.scratch).stdout.strip()
+    expect(dead.isdigit(), "a dead pid: %r" % dead)
+    return base / "g", d, dead
+
+
+def lock_proc(r, script, g, d, *extra):
+    import subprocess
+    return subprocess.Popen([r.bash, "-c", script, "x", str(r.package), str(g), str(d), *extra], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+
+def wait_for(path, secs=15):
+    end = time.monotonic() + secs
+    while time.monotonic() < end and not path.exists():
+        time.sleep(0.05)
+    return path.exists()
+
+
+def a_cleaner_that_judged_stale_never_removes_a_retaken_lock(r):
+    """Cleaner A sees a dead holder's lock and stops. Holder C clears it and takes the lock. When A goes on it must leave
+    C's lock where it is, every instant (today A renames it away, and a third writer can mkdir into the gap)."""
+    g, d, dead = lock_fixture(r, "lock-reap")
+    (d / "lock").mkdir()
+    (d / "lock" / "pid").write_text(dead + "\n", encoding="utf-8", newline="\n")
+    procs = []
+    try:
+        a = lock_proc(r, PAUSED_CLEANER, g, d); procs.append(a)
+        expect(wait_for(g / "at-kill"), "cleaner A judged the lock stale")
+        c = lock_proc(r, HOLDER, g, d, "c"); procs.append(c)
+        expect(wait_for(g / "c-held"), "holder C took the lock")
+        (g / "go1").write_text("", encoding="utf-8")
+        gone = []
+        for _ in range(12):  # A runs on: the lock must exist all along, and A must not have renamed anything
+            gone.append(not (d / "lock" / "pid").exists() or (g / "at-mv").exists())
+            time.sleep(0.05)
+        expect(not any(gone), "C's lock was moved away by the cleaner that judged the OLD holder stale (%d of 12 looks)" % sum(gone))
+        (g / "go2").write_text("", encoding="utf-8")
+        (g / "c-go").write_text("", encoding="utf-8")
+        expect(wait_for(g / "c-end"), "holder C finished")
+        expect((g / "c-end").read_text(encoding="utf-8").strip() == "held", "C still held the lock when it unlocked")
+        expect(wait_for(g / "a-result"), "A got the lock once C was done")
+        expect((g / "a-result").read_text(encoding="utf-8").split()[0] == "lock=0", "A's rc_lock succeeded: %r" % (g / "a-result").read_text(encoding="utf-8"))
+        (g / "go3").write_text("", encoding="utf-8")
+        a.communicate(timeout=30)
+        expect(not (d / "lock").exists() and not (d / "lock.reap").exists(), "no lock and no lock.reap left behind")
+    finally:
+        for p in procs:
+            if p.poll() is None:
+                p.kill()
+    return "C's lock never moved"
+
+
+def a_holder_cleared_as_slow_neither_unlocks_nor_publishes(r):
+    """A holds the lock, is cleared as stale (another host, a minute gone) and B takes it. A's unlock must not remove
+    B's lock, and rc_held says A lost it (rc_put publishes nothing then)."""
+    g, d, _ = lock_fixture(r, "lock-slow")
+    procs = []
+    try:
+        a = lock_proc(r, HOLDER, g, d, "a"); procs.append(a)
+        expect(wait_for(g / "a-held"), "A took the lock")
+        import shutil
+        shutil.rmtree(d / "lock")  # what a cleaner does to a lock older than a minute
+        b = lock_proc(r, HOLDER, g, d, "b"); procs.append(b)
+        expect(wait_for(g / "b-held"), "B took the lock A lost")
+        (g / "a-go").write_text("", encoding="utf-8")
+        expect(wait_for(g / "a-end"), "A finished")
+        a.communicate(timeout=30)
+        expect((g / "a-end").read_text(encoding="utf-8").strip() == "lost", "A knows it lost the lock: %r" % (g / "a-end").read_text(encoding="utf-8"))
+        expect((d / "lock" / "pid").exists(), "A's unlock removed B's lock")
+        (g / "b-go").write_text("", encoding="utf-8")
+        expect(wait_for(g / "b-end") and (g / "b-end").read_text(encoding="utf-8").strip() == "held", "B still held the lock")
+        b.communicate(timeout=30)
+        expect(not (d / "lock").exists(), "B's unlock removed its own lock")
+    finally:
+        for p in procs:
+            if p.poll() is None:
+                p.kill()
+    return "A neither held nor unlocked B's lock"
+
+
+def a_stuck_lock_reap_does_not_stall_the_lock(r):
+    """A `lock.reap` left by a cleaner that died (older than a minute) is removed, and the dead holder's lock goes."""
+    g, d, dead = lock_fixture(r, "lock-stuck")
+    (d / "lock").mkdir()
+    (d / "lock" / "pid").write_text(dead + ".1\r\n", encoding="utf-8", newline="")  # a CRLF pid file
+    (d / "lock.reap").mkdir()
+    old = time.time() - 300
+    os.utime(d / "lock.reap", (old, old))
+    a = lock_proc(r, HOLDER, g, d, "a")
+    try:
+        expect(wait_for(g / "a-held", 20), "the lock was taken past a stuck lock.reap")
+        (g / "a-go").write_text("", encoding="utf-8")
+        a.communicate(timeout=30)
+    finally:
+        if a.poll() is None:
+            a.kill()
+    expect(not (d / "lock.reap").exists() and not (d / "lock").exists(), "nothing left behind")
+    return "stuck lock.reap cleared"
+
 
 def no_noise_on_stderr(r):
     """The first read in a clone and every read after a write that dropped the cache print nothing on stderr."""
@@ -348,7 +463,7 @@ def a_push_of_the_base_from_this_checkout_is_read_back(r):
 
 
 TESTS = [second_read_reuses_the_fetch, a_write_refreshes_the_cache, fresh_fetches_now, zero_turns_it_off, read_says_how_old,
-         wait_is_never_cached, a_held_reader_never_overwrites_a_write, two_writers_the_older_put_last, a_dead_lock_does_not_stall_a_put, no_noise_on_stderr, a_corrupt_entry_is_a_miss, fresh_is_accepted_everywhere, a_push_of_the_base_from_this_checkout_is_read_back, a_simulated_clock_does_not_read_the_cache]
+         wait_is_never_cached, a_held_reader_never_overwrites_a_write, two_writers_the_older_put_last, a_dead_lock_does_not_stall_a_put, a_cleaner_that_judged_stale_never_removes_a_retaken_lock, a_holder_cleared_as_slow_neither_unlocks_nor_publishes, a_stuck_lock_reap_does_not_stall_the_lock, no_noise_on_stderr, a_corrupt_entry_is_a_miss, fresh_is_accepted_everywhere, a_push_of_the_base_from_this_checkout_is_read_back, a_simulated_clock_does_not_read_the_cache]
 
 
 def main():
