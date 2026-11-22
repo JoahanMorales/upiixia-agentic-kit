@@ -176,6 +176,23 @@ if url=$(git config --get "remote.$remote.url"); then
       esac
     else warn "gh not authenticated: agents cannot open PRs (gh auth login)"; fi;;
   esac
+  # Merge-Engine: ci lets an approved engine change land when every check of its tip is green: that is only worth
+  # something when the base branch requires those checks. Why (UAK-131): 38 of 39 queued tasks were engine files.
+  if [ "$(field Merge-Engine)" = ci ]; then
+    ci_base=${UAK_BASE:-main} ci_known=no
+    case "$url" in *github.com*)
+      if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+        ci_repo=$(printf '%s' "$url" | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')
+        if ci_req=$(gh api "repos/$ci_repo/branches/$ci_base/protection/required_status_checks" --jq '((.contexts // []) + [(.checks // [])[] | .context]) | length' 2>/dev/null); then
+          ci_known=yes
+          case "$ci_req" in ''|0) warn "Merge-Engine: ci is set and $ci_base on $ci_repo has no required status checks: an approved engine change would land on whatever checks happen to exist (GitHub: branch protection, Require status checks)";; *) ok "Merge-Engine: ci, $ci_base requires $ci_req status check(s)";; esac
+        elif gh api "repos/$ci_repo" >/dev/null 2>&1; then
+          ci_known=yes; warn "Merge-Engine: ci is set and $ci_base on $ci_repo has no required status checks (no branch protection, or no right to read it): nothing makes a green tip mean anything"
+        fi
+      fi;;
+    esac
+    [ "$ci_known" = yes ] || warn "Merge-Engine: ci is set and doctor cannot tell whether $ci_base has required status checks (gh missing, not logged in, the forge unreachable, or the remote is not GitHub)"
+  fi
 else
   bad "no remote $remote: uak coordinates through the remote claims branch"
 fi

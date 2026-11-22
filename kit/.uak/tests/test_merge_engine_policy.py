@@ -66,10 +66,10 @@ def checks(r, text, status=STATUS_NONE):
     Path(r.env["MOCK_STATUS"]).write_text(status, encoding="utf-8")
 
 
-def fixture(r, name, path, project="", content="ready-HACK-001\n"):
+def fixture(r, name, path, project="", content="ready-HACK-001\n", mode="sprint"):
     f = r.fixture("pol-" + name, paths={"HACK-001": path}, count=1, owners={path: "HACK-001"})
     (f.seed / ".uak/PROJECT.md").write_text(
-        "# Fixture\nMode: sprint\nAutonomy: yes\nAuto-Merge: yes\nBacklog-Approved: yes\nBacklog-Proposed-Epoch: 1000000\n"
+        "# Fixture\nMode: " + mode + "\nAutonomy: yes\nAuto-Merge: yes\nBacklog-Approved: yes\nBacklog-Proposed-Epoch: 1000000\n"
         "Freeze-Epoch: 9999999\nReview-Mode: claims\nEvents-Per-Session: 100000\nCheckpoint-Percent: 60\n"
         "Merge-Lease-Seconds: 1800\nMerge-Wait-Seconds: 600\n" + project, encoding="utf-8")
     tasks = (f.seed / ".uak/TASKS.md").read_text(encoding="utf-8")
@@ -121,9 +121,9 @@ def forge(r, name):
     r.env["GIT_CONFIG_VALUE_2"] = GH_URL
 
 
-def attempt(r, name, path=ENGINE_FILE, project="", content="ready-HACK-001\n"):
+def attempt(r, name, path=ENGINE_FILE, project="", content="ready-HACK-001\n", mode="sprint"):
     forge(r, name)
-    f = fixture(r, name, path, project, content)
+    f = fixture(r, name, path, project, content, mode)
     tip = ship(f, r)
     out = f.hack(0, "merge", "HACK-001", now=1000030, allowed=None)
     return f, tip, out
@@ -160,7 +160,7 @@ def record_names_the_policy(r):
     record = f.show("tasks/HACK-001.md")
     expect("Merge-Policy: ci" in record, "Merge-Policy: ci in the record: " + record)
     m = re.search(r"^Merge-Checks: (.*)$", record, re.M)
-    expect(m and all(n in m.group(1) for n in ("build (linux)", "build (macos)", "lint")) and "3 " in m.group(1),
+    expect(m and all(n in m.group(1) for n in ("build (linux)", "build (macos)", "lint")) and m.group(1).startswith("3: "),
            "the checks counted are named: %r" % (m and m.group(1)))
     expect("docs" not in m.group(1), "a skipped check is not counted as a success: " + m.group(1))
     return "Merge-Policy: ci · " + m.group(1)
@@ -206,6 +206,23 @@ def lock_files_still_need_a_human(r):
         expect(out.returncode == 3 and "Shared resource/CI needs a human: %s" % path in out.stdout, "%s: %s" % (path, out.stdout + out.stderr))
         expect(not merged(r, f), "%s: base must not move" % path)
     return "lock, migration, engine+migration, PROJECT.md and the smoke provenance file go to the human with ci on"
+
+
+def marathon_needs_human_independence(r):
+    checks(r, GREEN)
+    f, _, out = attempt(r, "marathon", project="Merge-Engine: ci\n", mode="marathon")
+    expect(out.returncode == 3 and "Review-Independence: human" in out.stdout and not merged(r, f), out.stdout + out.stderr)
+    f, _, out = attempt(r, "marathon-human", project="Merge-Engine: ci\nReview-Independence: human\n", mode="marathon")
+    expect("INTEGRATED" in out.stdout and merged(r, f), "with Review-Independence: human it lands: " + out.stdout + out.stderr)
+    return "marathon: refused with agent independence, lands with human"
+
+
+def metrics_counts_ci_merges_apart(r):
+    f, _, _ = green_run(r)
+    out = r.run([r.bash, ".uak/bin/uak", "metrics", "--json"], cwd=f.clones[0], env={"UAK_AGENT": "agent-1", "UAK_NOW": "1000100"}, allowed=None)
+    m = re.search(r'"gate_pushed_ci":\s*\{[^}]*"n":\s*(\d+)', out.stdout)
+    expect(m and m.group(1) == "1", "uak metrics counts the Merge-Engine ci merge apart: " + out.stdout[-800:] + out.stderr[-400:])
+    return "gate_pushed_ci = 1"
 
 
 def a_task_cannot_turn_the_policy_on(r):
@@ -259,7 +276,8 @@ def doctor_warns_without_required_checks(r):
 
 TESTS = [human_is_the_default, ci_merges_when_every_check_is_green, a_running_check_waits, a_red_check_refuses,
          lock_files_still_need_a_human, record_names_the_policy, a_task_cannot_turn_the_policy_on,
-         gh_unavailable_is_not_green, doctor_warns_without_required_checks]
+         gh_unavailable_is_not_green, doctor_warns_without_required_checks, marathon_needs_human_independence,
+         metrics_counts_ci_merges_apart]
 
 
 def main():

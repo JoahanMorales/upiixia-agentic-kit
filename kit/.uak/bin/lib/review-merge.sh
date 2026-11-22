@@ -514,14 +514,17 @@ rm_coord_mutate() {
       resolve_task_tip || return 3
       [ "$RM_TIP" = "$RM_REVIEWED_TIP" ] || { RM_REASON='Task SHA changed during validation'; return 3; }
       approval_check "$RM_TIP" "$(field "$RECORD" PR)" || return 3
+      # The smoke took minutes: read the forge again, so a check that went red or was re-run meanwhile stops the merge.
+      [ "$RM_CI_RELEASED" != yes ] || rm_ci_checks "$(field "$RECORD" PR)" "$RM_TIP" || return 3
       git -C "$TX" fetch -q "$RM_BUILD" "$RM_CANDIDATE:refs/uak/candidate" || { RM_REASON='Candidate not available'; return 3; }
       STATE=INTEGRATED; WL=$(field "$RECORD" Worklog)
       put "$RECORD" State INTEGRATED; put "$RECORD" Merge-Commit "$RM_CANDIDATE"; put "$RECORD" Reviewer "$APPROVED_BY"
       put "$RECORD" Task-Tip "$RM_REVIEWED_TIP"; put "$RECORD" Integration-Proof ancestry
       put "$RECORD" Smoke "${RM_SMOKE_NOTE:-full}"
+      if [ "$RM_CI_RELEASED" = yes ]; then put "$RECORD" Merge-Policy ci; put "$RECORD" Merge-Checks "$RM_CI_COUNT: $RM_CI_CHECKS"; fi
       [ "${RM_ADOPTED:-no}" != yes ] || put "$RECORD" Merged-By "$AGENT"
       put "$RECORD" Lease-Until 0; put "$RECORD" Updated "$NOW"; put "$RECORD" Next "Integrated in $BASE: $RM_CANDIDATE"
-      update_summary_field Next "Integrated in $BASE: $RM_CANDIDATE"; event "merge; smoke and Verify PASS (smoke: ${RM_SMOKE_NOTE:-full}); commit $RM_CANDIDATE; reviewer $APPROVED_BY"
+      update_summary_field Next "Integrated in $BASE: $RM_CANDIDATE"; event "merge; smoke and Verify PASS (smoke: ${RM_SMOKE_NOTE:-full}); commit $RM_CANDIDATE; reviewer $APPROVED_BY$([ "$RM_CI_RELEASED" != yes ] || printf '; policy ci (%s checks)' "$RM_CI_COUNT")"
       rm -f "$CLAIM" "$lock"; put "$TX/queue/$ID.md" State INTEGRATED; put "$TX/queue/$ID.md" Commit "$RM_CANDIDATE"
       msg_notify_related "$ID" integrated "$ID integrated in $BASE ($RM_CANDIDATE). If you depend on it: git fetch origin && git merge --no-edit origin/$BASE";;
   esac
@@ -579,6 +582,80 @@ rm_path_owner() {
     if overlaps "$TXROOT/owner-path" "$TXROOT/owner-paths"; then printf ' (Paths of %s)' "$(field "$t" ID)"; return 0; fi
   done
 }
+# Merge-Engine (UAK-131): `human` (default) or `ci`, read from PROJECT.md on the BASE tip the candidate is built on
+# (the merged-to side), never from the task's branch or from claims: a task cannot turn the policy on for itself, and a
+# diff that touches PROJECT.md goes to the human anyway. Anything but exactly `ci` (a typo included) is `human`.
+RM_ENGINE=human RM_CI_RELEASED=no RM_CI_WAIT=no RM_CI_CHECKS= RM_CI_COUNT=0 RM_PROJECT_MODE= RM_INDEPENDENCE=
+rm_merge_engine() {
+  local f="$TXROOT/merge-engine-project"
+  RM_ENGINE=human RM_PROJECT_MODE= RM_INDEPENDENCE=agent
+  [ -n "${RM_BUILD:-}" ] && [ -n "${RM_BASE_TIP:-}" ] || return 0
+  git -C "$RM_BUILD" show "$RM_BASE_TIP:.uak/PROJECT.md" > "$f" 2>/dev/null || return 0
+  uak_cfg_var "$f" Merge-Engine human; [ "$CFG" != ci ] || RM_ENGINE=ci
+  uak_cfg_var "$f" Mode ''; RM_PROJECT_MODE=$(printf '%s' "$CFG" | tr '[:upper:]' '[:lower:]')
+  uak_cfg_var "$f" Review-Independence agent; RM_INDEPENDENCE=$CFG
+}
+# Every check of the approved tip on the forge. Green = at least one real check succeeded, every check run completed,
+# none red (skipped and neutral are not red but are not counted), and the commit statuses, if any, are success.
+# Sets RM_CI_CHECKS (names counted) and RM_CI_COUNT. A check still running or not there yet is a WAIT (RM_CI_WAIT=yes,
+# the reason starts with "Merge-Engine ci: waiting"); the forge unreachable, a red check or nothing real is a refusal.
+# Why (UAK-131): every check (all runs, not the first), and never green without having read the forge.
+rm_ci_checks() {
+  local pr=$1 tip=$2 repo remote_repo st total
+  RM_CI_WAIT=no RM_CI_CHECKS= RM_CI_COUNT=0
+  printf '%s\n' "$pr" | grep -Eq '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$' || {
+    RM_REASON='Merge-Engine ci reads the checks of a github.com PR: this task has none'; return 1; }
+  repo=$(printf '%s\n' "$pr" | sed 's@^https://github.com/@@;s@/pull/.*@@')
+  remote_repo=$(printf '%s\n' "$REMOTE_URL" | sed 's@^git\@github.com:@@;s@^https://github.com/@@;s@\.git$@@')
+  [ "$(printf '%s' "$remote_repo" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')" ] || {
+    RM_REASON='Merge-Engine ci: the PR does not belong to the configured github.com remote'; return 1; }
+  command -v gh >/dev/null 2>&1 || { RM_REASON='Merge-Engine ci: gh is not available, so the checks of the tip cannot be read'; return 1; }
+  gh api "repos/$repo/commits/$tip/check-runs" --paginate \
+    --template '{{range .check_runs}}{{.name}}|{{.status}}|{{.conclusion}}{{"\n"}}{{end}}' > "$TXROOT/ci-checks" 2>/dev/null || {
+    RM_REASON='Merge-Engine ci: GitHub could not be read for the checks of the tip'; return 1; }
+  st=$(gh api "repos/$repo/commits/$tip/status" --template '{{.state}}|{{.total_count}}' 2>/dev/null) || {
+    RM_REASON='Merge-Engine ci: GitHub could not be read for the commit statuses of the tip'; return 1; }
+  total=${st#*|}; st=${st%%|*}
+  case "$total" in ''|*[!0-9]*) RM_REASON='Merge-Engine ci: the commit statuses of the tip are unreadable'; return 1;; esac
+  awk -F'|' -v names="$TXROOT/ci-names" '
+    NF == 0 || $0 == "" { next }
+    NF != 3 { bad = bad (bad == "" ? "" : ", ") $1; next }
+    $2 != "completed" { pend = pend (pend == "" ? "" : ", ") $1; next }
+    $3 == "success" { ok++; print $1 > names; next }
+    $3 == "skipped" || $3 == "neutral" { next }
+    { red = red (red == "" ? "" : ", ") $1 " (" $3 ")" }
+    END { print "ok=" ok + 0; print "bad=" bad; print "red=" red; print "pend=" pend }' "$TXROOT/ci-checks" > "$TXROOT/ci-verdict"
+  : >> "$TXROOT/ci-names"
+  local okn bad red pend
+  okn=$(sed -n 's/^ok=//p' "$TXROOT/ci-verdict"); bad=$(sed -n 's/^bad=//p' "$TXROOT/ci-verdict")
+  red=$(sed -n 's/^red=//p' "$TXROOT/ci-verdict"); pend=$(sed -n 's/^pend=//p' "$TXROOT/ci-verdict")
+  [ -z "$bad" ] || { RM_REASON="Merge-Engine ci: a check of the tip could not be read ($bad)"; return 1; }
+  [ -z "$red" ] || { RM_REASON="Merge-Engine ci: a check of the tip is red: $red"; return 1; }
+  case "$st" in failure|error) RM_REASON="Merge-Engine ci: a commit status of the tip is $st"; return 1;; esac
+  if [ -n "$pend" ]; then RM_CI_WAIT=yes; RM_REASON="Merge-Engine ci: waiting for $pend to finish on the tip"; return 1; fi
+  if [ "$st" = pending ] && [ "$total" -gt 0 ]; then RM_CI_WAIT=yes; RM_REASON='Merge-Engine ci: waiting for a commit status of the tip to finish'; return 1; fi
+  if [ "$okn" -eq 0 ] && [ "$total" -eq 0 ]; then
+    if [ ! -s "$TXROOT/ci-checks" ]; then RM_CI_WAIT=yes; RM_REASON='Merge-Engine ci: waiting, no check found on the tip yet'; return 1; fi
+  fi
+  if [ "$okn" -eq 0 ] && ! { [ "$st" = success ] && [ "$total" -gt 0 ]; }; then
+    RM_REASON='Merge-Engine ci: no check of the tip succeeded (skipped and neutral ones do not count)'; return 1; fi
+  RM_CI_COUNT=$((okn + total))
+  RM_CI_CHECKS=$(sort -u "$TXROOT/ci-names" | tr -d '\r|' | awk 'NR > 1 { printf "; " } { printf "%s", $0 }' | cut -c 1-300)
+  return 0
+}
+# The engine files of a diff may land through the gate (Merge-Engine: ci) when another identity approved the exact tip
+# (approval_check, UAK-114), the forge shows every check of that tip green, and, in marathon mode, Review-Independence
+# is `human`. Sprint mode needs no more than the approval.
+rm_ci_release() {
+  RM_CI_WAIT=no
+  [ "$RM_ENGINE" = ci ] || { RM_REASON='Shared resource/CI needs a human'; return 1; }
+  [ -n "$APPROVED_BY" ] && [ "$APPROVED_BY" != "$(field "$RECORD" Owner)" ] || {
+    RM_REASON='Merge-Engine ci needs the approval of an identity other than the author'; return 1; }
+  if [ "$RM_PROJECT_MODE" != sprint ] && [ "$RM_INDEPENDENCE" != human ]; then
+    RM_REASON="Merge-Engine ci outside sprint mode needs Review-Independence: human in PROJECT.md (Mode: ${RM_PROJECT_MODE:-unset})"; return 1; fi
+  rm_ci_checks "$(field "$RECORD" PR)" "$RM_REVIEWED_TIP" || return 1
+  RM_CI_RELEASED=yes
+}
 rm_gate_scope() {
   local code path additive owner_t added
   normalize_paths "$(rm_task_value Paths)" > "$TXROOT/merge-allowed" || { RM_REASON='Invalid claim Paths'; return 1; }
@@ -605,6 +682,13 @@ rm_gate_scope() {
   # Paths pattern. Why (UAK-008): src/app,x.txt was split at its comma and src/app[1].txt cut at its glob, and both
   # passed as inside src/app/.
   # The lists by ENVIRON: awk -v would read the backslashes of a path as escapes.
+  # Merge-Engine: ci (UAK-131) releases only the ENGINE subset of the shared list, and only for a path whose every
+  # shared match is an engine entry: lock files, migrations, PROJECT.md, hackathon.md, the smoke provenance file,
+  # smoke-project and secret-scan stay the human's, as does a path that is an engine file and one of those at once.
+  # Why (`uak metrics`, 2026-11-21): 38 of 39 queued tasks were "Shared resource/CI needs a human"; 46 of 104 integrated
+  # tasks were built by the gate and landed by a person who added no check.
+  RM_CI_RELEASED=no; : > "$TXROOT/merge-released"; rm_merge_engine
+  UAK_SCOPE_ENGINE=$RM_ENGINE UAK_SCOPE_RELEASED="$TXROOT/merge-released" \
   UAK_SCOPE_ALLOWED="$TXROOT/merge-allowed" UAK_SCOPE_ADDITIVE="$TXROOT/merge-additive" awk '
     function load(f, list,   n, l) { n = 0; while ((getline l < f) > 0) if (l != "") list[++n] = l; close(f); return n }
     function fold(p) {
@@ -619,7 +703,17 @@ rm_gate_scope() {
       return 0
     }
     function has(s, list, n,   i) { for (i = 1; i <= n; i++) if (index(s, list[i])) return 1; return 0 }
+    # 0 = no shared resource, 1 = one that is a human'"'"'s, 2 = engine entries only.
+    function shared_kind(s,   i, hit, other) {
+      hit = 0; other = 0
+      for (i = 1; i <= nsh; i++) if (index(s, shared[i])) { hit = 1; if (!(shared[i] in iseng)) other = 1 }
+      return hit ? (other ? 1 : 2) : 0
+    }
     BEGIN {
+      neng = split("/.uak/bin/uak/ /.uak/bin/lib/ /.uak/bin/uak-coordination/ /.uak/bin/smoke/ /.githooks/ " \
+        "/.github/workflows/ /.gitlab-ci.yml/ /azure-pipelines.yml/", engl, " ")
+      for (i = 1; i <= neng; i++) iseng[engl[i]] = 1
+      engine = (ENVIRON["UAK_SCOPE_ENGINE"] == "ci"); rel = ENVIRON["UAK_SCOPE_RELEASED"]
       na = load(ENVIRON["UAK_SCOPE_ALLOWED"], allow); nd = load(ENVIRON["UAK_SCOPE_ADDITIVE"], add)
       nfx = split("/fixtures/ /testdata/ /__fixtures__/ /test-fixtures/", fx, " ")
       nkeep = split("/contracts/ /types/ /shared-types/ /migrations/ /db/migration/ /.github/ /.uak/", keep, " ")
@@ -639,7 +733,9 @@ rm_gate_scope() {
       # db/migration/fixtures/V9__x.sql is still a migration (Flyway scans db/migration recursively). Why (audit, Oct 2026).
       lp = "/" tolower(path) "/"; fixture = 0
       for (i = 1; i <= nfx; i++) if ((k = index(lp, fx[i])) && !has(substr(lp, 1, k - 1) "/", keep, nkeep)) fixture = 1
-      if (!fixture && has(lp, shared, nsh)) { print "shared"; print path; exit }
+      sk = fixture ? 0 : shared_kind(lp)
+      if (sk == 1 || (sk == 2 && !engine)) { print "shared"; print path; exit }
+      if (sk == 2) print path >> rel
       p = fold(path)
       if (under(p, allow, na)) next
       # A new EMPTY file (package marker such as __init__.py, .gitkeep) changes no behavior of other tasks: the empty
@@ -650,7 +746,8 @@ rm_gate_scope() {
     }' "$TXROOT/merge-list" > "$TXROOT/merge-verdict" || { RM_REASON='Scope check failed'; return 1; }
   { IFS= read -r code; IFS= read -r path; } < "$TXROOT/merge-verdict"
   case "$code" in
-    '') return 0;;
+    '') [ ! -s "$TXROOT/merge-released" ] || rm_ci_release || return 1
+        return 0;;
     newline) RM_REASON='Path with newline not supported'; return 1;;
     shared) RM_REASON="Shared resource/CI needs a human: $path"; return 1;;
   esac
@@ -940,6 +1037,12 @@ merge_run() {
   RM_RENEWER=$!
   if ! rm_prepare_candidate; then
     kill "$RM_RENEWER" 2>/dev/null; wait "$RM_RENEWER" 2>/dev/null
+    # A check of the tip still running (Merge-Engine: ci) is a wait, not a human's problem: nothing is queued.
+    case "$RM_REASON" in 'Merge-Engine ci: waiting'*)
+      if rm_coord_update unlock; then RM_HELD=no; fi
+      say "MERGE_WAIT $ID | $RM_REASON. Nothing was queued: run uak merge $ID again when it has finished."
+      return 3;;
+    esac
     RM_QUEUE_REASON=${RM_REASON:-'Candidate validation failed'}
     if rm_coord_update human; then RM_HELD=no; fi
     [ "$(field "$(task_file)" State)" != INTEGRATED ] || { rm_already_integrated; return 0; }
@@ -951,6 +1054,11 @@ merge_run() {
   if [ "$rc" -ne 0 ]; then
     # The base moved or the owner pushed while the gate ran: run it again, it is nobody's fault. Why (Hacktoberfest):
     # an owner's push during a merge sent the task to the human queue.
+    case "$RM_REASON" in 'Merge-Engine ci: waiting'*)
+      if rm_coord_update unlock; then RM_HELD=no; fi
+      say "MERGE_WAIT $ID | $RM_REASON. Nothing was queued: run uak merge $ID again when it has finished."
+      return 3;;
+    esac
     case "$RM_REASON" in 'Base moved; revalidate the candidate'|'Task SHA changed during validation')
       if rm_coord_update unlock; then RM_HELD=no; fi
       say "MERGE_WAIT $ID | $RM_REASON. Nothing was lost: run uak merge $ID again (the gate re-checks the new commits)."
