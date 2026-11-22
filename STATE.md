@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1795382445
+Updated: 1795386636
 AVAILABLE: -
 CLAIMED: -
 BLOCKED: -
@@ -13,11 +13,11 @@ Claims (first 24; status --task ID shows detail):
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1795338625 | UAK-145 | follow-up of UAK-134 by joahanmorales-11: board reads the review lease from the fetched config and honours UAK_LEASE_SECONDS, so board and status agree on 
 - 1795349411 | UAK-146 | follow-up of UAK-135 by joahanmorales-11: doctor compares hook dirs with -ef instead of lowercase text (a different .UAK/githooks is not the kit's on a cas
 - 1795352835 | deadline lease/UAK-144/1795352826 | REQUIRES_RECOVERY | Claim kept; read the summary and use release --expired --read-summary. No work is deleted.
 - 1795358521 | UAK-147 | follow-up of UAK-119 by joahanmorales-11: the dashboard computes the review lease like status and board: UAK_LEASE_SECONDS, else Lease-Seconds (default 180
 - 1795382352 | allow | JoahanMorales | test change: UAK-144 | Why: the Windows table is now in measured Windows seconds, the bound is 30 min (test_flaky_guard alone takes 25 min on
+- 1795386636 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-148 UAK-149 UAK-150 | Why: backlog without PR (Plan-Channel: claims)
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.
