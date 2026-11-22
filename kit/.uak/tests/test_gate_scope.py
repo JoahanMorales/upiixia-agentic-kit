@@ -33,7 +33,7 @@ if rm_gate_scope; then printf 'SCOPE OK\n'; else printf 'SCOPE REFUSED: %s\n' "$
 # candidate so a refusal's log goes nowhere else; the lines after the verdict are the Generated: list the scope pass read.
 GEN_HARNESS = HARNESS.replace("RM_BUILD=$2", "ROOT=$2 RM_BUILD=$2").replace(
     "if rm_gate_scope; then printf 'SCOPE OK\\n'; else",
-    "if rm_gate_scope && rm_generated_check; then printf 'SCOPE OK\\n'; else") + (
+    "if rm_gate_scope && git -C \"$RM_BUILD\" -c user.name=f -c user.email=f@e.test commit -q -m merge && rm_generated_check; then printf 'SCOPE OK\\n'; else") + (
     "[ ! -s \"$TXROOT/merge-generated-list\" ] || sed 's/^/LIST /' \"$TXROOT/merge-generated-list\"\n")
 
 BACKLOG = ("# Tasks\n\n## HACK-001 · The task under merge\n- **Paths:** `src/app/`, `docs/canción.md`\n\n"
@@ -240,8 +240,10 @@ def project(*lines):
     return {".uak/PROJECT.md": "# Project\nAdditive-Paths: e2e/\n" + "".join(l + "\n" for l in lines)}
 
 
-def generated(r, name, lines, files, index=None, base=None):
+def generated(r, name, lines, files, index=None, base=None, after=None):
     d, args = scene(r, name, files, index, dict(GEN_BASE, **dict(project(*lines), **(base or {}))), gen=True)
+    if after:
+        after(d / "repo")
     out = r.run([r.bash] + args, cwd=d, allowed=None)
     text = out.stdout.strip().splitlines()
     expect(out.returncode == 0 and text and text[0].startswith("SCOPE "), "the harness ran: " + (out.stdout + out.stderr)[-600:])
@@ -260,8 +262,8 @@ def generated_file_is_not_out_of_scope(r):
     verdict, _ = generated(r, "gen-other", [key], {"src/app/a.txt": "a\n", GEN: GEN_TEXT, "README.md": "edited\n"})
     want = "SCOPE REFUSED: " + EDIT_OUTSIDE % ("README.md", "", "README.md")
     expect(verdict == want, "another file outside Paths: expected: %r, got: %r" % (want, verdict))
-    verdict, _ = generated(r, "gen-case", ["- **Generated:** `GEN/Known.txt` = `%s`" % GEN_CMD], {"src/app/a.txt": "a\n", GEN: GEN_TEXT})
-    expect(verdict == "SCOPE OK", "bold, backticks and letter case: expected: SCOPE OK, got: " + verdict)
+    verdict, _ = generated(r, "gen-bold", ["- **Generated:** `%s` = `%s`" % (GEN, GEN_CMD)], {"src/app/a.txt": "a\\n", GEN: GEN_TEXT})
+    expect(verdict == "SCOPE OK", "bold and backticks: expected: SCOPE OK, got: " + verdict)
     sample = r.scratch / "generated-lines.md"
     sample.write_text("\n".join([key, "Generated: gen/ = x", "Generated: gen/*.txt = x", "Generated: a.txt =", "Generated: ../a = x",
                                  "Generated: /a = x", "Generated: no equals", "Generated: b.txt = a=b; c"]) + "\n", encoding="utf-8", newline="\n")
@@ -331,9 +333,72 @@ def no_key_no_change(r):
     return "no key, a directory, a glob, no command, prose"
 
 
+def generated_file_is_checked_against_the_merge_commit(r):
+    """D1: a generator that reads history (as kit_hashes.py does: git rev-list HEAD) must see the task's commits. A branch
+    of two commits that each change a file, merged with --no-ff --no-commit over the base as the gate does: the file
+    regenerated at the branch tip passes, one regenerated one commit too early is refused."""
+    script = "for c in $(git rev-list HEAD); do git rev-parse \"$c:src/app/main.txt\" 2>/dev/null; done | sort -u > gen/known.txt\n"
+    base = {"gen/history.sh": script, GEN: "stale\n"}
+    ident = ["-c", "user.name=fixture", "-c", "user.email=fixture@example.test"]
+    out = []
+    for name, early in (("tip", False), ("early", True)):
+        d, args = scene(r, "gen-history-" + name, None, None, dict(base, **project("Generated: %s = bash gen/history.sh" % GEN)), gen=True)
+        repo, sha = d / "repo", args[3]
+        r.g(repo, "checkout", "-q", "-b", "br")
+        for i, text in enumerate(("one\n", "two\n")):
+            (repo / "src/app/main.txt").write_text(text, encoding="utf-8", newline="\n")
+            r.g(repo, "add", "-A")
+            r.g(repo, *ident, "commit", "-q", "-m", "c%d" % i)
+            if early == (i == 0) :
+                r.run([r.bash, "gen/history.sh"], cwd=repo)
+                r.g(repo, "add", "-A")
+                r.g(repo, *ident, "commit", "-q", "-m", "regenerated")
+        r.g(repo, "checkout", "-q", "--detach", sha)
+        r.g(repo, *ident, "merge", "-q", "--no-ff", "--no-commit", "br")
+        res = r.run([r.bash] + args, cwd=d, allowed=None).stdout.strip().splitlines()[0]
+        out.append(res)
+        if early:
+            expect(res.startswith("SCOPE REFUSED: Generated file %s differs from what its command produces" % GEN), "regenerated early: " + res)
+        else:
+            expect(res == "SCOPE OK", "regenerated at the branch tip: expected: SCOPE OK, got: " + res)
+    return "tip passes, one commit early is refused"
+
+
+def a_deletion_a_variant_a_mode_change_or_a_duplicate_is_the_humans(r):
+    """D2 and D3: the path is compared exactly (GEN/Known.txt and a canción/CANCIÓN pair are other files), a deleted or
+    chmod +x generated file is not released, and a PATH listed twice is not generated. The command that leaves an
+    untracked file refuses the merge naming it."""
+    key = "Generated: %s = %s" % (GEN, GEN_CMD)
+    edit = "SCOPE REFUSED: " + EDIT_OUTSIDE % (GEN, "", GEN)
+    def mode(repo):
+        r.g(repo, "update-index", "--chmod=+x", GEN)
+    def delete(repo):
+        r.g(repo, "rm", "-q", "-f", GEN)
+    keep = {"gen/keep.txt": "keep\n"}
+    cases = [
+        ("mode", [key], {"src/app/a.txt": "a\n", GEN: GEN_TEXT}, None, None, mode, edit),
+        ("deleted", [key], {"src/app/a.txt": "a\n"}, None, keep, delete, edit),
+        ("dup", [key, "Generated: %s = true" % GEN], {"src/app/a.txt": "a\n", GEN: GEN_TEXT}, None, None, None, edit),
+        ("case", [key], {"src/app/a.txt": "a\n", GEN: GEN_TEXT}, {"GEN/Known.txt": "junk\n"}, None, None,
+         "SCOPE REFUSED: " + NEW_OUTSIDE % "GEN/Known.txt"),
+        ("accent", ["Generated: gen/canción.txt = true"], {"src/app/a.txt": "a\n"}, {"gen/CANCIÓN.txt": "junk\n"},
+         {"gen/canción.txt": "x\n"}, None, "SCOPE REFUSED: " + NEW_OUTSIDE % "gen/CANCIÓN.txt"),
+        ("untracked", ["Generated: %s = %s; printf x > gen/stray.txt" % (GEN, GEN_CMD)], {"src/app/a.txt": "a\n", GEN: GEN_TEXT}, None, None, None,
+         "SCOPE REFUSED: Generated file %s: its command (%s; printf x > gen/stray.txt) left untracked files: gen/stray.txt" % (GEN, GEN_CMD)),
+    ]
+    for name, lines, files, index, base, after, want in cases:
+        try:
+            verdict, _ = generated(r, "gen-human-" + name, lines, files, index, base, after)
+        except Unbuildable:
+            continue
+        expect(verdict.startswith(want), "%s: expected: %r, got: %r" % (name, want, verdict))
+    return "refused: " + ", ".join(c[0] for c in cases)
+
+
 TESTS = [scope_check_is_one_pass_for_200_files, the_same_reasons_for_new_and_edited_files_outside_paths,
          a_file_name_is_not_a_paths_pattern, generated_file_is_not_out_of_scope, gate_refuses_a_generated_file_that_differs,
-         generated_never_releases_a_human_file, generated_key_is_read_from_the_base, no_key_no_change]
+         generated_never_releases_a_human_file, generated_key_is_read_from_the_base, no_key_no_change,
+         generated_file_is_checked_against_the_merge_commit, a_deletion_a_variant_a_mode_change_or_a_duplicate_is_the_humans]
 
 
 def main():

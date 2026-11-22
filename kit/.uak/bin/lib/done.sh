@@ -427,22 +427,22 @@ done_mutate() {
     [ "$add" = - ] || normalize_paths "$add" > "$TXROOT/done-additive" 2>/dev/null || : > "$TXROOT/done-additive"
     # Generated: files (UAK-148) of the BASE's PROJECT.md (never the branch's): not out of scope unless a shared resource of
     # the human. The gate checks their content against the command, so there is nothing to revert. One normalized path a line.
-    local gl gp1 gx lp1
+    local gp1 gx lp1 gm0 gm1
     git -C "$task_worktree" show "origin/$BASE:.uak/PROJECT.md" 2>/dev/null | uak_generated_list > "$TXROOT/done-gen" 2>/dev/null || : > "$TXROOT/done-gen"
-    : > "$TXROOT/done-genpaths"
-    while IFS= read -r gl; do
-      [ -n "$gl" ] || continue
-      normalize_paths "${gl%%$'\t'*}" 2>/dev/null | head -n 1 >> "$TXROOT/done-genpaths"
-    done < "$TXROOT/done-gen"
+    cut -f1 "$TXROOT/done-gen" | sort | uniq -u > "$TXROOT/done-genpaths"
     git -C "$task_worktree" -c core.quotePath=false diff --no-renames --name-only "origin/$BASE...$tip" 2>/dev/null | head -n 200 > "$TXROOT/done-files"
     git -C "$task_worktree" -c core.quotePath=false diff --no-renames --diff-filter=A --name-only "origin/$BASE...$tip" 2>/dev/null > "$TXROOT/done-added"
     while IFS= read -r f; do
       [ -n "$f" ] || continue
       normalize_paths "$f" > "$TXROOT/done-one" 2>/dev/null || continue
       ! overlaps "$TXROOT/done-one" "$TXROOT/done-paths" || continue
-      if [ -s "$TXROOT/done-genpaths" ] && grep -qxF -- "$(cat "$TXROOT/done-one")" "$TXROOT/done-genpaths"; then
+      # The exact path, listed once, a plain file kept with its mode (as the gate releases it).
+      if [ -s "$TXROOT/done-genpaths" ] && grep -qxF -- "$f" "$TXROOT/done-genpaths"; then
         lp1="/$(cat "$TXROOT/done-one")/"; gx=yes
         for gp1 in $UAK_SHARED_RES /.github/ /.uak/bin/guard/; do case "$lp1" in (*"$gp1"*) gx=no;; esac; done
+        gm1=$(git -C "$task_worktree" ls-tree "$tip" -- "$f" 2>/dev/null | cut -d' ' -f1)
+        gm0=$(git -C "$task_worktree" ls-tree "origin/$BASE" -- "$f" 2>/dev/null | cut -d' ' -f1)
+        [ "$gm1" = 100644 ] && { [ -z "$gm0" ] || [ "$gm0" = 100644 ]; } || gx=no
         [ "$gx" = no ] || continue
       fi
       if grep -qxF -- "$f" "$TXROOT/done-added"; then
