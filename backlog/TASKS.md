@@ -1364,3 +1364,15 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Acceptance:**
   - The CI timing table is measured again: Windows shards 5 and 6 took 34m39s and 26m59s against a predicted 20.4 min, macOS 4 took 25m31s
 - **Verify:** `python3 kit/.uak/tests/test_ci_shards.py`
+
+## UAK-145 · board reads the review lease from the fetched config and honours UAK_LEASE_SECONDS, so board and status agree on the OVER mark; a tab in a queue reason or reviewer name does not break review_substate_since (follow-up of UAK-134)
+
+- **Type:** follow-up
+- **Priority:** P1
+- **Depends on:** UAK-134
+- **Follow-up of:** UAK-134
+- **Paths:** kit/.uak/bin/board, kit/.uak/bin/lib/status.sh, kit/.uak/bin/lib/json.sh, kit/.uak/docs/CLI.md, kit/.uak/tests/test_review_substates.py
+- **Freeze-Allowed:** no
+- **Acceptance:**
+  - board reads the review lease from the fetched config and honours UAK_LEASE_SECONDS, so board and status agree on the OVER mark; a tab in a queue reason or reviewer name does not break review_substate_since
+- **Verify:** `python3 kit/.uak/tests/test_review_substates.py`
