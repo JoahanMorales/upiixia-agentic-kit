@@ -767,7 +767,14 @@ rm_gate_scope() {
       # Under `ci` what judges or guards a merge is never released (workflows, smoke, smoke-project, secret-scan and
       # .githooks/ are shared and not engine above; guard joins them here, and none of them is test data under a
       # fixtures directory). `human` keeps the list as it was.
-      if (engine) { shared[++nsh] = "/.uak/bin/guard/"; keep[++nkeep] = "/.githooks/"; keep[++nkeep] = "/.uak/bin/guard/" }
+      # The whole of .github/ (a composite action a required workflow calls, CODEOWNERS) and the four files that ARE the
+      # merge gate go to a human under ci too: one approval must not weaken the gate for every later task (human
+      # decision, 2026-11-21). The path is folded to lower case before this match, so any letter case is caught.
+      if (engine) {
+        ngate = split("/.uak/bin/guard/ /.github/ /.uak/bin/lib/review-merge.sh/ /.uak/bin/lib/tx.sh/ /.uak/bin/lib/security.sh/ /.uak/bin/lib/config.sh/", gate, " ")
+        for (i = 1; i <= ngate; i++) shared[++nsh] = gate[i]
+        keep[++nkeep] = "/.githooks/"; keep[++nkeep] = "/.uak/bin/guard/"
+      }
     }
     NR % 2 == 1 { n = split($0, m, " "); st = m[n]; blob = m[4]; next }
     {

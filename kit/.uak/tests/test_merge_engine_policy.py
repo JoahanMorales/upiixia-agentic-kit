@@ -78,7 +78,9 @@ def checks(r, text, status=STATUS_NONE):
 
 
 def fixture(r, name, path, project="", content="ready-HACK-001\n", mode="sprint"):
-    f = r.fixture("pol-" + name, paths={"HACK-001": path}, count=1, owners={path: "HACK-001"})
+    plist = path if isinstance(path, list) else [path]  # several paths: the first is the one the gate reports
+    path = plist[0]
+    f = r.fixture("pol-" + name, paths={"HACK-001": ", ".join(plist)}, count=1, owners={p: "HACK-001" for p in plist})
     (f.seed / ".uak/PROJECT.md").write_text(
         "# Fixture\nMode: " + mode + "\nAutonomy: yes\nAuto-Merge: yes\nBacklog-Approved: yes\nBacklog-Proposed-Epoch: 1000000\n"
         "Freeze-Epoch: 9999999\nReview-Mode: claims\nEvents-Per-Session: 100000\nCheckpoint-Percent: 60\n"
@@ -100,17 +102,21 @@ def fixture(r, name, path, project="", content="ready-HACK-001\n", mode="sprint"
         r.g(clone, "fetch", "origin", "main")
         r.g(worktree, "reset", "--hard", "origin/main")
         r.g(clone, "config", "remote.origin.url", GH_URL)  # what the engine reads; git reaches the bare repo by insteadOf
-    f.path, f.content = path, content
+    f.path, f.paths_all, f.content = path, plist, content
     return f
 
 
 def ship(f, r):
     """claim, write the file, `done` with a github.com PR, a registered reviewer approves the exact tip."""
     f.claim(0, "HACK-001")
-    target = f.worktrees[0] / f.path
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(f.content, encoding="utf-8")
-    r.g(f.worktrees[0], "add", f.path)
+    for each in f.paths_all:
+        target = f.worktrees[0] / each
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and each.startswith(".uak/bin/"):  # a real engine file: append a comment, never overwrite the engine in use
+            target.write_text(target.read_text(encoding="utf-8") + "\n# ready-HACK-001\n", encoding="utf-8")
+        else:
+            target.write_text(f.content, encoding="utf-8")
+        r.g(f.worktrees[0], "add", each)
     r.g(f.worktrees[0], "commit", "-m", "Implement HACK-001")
     r.g(f.worktrees[0], "push", "origin", f.branches[0])
     tip = r.g(f.worktrees[0], "rev-parse", "HEAD").stdout.strip()
@@ -343,6 +349,23 @@ def workflow_or_smoke_goes_to_the_human(r):
     return "the things that judge or guard a merge are never released; lib/fixtures is not exempt"
 
 
+def the_gate_itself_and_github_stay_human(r):
+    """Under ci, all of .github/ (any letter case) and the four files that ARE the merge gate go to a human, alone or
+    next to another lib file; another lib file alone still lands with the required checks green."""
+    checks(r, GREEN)
+    for name, path in (("action", ".github/actions/x/action.yml"), ("codeowners", ".github/CODEOWNERS"),
+                       ("casefold", ".GitHub/Actions/y/action.yml"), ("reviewmerge", ".uak/bin/lib/review-merge.sh"),
+                       ("tx", ".uak/bin/lib/tx.sh"), ("security", ".uak/bin/lib/security.sh"), ("config", ".uak/bin/lib/config.sh"),
+                       ("mixed", ".uak/bin/lib/config.sh,.uak/bin/lib/status.sh")):
+        paths = path.split(",")
+        f, _, out = attempt(r, "gate-" + name, path=paths, project=CI)
+        want = paths[0]
+        expect(out.returncode == 3 and "Shared resource/CI needs a human: %s" % want in out.stdout and not merged(r, f), "%s: %s" % (path, out.stdout + out.stderr))
+    f, _, out = attempt(r, "gate-other-lib", path=".uak/bin/lib/status.sh", project=CI)
+    expect("INTEGRATED" in out.stdout and merged(r, f), "another lib file lands with the checks green: " + out.stdout + out.stderr)
+    return ".github/ and the four gate files are a human's; lib/status.sh lands"
+
+
 def forge_required_checks_win(r):
     required = Path(r.env["MOCK_CHECKS"]).with_name("required-win.txt")
     checks(r, GREEN)
@@ -373,7 +396,7 @@ TESTS = [human_is_the_default, ci_merges_when_every_check_is_green, a_running_ch
          gh_unavailable_is_not_green, doctor_fails_without_required_checks, marathon_needs_human_independence,
          metrics_counts_ci_merges_apart, status_and_lone_checks_prove_nothing, shards_match_by_prefix,
          a_missing_required_check_waits_then_refuses, workflow_or_smoke_goes_to_the_human, forge_required_checks_win,
-         no_required_list_goes_to_the_human]
+         no_required_list_goes_to_the_human, the_gate_itself_and_github_stay_human]
 
 
 def main():
