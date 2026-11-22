@@ -31,6 +31,7 @@ def package(r, name, tests=None):
     files.update(tests or {})
     for n, text in files.items():
         (base / ".uak" / "tests" / n).write_text(text, encoding="utf-8")
+    (base / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")  # test_user imports test_hack: Python writes a cache
     (base / "docs").mkdir()
     (base / "docs" / "guide.md").write_text("# guide, see test_beta\n", encoding="utf-8")
     r.g(base, "init", "-q")
@@ -49,8 +50,9 @@ def touch(r, base, rel, text="# changed\n"):
 
 
 def smoke(r, base, *args, env=None):
-    cmd = ["env", "-u", "UAK_SMOKE_TESTS", "-u", "UAK_SMOKE_GATE_NONE", r.bash, ".uak/bin/smoke"] + list(args)
-    return r.run(cmd, cwd=base, env=dict(env or {}), allowed=None, timeout=600)
+    # `env -u` first, then the caller's variables: a test that exports UAK_SMOKE_TESTS means it (CI shards leak theirs).
+    cmd = ["env", "-u", "UAK_SMOKE_TESTS", "-u", "UAK_SMOKE_GATE_NONE"] + ["%s=%s" % kv for kv in (env or {}).items()] + [r.bash, ".uak/bin/smoke"] + list(args)
+    return r.run(cmd, cwd=base, allowed=None, timeout=600)
 
 
 def ran(out):

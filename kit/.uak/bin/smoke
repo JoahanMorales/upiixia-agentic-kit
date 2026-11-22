@@ -6,16 +6,25 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$root"
 mode=product
 jobs=''
-usage() { printf '%s\n' 'Usage: .uak/bin/smoke [--package-only|--full] [--jobs N|auto]' >&2; exit 2; }
+affected='' base_ref='' list_only=''
+usage() { printf '%s\n' 'Usage: .uak/bin/smoke [--package-only|--full] [--jobs N|auto] [--affected [BASE] [--list]]  (--affected: lint, secrets, the task Verify and only the tests the diff against BASE touches or names; --list prints the choice and stops; the merge gate never passes it)' >&2; exit 2; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --package-only) mode=package; shift ;;
     --full) mode=full; shift ;;
+    --affected)
+      affected=1; shift
+      if [ "$#" -gt 0 ]; then case "$1" in -*) ;; *) base_ref=$1; shift ;; esac; fi ;;
+    --list) list_only=1; shift ;;
     --jobs) [ "$#" -ge 2 ] || usage; jobs=$2; shift 2 ;;
     --jobs=*) jobs=${1#--jobs=}; shift ;;
-    *) usage ;;
+    *) if [ -n "$affected" ] && [ -z "$base_ref" ]; then base_ref=$1; shift; else usage; fi ;;
   esac
 done
+[ -z "$list_only" ] || [ -n "$affected" ] || usage
+# --affected is the shortcut for a person or an agent calling smoke by hand (UAK-129); it is an argument only, so nothing an
+# agent exports makes the merge gate's run partial. It runs the package suite, never the product smoke.
+[ -z "$affected" ] || [ "$mode" != product ] || mode=package
 for script in .uak/bin/uak .uak/bin/uak-coordination .uak/bin/guard .uak/bin/doctor .uak/bin/graph .uak/bin/loop .uak/bin/board .uak/bin/stats .uak/bin/up .uak/bin/demo .uak/bin/policy .uak/bin/secret-scan .uak/bin/wt .uak/bin/q .uak/bin/hook .uak/bin/tokens .uak/bin/map .uak/bin/cap .uak/bin/clock .uak/bin/skill .uak/bin/lib/*.sh .githooks/pre-commit; do
   [ ! -f "$script" ] || bash -n "$script"
 done
@@ -49,7 +58,49 @@ if [ "$mode" != product ] && [ "$mode" != light ]; then
   # runs less quietly. Unset (the merge gate, a laptop), every test runs.
   # Merge-Smoke: affected with no affected test file (UAK-052): the merge gate says so with this internal variable (a token file only the gate creates), never
   # with a value of UAK_SMOKE_TESTS, so a user's export cannot skip the suite. Lint and the rest of the gate still ran.
-  if [ -f "${UAK_SMOKE_GATE_NONE:-/nonexistent}" ] && [ "$(cat "$UAK_SMOKE_GATE_NONE" 2>/dev/null)" = affected-none ] && [ -z "${UAK_SMOKE_TESTS+set}" ]; then
+  if [ -n "$affected" ]; then
+    # shellcheck disable=SC1091
+    . .uak/bin/lib/tests.sh
+    unset UAK_SMOKE_TESTS UAK_SMOKE_GATE_NONE   # a shard list or a stale token of the caller is not this run's choice (lesson #4)
+    top=$(git rev-parse --show-toplevel 2>/dev/null) || { printf '%s\n' 'smoke --affected needs a Git checkout.' >&2; exit 2; }
+    prefix=$(git rev-parse --show-prefix)
+    if [ -z "$base_ref" ]; then
+      for c in origin/main main HEAD; do
+        if [ -z "$base_ref" ] && git rev-parse --verify -q "$c^{commit}" >/dev/null 2>&1; then base_ref=$c; fi
+      done
+    fi
+    git rev-parse --verify -q "$base_ref^{commit}" >/dev/null 2>&1 || { printf 'smoke --affected: no such base %s\n' "$base_ref" >&2; exit 2; }
+    mb=$(git merge-base "$base_ref" HEAD 2>/dev/null) || mb=$(git rev-parse "$base_ref^{commit}")
+    aw=$(mktemp -d "${TMPDIR:-/tmp}/uak-smoke-affected.XXXXXX")
+    trap 'rm -rf "$aw"' EXIT
+    # The branch's commits, the working tree and the files not yet added: what the author is about to hand over.
+    { git -C "$top" -c core.quotePath=false diff --name-only "$mb"; git -C "$top" -c core.quotePath=false ls-files -o --exclude-standard; } | LC_ALL=C sort -u |
+      while IFS= read -r p; do
+        [ -n "$p" ] || continue
+        case "$prefix" in '') printf '%s\n' "$p" ;; *) case "$p" in "$prefix"*) printf '%s\n' "${p#"$prefix"}" ;; *) printf '../%s\n' "$p" ;; esac ;; esac
+      done > "$aw/changed"
+    printf '%s\n' $tests > "$aw/tests"
+    n_all=$(grep -c . "$aw/tests" || :)
+    tf_affected_select "$root" "$aw/changed" "$aw/tests" > "$aw/sel"
+    printf 'Affected against %s (%s changed files):\n' "$base_ref" "$(grep -c . "$aw/changed" || :)"
+    if grep -q '^ALL' "$aw/sel"; then
+      picked=$tests n_picked=$n_all
+      printf '  all %s test files: %s\n' "$n_all" "$(sed -n 's/^ALL\t//p' "$aw/sel" | head -n 1)"
+    else
+      picked='' n_picked=0
+      while IFS="$(printf '\t')" read -r t why; do
+        [ -n "$t" ] || continue
+        if [ "$t" = - ]; then printf '  note: %s\n' "$why"; else printf '  %s: %s\n' "$t" "$why"; picked="$picked $t"; n_picked=$((n_picked + 1)); fi
+      done < "$aw/sel"
+    fi
+    printf 'Affected: %s of %s test files; left %s of %s test files for the merge gate (it runs the whole suite).\n' "$n_picked" "$n_all" "$((n_all - n_picked))" "$n_all"
+    [ -z "$list_only" ] || exit 0
+    tests=$picked
+    # The lint and the task's Verify run whatever the diff selected.
+    for c in "$root/../scripts/kit_lint.py" "$root/scripts/kit_lint.py"; do
+      if [ -f "$c" ]; then "$python_runtime" "$c" || { printf '%s\n' 'PACKAGE_FAIL: kit_lint.' >&2; exit 1; }; break; fi
+    done
+  elif [ -f "${UAK_SMOKE_GATE_NONE:-/nonexistent}" ] && [ "$(cat "$UAK_SMOKE_GATE_NONE" 2>/dev/null)" = affected-none ] && [ -z "${UAK_SMOKE_TESTS+set}" ]; then
     printf 'Shard: 0 of %s test files (merge gate: no test file affected).\n' "$(printf '%s\n' $tests | wc -l | tr -d ' ')"
     tests=''
   elif [ -n "${UAK_SMOKE_TESTS+set}" ]; then
@@ -148,6 +199,23 @@ for line in sys.stdin:
       [ "$t" != test_v57_install.py ] || [ -f "$root/../install.sh" ] || continue
       "$python_runtime" ".uak/tests/$t" --package "$root"
     done
+  fi
+  if [ -n "$affected" ]; then
+    task=$(sed -n 's/^UAK_TASK=//p' "$top/.uak-env" "$root/.uak-env" 2>/dev/null | head -n 1 | tr -d '\r')
+    verify=''
+    for tf in "$top/.uak/TASKS.md" "$root/.uak/TASKS.md"; do
+      if [ -n "$task" ] && [ -z "$verify" ] && [ -f "$tf" ]; then
+        verify=$(awk -v id="$task" '/^## / { on = ($2 == id) } on { s = $0; gsub(/\*\*/, "", s); sub(/^[[:space:]]*-[[:space:]]*/, "", s)
+          if (index(s, "Verify:") == 1) { sub(/^Verify:[[:space:]]*/, "", s); print s; exit } }' "$tf")
+      fi
+    done
+    verify=${verify#\`}; verify=${verify%\`}
+    if [ -n "$verify" ]; then
+      printf 'Verify (%s): %s\n' "$task" "$verify"
+      (cd "$top" && bash -c "$verify") || { printf 'PACKAGE_FAIL: the task Verify failed.\n' >&2; exit 1; }
+    else
+      printf '%s\n' 'Verify: no task in this checkout (.uak-env), none run.'
+    fi
   fi
   printf '%s\n' 'PACKAGE_PASS: coordination verified with real Git processes and a local bare remote.'
 fi

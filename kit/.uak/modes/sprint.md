@@ -37,6 +37,7 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 1. A feature or bug task lists `Tests:` (2 to 4 behavior names on the demo path). Write them with the stub, `uak red ID` (it must fail on an assertion), then implement. Design lock, docs and pure styling tasks say `Test-First: no (why)`.
 2. Tests only grow: `done` refuses a changed assertion, a skip or a deleted test. A wrong test → `uak msg human`.
 3. Fakes for the model, payments and external APIs (the recorded `demo_data` responses are the Fake), a frozen clock; one integration test on the real DB engine for the demo path.
+4. Before `done`, and in a review: the task's Verify plus `bash .uak/bin/smoke --affected` (lint, secret scan, Verify and only the test files the diff touches or names; it prints what it chose and how many it left; `--list` only prints). The review note says which was run. The merge gate still runs the whole suite on the merged result: `--affected` is a flag for a person or an agent, and the gate never passes it.
 
 ## A stunning frontend (what judges see)
 1. The wow moment happens within 90 s of the demo and is fully visible at 1280×720 (projector) without scrolling. Legal or "not a diagnosis" notices stay inside the viewport.
