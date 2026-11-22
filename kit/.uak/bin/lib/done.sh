@@ -425,12 +425,26 @@ done_mutate() {
     normalize_paths "$(rm_task_value Paths)" > "$TXROOT/done-paths" 2>/dev/null || : > "$TXROOT/done-paths"
     : > "$TXROOT/done-additive"; [ ! -f "$TXROOT/coord-source" ] || add=$(coord_source_field Additive-Paths -)
     [ "$add" = - ] || normalize_paths "$add" > "$TXROOT/done-additive" 2>/dev/null || : > "$TXROOT/done-additive"
+    # Generated: files (UAK-148) of the BASE's PROJECT.md (never the branch's): not out of scope unless a shared resource of
+    # the human. The gate checks their content against the command, so there is nothing to revert. One normalized path a line.
+    local gl gp1 gx lp1
+    git -C "$task_worktree" show "origin/$BASE:.uak/PROJECT.md" 2>/dev/null | uak_generated_list > "$TXROOT/done-gen" 2>/dev/null || : > "$TXROOT/done-gen"
+    : > "$TXROOT/done-genpaths"
+    while IFS= read -r gl; do
+      [ -n "$gl" ] || continue
+      normalize_paths "${gl%%$'\t'*}" 2>/dev/null | head -n 1 >> "$TXROOT/done-genpaths"
+    done < "$TXROOT/done-gen"
     git -C "$task_worktree" -c core.quotePath=false diff --no-renames --name-only "origin/$BASE...$tip" 2>/dev/null | head -n 200 > "$TXROOT/done-files"
     git -C "$task_worktree" -c core.quotePath=false diff --no-renames --diff-filter=A --name-only "origin/$BASE...$tip" 2>/dev/null > "$TXROOT/done-added"
     while IFS= read -r f; do
       [ -n "$f" ] || continue
       normalize_paths "$f" > "$TXROOT/done-one" 2>/dev/null || continue
       ! overlaps "$TXROOT/done-one" "$TXROOT/done-paths" || continue
+      if [ -s "$TXROOT/done-genpaths" ] && grep -qxF -- "$(cat "$TXROOT/done-one")" "$TXROOT/done-genpaths"; then
+        lp1="/$(cat "$TXROOT/done-one")/"; gx=yes
+        for gp1 in $UAK_SHARED_RES /.github/ /.uak/bin/guard/; do case "$lp1" in (*"$gp1"*) gx=no;; esac; done
+        [ "$gx" = no ] || continue
+      fi
       if grep -qxF -- "$f" "$TXROOT/done-added"; then
         { [ -s "$TXROOT/done-additive" ] && overlaps "$TXROOT/done-one" "$TXROOT/done-additive"; } && continue
         [ "$(git -C "$task_worktree" cat-file -s "$tip:$f" 2>/dev/null)" != 0 ] || continue
