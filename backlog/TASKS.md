@@ -1340,3 +1340,15 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Acceptance:**
   - The read cache's lock is taken over atomically: clearing a dead holder's lock let two writers into the critical section (15-20 of 1,200 acquisitions with dead locks planted)
 - **Verify:** `python3 kit/.uak/tests/test_read_cache.py`
+
+## UAK-143 · tokens: the budget scan runs in the background (a cold read added 4.5 s to status once per 5 min); a malformed timestamp counts like a missing one; a negative Token-Budget is refused; --since 0 and the mtime pre-filter documented (follow-up of UAK-133)
+
+- **Type:** follow-up
+- **Priority:** P1
+- **Depends on:** UAK-133
+- **Follow-up of:** UAK-133
+- **Paths:** kit/.uak/bin/tokens, kit/.uak/bin/lib/status.sh, kit/.uak/bin/uak-coordination, kit/.uak/tests/test_tokens_window.py
+- **Freeze-Allowed:** no
+- **Acceptance:**
+  - tokens: the budget scan runs in the background (a cold read added 4.5 s to status once per 5 min); a malformed timestamp counts like a missing one; a negative Token-Budget is refused; --since 0 and the mtime pre-filter documented
+- **Verify:** `python3 kit/.uak/tests/test_tokens_window.py`
