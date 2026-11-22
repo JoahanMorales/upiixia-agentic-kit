@@ -183,3 +183,171 @@ cache_drop() {
   cache_dir || return 0
   [ ! -d "$CACHE_DIR" ] || rm -rf -- "$CACHE_DIR" 2>/dev/null || :
 }
+# ---- The read cache (UAK-130): the claims clone a read just fetched, reused while it is young. ----
+# status and next fetched claims on every call (3.7 s and 2.3 s measured; agents poll 2.7 times per `done`). A read
+# whose last fetch is younger than `Read-Cache: N` seconds (PROJECT.md, default 20, 0 = off) copies the clone kept
+# here instead of fetching, and says how old it is (first line). Only status and next ask (status_run); every write
+# fetches as always, and a successful write refreshes the clone with what it pushed (rc_put in transaction), so an
+# agent reads its own writes. Out of reach: other clones' writes, for up to N seconds (that is the trade; `--fresh`
+# forces a fetch). inbox, board, timeline and metrics never read it (docs/CLI.md, Read cache).
+#
+#   rc_get          TX does not exist yet: on a hit it is made, a copy of the cached clone; RC_AGE is its age in s.
+#                   Any entry that is not a whole, clean clone is a miss.
+#   rc_gen          RC_GEN, this clone's write generation: take it BEFORE the fetch a read may put.
+#   rc_put TX read GEN0    keeps a read's clone; refused when a write of this clone began since GEN0 (that read may hold
+#                          a state older than what the write pushed).
+#   rc_put TX write        keeps a writer's clone (ordered by claims tip like any put); counts one more write.
+#   rc_drop         forgets every entry and counts a write.
+# Order is the generation, not a clock: every writer bumps `gen` (under the lock) when it starts (rc_drop) and again when
+# it puts its own state; a reader's put compares `gen` with the value it saw before its fetch, under the same lock as
+# the rename of the entry, so check and replace are one step against a concurrent put (kit-r2, review of d68b644).
+# Where: <git common dir>/uak-read-cache/: entries e-<NOW>-<pid>-<n>/ {stamp, tx/}, `current` (names the live entry),
+# `gen`, and `lock/` (mkdir lock; one older than a minute is stale). An entry is built under a temp name, moved into
+# place and `current` replaced by one rename: a reader sees a whole entry or none. The entry before the live one is
+# kept for readers still copying it; older ones go. The stamp names the remote URL, the base and the base tip this
+# checkout last saw. NOW is the engine's clock (UAK_NOW); a simulated clock turns the cache off unless UAK_READ_CACHE=on.
+RC_FORMAT=2
+# A simulated clock (UAK_NOW) does not move between calls, so a window of seconds means nothing there: the suites of
+# the kit, which read twice at one instant and compare, keep fetching unless a test asks (UAK_READ_CACHE=on).
+rc_clock_ok() { [ -z "${UAK_NOW:-}" ] || [ "${UAK_READ_CACHE:-}" = on ]; }
+rc_dir() { cache_dir || return 1; RC_DIR=${CACHE_DIR%/*}/uak-read-cache; }
+# rc_line FILE: RC_L1, the first line of FILE, silently (the redirect error goes first: bash prints it otherwise).
+rc_line() { RC_L1=; [ -f "$1" ] || return 1; IFS= read -r RC_L1 2>/dev/null < "$1" || [ -n "$RC_L1" ]; }
+rc_gen() {
+  RC_GEN=0
+  rc_dir || return 0
+  rc_line "$RC_DIR/gen" || return 0
+  case "$RC_L1" in ''|*[!0-9]*) ;; *) RC_GEN=$RC_L1;; esac
+}
+# The lock is a directory holding its owner's pid. A holder that is not alive (kill -0) is cleared at once; a lock
+# older than a minute goes too (another host, a recycled pid). A lock whose pid file is not written yet is a live one.
+rc_lock() {
+  local i=0 pid dead
+  while ! mkdir "$RC_DIR/lock" 2>/dev/null; do
+    pid=
+    [ ! -f "$RC_DIR/lock/pid" ] || IFS= read -r pid 2>/dev/null < "$RC_DIR/lock/pid" || :
+    pid=${pid%$'\r'}
+    case "$pid" in
+      ''|*[!0-9]*) ;;
+      *) if ! kill -0 "$pid" 2>/dev/null; then
+           # One waiter wins the rename; if it moved a lock that is not the dead one's (someone took it meanwhile),
+           # it puts it back.
+           dead=$RC_DIR/.dead-$$-${RANDOM:-0}
+           if mv "$RC_DIR/lock" "$dead" 2>/dev/null; then
+             IFS= read -r i 2>/dev/null < "$dead/pid" || i=; i=${i%$'\r'}
+             if [ "$i" = "$pid" ]; then rm -rf "$dead"; else mv "$dead" "$RC_DIR/lock" 2>/dev/null || rm -rf "$dead"; fi
+           else
+             # A directory that cannot be renamed (Windows, an open handle) is removed where it stands when it still
+             # names the same dead pid.
+             IFS= read -r i 2>/dev/null < "$RC_DIR/lock/pid" || i=; i=${i%$'\r'}
+             [ "$i" != "$pid" ] || rm -rf "$RC_DIR/lock" 2>/dev/null
+           fi
+           i=0; continue
+         fi;;
+    esac
+    i=$((i + 1))
+    if [ "$i" -ge 100 ]; then
+      [ -z "$(find "$RC_DIR/lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] || rm -rf "$RC_DIR/lock" 2>/dev/null
+      return 1
+    fi
+    sleep 0.05 2>/dev/null || sleep 1
+  done
+  printf '%s\n' "$$" > "$RC_DIR/lock/pid" 2>/dev/null || :
+}
+rc_unlock() { rm -rf "$RC_DIR/lock" 2>/dev/null || :; }
+# rc_bump: one more write of this clone (under the lock).
+rc_bump() { rc_gen; printf '%s\n' $((RC_GEN + 1)) > "$RC_DIR/.gen-$$" 2>/dev/null && mv "$RC_DIR/.gen-$$" "$RC_DIR/gen" 2>/dev/null || :; }
+# rc_basetip: RC_BASETIP, the base's tip as this checkout last saw it (a push or fetch of the base moves it). The base
+# holds PROJECT.md and TASKS.md, which a read takes from the remote; the user's own push of them is read back at once.
+rc_basetip() { RC_BASETIP=$(git -C "$ROOT" rev-parse -q --verify "refs/remotes/${REMOTE:-origin}/${BASE:-main}" 2>/dev/null) || RC_BASETIP=none; }
+# rc_stamp ENTRY: RC_AT RC_TTL RC_URL RC_BASE RC_BT RC_TIP, or fails.
+rc_stamp() {
+  local l1 l2 l3 l4 l5
+  RC_AT= RC_TTL= RC_TIP=
+  [ -f "$1/stamp" ] || return 1
+  { IFS= read -r l1 && IFS= read -r l2 && IFS= read -r l3 && IFS= read -r l4 && IFS= read -r l5; } 2>/dev/null < "$1/stamp" || return 1
+  case "$l1" in "uak-read-cache $RC_FORMAT at "*" ttl "*) ;; *) return 1;; esac
+  l1=${l1#"uak-read-cache $RC_FORMAT at "}; RC_AT=${l1%% *}; RC_TTL=${l1##* }
+  case "$RC_AT$RC_TTL" in ''|*[!0-9]*) return 1;; esac
+  RC_URL=${l2#remote }; RC_BASE=${l3#base }; RC_BT=${l4#basetip }; RC_TIP=${l5#tip }
+  [ "$l2" != "$RC_URL" ] && [ "$l3" != "$RC_BASE" ] && [ "$l4" != "$RC_BT" ] && [ "$l5" != "$RC_TIP" ]
+}
+rc_get() {
+  local cur name
+  RC_AGE=
+  [ "${UAK_CACHE:-on}" != off ] && [ "${READ_FRESH:-no}" != yes ] && [ "${REG_MUTATE:-}" = - ] || return 1
+  rc_clock_ok || return 1
+  case "${CMD:-}" in status|next) ;; *) return 1;; esac
+  rc_dir || return 1
+  rc_line "$RC_DIR/current" || return 1
+  name=$RC_L1
+  case "$name" in e-*[!A-Za-z0-9._-]*|e-) return 1;; e-*) ;; *) return 1;; esac
+  cur=$RC_DIR/$name
+  rc_stamp "$cur" || return 1
+  [ "$RC_URL" = "${REMOTE_URL:-}" ] && [ "$RC_BASE" = "${BASE:-}" ] || return 1
+  rc_basetip; [ "$RC_BT" = "$RC_BASETIP" ] || return 1
+  [ "$RC_TTL" -gt 0 ] && [ "$NOW" -ge "$RC_AT" ] && [ $((NOW - RC_AT)) -lt "$RC_TTL" ] || return 1
+  [ -d "$cur/tx/.git" ] && mkdir "$TX" 2>/dev/null && cp -R "$cur/tx/." "$TX/" 2>/dev/null || { rm -rf "$TX"; return 1; }
+  # A whole, clean clone at a commit, or a miss: an entry that is empty, cut short or pruned meanwhile is never used.
+  if [ ! -d "$TX/.git" ] || ! git -C "$TX" rev-parse -q --verify HEAD >/dev/null 2>&1 ||
+     [ -n "$(git -C "$TX" status --porcelain --untracked-files=no 2>/dev/null)" ]; then rm -rf "$TX"; return 1; fi
+  mkdir -p "$TX/tasks" "$TX/claims" "$TX/worklog"
+  RC_AGE=$((NOW - RC_AT))
+}
+# rc_put TX MODE [GEN0]: see the header.
+rc_put() {
+  local tx=$1 mode=${2:-read} gen0=${3:-} ttl entry tmp prev= e tip cmp
+  [ "${UAK_CACHE:-on}" != off ] || return 1
+  rc_clock_ok || return 1
+  [ -d "$tx/.git" ] && [ -f "$TXROOT/coord-source" ] || return 1
+  uak_cfg_var "$TXROOT/coord-source" Read-Cache 20; ttl=$CFG
+  case "$ttl" in ''|*[!0-9]*) ttl=20;; esac
+  [ "$ttl" -gt 0 ] || { rc_drop; return 0; }
+  # Only a clone whose records are its HEAD's (UAK-006's lesson: never a state older than the tip it is kept under).
+  [ -z "$(git -C "$tx" status --porcelain --untracked-files=no 2>/dev/null)" ] || return 1
+  rc_dir || return 1
+  mkdir -p "$RC_DIR" 2>/dev/null || return 1
+  case "$mode" in write) ;; *) case "$gen0" in ''|*[!0-9]*) return 1;; esac;; esac
+  rc_gen; [ "$mode" = write ] || [ "$RC_GEN" = "$gen0" ] || return 1   # cheap early exit; checked again under the lock
+  entry=e-$NOW-$$-${RANDOM:-0}
+  tmp=$RC_DIR/.tmp-$$-${RANDOM:-0}
+  rc_basetip
+  tip=$(git -C "$tx" rev-parse -q --verify HEAD 2>/dev/null) && cache_sha "$tip" || return 1
+  mkdir "$tmp" 2>/dev/null && mkdir "$tmp/tx" && cp -R "$tx/." "$tmp/tx/" 2>/dev/null || { rm -rf "$tmp"; return 1; }
+  printf 'uak-read-cache %s at %s ttl %s\nremote %s\nbase %s\nbasetip %s\ntip %s\n' "$RC_FORMAT" "$NOW" "$ttl" "${REMOTE_URL:-}" "${BASE:-}" "$RC_BASETIP" "$tip" > "$tmp/stamp" || { rm -rf "$tmp"; return 1; }
+  rc_lock || { rm -rf "$tmp"; return 1; }
+  rc_gen
+  if [ "$mode" != write ] && [ "$RC_GEN" != "$gen0" ]; then rm -rf "$tmp"; rc_unlock; return 1; fi
+  [ "$mode" != write ] || rc_bump
+  ! rc_line "$RC_DIR/current" || prev=$RC_L1
+  # Order by the claims tip, writes included: an entry is replaced only by the same tip or a descendant of it. An older
+  # put (a writer that was held up, a slower reader) keeps what is there; tips that cannot be compared (unrelated, or
+  # further apart than the shallow clones reach) drop the cache, so the next read fetches.
+  if [ -n "$prev" ] && rc_stamp "$RC_DIR/$prev" && [ "$RC_TIP" != "$tip" ]; then
+    cmp=unknown
+    if git -C "$tx" merge-base --is-ancestor "$RC_TIP" "$tip" 2>/dev/null; then cmp=newer
+    elif git -C "$RC_DIR/$prev/tx" merge-base --is-ancestor "$tip" "$RC_TIP" 2>/dev/null; then cmp=older; fi
+    case "$cmp" in
+      newer) ;;
+      older) rm -rf "$tmp"; rc_unlock; return 1;;
+      *) rm -rf -- "$tmp" "$RC_DIR"/e-* "$RC_DIR/current" 2>/dev/null; rc_bump; rc_unlock; return 1;;
+    esac
+  fi
+  if mv "$tmp" "$RC_DIR/$entry" 2>/dev/null && printf '%s\n' "$entry" > "$RC_DIR/.current-$$" && mv "$RC_DIR/.current-$$" "$RC_DIR/current" 2>/dev/null; then
+    set --
+    for e in "$RC_DIR"/e-*; do
+      [ -d "$e" ] && [ "${e##*/}" != "$entry" ] && [ "${e##*/}" != "$prev" ] && set -- "$@" "$e"
+    done
+    [ "$#" -eq 0 ] || rm -rf -- "$@" 2>/dev/null || :
+    rc_unlock; return 0
+  fi
+  rm -rf "$tmp" "$RC_DIR/$entry" "$RC_DIR/.current-$$"; rc_unlock; return 1
+}
+rc_drop() {
+  rc_dir || return 0
+  mkdir -p "$RC_DIR" 2>/dev/null || return 0
+  rc_lock || :
+  rc_bump
+  rm -rf -- "$RC_DIR"/e-* "$RC_DIR/current" 2>/dev/null || :
+  rc_unlock
+}

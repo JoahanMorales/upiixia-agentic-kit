@@ -110,6 +110,31 @@ def next_for_an_idle_agent_starts_at_most_40_processes(r):
     return check(r, "next_for_an_idle_agent_starts_at_most_40_processes", "next", ["next"], idle=True)
 
 
+def a_cached_second_read_starts_far_fewer_processes(r):
+    """UAK-130: the second `status` and the second `next` within Read-Cache seconds copy the clone the first one fetched
+    (no fetch, no tick). Counted with the same counter, cache on (a simulated clock needs UAK_READ_CACHE=on) against
+    off; the targets above are for the uncached call and stay as they are."""
+    if bash_major(r) < 4:
+        return "not counted on bash %d" % bash_major(r)
+    notes = []
+    for args in (["status"], ["next"]):
+        f = fixture(r, "perf-cached-" + args[0])
+        env = {"UAK_AGENT": "agent-1", "UAK_HUMAN": "", "UAK_REMOTE": "origin", "UAK_NOW": "1000060", "UAK_DEDUPE": "off"}
+        cwd = f.worktrees[0]
+        off = count(r, f, args)
+        env["UAK_READ_CACHE"] = "on"
+        started = time.monotonic()
+        r.run([r.bash, ".uak/bin/uak"] + args, cwd=cwd, env=env)
+        first = time.monotonic() - started
+        started = time.monotonic()
+        n, out = processes(r, cwd, [".uak/bin/uak"] + args, "", env)
+        second = time.monotonic() - started
+        expect(out.returncode == 0 and "claims as of 0 s ago" in out.stdout, "uak %s was not served from the cache: %s" % (args[0], out.stdout[-200:]))
+        expect(n <= off - 15, "uak %s second read: expected: at most %d processes (uncached %d), got: %d" % (args[0], off - 15, off, n))
+        notes.append("%s %d processes cached vs %d uncached, %.2fs then %.2fs" % (args[0], n, off, first, second))
+    return "; ".join(notes)
+
+
 def the_counter_sees_ps(r):
     """next and status call ps (the session key); a counter without a ps shim was 5 processes short (kit-r1, UAK-001)."""
     if bash_major(r) < 4:
@@ -137,7 +162,7 @@ def old_and_new_engines_print_the_same_and_write_the_same_tree(r):
 
 
 TESTS = [next_starts_at_most_40_processes, status_starts_at_most_30_processes, heartbeat_starts_at_most_20_processes,
-         next_for_an_idle_agent_starts_at_most_40_processes, the_counter_sees_ps,
+         next_for_an_idle_agent_starts_at_most_40_processes, a_cached_second_read_starts_far_fewer_processes, the_counter_sees_ps,
          old_and_new_engines_print_the_same_and_write_the_same_tree]
 
 

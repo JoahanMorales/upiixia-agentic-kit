@@ -564,6 +564,7 @@ def main(argv=None):
     ap.add_argument("--task", metavar="ID")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--claims", metavar="DIR")
+    ap.add_argument("--fresh", action="store_true", help="accepted; metrics always fetches")
     a = ap.parse_args(argv)
     if a.since is not None and a.since < 1:
         print("metrics: --since needs a number of days of 1 or more", file=sys.stderr)
