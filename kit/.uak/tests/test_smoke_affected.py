@@ -141,6 +141,18 @@ def prints_what_it_left(r):
     # --list prints the choice and runs no test: a person or an agent reads it first.
     out = smoke(r, base, "--package-only", "--affected", "--list", "HEAD")
     expect(out.returncode == 0 and ran(out) == [] and "test_alpha.py" in out.stdout, "--list only prints: " + out.stdout[-400:])
+    # The task's Verify always runs, and a red Verify fails the run.
+    for verify, rc in (("echo VERIFY_RAN", 0), ("echo VERIFY_RED; exit 3", 1)):
+        vb = package(r, "verify")
+        (vb / ".uak" / "TASKS.md").write_text("## T-1 · fixture\n- **Verify:** `%s`\n" % verify, encoding="utf-8")
+        with open(str(vb / ".gitignore"), "a", encoding="utf-8") as fh:
+            fh.write(".uak-env\n")
+        r.g(vb, "add", "-A"); r.g(vb, "commit", "-q", "-m", "task")
+        (vb / ".uak-env").write_text("UAK_TASK=T-1\n", encoding="utf-8")
+        touch(r, vb, ".uak/tests/test_gamma.py", "# edited\n")
+        out = smoke(r, vb, "--package-only", "--affected", "HEAD")
+        expect(out.returncode == rc and ("VERIFY_RAN" if rc == 0 else "VERIFY_RED") in out.stdout and ran(out) == ["gamma"],
+               "Verify %r: rc %d, %s" % (verify, out.returncode, (out.stdout + out.stderr)[-500:]))
     # The real suite: a one-file diff selects under a quarter of the files.
     pkg = Path(tempfile.mkdtemp(prefix="sa-real-", dir=str(r.scratch)))
     shutil.copytree(r.package / ".uak" / "bin", pkg / ".uak" / "bin")

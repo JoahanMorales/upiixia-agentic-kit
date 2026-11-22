@@ -210,7 +210,7 @@ for line in sys.stdin:
       fi
     done
     # The roadmap of a coordinated repository lives on the claims branch, not in TASKS.md: ask uak, as `uak red` does.
-    if [ -n "$task" ] && [ -z "$verify" ]; then verify=$(bash .uak/bin/uak status --task "$task" 2>/dev/null | sed -n 's/^Verify: //p' | head -n 1); fi
+    if [ -n "$task" ] && [ -z "$verify" ]; then verify=$(bash .uak/bin/uak status --task "$task" --full 2>/dev/null | sed -n 's/^Verify: //p' | head -n 1); fi
     verify=${verify#\`}; verify=${verify%\`}
     if [ -n "$verify" ]; then
       printf 'Verify (%s): %s\n' "$task" "$verify"
