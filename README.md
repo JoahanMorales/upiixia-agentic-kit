@@ -411,6 +411,13 @@ renews a lease, a guard that checks substitutions inside quotes and blocks `gh â
 claims, an MCP tool that cannot run a command unseen, a merge lock that dies with its merge, and an integrate outside
 the gate that says whether anyone reviewed it (marathon asks a human).
 
+**v6.8: lighter.** An install is under 260 files instead of 534 (the kit's own tests stay in the kit, skills come with
+`uak skill add`); CI runs 18 jobs per commit instead of 121; `uak smoke --affected` runs the tests a change touches;
+`status` and `next` reuse one fetch of claims and never wait for the token scan; `Merge-Engine: ci` is an optional
+policy that lets the gate merge an approved engine change when the required checks are green; `board`, `--json status`
+and the dashboard show what a review is waiting for and agree on when it is late; `doctor` and `wt new` know the
+pre-push hook and never take another hook manager's hooks out of use.
+
 **v6.7: everything measurable.** Every command leaves a line (outcome and milliseconds), and `uak metrics` puts each
 speed number next to an instability number: tasks per day and what came back, hours to merge and rejects, error rate
 per command, why a human had to step in. Every task records who touched it and with which model; REVIEW says what it

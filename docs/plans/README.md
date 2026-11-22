@@ -32,6 +32,6 @@ source of truth for what shipped is `CHANGELOG.md`, and for what is next, `docs/
 | [`plan-v66.md`](plan-v66.md) | UAK-110 · One identity, one live task also holds for heartbeat, log, checkpoint and handof | shipped in v6.6.0 (UAK-110…115) |
 | [`plan-v67-prior.md`](plan-v67-prior.md) | UAK-075 · The kit ships a default design prior learned from real rounds, so every team sta | shipped (see CHANGELOG.md) |
 | [`plan-v67.md`](plan-v67.md) | UAK-116 · A ledger of every command: name, outcome and milliseconds | shipped in v6.7.0 (UAK-116…126) |
-| [`plan-v68.md`](plan-v68.md) | UAK-127 · An install without the kit's own tests, with skills on demand | checked, not published yet (UAK-127…139) |
+| [`plan-v68.md`](plan-v68.md) | UAK-127 · An install without the kit's own tests, with skills on demand | shipped in v6.8.0 (UAK-127…139, follow-ups UAK-140…147) |
 | [`port-go.md`](port-go.md) | Porting the engine to Go (or Rust): an estimate | decided: not porting |
 | [`video.md`](video.md) | Plan: `uak video` (the project's video, made from the repo's own facts) | not published; v7.2 |

@@ -1,5 +1,63 @@
 # Changelog
 
+## v6.8.0 · 2026-11-22 · Lighter
+
+v6.7 made everything measurable, and the measurements said where the kit was heavy: 534 files in an install, 121 CI
+jobs per commit, a claims fetch on every `status`, a full smoke before every push, 38 merges that waited for a human.
+Thirteen planned tasks (UAK-127 … UAK-139) and eight follow-ups the reviews asked for (UAK-140 … UAK-147), each
+test-first and reviewed by an agent that was not its author. The reviews rejected eleven of the twenty-one at least once with a
+reproduction: a green status that would have merged engine code with no required check, two processes that both owned
+the read-cache lock, a `smoke --affected` that skipped a test it needed, a cap that returned the wrong merge commit, a
+`doctor --fix` that took a team's husky hooks out of use, a lock that spun a CPU for a minute.
+
+Lighter
+- **An install is under 260 files, not 534** (UAK-127): the kit's own tests stay in the kit (`install.sh --with-tests` brings
+  them), external skills come with `uak skill add`, and `known-files.txt` still tells a kit file from a team file.
+- **CI runs 18 jobs per commit, not 121** (UAK-128, UAK-141, UAK-144): Windows runs in shards computed from measured
+  times, one run per commit, a new push to a PR cancels the old run, an empty shard fails, and the lint refuses a test
+  file with no measured time on either platform.
+- **`uak smoke --affected`** (UAK-129): runs the tests that name the commands and libraries a change touches, never
+  fewer than three files, the full suite when the change touches the engine's core.
+- **`status` and `next` reuse a claims fetch** (UAK-130, UAK-142): for `Read-Cache: N` seconds (20 by default), they say
+  "claims as of N s ago", `--fresh` forces a fetch, and `status` prints "= unchanged since …" unless `--full`. The
+  cache's lock is taken over atomically: 0 moments with two owners in 9,300 contended acquisitions, against 255 before.
+- **One `git log` for the whole board** (UAK-140): `find_merge_commit` reads the base's history once, with no cap.
+- **The budget warning never makes `status` wait** (UAK-133, UAK-143): the token scan of a task runs in the background;
+  with 800 transcripts and a cold cache `status` takes 0.37 s instead of 7.69 s.
+
+New
+- **`Merge-Engine: ci`** (UAK-131): an optional policy, read from the base branch, that lets the gate merge an approved
+  change to the engine when the forge's required checks are green on the exact SHA. It releases only files that are
+  not loaded into the gate's own process (nine today); every shell library, `bin/uak`, the workflows, the hooks and
+  PROJECT.md still go to a human. The default, `human`, is unchanged.
+- **`Merge-Commit` on every integrated task** (UAK-132): the commit that brought it to the base, checked against the
+  task's branch and name.
+- **REVIEW sub-states everywhere** (UAK-134, UAK-145, UAK-147): `uak board`, `uak --json status` (`review_substate`,
+  `review_substate_since`, `review_round`) and the dashboard show what `status` shows, and all four agree on when a
+  review is over its lease, from one rule: `UAK_LEASE_SECONDS`, else `Lease-Seconds` of the base's PROJECT.md, else
+  1800; `Review-Lease-Seconds`, else four times the lease.
+- **The ledger times every command** (UAK-136): the 18 standalone scripts record their name, exit code and
+  milliseconds too, and a command killed by a signal is recorded as such.
+- **`uak autopsy` classes its errors** (UAK-137) and **`uak demo` records the model and harness** (UAK-139).
+
+Fixed
+- **Hooks in existing repos** (UAK-135, UAK-146): `doctor` checks the pre-push hook as it checks pre-commit, fails on a
+  `core.hooksPath` that names a missing directory, and `--fix` restores the kit's hooks without touching a team's.
+  `wt new` never points at a missing directory and never replaces the setting of another hook manager; it tells the
+  team once how to call the kit's hooks from theirs. Directories are compared by identity, not by lowercase text.
+- **Tokens** (UAK-133, UAK-143): `--since` counts by each message's timestamp, not by the file's date; a malformed
+  timestamp counts only outside a window; a negative or non-numeric budget warns about nothing.
+- **Three flaky tests and the engine race behind one of them** (UAK-138): the merge gate's lease renewer could outlive
+  its owner; the port picker reads the body and binds exclusively; the MCP server exits when its input closes.
+- **Fixtures no longer inherit the caller's identity**: the kit's tests pass under an agent identity, and the kit's own
+  repo has its hooks (`.githooks`).
+
+Known, for later
+- `Merge-Engine: ci` saves few human merges while it releases nine files; a two-approval variant is the candidate.
+- `test_flaky_guard` takes about 25 minutes on Windows.
+- The dashboard's reader of PROJECT.md does not strip bullets or backticks as the shell reader does.
+- A `|` in free text splits a row of `uak board --md`.
+
 ## v6.7.0 · 2026-11-21 · Everything measurable
 
 The audit of v6.5 asked six questions the kit could not answer (how often each command runs and fails, who did a task

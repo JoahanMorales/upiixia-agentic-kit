@@ -21,17 +21,24 @@ changes after a reject with the count, CI, a human merge) with the time spent in
 says why. Clicking a task opens its whole story: every move with its time, agent, model, verdict and reason, the
 rejects and what changed after each, CI runs, tokens, drawn as a timeline a human can audit.
 
-Left from v6.7, now tasks of v6.8: the `Merge-Commit` field (UAK-132), `tokens --since` and the budget warning
-(UAK-133), sub-states in `board` and `--json status` (UAK-134), the hooks in `doctor` and `wt` (UAK-135), the ledger of
-commands that replace the shell (UAK-136), the autopsy's classes (UAK-137), the three flaky tests (UAK-138).
+**v6.8 · Lighter (shipped 2026-11-22).** Plan: `docs/plans/plan-v68.md` (UAK-127…139) and eight follow-ups the
+reviews asked for (UAK-140…147). An install of under 260 files (was 534); CI in 18 jobs per commit (was 121), split by
+measured times; `uak smoke --affected`; `status` and `next` on one cached fetch of claims; `Merge-Engine: ci`; the
+`Merge-Commit` field; REVIEW sub-states on every surface; the ledger of every command; hooks health in `doctor` and
+`wt new`; tokens by message time; the three flaky tests.
 
-**v6.8 · Lighter, and what v6.7 left broken.** Plan: `docs/plans/plan-v68.md` (UAK-127…139, checked with
-`uak plan --check`, waiting for the human to publish). An install without the kit's own tests and with skills on demand
-(535 files → under 200, UAK-127); Windows CI in shards and one run per commit (121 jobs → at most 24, UAK-128); the
-reviewer runs Verify and the tests the diff touches, the full suite runs once, at the merge gate (UAK-129); `status` and
-`next` read one cached fetch of claims (UAK-130); `Merge-Engine: ci`, so an approved engine change with every check
-green does not wait for a human (38 of 39 queued tasks did, UAK-131); the demo records models (UAK-139). The process
-target of `heartbeat` (139, target 20) stays open: it is a write, and needs the claims transaction itself to change.
+Left from v6.8: `Merge-Engine: ci` releases nine files, so it saves few of the merges that wait for a human (a
+two-approval variant is the candidate); the merge gate does not regenerate `known-files.txt`, so every task's PR is
+flagged for a file outside its Paths; a whole `integrate` starts about 1,500 git processes, and `heartbeat` 139
+(target 20); the dashboard's tokens change only when someone runs `uak tokens --publish`; `autopsy`, `design` and
+`pace set` stay "outcome not recorded" in the ledger; `smoke --affected` selects by a text match on command names;
+`test_flaky_guard` takes 25 minutes on Windows and leaves its shard 15 s under the planned bound, and
+`test_merge_renewer_orphan` failed once on a slow Windows runner; a stale entry in the CI timing tables is not
+reported; the dashboard's reader of PROJECT.md does not strip bullets or backticks as the shell reader does, and treats
+a lease of 0 differently; a `|` in free text splits a row of `uak board --md`; `tokens --since 0` can read a transcript
+written in the same second; a non-numeric `UAK_RC_SPINS` disables the read cache's give-up; `wt new` prints no notice
+when a global `core.hooksPath` names a missing directory; `install.sh` run from a checkout copies Python's
+`__pycache__` directories (13 files that pushed a local install from 248 to 261).
 
 **v7.0 · A kit that improves itself, behind a gate.** Scenario evals (`uak eval`): seeded mini-repos that replay each
 failure class of the black boxes against the engine, reported as k of n; mutation tests of the guard and the gates (remove
