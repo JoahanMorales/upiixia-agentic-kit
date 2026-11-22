@@ -225,9 +225,73 @@ def dashboard_data_groups_by_substate(r):
     return sub["text"]
 
 
+def surfaces(r, f, now, cache=False):
+    """`uak status --task`, `uak board` and `uak --json status` on the same claims at the same clock."""
+    env = {"UAK_AGENT": "agent-1", "UAK_NOW": str(now), "UAK_REMOTE": "origin", "UAK_DEDUPE": "off"}
+    if cache:
+        env["UAK_READ_CACHE"] = "on"
+    line, _ = task_line(r, f, now)
+    board = r.run([r.bash, ".uak/bin/board"], cwd=f.worktrees[0], env=env).stdout
+    rows = [l for l in board.splitlines() if " HACK-001 " in l]
+    expect(len(rows) == 1, "one board row for HACK-001: " + board)
+    res = r.run([r.bash, ".uak/bin/uak", "--json", "status", "--full"], cwd=f.worktrees[0], env=env)
+    doc = json.loads(res.stdout)
+    task = [t for t in doc["tasks"] if t["id"] == "HACK-001"][0]
+    return line[len("Review: "):], rows[0], task, doc
+
+
+def board_prints_the_substate(r):
+    f = setup(r, "rs-board")
+    now = T0 + 30 * 3600
+    words, row, _, _ = surfaces(r, f, now)
+    expect(row.startswith("REVIEW") and row.endswith("[" + words + "]"), "board row ends with the status words: %s | %s" % (row, words))
+    expect("waiting for a reviewer · 30 h 00 min · OVER the review lease" in row, row)
+    review(r, f, "reject", T0 + 600)
+    push_again(r, f, T0 + 900)
+    words, row, _, _ = surfaces(r, f, T0 + 900 + 60)
+    expect(row.endswith("[re-review (round 2) · 60 s · 1 reject]"), "after a reject and a new tip: " + row)
+    md = r.run([r.bash, ".uak/bin/board", "--md"], cwd=f.worktrees[0], env={"UAK_NOW": str(T0 + 960), "UAK_REMOTE": "origin"}).stdout
+    expect(any("| HACK-001 |" in l and "[re-review (round 2)" in l for l in md.splitlines()), "the table too: " + md)
+    return row
+
+
+def json_status_has_the_substate(r):
+    f = setup(r, "rs-json")
+    _, _, task, doc = surfaces(r, f, T0 + 90)
+    expect(task["review_substate"] == "waiting for a reviewer" and task["review_round"] == 0, "keys: %s" % task)
+    expect(isinstance(task["review_substate_since"], int) and task["review_substate_since"] > 0, "since is an epoch: %s" % task)
+    # every existing key keeps its name and type; a task not in REVIEW carries none of the new ones
+    old = {"id": str, "state": str, "owner": str, "lease_until": int, "expired": bool}
+    for k, typ in old.items():
+        expect(type(task[k]) is typ, "%s keeps its type: %r" % (k, task[k]))
+    others = [t for t in doc["tasks"] if t["state"] != "REVIEW"]
+    expect(others and all("review_substate" not in t for t in others), "only REVIEW tasks carry it")
+    for k in ("v", "cmd", "id", "ok", "exit", "result", "code", "message", "state", "next", "stdout", "stderr", "tasks"):
+        expect(k in doc, "envelope key %s" % k)
+    return "keys added"
+
+
+def three_surfaces_agree(r):
+    f = setup(r, "rs-three")
+    review(r, f, "reject", T0 + 600)
+    push_again(r, f, T0 + 900)
+    now = T0 + 900 + 4 * 3600 * 4 + 5
+    for n, cache in enumerate((False, True, True)):   # the last read is served from the cache
+        words, row, task, doc = surfaces(r, f, now, cache)
+        expect(n < 2 or "claims_age" in doc, "the third read came from the cache: %s" % sorted(doc))
+        sub = [x for x in dash_data(r, f, now)["tasks"] if x["id"] == "HACK-001"][0]["sub"]
+        expect(task["review_substate"] == sub["text"] == "re-review (round 2)", "json and dashboard words: %s | %s" % (task, sub))
+        expect(task["review_substate_since"] == sub["since"] == T0 + 900, "same start: %s | %s" % (task, sub))
+        expect(task["review_round"] == sub["rounds"] == 1, "same round: %s | %s" % (task, sub))
+        expect(words.startswith(task["review_substate"] + " · " + age_words(now - task["review_substate_since"])), "status words and time: " + words)
+        expect(row.endswith("[" + words + "]"), "board says what status says: %s | %s" % (row, words))
+    return words
+
+
 TESTS = [waits_for_a_reviewer, substate_after_a_reject, substate_after_a_new_tip, in_review_by_name,
          approved_waiting_for_the_owner, approved_waiting_for_a_human_names_the_reason, approved_ci_failed_names_the_check, a_failure_of_an_older_tip_does_not_count,
-         time_in_substate_and_the_lease_mark, status_keeps_its_shape, dashboard_data_groups_by_substate]
+         time_in_substate_and_the_lease_mark, status_keeps_its_shape, dashboard_data_groups_by_substate,
+         board_prints_the_substate, json_status_has_the_substate, three_surfaces_agree]
 
 
 def main():
