@@ -598,6 +598,29 @@ rm_merge_engine() {
   uak_cfg_var "$f" Review-Independence agent; RM_INDEPENDENCE=$CFG
   uak_cfg_var "$f" Merge-Engine-Checks ''; RM_ENGINE_CHECKS=$CFG
 }
+# What `ci` may release (UAK-131, decided by the human 2026-11-21): the files of .uak/bin/lib/ that are not loaded into the
+# gate's process. bin/uak sources its libs into ONE bash process and a later definition wins, so any file the gate loads
+# can redefine approval_check, rm_ci_checks or merge_run: a deny list by name cannot be a boundary. The rule implemented:
+# every .sh, .awk and .tsv under lib/ (and bin/uak, bin/uak-coordination) counts as LOADED, whether or not a chain of
+# `. lib/X` lines reaches it, so there is nothing to parse wrongly (a dynamic path, a glob loop); a NEW .sh/.awk/.tsv is
+# loaded for the same reason. Of the rest, a .py or .html of lib/ is released only when no loaded file names it
+# (basename, comments included: a helper the gate may call is never released). Read from the git ref given, never the
+# task's branch. Prints the basenames, lower case, one per line.
+rm_released_lib() {
+  local d=$1 ref=$2 tmp p b
+  tmp=$(mktemp "${TMPDIR:-/tmp}/uak-loaded.XXXXXX") || return 1
+  git -C "$d" ls-tree -r --name-only "$ref" 2>/dev/null |
+    grep -E '(^|/)\.uak/bin/(uak|uak-coordination)$|(^|/)\.uak/bin/lib/[^/]+\.(sh|awk|tsv)$' |
+    while IFS= read -r p; do git -C "$d" show "$ref:$p" 2>/dev/null; done > "$tmp"
+  git -C "$d" ls-tree -r --name-only "$ref" 2>/dev/null | grep -E '(^|/)\.uak/bin/lib/[^/]+\.(py|html)$' | sed 's@.*/@@' | sort -u |
+    while IFS= read -r b; do grep -qF -- "$b" "$tmp" || printf '%s\n' "$b" | tr '[:upper:]' '[:lower:]'; done
+  rm -f "$tmp"
+}
+rm_libok_file() {
+  : > "$TXROOT/merge-libok"
+  [ "$RM_ENGINE" = ci ] && [ -n "${RM_BUILD:-}" ] && [ -n "${RM_BASE_TIP:-}" ] || return 0
+  rm_released_lib "$RM_BUILD" "$RM_BASE_TIP" > "$TXROOT/merge-libok" || : > "$TXROOT/merge-libok"
+}
 # The checks a `ci` merge requires, from the BASE side only: (a) the forge's required status checks of the base branch,
 # exact names, when readable and non-empty; else (b) `Merge-Engine-Checks:` in the base tip's PROJECT.md, comma-separated
 # check-run names, a trailing `*` a prefix (shards: `suite (*`, `windows (*`). Neither: no policy, the human, and the
@@ -731,7 +754,8 @@ rm_gate_scope() {
   # Why (`uak metrics`, 2026-11-21): 38 of 39 queued tasks were "Shared resource/CI needs a human"; 46 of 104 integrated
   # tasks were built by the gate and landed by a person who added no check.
   RM_CI_RELEASED=no; : > "$TXROOT/merge-released"; rm_merge_engine
-  UAK_SCOPE_ENGINE=$RM_ENGINE UAK_SCOPE_RELEASED="$TXROOT/merge-released" \
+  rm_libok_file
+  UAK_SCOPE_ENGINE=$RM_ENGINE UAK_SCOPE_RELEASED="$TXROOT/merge-released" UAK_SCOPE_LIBOK="$TXROOT/merge-libok" \
   UAK_SCOPE_ALLOWED="$TXROOT/merge-allowed" UAK_SCOPE_ADDITIVE="$TXROOT/merge-additive" awk '
     function load(f, list,   n, l) { n = 0; while ((getline l < f) > 0) if (l != "") list[++n] = l; close(f); return n }
     function fold(p) {
@@ -746,16 +770,21 @@ rm_gate_scope() {
       return 0
     }
     function has(s, list, n,   i) { for (i = 1; i <= n; i++) if (index(s, list[i])) return 1; return 0 }
-    # 0 = no shared resource, 1 = one that is a human'"'"'s, 2 = engine entries only.
-    function shared_kind(s,   i, hit, other) {
-      hit = 0; other = 0
-      for (i = 1; i <= nsh; i++) if (index(s, shared[i])) { hit = 1; if (!(shared[i] in iseng)) other = 1 }
-      return hit ? (other ? 1 : 2) : 0
+    # 0 = no shared resource, 1 = a human'"'"'s, 2 = a lib file `ci` may release (see rm_released_lib: a .py or .html of
+    # lib/ that nothing the gate loads names). Every other shared match, and every other file of lib/, is a human'"'"'s.
+    function shared_kind(s,   i, hit, other, lib, rest, k) {
+      hit = 0; other = 0; lib = 0
+      for (i = 1; i <= nsh; i++) if (index(s, shared[i])) { hit = 1; if (shared[i] == "/.uak/bin/lib/") lib = 1; else other = 1 }
+      if (!hit) return 0
+      if (engine && lib && !other) {
+        k = index(s, "/.uak/bin/lib/"); rest = substr(s, k + 14); sub(/\/$/, "", rest)
+        if (rest != "" && index(rest, "/") == 0 && (rest in relset)) return 2
+      }
+      return 1
     }
     BEGIN {
-      neng = split("/.uak/bin/uak/ /.uak/bin/lib/ /.uak/bin/uak-coordination/", engl, " ")
-      for (i = 1; i <= neng; i++) iseng[engl[i]] = 1
       engine = (ENVIRON["UAK_SCOPE_ENGINE"] == "ci"); rel = ENVIRON["UAK_SCOPE_RELEASED"]
+      if (engine) { while ((getline l < ENVIRON["UAK_SCOPE_LIBOK"]) > 0) if (l != "") relset[l] = 1; close(ENVIRON["UAK_SCOPE_LIBOK"]) }
       na = load(ENVIRON["UAK_SCOPE_ALLOWED"], allow); nd = load(ENVIRON["UAK_SCOPE_ADDITIVE"], add)
       nfx = split("/fixtures/ /testdata/ /__fixtures__/ /test-fixtures/", fx, " ")
       nkeep = split("/contracts/ /types/ /shared-types/ /migrations/ /db/migration/ /.github/ /.uak/", keep, " ")
@@ -767,12 +796,10 @@ rm_gate_scope() {
       # Under `ci` what judges or guards a merge is never released (workflows, smoke, smoke-project, secret-scan and
       # .githooks/ are shared and not engine above; guard joins them here, and none of them is test data under a
       # fixtures directory). `human` keeps the list as it was.
-      # The whole of .github/ (a composite action a required workflow calls, CODEOWNERS) and the four files that ARE the
-      # merge gate go to a human under ci too: one approval must not weaken the gate for every later task (human
-      # decision, 2026-11-21). The path is folded to lower case before this match, so any letter case is caught.
+      # Under ci the whole of .github/ (a composite action a required workflow calls, CODEOWNERS) and guard go to a human too
+      # (the path is folded to lower case before this match, so any letter case is caught).
       if (engine) {
-        ngate = split("/.uak/bin/guard/ /.github/ /.uak/bin/lib/review-merge.sh/ /.uak/bin/lib/tx.sh/ /.uak/bin/lib/security.sh/ /.uak/bin/lib/config.sh/", gate, " ")
-        for (i = 1; i <= ngate; i++) shared[++nsh] = gate[i]
+        shared[++nsh] = "/.uak/bin/guard/"; shared[++nsh] = "/.github/"
         keep[++nkeep] = "/.githooks/"; keep[++nkeep] = "/.uak/bin/guard/"
       }
     }

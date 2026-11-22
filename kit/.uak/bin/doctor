@@ -195,7 +195,10 @@ if url=$(git config --get "remote.$remote.url"); then
       ci_req=$(field Merge-Engine-Checks | tr ',' '\n' | awk '{ sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); if ($0 != "" && $0 != "*") print }' | sort -u | tr '\n' ',' | sed 's/,$//')
       [ -z "$ci_req" ] || ci_src="Merge-Engine-Checks in PROJECT.md (no readable required checks on the forge)"
     fi
-    ok "Merge-Engine: ci releases only .uak/bin/uak, .uak/bin/uak-coordination and .uak/bin/lib/ minus review-merge.sh, tx.sh, security.sh and config.sh; always a human's: those four, .github/, workflows, smoke, smoke-project, secret-scan, .githooks/, .uak/bin/guard, lock files, migrations, PROJECT.md"
+    ci_root=$(git rev-parse --show-toplevel 2>/dev/null) ci_ref=HEAD
+    git rev-parse -q --verify "refs/remotes/$remote/$ci_base" >/dev/null 2>&1 && ci_ref="refs/remotes/$remote/$ci_base"
+    ci_rel=$( (. "$(dirname "$0")/lib/review-merge.sh" >/dev/null 2>&1; rm_released_lib "$ci_root" "$ci_ref") 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
+    ok "Merge-Engine: ci releases only these files of .uak/bin/lib/, which nothing the gate loads names: ${ci_rel:-none}. Every other file of .uak/bin/lib/, and bin/uak and bin/uak-coordination (the dispatcher sources its libs into one process and the last definition wins, so any loaded file can redefine the gate), .github/, smoke, secret-scan, .githooks/, lock files, migrations and PROJECT.md goes to a human"
     if [ -n "$ci_req" ]; then ok "Merge-Engine: ci will require every one of: $ci_req (from $ci_src); a trailing * is a prefix"
     else bad "Merge-Engine: ci is set and no list of required checks exists: protect $ci_base on GitHub with required status checks, or set Merge-Engine-Checks: in .uak/PROJECT.md (check-run names, comma-separated, a trailing * is a prefix: suite (*, windows (*). Until then every engine change goes to a human"; fi
   fi

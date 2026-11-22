@@ -37,7 +37,7 @@ from test_review_merge import actor, approve, judge  # noqa: E402
 
 PR = "https://github.com/org/repo/pull/1"
 GH_URL = "https://github.com/org/repo.git"
-ENGINE_FILE = ".uak/bin/lib/engine-note.txt"
+ENGINE_FILE = ".uak/bin/lib/metrics.py"  # a .py of lib/ that nothing the gate loads names: the one kind of file `ci` releases
 GH_STUB = """#!/usr/bin/env bash
 # gh api repos/org/repo/commits/SHA/check-runs | .../status | .../branches/main/protection/required_status_checks
 [ -z "${MOCK_GH_DOWN:-}" ] || exit 1
@@ -77,7 +77,7 @@ def checks(r, text, status=STATUS_NONE):
     Path(r.env["MOCK_STATUS"]).write_text(status, encoding="utf-8")
 
 
-def fixture(r, name, path, project="", content="ready-HACK-001\n", mode="sprint"):
+def fixture(r, name, path, project="", content="ready-HACK-001\n", mode="sprint", seed_edit=None):
     plist = path if isinstance(path, list) else [path]  # several paths: the first is the one the gate reports
     path = plist[0]
     f = r.fixture("pol-" + name, paths={"HACK-001": ", ".join(plist)}, count=1, owners={p: "HACK-001" for p in plist})
@@ -94,6 +94,8 @@ def fixture(r, name, path, project="", content="ready-HACK-001\n", mode="sprint"
         "[ -f .uak/bin/smoke-project ] || { echo PRODUCT_UNVERIFIED; exit 2; }\nbash .uak/bin/smoke-project\necho FIXTURE_PRODUCT_PASS\n",
         encoding="utf-8")
     (f.seed / ".uak/bin/smoke-project").write_text("#!/usr/bin/env bash\nset -eu\n[ ! -f .red-product-gate ]\n", encoding="utf-8")
+    if seed_edit:
+        seed_edit(f.seed)
     r.g(f.seed, "add", "-A")
     r.g(f.seed, "commit", "-m", "Configure the policy fixture")
     r.g(f.seed, "push", "origin", "main")
@@ -138,9 +140,9 @@ def forge(r, name):
     r.env["GIT_CONFIG_VALUE_2"] = GH_URL
 
 
-def attempt(r, name, path=ENGINE_FILE, project="", content="ready-HACK-001\n", mode="sprint"):
+def attempt(r, name, path=ENGINE_FILE, project="", content="ready-HACK-001\n", mode="sprint", seed_edit=None):
     forge(r, name)
-    f = fixture(r, name, path, project, content, mode)
+    f = fixture(r, name, path, project, content, mode, seed_edit)
     tip = ship(f, r)
     out = f.hack(0, "merge", "HACK-001", now=1000030, allowed=None)
     return f, tip, out
@@ -340,30 +342,76 @@ def workflow_or_smoke_goes_to_the_human(r):
                        ("hookfixture", ".githooks/fixtures/x.txt")):
         f, _, out = attempt(r, "judge-" + name, path=path, project=CI)
         expect(out.returncode == 3 and "Shared resource/CI needs a human: %s" % path in out.stdout and not merged(r, f), "%s: %s" % (path, out.stdout + out.stderr))
-    # An engine path under a fixtures directory is not test data: it needs the same green checks (a red one refuses).
-    checks(r, GREEN + "e2e|completed|failure\n")
+    # A file under a fixtures directory of lib/ is not test data, and not a released file either: the human's.
     f, _, out = attempt(r, "judge-libfixture", path=".uak/bin/lib/fixtures/x.txt", project=CI)
-    expect(out.returncode == 3 and "MERGE_HUMAN" in out.stdout and "e2e" in out.stdout and not merged(r, f), "lib/fixtures is engine: " + out.stdout + out.stderr)
-    f, _, out = attempt(r, "judge-libfixture-human", path=".uak/bin/lib/fixtures/x.txt")
-    expect("Shared resource/CI needs a human: .uak/bin/lib/fixtures/x.txt" in out.stdout, "and shared under human: " + out.stdout)
+    expect(out.returncode == 3 and "Shared resource/CI needs a human: .uak/bin/lib/fixtures/x.txt" in out.stdout and not merged(r, f), "lib/fixtures: " + out.stdout + out.stderr)
     return "the things that judge or guard a merge are never released; lib/fixtures is not exempt"
 
 
 def the_gate_itself_and_github_stay_human(r):
-    """Under ci, all of .github/ (any letter case) and the four files that ARE the merge gate go to a human, alone or
-    next to another lib file; another lib file alone still lands with the required checks green."""
+    """Under ci only a file the gate does not load is released. bin/uak sources its libs into one process and the last
+    definition wins, so each loaded file (hints.sh, tests.sh, github.sh, commands.tsv, bin/uak, uak-coordination, the
+    gate's own files), all of .github/ (any letter case), and a new lib/x.sh go to a human, alone or mixed with a
+    released file; a .py the gate names is loaded too. A released .py alone lands with the required checks green."""
     checks(r, GREEN)
     for name, path in (("action", ".github/actions/x/action.yml"), ("codeowners", ".github/CODEOWNERS"),
-                       ("casefold", ".GitHub/Actions/y/action.yml"), ("reviewmerge", ".uak/bin/lib/review-merge.sh"),
-                       ("tx", ".uak/bin/lib/tx.sh"), ("security", ".uak/bin/lib/security.sh"), ("config", ".uak/bin/lib/config.sh"),
-                       ("mixed", ".uak/bin/lib/config.sh,.uak/bin/lib/status.sh")):
+                       ("casefold", ".GitHub/Actions/y/action.yml"), ("hints", ".uak/bin/lib/hints.sh"),
+                       ("tests", ".uak/bin/lib/tests.sh"), ("github", ".uak/bin/lib/github.sh"),
+                       ("tsv", ".uak/bin/lib/commands.tsv"), ("uak", ".uak/bin/uak"), ("coord", ".uak/bin/uak-coordination"),
+                       ("reviewmerge", ".uak/bin/lib/review-merge.sh"), ("status", ".uak/bin/lib/status.sh"),
+                       ("newsh", ".uak/bin/lib/x.sh"), ("mixed", ".uak/bin/lib/metrics.py,.uak/bin/lib/hints.sh")):
         paths = path.split(",")
         f, _, out = attempt(r, "gate-" + name, path=paths, project=CI)
-        want = paths[0]
+        want = paths[-1] if name == "mixed" else paths[0]
         expect(out.returncode == 3 and "Shared resource/CI needs a human: %s" % want in out.stdout and not merged(r, f), "%s: %s" % (path, out.stdout + out.stderr))
-    f, _, out = attempt(r, "gate-other-lib", path=".uak/bin/lib/status.sh", project=CI)
-    expect("INTEGRATED" in out.stdout and merged(r, f), "another lib file lands with the checks green: " + out.stdout + out.stderr)
-    return ".github/ and the four gate files are a human's; lib/status.sh lands"
+
+    def gate_calls_it(seed):  # the base's hints.sh names gallery_pick.py: a helper the gate may call
+        hints = seed / ".uak/bin/lib/hints.sh"
+        hints.write_text(hints.read_text(encoding="utf-8") + "\n# python3 \"$UAK_BIN/lib/gallery_pick.py\"\n", encoding="utf-8")
+    f, _, out = attempt(r, "gate-pycalled", path=".uak/bin/lib/gallery_pick.py", project=CI, seed_edit=gate_calls_it)
+    expect(out.returncode == 3 and "Shared resource/CI needs a human: .uak/bin/lib/gallery_pick.py" in out.stdout and not merged(r, f), "a named .py is loaded: " + out.stdout + out.stderr)
+    f, _, out = attempt(r, "gate-pyfree", path=".uak/bin/lib/gallery_pick.py", project=CI)
+    expect("INTEGRATED" in out.stdout and merged(r, f), "an unnamed .py lands with the checks green: " + out.stdout + out.stderr)
+    return "loaded files, .github/, a new lib/x.sh and a named .py are a human's; an unnamed .py lands"
+
+
+def released_set_matches_the_source_chain(r):
+    """The computed set (rm_released_lib, on a git ref) holds no .sh/.awk/.tsv, nothing bin/uak's real source chain loads,
+    and no .py or .html that a loaded file names; and it is exactly the .py and .html nobody names. A lib sourced
+    tomorrow is seen: every .sh counts as loaded whether or not a chain of `. lib/X` lines is understood."""
+    repo = Path(__file__).resolve().parents[2].parent
+    kit = Path(__file__).resolve().parents[2]
+    ref = "HEAD"
+    out = r.run([r.bash, "-c", '. "%s/.uak/bin/lib/review-merge.sh"; rm_released_lib "%s" HEAD' % (kit.as_posix(), repo.as_posix())], allowed=None)
+    got = sorted(x for x in out.stdout.split() if x)
+    expect(out.returncode == 0 and got, "the computed set is empty or failed: " + out.stdout + out.stderr)
+    lib = kit / ".uak/bin/lib"
+    loaded_text = "".join(f.read_text(encoding="utf-8", errors="replace") for f in [kit / ".uak/bin/uak", kit / ".uak/bin/uak-coordination"]
+                          + sorted(lib.glob("*.sh")) + sorted(lib.glob("*.awk")) + sorted(lib.glob("*.tsv")))
+    # bin/uak's real source chain: `. "$UAK_BIN/lib/X"` lines and the `for uak_lib in ...; do` list, followed through the libs
+    def sourced(text):
+        found = re.findall(r'(?:^|[\s;&])(?:\.|source) "\$UAK_BIN/([A-Za-z0-9_./-]+)"', text)
+        loop = re.search(r"for uak_lib in(.*?); do", text, re.S)
+        if loop:
+            found += loop.group(1).replace("\\\n", " ").split()
+        return found
+    chain, todo = set(), ["uak", "uak-coordination"]
+    while todo:
+        cur = todo.pop()
+        text = (kit / ".uak/bin" / cur).read_text(encoding="utf-8")
+        for m in sourced(text):
+            if m not in chain and (kit / ".uak/bin" / m).is_file():
+                chain.add(m)
+                todo.append(m)
+    expect(len(chain) >= 15, "the source chain was not read: %s" % sorted(chain))
+    names = {Path(m).name.lower() for m in chain}
+    expect(not names & set(got), "a file bin/uak sources is in the released set: %s" % sorted(names & set(got)))
+    expect(all(x.endswith((".py", ".html")) for x in got), "only .py and .html can be released: %s" % got)
+    want = sorted(f.name.lower() for f in list(lib.glob("*.py")) + list(lib.glob("*.html")) if f.name not in loaded_text)
+    expect(got == want, "released %s, expected the .py/.html nobody names: %s" % (got, want))
+    for must_be_human in ("dash.py", "ledger_py.py"):  # named by status.sh and ledger.sh
+        expect(must_be_human not in got, "%s is named by a loaded file" % must_be_human)
+    return "released: " + ", ".join(got)
 
 
 def forge_required_checks_win(r):
@@ -396,7 +444,7 @@ TESTS = [human_is_the_default, ci_merges_when_every_check_is_green, a_running_ch
          gh_unavailable_is_not_green, doctor_fails_without_required_checks, marathon_needs_human_independence,
          metrics_counts_ci_merges_apart, status_and_lone_checks_prove_nothing, shards_match_by_prefix,
          a_missing_required_check_waits_then_refuses, workflow_or_smoke_goes_to_the_human, forge_required_checks_win,
-         no_required_list_goes_to_the_human, the_gate_itself_and_github_stay_human]
+         no_required_list_goes_to_the_human, the_gate_itself_and_github_stay_human, released_set_matches_the_source_chain]
 
 
 def main():
