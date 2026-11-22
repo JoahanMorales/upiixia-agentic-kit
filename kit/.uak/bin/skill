@@ -6,6 +6,7 @@
 # one the kit shipped (.uak/settings/known-files.txt): a file nobody released installs nothing.
 # Bash 3.2, Git and POSIX tools, no jq.
 set -eu
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 die() { printf 'skill: %s\n' "$*" >&2; exit 1; }
 usage() { printf '%s\n' 'Usage: uak skill add NAME' >&2; exit 2; }
 [ "${1:-}" = add ] && [ "$#" -eq 2 ] || usage

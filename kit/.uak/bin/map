@@ -23,6 +23,7 @@
 # Why: at Reap and MLB "it burns tokens reading the same stuff again and again" — agents opened file after file to
 # learn the structure; graphify reported 71.5x fewer tokens per question on a 52-file corpus with a graph instead.
 set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 LC_ALL=C; export LC_ALL
 die() { printf 'map: %s\n' "$*" >&2; exit 2; }
 # Git Bash rewrites "rev:.path" arguments for native git unless told not to (the same list as uak).

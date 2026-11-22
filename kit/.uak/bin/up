@@ -4,6 +4,7 @@
 # Agents are named PREFIX-1..N (default: the human's name). With --tmux and tmux installed, opens one
 # window per worktree running --tool; otherwise prints the command to run in each terminal.
 set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 LC_ALL=C; export LC_ALL
 n=${1:-}; [ "$#" -eq 0 ] || shift
 prefix= tool=claude tmux=no
