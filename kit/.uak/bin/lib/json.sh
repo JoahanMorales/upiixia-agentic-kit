@@ -45,7 +45,8 @@ json_run() {
       n = 0; t = "["
       while ((getline l < data) > 0) {
         split(l, f, "\t"); if (f[1] != "task") continue
-        t = t (n++ ? "," : "") sprintf("{\"id\":%s,\"state\":%s,\"owner\":%s,\"lease_until\":%d,\"expired\":%s}", str(f[2]), str(f[3]), str(f[4] == "-" ? "" : f[4]), f[5] + 0, (f[6] == "yes" ? "true" : "false"))
+        x = (f[7] != "") ? sprintf(",\"review_substate\":%s,\"review_substate_since\":%d,\"review_round\":%d", str(f[7]), f[8] + 0, f[9] + 0) : ""
+        t = t (n++ ? "," : "") sprintf("{\"id\":%s,\"state\":%s,\"owner\":%s,\"lease_until\":%d,\"expired\":%s%s}", str(f[2]), str(f[3]), str(f[4] == "-" ? "" : f[4]), f[5] + 0, (f[6] == "yes" ? "true" : "false"), x)
       }
       if (n || m["data"] == "tasks") printf ",\"tasks\":%s]", t
       if (m["claims_age"] != "") printf ",\"claims_age\":%d", m["claims_age"] + 0

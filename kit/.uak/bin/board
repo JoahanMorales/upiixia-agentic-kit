@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # uak board: terminal kanban of the whole team, read from the remote claims branch. Zero install.
 #   board [--md] [--watch SECONDS]
-# One line per task: state · ID · owner/priority · lease or PR · wave · title. --md prints a GitHub table.
+# One line per task: state · ID · owner/priority · lease or PR · wave · title. --md prints a GitHub table. A task in REVIEW ends
+# with its sub-state and the time in it, the words of `uak status` (waiting for a reviewer · 12 min · 1 reject).
 set -u
 [ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 LC_ALL=C; export LC_ALL
@@ -38,9 +39,12 @@ render() {
   for f in "$tmp"/c/tasks/*.md; do [ -f "$f" ] && cat "$f" && printf '\n@@\n'; done > "$tmp/records"
   freeze=$(sed -n 's/^Freeze-Epoch: //p' "$tmp/c/meta/config.md" 2>/dev/null | head -n 1)
   unread=$(grep -c '| human |' "$tmp/c/inbox/log.md" 2>/dev/null || true)
-  awk -v md="$md" -v now="${UAK_NOW:-$(date +%s)}" -v base="${base:--}" -v freeze="${freeze:-0}" -v hum="${unread:-0}" \
+  # The sub-state of each REVIEW task, from the same function `uak status` uses (lib/status.sh), over this fetch: no second one.
+  bash -c '. "$1/lib/core.sh"; . "$1/lib/config.sh"; . "$1/lib/status.sh"; board_substates "$2" "$3" "$4"' _ "$here" "$tmp/c" "${UAK_NOW:-$(date +%s)}" "$root" > "$tmp/subs" 2>/dev/null || : > "$tmp/subs"
+  awk -v md="$md" -v now="${UAK_NOW:-$(date +%s)}" -v sf="$tmp/subs" -v base="${base:--}" -v freeze="${freeze:-0}" -v hum="${unread:-0}" \
       -v wf="$tmp/waves" -v rf="$tmp/records" '
     BEGIN {
+      while ((getline l < sf) > 0) { k = index(l, "\t"); sub_[substr(l, 1, k - 1)] = substr(l, k + 1) }
       while ((getline l < wf) > 0) { n = split(l, a, " "); for (i = 2; i <= n; i++) wave[a[i]] = a[1] }
       while ((getline l < rf) > 0) {
         if (l == "@@") { if (id != "") { st[id] = s; ow[id] = o; lu[id] = u; pr[id] = p }; id = s = o = u = p = ""; continue }
@@ -68,6 +72,7 @@ render() {
         who = (s == "AVAILABLE") ? prio[id] : ow[id]
         info = (s == "REVIEW") ? prn(pr[id]) : (s == "CLAIMED" || s == "BLOCKED") ? "lease " left(lu[id]) : "-"
         w = (id in wave) ? "w" wave[id] : "-"; tt = title[id]; if (length(tt) > 44) tt = substr(tt, 1, 41) "..."
+        if (s == "REVIEW" && (id in sub_)) tt = tt " [" sub_[id] "]"
         if (md == "yes") printf "| %s | %s | %s | %s | %s | %s |\n", s, id, who, info, w, tt
         else printf "%-10s %-9s %-10s %-12s %-3s %s\n", s, id, who, info, w, tt
       }
