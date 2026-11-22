@@ -13,6 +13,7 @@
 # Why: at UpiixSol the 5-hour limit hit at 3 a.m. with tasks open, and in other windows 60% of the
 # plan expired unused. Pacing turns both into a number the guard enforces.
 set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 LC_ALL=C; export LC_ALL
 common=$(git rev-parse --git-common-dir 2>/dev/null) && common=$(cd "$common" 2>/dev/null && pwd -P) || common=${TMPDIR:-/tmp}
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=

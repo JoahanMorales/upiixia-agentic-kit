@@ -4,6 +4,7 @@
 # them by hand), that mawk on the Jetson silently disabled the secret scanner, that port
 # 8000 was taken and that nobody set Freeze-Epoch.
 set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 LC_ALL=C; export LC_ALL
 fix=no; [ "${1:-}" != --fix ] || fix=yes
 fails=0 warns=0

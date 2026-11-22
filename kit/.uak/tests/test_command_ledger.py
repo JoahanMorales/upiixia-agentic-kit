@@ -168,8 +168,145 @@ def output_and_exit_code_unchanged(r):
     return "same"
 
 
+def exec_commands_record_code_and_ms(r):
+    """UAK-136: a command the dispatcher runs as a script of its own (run=exec) ends with its exit code and milliseconds."""
+    f = r.fixture("ledger-exec", count=1)
+    common = common_of(r, f.worktrees[0])
+    ok = uak(f, "pace")
+    expect(ok.returncode == 0, "pace failed: " + ok.stderr[-300:])
+    bad = uak(f, "metrics", "--since", "0")   # a bad option: exit 2
+    expect(bad.returncode != 0, "metrics --since 0 should fail")
+    got = rows(common)
+    expect(len(got) == 2, "expected one line per exec'd command, got %r" % got)
+    expect(got[0][1] == "pace" and got[0][3] == "0" and got[0][5].isdigit(), "pace must record exit 0 and ms: %r" % got[0])
+    expect(got[1][1] == "metrics" and got[1][3] == str(bad.returncode) and got[1][5].isdigit(), "metrics must record its exit code and ms: %r" % got[1])
+    # The bash 3.2 path (whole seconds, no start time handed over): the script must still close its line under `set -u`.
+    sec = uak(f, "pace", UAK_LEDGER_CLOCK="seconds")
+    expect(sec.returncode == 0, "pace failed on the seconds clock: " + sec.stderr[-300:])
+    last = rows(common)[-1]
+    expect(last[1] == "pace" and last[3] == "0" and last[5].isdigit() and int(last[5]) % 1000 == 0, "seconds clock: %r" % last)
+    expect(len(rows(common)) == 3, "expected 3 lines before the off run: %r" % rows(common))
+    # The same output and exit code with the ledger off.
+    off = uak(f, "metrics", "--since", "0", UAK_BLACKBOX="off")
+    expect(off.returncode == bad.returncode and off.stdout == bad.stdout and off.stderr == bad.stderr, "exec'd command output changed")
+    expect(len(rows(common)) == 3, "UAK_BLACKBOX=off must write nothing")
+    return "exec'd commands record exit code and ms"
+
+
+PROBE = """#!/usr/bin/env bash
+set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }
+trap 'printf "own-trap\\n" >> "$PROBE_OUT"' EXIT
+printf '%s %s\\n' "$$" "$PPID" >> "$PROBE_OUT"
+case "${1:-}" in
+  loop) sleep 30 & wait $!;;
+  fg) sleep 30;;
+  trapexit) trap 'printf "x6\\n" >> "$PROBE_OUT"; exit 6' EXIT; exit 2;;
+  nested) bash .uak/bin/uak status > /dev/null 2>&1;;
+  code) exit 7;;
+esac
+"""
+
+
+def probe(f):
+    """A scripted exec row of the fixture's own engine: it calls ledger_owed like the engine's scripts do."""
+    w = f.worktrees[0]
+    b = w / ".uak" / "bin"
+    (b / "lgprobe").write_text(PROBE, encoding="utf-8", newline="\n")
+    with open(str(b / "lib" / "commands.tsv"), "a", encoding="utf-8", newline="\n") as t:
+        t.write("lgprobe\texec\t-\tlgprobe\tuak_cli\tlgprobe   test row\n")
+    return w, w / "probe.out"
+
+
+def exec_script_keeps_the_callers_process(r):
+    """UAK-136: the dispatcher execs the script: no waiting `uak` wrapper, its own EXIT trap still runs, one line with its code."""
+    f = r.fixture("ledger-tree", count=1)
+    w, out = probe(f)
+    common = common_of(r, w)
+    pidfile = w / "pid.txt"
+    res = f.r.run([f.r.bash, "-c", 'echo $$ > pid.txt; exec bash .uak/bin/uak lgprobe code'], cwd=w, allowed=None,
+                  env=dict(ENV, PROBE_OUT=str(out)))
+    expect(res.returncode == 7, "exit code must pass through: %d" % res.returncode)
+    lines = out.read_text(encoding="utf-8").split()
+    expect(lines[0] == pidfile.read_text().strip(), "the script must be the caller's own process (no wrapper): %r vs %s" % (lines, pidfile.read_text()))
+    expect("own-trap" in lines, "the script's own EXIT trap must still run: %r" % lines)
+    got = rows(common)
+    expect(len(got) == 1 and got[0][1] == "lgprobe" and got[0][3] == "7" and got[0][5].isdigit(), "one line with the real code: %r" % got)
+    return "exec keeps the process; own trap chained"
+
+
+def term_stops_an_exec_script_at_once(r):
+    """UAK-136: TERM or HUP stops the script within a second (no wrapper, no deferred trap), and its ledger line never says
+    success: bash runs the EXIT trap with $? 0 after a fatal signal, so a live job in the trap means "outcome not recorded"."""
+    import signal
+    import subprocess
+    import time
+    f = r.fixture("ledger-term", count=1)
+    w, out = probe(f)
+    common = common_of(r, w)
+    env = dict(os.environ, **dict(ENV, PROBE_OUT=str(out)))
+    seen = 0
+    for mode in ("loop", "fg"):   # `wait` on a background job, and a foreground command
+        # TERM everywhere; HUP only where Python has it (Windows has no SIGHUP).
+        for sig in [signal.SIGTERM] + ([signal.SIGHUP] if hasattr(signal, "SIGHUP") else []):
+            out.write_text("", encoding="utf-8")
+            p = subprocess.Popen([f.r.bash, ".uak/bin/uak", "lgprobe", mode], cwd=str(w), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for _ in range(100):
+                if out.read_text(encoding="utf-8").strip():
+                    break
+                time.sleep(0.1)
+            t0 = time.time()
+            p.send_signal(sig)
+            try:
+                p.wait(timeout=5)
+            finally:
+                if p.poll() is None:
+                    p.kill()
+            expect(time.time() - t0 < 1.5 and p.returncode != 0, "%s/%s must stop the script at once: rc %s after %.1f s" % (mode, sig.name, p.returncode, time.time() - t0))
+            got = rows(common)
+            if os.name == "nt":
+                # On Windows a signal sent from Python is TerminateProcess: the bash script gets no trap, so no line is
+                # written. What holds there: the script stopped, and no line claims success for it.
+                expect(all(x[3] != "0" for x in got), "%s/%s: no line may claim success for a killed script: %r" % (mode, sig.name, got))
+                continue
+            seen += 1
+            expect(len(got) == seen and got[-1][1] == "lgprobe", "one line per killed script: %r" % got)
+            expect(got[-1][3] != "0", "%s/%s: a script killed by a signal must not be recorded as success: %r" % (mode, sig.name, got[-1]))
+    # A real exit 0 (the script ends by itself) stays 0.
+    ok = f.r.run([f.r.bash, ".uak/bin/uak", "lgprobe", "plain"], cwd=w, allowed=None, env=dict(ENV, PROBE_OUT=str(out)))
+    expect(ok.returncode == 0 and rows(common)[-1][3] == "0", "a normal exit 0 stays 0: %r" % rows(common)[-1])
+    return "signal deaths are never success"
+
+
+def an_exit_in_the_scripts_own_trap_keeps_the_line(r):
+    """UAK-136: a script whose own EXIT trap calls `exit N` still leaves its line (written first, with the code at trap entry)."""
+    f = r.fixture("ledger-trapexit", count=1)
+    w, out = probe(f)
+    common = common_of(r, w)
+    res = f.r.run([f.r.bash, ".uak/bin/uak", "lgprobe", "trapexit"], cwd=w, allowed=None, env=dict(ENV, PROBE_OUT=str(out)))
+    expect(res.returncode == 6, "the script's own exit code must win: %d" % res.returncode)
+    expect("x6" in out.read_text(encoding="utf-8"), "the script's own trap must run")
+    got = rows(common)
+    expect(len(got) == 1 and got[0][1] == "lgprobe" and got[0][3] == "2", "line with the code at trap entry (2): %r" % got)
+    return "ledger line first, then the script's trap"
+
+
+def one_line_when_the_script_calls_uak_again(r):
+    """UAK-136: a `uak` call inside an exec'd script writes its own line, and the outer line is closed once."""
+    f = r.fixture("ledger-nested", count=1)
+    w, out = probe(f)
+    common = common_of(r, w)
+    res = f.r.run([f.r.bash, ".uak/bin/uak", "lgprobe", "nested"], cwd=w, allowed=None, env=dict(ENV, PROBE_OUT=str(out)))
+    expect(res.returncode == 0, res.stderr[-300:])
+    cmds = sorted(x[1] for x in rows(common))
+    expect(cmds == ["lgprobe", "status"], "one line for the script and one for the nested uak: %r" % cmds)
+    return "no second line"
+
+
 TESTS = [a_command_appends_one_ledger_line, a_failed_command_records_its_code, flush_publishes_and_empties,
-         the_file_is_capped_with_counts, a_session_with_no_errors_still_publishes, blackbox_off_writes_nothing, output_and_exit_code_unchanged]
+         the_file_is_capped_with_counts, a_session_with_no_errors_still_publishes, blackbox_off_writes_nothing, output_and_exit_code_unchanged, exec_commands_record_code_and_ms,
+         exec_script_keeps_the_callers_process, term_stops_an_exec_script_at_once, one_line_when_the_script_calls_uak_again,
+         an_exit_in_the_scripts_own_trap_keeps_the_line]
 
 
 def main():
