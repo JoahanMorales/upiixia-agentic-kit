@@ -4,6 +4,7 @@
 # Shows: graph waves → uak start → parallel claims → an overlapping claim rejected → the red first → a bounded fix loop →
 # PR + review by another agent → gated merge → a dependent task unlocked → board + stats.
 set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 LC_ALL=C; export LC_ALL
 keep=no pause=1
 for a in "$@"; do case "$a" in --keep) keep=yes;; --fast) pause=0;; *) printf 'Usage: demo [--keep] [--fast]\n' >&2; exit 2;; esac; done
@@ -13,10 +14,22 @@ D=$(mktemp -d "${TMPDIR:-/tmp}/uak-demo.XXXXXX") || exit 2
 if [ -t 1 ]; then B=$(printf '\033[1m'); C=$(printf '\033[36m'); G=$(printf '\033[32m'); Y=$(printf '\033[33m'); R=$(printf '\033[0m'); else B= C= G= Y= R=; fi
 step() { printf '\n%s▶ %s%s\n' "$B$C" "$*" "$R"; [ "$pause" -eq 0 ] || sleep "$pause"; }
 say() { printf '  %s\n' "$*"; }
+# The three agents are the demo's, and so are their models and harnesses (UAK-139): `demo-` marks them as made up, so the
+# timeline and the dashboard drawer of the team repo name each agent instead of "unknown". The human and the planner are
+# not agents: they get none (and never the caller's own). Why (2026-11-21, the README capture): "unknown" eight times.
+who_env() {
+  case "$1" in
+    ana-1) UAK_MODEL=demo-model-ana UAK_HARNESS=demo-harness-cli;;
+    bob-1) UAK_MODEL=demo-model-bob UAK_HARNESS=demo-harness-ide;;
+    cy-1) UAK_MODEL=demo-model-cy UAK_HARNESS=demo-harness-web;;
+    *) UAK_MODEL= UAK_HARNESS=;;
+  esac
+  export UAK_MODEL UAK_HARNESS
+}
 run() { # run DIR AGENT CMD... : show the command, print only its key lines
   dir=$1 who=$2; shift 2
   printf '  %s%s$%s %s\n' "$Y" "$who" "$R" "$*"
-  (cd "$dir" && UAK_AGENT=$who UAK_HUMAN=demo "$@") > "$D/out" 2>&1; rc=$?
+  (cd "$dir" && who_env "$who" && UAK_AGENT=$who UAK_HUMAN=demo "$@") > "$D/out" 2>&1; rc=$?
   grep -E '^(OK|WT_READY|CONFLICT|GRAPH|wave|LOOP_|HACK-[0-9]+ \||Next:|Idle|No eligible|Why not|Waiting on|START|TODO|UAK BOARD|CLAIMED|REVIEW|AVAILABLE|INTEGRATED|messages|reviews|UAK STATS|tasks:|MERGE|ERROR)' "$D/out" | head -n 8 | sed 's/^/    /'
   return $rc
 }

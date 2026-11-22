@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dash  # noqa: E402  (the shared claims reader: git helpers, fields, rows, snapshot)
 
 MIN_PCT = 20          # fewer events than this: counts only, never a bare percentage
+MANUAL_FROM = (6, 7, 0)   # the first kit version whose black box records manual notes (UAK-121)
 TASK_RE = re.compile(r"^[A-Z][A-Z0-9]*-\d+$")
 
 
@@ -153,14 +154,18 @@ def load(claims):
         if m and cur:
             followups[cur] = m.group(1)
     manual = []   # black box lines of kind "manual" (UAK-121): "- time | kit | harness | mode | source | kind | ..."
+    bb_versions = []   # (day, (major, minor, patch)) of every black box line: which kit versions wrote the box (UAK-136)
     bb = c / "blackbox"
     for f in sorted(bb.glob("*.md")) if bb.is_dir() else []:
         for line in lines_of(f):
             p = line[2:].split(" | ") if line.startswith("- ") else []
+            vm = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", p[1].strip()) if len(p) >= 2 else None
+            if vm:
+                bb_versions.append((f.name[:10], tuple(int(x) for x in vm.groups())))
             if len(p) >= 6 and p[5].strip() == "manual":
                 manual.append({"day": f.name[:10], "text": p[7].strip() if len(p) > 7 else ""})
     return {"tasks": tasks, "ledger": ledger, "sums": sums, "queue": queue, "allows": allows, "followups": followups,
-            "manual": manual, "humans": humans}
+            "manual": manual, "humans": humans, "bb_versions": bb_versions}
 
 
 def integrated_event(t):
@@ -235,21 +240,25 @@ def merge_kind(t, subjects):
     return ("forge" if forge else "other"), True
 
 
-def direct_commits(root, ref):
-    """(direct, all) first-parent commits on the base: a merge, the root, or a squash-merged task PR is not direct."""
+def direct_commits(root, ref, cutoff=None):
+    """(direct, all) first-parent commits on the base (those committed at or after `cutoff` when given): a merge, the root,
+    or a squash-merged task PR is not direct. None only when the base is not visible (UAK-136: a window with no commit is 0 of 0)."""
     if not ref:
         return None
-    out = dash.run_git("log", "--first-parent", "--format=%P|%s", ref, cwd=root)
+    out = dash.run_git("log", "--first-parent", "--format=%ct|%P|%s", ref, cwd=root)
     if out.returncode != 0:
         return None
     total = direct = 0
     for line in out.stdout.decode("utf-8", "replace").splitlines():
-        parents, _, subject = line.partition("|")
+        when, _, rest = line.partition("|")
+        parents, _, subject = rest.partition("|")
+        if cutoff is not None and (not when.isdigit() or int(when) < cutoff):
+            continue
         total += 1
         if len(parents.split()) == 1 and not re.match(r"^[A-Z][A-Z0-9]*-\d{3,}", subject) \
                 and not re.search(r"\(#\d+\)$", subject):
             direct += 1
-    return (direct, total) if total else None
+    return (direct, total)
 
 
 def build(data, since_days, now, git_root, claims_given):
@@ -356,9 +365,11 @@ def build(data, since_days, now, git_root, claims_given):
     rec_unrev = sum(1 for t in rec if t["f"].get("Unreviewed") == "yes")
     # 5. Work outside the kit.
     outside = sum(1 for t in done.values() if t["f"].get("Integrated-Outside") == "yes")
-    direct = direct_commits(git_root, base_ref(git_root, claims_given)) if cutoff is None else None
+    direct = direct_commits(git_root, base_ref(git_root, claims_given), cutoff)
     classified = subjects is not None
     manual = [m for m in data["manual"] if cutoff is None or m["day"] >= day_of(cutoff)]
+    # `bb note manual` came with 6.7.0 (UAK-121): a box line of that version or later in the window means 0 is a real count.
+    records_manual = any(v >= MANUAL_FROM and (cutoff is None or d >= day_of(cutoff)) for d, v in data["bb_versions"])
     return {
         "since_days": since_days or None,
         "tasks": count(len(win), len(tasks)),
@@ -390,7 +401,7 @@ def build(data, since_days, now, git_root, claims_given):
                         "recorded_unreviewed": count(rec_unrev, len(rec))},
         "outside": {"direct_to_main": count(*direct) if direct else None,
                     "integrated_outside_field": count(outside, len(done)),
-                    "manual_notes": {"recorded": bool(manual), "count": len(manual)}},
+                    "manual_notes": {"recorded": bool(manual) or records_manual, "count": len(manual)}},
     }
 
 
@@ -439,8 +450,11 @@ def render(m):
     o.append("per command (calls · errors of known outcomes · median · p95; p95 needs %d timed calls):" % MIN_PCT)
     for c in m["commands"]:
         e = c["errors"]
-        o.append("  %-18s %5d call(s) · errors %s · median %s · p95 %s" % (
-            c["command"], c["calls"], ratio(e["n"], e["of"]), fmt_ms(c["median_ms"]), fmt_ms(c["p95_ms"])))
+        # Lines written before every command was timed carry no exit code: counted apart, not as successes (UAK-136).
+        unk = c["calls"] - e["of"]
+        o.append("  %-18s %5d call(s) · errors %s%s · median %s · p95 %s" % (
+            c["command"], c["calls"], ratio(e["n"], e["of"]), " (outcome not recorded: %d)" % unk if unk > 0 else "",
+            fmt_ms(c["median_ms"]), fmt_ms(c["p95_ms"])))
     if not m["commands"]:
         o.append("  no ledger lines yet (UAK-116 publishes them with `bb flush`)")
     hu = m["human"]
@@ -472,7 +486,7 @@ def render(m):
     o.append("work outside the kit:")
     dm = ou["direct_to_main"]
     o.append("  commits on the base with no task: %s first-parent commits" % ratio(dm["n"], dm["of"]) if dm
-             else "  commits on the base with no task: n/a (no base branch visible here, or a --since window)")
+             else "  commits on the base with no task: n/a (no base branch visible here)")
     ig = ou["integrated_outside_field"]
     o.append("  recorded as Integrated-Outside (work that reached the base with no task of its own): %s integrated tasks"
              % ratio(ig["n"], ig["of"]))
@@ -587,4 +601,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import ledger_py  # UAK-136: closes this command's ledger line
+    sys.exit(ledger_py.run(main))
