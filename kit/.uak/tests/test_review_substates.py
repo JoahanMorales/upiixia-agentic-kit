@@ -225,9 +225,190 @@ def dashboard_data_groups_by_substate(r):
     return sub["text"]
 
 
+def surfaces(r, f, now, cache=False):
+    """`uak status --task`, `uak board` and `uak --json status` on the same claims at the same clock."""
+    env = {"UAK_AGENT": "agent-1", "UAK_NOW": str(now), "UAK_REMOTE": "origin", "UAK_DEDUPE": "off"}
+    if cache:
+        env["UAK_READ_CACHE"] = "on"
+    line, _ = task_line(r, f, now)
+    board = r.run([r.bash, ".uak/bin/board"], cwd=f.worktrees[0], env=env).stdout
+    rows = [l for l in board.splitlines() if " HACK-001 " in l]
+    expect(len(rows) == 1, "one board row for HACK-001: " + board)
+    res = r.run([r.bash, ".uak/bin/uak", "--json", "status", "--full"], cwd=f.worktrees[0], env=env)
+    doc = json.loads(res.stdout)
+    task = [t for t in doc["tasks"] if t["id"] == "HACK-001"][0]
+    return line[len("Review: "):], rows[0], task, doc
+
+
+def board_prints_the_substate(r):
+    f = setup(r, "rs-board")
+    now = T0 + 30 * 3600
+    words, row, _, _ = surfaces(r, f, now)
+    expect(row.startswith("REVIEW") and row.endswith("[" + words + "]"), "board row ends with the status words: %s | %s" % (row, words))
+    expect("waiting for a reviewer · 30 h 00 min · OVER the review lease" in row, row)
+    review(r, f, "reject", T0 + 600)
+    push_again(r, f, T0 + 900)
+    words, row, _, _ = surfaces(r, f, T0 + 900 + 60)
+    expect(row.endswith("[re-review (round 2) · 60 s · 1 reject]"), "after a reject and a new tip: " + row)
+    md = r.run([r.bash, ".uak/bin/board", "--md"], cwd=f.worktrees[0], env={"UAK_NOW": str(T0 + 960), "UAK_REMOTE": "origin"}).stdout
+    expect(any("| HACK-001 |" in l and "[re-review (round 2)" in l for l in md.splitlines()), "the table too: " + md)
+    return row
+
+
+def json_status_has_the_substate(r):
+    f = setup(r, "rs-json")
+    _, _, task, doc = surfaces(r, f, T0 + 90)
+    expect(task["review_substate"] == "waiting for a reviewer" and task["review_round"] == 0, "keys: %s" % task)
+    expect(isinstance(task["review_substate_since"], int) and task["review_substate_since"] > 0, "since is an epoch: %s" % task)
+    # every existing key keeps its name and type; a task not in REVIEW carries none of the new ones
+    old = {"id": str, "state": str, "owner": str, "lease_until": int, "expired": bool}
+    for k, typ in old.items():
+        expect(type(task[k]) is typ, "%s keeps its type: %r" % (k, task[k]))
+    others = [t for t in doc["tasks"] if t["state"] != "REVIEW"]
+    expect(others and all("review_substate" not in t for t in others), "only REVIEW tasks carry it")
+    for k in ("v", "cmd", "id", "ok", "exit", "result", "code", "message", "state", "next", "stdout", "stderr", "tasks"):
+        expect(k in doc, "envelope key %s" % k)
+    return "keys added"
+
+
+def three_surfaces_agree(r):
+    f = setup(r, "rs-three")
+    review(r, f, "reject", T0 + 600)
+    push_again(r, f, T0 + 900)
+    now = T0 + 900 + 4 * 3600 * 4 + 5
+    for n, cache in enumerate((False, True, True)):   # the last read is served from the cache
+        words, row, task, doc = surfaces(r, f, now, cache)
+        expect(n < 2 or "claims_age" in doc, "the third read came from the cache: %s" % sorted(doc))
+        sub = [x for x in dash_data(r, f, now)["tasks"] if x["id"] == "HACK-001"][0]["sub"]
+        expect(task["review_substate"] == sub["text"] == "re-review (round 2)", "json and dashboard words: %s | %s" % (task, sub))
+        expect(task["review_substate_since"] == sub["since"] == T0 + 900, "same start: %s | %s" % (task, sub))
+        expect(task["review_round"] == sub["rounds"] == 1, "same round: %s | %s" % (task, sub))
+        expect(words.startswith(task["review_substate"] + " · " + age_words(now - task["review_substate_since"])), "status words and time: " + words)
+        expect(row.endswith("[" + words + "]"), "board says what status says: %s | %s" % (row, words))
+    return words
+
+
+def marks(r, f, now, **extra):
+    """The OVER mark as `status --task`, `board`, `--json status` (its stdout) and the dashboard data show it, UAK-145."""
+    env = {"UAK_AGENT": "agent-1", "UAK_NOW": str(now), "UAK_REMOTE": "origin", "UAK_DEDUPE": "off", **extra}
+    run = lambda *a: r.run([r.bash, *a], cwd=f.worktrees[0], env=env, allowed=None)
+    task = run(".uak/bin/uak", "status", "--task", "HACK-001", "--full")
+    board = run(".uak/bin/board")
+    js = run(".uak/bin/uak", "--json", "status", "--full")
+    dash = r.run([r.bash, ".uak/bin/uak", "dash", "--out", str(f.base / "dash-marks")], cwd=f.worktrees[0], env=env, allowed=None)
+    expect(task.returncode == 0 and board.returncode == 0 and js.returncode == 0 and dash.returncode == 0,
+           "all four surfaces run: %s %s %s %s" % (task.stderr, board.stderr, js.stderr, dash.stderr))
+    body = (f.base / "dash-marks" / "data.js").read_text(encoding="utf-8")
+    sub = [x for x in json.loads(body[len("window.UAK_DATA = "):].rstrip().rstrip(";"))["tasks"] if x["id"] == "HACK-001"][0]["sub"]
+    rows = [l for l in board.stdout.splitlines() if " HACK-001 " in l]
+    expect(len(rows) == 1, "one board row: " + board.stdout)
+    out = json.loads(js.stdout)["stdout"]
+    jl = [l for l in (out.splitlines() if isinstance(out, str) else out) if l.startswith("HACK-001 | ") and " · " in l]
+    expect(len(jl) == 1, "one json status line: " + js.stdout)
+    return {"status": "OVER the review lease" in task.stdout, "board": "OVER the review lease" in rows[0],
+            "json": "OVER the review lease" in jl[0], "dash": bool(sub.get("late"))}
+
+
+def board_and_status_agree_on_the_lease_env(r):
+    f = setup(r, "rs-env")
+    now = T0 + 3 * 3600
+    # (the dashboard data has its own default lease and no env var: lib/dash.py is not part of UAK-145, so it is left out here)
+    got = marks(r, f, now)
+    expect(got["status"] and got["board"] and got["json"], "3 h is over the default review lease (2 h): %s" % got)
+    got = marks(r, f, now, UAK_LEASE_SECONDS="3600")   # review lease 4 x 3600 = 4 h
+    expect(not (got["status"] or got["board"] or got["json"]), "UAK_LEASE_SECONDS=3600: not over on status, board, json: %s" % got)
+    for bad in ("0", "abc", "-5"):
+        env = {"UAK_AGENT": "agent-1", "UAK_NOW": str(now), "UAK_REMOTE": "origin", "UAK_DEDUPE": "off", "UAK_LEASE_SECONDS": bad}
+        res = r.run([r.bash, ".uak/bin/board"], cwd=f.worktrees[0], env=env, allowed=None)
+        expect(res.returncode == 0 and "HACK-001" in res.stdout and "waiting for a reviewer" in res.stdout, "board survives UAK_LEASE_SECONDS=%s: %s" % (bad, res.stdout + res.stderr))
+    return str(got)
+
+
+def board_reads_the_lease_of_the_config_ref_not_the_checkout(r):
+    f = setup(r, "rs-ref")
+    config(f, Review_Lease_Seconds="20000")   # main (the config ref) moves on; the worktree's PROJECT.md does not
+    expect("Review-Lease-Seconds" not in (f.worktrees[0] / ".uak/PROJECT.md").read_text(encoding="utf-8"), "the checkout lags the config ref")
+    got = marks(r, f, T0 + 3 * 3600)    # 10800 s: over the checkout's default 7200, under the ref's 20000
+    expect(set(got.values()) == {False}, "the ref's Review-Lease-Seconds decides on every surface: %s" % got)
+    got = marks(r, f, T0 + 6 * 3600)    # 21600 s: over 20000
+    expect(set(got.values()) == {True}, "and over it when it is: %s" % got)
+    return str(got)
+
+
+def dash_late_agrees_with_the_over_mark(r):
+    """UAK-147: the dashboard's late flag is the OVER mark of status, board and json, by the same lease rule."""
+    f = setup(r, "rs-dash-lease")
+    got = marks(r, f, T0 + 9000)   # between 7200 s (2 h) and 10800 s (3 h) in a default setup
+    expect(set(got.values()) == {True}, "9000 s in REVIEW is over the default review lease on every surface: %s" % got)
+    got = marks(r, f, T0 + 12000, UAK_LEASE_SECONDS="3600")   # review lease 14400 s
+    expect(set(got.values()) == {False}, "UAK_LEASE_SECONDS=3600: 12000 s is not over on any surface: %s" % got)
+    got = marks(r, f, T0 + 15000, UAK_LEASE_SECONDS="3600")
+    expect(set(got.values()) == {True}, "and 15000 s is: %s" % got)
+    return str(got)
+
+
+def dash_late_agrees_under_marathon_and_explicit_leases(r):
+    f = setup(r, "rs-dash-marathon", Mode="marathon")
+    got = marks(r, f, T0 + 9000)   # Mode: marathon changes no lease default: 1800 s, review 7200 s
+    expect(set(got.values()) == {True}, "marathon: 9000 s is over the review lease on every surface: %s" % got)
+    config(f, Mode="marathon", Lease_Seconds="3600", Review_Lease_Seconds="20000")
+    got = marks(r, f, T0 + 15000)
+    expect(set(got.values()) == {False}, "Review-Lease-Seconds wins on every surface: %s" % got)
+    config(f, Mode="marathon", Lease_Seconds="3600")
+    got = marks(r, f, T0 + 15000)
+    expect(set(got.values()) == {True}, "Lease-Seconds 3600: review lease 14400 s, 15000 s is over: %s" % got)
+    return str(got)
+
+
+def a_tab_in_free_text_keeps_the_record(r):
+    f = setup(r, "rs-tab-q")
+    config(f, Autonomy="no")
+    review(r, f, "approve", T0 + 300)
+    res = f.hack(0, "merge", "HACK-001", now=T0 + 400, allowed=None)
+    expect("MERGE_HUMAN" in res.stdout, "merge goes to the human queue: " + res.stdout + res.stderr)
+
+    def tabbed(work):
+        q = work / "queue" / "HACK-001.md"
+        q.write_text(re.sub(r"(?m)^Reason: .*$", "Reason: wait\tfor\tthe \\ \"human\" \u00e9", q.read_text(encoding="utf-8")), encoding="utf-8")
+    claims_edit(r, f, "tab-q", tabbed)
+    now = T0 + 460
+    env = {"UAK_AGENT": "agent-1", "UAK_NOW": str(now), "UAK_REMOTE": "origin", "UAK_DEDUPE": "off"}
+    js = r.run([r.bash, ".uak/bin/uak", "--json", "status", "--full"], cwd=f.worktrees[0], env=env)
+    task = [t for t in json.loads(js.stdout)["tasks"] if t["id"] == "HACK-001"][0]
+    expect(task["review_substate_since"] == T0 + 400 and task["review_round"] == 1, "since and round survive a tab in the reason: %s" % task)
+    expect(task["review_substate"].startswith("approved, waiting for a human merge: wait") and "\t" not in task["review_substate"], "words: %r" % task["review_substate"])
+    board = r.run([r.bash, ".uak/bin/board"], cwd=f.worktrees[0], env=env).stdout
+    rows = [l for l in board.splitlines() if " HACK-001 " in l]
+    expect(len(rows) == 1 and "\t" not in rows[0] and "wait for the" in rows[0] and rows[0].endswith("60 s]"), "board row: %r" % rows)
+    return task["review_substate"]
+
+
+def a_tab_in_a_reviewer_name_keeps_the_record(r):
+    f = setup(r, "rs-tab-r")
+    res = review(r, f, "approve", T0 + 100, ["--start"])
+    expect(res.returncode == 0, "start: " + res.stdout + res.stderr)
+
+    def tabbed(work):
+        q = work / "reviews" / "HACK-001.reviewing"
+        q.write_text(re.sub(r"(?m)^Reviewer: .*$", "Reviewer: agent\t3 \"q\" \u00e9", q.read_text(encoding="utf-8")), encoding="utf-8")
+    claims_edit(r, f, "tab-r", tabbed)
+    env = {"UAK_AGENT": "agent-1", "UAK_NOW": str(T0 + 160), "UAK_REMOTE": "origin", "UAK_DEDUPE": "off"}
+    js = r.run([r.bash, ".uak/bin/uak", "--json", "status", "--full"], cwd=f.worktrees[0], env=env)
+    task = [t for t in json.loads(js.stdout)["tasks"] if t["id"] == "HACK-001"][0]
+    expect(task["review_substate_since"] == T0 + 100, "since survives a tab in the name: %s" % task)
+    board = r.run([r.bash, ".uak/bin/board"], cwd=f.worktrees[0], env=env).stdout
+    rows = [l for l in board.splitlines() if " HACK-001 " in l]
+    expect(len(rows) == 1 and "\t" not in rows[0] and "in review by agent 3" in rows[0] and rows[0].endswith("60 s]"), "board row: %r" % rows)
+    return task["review_substate"]
+
+
 TESTS = [waits_for_a_reviewer, substate_after_a_reject, substate_after_a_new_tip, in_review_by_name,
          approved_waiting_for_the_owner, approved_waiting_for_a_human_names_the_reason, approved_ci_failed_names_the_check, a_failure_of_an_older_tip_does_not_count,
-         time_in_substate_and_the_lease_mark, status_keeps_its_shape, dashboard_data_groups_by_substate]
+         time_in_substate_and_the_lease_mark, status_keeps_its_shape, dashboard_data_groups_by_substate,
+         board_prints_the_substate, json_status_has_the_substate, three_surfaces_agree,
+         board_and_status_agree_on_the_lease_env, board_reads_the_lease_of_the_config_ref_not_the_checkout,
+         dash_late_agrees_with_the_over_mark, dash_late_agrees_under_marathon_and_explicit_leases,
+         a_tab_in_free_text_keeps_the_record, a_tab_in_a_reviewer_name_keeps_the_record]
 
 
 def main():

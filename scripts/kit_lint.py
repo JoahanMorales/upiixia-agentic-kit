@@ -111,75 +111,77 @@ def ci_tests():
     return sorted(t.stem for t in (ROOT / "kit/.uak/tests").glob("test_*.py")) + ["mcp_tools"]
 
 
-# Seconds each test file took on the CI runners, the median of its group in the job logs of five runs on main
-# (45001302339 and four before it, 2026-11-22; UAK-144). Two tables because the platforms disagree by file: test_design_pick
-# takes 285 s on macOS and 7 to 21 s on Windows, test_flaky_guard 495 s and 1496 s. CI_SECONDS is the macOS time and
+# Seconds each test file took on the CI runners, the median of its group in the job logs of the 12 latest runs on main and
+# pull requests (2026-11-22, newest 45037067147; the 6 latest for files that grew: test_review_substates, test_read_cache,
+# test_tokens_window, test_hooks_health, test_flaky_guard; UAK-144). Two tables because the platforms disagree by file: test_design_pick
+# takes 439 s on macOS and 22 s on Windows, test_flaky_guard 508 s and 1500 s. CI_SECONDS is the macOS time and
 # balances the Linux and macOS shards; CI_WINDOWS_SECONDS is the Windows time (mcp_tools is tests/test_mcp_tools.py).
 # The lint refuses a test file with no entry in both (timing_problems): UAK-141's table had none for test_flaky_guard, it
 # counted the default 60 s and ran 25 min on Windows and 8 min on macOS. To measure again, take each file's group time
 # (from its ::group:: line to its ::endgroup:: line) in `gh run view RUN --log --job JOB` of recent runs on main.
 CI_SECONDS = {
-    "test_flaky_guard": 496, "test_design_pick": 286, "test_merge_engine_policy": 163, "test_review_merge": 91,
-    "test_design_taste_cli": 72, "test_v51": 67, "test_claims_perf": 65, "test_v54": 65, "test_merge_commit_field":
-    63, "test_v5": 62, "test_v57": 60, "test_integrate_unreviewed": 59, "test_smoke_affected": 55,
-    "test_design_shoot_full": 45, "test_hack": 45, "test_design_shoot_qa": 44, "test_command_ledger": 42,
-    "test_review_substates": 41, "test_coordination": 40, "test_design_color": 40, "test_v42": 40, "test_v43": 39,
-    "test_design_taste_team": 37, "test_read_cache": 37, "test_v55": 34, "test_pre_push": 32, "test_design_perf":
-    31, "test_merge_renewer_orphan": 30, "test_tokens_coverage": 27, "test_v3": 26, "test_v571": 26, "test_v41": 25,
-    "test_direct_main": 23, "test_design_density": 22, "test_integrate_outside": 22, "test_demo": 21,
-    "test_merge_affected": 21, "test_integrate_on_main": 19, "test_bb_flush_no_hooks": 18, "test_v53": 18,
-    "mcp_tools": 17, "test_install_light": 17, "test_one_live_renew": 16, "test_v57_tools": 15,
-    "test_wt_refused_identity": 15, "test_claims_read": 14, "test_external_skills": 14, "test_skills_windows_clone":
-    14, "test_tokens_elsewhere": 14, "test_tokens_window": 14, "test_v510": 14, "test_v52": 14,
-    "test_design_breed_notes": 13, "test_manual_notes": 13, "test_review_unseen_approval": 13, "test_v511": 13,
-    "test_hook_claims": 12, "test_reviewer_next": 12, "test_v21_security": 12, "test_task_participants": 11,
-    "test_v59": 11, "test_critic_stale_ui_only": 10, "test_doctor_skills_compare": 10, "test_plan_amend_overlap":
-    10, "test_cursor_skills_keep": 9, "test_design_shoot_timeout": 9, "test_gitleaks_exception": 9,
-    "test_next_prefilter": 9, "test_smoke_parallel": 9, "test_claims_cache": 8, "test_plan_check": 8,
-    "test_ui_shot_names": 8, "test_v58": 8, "test_cli_spelling_hints": 7, "test_plan_owners": 7,
-    "test_review_identity": 7, "test_status_planned": 7, "test_wt_resume_claim": 7, "test_design_aspect": 6,
-    "test_lint_paths_hint": 6, "test_v57_install": 6, "test_v591": 6, "test_ci_shards": 5, "test_design_breed": 5,
-    "test_design_breed_rules": 5, "test_design_creativity": 5, "test_harness_commands": 5, "test_temp_and_timeouts":
-    5, "test_autopsy": 4, "test_design_metrics": 4, "test_git_identity_msg": 4, "test_guard_substitution": 4,
-    "test_v592": 4, "test_design_breed_twins": 3, "test_design_lint_scale": 3, "test_gate_scope": 3, "test_metrics":
-    3, "test_design_creativity_inherit": 2, "test_design_fonts": 2, "test_design_ground": 2, "test_design_prior": 2,
-    "test_design_round": 2, "test_design_round_taste": 2, "test_design_taste": 2, "test_freeze_claim": 2,
-    "test_snapshot": 2, "test_task_timeline": 2, "test_banner_version": 1, "test_ci_web_deps": 1,
-    "test_design_brief_real": 1, "test_design_lint_html": 1, "test_design_lock_round": 1, "test_design_stage": 1,
+    "test_flaky_guard": 508, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_review_merge": 93,
+    "test_merge_commit_field": 91, "test_review_substates": 90, "test_claims_perf": 84, "test_v51": 73,
+    "test_design_taste_cli": 72, "test_integrate_unreviewed": 72, "test_design_perf": 67, "test_v54": 66,
+    "test_hack": 61, "test_smoke_affected": 58, "test_v5": 58, "test_command_ledger": 46, "test_v57": 46,
+    "test_design_shoot_qa": 45, "test_v42": 45, "test_design_color": 43, "test_design_metrics": 39, "test_pre_push":
+    39, "test_design_taste_team": 37, "test_v43": 37, "test_v55": 36, "test_coordination": 35, "test_read_cache":
+    35, "test_hooks_health": 34, "test_merge_renewer_orphan": 30, "test_tokens_coverage": 29, "test_v41": 29,
+    "test_integrate_on_main": 28, "test_tokens_window": 28, "test_v3": 28, "test_demo": 25, "test_direct_main": 25,
+    "test_merge_affected": 24, "test_v53": 23, "test_design_density": 22, "test_integrate_outside": 22, "test_v571":
+    22, "test_skills_windows_clone": 21, "test_claims_read": 19, "test_install_light": 18, "test_v21_security": 18,
+    "mcp_tools": 17, "test_bb_flush_no_hooks": 16, "test_design_breed_notes": 16, "test_manual_notes": 16,
+    "test_review_unseen_approval": 16, "test_v510": 16, "test_external_skills": 15, "test_one_live_renew": 15,
+    "test_v52": 15, "test_plan_amend_overlap": 14, "test_wt_refused_identity": 14, "test_reviewer_next": 13,
+    "test_tokens_elsewhere": 13, "test_v511": 13, "test_v57_tools": 13, "test_cursor_skills_keep": 12,
+    "test_gitleaks_exception": 12, "test_hook_claims": 12, "test_v59": 12, "test_critic_stale_ui_only": 11,
+    "test_doctor_skills_compare": 11, "test_plan_check": 11, "test_design_shoot_full": 10, "test_next_prefilter":
+    10, "test_status_planned": 10, "test_ui_shot_names": 10, "test_claims_cache": 9, "test_design_shoot_timeout": 9,
+    "test_task_participants": 9, "test_v58": 9, "test_design_breed": 8, "test_lint_paths_hint": 8,
+    "test_plan_owners": 8, "test_wt_resume_claim": 8, "test_cli_spelling_hints": 7, "test_design_aspect": 7,
+    "test_smoke_parallel": 7, "test_design_breed_rules": 6, "test_design_creativity": 6, "test_git_identity_msg": 6,
+    "test_harness_commands": 6, "test_review_identity": 6, "test_v57_install": 6, "test_ci_shards": 5,
+    "test_guard_substitution": 5, "test_v591": 5, "test_v592": 5, "test_autopsy": 4, "test_temp_and_timeouts": 4,
+    "test_design_breed_twins": 3, "test_design_creativity_inherit": 3, "test_design_fonts": 3, "test_design_ground":
+    3, "test_design_round": 3, "test_freeze_claim": 3, "test_gate_scope": 3, "test_metrics": 3,
+    "test_design_lint_scale": 2, "test_design_prior": 2, "test_design_round_taste": 2, "test_design_taste": 2,
+    "test_smoke_env": 2, "test_snapshot": 2, "test_task_timeline": 2, "test_banner_version": 1, "test_ci_web_deps":
+    1, "test_design_brief_real": 1, "test_design_lint_html": 1, "test_design_lock_round": 1, "test_design_stage": 1,
     "test_gallery_lint": 1, "test_harvest_discovery": 1, "test_landing_skills": 1, "test_mcp_runs_commands": 1,
-    "test_policy": 1, "test_q_string": 1, "test_smoke_env": 1
+    "test_policy": 1, "test_q_string": 1
 }
 CI_WINDOWS_SECONDS = {
-    "test_flaky_guard": 1496, "test_merge_engine_policy": 606, "test_review_merge": 405,
-    "test_integrate_unreviewed": 403, "test_claims_perf": 375, "test_v51": 338, "test_v57": 299, "test_pre_push":
-    226, "test_hack": 209, "test_v42": 205, "test_v5": 204, "test_review_substates": 202, "test_smoke_affected":
-    194, "test_coordination": 192, "test_read_cache": 191, "test_v55": 185, "test_v43": 184, "test_v54": 183,
-    "test_v3": 160, "test_command_ledger": 157, "test_integrate_outside": 147, "test_integrate_on_main": 144,
-    "test_v41": 134, "test_direct_main": 127, "test_v53": 127, "test_skills_windows_clone": 123,
-    "test_merge_affected": 117, "test_external_skills": 109, "test_v571": 108, "test_v510": 103, "mcp_tools": 100,
-    "test_manual_notes": 100, "test_merge_commit_field": 100, "test_install_light": 96, "test_one_live_renew": 93,
-    "test_v52": 90, "test_wt_refused_identity": 86, "test_demo": 84, "test_claims_read": 82, "test_tokens_window":
-    82, "test_v21_security": 82, "test_v511": 81, "test_tokens_coverage": 73, "test_merge_renewer_orphan": 71,
-    "test_plan_check": 70, "test_tokens_elsewhere": 69, "test_plan_amend_overlap": 66, "test_next_prefilter": 62,
-    "test_task_participants": 62, "test_v57_tools": 61, "test_cursor_skills_keep": 60,
-    "test_review_unseen_approval": 60, "test_v59": 60, "test_hook_claims": 59, "test_wt_resume_claim": 57,
-    "test_claims_cache": 56, "test_critic_stale_ui_only": 52, "test_doctor_skills_compare": 52, "test_plan_owners":
-    51, "test_status_planned": 48, "test_bb_flush_no_hooks": 47, "test_reviewer_next": 47, "test_v58": 46,
-    "test_ui_shot_names": 45, "test_lint_paths_hint": 44, "test_v591": 44, "test_gitleaks_exception": 42,
-    "test_v57_install": 40, "test_cli_spelling_hints": 39, "test_review_identity": 37, "test_design_perf": 31,
-    "test_harness_commands": 31, "test_git_identity_msg": 30, "test_v592": 29, "test_smoke_parallel": 24,
-    "test_design_density": 22, "test_guard_substitution": 21, "test_temp_and_timeouts": 20, "test_ci_shards": 19,
-    "test_design_breed_notes": 16, "test_design_lint_scale": 13, "test_snapshot": 13, "test_design_shoot_full": 12,
-    "test_design_shoot_qa": 11, "test_gate_scope": 10, "test_design_creativity": 9, "test_design_breed": 8,
-    "test_design_breed_rules": 8, "test_design_color": 8, "test_design_shoot_timeout": 8, "test_freeze_claim": 8,
-    "test_design_metrics": 7, "test_design_pick": 7, "test_autopsy": 6, "test_design_aspect": 6,
-    "test_design_breed_twins": 4, "test_design_creativity_inherit": 4, "test_design_ground": 4,
-    "test_design_lint_html": 4, "test_design_round": 4, "test_metrics": 4, "test_design_fonts": 3,
-    "test_design_taste_cli": 3, "test_banner_version": 2, "test_ci_web_deps": 2, "test_design_round_taste": 2,
-    "test_design_taste_team": 2, "test_q_string": 2, "test_smoke_env": 2, "test_task_timeline": 2,
-    "test_design_brief_real": 1, "test_design_lock_round": 1, "test_design_prior": 1, "test_design_stage": 1,
-    "test_design_taste": 1, "test_gallery_lint": 1, "test_harvest_discovery": 1, "test_landing_skills": 1,
-    "test_mcp_runs_commands": 1, "test_policy": 1
+    "test_flaky_guard": 1500, "test_merge_engine_policy": 905, "test_merge_commit_field": 455,
+    "test_integrate_unreviewed": 420, "test_claims_perf": 385, "test_review_merge": 380, "test_v51": 374,
+    "test_review_substates": 330, "test_v57": 300, "test_hack": 254, "test_smoke_affected": 244, "test_pre_push":
+    230, "test_v43": 216, "test_v42": 213, "test_v5": 210, "test_v55": 198, "test_coordination": 196, "test_v54":
+    196, "test_hooks_health": 194, "test_read_cache": 192, "test_tokens_window": 186, "test_v3": 182,
+    "test_command_ledger": 154, "test_v41": 149, "test_integrate_outside": 147, "test_integrate_on_main": 146,
+    "test_direct_main": 143, "test_merge_affected": 129, "test_v53": 127, "test_install_light": 116,
+    "test_skills_windows_clone": 116, "test_demo": 108, "test_external_skills": 108, "mcp_tools": 104,
+    "test_manual_notes": 104, "test_v571": 104, "test_claims_read": 102, "test_v21_security": 100,
+    "test_one_live_renew": 99, "test_wt_refused_identity": 86, "test_v511": 84, "test_tokens_coverage": 83,
+    "test_v510": 82, "test_v52": 79, "test_v57_tools": 76, "test_review_unseen_approval": 72,
+    "test_tokens_elsewhere": 71, "test_v59": 70, "test_doctor_skills_compare": 67, "test_merge_renewer_orphan": 66,
+    "test_critic_stale_ui_only": 64, "test_cursor_skills_keep": 64, "test_hook_claims": 63,
+    "test_plan_amend_overlap": 63, "test_claims_cache": 62, "test_v58": 60, "test_next_prefilter": 59,
+    "test_task_participants": 57, "test_plan_check": 56, "test_wt_resume_claim": 55, "test_plan_owners": 53,
+    "test_status_planned": 51, "test_bb_flush_no_hooks": 49, "test_gitleaks_exception": 49, "test_reviewer_next":
+    48, "test_cli_spelling_hints": 46, "test_ui_shot_names": 45, "test_v591": 44, "test_lint_paths_hint": 41,
+    "test_v57_install": 36, "test_harness_commands": 34, "test_design_perf": 33, "test_review_identity": 32,
+    "test_v592": 31, "test_guard_substitution": 27, "test_smoke_parallel": 27, "test_git_identity_msg": 25,
+    "test_design_density": 23, "test_design_pick": 22, "test_temp_and_timeouts": 21, "test_ci_shards": 19,
+    "test_design_breed_notes": 17, "test_design_shoot_full": 13, "test_design_lint_scale": 12,
+    "test_design_shoot_qa": 12, "test_gate_scope": 12, "test_snapshot": 12, "test_design_breed_rules": 10,
+    "test_design_breed": 9, "test_design_creativity": 9, "test_freeze_claim": 9, "test_design_color": 8,
+    "test_design_shoot_timeout": 8, "test_design_aspect": 7, "test_design_metrics": 7, "test_autopsy": 6,
+    "test_design_lint_html": 5, "test_metrics": 5, "test_design_breed_twins": 4, "test_design_creativity_inherit":
+    4, "test_design_round": 4, "test_design_taste_cli": 4, "test_design_fonts": 3, "test_design_taste_team": 3,
+    "test_q_string": 3, "test_banner_version": 2, "test_design_ground": 2, "test_design_prior": 2,
+    "test_design_round_taste": 2, "test_smoke_env": 2, "test_task_timeline": 2, "test_ci_web_deps": 1,
+    "test_design_brief_real": 1, "test_design_lock_round": 1, "test_design_stage": 1, "test_design_taste": 1,
+    "test_gallery_lint": 1, "test_harvest_discovery": 1, "test_landing_skills": 1, "test_mcp_runs_commands": 1,
+    "test_policy": 1
 }
 
 

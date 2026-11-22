@@ -178,13 +178,13 @@ def workflow_runs_once_per_commit(r):
     return "%d jobs on main" % jobs
 
 
-# UAK-144. Measured on main (runs 45001302339, 44993939646, 44990737980, 44989917053, 44985241451; the median of each
+# UAK-144. Measured on main (the 12 latest runs up to 45037067147 and five before them; the median of each
 # test file's group in the job logs): Windows seconds and macOS seconds. Before, test_flaky_guard had no entry and counted
 # 60 s: it took 1496 s on Windows (shard 5: 34m39s) and about 495 s on macOS (shard 4: 25m31s).
-MEASURED_WINDOWS_S = {"test_flaky_guard": 1496, "test_merge_engine_policy": 606, "test_review_merge": 405, "test_claims_perf": 375,
-                      "test_v51": 338, "test_read_cache": 191, "mcp_tools": 99}
-MEASURED_MACOS_S = {"test_flaky_guard": 495, "test_design_pick": 285, "test_merge_engine_policy": 162, "test_review_merge": 91,
-                    "test_v51": 67, "test_read_cache": 37}
+MEASURED_WINDOWS_S = {"test_flaky_guard": 1500, "test_merge_engine_policy": 905, "test_review_merge": 380, "test_claims_perf": 385,
+                      "test_v51": 374, "test_review_substates": 330, "test_read_cache": 192, "test_hooks_health": 194, "mcp_tools": 104}
+MEASURED_MACOS_S = {"test_flaky_guard": 508, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_review_merge": 93,
+                    "test_v51": 73, "test_read_cache": 35, "test_hooks_health": 34}
 
 
 def tables_match_the_measured_runs(r):

@@ -95,6 +95,32 @@ review_line() {
   [ "$RS_REJECTS" -eq 0 ] || RS_LINE="$RS_LINE · $RS_REJECTS reject$([ "$RS_REJECTS" -eq 1 ] || printf s)"
   [ "$RS_LATE" != yes ] || RS_LINE="$RS_LINE · OVER the review lease"
 }
+# The review lease the way `uak status` takes it (uak-coordination): UAK_LEASE_SECONDS wins over Lease-Seconds of the
+# project config $1 (default 1800), Review-Lease-Seconds is that file's or 4 x the lease. Into LEASE and REVIEW_LEASE;
+# a value that is not a positive integer falls back to the default (status dies on it, a board must still print).
+review_lease_of() {
+  local lease=${UAK_LEASE_SECONDS:-}
+  case "$lease" in ''|*[!0-9]*|0) uak_cfg_var "$1" Lease-Seconds 1800; lease=$CFG;; esac
+  case "$lease" in ''|*[!0-9]*|0) lease=1800;; esac
+  LEASE=$lease
+  uak_cfg_var "$1" Review-Lease-Seconds $((lease * 4)); REVIEW_LEASE=$CFG
+  case "$REVIEW_LEASE" in ''|*[!0-9]*) REVIEW_LEASE=$((lease * 4));; esac
+}
+# What `uak board` prints after each REVIEW task (UAK-134): "ID<TAB>the line status prints" from a claims checkout $1 at epoch $2,
+# the lease from the project config file $3 (the copy of PROJECT.md the board resolved from its fetch). Sourced by bin/board with
+# lib/core.sh and lib/config.sh; no clone, no fetch. Free text loses its tabs and newlines (UAK-145): the first tab ends the ID.
+board_substates() {
+  local f id
+  TX=$1; NOW=$2; MSG_LOG=inbox/log.md
+  review_lease_of "$3"
+  for f in "$TX"/tasks/*.md; do
+    [ -f "$f" ] || continue
+    fv "$f" State; [ "$FV" = REVIEW ] || continue
+    fv "$f" ID; id=$FV; review_line "$id"
+    RS_LINE=${RS_LINE//$'\t'/ }; RS_LINE=${RS_LINE//$'\n'/ }; RS_LINE=${RS_LINE//$'\r'/ }
+    printf '%s\t%s\n' "$id" "$RS_LINE"
+  done
+}
 # Who ran the task, on which harness and model, from the task-session records (UAK-118): "agent-1 codex/model-a; ...".
 review_harnesses() {
   local d f who h m seen=
@@ -256,13 +282,19 @@ print_digest() {
 }
 # `uak --json status`: one row per task (records on claims, then backlog tasks nobody claimed yet) for lib/json.sh.
 status_data() {
-  local id rid st lu exp
+  local id rid st lu exp rt
   printf 'data\ttasks\n' >> "$UAK_JSON_META"
   { for id in $UAK_S_tasks; do
       sv tasks "$id" ID; rid=$SV; sv tasks "$id" State; st=$SV
       sv tasks "$id" Lease-Until; lu=$SV; case "$lu" in ''|*[!0-9]*) lu=0;; esac
       exp=no; is_reserved "$st" && [ "$st" != REVIEW ] && [ "$lu" -gt 0 ] && [ "$NOW" -ge "$lu" ] && exp=yes
-      sv tasks "$id" Owner; printf 'task\t%s\t%s\t%s\t%s\t%s\n' "$rid" "$st" "$SV" "$lu" "$exp"
+      sv tasks "$id" Owner
+      # A task in REVIEW also carries its sub-state (UAK-134): the same words and epoch as `status`, the verdict count as the round.
+      # Free text (a queue reason, a reviewer name) loses its tabs and newlines: the record is tab-separated (UAK-145).
+      if [ "$st" = REVIEW ]; then
+        review_substate "$id"; rt=${RS_TEXT//$'\t'/ }; rt=${rt//$'\n'/ }; rt=${rt//$'\r'/ }
+        printf 'task\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$rid" "$st" "$SV" "$lu" "$exp" "$rt" "$RS_SINCE" "$RS_ROUNDS"
+      else printf 'task\t%s\t%s\t%s\t%s\t%s\n' "$rid" "$st" "$SV" "$lu" "$exp"; fi
     done
     for id in $UAK_S_backlog; do
       [ -f "$TX/tasks/$id.md" ] || printf 'task\t%s\tAVAILABLE\t-\t0\tno\n' "$id"
@@ -418,12 +450,13 @@ status_run() {
 }
 # The TOKENS_BUDGET line of `tokens --budget-check` (UAK-133) for the task asked (status --task ID) or the agent's live task
 # (the one `next` shows), when Token-Budget is set in PROJECT.md. This machine's transcripts only, no fetch; tokens keeps the
-# total 5 min, so a second call costs a file read. Nothing without a budget (no process started) or without --json's text.
+# total 5 min and refreshes it in the background: a call prints the last finished scan and never waits for one. Nothing without a budget (no process started) or without --json's text.
 # Why (v6.7.0, left open): the warning existed only as a command nobody calls.
 budget_note() {
   local id=${ID:-} owner state who=${AGENT:-} line
   [ -z "${UAK_JSON_META:-}" ] || return 0
   uak_cfg_var "$ROOT/.uak/PROJECT.md" Token-Budget; [ -n "$CFG" ] || return 0
+  case "$CFG" in -*|*[!0-9.,_kKmMbB' ']*) return 0;; esac   # not a positive number: nothing to warn (UAK-143)
   if [ -z "$id" ]; then
     [ -n "$who" ] || who=$(git config --get uak.agent 2>/dev/null) || :
     [ -n "$who" ] || return 0
