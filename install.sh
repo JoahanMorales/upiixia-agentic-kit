@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # UPIIXIA Agentic Kit installer.
 #   bash install.sh --mode sprint|marathon [--stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|spring-boot|none]
-#                   [--harness claude,codex,cursor,gemini] [--skills ai,tdd,taste] [--no-blackbox] [--no-mcp|--mcp] [--solo] [--update] TARGET
+#                   [--harness claude,codex,cursor,gemini] [--skills ai,tdd,taste] [--no-blackbox] [--no-mcp|--mcp] [--solo] [--with-tests] [--update] TARGET
 # Never overwrites your files: if AGENTS.md, CLAUDE.md, settings.json… already exist and differ,
 # the kit's version is written as <file>.uak-new for you to merge. A file that is an earlier kit version nobody
 # edited (its hash is in .uak/settings/known-files.txt) is simply updated.
-# --update replaces only the engine (.uak/bin, docs, modes, templates, tests, settings, stacks, skills)
-# and keeps PROJECT.md, TASKS.md and OWNERS.md.
+# --update replaces only the engine (.uak/bin, docs, modes, templates, settings, stacks) and keeps PROJECT.md, TASKS.md and OWNERS.md.
+# A light install (UAK-127): the kit's own protocol tests (.uak/tests, 111 files) stay in the kit's repository (--with-tests
+# installs them) and the skill library is not copied: only the skills the mode, stack and --skills ask for are placed, and
+# `uak skill add NAME` brings one more. --update removes the kit's test and library files it recognizes by hash; yours stay.
 # Harnesses: Claude Code (.claude), Codex (.codex), Cursor (.cursor), Gemini CLI (.gemini) all get
 # tiered subagents (fast / balanced / strong) and, where the harness has hooks, the same guard.
 # --solo (one human on the repo): reviews happen on claims between agent identities (Review-Mode: claims), because GitHub
@@ -17,7 +19,7 @@
 set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 kit="$here/kit"
-mode= stack=none extra= update=no target= blackbox=on mcp=on mcp_flag= harness=claude,codex,cursor,gemini solo=no
+mode= stack=none extra= update=no target= blackbox=on mcp=on mcp_flag= harness=claude,codex,cursor,gemini solo=no with_tests=no
 while [ "$#" -gt 0 ]; do
   # An option missing its value (the last argument) said nothing: `shift 2` failed under set -e (audit, Oct 2026).
   case "$1" in --mode|--stack|--skills|--harness)
@@ -31,8 +33,9 @@ while [ "$#" -gt 0 ]; do
     --no-mcp) mcp=off; mcp_flag=off; shift;;
     --mcp) mcp=on; mcp_flag=on; shift;;
     --solo) solo=yes; shift;;
+    --with-tests) with_tests=yes; shift;;
     --harness) harness=${2:-}; shift 2;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0;;
+    -h|--help) sed -n '2,19p' "$0"; exit 0;;
     -*) printf 'Unknown option: %s\n' "$1" >&2; exit 2;;
     *) target=$1; shift;;
   esac
@@ -104,16 +107,30 @@ keep=$(mktemp -d)
 ext_tmp=
 trap 'rm -rf "$keep" "$ext_tmp"' EXIT
 for f in smoke-project .smoke-project.provenance; do [ ! -f "$target/.uak/bin/$f" ] || cp -p "$target/.uak/bin/$f" "$keep/$f"; done
-for part in bin docs modes templates tests settings stacks skills; do
+for part in bin docs modes templates settings stacks; do
   rm -rf "$target/.uak/$part"
   cp -R "$kit/.uak/$part" "$target/.uak/$part"
 done
+# The kit's protocol tests and the skill library are not project files (UAK-127: 111 + 114 of 535 files). A file of an
+# earlier install goes when its hash is one the kit shipped (known-files.txt); an edited or added one stays, with its folder.
+prune_known() { # prune_known DIR
+  [ -d "$1" ] || return 0
+  find "$1" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+  find "$1" -type f | while IFS= read -r pf; do
+    if known "$pf" || grep -qx "$(tr -d '\r' < "$pf" | git hash-object --stdin 2>/dev/null)" "$kit/.uak/settings/known-files.txt" 2>/dev/null; then rm -f "$pf"; fi
+  done
+  find "$1" -depth -type d -exec rmdir {} \; 2>/dev/null || true
+}
+if [ "$with_tests" = yes ]; then rm -rf "$target/.uak/tests"; cp -R "$kit/.uak/tests" "$target/.uak/tests"
+  find "$target/.uak/tests" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+else prune_known "$target/.uak/tests"; fi
+prune_known "$target/.uak/skills"
 for f in smoke-project .smoke-project.provenance; do [ ! -f "$keep/$f" ] || { cp -p "$keep/$f" "$target/.uak/bin/$f"; say "  = .uak/bin/$f kept (project adapter)"; }; done
 cp "$kit/.uak/VERSION" "$target/.uak/VERSION"
 # Coach templates: copied on install; on --update they are refreshed too (they are engine text, not project data).
 cp "$kit/.uak/reminders.md" "$target/.uak/reminders.md"
 chmod +x "$target"/.uak/bin/* 2>/dev/null || true
-say "  + .uak/ (engine, modes, templates, docs, tests, skill library)"
+say "  + .uak/ (engine, modes, templates, docs$([ "$with_tests" = yes ] && printf ', tests'))"
 [ -f "$target/.uak/PROJECT.md" ] || { cp "$kit/.uak/templates/PROJECT.$mode.md" "$target/.uak/PROJECT.md"; say "  + .uak/PROJECT.md"; }
 [ -f "$target/.uak/OWNERS.md" ] || { cp "$kit/.uak/templates/OWNERS.template.md" "$target/.uak/OWNERS.md"; say "  + .uak/OWNERS.md"; }
 if [ "$blackbox" = off ] && grep -q '^Blackbox: on' "$target/.uak/PROJECT.md"; then
@@ -189,6 +206,7 @@ ext_fetch() { # ext_fetch NAME URL COMMIT SUB TREE: prints the reason on failure
   ( cd "$ext_tmp/fetch" && "$g" archive "$3" "$4" | tar -x -C "$ext_tmp/out" ) >/dev/null 2>&1 || { printf 'could not unpack the skill'; return 1; }
   [ -f "$ext_tmp/out/$4/SKILL.md" ] || { printf 'the folder has no SKILL.md'; return 1; }
   for base in .claude/skills .agents/skills; do
+    [ "$base" != .agents/skills ] || has codex || has cursor || has gemini || continue
     rm -rf "$target/$base/$1"; mkdir -p "$target/$base/$1" && cp -R "$ext_tmp/out/$4/." "$target/$base/$1/" || { printf 'could not copy into %s' "$base"; return 1; }
   done
 }

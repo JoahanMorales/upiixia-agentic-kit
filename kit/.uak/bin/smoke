@@ -16,7 +16,7 @@ while [ "$#" -gt 0 ]; do
     *) usage ;;
   esac
 done
-for script in .uak/bin/uak .uak/bin/uak-coordination .uak/bin/guard .uak/bin/doctor .uak/bin/graph .uak/bin/loop .uak/bin/board .uak/bin/stats .uak/bin/up .uak/bin/demo .uak/bin/policy .uak/bin/secret-scan .uak/bin/wt .uak/bin/q .uak/bin/hook .uak/bin/tokens .uak/bin/map .uak/bin/cap .uak/bin/clock .uak/bin/lib/*.sh .githooks/pre-commit; do
+for script in .uak/bin/uak .uak/bin/uak-coordination .uak/bin/guard .uak/bin/doctor .uak/bin/graph .uak/bin/loop .uak/bin/board .uak/bin/stats .uak/bin/up .uak/bin/demo .uak/bin/policy .uak/bin/secret-scan .uak/bin/wt .uak/bin/q .uak/bin/hook .uak/bin/tokens .uak/bin/map .uak/bin/cap .uak/bin/clock .uak/bin/skill .uak/bin/lib/*.sh .githooks/pre-commit; do
   [ ! -f "$script" ] || bash -n "$script"
 done
 if git rev-parse --show-toplevel >/dev/null 2>&1; then
@@ -24,7 +24,13 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
 else
   bash .uak/bin/secret-scan --directory "$root"
 fi
-if [ "$mode" != product ]; then
+# A light install (UAK-127) has no .uak/tests: the kit's protocol suite runs in the kit's repository (install.sh --with-tests
+# puts it here). This project's own checks above and the product smoke below still run.
+if [ ! -d .uak/tests ]; then
+  printf '%s\n' "The kit's protocol suite runs in the kit's repository (install.sh --with-tests puts it here); this smoke ran the project's own checks."
+  case "$mode" in full) mode=product;; package) mode=light;; esac
+fi
+if [ "$mode" != product ] && [ "$mode" != light ]; then
   python_runtime=''
   for candidate in python3 python; do
     if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys; assert sys.version_info >= (3, 8)' >/dev/null 2>&1; then
@@ -145,7 +151,7 @@ for line in sys.stdin:
   fi
   printf '%s\n' 'PACKAGE_PASS: coordination verified with real Git processes and a local bare remote.'
 fi
-if [ "$mode" = package ]; then
+if [ "$mode" = package ] || [ "$mode" = light ]; then
   printf '%s\n' 'PRODUCT_UNVERIFIED: --package-only does not run the app nor enable product auto-merge.'
   exit 0
 fi
