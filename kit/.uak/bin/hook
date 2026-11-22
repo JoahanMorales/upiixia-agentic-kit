@@ -537,7 +537,7 @@ case "${1:-}" in
     esac
     p=$(bash .uak/bin/pace 2>/dev/null); case "$p" in "PACE surge"*|"PACE conserve"*|"PACE critical"*) printf '%s\n' "$p";; esac
     git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 || exit 0
-    bash .uak/bin/uak next --full 2>&1 | head -n 18
+    bash .uak/bin/uak next --full 2>&1 | awk 'NR <= 18 { print; next } /^claims as of [0-9]+ s ago$/ { age = $0 } END { if (age != "") print age }'
     # The code map is rebuilt in background (0.2 s for ~120 files) so `uak map` queries answer at once.
     nohup bash .uak/bin/map build > /dev/null 2>&1 &
     # The quick card (Superpowers-style bootstrap): WHEN to use which part of the harness, at session start.

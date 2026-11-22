@@ -867,7 +867,9 @@ rm_already_integrated() {
   local rec; rec=$(task_file)
   say "OK merge $ID | already INTEGRATED by $(field "$rec" Merged-By | grep . || field "$rec" Owner) | $(field "$rec" Merge-Commit | cut -c 1-12) | nothing to do"
 }
-merge_run() {
+# merge is not a claims transaction (it pushes the queue and the base itself): the read cache is forgotten before and after.
+merge_run() { local rc=0; rc_drop; merge_run_gate || rc=$?; rc_drop; return "$rc"; }
+merge_run_gate() {
   local waited=0 rc wait_started
   # No approval on the current SHA yet is a "wait", not a human-queue entry.
   # Why (Reap buildathon): HACK-008 and HACK-010 ran merge before any review; both landed in the human queue
