@@ -114,7 +114,11 @@ def ship(f, r):
     for each in f.paths_all:
         target = f.worktrees[0] / each
         target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists() and each.startswith(".uak/bin/"):  # a real engine file: append a comment, never overwrite the engine in use
+        if f.content.startswith("SYMLINK:"):  # the path is a symlink to a sibling
+            if target.exists() or target.is_symlink():
+                target.unlink()
+            os.symlink(f.content[8:], str(target))
+        elif target.exists() and each.startswith(".uak/bin/"):  # a real engine file: append a comment, never overwrite the engine in use
             target.write_text(target.read_text(encoding="utf-8") + "\n# ready-HACK-001\n", encoding="utf-8")
         else:
             target.write_text(f.content, encoding="utf-8")
@@ -363,7 +367,9 @@ def the_gate_itself_and_github_stay_human(r):
         paths = path.split(",")
         f, _, out = attempt(r, "gate-" + name, path=paths, project=CI)
         want = paths[-1] if name == "mixed" else paths[0]
-        expect(out.returncode == 3 and "Shared resource/CI needs a human: %s" % want in out.stdout and not merged(r, f), "%s: %s" % (path, out.stdout + out.stderr))
+        # Compared without letter case: a case-insensitive checkout (macOS, Windows) stores .GitHub/Actions/y as the
+        # case of the directory that already exists, and the gate names the path it sees.
+        expect(out.returncode == 3 and ("Shared resource/CI needs a human: %s" % want).lower() in out.stdout.lower() and not merged(r, f), "%s: %s" % (path, out.stdout + out.stderr))
 
     def gate_calls_it(seed):  # the base's hints.sh names gallery_pick.py: a helper the gate may call
         hints = seed / ".uak/bin/lib/hints.sh"
@@ -373,6 +379,16 @@ def the_gate_itself_and_github_stay_human(r):
     f, _, out = attempt(r, "gate-pyfree", path=".uak/bin/lib/gallery_pick.py", project=CI)
     expect("INTEGRATED" in out.stdout and merged(r, f), "an unnamed .py lands with the checks green: " + out.stdout + out.stderr)
     return "loaded files, .github/, a new lib/x.sh and a named .py are a human's; an unnamed .py lands"
+
+
+def a_symlink_is_never_released(r):
+    """lib/metrics.py (a released name) made a symlink to review-merge.sh: the mode 120000 sends it to the human."""
+    if os.name == "nt":
+        return "skipped: symlinks need a privilege on Windows"
+    checks(r, GREEN)
+    f, _, out = attempt(r, "symlink", path=".uak/bin/lib/metrics.py", project=CI, content="SYMLINK:review-merge.sh")
+    expect(out.returncode == 3 and "Shared resource/CI needs a human: .uak/bin/lib/metrics.py" in out.stdout and not merged(r, f), out.stdout + out.stderr)
+    return "a symlink under lib/ goes to the human"
 
 
 def released_set_matches_the_source_chain(r):
@@ -444,7 +460,7 @@ TESTS = [human_is_the_default, ci_merges_when_every_check_is_green, a_running_ch
          gh_unavailable_is_not_green, doctor_fails_without_required_checks, marathon_needs_human_independence,
          metrics_counts_ci_merges_apart, status_and_lone_checks_prove_nothing, shards_match_by_prefix,
          a_missing_required_check_waits_then_refuses, workflow_or_smoke_goes_to_the_human, forge_required_checks_win,
-         no_required_list_goes_to_the_human, the_gate_itself_and_github_stay_human, released_set_matches_the_source_chain]
+         no_required_list_goes_to_the_human, the_gate_itself_and_github_stay_human, a_symlink_is_never_released, released_set_matches_the_source_chain]
 
 
 def main():

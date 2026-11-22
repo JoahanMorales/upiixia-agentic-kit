@@ -803,7 +803,7 @@ rm_gate_scope() {
         keep[++nkeep] = "/.githooks/"; keep[++nkeep] = "/.uak/bin/guard/"
       }
     }
-    NR % 2 == 1 { n = split($0, m, " "); st = m[n]; blob = m[4]; next }
+    NR % 2 == 1 { n = split($0, m, " "); st = m[n]; blob = m[4]; omode = substr(m[1], 2); nmode = m[2]; next }
     {
       path = $0
       if (index(path, "\001") || index(path, "\r")) { print "newline"; print ""; exit }
@@ -814,6 +814,9 @@ rm_gate_scope() {
       lp = "/" tolower(path) "/"; fixture = 0
       for (i = 1; i <= nfx; i++) if ((k = index(lp, fx[i])) && !has(substr(lp, 1, k - 1) "/", keep, nkeep)) fixture = 1
       sk = fixture ? 0 : shared_kind(lp)
+      # A symlink (mode 120000, before or after) is never a released file: a released name linked to a loaded file
+      # would put that file on the allowlist by its name.
+      if (sk == 2 && (nmode == "120000" || omode == "120000")) sk = 1
       if (sk == 1 || (sk == 2 && !engine)) { print "shared"; print path; exit }
       if (sk == 2) print path >> rel
       p = fold(path)
