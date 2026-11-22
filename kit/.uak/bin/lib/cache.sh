@@ -219,42 +219,52 @@ rc_gen() {
   rc_line "$RC_DIR/gen" || return 0
   case "$RC_L1" in ''|*[!0-9]*) ;; *) RC_GEN=$RC_L1;; esac
 }
-# The lock is a directory holding its owner's pid. A holder that is not alive (kill -0) is cleared at once; a lock
-# older than a minute goes too (another host, a recycled pid). A lock whose pid file is not written yet is a live one.
+# The lock is a directory whose `pid` file holds "PID.TOKEN" (UAK-142): the token is unique to one acquisition (RC_TOKEN).
+# A holder that is not alive (kill -0) is cleared at once; a lock older than a minute goes too (another host, a recycled
+# pid, a holder alive but slow). A lock whose pid file is not written yet is a live one. Clearing is done by one waiter at
+# a time: whoever makes `lock.reap` (mkdir, atomic, held for a few file operations; one older than a minute is stuck and
+# removed) judges the lock AGAIN under it and removes it only if it still holds what the waiter judged stale. Before
+# publishing and before unlocking a holder checks its token is still in the lock: one that was cleared as slow neither
+# publishes nor removes the lock of whoever took it after. The window left is the few instructions between that check
+# and the removal; it cannot be closed with directories alone.
+rc_pidline() { RC_PL=; [ ! -f "$RC_DIR/lock/pid" ] || IFS= read -r RC_PL 2>/dev/null < "$RC_DIR/lock/pid" || :; RC_PL=${RC_PL%$'\r'}; }
+# rc_reap LINE MODE: LINE is the pid file judged stale; MODE dead (its pid is not alive) or age (the lock is a minute old).
+rc_reap() {
+  local line=$1 mode=$2 pid
+  if ! mkdir "$RC_DIR/lock.reap" 2>/dev/null; then
+    [ -z "$(find "$RC_DIR/lock.reap" -maxdepth 0 -mmin +1 2>/dev/null)" ] || rmdir "$RC_DIR/lock.reap" 2>/dev/null || :
+    return 1
+  fi
+  rc_pidline
+  if [ "$RC_PL" = "$line" ]; then
+    pid=${line%%.*}
+    case "$mode" in
+      dead) case "$pid" in ''|*[!0-9]*) ;; *) kill -0 "$pid" 2>/dev/null || rm -rf "$RC_DIR/lock" 2>/dev/null;; esac;;
+      *) [ -z "$(find "$RC_DIR/lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] || rm -rf "$RC_DIR/lock" 2>/dev/null;;
+    esac
+  fi
+  rmdir "$RC_DIR/lock.reap" 2>/dev/null || rm -rf "$RC_DIR/lock.reap" 2>/dev/null || :
+}
 rc_lock() {
-  local i=0 pid dead
+  local i=0 pid
+  RC_TOKEN=
   while ! mkdir "$RC_DIR/lock" 2>/dev/null; do
-    pid=
-    [ ! -f "$RC_DIR/lock/pid" ] || IFS= read -r pid 2>/dev/null < "$RC_DIR/lock/pid" || :
-    pid=${pid%$'\r'}
+    rc_pidline
+    pid=${RC_PL%%.*}
     case "$pid" in
       ''|*[!0-9]*) ;;
-      *) if ! kill -0 "$pid" 2>/dev/null; then
-           # One waiter wins the rename; if it moved a lock that is not the dead one's (someone took it meanwhile),
-           # it puts it back.
-           dead=$RC_DIR/.dead-$$-${RANDOM:-0}
-           if mv "$RC_DIR/lock" "$dead" 2>/dev/null; then
-             IFS= read -r i 2>/dev/null < "$dead/pid" || i=; i=${i%$'\r'}
-             if [ "$i" = "$pid" ]; then rm -rf "$dead"; else mv "$dead" "$RC_DIR/lock" 2>/dev/null || rm -rf "$dead"; fi
-           else
-             # A directory that cannot be renamed (Windows, an open handle) is removed where it stands when it still
-             # names the same dead pid.
-             IFS= read -r i 2>/dev/null < "$RC_DIR/lock/pid" || i=; i=${i%$'\r'}
-             [ "$i" != "$pid" ] || rm -rf "$RC_DIR/lock" 2>/dev/null
-           fi
-           i=0; continue
-         fi;;
+      *) if ! kill -0 "$pid" 2>/dev/null; then if rc_reap "$RC_PL" dead; then i=0; continue; fi; fi;;
     esac
     i=$((i + 1))
-    if [ "$i" -ge 100 ]; then
-      [ -z "$(find "$RC_DIR/lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] || rm -rf "$RC_DIR/lock" 2>/dev/null
-      return 1
-    fi
+    if [ "$i" -ge "${UAK_RC_SPINS:-100}" ]; then rc_reap "$RC_PL" age || :; return 1; fi
     sleep 0.05 2>/dev/null || sleep 1
   done
-  printf '%s\n' "$$" > "$RC_DIR/lock/pid" 2>/dev/null || :
+  RC_TOKEN=$$.$RANDOM$RANDOM
+  printf '%s\n' "$RC_TOKEN" > "$RC_DIR/lock/pid" 2>/dev/null || :
 }
-rc_unlock() { rm -rf "$RC_DIR/lock" 2>/dev/null || :; }
+# rc_held: the lock still holds this process's token (it was not cleared and retaken).
+rc_held() { [ -n "${RC_TOKEN:-}" ] || return 1; rc_pidline; [ "$RC_PL" = "$RC_TOKEN" ]; }
+rc_unlock() { if rc_held; then rm -rf "$RC_DIR/lock" 2>/dev/null || :; fi; RC_TOKEN=; }
 # rc_bump: one more write of this clone (under the lock).
 rc_bump() { rc_gen; printf '%s\n' $((RC_GEN + 1)) > "$RC_DIR/.gen-$$" 2>/dev/null && mv "$RC_DIR/.gen-$$" "$RC_DIR/gen" 2>/dev/null || :; }
 # rc_basetip: RC_BASETIP, the base's tip as this checkout last saw it (a push or fetch of the base moves it). The base
@@ -333,6 +343,7 @@ rc_put() {
       *) rm -rf -- "$tmp" "$RC_DIR"/e-* "$RC_DIR/current" 2>/dev/null; rc_bump; rc_unlock; return 1;;
     esac
   fi
+  rc_held || { rm -rf "$tmp"; return 1; }   # the lock was cleared as stale and retaken: publish nothing
   if mv "$tmp" "$RC_DIR/$entry" 2>/dev/null && printf '%s\n' "$entry" > "$RC_DIR/.current-$$" && mv "$RC_DIR/.current-$$" "$RC_DIR/current" 2>/dev/null; then
     set --
     for e in "$RC_DIR"/e-*; do
