@@ -25,14 +25,15 @@ render() {
   mkdir -p "$tmp/c"
   # Why (Reap buildathon): when this fetch failed (Wi-Fi, Git Bash) the board showed every task AVAILABLE.
   # An explicit ref, and an error instead of a wrong board.
-  if ! git -C "$root" fetch -q "$remote" "+refs/heads/claims:refs/uak/board-claims" 2>/dev/null ||
+  base=$(git -C "$root" ls-remote "$remote" "refs/heads/${UAK_BASE:-main}" 2>/dev/null | cut -c 1-7)
+  # The same single fetch brings the base branch too (its PROJECT.md is the config `uak status` reads the leases from).
+  if ! git -C "$root" fetch -q "$remote" "+refs/heads/claims:refs/uak/board-claims" ${base:+"+refs/heads/${UAK_BASE:-main}:refs/uak/board-config"} 2>/dev/null ||
      ! git -C "$root" archive refs/uak/board-claims 2>/dev/null | tar -x -C "$tmp/c" 2>/dev/null; then
     if git -C "$root" ls-remote --exit-code --heads "$remote" claims >/dev/null 2>&1; then
       printf 'board: could not read the claims branch; check the network and retry (uak status works too)\n' >&2
       rm -rf "$tmp"; return 1
     fi
   fi
-  base=$(git -C "$root" ls-remote "$remote" "refs/heads/${UAK_BASE:-main}" 2>/dev/null | cut -c 1-7)
   { git -C "$root" show "$remote/${UAK_BASE:-main}:.uak/TASKS.md" 2>/dev/null || cat "$root/.uak/TASKS.md" 2>/dev/null
     printf '\n'; cat "$tmp/c/backlog/TASKS.md" 2>/dev/null; } > "$tmp/backlog"
   bash "$here/graph" --file "$tmp/backlog" 2>/dev/null | sed -n 's/^wave \([0-9]*\) ([0-9]*):/\1/p' > "$tmp/waves"
@@ -40,7 +41,9 @@ render() {
   freeze=$(sed -n 's/^Freeze-Epoch: //p' "$tmp/c/meta/config.md" 2>/dev/null | head -n 1)
   unread=$(grep -c '| human |' "$tmp/c/inbox/log.md" 2>/dev/null || true)
   # The sub-state of each REVIEW task, from the same function `uak status` uses (lib/status.sh), over this fetch: no second one.
-  bash -c '. "$1/lib/core.sh"; . "$1/lib/config.sh"; . "$1/lib/status.sh"; board_substates "$2" "$3" "$4"' _ "$here" "$tmp/c" "${UAK_NOW:-$(date +%s)}" "$root" > "$tmp/subs" 2>/dev/null || : > "$tmp/subs"
+  # The lease comes from the PROJECT.md of the base branch just fetched (what refs/uak/config holds for status), else this checkout.
+  git -C "$root" show refs/uak/board-config:.uak/PROJECT.md > "$tmp/project" 2>/dev/null || cat "$root/.uak/PROJECT.md" > "$tmp/project" 2>/dev/null || : > "$tmp/project"
+  bash -c '. "$1/lib/core.sh"; . "$1/lib/config.sh"; . "$1/lib/status.sh"; board_substates "$2" "$3" "$4"' _ "$here" "$tmp/c" "${UAK_NOW:-$(date +%s)}" "$tmp/project" > "$tmp/subs" 2>/dev/null || : > "$tmp/subs"
   awk -v md="$md" -v now="${UAK_NOW:-$(date +%s)}" -v sf="$tmp/subs" -v base="${base:--}" -v freeze="${freeze:-0}" -v hum="${unread:-0}" \
       -v wf="$tmp/waves" -v rf="$tmp/records" '
     BEGIN {
