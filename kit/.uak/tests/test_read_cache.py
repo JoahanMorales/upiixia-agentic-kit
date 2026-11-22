@@ -17,6 +17,9 @@ from pathlib import Path
 from test_hack import Runner, expect, resolve_binary
 
 T0 = 1000000
+# The shim directory goes first in PATH as an MSYS path: on Windows `C:/dir:$PATH` is split at the drive colon and the
+# shim is never found (windows (7), tip 560e2ed: 0 fetches counted).
+LAUNCH = ('d=$(cygpath -u "$1" 2>/dev/null) || d=$1; PATH="$d:$PATH"; export PATH; shift; exec bash .uak/bin/uak "$@"')
 
 
 def shim(r):
@@ -30,7 +33,9 @@ def shim(r):
         script = ('#!/usr/bin/env bash\n"%s" "$@"; rc=$?\n'
                   'for a in "$@"; do if [ "$a" = fetch ]; then echo fetch >> "$UAK_FETCH_LOG"; sleep 0.3\n'
                   '  if [ -n "${UAK_FETCH_GATE:-}" ]; then : > "$UAK_FETCH_GATE/at-fetch"; for i in $(seq 1 150); do [ -e "$UAK_FETCH_GATE/go" ] && break; sleep 0.2; done; fi\n'
-                  '  break; fi; done\nexit $rc\n' % real)
+                  '  break; fi\n'
+                  '  if [ "$a" = push ] && [ -n "${UAK_PUSH_GATE:-}" ]; then : > "$UAK_PUSH_GATE/at-push"; for i in $(seq 1 150); do [ -e "$UAK_PUSH_GATE/go" ] && break; sleep 0.2; done; break; fi\n'
+                  'done\nexit $rc\n' % real)
         (d / "git").write_text(script, encoding="utf-8", newline="\n")
         (d / "git").chmod(0o755)
     return d
@@ -57,7 +62,7 @@ def uak(r, f, index, args, now, allowed=(0,), extra=None):
     env = {"UAK_AGENT": "agent-%d" % (index + 1), "UAK_NOW": str(now), "UAK_REMOTE": "origin", "UAK_HUMAN": "",
            "UAK_DEDUPE": "off", "UAK_READ_CACHE": "on", "UAK_FETCH_LOG": f.log.as_posix(), **(extra or {})}
     started = time.monotonic()
-    out = r.run([r.bash, "-c", 'PATH="$1:$PATH"; export PATH; shift; exec bash .uak/bin/uak "$@"', "_", shim(r).as_posix()] + args, cwd=f.worktrees[index], env=env, allowed=allowed)
+    out = r.run([r.bash, "-c", LAUNCH, "_", shim(r).as_posix()] + args, cwd=f.worktrees[index], env=env, allowed=allowed)
     return out, time.monotonic() - started
 
 
@@ -209,6 +214,54 @@ def a_held_reader_never_overwrites_a_write(r):
     return "a reader held across a claim lost its put"
 
 
+def two_writers_the_older_put_last(r):
+    """kit-r2 (round 2): writer A is held after its push; writer B fetches A's tip, pushes and puts; A then puts. A's put
+    holds the older tip: it must not replace B's entry. Every agent then reads both claims."""
+    import threading
+    f = fixture(r, "rc-writers")
+    gate = f.base / "pgate"
+    gate.mkdir()
+    uak(r, f, 0, ["status"], T0 + 90)
+    res = {}
+    claim = lambda i, task, now, extra=None: uak(r, f, i, ["claim", task, "--branch", f.branches[i], "--worktree", f.worktrees[i].as_posix(), "--next", "step"], now, extra=extra)[0]
+    t = threading.Thread(target=lambda: res.update(a=claim(1, "HACK-002", T0 + 100, {"UAK_PUSH_GATE": gate.as_posix()})))
+    t.start()
+    for _ in range(100):
+        if (gate / "at-push").exists():
+            break
+        time.sleep(0.2)
+    expect((gate / "at-push").exists(), "writer A reached its push")
+    claim(2, "HACK-003", T0 + 101)
+    (gate / "go").write_text("", encoding="utf-8")
+    t.join()
+    expect(res["a"].returncode == 0, "writer A's claim succeeded")
+    for i in range(3):
+        out, _ = uak(r, f, i, ["status"], T0 + 102)
+        expect(re.search(r"HACK-002 \| CLAIMED \| agent-2", out.stdout) and re.search(r"HACK-003 \| CLAIMED \| agent-3", out.stdout),
+               "agent-%d sees both claims after the older put:\n%s" % (i + 1, out.stdout))
+    return "the older writer's put lost; both claims are read back"
+
+
+def a_dead_lock_does_not_stall_a_put(r):
+    """A lock left by a process that died is cleared at once (kill -0 on the pid it holds), not after 5 s of waiting."""
+    import subprocess
+    f = fixture(r, "rc-deadlock")
+    uak(r, f, 0, ["status", "--fresh"], T0 + 10)
+    d = f.clones[0] / ".git" / "uak-read-cache"
+    gone = subprocess.Popen([r.bash, "-c", "exit 0"])
+    gone.wait()
+    (d / "lock").mkdir()
+    (d / "lock" / "pid").write_text("%d\n" % gone.pid, encoding="utf-8")
+    started = time.monotonic()
+    uak(r, f, 0, ["status", "--fresh"], T0 + 12)
+    took = time.monotonic() - started
+    expect(not (d / "lock").exists(), "the dead holder's lock was cleared")
+    out, _ = uak(r, f, 0, ["status"], T0 + 13)
+    expect(age_line(out) == 1, "the put went through: expected: age 1, got: %r" % age_line(out))
+    expect(took < 4, "a dead lock must not cost a 5 s wait: took %.1f s" % took)
+    return "cleared at once (%.1f s)" % took
+
+
 def no_noise_on_stderr(r):
     """The first read in a clone and every read after a write that dropped the cache print nothing on stderr."""
     f = fixture(r, "rc-quiet")
@@ -225,6 +278,13 @@ def no_noise_on_stderr(r):
 def a_corrupt_entry_is_a_miss(r):
     """An entry whose clone is empty, without .git, or cut short is a miss: status fetches and exits 0."""
     import shutil
+    import stat
+
+    def rmtree(path):  # Git's object files are read-only: Windows refuses to delete them until they are writable
+        def onerror(func, p, _exc):
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        shutil.rmtree(path, onerror=onerror)
     f = fixture(r, "rc-corrupt")
     for damage in ("empty", "no-git", "no-head"):
         uak(r, f, 0, ["status", "--fresh"], T0 + 10)
@@ -233,10 +293,10 @@ def a_corrupt_entry_is_a_miss(r):
         tx = d / cur / "tx"
         expect(tx.is_dir(), "an entry exists to damage")
         if damage == "empty":
-            shutil.rmtree(tx)
+            rmtree(tx)
             tx.mkdir()
         elif damage == "no-git":
-            shutil.rmtree(tx / ".git")
+            rmtree(tx / ".git")
         else:
             (tx / ".git" / "HEAD").write_text("ref: refs/heads/nowhere\n", encoding="utf-8")
         n = fetches(f)
@@ -263,7 +323,7 @@ def a_simulated_clock_does_not_read_the_cache(r):
     f.claim(0, "HACK-001", now=T0)
     env = {"UAK_AGENT": "agent-1", "UAK_NOW": str(T0 + 1), "UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_DEDUPE": "off",
            "UAK_FETCH_LOG": f.log.as_posix()}
-    outs = [r.run([r.bash, "-c", 'PATH="$1:$PATH"; export PATH; shift; exec bash .uak/bin/uak "$@"', "_", shim(r).as_posix(), "status"], cwd=f.worktrees[0], env=env) for _ in range(2)]
+    outs = [r.run([r.bash, "-c", LAUNCH, "_", shim(r).as_posix(), "status"], cwd=f.worktrees[0], env=env) for _ in range(2)]
     expect(fetches(f) >= 2, "two reads at a simulated instant fetch twice: got %d" % fetches(f))
     expect(all(age_line(o) is None for o in outs), "no age line under a simulated clock")
     return "two fetches"
@@ -286,7 +346,7 @@ def a_push_of_the_base_from_this_checkout_is_read_back(r):
 
 
 TESTS = [second_read_reuses_the_fetch, a_write_refreshes_the_cache, fresh_fetches_now, zero_turns_it_off, read_says_how_old,
-         wait_is_never_cached, a_held_reader_never_overwrites_a_write, no_noise_on_stderr, a_corrupt_entry_is_a_miss, fresh_is_accepted_everywhere, a_push_of_the_base_from_this_checkout_is_read_back, a_simulated_clock_does_not_read_the_cache]
+         wait_is_never_cached, a_held_reader_never_overwrites_a_write, two_writers_the_older_put_last, a_dead_lock_does_not_stall_a_put, no_noise_on_stderr, a_corrupt_entry_is_a_miss, fresh_is_accepted_everywhere, a_push_of_the_base_from_this_checkout_is_read_back, a_simulated_clock_does_not_read_the_cache]
 
 
 def main():
