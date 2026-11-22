@@ -247,7 +247,8 @@ def term_stops_an_exec_script_at_once(r):
     env = dict(os.environ, **dict(ENV, PROBE_OUT=str(out)))
     seen = 0
     for mode in ("loop", "fg"):   # `wait` on a background job, and a foreground command
-        for sig in (signal.SIGTERM, signal.SIGHUP):
+        # TERM everywhere; HUP only where Python has it (Windows has no SIGHUP).
+        for sig in [signal.SIGTERM] + ([signal.SIGHUP] if hasattr(signal, "SIGHUP") else []):
             out.write_text("", encoding="utf-8")
             p = subprocess.Popen([f.r.bash, ".uak/bin/uak", "lgprobe", mode], cwd=str(w), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             for _ in range(100):
@@ -262,8 +263,13 @@ def term_stops_an_exec_script_at_once(r):
                 if p.poll() is None:
                     p.kill()
             expect(time.time() - t0 < 1.5 and p.returncode != 0, "%s/%s must stop the script at once: rc %s after %.1f s" % (mode, sig.name, p.returncode, time.time() - t0))
-            seen += 1
             got = rows(common)
+            if os.name == "nt":
+                # On Windows a signal sent from Python is TerminateProcess: the bash script gets no trap, so no line is
+                # written. What holds there: the script stopped, and no line claims success for it.
+                expect(all(x[3] != "0" for x in got), "%s/%s: no line may claim success for a killed script: %r" % (mode, sig.name, got))
+                continue
+            seen += 1
             expect(len(got) == seen and got[-1][1] == "lgprobe", "one line per killed script: %r" % got)
             expect(got[-1][3] != "0", "%s/%s: a script killed by a signal must not be recorded as success: %r" % (mode, sig.name, got[-1]))
     # A real exit 0 (the script ends by itself) stays 0.
