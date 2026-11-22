@@ -7,6 +7,7 @@ Real Git, a local bare remote."""
 import argparse
 import concurrent.futures
 import json
+import os
 import subprocess
 import tempfile
 import time
@@ -124,6 +125,78 @@ def unknown_when_not_found(r):
     return "unknown, with the reason in the event"
 
 
+def long_history(r, f, count, touch):
+    """`count` first-parent commits on main in one git fast-import (a process per commit would make the fixture as slow as
+    the code under test). touch=False: empty commits, the tree never changes; touch=True: each one adds its own file."""
+    seed_pull(r, f)
+    lines = []
+    for i in range(count):
+        msg = "hist %d" % i
+        lines += ["commit refs/heads/main", "committer t <t@t> %d +0000" % (1000000 + i), "data %d" % len(msg), msg]
+        if i == 0:
+            lines += ["from refs/heads/main^0"]
+        if touch:
+            lines += ["M 100644 inline hist/f%d.txt" % i, "data 1", "x"]
+        lines += [""]
+    data = "\n".join(lines) + "\n"
+    done = subprocess.run([r.git, "fast-import", "--quiet", "--date-format=raw"], cwd=str(f.seed), input=data.encode(), capture_output=True)
+    expect(done.returncode == 0, "fast-import: " + done.stderr.decode(errors="replace"))
+    seed(r, f, "reset", "-q", "--hard", "main")
+    seed(r, f, "push", "-q", "origin", "main")
+
+
+def counting_env(r):
+    """A `git` shim first on PATH that logs one line per process and runs the real one."""
+    d = Path(tempfile.mkdtemp(prefix="mcf-shim-", dir=str(r.scratch)))  # one per call: the cases run in threads
+    log = d.parent / (d.name + ".log")
+    out = r.run([r.bash, "-c", 'real=$(type -P git); printf "#!/usr/bin/env bash\\necho x >> \\"%s\\"\\nexec \\"%s\\" \\"\\$@\\"\\n" "$2" "$real" > "$1/git"; '
+                 'chmod +x "$1/git"; if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else printf "%s" "$1"; fi',
+                 "_", d.as_posix(), log.as_posix()], cwd=r.scratch)
+    return out.stdout.strip(), log
+
+
+def integrate_counting(r, f, task="HACK-001"):
+    shim, log = counting_env(r)
+    log.write_text("")
+    env = {"UAK_AGENT": "agent-2", "UAK_HUMAN": "", "UAK_NOW": "1000100", "UAK_REMOTE": "origin",
+           "PATH": shim + ":" + os.environ["PATH"]}
+    out = r.run([r.bash, ".uak/bin/uak", "integrate", task], cwd=f.worktrees[1], env=env, allowed=None)
+    expect(out.returncode == 0, "integrate: rc %d %s" % (out.returncode, (out.stdout + out.stderr)[-500:]))
+    return len(log.read_text().split()), field_of(record(f, task), "Merge-Commit")
+
+
+def stale_tip_scenario(r, name, history, touch, subject, rode_along):
+    f = fx3(r, name)
+    tip = in_review(r, f, 0, "HACK-001", "src/one.txt", "squashed\n")
+    approve_by_third(r, f, "HACK-001", tip)
+    long_history(r, f, history, touch)
+    squash_into_main(r, f, f.branches[0], msg=subject)
+    if rode_along:  # the squash also carries another change: its tree is not the tip's, the subject must name the task
+        seed(r, f, "reset", "-q", "--soft", "HEAD~1")
+        commit_file(r, f.seed, "docs/rode-along.txt", "rode along\n", subject)
+        seed(r, f, "push", "-q", "-f", "origin", "main")
+    squashed = r.g(f.seed, "rev-parse", "HEAD").stdout.strip()
+    unrelated_on_main(r, f)
+    calls, got = integrate_counting(r, f)
+    return squashed, calls, got
+
+
+def lookup_cost_does_not_grow_with_history(r):
+    sq_s, short, got_s = stale_tip_scenario(r, "mcf-hist-short", 10, False, "a squash with a subject that names nothing", False)
+    sq_l, long, got_l = stale_tip_scenario(r, "mcf-hist-long", 300, False, "a squash with a subject that names nothing", False)
+    expect(got_s == sq_s and got_l == sq_l, "the squash is found by tree: %s %s, want %s %s" % (got_s, got_l, sq_s, sq_l))
+    expect(long - short < 10, "a stale tip: 300 commits cost %d git processes, 10 commits %d (one process per commit?)" % (long, short))
+    return "git processes %d (10 commits) vs %d (300 commits)" % (short, long)
+
+
+def forge_subject_found_in_long_history(r):
+    sq, calls, got = stale_tip_scenario(r, "mcf-hist-forge", 300, True, "HACK-001: the work (#1)", True)
+    expect(got == sq, "the squash that names the task (#1) is found in a long history: %s, want %s" % (got, sq))
+    sq2, calls2, got2 = stale_tip_scenario(r, "mcf-hist-forge2", 300, True, "a squash that names nothing", True)
+    expect(got2 == "unknown", "nothing names the task and the trees differ: unknown, got %s" % got2)
+    return "named squash found, unnamed one unknown (%d, %d git processes)" % (calls, calls2)
+
+
 def metrics_counts_untrusted_records(r):
     c = test_metrics.claims(r["tmp"])
     for tid, pr, extra in (("UAK-010", "pull/3", ""), ("UAK-011", "pull/7", ""), ("UAK-012", "pull/9", ""), ("UAK-013", "pull/4", "")):
@@ -153,7 +226,8 @@ def metrics_counts_untrusted_records(r):
     return "wrong, missing and unknown fields are counted"
 
 
-TESTS = [integrate_records_its_own_merge, two_tasks_merged_together_get_their_own, squash_is_found_by_tree, unknown_when_not_found]
+TESTS = [integrate_records_its_own_merge, two_tasks_merged_together_get_their_own, squash_is_found_by_tree, unknown_when_not_found,
+         lookup_cost_does_not_grow_with_history, forge_subject_found_in_long_history]
 
 
 def main():
