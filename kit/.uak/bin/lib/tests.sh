@@ -97,6 +97,7 @@ tf_red_kind() {
 #   tf_affected_select ROOT CHANGED TESTS
 #     ROOT: the kit root (holds .uak/tests); CHANGED: a file of root-relative paths, one per line (../x is outside ROOT);
 #     TESTS: a file of test file names (test_x.py), one per line.
+# The floor of 3 test files does not count test_smoke_affected.py: it only lists engine file names (UAK-129 review).
 # Prints TAB-separated lines: `ALL<TAB>why` (run everything, and nothing else), or `test_x.py<TAB>why` per chosen file, or
 # `-<TAB>why` for a changed file no test names (a note). A shared engine file, a test helper (test_hack.py, a module another
 # test imports, anything else under .uak/tests), install.sh, a file it cannot classify, or an engine file no test names and
@@ -138,16 +139,16 @@ tf_affected_select() {
         for t in $mapped; do grep -qx -- "$t" "$tests" && hits="$hits $t"; done
         hits="$hits $(tf_command_tests "$root" "$tests" $cmds) $(cd "$root/.uak/tests" && grep -lF -e "$base" $(cat "$tests") 2>/dev/null | tr '\n' ' ')"
         hits=$(printf '%s\n' $hits | LC_ALL=C sort -u)
-        if [ "$(printf '%s\n' $hits | grep -c .)" -lt 3 ]; then
+        if [ "$(printf '%s\n' $hits | grep -v '^test_smoke_affected.py$' | grep -c .)" -lt 3 ]; then
           printf 'ALL%s%s: fewer than 3 test files run its commands (%s), too few to trust\n' "$tab" "$f" "$(printf '%s' "$cmds" | tr '\n' ' ' | sed 's/ $//')"; return 0; fi
         sel="$sel$(printf '%s\n' $hits | sed "s/\$/${tab}runs its commands ($(printf '%s' "$cmds" | tr '\n' ' ' | sed 's/ $//'))/")
 "; continue;;
       .uak/bin/*)
         hits=$(cd "$root/.uak/tests" && { grep -lF -e "bin/$base" $(cat "$tests") 2>/dev/null; [ "${#base}" -lt 5 ] || grep -lF -e "$base" $(cat "$tests") 2>/dev/null; } | LC_ALL=C sort -u)
-        if [ "$(printf '%s\n' $hits | grep -c .)" -lt 3 ]; then   # too few: widen with the tests that run it as a command
+        if [ "$(printf '%s\n' $hits | grep -v '^test_smoke_affected.py$' | grep -c .)" -lt 3 ]; then   # too few: widen with the tests that run it as a command
           hits=$(printf '%s\n%s\n' "$hits" "$(tf_command_tests "$root" "$tests" "$base")" | grep . | LC_ALL=C sort -u)
         fi
-        if [ "$(printf '%s\n' $hits | grep -c .)" -lt 3 ]; then printf 'ALL%s%s is an engine file fewer than 3 test files name or run\n' "$tab" "$f"; return 0; fi;;
+        if [ "$(printf '%s\n' $hits | grep -v '^test_smoke_affected.py$' | grep -c .)" -lt 3 ]; then printf 'ALL%s%s is an engine file fewer than 3 test files name or run\n' "$tab" "$f"; return 0; fi;;
       .uak/docs/*|.uak/modes/*|.uak/templates/*|.uak/skills/*|.uak/stacks/*|.uak/settings/*|.claude/*|.codex/*|.cursor/*|.gemini/*|.github/*|.githooks/*|docs/*|scripts/*|*.md|\
 ../docs/*|../scripts/*|../skills/*|../.claude-plugin/*|../.github/*|../llms.txt|../*.md)
         hits=$(cd "$root/.uak/tests" && grep -lF -e "$base" $(cat "$tests") 2>/dev/null | LC_ALL=C sort -u)
@@ -183,7 +184,7 @@ tf_lib_commands() {
     awk -F'\t' -v f="$m" '$1 !~ /^#/ && $4 == f { print $1 }' "$root/.uak/bin/lib/commands.tsv" 2>/dev/null
     for g in $(cd "$root/.uak/bin" && grep -slF -e "$m" * 2>/dev/null); do
       [ -f "$root/.uak/bin/$g" ] || continue
-      case "$g" in uak|uak-coordination|smoke) ;; *) printf '%s\n' "$g";; esac
+      if [ "$g" != uak ] && [ "$g" != uak-coordination ] && [ "$g" != smoke ]; then printf '%s\n' "$g"; fi
     done
   done | LC_ALL=C sort -u)
   printf '%s\n' "$names" | grep .
