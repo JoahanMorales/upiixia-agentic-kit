@@ -2,6 +2,12 @@
 # uak tokens: what the agents of this project really spent, per task, harness, model and lead vs subagent.
 #   tokens [--team] [--by task|harness|model|scope|agent|step] [--since DAYS] [--publish] [--quiet] [--json]
 #   tokens --budget-check ID [--local]   one line when the task's tokens crossed `Token-Budget: N` of PROJECT.md, nothing otherwise
+#     (a budget that is not a positive number, 1500, 1.5M or 500k, is ignored. With --local the scan runs in the background: the line
+#     comes from the last finished scan, nothing the first time; UAK_TOKENS_SYNC=1 waits for it)
+# --since DAYS (default 30) keeps the messages whose own timestamp is in the window. A file is first skipped unread when its mtime is
+# older than the window (find -mtime), so --since 0, an empty window, reads nothing; a file touched after its last message (a copy,
+# a restore) is read and filtered by message time, and one whose mtime is older than its messages (a clock set back) is missed.
+# A message with a missing or malformed timestamp counts only without an explicit --since and is skipped inside one.
 # Reads the local transcripts that Claude Code and Codex already write. No API key, no network for the local view:
 #   Claude Code  ~/.claude/projects/<encoded cwd>/*.jsonl (+ <session>/subagents/*.jsonl): message.usage, deduped by id
 #   Codex        ~/.codex/sessions/**/rollout-*.jsonl: the last token_count (total_token_usage) of each session
@@ -25,18 +31,19 @@ MSYS2_ARG_CONV_EXCL="refs/;origin/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXC
 LC_ALL=C; export LC_ALL
 say() { printf '%s\n' "$*"; }
 die() { printf 'tokens: %s\n' "$*" >&2; exit 2; }
-team=no by=task since=30 publish=no quiet=no json=no budget_id= here_only=no
+team=no by=task since=30 publish=no quiet=no json=no budget_id= here_only=no since_set=no refresh=no
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --team) team=yes;;
     --by) by=${2:-}; shift; case "$by" in task|harness|model|scope|agent|step) ;; *) die "--by task|harness|model|scope|agent|step";; esac;;
     --budget-check) budget_id=${2:-}; shift; case "$budget_id" in [A-Za-z]*-[0-9]*) ;; *) die "--budget-check takes a task ID (UAK-124)";; esac;;
     --local) here_only=yes;;
-    --since) since=${2:-}; shift; case "$since" in ''|*[!0-9]*) die "--since takes days";; esac;;
+    --since) since=${2:-}; shift; case "$since" in ''|*[!0-9]*) die "--since takes days";; esac; since_set=yes;;
+    --refresh) refresh=yes;;
     --publish) publish=yes;;
     --quiet) quiet=yes;;
     --json) json=yes;;
-    -h|--help) sed -n '2,3p' "$0" | sed 's/^# *//'; exit 0;;
+    -h|--help) sed -n '2,9p' "$0" | sed 's/^# *//'; exit 0;;
     *) die "unknown option $1 (tokens --help)";;
   esac; shift
 done
@@ -64,7 +71,8 @@ prefixes() {
 # machine have no step: they fold under "")
 # Seconds of an ISO timestamp (2026-11-20T10:11:12.345Z) since 1970, in awk: a message belongs to the window of --since by
 # its own time. The file mtime (find -mtime) only picks files cheaply: a file with a message in the window is newer.
-TS2E='function ts2e(t,   y, m, d, era, yoe, doy, doe) {
+TS2E='function ts_ok(t) { return t ~ /^[0-9][0-9][0-9][0-9]-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]/ }
+        function ts2e(t,   y, m, d, era, yoe, doy, doe) {
           y = substr(t, 1, 4) + 0; m = substr(t, 6, 2) + 0; d = substr(t, 9, 2) + 0
           if (m <= 2) y--
           era = int(y / 400); yoe = y - era * 400; doy = int((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1
@@ -90,7 +98,7 @@ scan_local() {
       done
       if [ "$start" = known ]; then grep -q -F -f "$tmp/pats" "$f" 2>/dev/null || continue; start=; fi
       case "$f" in */subagents/*) scope=subagent;; *) scope=lead;; esac
-      awk -v start="$start" -v scope="$scope" -v cutoff="$cutoff" -v main="$main" -v wmain="$(cygpath -m "$main" 2>/dev/null)" '
+      awk -v start="$start" -v scope="$scope" -v cutoff="$cutoff" -v strict="$since_set" -v main="$main" -v wmain="$(cygpath -m "$main" 2>/dev/null)" '
         function norm(s) { gsub(/\\\\/, "/", s); return s }
         '"$TS2E"'
         # A worktree name is a task (hack-016-app → HACK-016); a folder that is not a task name stays as it is.
@@ -147,7 +155,7 @@ scan_local() {
           cr[id] = num("cache_read_input_tokens"); out[id] = num("output_tokens")
         }
         END { for (id in m) { t = it[id]; if (t == "") continue
-                if (tm[id] != "" && ts2e(tm[id]) < cutoff) continue
+                if (ts_ok(tm[id])) { if (ts2e(tm[id]) < cutoff) continue } else if (strict == "yes") continue
                 st = is_[id]; if (st == "") st = (t == "main") ? "lead" : "author"
                 k = t "|" m[id] "|" st; I[k] += in_[id]; W[k] += cw[id]; R[k] += cr[id]; O[k] += out[id] }
               for (k in I) if (I[k] + W[k] + R[k] + O[k] > 0) { split(k, a, "|")
@@ -176,7 +184,7 @@ scan_local() {
           s = substr($0, index($0, "\"total_token_usage\""))
           I = val(s, "input_tokens"); C = val(s, "cached_input_tokens"); O = val(s, "output_tokens")
           # The total is cumulative: what the session had spent when the window began is taken off at the end.
-          v = sval($0, "timestamp"); if (v != "" && ts2e(v) < cutoff) { BI = I; BC = C; BO = O } }
+          v = sval($0, "timestamp"); if (ts_ok(v) && ts2e(v) < cutoff) { BI = I; BC = C; BO = O } }
         END {
           I -= BI; C -= BC; O -= BO
           if (cwd == "" || I + O == 0) exit
@@ -303,27 +311,50 @@ report() {
 # `Token-Budget: N` of .uak/PROJECT.md (per task; 500k, 1.5M or a plain number). One line when the task's tokens crossed
 # it, nothing when there is no budget or the task is under it. The published totals of every machine when claims has
 # them, this machine's transcripts otherwise. `uak next` and `uak status --task` call this to warn.
+refresh_spawn() { # ID LOCK NOW: starts the scan unless one lives; the child removes the lock when it ends
+  local a=
+  mkdir -p "$common/uak-budget" 2>/dev/null || return 0
+  if ! mkdir "$2" 2>/dev/null; then
+    { IFS= read -r a; } < "$2/at" 2>/dev/null || :
+    case "$a" in ''|*[!0-9]*) a=0;; esac
+    [ $(($3 - a)) -ge 120 ] || return 0
+    rm -rf "$2"; mkdir "$2" 2>/dev/null || return 0
+  fi
+  printf '%s\n' "$3" > "$2/at" 2>/dev/null || :
+  # A subshell with its own & detaches on bash 3.2 and Git Bash alike (no setsid, no disown); every fd is closed so nothing waits for it.
+  ( UAK_LG_OWED= bash "$0" --budget-check "$1" --local --refresh < /dev/null > /dev/null 2>&1 & )
+}
 budget_check() { # ID
-  local id limit used src=published bc now at lim_at
+  local id limit used src=published bc now at lim_at stale= lock bud
   id=$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')
   uak_cfg_var "$top/.uak/PROJECT.md" Token-Budget
-  limit=$(printf '%s' "$CFG" | tr -d ' ,_' | awk '{ n = $0 + 0; u = tolower(substr($0, length($0))); if (u == "k") n *= 1e3; else if (u == "m") n *= 1e6; else if (u == "b") n *= 1e9; printf "%.0f", n }')
-  case "$limit" in ''|0) return 0;; esac
-  # --local (what next and status ask): this machine's transcripts only, no fetch, and the total kept 300 s beside the
-  # clone (reading the transcripts of a long project costs seconds; the line is a warning, not an audit).
+  # Only a positive number (1500, 1.5M, 500k) is a budget: -5, abc, 5x or an empty value warn nothing and fail nothing.
+  bud=$(printf '%s' "$CFG" | tr -d ' ,_')
+  case "$bud" in ''|*[!0-9.kKmMbB]*|*[kKmMbB]?*|[kKmMbB]*|.*|*.*.*) return 0;; esac
+  limit=$(printf '%s' "$bud" | awk '{ n = $0 + 0; u = tolower(substr($0, length($0))); if (u == "k") n *= 1e3; else if (u == "m") n *= 1e6; else if (u == "b") n *= 1e9; printf "%.0f", n }')
+  case "$limit" in ''|0|*[!0-9]*) return 0;; esac
+  # --local (what next and status ask): this machine's transcripts only, no fetch. The total is kept 300 s beside the clone.
+  # A cache older than that is still printed from, and one background scan (an atomic mkdir lock; a lock older than 120 s is a
+  # scan that died) writes the new total through a temp file and mv: status never waits for the transcripts (UAK-143).
   if [ "$here_only" = yes ]; then
-    bc="$common/uak-budget/$id"; now=$(date +%s); src="this machine"; at=; lim_at=; used=
+    bc="$common/uak-budget/$id"; lock="$bc.lock"; now=$(date +%s); src="this machine"; at=; lim_at=; used=
     [ ! -f "$bc" ] || { { IFS= read -r at; IFS= read -r lim_at; IFS= read -r used; } < "$bc" 2>/dev/null || :; }
     case "$at$lim_at$used" in
       ''|*[!0-9]*) used=;;
-      *) { [ "$lim_at" = "$limit" ] && [ "$at" -le "$now" ] && [ $((now - at)) -lt 300 ]; } || used=;;
+      *) stale=$used; { [ "$lim_at" = "$limit" ] && [ "$at" -le "$now" ] && [ $((now - at)) -lt 300 ]; } || used=;;
     esac
+    if [ "$refresh" = yes ]; then trap "rm -rf \"$tmp\" \"$lock\"" EXIT
+    elif [ -z "$used" ] && [ -z "${UAK_TOKENS_SYNC:-}" ]; then
+      refresh_spawn "$id" "$lock" "$now"
+      used=$stale; [ -n "$used" ] || return 0
+    fi
   else used=; fi
   if [ -z "$used" ]; then
     if [ "$here_only" = yes ] || ! ( team_rows ) > "$tmp/view" 2>/dev/null || [ ! -s "$tmp/view" ]; then scan_local; fold < "$tmp/rows" > "$tmp/view"; src="this machine"; fi
     used=$(awk -F'|' -v id="$id" '$1 == id { t += $6 + $7 + $8 + $9 } END { printf "%.0f", t }' "$tmp/view")
-    [ "$here_only" != yes ] || { mkdir -p "$common/uak-budget" 2>/dev/null && printf '%s\n%s\n%s\n' "$now" "$limit" "${used:-0}" > "$bc" 2>/dev/null || :; }
+    [ "$here_only" != yes ] || { mkdir -p "$common/uak-budget" 2>/dev/null && printf '%s\n%s\n%s\n' "$now" "$limit" "${used:-0}" > "$bc.$$" 2>/dev/null && mv -f "$bc.$$" "$bc" 2>/dev/null || rm -f "$bc.$$" 2>/dev/null || :; }
   fi
+  [ "$refresh" != yes ] || return 0
   [ "${used:-0}" -gt "$limit" ] || return 0
   say "TOKENS_BUDGET: $id spent $(awk -v n="$used" 'BEGIN { if (n >= 1e6) printf "%.1fM", n / 1e6; else printf "%.0fk", n / 1e3 }') tokens, over its Token-Budget of $CFG ($src; Token-Budget in .uak/PROJECT.md). Split it, narrow it or raise the budget with the human."
 }
