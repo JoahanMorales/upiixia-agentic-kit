@@ -383,12 +383,13 @@ freeze_warning() {
 # The reconcile is housekeeping: if it fails, status/next still answer from a plain read. Why (MLB hackathon): a failed
 # tick made `uak status` and `uak next` exit with GIT_ERROR on Cursor/Windows.
 status_run() {
-  local saved_cmd=$CMD saved_id=$ID out rc=0 line
+  local saved_cmd=$CMD saved_id=$ID out rc=0 line rc_gen0
   RC_AGE=
   # A read younger than Read-Cache seconds is served from the clone the last read or write kept (lib/cache.sh,
   # rc_get): no fetch and no tick (the deadline reconcile ran with that fetch; leases and "min ago" are computed from
   # NOW by the readers). --fresh and UAK_CACHE=off always fetch.
   ATTEMPT=read; TX="$TXROOT/try-read"
+  rc_gen; rc_gen0=$RC_GEN   # before any fetch: a write that begins after this keeps a stale read out of the cache
   if rc_get; then
     COORD_INITIALIZED_TX=
   else
@@ -399,7 +400,7 @@ status_run() {
     { IFS= read -r TX; IFS= read -r line; IFS= read -r LEASE; IFS= read -r REVIEW_LEASE; IFS= read -r BACKLOG; IFS= read -r OWNERS; } < "$TXROOT/tick-tx"
     COORD_INITIALIZED_TX=; [ "$line" != "$TX" ] || [ ! -f "$BACKLOG" ] || COORD_INITIALIZED_TX=$TX
     # Keep what was just fetched (or pushed by the tick) for the next read.
-    rc_put "$TX" || :
+    rc_put "$TX" read "$rc_gen0" || :
   else
     # No remote at all: an explicit read-only mode (the fetch already proved it, no extra ls-remote).
     if grep -q 'Remote unreachable' "$TXROOT/tick-error"; then CMD=$saved_cmd; coord_degraded_status; exit 0; fi
@@ -415,7 +416,7 @@ status_run() {
     next) out=$(coord_next) || rc=$?; seen_print next "$out"; preflight_note; rc_age_line;;
   esac
 }
-# The last line of a read served from the cache. --json gets it as the claims_age key (json.sh), never as text.
+# The last line of a read served from the cache (the first line of next and status is parsed: bin/up reads it). --json gets it as the claims_age key (json.sh), never as text.
 rc_age_line() {
   [ -n "${RC_AGE:-}" ] || return 0
   if [ -n "${UAK_JSON_META:-}" ]; then printf 'claims_age\t%s\n' "$RC_AGE" >> "$UAK_JSON_META" 2>/dev/null || :

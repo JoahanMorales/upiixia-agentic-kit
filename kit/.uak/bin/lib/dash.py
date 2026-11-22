@@ -771,6 +771,7 @@ def main():
     ap.add_argument("--open", action="store_true")
     ap.add_argument("--out")
     ap.add_argument("--claims")
+    ap.add_argument("--fresh", action="store_true", help="accepted; the dashboard and timeline always fetch")
     ap.add_argument("--timeline", metavar="ID")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()

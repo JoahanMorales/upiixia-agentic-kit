@@ -258,9 +258,9 @@ transaction() {
     if git -C "$TX" push --porcelain origin HEAD:refs/heads/claims > "$TXROOT/push" 2>&1; then
       [ -z "$HANDOVER_ENV_WT" ] || handover_env_apply
       # Read-your-writes (UAK-130): the clone just pushed is what the next read in the window sees. done, integrate and
-      # merge hold the whole base, a heavier clone than a read keeps: they leave no entry, the next read fetches. A heartbeat
+      # merge hold the whole base, a heavier clone than a read keeps: they forget again and leave no entry, the next read fetches. A heartbeat
       # only moves a lease (and is not a read's concern, UAK-130): it leaves the cache as it is.
-      case "$CMD" in tick|heartbeat|done|integrate|merge) ;; *) rc_put "$TX" || :;; esac
+      case "$CMD" in tick|heartbeat) ;; done|integrate|merge) rc_drop;; *) rc_put "$TX" write || :;; esac
       if [ "${QUIET:-no}" != yes ]; then
         if [ "$SESSION_ONLY" = yes ]; then say "OK checkpoint --session | budget reset | attempt $ATTEMPT"
         elif [ "$CMD" = tick ]; then say "OK tick | deadlines reconciled | attempt $ATTEMPT"

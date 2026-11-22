@@ -199,7 +199,7 @@ while [ "$#" -gt 0 ]; do
     --secrets) [ "$CMD" = lint ] || bad_opt; LINT_SECRETS=yes;;
     --expired) [ "$CMD" = release ] || bad_opt; EXPIRED=yes;;
     --summary) [ "$CMD" = status ] || bad_opt; SHOW_SUMMARY=yes;;
-    --full|--fresh) case "$opt:$CMD" in --fresh:status|--fresh:next) READ_FRESH=yes;; --full:status|--full:next|--full:digest|--full:inbox) FULL=yes;; *) bad_opt;; esac;;
+    --full|--fresh) case "$opt:$CMD" in --fresh:status|--fresh:next) READ_FRESH=yes;; --fresh:inbox) ;; --full:status|--full:next|--full:digest|--full:inbox) FULL=yes;; *) bad_opt;; esac;;
     --start) [ "$CMD" = review ] || bad_opt; REVIEW_START=yes;;
     --stop) [ "$CMD" = review ] || bad_opt; REVIEW_STOP=yes;;
     --decline) [ "$CMD" = review ] || bad_opt; REVIEW_DECLINE=yes;;
