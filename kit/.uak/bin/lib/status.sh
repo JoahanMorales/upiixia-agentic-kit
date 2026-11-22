@@ -95,6 +95,21 @@ review_line() {
   [ "$RS_REJECTS" -eq 0 ] || RS_LINE="$RS_LINE · $RS_REJECTS reject$([ "$RS_REJECTS" -eq 1 ] || printf s)"
   [ "$RS_LATE" != yes ] || RS_LINE="$RS_LINE · OVER the review lease"
 }
+# What `uak board` prints after each REVIEW task (UAK-134): "ID<TAB>the line status prints" from a claims checkout $1 at epoch $2,
+# the lease from PROJECT.md of the repository $3. Sourced by bin/board with lib/core.sh and lib/config.sh; no clone, no fetch.
+board_substates() {
+  local f id lease
+  TX=$1; NOW=$2; MSG_LOG=inbox/log.md
+  uak_cfg_var "$3/.uak/PROJECT.md" Lease-Seconds 1800; lease=$CFG
+  case "$lease" in ''|*[!0-9]*) lease=1800;; esac
+  uak_cfg_var "$3/.uak/PROJECT.md" Review-Lease-Seconds $((lease * 4)); REVIEW_LEASE=$CFG
+  for f in "$TX"/tasks/*.md; do
+    [ -f "$f" ] || continue
+    fv "$f" State; [ "$FV" = REVIEW ] || continue
+    fv "$f" ID; id=$FV; review_line "$id"
+    printf '%s\t%s\n' "$id" "$RS_LINE"
+  done
+}
 # Who ran the task, on which harness and model, from the task-session records (UAK-118): "agent-1 codex/model-a; ...".
 review_harnesses() {
   local d f who h m seen=
@@ -262,7 +277,10 @@ status_data() {
       sv tasks "$id" ID; rid=$SV; sv tasks "$id" State; st=$SV
       sv tasks "$id" Lease-Until; lu=$SV; case "$lu" in ''|*[!0-9]*) lu=0;; esac
       exp=no; is_reserved "$st" && [ "$st" != REVIEW ] && [ "$lu" -gt 0 ] && [ "$NOW" -ge "$lu" ] && exp=yes
-      sv tasks "$id" Owner; printf 'task\t%s\t%s\t%s\t%s\t%s\n' "$rid" "$st" "$SV" "$lu" "$exp"
+      sv tasks "$id" Owner
+      # A task in REVIEW also carries its sub-state (UAK-134): the same words and epoch as `status`, the verdict count as the round.
+      if [ "$st" = REVIEW ]; then review_substate "$id"; printf 'task\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$rid" "$st" "$SV" "$lu" "$exp" "$RS_TEXT" "$RS_SINCE" "$RS_ROUNDS"
+      else printf 'task\t%s\t%s\t%s\t%s\t%s\n' "$rid" "$st" "$SV" "$lu" "$exp"; fi
     done
     for id in $UAK_S_backlog; do
       [ -f "$TX/tasks/$id.md" ] || printf 'task\t%s\tAVAILABLE\t-\t0\tno\n' "$id"
