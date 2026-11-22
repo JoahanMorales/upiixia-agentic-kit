@@ -244,14 +244,15 @@ def two_writers_the_older_put_last(r):
 
 def a_dead_lock_does_not_stall_a_put(r):
     """A lock left by a process that died is cleared at once (kill -0 on the pid it holds), not after 5 s of waiting."""
-    import subprocess
     f = fixture(r, "rc-deadlock")
     uak(r, f, 0, ["status", "--fresh"], T0 + 10)
     d = f.clones[0] / ".git" / "uak-read-cache"
-    gone = subprocess.Popen([r.bash, "-c", "exit 0"])
-    gone.wait()
+    # A pid of the shell's own namespace (on Windows Git Bash `kill -0` speaks MSYS pids, not the native ones Python's
+    # Popen reports): the pid of a bash that ran and exited.
+    dead = r.run([r.bash, "-c", "echo $$"], cwd=r.scratch).stdout.strip()
+    expect(dead.isdigit(), "a dead pid: %r" % dead)
     (d / "lock").mkdir()
-    (d / "lock" / "pid").write_text("%d\n" % gone.pid, encoding="utf-8")
+    (d / "lock" / "pid").write_text(dead + "\n", encoding="utf-8")
     started = time.monotonic()
     uak(r, f, 0, ["status", "--fresh"], T0 + 12)
     took = time.monotonic() - started

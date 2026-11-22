@@ -235,6 +235,11 @@ rc_lock() {
            if mv "$RC_DIR/lock" "$dead" 2>/dev/null; then
              IFS= read -r i 2>/dev/null < "$dead/pid" || i=
              if [ "$i" = "$pid" ]; then rm -rf "$dead"; else mv "$dead" "$RC_DIR/lock" 2>/dev/null || rm -rf "$dead"; fi
+           else
+             # A directory that cannot be renamed (Windows, an open handle) is removed where it stands when it still
+             # names the same dead pid.
+             IFS= read -r i 2>/dev/null < "$RC_DIR/lock/pid" || i=
+             [ "$i" != "$pid" ] || rm -rf "$RC_DIR/lock" 2>/dev/null
            fi
            i=0; continue
          fi;;
