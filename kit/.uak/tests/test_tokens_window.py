@@ -66,7 +66,7 @@ def since_counts_by_message_time(r):
     session(cfg, main, [("msg_a", 7, None), ("msg_b", 5, None)])
     expect(total(r, f, cfg) == {"HACK-001": 12}, "no timestamps, no --since: %s" % total(r, f, cfg))
     # Codex: the cumulative total of a session is cut at the window start.
-    codex = Path(cfg) / "codex" / "2026" / "11"
+    codex = Path(cfg) / "codex" / "sessions"
     codex.mkdir(parents=True)
     def tc(days, i, c, o):
         return json.dumps({"timestamp": stamp(days), "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": i, "cached_input_tokens": c, "output_tokens": o}}}})
@@ -99,7 +99,7 @@ def live_task(r, name, budget):
 
 
 def run_uak(r, f, cfg, *args):
-    out = r.run([r.bash, ".uak/bin/uak", *args], cwd=f.worktrees[0], env=env(f, cfg), allowed=None)
+    out = r.run([r.bash, ".uak/bin/uak", *args], cwd=f.worktrees[0], env=env(f, cfg, UAK_READ_CACHE="on", UAK_DEDUPE="off"), allowed=None)
     expect(out.returncode == 0, "uak %s: %s" % (" ".join(args), out.stdout + out.stderr))
     return out.stdout
 
