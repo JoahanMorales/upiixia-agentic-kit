@@ -585,23 +585,47 @@ rm_path_owner() {
 # Merge-Engine (UAK-131): `human` (default) or `ci`, read from PROJECT.md on the BASE tip the candidate is built on
 # (the merged-to side), never from the task's branch or from claims: a task cannot turn the policy on for itself, and a
 # diff that touches PROJECT.md goes to the human anyway. Anything but exactly `ci` (a typo included) is `human`.
-RM_ENGINE=human RM_CI_RELEASED=no RM_CI_WAIT=no RM_CI_CHECKS= RM_CI_COUNT=0 RM_PROJECT_MODE= RM_INDEPENDENCE=
+# The checks a `ci` merge needs are named on the base side too (Merge-Engine-Checks, or the forge's required checks).
+RM_ENGINE=human RM_CI_RELEASED=no RM_CI_WAIT=no RM_CI_CHECKS= RM_CI_COUNT=0 RM_PROJECT_MODE= RM_INDEPENDENCE= RM_ENGINE_CHECKS=
+RM_CI_REQ= RM_CI_REQ_SRC=
 rm_merge_engine() {
   local f="$TXROOT/merge-engine-project"
-  RM_ENGINE=human RM_PROJECT_MODE= RM_INDEPENDENCE=agent
+  RM_ENGINE=human RM_PROJECT_MODE= RM_INDEPENDENCE=agent RM_ENGINE_CHECKS=
   [ -n "${RM_BUILD:-}" ] && [ -n "${RM_BASE_TIP:-}" ] || return 0
   git -C "$RM_BUILD" show "$RM_BASE_TIP:.uak/PROJECT.md" > "$f" 2>/dev/null || return 0
   uak_cfg_var "$f" Merge-Engine human; [ "$CFG" != ci ] || RM_ENGINE=ci
   uak_cfg_var "$f" Mode ''; RM_PROJECT_MODE=$(printf '%s' "$CFG" | tr '[:upper:]' '[:lower:]')
   uak_cfg_var "$f" Review-Independence agent; RM_INDEPENDENCE=$CFG
+  uak_cfg_var "$f" Merge-Engine-Checks ''; RM_ENGINE_CHECKS=$CFG
 }
-# Every check of the approved tip on the forge. Green = at least one real check succeeded, every check run completed,
-# none red (skipped and neutral are not red but are not counted), and the commit statuses, if any, are success.
-# Sets RM_CI_CHECKS (names counted) and RM_CI_COUNT. A check still running or not there yet is a WAIT (RM_CI_WAIT=yes,
-# the reason starts with "Merge-Engine ci: waiting"); the forge unreachable, a red check or nothing real is a refusal.
-# Why (UAK-131): every check (all runs, not the first), and never green without having read the forge.
+# The checks a `ci` merge requires, from the BASE side only: (a) the forge's required status checks of the base branch,
+# exact names, when readable and non-empty; else (b) `Merge-Engine-Checks:` in the base tip's PROJECT.md, comma-separated
+# check-run names, a trailing `*` a prefix (shards: `suite (*`, `windows (*`). Neither: no policy, the human, and the
+# reason says how to set it. Names are trimmed; an empty one, or a bare `*`, is never a requirement.
+# Why (UAK-131 review): counting whatever checks exist proved nothing: one status posted by a collaborator, or a single
+# `x` check, made an engine change "green".
+rm_ci_required() {
+  local repo=$1 out
+  RM_CI_REQ= RM_CI_REQ_SRC=
+  if command -v gh >/dev/null 2>&1 &&
+     out=$(gh api "repos/$repo/branches/$BASE/protection/required_status_checks" --template '{{range .contexts}}{{.}}{{"\n"}}{{end}}{{range .checks}}{{.context}}{{"\n"}}{{end}}' 2>/dev/null); then
+    out=$(printf '%s\n' "$out" | awk '{ sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); if ($0 != "" && $0 != "*") print }' | sort -u)
+    [ -z "$out" ] || { RM_CI_REQ=$out; RM_CI_REQ_SRC="the required status checks of $BASE on GitHub"; return 0; }
+  fi
+  out=$(printf '%s\n' "$RM_ENGINE_CHECKS" | tr ',' '\n' | awk '{ sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); if ($0 != "" && $0 != "*") print }' | sort -u)
+  [ -z "$out" ] || { RM_CI_REQ=$out; RM_CI_REQ_SRC="Merge-Engine-Checks in PROJECT.md on $BASE"; return 0; }
+  RM_REASON="Merge-Engine ci needs the checks to require: protect $BASE on GitHub with required status checks, or set Merge-Engine-Checks: in .uak/PROJECT.md on $BASE (check-run names, comma-separated, a trailing * is a prefix: suite (*, windows (*)"
+  return 1
+}
+# Every required check of the approved tip, on the forge. Each required name or pattern must match at least one check RUN
+# of the tip, and every run it matches must be completed/success (skipped is not success here). A run outside the list
+# must not be red, and none may still be running. Commit statuses never count towards green (anyone with a write token
+# can post one on their own tip); a failed one blocks and a pending one waits. Runs without a name never count.
+# A pattern that matches nothing waits while any check run or workflow run of the tip is still going (not created yet),
+# and is refused once everything else is complete. Sets RM_CI_CHECKS (the runs counted by THIS read) and RM_CI_COUNT.
+# A wait sets RM_CI_WAIT=yes and the reason starts with "Merge-Engine ci: waiting"; the rest are refusals.
 rm_ci_checks() {
-  local pr=$1 tip=$2 repo remote_repo st total
+  local pr=$1 tip=$2 repo remote_repo st total okn bad red pend missing wf
   RM_CI_WAIT=no RM_CI_CHECKS= RM_CI_COUNT=0
   printf '%s\n' "$pr" | grep -Eq '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$' || {
     RM_REASON='Merge-Engine ci reads the checks of a github.com PR: this task has none'; return 1; }
@@ -610,6 +634,8 @@ rm_ci_checks() {
   [ "$(printf '%s' "$remote_repo" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')" ] || {
     RM_REASON='Merge-Engine ci: the PR does not belong to the configured github.com remote'; return 1; }
   command -v gh >/dev/null 2>&1 || { RM_REASON='Merge-Engine ci: gh is not available, so the checks of the tip cannot be read'; return 1; }
+  rm_ci_required "$repo" || return 1
+  printf '%s\n' "$RM_CI_REQ" > "$TXROOT/ci-req"
   gh api "repos/$repo/commits/$tip/check-runs" --paginate \
     --template '{{range .check_runs}}{{.name}}|{{.status}}|{{.conclusion}}{{"\n"}}{{end}}' > "$TXROOT/ci-checks" 2>/dev/null || {
     RM_REASON='Merge-Engine ci: GitHub could not be read for the checks of the tip'; return 1; }
@@ -617,35 +643,52 @@ rm_ci_checks() {
     RM_REASON='Merge-Engine ci: GitHub could not be read for the commit statuses of the tip'; return 1; }
   total=${st#*|}; st=${st%%|*}
   case "$total" in ''|*[!0-9]*) RM_REASON='Merge-Engine ci: the commit statuses of the tip are unreadable'; return 1;; esac
-  awk -F'|' -v names="$TXROOT/ci-names" '
-    NF == 0 || $0 == "" { next }
-    NF != 3 { bad = bad (bad == "" ? "" : ", ") $1; next }
-    $2 != "completed" { pend = pend (pend == "" ? "" : ", ") $1; next }
-    $3 == "success" { ok++; print $1 > names; next }
-    $3 == "skipped" || $3 == "neutral" { next }
-    { red = red (red == "" ? "" : ", ") $1 " (" $3 ")" }
-    END { print "ok=" ok + 0; print "bad=" bad; print "red=" red; print "pend=" pend }' "$TXROOT/ci-checks" > "$TXROOT/ci-verdict"
-  : >> "$TXROOT/ci-names"
-  local okn bad red pend
-  okn=$(sed -n 's/^ok=//p' "$TXROOT/ci-verdict"); bad=$(sed -n 's/^bad=//p' "$TXROOT/ci-verdict")
-  red=$(sed -n 's/^red=//p' "$TXROOT/ci-verdict"); pend=$(sed -n 's/^pend=//p' "$TXROOT/ci-verdict")
+  wf=$(gh api "repos/$repo/actions/runs?head_sha=$tip" --template '{{range .workflow_runs}}{{.status}}{{"\n"}}{{end}}' 2>/dev/null) || {
+    RM_REASON='Merge-Engine ci: GitHub could not be read for the workflow runs of the tip'; return 1; }
+  : > "$TXROOT/ci-names"
+  awk -F'|' -v req="$TXROOT/ci-req" -v names="$TXROOT/ci-names" '
+    function trim(x) { sub(/^[ \t]+/, "", x); sub(/[ \t]+$/, "", x); return x }
+    function add(list, x) { return list (list == "" ? "" : ", ") x }
+    BEGIN {
+      while ((getline l < req) > 0) { l = trim(l); if (l == "") continue; n++; pat[n] = l
+        if (substr(l, length(l)) == "*") { star[n] = 1; pre[n] = substr(l, 1, length(l) - 1) } else pre[n] = l }
+    }
+    $0 == "" { next }
+    NF != 3 { bad = add(bad, $1); next }
+    {
+      name = trim($1); st = $2; cc = $3; hit = 0
+      if (name != "") for (i = 1; i <= n; i++) if (star[i] ? index(name, pre[i]) == 1 : name == pat[i]) { hit = 1; seen[i] = 1 }
+      if (st != "completed") { pend = add(pend, name == "" ? "(unnamed)" : name); next }
+      if (cc == "success") { if (hit && !(name in counted)) { counted[name] = 1; print name > names } next }
+      if (hit) { red = add(red, name " (" cc ")"); next }
+      if (cc == "skipped" || cc == "neutral") next
+      red = add(red, (name == "" ? "(unnamed)" : name) " (" cc ")")
+    }
+    END {
+      for (i = 1; i <= n; i++) if (!seen[i]) missing = add(missing, pat[i])
+      print "bad=" bad; print "red=" red; print "pend=" pend; print "missing=" missing; print "runs=" NR
+    }' "$TXROOT/ci-checks" > "$TXROOT/ci-verdict"
+  bad=$(sed -n 's/^bad=//p' "$TXROOT/ci-verdict"); red=$(sed -n 's/^red=//p' "$TXROOT/ci-verdict")
+  pend=$(sed -n 's/^pend=//p' "$TXROOT/ci-verdict"); missing=$(sed -n 's/^missing=//p' "$TXROOT/ci-verdict")
   [ -z "$bad" ] || { RM_REASON="Merge-Engine ci: a check of the tip could not be read ($bad)"; return 1; }
-  [ -z "$red" ] || { RM_REASON="Merge-Engine ci: a check of the tip is red: $red"; return 1; }
+  [ -z "$red" ] || { RM_REASON="Merge-Engine ci: a check of the tip is red or not a success: $red"; return 1; }
   case "$st" in failure|error) RM_REASON="Merge-Engine ci: a commit status of the tip is $st"; return 1;; esac
   if [ -n "$pend" ]; then RM_CI_WAIT=yes; RM_REASON="Merge-Engine ci: waiting for $pend to finish on the tip"; return 1; fi
   if [ "$st" = pending ] && [ "$total" -gt 0 ]; then RM_CI_WAIT=yes; RM_REASON='Merge-Engine ci: waiting for a commit status of the tip to finish'; return 1; fi
-  if [ "$okn" -eq 0 ] && [ "$total" -eq 0 ]; then
-    if [ ! -s "$TXROOT/ci-checks" ]; then RM_CI_WAIT=yes; RM_REASON='Merge-Engine ci: waiting, no check found on the tip yet'; return 1; fi
+  if printf '%s\n' "$wf" | grep -Eqv '^(completed)?$'; then
+    RM_CI_WAIT=yes; RM_REASON='Merge-Engine ci: waiting for a workflow run of the tip to finish (its checks may not exist yet)'; return 1; fi
+  if [ -n "$missing" ]; then
+    if [ ! -s "$TXROOT/ci-checks" ]; then RM_CI_WAIT=yes; RM_REASON="Merge-Engine ci: waiting, no check found on the tip yet (required: $missing)"; return 1; fi
+    RM_REASON="Merge-Engine ci: no check run of the tip matches the required $missing, and everything else is complete (required by $RM_CI_REQ_SRC)"; return 1
   fi
-  if [ "$okn" -eq 0 ] && ! { [ "$st" = success ] && [ "$total" -gt 0 ]; }; then
-    RM_REASON='Merge-Engine ci: no check of the tip succeeded (skipped and neutral ones do not count)'; return 1; fi
-  RM_CI_COUNT=$((okn + total))
+  RM_CI_COUNT=$(wc -l < "$TXROOT/ci-names" | tr -d ' ')
+  [ "$RM_CI_COUNT" -gt 0 ] || { RM_REASON='Merge-Engine ci: no required check run succeeded on the tip'; return 1; }
   RM_CI_CHECKS=$(sort -u "$TXROOT/ci-names" | tr -d '\r|' | awk 'NR > 1 { printf "; " } { printf "%s", $0 }' | cut -c 1-300)
   return 0
 }
 # The engine files of a diff may land through the gate (Merge-Engine: ci) when another identity approved the exact tip
-# (approval_check, UAK-114), the forge shows every check of that tip green, and, in marathon mode, Review-Independence
-# is `human`. Sprint mode needs no more than the approval.
+# (approval_check, UAK-114), the forge shows every REQUIRED check of that tip green, and, outside sprint mode,
+# Review-Independence is `human`. Sprint mode needs no more than the approval.
 rm_ci_release() {
   RM_CI_WAIT=no
   [ "$RM_ENGINE" = ci ] || { RM_REASON='Shared resource/CI needs a human'; return 1; }
@@ -710,8 +753,7 @@ rm_gate_scope() {
       return hit ? (other ? 1 : 2) : 0
     }
     BEGIN {
-      neng = split("/.uak/bin/uak/ /.uak/bin/lib/ /.uak/bin/uak-coordination/ /.uak/bin/smoke/ /.githooks/ " \
-        "/.github/workflows/ /.gitlab-ci.yml/ /azure-pipelines.yml/", engl, " ")
+      neng = split("/.uak/bin/uak/ /.uak/bin/lib/ /.uak/bin/uak-coordination/", engl, " ")
       for (i = 1; i <= neng; i++) iseng[engl[i]] = 1
       engine = (ENVIRON["UAK_SCOPE_ENGINE"] == "ci"); rel = ENVIRON["UAK_SCOPE_RELEASED"]
       na = load(ENVIRON["UAK_SCOPE_ALLOWED"], allow); nd = load(ENVIRON["UAK_SCOPE_ADDITIVE"], add)
@@ -722,6 +764,10 @@ rm_gate_scope() {
         "/.gitlab-ci.yml/ /azure-pipelines.yml/ /package-lock.json/ /pnpm-lock.yaml/ .lock/ .lockb/ /go.sum/ " \
         "/.uak/bin/smoke/ /.uak/bin/smoke-project/ /.uak/bin/.smoke-project.provenance/ /.uak/bin/secret-scan/ " \
         "/.uak/bin/uak/ /.uak/bin/lib/ /.uak/bin/uak-coordination/ /.githooks/ /hackathon.md/ /.uak/project.md/", shared, " ")
+      # Under `ci` what judges or guards a merge is never released (workflows, smoke, smoke-project, secret-scan and
+      # .githooks/ are shared and not engine above; guard joins them here, and none of them is test data under a
+      # fixtures directory). `human` keeps the list as it was.
+      if (engine) { shared[++nsh] = "/.uak/bin/guard/"; keep[++nkeep] = "/.githooks/"; keep[++nkeep] = "/.uak/bin/guard/" }
     }
     NR % 2 == 1 { n = split($0, m, " "); st = m[n]; blob = m[4]; next }
     {

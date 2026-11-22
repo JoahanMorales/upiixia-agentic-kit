@@ -7,11 +7,18 @@ reaches through `url.<path>.insteadOf` (GIT_CONFIG_*), so the engine sees a gith
   ci_merges_when_every_check_is_green   `ci`: the same task lands through the gate when every check run of the tip passed
   a_running_check_waits                 a check still running, or none found yet: MERGE_WAIT, nothing queued, never green
   a_red_check_refuses                   a red check among green ones (the second run, not the first) goes to the human
-  lock_files_still_need_a_human         lock files, migrations, PROJECT.md and a path that is also engine and lock: human
+  lock_files_still_need_a_human         lock files, migrations, PROJECT.md and a path that is also engine and lock: human (the engine
+                                        subset is `.uak/bin/uak`, `.uak/bin/uak-coordination`, `.uak/bin/lib/`)
   record_names_the_policy               the task record says `Merge-Policy: ci` and the checks counted
   a_task_cannot_turn_the_policy_on      the value is read from the base: a diff that sets it changes nothing and goes to the human
   gh_unavailable_is_not_green           the forge cannot be read: the human, with the reason
-  doctor_warns_without_required_checks  `ci` set and no required checks on the base (or not knowable): a warning
+  doctor_fails_without_required_checks  `ci` set and no list of required checks (forge or PROJECT.md): a FAIL, names printed
+  status_and_lone_checks_prove_nothing  a bare success status, a lone `x` check, an unnamed check: refused or waiting
+  shards_match_by_prefix                `suite (*` style patterns match shard runs; one red shard refuses
+  a_missing_required_check_waits_then_refuses  no run matches: wait while a workflow run is going, refuse once complete
+  workflow_or_smoke_goes_to_the_human   workflows, smoke, githooks, guard and their fixtures dirs are never released by ci
+  forge_required_checks_win             the forge's required checks replace the PROJECT.md list
+  no_required_list_goes_to_the_human    `ci` with neither source: the human, and the reason says how to configure it
 
 Why (`uak metrics`, 2026-11-21): the gate sent 39 of 39 queued tasks to a human, 38 of them as "Shared resource/CI needs
 a human"; 46 of 104 integrated tasks were built by the gate and then landed by a person who added no check of their own.
@@ -40,9 +47,11 @@ case "$2" in
   */commits/*/status) cat "$MOCK_STATUS";;
   repos/org/repo) echo true,false,false;;
   */protection/required_status_checks) [ -n "${MOCK_REQUIRED:-}" ] && cat "$MOCK_REQUIRED" || exit 1;;
+  */actions/runs*) [ -z "${MOCK_RUNS:-}" ] || cat "$MOCK_RUNS";;
   *) exit 1;;
 esac
 """
+CI = "Merge-Engine: ci\nMerge-Engine-Checks: build (*, lint\n"
 GREEN = "build (linux)|completed|success\nbuild (macos)|completed|success\nlint|completed|success\ndocs|completed|skipped\n"
 STATUS_NONE = "pending|0\n"
 _cache = {}
@@ -57,6 +66,8 @@ def runner(scratch):
     r.env["PATH"] = stub.as_posix() + os.pathsep + r.env["PATH"]
     r.env["MOCK_CHECKS"] = (scratch / "checks.txt").as_posix()
     r.env["MOCK_STATUS"] = (scratch / "status.txt").as_posix()
+    r.env["MOCK_RUNS"] = (scratch / "runs.txt").as_posix()
+    (scratch / "runs.txt").write_text("", encoding="utf-8")
     checks(r, GREEN)
     return r
 
@@ -143,7 +154,7 @@ def human_is_the_default(r):
 def green_run(r):
     if "green" not in _cache:
         checks(r, GREEN)
-        _cache["green"] = attempt(r, "green", project="Merge-Engine: ci\n")
+        _cache["green"] = attempt(r, "green", project=CI)
     return _cache["green"]
 
 
@@ -163,6 +174,7 @@ def record_names_the_policy(r):
     expect(m and all(n in m.group(1) for n in ("build (linux)", "build (macos)", "lint")) and m.group(1).startswith("3: "),
            "the checks counted are named: %r" % (m and m.group(1)))
     expect("docs" not in m.group(1), "a skipped check is not counted as a success: " + m.group(1))
+    expect(re.search(r"^Merge-Policy: ci$", record, re.M) and "Merge-Checks" in record, "record")
     return "Merge-Policy: ci · " + m.group(1)
 
 
@@ -170,7 +182,7 @@ def a_running_check_waits(r):
     for label, text in (("one running", GREEN + "e2e|in_progress|\n"), ("one queued", GREEN + "e2e|queued|\n"),
                         ("none found yet", "")):
         checks(r, text)
-        f, _, out = attempt(r, "wait-" + label.split()[1] if " " in label else "wait-none", project="Merge-Engine: ci\n")
+        f, _, out = attempt(r, "wait-" + label.split()[1] if " " in label else "wait-none", project=CI)
         expect(out.returncode == 3 and "MERGE_WAIT" in out.stdout and "MERGE_HUMAN" not in out.stdout, "%s: %s" % (label, out.stdout + out.stderr))
         expect(not merged(r, f), "%s: never green" % label)
         expect("State: HUMAN" not in f.show("queue/HACK-001.md") and "queue/merge-lock.md" not in f.files("."),
@@ -184,11 +196,12 @@ def a_running_check_waits(r):
 
 def a_red_check_refuses(r):
     for label, text, status in (("a later run red", GREEN + "e2e|completed|failure\n", STATUS_NONE),
+                                ("one shard red", GREEN + "build (windows)|completed|failure\n", STATUS_NONE),
                                 ("cancelled", GREEN + "e2e|completed|cancelled\n", STATUS_NONE),
                                 ("only skipped", "docs|completed|skipped\nlint|completed|neutral\n", STATUS_NONE),
                                 ("a commit status failed", GREEN, "failure|1\n")):
         checks(r, text, status)
-        f, _, out = attempt(r, "red-" + label.split()[-1], project="Merge-Engine: ci\n")
+        f, _, out = attempt(r, "red-" + re.sub(r"\W+", "", label), project=CI)
         expect(out.returncode == 3 and "MERGE_HUMAN" in out.stdout, "%s: %s" % (label, out.stdout + out.stderr))
         expect(not merged(r, f), "%s: base must not move" % label)
         if label == "a later run red":
@@ -201,7 +214,7 @@ def lock_files_still_need_a_human(r):
     for name, path in (("lock", "package-lock.json"), ("migration", "db/migration/V9__x.sql"),
                        ("both", ".uak/bin/lib/migrations/x.txt"), ("project", ".uak/PROJECT.md"),
                        ("provenance", ".uak/bin/.smoke-project.provenance")):
-        f, _, out = attempt(r, "lock-" + name, path=path, project="Merge-Engine: ci\n",
+        f, _, out = attempt(r, "lock-" + name, path=path, project=CI,
                             content="ready-HACK-001\n" if name != "project" else "ready-HACK-001\nMode: sprint\n")
         expect(out.returncode == 3 and "Shared resource/CI needs a human: %s" % path in out.stdout, "%s: %s" % (path, out.stdout + out.stderr))
         expect(not merged(r, f), "%s: base must not move" % path)
@@ -210,9 +223,9 @@ def lock_files_still_need_a_human(r):
 
 def marathon_needs_human_independence(r):
     checks(r, GREEN)
-    f, _, out = attempt(r, "marathon", project="Merge-Engine: ci\n", mode="marathon")
+    f, _, out = attempt(r, "marathon", project=CI, mode="marathon")
     expect(out.returncode == 3 and "Review-Independence: human" in out.stdout and not merged(r, f), out.stdout + out.stderr)
-    f, _, out = attempt(r, "marathon-human", project="Merge-Engine: ci\nReview-Independence: human\n", mode="marathon")
+    f, _, out = attempt(r, "marathon-human", project=CI + "Review-Independence: human\n", mode="marathon")
     expect("INTEGRATED" in out.stdout and merged(r, f), "with Review-Independence: human it lands: " + out.stdout + out.stderr)
     return "marathon: refused with agent independence, lands with human"
 
@@ -237,7 +250,7 @@ def gh_unavailable_is_not_green(r):
     checks(r, GREEN)
     r.env["MOCK_GH_DOWN"] = "1"
     try:
-        f, _, out = attempt(r, "ghdown", project="Merge-Engine: ci\n")
+        f, _, out = attempt(r, "ghdown", project=CI)
     finally:
         del r.env["MOCK_GH_DOWN"]
     expect(out.returncode == 3 and "MERGE_HUMAN" in out.stdout and "checks" in out.stdout, out.stdout + out.stderr)
@@ -245,39 +258,122 @@ def gh_unavailable_is_not_green(r):
     return "gh down: the human, with the reason"
 
 
-def doctor_warns_without_required_checks(r):
+def doctor_fails_without_required_checks(r):
     checks(r, GREEN)
     forge(r, "doctor")
-    f = fixture(r, "doctor", ENGINE_FILE, "Merge-Engine: ci\n")
+    f = fixture(r, "doctor", ENGINE_FILE, "Merge-Engine: ci\n")  # no Merge-Engine-Checks
     clone = f.clones[0]
     r.g(clone, "pull", "-q", "origin", "main")
-    required = Path(r.env["MOCK_CHECKS"]).with_name("required.json")
-    cases = (("none", None, "has no required status checks"),
-             ("some", "1\n", None))
-    for label, body, want in cases:
-        if body is None:
-            r.env.pop("MOCK_REQUIRED", None)
-        else:
-            required.write_text(body, encoding="utf-8")
-            r.env["MOCK_REQUIRED"] = required.as_posix()
+    required = Path(r.env["MOCK_CHECKS"]).with_name("required.txt")
+
+    def doctor():
         out = r.run([r.bash, ".uak/bin/doctor"], cwd=clone, env={"UAK_AGENT": "agent-1"}, allowed=None)
-        text = out.stdout + out.stderr
-        if want:
-            expect(re.search(r"WARN .*Merge-Engine: ci.*" + want, text), "%s: expected the warning: %s" % (label, text[-1500:]))
-        else:
-            expect("Merge-Engine: ci" not in text or "OK" in text, "%s: no warning with a required check: %s" % (label, text[-1500:]))
-            expect(not re.search(r"WARN .*Merge-Engine", text), "%s: no warning: %s" % (label, text[-1500:]))
+        return out.stdout + out.stderr
+
+    r.env.pop("MOCK_REQUIRED", None)
+    text = doctor()
+    expect(re.search(r"FAIL .*Merge-Engine: ci is set and no list of required checks exists.*Merge-Engine-Checks", text), "neither source: a FAIL that says how to set it: " + text[-1500:])
+    required.write_text("build (linux)\nlint\n", encoding="utf-8")
+    r.env["MOCK_REQUIRED"] = required.as_posix()
+    text = doctor()
+    expect(re.search(r"OK .*Merge-Engine: ci will require every one of: build \(linux\),lint", text) and not re.search(r"FAIL .*Merge-Engine", text),
+           "the forge's list: named, no FAIL: " + text[-1500:])
+    r.env.pop("MOCK_REQUIRED", None)
+    (clone / ".uak/PROJECT.md").write_text((clone / ".uak/PROJECT.md").read_text(encoding="utf-8") + "Merge-Engine-Checks: suite (*, windows (*\n", encoding="utf-8")
+    text = doctor()
+    expect(re.search(r"OK .*Merge-Engine: ci will require every one of: suite \(\*,windows \(\*", text), "PROJECT.md's list: named: " + text[-1500:])
     r.env["MOCK_GH_DOWN"] = "1"
-    out = r.run([r.bash, ".uak/bin/doctor"], cwd=clone, env={"UAK_AGENT": "agent-1"}, allowed=None)
-    del r.env["MOCK_GH_DOWN"]
-    expect(re.search(r"WARN .*Merge-Engine: ci.*cannot tell", out.stdout + out.stderr), "gh down says it cannot tell: " + (out.stdout + out.stderr)[-1500:])
-    return "warns with no required checks and when it cannot tell; silent with one"
+    try:
+        text = doctor()
+    finally:
+        del r.env["MOCK_GH_DOWN"]
+    expect(re.search(r"OK .*Merge-Engine: ci will require", text), "the forge unreadable: the PROJECT.md list still counts: " + text[-1500:])
+    return "FAIL with no list; the names printed with a forge list or a PROJECT.md list"
+
+
+def status_and_lone_checks_prove_nothing(r):
+    for label, text, status, want in (
+            ("a bare success status", "", "success|1\n", "MERGE_WAIT"),
+            ("a lone x check", "x|completed|success\n", STATUS_NONE, "MERGE_HUMAN"),
+            ("an unnamed check", "|completed|success\n", STATUS_NONE, "MERGE_HUMAN"),
+            ("a status and a lone check", "x|completed|success\n", "success|1\n", "MERGE_HUMAN"),
+            ("unnamed plus whitespace", " |completed|success\nx|completed|success\n", STATUS_NONE, "MERGE_HUMAN")):
+        checks(r, text, status)
+        f, _, out = attempt(r, "weak-" + re.sub(r"\W+", "", label), project=CI)
+        expect(want in out.stdout and not merged(r, f), "%s: expected %s, never green: %s" % (label, want, out.stdout + out.stderr))
+    return "none of them is green"
+
+
+def shards_match_by_prefix(r):
+    checks(r, GREEN)
+    f, _, out = attempt(r, "shards", project="Merge-Engine: ci\nMerge-Engine-Checks: build (*, lint\n")
+    expect("INTEGRATED" in out.stdout and merged(r, f), "both build shards and lint counted: " + out.stdout + out.stderr)
+    record = f.show("tasks/HACK-001.md")
+    expect("build (linux)" in record and "build (macos)" in record and "lint" in record, "the shards are named in the record: " + record)
+    return "prefix patterns match shard runs"
+
+
+def a_missing_required_check_waits_then_refuses(r):
+    project = "Merge-Engine: ci\nMerge-Engine-Checks: build (*, lint, windows (*\n"
+    Path(r.env["MOCK_RUNS"]).write_text("in_progress\n", encoding="utf-8")
+    checks(r, GREEN)
+    f, _, out = attempt(r, "missing-wait", project=project)
+    expect("MERGE_WAIT" in out.stdout and "MERGE_HUMAN" not in out.stdout and not merged(r, f), "a workflow run is still going: " + out.stdout + out.stderr)
+    expect("State: HUMAN" not in f.show("queue/HACK-001.md"), "nothing queued for a human")
+    Path(r.env["MOCK_RUNS"]).write_text("completed\n", encoding="utf-8")
+    out = f.hack(0, "merge", "HACK-001", now=1000040, allowed=None)
+    expect("MERGE_HUMAN" in out.stdout and "windows (*" in out.stdout and not merged(r, f), "everything is complete: refused: " + out.stdout)
+    Path(r.env["MOCK_RUNS"]).write_text("", encoding="utf-8")
+    return "wait while a workflow run is going, then the human"
+
+
+def workflow_or_smoke_goes_to_the_human(r):
+    checks(r, GREEN)
+    for name, path in (("workflow", ".github/workflows/ci.yml"), ("smoke", ".uak/bin/smoke"), ("smokeproject", ".uak/bin/smoke-project"),
+                       ("secretscan", ".uak/bin/secret-scan"), ("githook", ".githooks/pre-commit"), ("guard", ".uak/bin/guard"),
+                       ("hookfixture", ".githooks/fixtures/x.txt")):
+        f, _, out = attempt(r, "judge-" + name, path=path, project=CI)
+        expect(out.returncode == 3 and "Shared resource/CI needs a human: %s" % path in out.stdout and not merged(r, f), "%s: %s" % (path, out.stdout + out.stderr))
+    # An engine path under a fixtures directory is not test data: it needs the same green checks (a red one refuses).
+    checks(r, GREEN + "e2e|completed|failure\n")
+    f, _, out = attempt(r, "judge-libfixture", path=".uak/bin/lib/fixtures/x.txt", project=CI)
+    expect(out.returncode == 3 and "MERGE_HUMAN" in out.stdout and "e2e" in out.stdout and not merged(r, f), "lib/fixtures is engine: " + out.stdout + out.stderr)
+    f, _, out = attempt(r, "judge-libfixture-human", path=".uak/bin/lib/fixtures/x.txt")
+    expect("Shared resource/CI needs a human: .uak/bin/lib/fixtures/x.txt" in out.stdout, "and shared under human: " + out.stdout)
+    return "the things that judge or guard a merge are never released; lib/fixtures is not exempt"
+
+
+def forge_required_checks_win(r):
+    required = Path(r.env["MOCK_CHECKS"]).with_name("required-win.txt")
+    checks(r, GREEN)
+    required.write_text("deploy\n", encoding="utf-8")  # the forge requires a check that never ran; PROJECT.md lists ones that did
+    r.env["MOCK_REQUIRED"] = required.as_posix()
+    try:
+        f, _, out = attempt(r, "forge-wins-refuses", project=CI)
+        expect("MERGE_HUMAN" in out.stdout and "deploy" in out.stdout and not merged(r, f), "the forge's list replaces PROJECT.md's: " + out.stdout + out.stderr)
+        required.write_text("build (linux)\nlint\n", encoding="utf-8")
+        f, _, out = attempt(r, "forge-wins-lands", project="Merge-Engine: ci\nMerge-Engine-Checks: deploy\n")
+        expect("INTEGRATED" in out.stdout and merged(r, f), "the forge's list lands what PROJECT.md's would refuse: " + out.stdout + out.stderr)
+        expect(re.search(r"^Merge-Checks: 2: build \(linux\); lint$", f.show("tasks/HACK-001.md"), re.M), "the record names exactly the required runs counted")
+    finally:
+        del r.env["MOCK_REQUIRED"]
+    return "forge list first; PROJECT.md's only when the forge gives none"
+
+
+def no_required_list_goes_to_the_human(r):
+    checks(r, GREEN)
+    f, _, out = attempt(r, "nolist", project="Merge-Engine: ci\n")
+    expect(out.returncode == 3 and "MERGE_HUMAN" in out.stdout and "Merge-Engine-Checks" in out.stdout and "required status checks" in out.stdout and not merged(r, f),
+           out.stdout + out.stderr)
+    return "no list: the human, with the way to configure it"
 
 
 TESTS = [human_is_the_default, ci_merges_when_every_check_is_green, a_running_check_waits, a_red_check_refuses,
          lock_files_still_need_a_human, record_names_the_policy, a_task_cannot_turn_the_policy_on,
-         gh_unavailable_is_not_green, doctor_warns_without_required_checks, marathon_needs_human_independence,
-         metrics_counts_ci_merges_apart]
+         gh_unavailable_is_not_green, doctor_fails_without_required_checks, marathon_needs_human_independence,
+         metrics_counts_ci_merges_apart, status_and_lone_checks_prove_nothing, shards_match_by_prefix,
+         a_missing_required_check_waits_then_refuses, workflow_or_smoke_goes_to_the_human, forge_required_checks_win,
+         no_required_list_goes_to_the_human]
 
 
 def main():
