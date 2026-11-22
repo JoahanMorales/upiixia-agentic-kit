@@ -344,13 +344,15 @@ def build(data, since_days, now, git_root, claims_given):
     # gate's "Merge UAK-N reviewed by", a forge "Merge pull request #N" or squash "(#N)", or neither / not found). Without
     # it (--claims runs, no base): the text of the INTEGRATED event, `merge` (the gate) vs `integrate` (recorded after).
     subjects = base_subjects(git_root, base_ref(git_root, claims_given))
-    paths = {"gate_pushed": 0, "gate_built_human_landed": 0, "forge": 0, "recorded_unclassified": 0}
+    paths = {"gate_pushed": 0, "gate_pushed_ci": 0, "gate_built_human_landed": 0, "forge": 0, "recorded_unclassified": 0}
     rec = []
     by_hist = 0
     for t in done.values():
         ev = integrated_event(t)
         if ev["text"].startswith("merge"):
             paths["gate_pushed"] += 1
+            if t["f"].get("Merge-Policy") == "ci":  # an engine change the gate landed under Merge-Engine: ci (UAK-131)
+                paths["gate_pushed_ci"] += 1
             continue
         if not ev["text"].startswith("integrate"):
             continue
@@ -391,6 +393,7 @@ def build(data, since_days, now, git_root, claims_given):
                   "queue_tasks": count(sum(reasons.values()), len(queue_in))},
         "merge_paths": {"basis": "base history" if classified else "event text",
                         "gate_pushed": count(paths["gate_pushed"], len(done)),
+                        "gate_pushed_ci": count(paths["gate_pushed_ci"], len(done)),
                         "gate_built_human_landed": count(paths["gate_built_human_landed"], len(done)),
                         "forge": count(paths["forge"], len(done)),
                         "recorded_unclassified": count(paths["recorded_unclassified"], len(done)),
@@ -469,6 +472,7 @@ def render(m):
     o.append("how tasks reached INTEGRATED (classified by %s):" % ("the base's own history" if mp["basis"] == "base history"
              else "the INTEGRATED event only: the base history is not available here"))
     o.append("  merged and pushed by the gate, no human (event `merge`): %s integrated tasks" % n_of("gate_pushed"))
+    o.append("    of them, engine changes released by Merge-Engine: ci (Merge-Policy: ci), apart from the rest: %s" % n_of("gate_pushed_ci"))
     if mp["basis"] == "base history":
         o.append("  built by the gate, landed by a human after the queue asked (engine merge commit, then integrate): %s" % n_of("gate_built_human_landed"))
         o.append("  merged on the forge (PR merge commit or squash), then recorded with integrate: %s" % n_of("forge"))

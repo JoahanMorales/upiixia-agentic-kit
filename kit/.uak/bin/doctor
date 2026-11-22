@@ -177,6 +177,31 @@ if url=$(git config --get "remote.$remote.url"); then
       esac
     else warn "gh not authenticated: agents cannot open PRs (gh auth login)"; fi;;
   esac
+  # Merge-Engine: ci lets an approved engine change land when the REQUIRED checks of its tip are green, so it needs a list
+  # of them, from the base side: the forge's required status checks of the base branch, else Merge-Engine-Checks in
+  # PROJECT.md. Neither is a FAIL: the gate would send every engine change to the human with that reason anyway.
+  # Why (UAK-131 review): counting whatever checks exist proved nothing.
+  if [ "$(field Merge-Engine)" = ci ]; then
+    ci_base=${UAK_BASE:-main} ci_req= ci_src=
+    case "$url" in *github.com*)
+      if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+        ci_repo=$(printf '%s' "$url" | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')
+        ci_req=$(gh api "repos/$ci_repo/branches/$ci_base/protection/required_status_checks" --template '{{range .contexts}}{{.}}{{"\n"}}{{end}}{{range .checks}}{{.context}}{{"\n"}}{{end}}' 2>/dev/null |
+          awk '{ sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); if ($0 != "" && $0 != "*") print }' | sort -u | tr '\n' ',' | sed 's/,$//')
+        [ -z "$ci_req" ] || ci_src="the required status checks of $ci_base on $ci_repo"
+      fi;;
+    esac
+    if [ -z "$ci_req" ]; then
+      ci_req=$(field Merge-Engine-Checks | tr ',' '\n' | awk '{ sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); if ($0 != "" && $0 != "*") print }' | sort -u | tr '\n' ',' | sed 's/,$//')
+      [ -z "$ci_req" ] || ci_src="Merge-Engine-Checks in PROJECT.md (no readable required checks on the forge)"
+    fi
+    ci_root=$(git rev-parse --show-toplevel 2>/dev/null) ci_ref=HEAD
+    git rev-parse -q --verify "refs/remotes/$remote/$ci_base" >/dev/null 2>&1 && ci_ref="refs/remotes/$remote/$ci_base"
+    ci_rel=$( (. "$(dirname "$0")/lib/review-merge.sh" >/dev/null 2>&1; rm_released_lib "$ci_root" "$ci_ref") 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
+    ok "Merge-Engine: ci releases only these files of .uak/bin/lib/, which nothing the gate loads names: ${ci_rel:-none}. Every other file of .uak/bin/lib/, and bin/uak and bin/uak-coordination (the dispatcher sources its libs into one process and the last definition wins, so any loaded file can redefine the gate), .github/, smoke, secret-scan, .githooks/, lock files, migrations and PROJECT.md goes to a human"
+    if [ -n "$ci_req" ]; then ok "Merge-Engine: ci will require every one of: $ci_req (from $ci_src); a trailing * is a prefix"
+    else bad "Merge-Engine: ci is set and no list of required checks exists: protect $ci_base on GitHub with required status checks, or set Merge-Engine-Checks: in .uak/PROJECT.md (check-run names, comma-separated, a trailing * is a prefix: suite (*, windows (*). Until then every engine change goes to a human"; fi
+  fi
 else
   bad "no remote $remote: uak coordinates through the remote claims branch"
 fi
