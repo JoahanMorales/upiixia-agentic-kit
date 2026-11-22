@@ -120,8 +120,8 @@ def windows_matrix_is_shards(r):
 
 
 def windows_load(lint, n):
-    """The longest Windows shard in seconds: the files' macOS seconds scaled for Windows plus the job's setup."""
-    return max(lint.WINDOWS_SETUP_S + lint.WINDOWS_SCALE * sum(lint.ci_seconds(t) for t in s["tests"].split())
+    """The longest Windows shard in seconds: the files' measured Windows seconds plus the job's setup."""
+    return max(lint.WINDOWS_SETUP_S + sum(lint.ci_windows_seconds(t) for t in s["tests"].split())
                for s in lint.ci_windows_shards(n))
 
 
@@ -151,12 +151,13 @@ def longest_shard_under_the_bound(r):
         return "no kit source repository here"
     n = lint.windows_shard_count()
     longest = windows_load(lint, n)
-    expect(lint.WINDOWS_BOUND_S == 25 * 60, "the bound is 25 minutes: %r" % lint.WINDOWS_BOUND_S)
+    expect(lint.WINDOWS_BOUND_S == 30 * 60, "the bound is 30 minutes (test_flaky_guard alone took 25 min on Windows): %r" % lint.WINDOWS_BOUND_S)
     expect(longest <= lint.WINDOWS_BOUND_S, "%d Windows shards: the longest takes %d s, over %d" % (n, longest, lint.WINDOWS_BOUND_S))
     expect(n == 1 or windows_load(lint, n - 1) > lint.WINDOWS_BOUND_S * lint.WINDOWS_MARGIN, "%d is not the smallest count that keeps the margin" % n)
     ci = (REPO / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
     m = re.search(r"(?s)\n  windows:.*?timeout-minutes: (\d+)", ci)
-    expect(m is not None and int(m.group(1)) > 25, "the Windows job's timeout leaves room over the 25 minute bound")
+    expect(m is not None and int(m.group(1)) >= 45 and int(m.group(1)) * 60 >= lint.WINDOWS_BOUND_S * 1.4,
+           "the Windows job's timeout (not raised: 45) leaves a clear margin over the bound")
     return "%d shards, longest %d s" % (n, longest)
 
 
@@ -177,20 +178,47 @@ def workflow_runs_once_per_commit(r):
     return "%d jobs on main" % jobs
 
 
-# UAK-141. Measured on main, run 44953858464 (the merge of UAK-128, 6 shards, each about 255 s of macOS time):
-# 1558 1202 1096 1373 1596 912 s; the PR run 44951402176 gave 1374 1435 1290 1221 1386 1263 s. The slowest was 1596 s.
-MEASURED_WORST_S, MEASURED_MAC_S = 1596, 255
+# UAK-144. Measured on main (the 12 latest runs up to 45037067147 and five before them; the median of each
+# test file's group in the job logs): Windows seconds and macOS seconds. Before, test_flaky_guard had no entry and counted
+# 60 s: it took 1496 s on Windows (shard 5: 34m39s) and about 495 s on macOS (shard 4: 25m31s).
+MEASURED_WINDOWS_S = {"test_flaky_guard": 1500, "test_merge_engine_policy": 905, "test_review_merge": 380, "test_claims_perf": 385,
+                      "test_v51": 374, "test_review_substates": 330, "test_read_cache": 192, "test_hooks_health": 194, "mcp_tools": 104}
+MEASURED_MACOS_S = {"test_flaky_guard": 508, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_review_merge": 93,
+                    "test_v51": 73, "test_read_cache": 35, "test_hooks_health": 34}
 
 
-def windows_prediction_covers_the_measured_run(r):
+def tables_match_the_measured_runs(r):
     lint = kit_lint()
     if lint is None:
         return "no kit source repository here"
-    predicted = lint.WINDOWS_SETUP_S + lint.WINDOWS_SCALE * MEASURED_MAC_S
-    expect(predicted >= MEASURED_WORST_S, "a shard of %d macOS seconds took %d s on Windows, the prediction says %d: recalibrate"
-           % (MEASURED_MAC_S, MEASURED_WORST_S, predicted))
-    expect(predicted <= MEASURED_WORST_S * 1.1, "the prediction %d s is not padded far beyond the measured %d s" % (predicted, MEASURED_WORST_S))
-    return "predicts %d s for a measured %d s" % (predicted, MEASURED_WORST_S)
+    for t, w in MEASURED_WINDOWS_S.items():
+        got = lint.ci_windows_seconds(t)
+        expect(w * 0.85 <= got <= w * 1.15, "%s took %d s on Windows, the table says %r" % (t, w, got))
+    for t, m in MEASURED_MACOS_S.items():
+        got = lint.ci_seconds(t)
+        expect(m * 0.85 <= got <= m * 1.15, "%s took %d s on macOS, the table says %r" % (t, m, got))
+    return "%d Windows and %d macOS anchors" % (len(MEASURED_WINDOWS_S), len(MEASURED_MACOS_S))
+
+
+def every_test_file_has_a_timing(r):
+    """A file with no entry counted 60 s: test_flaky_guard took 25 min of Windows behind that guess (UAK-144)."""
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    f = getattr(lint, "timing_problems", None)
+    expect(f is not None, "kit_lint.py has no timing_problems(tests)")
+    real = lint.ci_tests()
+    expect(f(real) == [], "every test file has a macOS and a Windows entry: %s" % f(real))
+    got = f(real + ["test_added_later"])
+    expect(len(got) == 1 and "test_added_later" in got[0] and "CI_SECONDS" in got[0], "a file with no entry is named: %s" % got)
+    expect(len(f(["test_ci_shards", "test_gate_scope"])) == 0, "files with entries pass")
+    out = subprocess.run([sys.executable, str(REPO / "scripts" / "kit_lint.py")], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         universal_newlines=True)
+    expect("no-timing" not in out.stdout, "the lint reports no file without timing: %s" % out.stdout[-300:])
+    src = (REPO / "scripts" / "kit_lint.py").read_text(encoding="utf-8")
+    expect("timing_problems(" in src.split("def check_test_discovery", 1)[1].split("def check_structure", 1)[0],
+           "check_test_discovery runs timing_problems, so the lint refuses a file with no entry")
+    return "%d files, all timed" % len(real)
 
 
 def windows_longest_shard_keeps_a_margin(r):
@@ -258,7 +286,7 @@ def an_empty_shard_fails_instead_of_passing(r):
     return "2 guards"
 
 
-TESTS = [windows_prediction_covers_the_measured_run, windows_longest_shard_keeps_a_margin, lint_flags_a_push_trigger_without_a_filter,
+TESTS = [tables_match_the_measured_runs, every_test_file_has_a_timing, windows_longest_shard_keeps_a_margin, lint_flags_a_push_trigger_without_a_filter,
          an_empty_shard_fails_instead_of_passing, windows_matrix_is_shards, shards_cover_every_test_file_once, longest_shard_under_the_bound, workflow_runs_once_per_commit,
          shards_cover_every_test_once, smoke_runs_only_its_shard, a_name_that_is_not_a_test_fails_the_shard]
 
