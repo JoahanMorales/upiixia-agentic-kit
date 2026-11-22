@@ -68,20 +68,66 @@ fi
 [ -f .uak/TASKS.md ] && ok ".uak/TASKS.md exists" || warn "no .uak/TASKS.md yet: run /uak-plan"
 hooks_dir=.uak/githooks; [ -d "$hooks_dir" ] || hooks_dir=.githooks   # v5.2 moved them under .uak
 cur_hooks=$(git config --get core.hooksPath 2>/dev/null || true)
-case "$cur_hooks" in
-  "$hooks_dir"|"$hooks_dir/") ok "pre-commit secret scanner active ($hooks_dir)";;
-  ?*) if grep -Eqs 'uak/githooks/pre-commit' "$cur_hooks/pre-commit" "$cur_hooks/../pre-commit"; then
-        ok "the kit's pre-commit runs (through your $cur_hooks): scanner and main-checkout guard"
-      elif grep -Eqs 'secret-scan' "$cur_hooks/pre-commit" "$cur_hooks/../pre-commit"; then
-        ok "pre-commit secret scanner active (through your $cur_hooks)"
-        warn "your $cur_hooks pre-commit does not run the kit's: commits on main in the main checkout are not stopped. Add 'bash .uak/githooks/pre-commit' to it"
-      else
-        warn "core.hooksPath is $cur_hooks (yours or another hook manager), so the kit's pre-commit does not run (secret scan, main-checkout guard): add 'bash .uak/githooks/pre-commit' to its pre-commit"
-      fi;;
-  *)
-    if [ "$fix" = yes ]; then git config core.hooksPath "$hooks_dir" && ok "core.hooksPath=$hooks_dir (fixed)"
-    else bad "core.hooksPath is not set: commits skip the scanner (doctor --fix)"; fi;;
-esac
+# UAK-135. Why (v6.7.0): the kit's own repository had core.hooksPath=.githooks with no such directory for weeks (wt set it
+# without looking): git ran no hook, neither the secret scan nor the pre-push, and nothing said so. doctor and wt were
+# written before UAK-124 added pre-push, so it was never checked either.
+phys() { (cd "$1" 2>/dev/null && pwd -P); }
+lc() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }   # macOS and Windows compare paths without case
+# $1 = hooks dir, $2 = hook name. A comment line does not call anything (review of UAK-135).
+calls_kit() { grep -vhs '^[[:space:]]*#' "$1/$2" "$1/../$2" | grep -Eq "(uak/githooks|kit/\.githooks)/$2"; }
+# Another hook manager's mark (UAK-135 review): its install makes its hooks directory, so --fix must not repoint it.
+other_manager() {
+  case "$cur_hooks" in .husky|.husky/*|*/.husky|*/.husky/*) return 0;; esac
+  [ -d .husky ] || [ -f lefthook.yml ] || [ -f lefthook.yaml ] || [ -f .pre-commit-config.yaml ]
+}
+kit_src=; for s in kit/.githooks "${UAK_KIT_HOME:-$HOME/.uak-kit}/kit/.githooks"; do
+  if [ -f "$s/pre-commit" ] && [ -f "$s/pre-push" ]; then kit_src=$s; break; fi
+done
+restore_hook() { # $1 = hook name: the kit's own copy back into $hooks_dir (never over a file; never in the kit's own repo)
+  [ "$fix" = yes ] && [ -n "$kit_src" ] && [ ! -d kit/.githooks ] && [ ! -e "$hooks_dir/$1" ] || return 1
+  mkdir -p "$hooks_dir" && cp "$kit_src/$1" "$hooks_dir/$1" && chmod +x "$hooks_dir/$1" 2>/dev/null
+  git update-index --chmod=+x "$hooks_dir/$1" 2>/dev/null; return 0
+}
+own_dir=$(phys "$hooks_dir"); cur_dir=; own_hooks=no
+if [ -n "$cur_hooks" ]; then
+  cur_dir=$(phys "$cur_hooks")
+  [ -z "$cur_dir" ] || [ "$(lc "$cur_dir")" != "$(lc "$own_dir")" ] || own_hooks=yes
+fi
+if [ -z "$cur_hooks" ]; then
+  if [ "$fix" = yes ] && [ -f "$hooks_dir/pre-commit" ]; then git config core.hooksPath "$hooks_dir" && ok "core.hooksPath=$hooks_dir (fixed)"
+  else bad "core.hooksPath is not set: commits skip the scanner (doctor --fix)"; fi
+elif [ -z "$cur_dir" ]; then
+  if other_manager; then
+    bad "core.hooksPath is $cur_hooks, which is not a directory: git runs no hook at all (secret scan, main-checkout guard and pre-push are off). It looks like another hook manager's (husky, lefthook or pre-commit): --fix does not repoint it. Run that manager's install, then have its pre-commit call 'bash .uak/githooks/pre-commit' and its pre-push call 'bash .uak/githooks/pre-push \"\$@\"'"
+  elif [ "$fix" = yes ] && [ -f "$hooks_dir/pre-commit" ]; then git config core.hooksPath "$hooks_dir" && ok "core.hooksPath=$hooks_dir (fixed; it was $cur_hooks, which does not exist)"
+  elif [ -f "$hooks_dir/pre-commit" ]; then
+    bad "core.hooksPath is $cur_hooks, which is not a directory: git runs no hook at all (secret scan, main-checkout guard and pre-push are off). Fix: bash .uak/bin/doctor --fix (sets core.hooksPath=$hooks_dir); or, if another hook manager makes $cur_hooks on its install, run that install and have its pre-commit call 'bash .uak/githooks/pre-commit'"
+  else
+    bad "core.hooksPath is $cur_hooks, which is not a directory: git runs no hook at all (secret scan, main-checkout guard and pre-push are off). Fix: git config --unset core.hooksPath, or point it at a directory with the kit's hooks (doctor --fix cannot: there is no $hooks_dir here)"
+  fi
+elif [ "$own_hooks" = yes ]; then
+  for hk in pre-commit pre-push; do
+    if [ -f "$hooks_dir/$hk" ]; then
+      if [ "$hk" = pre-commit ]; then ok "pre-commit secret scanner active ($hooks_dir)"
+      else ok "pre-push guard active ($hooks_dir): an agent cannot push to the base or claims branch"; fi
+    elif restore_hook "$hk"; then ok "$hooks_dir/$hk restored from the kit (fixed; commit it)"
+    else bad "$hooks_dir/$hk is missing: git runs no $hk (doctor --fix restores the kit's own, or bash install.sh --update)"; fi
+  done
+else
+  if calls_kit "$cur_hooks" pre-commit; then
+    ok "the kit's pre-commit runs (through your $cur_hooks): scanner and main-checkout guard"
+  elif grep -Eqs 'secret-scan' "$cur_hooks/pre-commit" "$cur_hooks/../pre-commit"; then
+    ok "pre-commit secret scanner active (through your $cur_hooks)"
+    warn "your $cur_hooks pre-commit does not run the kit's: commits on main in the main checkout are not stopped. Add 'bash .uak/githooks/pre-commit' to it"
+  else
+    warn "core.hooksPath is $cur_hooks (yours or another hook manager), so the kit's pre-commit does not run (secret scan, main-checkout guard): add 'bash .uak/githooks/pre-commit' to its pre-commit"
+  fi
+  if calls_kit "$cur_hooks" pre-push; then
+    ok "the kit's pre-push runs (through your $cur_hooks): an agent cannot push to the base or claims branch"
+  else
+    warn "your $cur_hooks pre-push does not run the kit's (or is missing): an agent's push to the base or claims branch is not stopped. Add 'bash $hooks_dir/pre-push \"\$@\"' to it (it reads git's stdin)"
+  fi
+fi
 # Skills for Codex, Cursor and Gemini: .agents/skills is a real folder with a copy of .claude/skills. A link checked out
 # on Windows (core.symlinks=false) is a one-line text file, and a copy can go stale. Why (DevDay and deus-ex-machina,
 # v6.0.0): both committed .agents/skills and .cursor/skills as symlinks; a Windows teammate's Codex had no skills.
