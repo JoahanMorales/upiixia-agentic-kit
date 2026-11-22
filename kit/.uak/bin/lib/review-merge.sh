@@ -552,8 +552,22 @@ rm_coord_update() {
   done
   RM_REASON='Contention exceeded retries; try again'; return 3
 }
+# Is this shell the process that installed the merge's traps ($$ is the main shell's pid in every subshell)? The lease
+# renewer is forked while those traps are set, and a subshell that is killed before its own first `trap` line runs the
+# INHERITED handlers: `exit 143`, then rm_exit_cleanup, which released the lock, queued the task for a human and removed
+# the PARENT's temp dir. The merge then failed "Cannot create transaction" (exit 1, not 3). The check is made where the
+# trap runs, by the process that runs it, so no timing can open the window again. bash 4+: BASHPID; bash 3.2 has none, so
+# an `sh` started from this very shell (a pipeline element is a direct child) reports it as its $PPID: one process,
+# only on the exit path, only on 3.2. Why (UAK-138): gate_and_lease failed 1 in ~10 runs under load.
+rm_is_owner() {
+  # Explicit statuses: a bare `return` inside a function that a trap handler runs reports the status from BEFORE the trap.
+  if [ -n "${BASHPID:-}" ]; then [ "$BASHPID" = "$$" ] && return 0; return 1; fi
+  if sh -c 'echo $PPID' | { IFS= read -r rm_me && [ "$rm_me" = "$$" ]; }; then return 0; fi
+  return 1
+}
 rm_exit_cleanup() {
   local rc=$1
+  rm_is_owner || exit "$rc"  # a subshell that inherited this trap leaves quietly: the cleanup is the owner's
   trap - EXIT INT TERM
   [ -z "${RM_RENEWER:-}" ] || kill "$RM_RENEWER" 2>/dev/null || true
   if [ "$RM_HELD" = yes ]; then

@@ -157,6 +157,22 @@ def concurrent_merges(r):
 
 
 def gate_and_lease(r):
+    """Every engine call of this test takes its deadlines from the injected clock (UAK_NOW): the calls below pass
+    their own, and any that does not gets a fixed one from here, never the machine's clock. Why (CI, Nov 2026):
+    a slow runner must not be able to expire a lease or reach a freeze mid-test (UAK-138;
+    test_flaky_guard runs it with the machine clock at 2100 and at 1970)."""
+    saved = r.env.get("UAK_NOW")
+    r.env["UAK_NOW"] = "1000040"
+    try:
+        return _gate_and_lease(r)
+    finally:
+        if saved is None:
+            r.env.pop("UAK_NOW", None)
+        else:
+            r.env["UAK_NOW"] = saved
+
+
+def _gate_and_lease(r):
     f = fixture(r, "gate-red", count=1, verify_fail=True)
     tip = ready(f, 0, "HACK-001"); judge(f); approve(f, "HACK-001", tip)
     result = f.hack(0, "merge", "HACK-001", now=1000030, allowed=None)
@@ -168,6 +184,8 @@ def gate_and_lease(r):
     r.g(f.seed, "add", ".uak/PROJECT.md"); r.g(f.seed, "commit", "-m", "Human revokes autonomy"); r.g(f.seed, "push", "origin", "main")
     expected = r.g(f.remote, "rev-parse", "main").stdout.strip()
     revoked = f.hack(0, "merge", "HACK-001", now=1000031, allowed=None)
+    if not (revoked.returncode == 3 and "Autonomy" in revoked.stdout):  # the same condition as below, with what the merge said
+        raise Failure("Current human autonomy revocation must block merge; the merge said: rc %s\n%s\n%s" % (revoked.returncode, revoked.stdout[-800:], revoked.stderr[-800:]))
     expect(revoked.returncode == 3 and "Autonomy" in revoked.stdout, "Current human autonomy revocation must block merge")
     expect(r.g(f.remote, "rev-parse", "main").stdout.strip() == expected and "queue/merge-lock.md" not in f.files("."), "Permission rejection must not merge and must release lock")
     config_path.write_text(config_path.read_text(encoding="utf-8").replace("Autonomy: no", "Autonomy: yes").replace("Freeze-Epoch: 9999999", "Freeze-Epoch: 1000032"), encoding="utf-8")
