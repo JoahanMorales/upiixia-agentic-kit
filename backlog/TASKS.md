@@ -1352,3 +1352,15 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Acceptance:**
   - tokens: the budget scan runs in the background (a cold read added 4.5 s to status once per 5 min); a malformed timestamp counts like a missing one; a negative Token-Budget is refused; --since 0 and the mtime pre-filter documented
 - **Verify:** `python3 kit/.uak/tests/test_tokens_window.py`
+
+## UAK-144 · The CI timing table is measured again: Windows shards 5 and 6 took 34m39s and 26m59s against a predicted 20.4 min, macOS 4 took 25m31s (follow-up of UAK-128)
+
+- **Type:** follow-up
+- **Priority:** P1
+- **Depends on:** UAK-128
+- **Follow-up of:** UAK-128
+- **Paths:** .github/workflows/test.yml, scripts/kit_lint.py, kit/.uak/tests/test_ci_shards.py
+- **Freeze-Allowed:** no
+- **Acceptance:**
+  - The CI timing table is measured again: Windows shards 5 and 6 took 34m39s and 26m59s against a predicted 20.4 min, macOS 4 took 25m31s
+- **Verify:** `python3 kit/.uak/tests/test_ci_shards.py`
