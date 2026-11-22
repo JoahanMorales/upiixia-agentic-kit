@@ -13,6 +13,7 @@
 # Why: at UpiixSol (Oct 2026) the same kit errors repeated across 3 sessions and 2 humans, and the only
 # record was buried in 30 MB of transcripts nobody would read.
 set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 LC_ALL=C; export LC_ALL
 MSYS2_ARG_CONV_EXCL="refs/;origin/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXCL
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)

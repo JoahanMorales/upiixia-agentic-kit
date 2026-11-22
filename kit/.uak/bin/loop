@@ -13,6 +13,7 @@
 # Why: LOOPS.md rule 5 ("a loop never edits its own verifier") and rule 3 ("stop on no progress") were text
 # only; v5 enforces both. Parallel: one failing file per agent keeps each prompt small (roadmap v3.2).
 set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 LC_ALL=C; export LC_ALL
 verify= agent=${UAK_LOOP_AGENT:-} prompt_file= max=5 minutes=0 tail_n=40 task= parallel=0 each=
 protect='(^|/)(tests?|__tests__|spec|specs|e2e)/|(^|/)test_[^/]*$|_test\.[a-z]+$|\.(test|spec)\.[a-z]+$'

@@ -8,6 +8,7 @@
 # --disk PATH (e.g. data/live): the app writes files there at runtime, so the service gets a persistent disk.
 # Why (Chilangatón): the deploy file was hand-written by a human at 14:30 for a 15:00 deadline, outside the kit.
 set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 LC_ALL=C; export LC_ALL
 write=no disk=
 while [ "$#" -gt 0 ]; do case "$1" in
