@@ -54,9 +54,10 @@ ledger_handoff() { # ["TASK"]: the dispatcher, just before `exec bash script`
 }
 ledger_owed() { # an exec'd engine script, once, at its top (before it sets traps of its own)
   [ -n "${UAK_LG_OWED:-}" ] || return 0
-  LG_ON=1 LG_DIR=$UAK_LG_OWED LG_CODE= LG_X_CMD=$UAK_LG_CMD LG_X_TASK=${UAK_LG_TASK:-} LG_X_AG=${UAK_LG_AGENT:-}
+  LG_ON=1 LG_DIR=$UAK_LG_OWED LG_CODE= LG_X_CMD=${UAK_LG_CMD:-?} LG_X_TASK=${UAK_LG_TASK:-} LG_X_AG=${UAK_LG_AGENT:-}
   lg_clock
-  if [ "${#UAK_LG_T0}" -ge 15 ] && [ -n "$LG_US" ]; then LG_T0=$UAK_LG_T0; else LG_T0=${LG_US:-$SECONDS}; fi
+  LG_X_T0=${UAK_LG_T0:-}   # (bash 3.2 with set -u: ${#unset} is an error, so the length is taken from a set variable)
+  if [ "${#LG_X_T0}" -ge 15 ] && [ -n "$LG_US" ]; then LG_T0=$LG_X_T0; else LG_T0=${LG_US:-$SECONDS}; fi
   unset UAK_LG_OWED UAK_LG_CMD UAK_LG_TASK UAK_LG_AGENT UAK_LG_T0   # a nested uak never closes this line twice
   trap() { # chains the script's own EXIT trap with the ledger line
     if [ "$#" -eq 2 ] && { [ "$2" = EXIT ] || [ "$2" = 0 ]; }; then

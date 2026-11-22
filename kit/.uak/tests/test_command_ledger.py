@@ -180,10 +180,16 @@ def exec_commands_record_code_and_ms(r):
     expect(len(got) == 2, "expected one line per exec'd command, got %r" % got)
     expect(got[0][1] == "pace" and got[0][3] == "0" and got[0][5].isdigit(), "pace must record exit 0 and ms: %r" % got[0])
     expect(got[1][1] == "metrics" and got[1][3] == str(bad.returncode) and got[1][5].isdigit(), "metrics must record its exit code and ms: %r" % got[1])
+    # The bash 3.2 path (whole seconds, no start time handed over): the script must still close its line under `set -u`.
+    sec = uak(f, "pace", UAK_LEDGER_CLOCK="seconds")
+    expect(sec.returncode == 0, "pace failed on the seconds clock: " + sec.stderr[-300:])
+    last = rows(common)[-1]
+    expect(last[1] == "pace" and last[3] == "0" and last[5].isdigit() and int(last[5]) % 1000 == 0, "seconds clock: %r" % last)
+    expect(len(rows(common)) == 3, "expected 3 lines before the off run: %r" % rows(common))
     # The same output and exit code with the ledger off.
     off = uak(f, "metrics", "--since", "0", UAK_BLACKBOX="off")
     expect(off.returncode == bad.returncode and off.stdout == bad.stdout and off.stderr == bad.stderr, "exec'd command output changed")
-    expect(len(rows(common)) == 2, "UAK_BLACKBOX=off must write nothing")
+    expect(len(rows(common)) == 3, "UAK_BLACKBOX=off must write nothing")
     return "exec'd commands record exit code and ms"
 
 
