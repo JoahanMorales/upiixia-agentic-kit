@@ -316,6 +316,7 @@ refresh_spawn() { # ID LOCK NOW: starts the scan unless one lives; the child rem
   mkdir -p "$common/uak-budget" 2>/dev/null || return 0
   if ! mkdir "$2" 2>/dev/null; then
     { IFS= read -r a; } < "$2/at" 2>/dev/null || :
+    a=${a%"$(printf '\r')"}   # CRLF when the file came from Windows
     case "$a" in ''|*[!0-9]*) a=0;; esac
     [ $(($3 - a)) -ge 120 ] || return 0
     rm -rf "$2"; mkdir "$2" 2>/dev/null || return 0
