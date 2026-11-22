@@ -436,12 +436,13 @@ status_run() {
 }
 # The TOKENS_BUDGET line of `tokens --budget-check` (UAK-133) for the task asked (status --task ID) or the agent's live task
 # (the one `next` shows), when Token-Budget is set in PROJECT.md. This machine's transcripts only, no fetch; tokens keeps the
-# total 5 min, so a second call costs a file read. Nothing without a budget (no process started) or without --json's text.
+# total 5 min and refreshes it in the background: a call prints the last finished scan and never waits for one. Nothing without a budget (no process started) or without --json's text.
 # Why (v6.7.0, left open): the warning existed only as a command nobody calls.
 budget_note() {
   local id=${ID:-} owner state who=${AGENT:-} line
   [ -z "${UAK_JSON_META:-}" ] || return 0
   uak_cfg_var "$ROOT/.uak/PROJECT.md" Token-Budget; [ -n "$CFG" ] || return 0
+  case "$CFG" in -*|*[!0-9.,_kKmMbB' ']*) return 0;; esac   # not a positive number: nothing to warn (UAK-143)
   if [ -z "$id" ]; then
     [ -n "$who" ] || who=$(git config --get uak.agent 2>/dev/null) || :
     [ -n "$who" ] || return 0

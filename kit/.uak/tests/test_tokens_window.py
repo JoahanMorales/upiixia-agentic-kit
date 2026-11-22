@@ -135,7 +135,97 @@ def no_budget_prints_nothing(r):
     return "silent"
 
 
-TESTS = [since_counts_by_message_time, an_old_message_in_a_new_file_is_out, next_warns_over_budget, status_warns_over_budget, no_budget_prints_nothing]
+def raw_session(cfg, main, rows):
+    """Like session(), but each row is (id, output, timestamp as written or None for no key)."""
+    out = []
+    for i, o, ts in rows:
+        rec = json.loads(line(i, o, main + "-wt/hack-001"))
+        if ts is not None:
+            rec["timestamp"] = ts
+        out.append(json.dumps(rec, ensure_ascii=False))
+    put(cfg, enc(main) + "-wt-hack-001/s1.jsonl", out)
+
+
+def a_malformed_timestamp_counts_like_a_missing_one(r):
+    f, main, cfg = setup(r, "badts")
+    raw_session(cfg, main, [("msg_ok", 10, stamp(0.1)), ("msg_bad", 100, "not-a-time"), ("msg_nokey", 1000, None),
+                            ("msg_range", 10000, "2026-99-99T99:99:99.000Z"), ("msg_old", 100000, stamp(40))])
+    inside = total(r, f, cfg, "--since", "5")
+    expect(inside == {"HACK-001": 10}, "inside an explicit window only valid stamps count: %s" % inside)
+    plain = total(r, f, cfg)
+    expect(plain == {"HACK-001": 11110}, "no --since: bad and missing stamps count, the old one is out of 30 days: %s" % plain)
+    return "rule"
+
+
+def since_zero_is_an_empty_window_and_help_says_so(r):
+    f, main, cfg = setup(r, "zero")
+    session(cfg, main, [("msg_new", 30, 0.001)])
+    expect(total(r, f, cfg, "--since", "0") == {}, "--since 0 reads nothing: %s" % total(r, f, cfg, "--since", "0"))
+    out = r.run([r.bash, ".uak/bin/tokens", "--help"], cwd=f.clones[0], env=env(f, cfg), allowed=None)
+    expect("--since 0" in out.stdout and "mtime" in out.stdout and "touched" in out.stdout, "help documents both: " + out.stdout)
+    return "documented"
+
+
+def budget_project(r, name, budget):
+    f, cfg = live_task(r, name, False)
+    project = f.worktrees[0] / ".uak/PROJECT.md"
+    project.write_text(project.read_text(encoding="utf-8") + "\nToken-Budget: %s\n" % budget, encoding="utf-8", newline="\n")
+    return f, cfg
+
+
+def a_bad_budget_prints_nothing(r):
+    for n, bad in enumerate(["-5", "abc", ""]):
+        f, cfg = budget_project(r, "bad%d" % n, bad)
+        out = r.run([r.bash, ".uak/bin/uak", "status"], cwd=f.worktrees[0], env=env(f, cfg, UAK_READ_CACHE="on", UAK_DEDUPE="off"), allowed=None)
+        expect(out.returncode == 0 and "TOKENS_BUDGET" not in out.stdout and "tokens" not in out.stderr, "budget %r: %s%s" % (bad, out.stdout, out.stderr))
+        d = r.run([r.bash, ".uak/bin/tokens", "--budget-check", "HACK-001", "--local"], cwd=f.clones[0], env=env(f, cfg), allowed=None)
+        expect(d.returncode == 0 and not d.stdout.strip() and not d.stderr.strip(), "budget %r direct: %s%s" % (bad, d.stdout, d.stderr))
+    return "silent"
+
+
+def wait_scan(f, want_cache=True):
+    base = Path(f.clones[0]) / ".git" / "uak-budget"
+    for _ in range(300):
+        if not (base / "HACK-001.lock").exists() and (base / "HACK-001").exists() == want_cache:
+            return base
+        time.sleep(0.1)
+    raise AssertionError("the background scan did not finish: %s" % (sorted(x.name for x in base.glob("*")) if base.exists() else "no dir"))
+
+
+def the_scan_runs_in_the_background(r):
+    f, cfg = live_task(r, "bg", True)
+    first = run_uak_bg(r, f, cfg)
+    expect("TOKENS_BUDGET" not in first, "a cold cache never makes status wait or warn: " + first)
+    wait_scan(f)
+    second = run_uak_bg(r, f, cfg)
+    expect("TOKENS_BUDGET: HACK-001 spent" in second, "the finished scan is what status prints: " + second)
+    return "background"
+
+
+def run_uak_bg(r, f, cfg):
+    out = r.run([r.bash, ".uak/bin/uak", "status"], cwd=f.worktrees[0], env=env(f, cfg, UAK_READ_CACHE="on", UAK_DEDUPE="off", UAK_TOKENS_SYNC=""), allowed=None)
+    expect(out.returncode == 0, "status: " + out.stdout + out.stderr)
+    return out.stdout
+
+
+def one_scan_at_a_time_and_a_dead_one_is_replaced(r):
+    f, cfg = live_task(r, "lock", True)
+    base = Path(f.clones[0]) / ".git" / "uak-budget"
+    lock = base / "HACK-001.lock"
+    (lock / "x").mkdir(parents=True)
+    (lock / "at").write_text(str(int(time.time())) + "\n")
+    run_uak_bg(r, f, cfg)
+    time.sleep(0.6)
+    expect(lock.exists() and not (base / "HACK-001").exists(), "a live lock means no second scan")
+    (lock / "at").write_text("1\n")   # a scan killed halfway left it behind long ago
+    run_uak_bg(r, f, cfg)
+    wait_scan(f)
+    expect("TOKENS_BUDGET" in run_uak_bg(r, f, cfg), "the dead lock was replaced and the scan finished")
+    return "locked"
+
+TESTS = [since_counts_by_message_time, an_old_message_in_a_new_file_is_out, next_warns_over_budget, status_warns_over_budget, no_budget_prints_nothing,
+         a_malformed_timestamp_counts_like_a_missing_one, since_zero_is_an_empty_window_and_help_says_so, a_bad_budget_prints_nothing,
+         the_scan_runs_in_the_background, one_scan_at_a_time_and_a_dead_one_is_replaced]
 
 
 def main():
@@ -146,6 +236,7 @@ def main():
     fails = 0
     with tempfile.TemporaryDirectory(prefix="uak-tokens-window-") as tmp:
         runner = Runner(args.package.resolve(), Path(tmp), resolve_binary("bash"), resolve_binary("git"))
+        runner.env["UAK_TOKENS_SYNC"] = "1"   # the scan of the budget runs in the foreground, so a status is deterministic
         for test in TESTS:
             if args.case and test.__name__ not in args.case:
                 continue
