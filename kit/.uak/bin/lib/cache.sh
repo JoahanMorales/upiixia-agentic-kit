@@ -253,10 +253,10 @@ rc_lock() {
     pid=${RC_PL%%.*}
     case "$pid" in
       ''|*[!0-9]*) ;;
-      *) if ! kill -0 "$pid" 2>/dev/null; then rc_reap "$RC_PL" dead || :; i=0; continue; fi;;
+      *) if ! kill -0 "$pid" 2>/dev/null; then if rc_reap "$RC_PL" dead; then i=0; continue; fi; fi;;
     esac
     i=$((i + 1))
-    if [ "$i" -ge 100 ]; then rc_reap "$RC_PL" age || :; return 1; fi
+    if [ "$i" -ge "${UAK_RC_SPINS:-100}" ]; then rc_reap "$RC_PL" age || :; return 1; fi
     sleep 0.05 2>/dev/null || sleep 1
   done
   RC_TOKEN=$$.$RANDOM$RANDOM

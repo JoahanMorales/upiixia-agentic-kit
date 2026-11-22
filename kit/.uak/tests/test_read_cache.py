@@ -359,6 +359,25 @@ def a_holder_cleared_as_slow_neither_unlocks_nor_publishes(r):
     return "A neither held nor unlocked B's lock"
 
 
+def a_fresh_lock_reap_next_to_a_dead_holder_waits_and_gives_up(r):
+    """A cleaner died holding a young lock.reap: waiters sleep between looks and give up (rc_lock returns 1, the caller
+    fetches) instead of spinning until the lock.reap is a minute old. UAK_RC_SPINS shortens the 100 looks of 50 ms."""
+    import subprocess
+    g, d, dead = lock_fixture(r, "lock-fresh-reap")
+    (d / "lock").mkdir()
+    (d / "lock" / "pid").write_text(dead + ".5\n", encoding="utf-8", newline="\n")
+    (d / "lock.reap").mkdir()
+    script = LOCK_HEAD + 'rc_lock; echo "lock=$?"\n'
+    env = dict(r.env, UAK_RC_SPINS="6")
+    started = time.monotonic()
+    out = subprocess.run([r.bash, "-c", script, "x", str(r.package), str(g), str(d)], capture_output=True, text=True, env=env, timeout=30)
+    took = time.monotonic() - started
+    expect("lock=1" in out.stdout, "rc_lock gave up: %r %r" % (out.stdout, out.stderr))
+    expect(took >= 0.25, "it slept between looks instead of spinning: %.2f s" % took)
+    expect((d / "lock.reap").exists(), "a young lock.reap was left alone")
+    return "gave up in %.1f s" % took
+
+
 def a_stuck_lock_reap_does_not_stall_the_lock(r):
     """A `lock.reap` left by a cleaner that died (older than a minute) is removed, and the dead holder's lock goes."""
     g, d, dead = lock_fixture(r, "lock-stuck")
@@ -463,7 +482,7 @@ def a_push_of_the_base_from_this_checkout_is_read_back(r):
 
 
 TESTS = [second_read_reuses_the_fetch, a_write_refreshes_the_cache, fresh_fetches_now, zero_turns_it_off, read_says_how_old,
-         wait_is_never_cached, a_held_reader_never_overwrites_a_write, two_writers_the_older_put_last, a_dead_lock_does_not_stall_a_put, a_cleaner_that_judged_stale_never_removes_a_retaken_lock, a_holder_cleared_as_slow_neither_unlocks_nor_publishes, a_stuck_lock_reap_does_not_stall_the_lock, no_noise_on_stderr, a_corrupt_entry_is_a_miss, fresh_is_accepted_everywhere, a_push_of_the_base_from_this_checkout_is_read_back, a_simulated_clock_does_not_read_the_cache]
+         wait_is_never_cached, a_held_reader_never_overwrites_a_write, two_writers_the_older_put_last, a_dead_lock_does_not_stall_a_put, a_cleaner_that_judged_stale_never_removes_a_retaken_lock, a_holder_cleared_as_slow_neither_unlocks_nor_publishes, a_stuck_lock_reap_does_not_stall_the_lock, a_fresh_lock_reap_next_to_a_dead_holder_waits_and_gives_up, no_noise_on_stderr, a_corrupt_entry_is_a_miss, fresh_is_accepted_everywhere, a_push_of_the_base_from_this_checkout_is_read_back, a_simulated_clock_does_not_read_the_cache]
 
 
 def main():
