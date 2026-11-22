@@ -29,7 +29,7 @@ def line(msg_id, output, cwd, days_ago=None):
                        "usage": {"input_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": output}}}
     if days_ago is not None:
         rec["timestamp"] = stamp(days_ago)
-    return json.dumps(rec)
+    return json.dumps(rec, ensure_ascii=False)
 
 
 def setup(r, name):
@@ -69,8 +69,8 @@ def since_counts_by_message_time(r):
     codex = Path(cfg) / "codex" / "sessions"
     codex.mkdir(parents=True)
     def tc(days, i, c, o):
-        return json.dumps({"timestamp": stamp(days), "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": i, "cached_input_tokens": c, "output_tokens": o}}}})
-    meta = json.dumps({"timestamp": stamp(40), "type": "session_meta", "payload": {"cwd": main + "-wt/hack-002"}})
+        return json.dumps({"timestamp": stamp(days), "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": i, "cached_input_tokens": c, "output_tokens": o}}}}, ensure_ascii=False)
+    meta = json.dumps({"timestamp": stamp(40), "type": "session_meta", "payload": {"cwd": main + "-wt/hack-002"}}, ensure_ascii=False)
     (codex / "rollout-1.jsonl").write_text("\n".join([meta, tc(40, 100, 50, 20), tc(10, 300, 100, 60), tc(0.1, 400, 150, 90)]) + "\n", encoding="utf-8")
     e = {"CODEX_HOME": str(Path(cfg) / "codex")}
     expect(total(r, f, cfg, "--since", "5", **e).get("HACK-002") == 30, "codex 5 days: %s" % total(r, f, cfg, "--since", "5", **e))
