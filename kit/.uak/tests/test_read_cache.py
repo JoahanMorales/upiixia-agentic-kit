@@ -252,7 +252,7 @@ def a_dead_lock_does_not_stall_a_put(r):
     dead = r.run([r.bash, "-c", "echo $$"], cwd=r.scratch).stdout.strip()
     expect(dead.isdigit(), "a dead pid: %r" % dead)
     (d / "lock").mkdir()
-    (d / "lock" / "pid").write_text(dead + "\n", encoding="utf-8")
+    (d / "lock" / "pid").write_text(dead + "\n", encoding="utf-8", newline="\n")
     started = time.monotonic()
     uak(r, f, 0, ["status", "--fresh"], T0 + 12)
     took = time.monotonic() - started

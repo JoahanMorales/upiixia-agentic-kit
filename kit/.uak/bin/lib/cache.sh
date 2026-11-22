@@ -196,7 +196,7 @@ cache_drop() {
 #   rc_gen          RC_GEN, this clone's write generation: take it BEFORE the fetch a read may put.
 #   rc_put TX read GEN0    keeps a read's clone; refused when a write of this clone began since GEN0 (that read may hold
 #                          a state older than what the write pushed).
-#   rc_put TX write        keeps a writer's clone, which always wins; counts one more write.
+#   rc_put TX write        keeps a writer's clone (ordered by claims tip like any put); counts one more write.
 #   rc_drop         forgets every entry and counts a write.
 # Order is the generation, not a clock: every writer bumps `gen` (under the lock) when it starts (rc_drop) and again when
 # it puts its own state; a reader's put compares `gen` with the value it saw before its fetch, under the same lock as
@@ -226,6 +226,7 @@ rc_lock() {
   while ! mkdir "$RC_DIR/lock" 2>/dev/null; do
     pid=
     [ ! -f "$RC_DIR/lock/pid" ] || IFS= read -r pid 2>/dev/null < "$RC_DIR/lock/pid" || :
+    pid=${pid%$'\r'}
     case "$pid" in
       ''|*[!0-9]*) ;;
       *) if ! kill -0 "$pid" 2>/dev/null; then
@@ -233,12 +234,12 @@ rc_lock() {
            # it puts it back.
            dead=$RC_DIR/.dead-$$-${RANDOM:-0}
            if mv "$RC_DIR/lock" "$dead" 2>/dev/null; then
-             IFS= read -r i 2>/dev/null < "$dead/pid" || i=
+             IFS= read -r i 2>/dev/null < "$dead/pid" || i=; i=${i%$'\r'}
              if [ "$i" = "$pid" ]; then rm -rf "$dead"; else mv "$dead" "$RC_DIR/lock" 2>/dev/null || rm -rf "$dead"; fi
            else
              # A directory that cannot be renamed (Windows, an open handle) is removed where it stands when it still
              # names the same dead pid.
-             IFS= read -r i 2>/dev/null < "$RC_DIR/lock/pid" || i=
+             IFS= read -r i 2>/dev/null < "$RC_DIR/lock/pid" || i=; i=${i%$'\r'}
              [ "$i" != "$pid" ] || rm -rf "$RC_DIR/lock" 2>/dev/null
            fi
            i=0; continue
