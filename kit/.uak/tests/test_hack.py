@@ -88,6 +88,11 @@ class Runner:
         self.env["UAK_TASTE_HOME"] = str(Path(scratch) / "taste-home")  # design rounds fold picks into a profile (UAK-064)
         for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"):
             self.env.pop(k, None)
+        # The identity of whoever runs the suite is not the fixture's: every test names its own agent or human. Why
+        # (UAK-137's merge gate, 2026-11-21): the gate ran the suite with the merging agent's UAK_AGENT exported, the
+        # pre-push hook of a fixture refused a human's push to main in test_v53, and an approved task went to a human.
+        for k in ("UAK_AGENT", "UAK_MODEL", "UAK_HUMAN", "UAK_DIRECT_MAIN"):
+            self.env.pop(k, None)
         # A user signing default must not make disposable fixture commits interactive.
         self.env["GIT_CONFIG_COUNT"] = "2"
         self.env["GIT_CONFIG_KEY_0"] = "commit.gpgsign"

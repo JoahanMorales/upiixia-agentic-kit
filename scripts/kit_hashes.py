@@ -19,7 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "kit/.uak/settings/known-files.txt"
 # Copied whole on every install or update, or project data created once: never merged, so not listed.
-SKIP = ("kit/.uak/bin/", "kit/.uak/docs/", "kit/.uak/modes/", "kit/.uak/tests/", "kit/.uak/templates/",
+# The kit's tests are listed (UAK-127): a light --update removes the ones a project has unedited.
+SKIP = ("kit/.uak/bin/", "kit/.uak/docs/", "kit/.uak/modes/", "kit/.uak/templates/",
         "kit/.uak/VERSION", "kit/.uak/reminders.md", "kit/.uak/settings/known-files.txt")
 EMPTY = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
 # install.sh's nomcp(): the same awk/sed, so the hashes match what --no-mcp wrote.
