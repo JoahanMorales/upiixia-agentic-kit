@@ -412,9 +412,34 @@ status_run() {
   coord_clock
   # The output is taken whole, then deduplicated in this shell: a pipe into seen_print was two more subshells.
   case "$CMD" in
-    status) out=$(print_status) || rc=$?; seen_print "status${ID:+-$ID}" "$out"; rc_age_line; return "$rc";;
-    next) out=$(coord_next) || rc=$?; seen_print next "$out"; preflight_note; rc_age_line;;
+    status) out=$(print_status) || rc=$?; seen_print "status${ID:+-$ID}" "$out"; budget_note; rc_age_line; return "$rc";;
+    next) out=$(coord_next) || rc=$?; seen_print next "$out"; budget_note; preflight_note; rc_age_line;;
   esac
+}
+# The TOKENS_BUDGET line of `tokens --budget-check` (UAK-133) for the task asked (status --task ID) or the agent's live task
+# (the one `next` shows), when Token-Budget is set in PROJECT.md. This machine's transcripts only, no fetch; tokens keeps the
+# total 5 min, so a second call costs a file read. Nothing without a budget (no process started) or without --json's text.
+# Why (v6.7.0, left open): the warning existed only as a command nobody calls.
+budget_note() {
+  local id=${ID:-} owner state who=${AGENT:-} line
+  [ -z "${UAK_JSON_META:-}" ] || return 0
+  uak_cfg_var "$ROOT/.uak/PROJECT.md" Token-Budget; [ -n "$CFG" ] || return 0
+  if [ -z "$id" ]; then
+    [ -n "$who" ] || who=$(git config --get uak.agent 2>/dev/null) || :
+    [ -n "$who" ] || return 0
+    [ "${UAK_S_TX:-}" = "$TX" ] || state_load
+    for state in CLAIMED BLOCKED REVIEW; do
+      for owner in ${UAK_S_claims:-}; do
+        sv claims "$owner" Owner; [ "$SV" = "$who" ] || continue
+        sv claims "$owner" State; [ "$SV" = "$state" ] || continue
+        id=$owner; break
+      done
+      [ -z "$id" ] || break
+    done
+  fi
+  [ -n "$id" ] || return 0
+  line=$(bash "$UAK_BIN/tokens" --budget-check "$id" --local 2>/dev/null) || return 0
+  [ -z "$line" ] || say "$line"
 }
 # The last line of a read served from the cache (the first line of next and status is parsed: bin/up reads it). --json gets it as the claims_age key (json.sh), never as text.
 rc_age_line() {
