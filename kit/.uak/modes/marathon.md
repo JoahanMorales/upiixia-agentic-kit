@@ -56,7 +56,8 @@ Goal: software that survives real users. It is secure, scalable and maintainable
 4. Fakes with state for every external dependency (payments, mail, clock, randomness); assert outcomes, not calls.
 5. Bug → the test that reproduces it fails first (skills `systematic-debugging`, `test-first`), then the fix.
 6. `uak loop` may fix tests and types, but never on deploy or migration commands, and never by weakening a test.
-7. Before any "done": skill `verification-before-completion`, and the task's Verify plus `bash .uak/bin/smoke --affected` (lint, secret scan, Verify and only the test files the diff touches or names; it prints what it chose and how many it left; `--list` only prints). The review does the same and its approval note says which was run. The merge gate still runs the whole suite on the merged result: `--affected` is a flag for a person or an agent, and the gate never passes it.
+7. Before any "done": skill `verification-before-completion`.
+8. Before `done` and in a review run the task's Verify plus `bash .uak/bin/smoke --affected` (lint, secret scan, Verify and only the test files the diff touches or names; it prints what it chose and how many it left, `--list` only prints), and the approval note says which was run; the merge gate still runs the whole suite on the merged result, because `--affected` is a flag for a person or an agent and the gate never passes it.
 
 ## Pace
 - 1 or 2 agents per human. Lease is 4 h; review wait is 24 h.

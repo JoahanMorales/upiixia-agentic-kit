@@ -169,7 +169,96 @@ def prints_what_it_left(r):
     return "%d of %d test files for a one-file diff" % (n, total)
 
 
-TESTS = [affected_runs_changed_test_files, engine_change_selects_its_tests, core_change_runs_everything, gate_ignores_the_shortcut, prints_what_it_left]
+def select_real(r, package, rel):
+    """What the selector picks on the real package for one changed engine file: (everything?, [test files])."""
+    tests = sorted(t.name for t in (package / ".uak" / "tests").glob("test_*.py"))
+    work = Path(tempfile.mkdtemp(prefix="sa-sel-", dir=str(r.scratch)))
+    (work / "tests").write_text("\n".join(tests) + "\n", encoding="utf-8")
+    (work / "changed").write_text(rel + "\n", encoding="utf-8")
+    out = r.run([r.bash, "-c", '. "$1/.uak/bin/lib/tests.sh"; tf_affected_select "$1" "$2/changed" "$2/tests"', "sel", package.as_posix(), work.as_posix()],
+                cwd=work, allowed=None).stdout
+    rows = [l.split("\t") for l in out.splitlines() if l.strip()]
+    if any(row[0] == "ALL" for row in rows):
+        return True, tests
+    return False, [row[0] for row in rows if row[0] != "-"]
+
+
+# (engine file, tests that must be selected or everything must run): the cases kit-r1 found on tip b3b43b83, then one
+# command family each. A library is tested through the commands that use it, not through its own file name.
+MUST_SELECT = [
+    (".uak/bin/lib/claim.sh", ["test_coordination.py"]),
+    (".uak/bin/lib/plan.sh", ["test_plan_check.py", "test_plan_owners.py"]),
+    (".uak/bin/lib/dash.py", ["test_task_timeline.py"]),
+    (".uak/bin/lib/status.sh", ["test_coordination.py"]),
+    (".uak/bin/lib/review-merge.sh", ["test_review_merge.py", "test_merge_affected.py"]),
+    (".uak/bin/lib/done.sh", ["test_v510.py"]),
+    (".uak/bin/lib/lint.sh", ["test_lint_paths_hint.py"]),
+    (".uak/bin/demo", ["test_demo.py"]),
+    (".uak/bin/autopsy", ["test_autopsy.py"]),
+]
+
+
+def selector_keeps_the_commands_tests(r):
+    known = {t.name for t in (r.package / ".uak" / "tests").glob("test_*.py")}
+    checked = 0
+    for rel, must in MUST_SELECT:
+        everything, picked = select_real(r, r.package, rel)
+        for t in must:
+            if t not in known:
+                continue  # a renamed test file is not this selector's defect: the pair is skipped, the others still run
+            expect(everything or t in picked, "%s must select %s (or run everything): %s" % (rel, t, picked))
+            checked += 1
+    expect(checked >= 8, "the self-check covers real pairs: %d" % checked)
+    # Shared plumbing no command is implemented in runs everything.
+    for rel in (".uak/bin/lib/net.sh", ".uak/bin/lib/state.awk", ".uak/bin/lib/engines.awk", ".uak/bin/lib/config.sh"):
+        expect(select_real(r, r.package, rel)[0], "%s is shared plumbing: everything" % rel)
+    # A selection under the floor of 3 test files for an engine file is widened or full, never 1 or 2.
+    for rel in (".uak/bin/lib/net.sh", ".uak/bin/demo", ".uak/bin/lib/smoke-init.sh", ".uak/bin/lib/security.sh"):
+        everything, picked = select_real(r, r.package, rel)
+        expect(everything or len(picked) >= 3, "%s: fewer than 3 test files is too few to trust: %s" % (rel, picked))
+    return "%d pairs, plumbing runs everything, floor of 3" % checked
+
+
+def a_broken_claim_lib_reds_a_selected_test(r):
+    """The reviewer's mutation: UNTIL=$((NOW + LEASE)) -> NOW - 5 in claim_mutate. test_merge_affected still passes and
+    test_coordination fails, so the selector must hand the second one over."""
+    pkg = Path(tempfile.mkdtemp(prefix="sa-mut-", dir=str(r.scratch)))
+    shutil.copytree(r.package / ".uak" / "bin", pkg / ".uak" / "bin", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(r.package / ".uak" / "tests", pkg / ".uak" / "tests", ignore=shutil.ignore_patterns("__pycache__"))
+    claim = pkg / ".uak" / "bin" / "lib" / "claim.sh"
+    text = claim.read_text(encoding="utf-8")
+    expect("UNTIL=$((NOW + LEASE))" in text, "the mutated line exists in claim.sh")
+    claim.write_text(text.replace("UNTIL=$((NOW + LEASE))", "UNTIL=$((NOW - 5))", 1), encoding="utf-8", newline="\n")
+    everything, picked = select_real(r, pkg, ".uak/bin/lib/claim.sh")
+    expect(everything or "test_coordination.py" in picked, "claim.sh selects test_coordination: %s" % picked)
+    ran = r.run(["env", "-u", "UAK_SMOKE_TESTS", sys_python(), ".uak/tests/test_coordination.py", "--package", pkg.as_posix()], cwd=pkg, allowed=None, timeout=600)
+    expect(ran.returncode != 0 and "FAIL lease_boundary_preserves_summary" in ran.stdout, "the selected test goes red on the mutation: " + (ran.stdout + ran.stderr)[-500:])
+    return "claim.sh mutation: test_coordination selected and red"
+
+
+def sys_python():
+    import sys
+    return sys.executable or "python3"
+
+
+def both_mode_files_carry_the_same_sentence(r):
+    modes = [(r.package / ".uak" / "modes" / n).read_text(encoding="utf-8") for n in ("sprint.md", "marathon.md")]
+    sentences = []
+    for text in modes:
+        found = [l.split(". ", 1)[1] for l in text.splitlines() if "smoke --affected" in l and l[:1].isdigit()]
+        expect(len(found) == 1, "one numbered line names smoke --affected: %s" % found)
+        sentences.append(found[0])
+    expect(sentences[0] == sentences[1], "sprint and marathon carry the same sentence:\n%s\n%s" % tuple(sentences))
+    expect("approval note says which was run" in sentences[0] and "gate never passes it" in sentences[0], "it covers the note and the gate")
+    reviewer = (r.package.parent / ".claude" / "agents" / "uak-reviewer.md")
+    reviewer = reviewer if reviewer.exists() else r.package / ".claude" / "agents" / "uak-reviewer.md"
+    if reviewer.exists():
+        expect("smoke --affected" in reviewer.read_text(encoding="utf-8"), "the reviewer's instructions name it")
+    return "same sentence in both mode files"
+
+
+TESTS = [affected_runs_changed_test_files, engine_change_selects_its_tests, core_change_runs_everything, gate_ignores_the_shortcut, prints_what_it_left,
+         selector_keeps_the_commands_tests, a_broken_claim_lib_reds_a_selected_test, both_mode_files_carry_the_same_sentence]
 
 
 def main():
