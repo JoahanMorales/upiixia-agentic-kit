@@ -1376,3 +1376,15 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Acceptance:**
   - board reads the review lease from the fetched config and honours UAK_LEASE_SECONDS, so board and status agree on the OVER mark; a tab in a queue reason or reviewer name does not break review_substate_since
 - **Verify:** `python3 kit/.uak/tests/test_review_substates.py`
+
+## UAK-146 · doctor compares hook dirs with -ef instead of lowercase text (a different .UAK/githooks is not the kit's on a case-sensitive disk); wt new does not replace a valid core.hooksPath of another hook manager (follow-up of UAK-135)
+
+- **Type:** follow-up
+- **Priority:** P1
+- **Depends on:** UAK-135
+- **Follow-up of:** UAK-135
+- **Paths:** kit/.uak/bin/doctor, kit/.uak/bin/wt, kit/.uak/bin/lib/smoke-init.sh, kit/.uak/tests/test_hooks_health.py
+- **Freeze-Allowed:** no
+- **Acceptance:**
+  - doctor compares hook dirs with -ef instead of lowercase text (a different .UAK/githooks is not the kit's on a case-sensitive disk); wt new does not replace a valid core.hooksPath of another hook manager
+- **Verify:** `python3 kit/.uak/tests/test_hooks_health.py`
