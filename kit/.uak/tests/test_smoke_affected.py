@@ -23,6 +23,8 @@ def package(r, name, tests=None):
     (base / ".uak" / "tests").mkdir(parents=True)
     files = {
         "test_alpha.py": "print('RAN alpha')  # exercises .uak/bin/autopsy\n",
+        "test_alpha2.py": "print('RAN alpha2')  # exercises .uak/bin/autopsy too\n",
+        "test_alpha3.py": "print('RAN alpha3')  # and .uak/bin/autopsy a third time: an engine file under 3 test files runs everything\n",
         "test_beta.py": "print('RAN beta')  # exercises .uak/bin/guard\n",
         "test_gamma.py": "print('RAN gamma')  # exercises nothing in particular\n",
         "test_hack.py": "print('RAN hack')\n",
@@ -78,7 +80,7 @@ def engine_change_selects_its_tests(r):
     touch(r, base, ".uak/bin/autopsy")
     out = smoke(r, base, "--package-only", "--affected", "HEAD")
     expect(out.returncode == 0, "rc %d: %s" % (out.returncode, (out.stdout + out.stderr)[-600:]))
-    expect(ran(out) == ["alpha"], "only the test that names autopsy: %s" % ran(out))
+    expect(ran(out) == ["alpha", "alpha2", "alpha3"], "only the tests that name autopsy: %s" % ran(out))
     expect("test_alpha.py" in out.stdout and ".uak/bin/autopsy" in out.stdout, "it names the file behind the choice: " + out.stdout[-500:])
     # A docs file that a test names selects that test; one nothing names selects none and says so.
     base2 = package(r, "docs")
@@ -89,12 +91,12 @@ def engine_change_selects_its_tests(r):
     base3 = package(r, "unnamed")
     touch(r, base3, ".uak/bin/pace")
     out = smoke(r, base3, "--package-only", "--affected", "HEAD")
-    expect(ran(out) == ["alpha", "beta", "gamma", "hack", "user"], "an engine file no test names runs everything: %s" % ran(out))
+    expect(ran(out) == ["alpha", "alpha2", "alpha3", "beta", "gamma", "hack", "user"], "an engine file no test names runs everything: %s" % ran(out))
     return "engine file selects the tests naming it"
 
 
 def core_change_runs_everything(r):
-    every = ["alpha", "beta", "gamma", "hack", "user"]
+    every = ["alpha", "alpha2", "alpha3", "beta", "gamma", "hack", "user"]
     for rel in (".uak/bin/lib/core.sh", ".uak/bin/lib/tx.sh", ".uak/bin/lib/cache.sh", ".uak/bin/uak", ".uak/bin/uak-coordination",
                 "install.sh", ".uak/tests/test_hack.py", "weird/file.xyz"):
         base = package(r, "core")
@@ -102,7 +104,7 @@ def core_change_runs_everything(r):
         out = smoke(r, base, "--package-only", "--affected", "HEAD")
         expect(out.returncode == 0, "%s: rc %d %s" % (rel, out.returncode, (out.stdout + out.stderr)[-400:]))
         expect(ran(out) == every, "%s runs everything: %s" % (rel, ran(out)))
-        expect("all 5" in out.stdout, "%s: it says it chose all: %s" % (rel, out.stdout[-400:]))
+        expect("all 7" in out.stdout, "%s: it says it chose all: %s" % (rel, out.stdout[-400:]))
     # A test module another test imports is a helper.
     base = package(r, "helper")
     touch(r, base, ".uak/tests/test_hack.py")
@@ -118,7 +120,7 @@ def gate_ignores_the_shortcut(r):
                  "UAK_SMOKE_MODE": "affected", "UAK_SMOKE_SHORTCUT": "1", "SMOKE_AFFECTED": "1"}
     out = smoke(r, base, "--package-only", env=agent_env)
     expect(out.returncode == 0, "rc %d: %s" % (out.returncode, (out.stdout + out.stderr)[-400:]))
-    expect(ran(out) == ["alpha", "beta", "gamma", "hack", "user"], "the gate's call (no flag) runs the whole suite whatever is exported: %s" % ran(out))
+    expect(ran(out) == ["alpha", "alpha2", "alpha3", "beta", "gamma", "hack", "user"], "the gate's call (no flag) runs the whole suite whatever is exported: %s" % ran(out))
     # A stale token or shard list of an agent's own does not make --affected skip the lint or run another list.
     out = smoke(r, base, "--package-only", "--affected", "HEAD", env={"UAK_SMOKE_TESTS": "test_beta"})
     expect(ran(out) == ["gamma"], "--affected does not take its list from UAK_SMOKE_TESTS: %s" % ran(out))
@@ -136,8 +138,8 @@ def prints_what_it_left(r):
     base = package(r, "left")
     touch(r, base, ".uak/bin/autopsy")
     out = smoke(r, base, "--package-only", "--affected", "HEAD")
-    expect("left 4 of 5 test files for the merge gate" in out.stdout, "it counts what it left: " + out.stdout[-600:])
-    expect("Affected: 1 of 5" in out.stdout, "and what it chose: " + out.stdout[-600:])
+    expect("left 4 of 7 test files for the merge gate" in out.stdout, "it counts what it left: " + out.stdout[-600:])
+    expect("Affected: 3 of 7" in out.stdout, "and what it chose: " + out.stdout[-600:])
     # --list prints the choice and runs no test: a person or an agent reads it first.
     out = smoke(r, base, "--package-only", "--affected", "--list", "HEAD")
     expect(out.returncode == 0 and ran(out) == [] and "test_alpha.py" in out.stdout, "--list only prints: " + out.stdout[-400:])
