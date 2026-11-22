@@ -72,7 +72,6 @@ cur_hooks=$(git config --get core.hooksPath 2>/dev/null || true)
 # without looking): git ran no hook, neither the secret scan nor the pre-push, and nothing said so. doctor and wt were
 # written before UAK-124 added pre-push, so it was never checked either.
 phys() { (cd "$1" 2>/dev/null && pwd -P); }
-lc() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }   # macOS and Windows compare paths without case
 # $1 = hooks dir, $2 = hook name. A comment line does not call anything (review of UAK-135).
 calls_kit() { grep -vhs '^[[:space:]]*#' "$1/$2" "$1/../$2" | grep -Eq "(uak/githooks|kit/\.githooks)/$2"; }
 # Another hook manager's mark (UAK-135 review): its install makes its hooks directory, so --fix must not repoint it.
@@ -91,7 +90,9 @@ restore_hook() { # $1 = hook name: the kit's own copy back into $hooks_dir (neve
 own_dir=$(phys "$hooks_dir"); cur_dir=; own_hooks=no
 if [ -n "$cur_hooks" ]; then
   cur_dir=$(phys "$cur_hooks")
-  [ -z "$cur_dir" ] || [ "$(lc "$cur_dir")" != "$(lc "$own_dir")" ] || own_hooks=yes
+  # Same directory by device and inode (UAK-146): exact on every disk. Lowercased text called .UAK/githooks the kit's
+  # on a case-sensitive one, while git ran the other directory. A path that does not exist never gets here.
+  [ -z "$cur_dir" ] || [ -z "$own_dir" ] || [ ! "$cur_hooks" -ef "$hooks_dir" ] || own_hooks=yes
 fi
 if [ -z "$cur_hooks" ]; then
   if [ "$fix" = yes ] && [ -f "$hooks_dir/pre-commit" ]; then git config core.hooksPath "$hooks_dir" && ok "core.hooksPath=$hooks_dir (fixed)"

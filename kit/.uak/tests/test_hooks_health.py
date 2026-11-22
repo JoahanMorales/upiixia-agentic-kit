@@ -145,6 +145,22 @@ def hooks_path_forms_and_worktrees(r):
     r.g(d, "worktree", "add", "-q", "-b", "hh-branch", wt)
     out = doctor(r, wt)
     expect(not bad_lines(out) and [l for l in hook_lines(out) if l.startswith("OK") and "pre-push" in l], "a worktree sees the kit's hooks: " + "\n".join(hook_lines(out)))
+    # UAK-146: a directory that differs only in case is a different directory where the disk tells them apart (Linux);
+    # doctor compares by device and inode, not by lowercased text. Skipped on a case-insensitive disk (macOS, Windows).
+    probe = r.scratch / "hh-case-probe"
+    (probe / "a").mkdir(parents=True)
+    (probe / "A").mkdir(parents=True, exist_ok=True)
+    if len(list(probe.iterdir())) == 2:
+        other = d / ".UAK/githooks"
+        put(other / "pre-commit", "#!/usr/bin/env bash\necho team\n")
+        put(other / "pre-push", "#!/usr/bin/env bash\necho team\n")
+        cfg(r, d, ".UAK/githooks")
+        out = doctor(r, d)
+        expect(not [l for l in out.stdout.splitlines() if l.startswith("OK") and "active (.uak/githooks)" in l], "a different .UAK/githooks is not the kit's: " + "\n".join(hook_lines(out)))
+        expect([l for l in out.stdout.splitlines() if l.startswith("WARN") and ".UAK/githooks" in l], "it is another dir whose hooks do not call the kit's: " + "\n".join(hook_lines(out)))
+        import shutil
+        shutil.rmtree(d / ".UAK")
+        cfg(r, d, ".uak/githooks")
     return "forms ok"
 
 
@@ -215,7 +231,7 @@ def notes(out):
 
 
 def wt_does_not_point_at_nothing(r):
-    paths = {"HACK-00%d" % i: "src/n%d.txt" % i for i in range(1, 6)}
+    paths = {"HACK-00%d" % i: "src/n%d.txt" % i for i in range(1, 7)}
     f = r.fixture("hh-wt", paths=paths, count=2)
     clone = f.clones[1]
     env = {"UAK_AGENT": "", "UAK_HUMAN": "", "UAK_REMOTE": "origin", "UAK_NOW": "1000100"}
@@ -252,6 +268,19 @@ def wt_does_not_point_at_nothing(r):
     expect(out.returncode == 0, "wt new with hooks: " + (out.stdout + out.stderr)[-400:])
     expect(r.g(clone, "config", "--get", "core.hooksPath").stdout.strip() == ".githooks", "wt sets the dir that holds the kit's hooks")
     expect(not notes(out), "and says nothing about it")
+    # UAK-146: a valid setting of another hook manager is not replaced, even though the kit's hooks are there; the
+    # notice (once: its marker is deleted here to start afresh) tells the team to call the kit's hooks from theirs.
+    r.g(clone, "config", "core.hooksPath", ".husky")
+    put(clone / ".husky/pre-commit", "#!/usr/bin/env bash\necho team\n")
+    marker = Path(r.g(clone, "rev-parse", "--git-common-dir").stdout.strip())
+    marker = (marker if marker.is_absolute() else clone / marker) / "uak-hooks-noted"
+    marker.unlink()
+    out = new("HACK-006", "hh-f")
+    expect(hooks_path() == ".husky", "a team's valid hooksPath is kept: %r" % hooks_path())
+    expect(len(notes(out)) == 1 and "bash .uak/githooks/pre-commit" in notes(out)[0], "one notice says how to call the kit's hooks: " + (out.stdout + out.stderr)[-500:])
+    # Doctor tells the truth afterwards: the kit's hooks do not run until the team's call them.
+    doc = doctor(r, clone)
+    expect([l for l in doc.stdout.splitlines() if l.startswith("WARN") and ".husky" in l and "pre-commit" in l], "doctor warns: " + "\n".join(hook_lines(doc)))
     return "left alone"
 
 
