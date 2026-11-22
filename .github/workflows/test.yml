@@ -8,6 +8,12 @@ on:
     tags: ['*']
 permissions:
   contents: read
+# A new push to a pull request cancels the run of its old tip: on 2026-11-21 superseded tips held the macOS runners and
+# other PRs waited over 75 min for a shard to start. Pushes to main and tags are never cancelled (every commit on main
+# keeps its own result).
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   discover:
     # The suite's shards (Linux, macOS) and the Windows shards split every kit/.uak/tests/test_*.py by measured seconds:
