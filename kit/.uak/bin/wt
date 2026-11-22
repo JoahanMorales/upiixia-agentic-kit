@@ -268,8 +268,21 @@ path=$(wt_path "$root" "$id")
 git -C "$root" show-ref --verify --quiet "refs/heads/$branch" && die "Branch $branch already exists locally; check uak status --task $id --summary."
 
 # Writes .git/config only if needed: several agents on one machine start at once.
-hooks_dir=.uak/githooks; [ -d "$root/$hooks_dir" ] || hooks_dir=.githooks   # v5.2 moved them under .uak
-[ "$(git -C "$root" config --get core.hooksPath)" = "$hooks_dir" ] || git -C "$root" config core.hooksPath "$hooks_dir"
+# UAK-135. Why (v6.7.0): the kit's own repository had core.hooksPath=.githooks with no such directory for weeks, set here
+# without looking: git ran no hook (no secret scan, no pre-push) and nothing said so. Only a directory that exists and
+# holds the kit's pre-commit is set; otherwise the setting stays as it is, and one notice says so (doctor says the fix).
+hooks_dir=
+for hd in .uak/githooks .githooks; do [ -f "$root/$hd/pre-commit" ] && { hooks_dir=$hd; break; }; done
+if [ -n "$hooks_dir" ]; then
+  [ "$(git -C "$root" config --get core.hooksPath)" = "$hooks_dir" ] || git -C "$root" config core.hooksPath "$hooks_dir"
+else
+  hp_note="$(git -C "$root" rev-parse --git-common-dir 2>/dev/null)/uak-hooks-noted"
+  case "$hp_note" in /*|[A-Za-z]:*) ;; *) hp_note="$root/$hp_note";; esac
+  if [ ! -e "$hp_note" ]; then
+    say "wt: neither .uak/githooks nor .githooks holds the kit's hooks, so core.hooksPath is left as it is ($(git -C "$root" config --get core.hooksPath || echo unset)): the secret scan and the pre-push do not run. Fix: bash .uak/bin/doctor, then bash install.sh --update." >&2
+    : > "$hp_note" 2>/dev/null || true
+  fi
+fi
 git -C "$root" fetch -q "$REMOTE" "$BASE" || die "Could not fetch $REMOTE/$BASE."
 # The task was claimed before (released, expired, handed over from another machine): its branch is on the remote,
 # and the new worktree continues it. Why (Hacktoberfest second autopsy): 7 takeovers started from main and one agent
