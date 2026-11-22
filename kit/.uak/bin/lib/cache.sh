@@ -183,7 +183,92 @@ cache_drop() {
   cache_dir || return 0
   [ ! -d "$CACHE_DIR" ] || rm -rf -- "$CACHE_DIR" 2>/dev/null || :
 }
-# UAK-130 stub: the read cache of the fetched claims clone (rc_get TX / rc_put TX / rc_drop).
-rc_get() { RC_AGE=; return 1; }
-rc_put() { return 1; }
-rc_drop() { return 0; }
+# ---- The read cache (UAK-130): the claims clone a read just fetched, reused while it is young. ----
+# status and next fetched claims on every call (3.7 s and 2.3 s measured; agents poll 2.7 times per `done`). A read
+# whose last fetch is younger than `Read-Cache: N` seconds (PROJECT.md, default 20, 0 = off) copies the clone kept
+# here instead of fetching, and says how old it is. Only reads ask (status_run); every write fetches as always, and a
+# successful write refreshes the clone with what it pushed (rc_put in transaction), so an agent reads its own writes.
+# Out of reach: other clones' writes, for up to N seconds (that is the trade; `status --fresh` forces a fetch).
+#
+#   rc_get   TX does not exist yet: on a hit it is made, a copy of the cached clone; RC_AGE is its age in s.
+#   rc_put TX  keeps TX (clean, at the tip it just pushed or fetched; coord_init already ran: TXROOT/coord-source
+#              holds PROJECT.md) with the time NOW and N. N=0 drops instead.
+#   rc_drop  forgets it.
+# Where: <git common dir>/uak-read-cache/: entries e-<NOW>-<pid>-<n>/ {stamp, tx/} and `current`, a file naming the
+# live entry. An entry is built under a temp name, moved into place, then `current` is replaced by one rename: a reader
+# sees a whole entry or none. The entry before the live one is kept for readers still copying it; older ones go.
+# A simulated clock (UAK_NOW) turns it off unless UAK_READ_CACHE=on.
+# The stamp names the remote URL and the base: another remote or base is a miss. NOW is the engine's clock (UAK_NOW).
+RC_FORMAT=1
+# A simulated clock (UAK_NOW) does not move between calls, so a window of seconds means nothing there: the suites of
+# the kit, which read twice at one instant and compare, keep fetching unless a test asks (UAK_READ_CACHE=on).
+rc_clock_ok() { [ -z "${UAK_NOW:-}" ] || [ "${UAK_READ_CACHE:-}" = on ]; }
+rc_dir() { cache_dir || return 1; RC_DIR=${CACHE_DIR%/*}/uak-read-cache; }
+# rc_basetip: RC_BASETIP, the base's tip as this checkout last saw it (a push or fetch of the base moves it). The base
+# holds PROJECT.md and TASKS.md, which a read takes from the remote; the user's own push of them is read back at once.
+rc_basetip() { RC_BASETIP=$(git -C "$ROOT" rev-parse -q --verify "refs/remotes/${REMOTE:-origin}/${BASE:-main}" 2>/dev/null) || RC_BASETIP=none; }
+# rc_stamp ENTRY: RC_AT RC_TTL RC_URL RC_BASE RC_BT, or fails.
+rc_stamp() {
+  local l1 l2 l3 l4
+  RC_AT= RC_TTL=
+  { IFS= read -r l1 && IFS= read -r l2 && IFS= read -r l3 && IFS= read -r l4; } < "$1/stamp" 2>/dev/null || return 1
+  case "$l1" in "uak-read-cache $RC_FORMAT at "*" ttl "*) ;; *) return 1;; esac
+  l1=${l1#"uak-read-cache $RC_FORMAT at "}; RC_AT=${l1%% *}; RC_TTL=${l1##* }
+  case "$RC_AT$RC_TTL" in ''|*[!0-9]*) return 1;; esac
+  RC_URL=${l2#remote }; RC_BASE=${l3#base }; RC_BT=${l4#basetip }
+  [ "$l2" != "$RC_URL" ] && [ "$l3" != "$RC_BASE" ] && [ "$l4" != "$RC_BT" ]
+}
+rc_get() {
+  local cur name
+  RC_AGE=
+  [ "${UAK_CACHE:-on}" != off ] && [ "${READ_FRESH:-no}" != yes ] && [ "${REG_MUTATE:-}" = - ] || return 1
+  rc_clock_ok || return 1
+  case "${CMD:-}" in status|next) ;; *) return 1;; esac
+  rc_dir || return 1
+  IFS= read -r name < "$RC_DIR/current" 2>/dev/null || return 1
+  case "$name" in e-*[!A-Za-z0-9._-]*|e-) return 1;; e-*) ;; *) return 1;; esac
+  cur=$RC_DIR/$name
+  rc_stamp "$cur" || return 1
+  [ "$RC_URL" = "${REMOTE_URL:-}" ] && [ "$RC_BASE" = "${BASE:-}" ] || return 1
+  rc_basetip; [ "$RC_BT" = "$RC_BASETIP" ] || return 1
+  [ "$RC_TTL" -gt 0 ] && [ "$NOW" -ge "$RC_AT" ] && [ $((NOW - RC_AT)) -lt "$RC_TTL" ] || return 1
+  mkdir "$TX" 2>/dev/null && cp -R "$cur/tx/." "$TX/" 2>/dev/null || { rm -rf "$TX"; return 1; }
+  # The entry still existed when the copy ended: a copy of an entry pruned meanwhile is never used.
+  [ -d "$cur/tx" ] || { rm -rf "$TX"; return 1; }
+  RC_AGE=$((NOW - RC_AT))
+}
+rc_put() {
+  local tx=$1 ttl entry tmp prev= name e
+  [ "${UAK_CACHE:-on}" != off ] || return 1
+  rc_clock_ok || return 1
+  [ -d "$tx/.git" ] && [ -f "$TXROOT/coord-source" ] || return 1
+  uak_cfg_var "$TXROOT/coord-source" Read-Cache 20; ttl=$CFG
+  case "$ttl" in ''|*[!0-9]*) ttl=20;; esac
+  [ "$ttl" -gt 0 ] || { rc_drop; return 0; }
+  # Only a clone whose records are its HEAD's (UAK-006's lesson: never a state older than the tip it is kept under).
+  [ -z "$(git -C "$tx" status --porcelain --untracked-files=no 2>/dev/null)" ] || return 1
+  rc_dir || return 1
+  mkdir -p "$RC_DIR" 2>/dev/null || return 1
+  # A read that began before a write must not replace what the write refreshed.
+  if IFS= read -r name < "$RC_DIR/current" 2>/dev/null && rc_stamp "$RC_DIR/$name"; then
+    prev=$name
+    [ "$NOW" -ge "$RC_AT" ] || return 1
+  fi
+  entry=e-$NOW-$$-${RANDOM:-0}
+  tmp=$RC_DIR/.tmp-$$-${RANDOM:-0}
+  mkdir "$tmp" 2>/dev/null && mkdir "$tmp/tx" && cp -R "$tx/." "$tmp/tx/" 2>/dev/null || { rm -rf "$tmp"; return 1; }
+  rc_basetip
+  printf 'uak-read-cache %s at %s ttl %s\nremote %s\nbase %s\nbasetip %s\n' "$RC_FORMAT" "$NOW" "$ttl" "${REMOTE_URL:-}" "${BASE:-}" "$RC_BASETIP" > "$tmp/stamp" || { rm -rf "$tmp"; return 1; }
+  mv "$tmp" "$RC_DIR/$entry" 2>/dev/null || { rm -rf "$tmp"; return 1; }
+  printf '%s\n' "$entry" > "$RC_DIR/.current-$$" && mv "$RC_DIR/.current-$$" "$RC_DIR/current" || { rm -rf "$RC_DIR/$entry" "$RC_DIR/.current-$$"; return 1; }
+  set --
+  for e in "$RC_DIR"/e-*; do
+    [ -d "$e" ] && [ "${e##*/}" != "$entry" ] && [ "${e##*/}" != "$prev" ] && set -- "$@" "$e"
+  done
+  [ "$#" -eq 0 ] || rm -rf -- "$@" 2>/dev/null || :
+  return 0
+}
+rc_drop() {
+  rc_dir || return 0
+  [ ! -d "$RC_DIR" ] || rm -rf -- "$RC_DIR" 2>/dev/null || :
+}

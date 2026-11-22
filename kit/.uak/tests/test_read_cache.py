@@ -51,7 +51,7 @@ def fetches(f):
 
 def uak(r, f, index, args, now, allowed=(0,)):
     env = {"UAK_AGENT": "agent-%d" % (index + 1), "UAK_NOW": str(now), "UAK_REMOTE": "origin", "UAK_HUMAN": "",
-           "UAK_DEDUPE": "off", "UAK_FETCH_LOG": f.log.as_posix(),
+           "UAK_DEDUPE": "off", "UAK_READ_CACHE": "on", "UAK_FETCH_LOG": f.log.as_posix(),
            "PATH": shim(r).as_posix() + os.pathsep + os.environ["PATH"]}
     started = time.monotonic()
     out = r.run([r.bash, ".uak/bin/uak"] + args, cwd=f.worktrees[index], env=env, allowed=allowed)
@@ -67,17 +67,20 @@ def age_line(out):
 def second_read_reuses_the_fetch(r):
     f = fixture(r, "rc-reuse")
     f.claim(0, "HACK-001", now=T0)
-    first, t1 = uak(r, f, 0, ["status"], T0 + 1)
+    first, t1 = uak(r, f, 0, ["status"], T0 + 100)  # the claim's own refresh is long out of the window
     n1 = fetches(f)
     expect(n1 >= 1, "the first read fetches claims: expected: at least 1 fetch, got: %d" % n1)
     expect(age_line(first) is None, "a read that fetched says nothing about age: got last line %r" % first.stdout.splitlines()[-1:])
-    second, t2 = uak(r, f, 0, ["status"], T0 + 6)
+    second, t2 = uak(r, f, 0, ["status"], T0 + 105)
+    for extra in (106, 107):  # the best of three cached reads: one slow scheduling of a loaded runner is not the cache
+        again, t = uak(r, f, 0, ["status"], T0 + extra)
+        t2 = min(t2, t)
     expect(fetches(f) == n1, "two reads within the window cost one fetch: expected: %d fetches, got: %d" % (n1, fetches(f)))
     expect(age_line(second) == 5, "the second read says how old: expected: 'claims as of 5 s ago', got last line %r" % second.stdout.splitlines()[-1:])
-    body = lambda o: "\n".join(o.stdout.splitlines()[:-1])
-    expect(body(second) == first.stdout.rstrip("\n"), "the cached read prints what the fetched one printed:\n%s\nvs\n%s" % (body(second), first.stdout))
+    body = lambda o, cut: "\n".join(o.stdout.splitlines()[1:cut])  # the first line carries the clock's epoch
+    expect(body(second, -1) == body(first, None), "the cached read prints what the fetched one printed:\n%s\nvs\n%s" % (body(second, -1), body(first, None)))
     expect(t2 < t1 / 2, "the second status takes under half the first: expected: < %.2f s, got: %.2f s" % (t1 / 2, t2))
-    nxt, _ = uak(r, f, 1, ["next"], T0 + 7)
+    nxt, _ = uak(r, f, 1, ["next"], T0 + 106)
     expect(fetches(f) == n1, "`next` reuses the fetch `status` left: expected: %d fetches, got: %d" % (n1, fetches(f)))
     expect(age_line(nxt) == 6, "next says how old: expected: 6, got: %r" % nxt.stdout.splitlines()[-1:])
     return "first %.2fs with %d fetches, second %.2fs with 0" % (t1, n1, t2)
@@ -89,7 +92,7 @@ def a_write_refreshes_the_cache(r):
     out, _ = uak(r, f, 1, ["status"], T0 + 2)
     expect("HACK-002 | CLAIMED" not in out.stdout, "nothing claimed yet")
     before = fetches(f)
-    f.claim(1, "HACK-002", now=T0 + 3)
+    uak(r, f, 1, ["claim", "HACK-002", "--branch", f.branches[1], "--worktree", f.worktrees[1].as_posix(), "--next", "step"], T0 + 3)
     expect(fetches(f) > before, "a claim fetches as today: expected: more than %d fetches, got: %d" % (before, fetches(f)))
     after = fetches(f)
     seen, _ = uak(r, f, 0, ["status"], T0 + 4)
@@ -173,8 +176,36 @@ def wait_is_never_cached(r):
     return "wait fetched"
 
 
+def a_simulated_clock_does_not_read_the_cache(r):
+    """UAK_NOW does not move between calls: the cache needs a real clock, or UAK_READ_CACHE=on from a test."""
+    f = fixture(r, "rc-sim")
+    f.claim(0, "HACK-001", now=T0)
+    env = {"UAK_AGENT": "agent-1", "UAK_NOW": str(T0 + 1), "UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_DEDUPE": "off",
+           "UAK_FETCH_LOG": f.log.as_posix(), "PATH": shim(r).as_posix() + os.pathsep + os.environ["PATH"]}
+    outs = [r.run([r.bash, ".uak/bin/uak", "status"], cwd=f.worktrees[0], env=env) for _ in range(2)]
+    expect(fetches(f) >= 2, "two reads at a simulated instant fetch twice: got %d" % fetches(f))
+    expect(all(age_line(o) is None for o in outs), "no age line under a simulated clock")
+    return "two fetches"
+
+
+def a_push_of_the_base_from_this_checkout_is_read_back(r):
+    """PROJECT.md and TASKS.md come from the base: the user's own push of them (the first-run flow: push, then next)
+    moves origin/main here, and the cached read is not served over it."""
+    f = fixture(r, "rc-base")
+    uak(r, f, 0, ["status"], T0 + 100)
+    n = fetches(f)
+    clone = f.clones[0]
+    (clone / "NOTE.md").write_text("x\n", encoding="utf-8")
+    r.g(clone, "add", "NOTE.md")
+    r.g(clone, "commit", "-qm", "note")
+    r.g(clone, "push", "-q", "origin", "HEAD:main")
+    out, _ = uak(r, f, 0, ["status"], T0 + 101)
+    expect(fetches(f) > n and age_line(out) is None, "a push of the base is a miss: expected: more than %d fetches, got: %d" % (n, fetches(f)))
+    return "miss after a push of main"
+
+
 TESTS = [second_read_reuses_the_fetch, a_write_refreshes_the_cache, fresh_fetches_now, zero_turns_it_off, read_says_how_old,
-         wait_is_never_cached]
+         wait_is_never_cached, a_push_of_the_base_from_this_checkout_is_read_back, a_simulated_clock_does_not_read_the_cache]
 
 
 def main():

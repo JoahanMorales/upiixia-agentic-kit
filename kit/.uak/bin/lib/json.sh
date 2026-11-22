@@ -48,6 +48,7 @@ json_run() {
         t = t (n++ ? "," : "") sprintf("{\"id\":%s,\"state\":%s,\"owner\":%s,\"lease_until\":%d,\"expired\":%s}", str(f[2]), str(f[3]), str(f[4] == "-" ? "" : f[4]), f[5] + 0, (f[6] == "yes" ? "true" : "false"))
       }
       if (n || m["data"] == "tasks") printf ",\"tasks\":%s]", t
+      if (m["claims_age"] != "") printf ",\"claims_age\":%d", m["claims_age"] + 0
       printf "}\n"
     }'
   rm -rf "$d"

@@ -241,6 +241,8 @@ transaction() {
     # A retry runs on a fresh clock too. Why (Hacktoberfest, slow Wi-Fi): a lock committed after 36 min of retries
     # carried the first attempt's time, already expired, and a second reviewer took the same SHA.
     [ "$ATTEMPT" -eq 1 ] || clock_now
+    # A writer starts by forgetting the read cache (a merge pushes more than once); a clean push refreshes it below.
+    [ "$ATTEMPT" -ne 1 ] || case "$CMD" in tick|heartbeat) ;; *) rc_drop;; esac
     fresh_state; mutate
     git -C "$TX" add -A || gitfail "git add failed."
     # Nothing that looks like a key reaches claims: every clone of the repository reads it (public repo = public).
@@ -255,6 +257,10 @@ transaction() {
     git -C "$TX" commit -q -m "uak: $CMD $ID ($AGENT)" || gitfail "git commit failed."
     if git -C "$TX" push --porcelain origin HEAD:refs/heads/claims > "$TXROOT/push" 2>&1; then
       [ -z "$HANDOVER_ENV_WT" ] || handover_env_apply
+      # Read-your-writes (UAK-130): the clone just pushed is what the next read in the window sees. done, integrate and
+      # merge hold the whole base, a heavier clone than a read keeps: they leave no entry, the next read fetches. A heartbeat
+      # only moves a lease (and is not a read's concern, UAK-130): it leaves the cache as it is.
+      case "$CMD" in tick|heartbeat|done|integrate|merge) ;; *) rc_put "$TX" || :;; esac
       if [ "${QUIET:-no}" != yes ]; then
         if [ "$SESSION_ONLY" = yes ]; then say "OK checkpoint --session | budget reset | attempt $ATTEMPT"
         elif [ "$CMD" = tick ]; then say "OK tick | deadlines reconciled | attempt $ATTEMPT"

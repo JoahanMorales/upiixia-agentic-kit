@@ -384,24 +384,41 @@ freeze_warning() {
 # tick made `uak status` and `uak next` exit with GIT_ERROR on Cursor/Windows.
 status_run() {
   local saved_cmd=$CMD saved_id=$ID out rc=0 line
+  RC_AGE=
+  # A read younger than Read-Cache seconds is served from the clone the last read or write kept (lib/cache.sh,
+  # rc_get): no fetch and no tick (the deadline reconcile ran with that fetch; leases and "min ago" are computed from
+  # NOW by the readers). --fresh and UAK_CACHE=off always fetch.
+  ATTEMPT=read; TX="$TXROOT/try-read"
+  if rc_get; then
+    COORD_INITIALIZED_TX=
+  else
   CMD=tick; ID=; QUIET=yes
   # The tick's subshell also hands back what its coord_init read (lease, backlog, owners): the read below runs on the
   # same clone, so a second coord_init (6 git calls and 4 awks) read the same files again.
   if ( transaction; printf '%s\n' "$TX" "${COORD_INITIALIZED_TX:-}" "${LEASE:-}" "${REVIEW_LEASE:-}" "${BACKLOG:-}" "${OWNERS:-}" > "$TXROOT/tick-tx" ) 2> "$TXROOT/tick-error"; then
     { IFS= read -r TX; IFS= read -r line; IFS= read -r LEASE; IFS= read -r REVIEW_LEASE; IFS= read -r BACKLOG; IFS= read -r OWNERS; } < "$TXROOT/tick-tx"
     COORD_INITIALIZED_TX=; [ "$line" != "$TX" ] || [ ! -f "$BACKLOG" ] || COORD_INITIALIZED_TX=$TX
+    # Keep what was just fetched (or pushed by the tick) for the next read.
+    rc_put "$TX" || :
   else
     # No remote at all: an explicit read-only mode (the fetch already proved it, no extra ls-remote).
     if grep -q 'Remote unreachable' "$TXROOT/tick-error"; then CMD=$saved_cmd; coord_degraded_status; exit 0; fi
     CMD=$saved_cmd; ATTEMPT=read; fresh_state; COORD_INITIALIZED_TX=
     say "NOTE: deadline reconcile skipped ($(grep -m 1 -E 'ERROR|CONFLICT' "$TXROOT/tick-error" | cut -c 1-160)); showing the remote state." >&2
   fi
+  fi
   CMD=$saved_cmd; ID=$saved_id; QUIET=no; coord_init
   coord_clock
   # The output is taken whole, then deduplicated in this shell: a pipe into seen_print was two more subshells.
   case "$CMD" in
-    status) out=$(print_status) || rc=$?; seen_print "status${ID:+-$ID}" "$out"; return "$rc";;
-    next) out=$(coord_next) || rc=$?; seen_print next "$out"; preflight_note;;
+    status) out=$(print_status) || rc=$?; seen_print "status${ID:+-$ID}" "$out"; rc_age_line; return "$rc";;
+    next) out=$(coord_next) || rc=$?; seen_print next "$out"; preflight_note; rc_age_line;;
   esac
+}
+# The last line of a read served from the cache. --json gets it as the claims_age key (json.sh), never as text.
+rc_age_line() {
+  [ -n "${RC_AGE:-}" ] || return 0
+  if [ -n "${UAK_JSON_META:-}" ]; then printf 'claims_age\t%s\n' "$RC_AGE" >> "$UAK_JSON_META" 2>/dev/null || :
+  else say "claims as of $RC_AGE s ago"; fi
 }
 digest_run() { local out rc=0; ATTEMPT=1; fresh_state; out=$(print_digest) || rc=$?; seen_print digest "$out"; return "$rc"; }
