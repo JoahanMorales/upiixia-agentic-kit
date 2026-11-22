@@ -59,6 +59,7 @@ jobs:
         # stdin held open, as in a terminal: a command that reads it (BSD awk -W version did) hangs here, not on a laptop.
         # One smoke per file: a failing file is named in the job summary, and the rest of the shard still runs.
         run: |
+          [ -n "$(echo $SHARD_TESTS)" ] || { echo "FAILED: this shard has no test files (empty SHARD_TESTS)"; exit 1; }
           mkfifo "$RUNNER_TEMP/stdin"; sleep 7200 > "$RUNNER_TEMP/stdin" 2>/dev/null & holder=$!
           # Linux: temp paths with a space and an accent, like C:\Users\José Pérez
           if [ "$RUNNER_OS" = Linux ]; then export TMPDIR="$RUNNER_TEMP/José Pérez"; mkdir -p "$TMPDIR"; fi
@@ -107,6 +108,7 @@ jobs:
         env:
           SHARD_TESTS: ${{ matrix.w.tests }}
         run: |
+          [ -n "$(echo $SHARD_TESTS)" ] || { echo "FAILED: this shard has no test files (empty SHARD_TESTS)"; exit 1; }
           failed=''
           for t in $SHARD_TESTS; do
             echo "::group::$t"
