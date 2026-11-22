@@ -113,6 +113,9 @@ def doctor_checks_pre_push(r):
     warn = [l for l in out.stdout.splitlines() if l.startswith("WARN") and "pre-push" in l]
     expect(warn and 'bash .uak/githooks/pre-push "$@"' in warn[0], "a WARN names the line to add: " + out.stdout[-900:])
     expect(not [l for l in hook_lines(out) if l.startswith("FAIL")], "not a failure: " + "\n".join(hook_lines(out)))
+    put(d / ".husky/pre-push", '#!/usr/bin/env bash\n# bash .uak/githooks/pre-push "$@"\n')
+    out = doctor(r, d)
+    expect([l for l in out.stdout.splitlines() if l.startswith("WARN") and "pre-push" in l], "a commented-out call is not a call: " + "\n".join(hook_lines(out)))
     put(d / ".husky/pre-push", '#!/usr/bin/env bash\nbash .uak/githooks/pre-push "$@"\n')
     out = doctor(r, d)
     expect(not bad_lines(out) and [l for l in out.stdout.splitlines() if l.startswith("OK") and "pre-push" in l and ".husky" in l], "calling the kit's pre-push is accepted: " + "\n".join(hook_lines(out)))
@@ -153,6 +156,17 @@ def doctor_fails_on_a_missing_hooks_dir(r):
         fail = [l for l in out.stdout.splitlines() if l.startswith("FAIL") and "core.hooksPath" in l]
         expect(out.returncode != 0 and fail, "a missing dir fails: " + out.stdout[-900:])
         expect(value in fail[0] and "no hook" in fail[0] and "doctor --fix" in fail[0], "the message names the path, the effect and the fix: " + fail[0])
+    # Another manager's directory that its install has not made yet: --fix does not repoint it (husky, lefthook, pre-commit).
+    cfg(r, d, ".husky/_")
+    out = doctor(r, d, "--fix")
+    expect(r.g(d, "config", "--get", "core.hooksPath").stdout.strip() == ".husky/_", "a husky path is not repointed: " + out.stdout[-600:])
+    fail = [l for l in out.stdout.splitlines() if l.startswith("FAIL") and "core.hooksPath" in l]
+    expect(fail and "install" in fail[0] and "bash .uak/githooks/pre-commit" in fail[0] and out.returncode != 0, "the FAIL stays and names the way: " + out.stdout[-600:])
+    cfg(r, d, ".git-hooks-gone")
+    put(d / "lefthook.yml", "pre-commit:\n")
+    doctor(r, d, "--fix")
+    expect(r.g(d, "config", "--get", "core.hooksPath").stdout.strip() == ".git-hooks-gone", "a lefthook repo is not repointed either")
+    (d / "lefthook.yml").unlink()
     cfg(r, d, ".githooks-gone")
     doctor(r, d, "--fix")
     expect(r.g(d, "config", "--get", "core.hooksPath").stdout.strip() == ".uak/githooks", "--fix points at the kit's dir")
@@ -201,7 +215,8 @@ def notes(out):
 
 
 def wt_does_not_point_at_nothing(r):
-    f = r.fixture("hh-wt", count=2)
+    paths = {"HACK-00%d" % i: "src/n%d.txt" % i for i in range(1, 6)}
+    f = r.fixture("hh-wt", paths=paths, count=2)
     clone = f.clones[1]
     env = {"UAK_AGENT": "", "UAK_HUMAN": "", "UAK_REMOTE": "origin", "UAK_NOW": "1000100"}
 
@@ -233,11 +248,9 @@ def wt_does_not_point_at_nothing(r):
     r.g(clone, "config", "--unset", "core.hooksPath")
     shutil.rmtree(clone / ".githooks")
     r.g(clone, "checkout", "--", ".githooks")
-    f2 = r.fixture("hh-wt-ok", count=2)
-    clone2 = f2.clones[1]
-    out = r.run([r.bash, ".uak/bin/wt", "new", "HACK-001", "--agent", "hh-e"], cwd=clone2, env=env, allowed=None)
+    out = r.run([r.bash, ".uak/bin/wt", "new", "HACK-005", "--agent", "hh-e"], cwd=clone, env=env, allowed=None)
     expect(out.returncode == 0, "wt new with hooks: " + (out.stdout + out.stderr)[-400:])
-    expect(r.g(clone2, "config", "--get", "core.hooksPath").stdout.strip() == ".githooks", "wt sets the dir that holds the kit's hooks")
+    expect(r.g(clone, "config", "--get", "core.hooksPath").stdout.strip() == ".githooks", "wt sets the dir that holds the kit's hooks")
     expect(not notes(out), "and says nothing about it")
     return "left alone"
 

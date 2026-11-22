@@ -73,7 +73,13 @@ cur_hooks=$(git config --get core.hooksPath 2>/dev/null || true)
 # written before UAK-124 added pre-push, so it was never checked either.
 phys() { (cd "$1" 2>/dev/null && pwd -P); }
 lc() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }   # macOS and Windows compare paths without case
-calls_kit() { grep -Eqs "(uak/githooks|kit/\.githooks)/$2" "$1/$2" "$1/../$2"; }   # $1 = hooks dir, $2 = hook name
+# $1 = hooks dir, $2 = hook name. A comment line does not call anything (review of UAK-135).
+calls_kit() { grep -vhs '^[[:space:]]*#' "$1/$2" "$1/../$2" | grep -Eq "(uak/githooks|kit/\.githooks)/$2"; }
+# Another hook manager's mark (UAK-135 review): its install makes its hooks directory, so --fix must not repoint it.
+other_manager() {
+  case "$cur_hooks" in .husky|.husky/*|*/.husky|*/.husky/*) return 0;; esac
+  [ -d .husky ] || [ -f lefthook.yml ] || [ -f lefthook.yaml ] || [ -f .pre-commit-config.yaml ]
+}
 kit_src=; for s in kit/.githooks "${UAK_KIT_HOME:-$HOME/.uak-kit}/kit/.githooks"; do
   if [ -f "$s/pre-commit" ] && [ -f "$s/pre-push" ]; then kit_src=$s; break; fi
 done
@@ -91,7 +97,9 @@ if [ -z "$cur_hooks" ]; then
   if [ "$fix" = yes ] && [ -f "$hooks_dir/pre-commit" ]; then git config core.hooksPath "$hooks_dir" && ok "core.hooksPath=$hooks_dir (fixed)"
   else bad "core.hooksPath is not set: commits skip the scanner (doctor --fix)"; fi
 elif [ -z "$cur_dir" ]; then
-  if [ "$fix" = yes ] && [ -f "$hooks_dir/pre-commit" ]; then git config core.hooksPath "$hooks_dir" && ok "core.hooksPath=$hooks_dir (fixed; it was $cur_hooks, which does not exist)"
+  if other_manager; then
+    bad "core.hooksPath is $cur_hooks, which is not a directory: git runs no hook at all (secret scan, main-checkout guard and pre-push are off). It looks like another hook manager's (husky, lefthook or pre-commit): --fix does not repoint it. Run that manager's install, then have its pre-commit call 'bash .uak/githooks/pre-commit' and its pre-push call 'bash .uak/githooks/pre-push \"\$@\"'"
+  elif [ "$fix" = yes ] && [ -f "$hooks_dir/pre-commit" ]; then git config core.hooksPath "$hooks_dir" && ok "core.hooksPath=$hooks_dir (fixed; it was $cur_hooks, which does not exist)"
   elif [ -f "$hooks_dir/pre-commit" ]; then
     bad "core.hooksPath is $cur_hooks, which is not a directory: git runs no hook at all (secret scan, main-checkout guard and pre-push are off). Fix: bash .uak/bin/doctor --fix (sets core.hooksPath=$hooks_dir); or, if another hook manager makes $cur_hooks on its install, run that install and have its pre-commit call 'bash .uak/githooks/pre-commit'"
   else

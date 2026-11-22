@@ -145,8 +145,8 @@ CI_SECONDS = {
     1, "mcp_tools": 17,
     # UAK-131: test_merge_engine_policy, 142 s alone on the same Jetson, divided by 2.5.
     "test_merge_engine_policy": 57,
-    # UAK-135: test_hooks_health, 26 s alone on the same Jetson, divided by 2.5.
-    "test_hooks_health": 11,
+    # UAK-135: test_hooks_health, read from a Windows CI run (many git and bash processes: not the Jetson / 2.5 ratio).
+    "test_hooks_health": 130,
 }
 
 
