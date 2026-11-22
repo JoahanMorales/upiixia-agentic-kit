@@ -147,14 +147,17 @@ integrate_normal() { # TIP: the approval and the proof of the reviewed content; 
 # tree is the tip's, else the first single-parent commit whose subject names the task. Never the base's tip by default.
 # Why (review of UAK-117, 2026-11-21): UAK-030 and UAK-013 recorded another task's merge, so metrics stopped trusting it.
 # Does the subject on stdin name this task (its ID, as a whole word) or its PR number (#N)?
+MERGE_NAMES_AWK='
+  function names(l, id, pr,   t, i, k, a, b, s) {
+    t = tolower(l); i = tolower(id); k = index(t, i); s = 0
+    while (k > 0) { a = substr(t, k + length(i), 1); b = k > 1 ? substr(t, k - 1, 1) : " "
+      if (a !~ /[0-9a-z-]/ && b !~ /[0-9a-z-]/) s = 1
+      t = substr(t, k + 1); k = index(t, i) }
+    if (pr != "" && (l ~ ("#" pr "[^0-9]") || l ~ ("#" pr "$"))) s = 1
+    return s }'
 merge_names_task() { # ID PR_NUMBER
-  awk -v id="$1" -v pr="$2" '
-    { t = tolower($0); i = tolower(id); k = index(t, i); s = 0
-      while (k > 0) { a = substr(t, k + length(i), 1); b = k > 1 ? substr(t, k - 1, 1) : " "
-        if (a !~ /[0-9a-z-]/ && b !~ /[0-9a-z-]/) s = 1
-        t = substr(t, k + 1); k = index(t, i) }
-      if (pr != "" && ($0 ~ ("#" pr "[^0-9]") || $0 ~ ("#" pr "$"))) s = 1
-      if (s) f = 1 }
+  awk -v id="$1" -v pr="$2" "$MERGE_NAMES_AWK"'
+    { if (names($0, id, pr)) f = 1 }
     END { exit !f }'
 }
 find_merge_commit() { # TIP
@@ -184,18 +187,23 @@ find_merge_commit() { # TIP
     done
     MERGE_WHY="no merge of $ID on $BASE: the first commit with this tip is another task's merge and none names $ID"; return 0
   fi
-  # Not an ancestor: a squash or a rebase. The commit with the tip's own tree, else a single-parent commit that names the task.
+  # Not an ancestor: a squash or a rebase. One git log from the base back to the fork point (--not tip), oldest first; awk
+  # compares the trees and the subjects in that one pass (a process per commit made 2000 commits cost 1995 calls, 45 s).
+  # The commit with the tip's own tree, else the first single-parent commit that names the task. The walk is capped.
+  local cap=5000 res bytree byname seen
   ttree=$(git -C "$TX" rev-parse "$tip^{tree}" 2>/dev/null)
-  while IFS=' ' read -r c p sub; do
-    [ -n "$c" ] || continue
-    if [ "$(git -C "$TX" rev-parse "$c^{tree}")" = "$ttree" ]; then MERGE_REC=$c; return 0; fi
-  done < <(git -C "$TX" log --first-parent --reverse --format='%H %P' "$base" --not "$tip" 2>/dev/null | awk 'NF == 2')
-  while IFS=' ' read -r c p sub; do
-    [ -n "$c" ] || continue
-    if [ -z "$p" ] || [ "${p#* }" != "$p" ]; then continue; fi
-    printf '%s\n' "$sub" | merge_names_task "$ID" "$pr" && { MERGE_REC=$c; return 0; }
-  done < <(git -C "$TX" log --first-parent --reverse --format='%H %P %s' "$base" --not "$tip" 2>/dev/null)
+  res=$(git -C "$TX" log --first-parent --reverse -n "$cap" --format='%H %T %P%x09%s' "$base" --not "$tip" 2>/dev/null | awk -v tt="$ttree" -v id="$ID" -v pr="$pr" "$MERGE_NAMES_AWK"'
+    { n = split(substr($0, 1, index($0, "\t") - 1), a, " "); if (n != 3) next
+      if (t == "" && a[2] == tt) t = a[1]
+      if (m == "" && names(substr($0, index($0, "\t") + 1), id, pr)) m = a[1] }
+    END { print t "," m "," NR }')
+  IFS=, read -r bytree byname seen <<EOF_MERGE
+$res
+EOF_MERGE
+  if [ -n "$bytree" ]; then MERGE_REC=$bytree; return 0; fi
+  if [ -n "$byname" ]; then MERGE_REC=$byname; return 0; fi
   MERGE_WHY="the tip is not in the history of $BASE (squash or rebase) and no commit has its tree or names $ID"
+  [ "${seen:-0}" -lt "$cap" ] || MERGE_WHY="$MERGE_WHY (looked at the last $cap commits only)"
   return 0
 }
 # A task nobody claimed (or whose claim never reached REVIEW) gets its record here, from the backlog and the branch
