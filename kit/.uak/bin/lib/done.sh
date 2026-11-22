@@ -189,12 +189,13 @@ find_merge_commit() { # TIP
   fi
   # Not an ancestor: a squash or a rebase. One git log from the base back to the fork point (--not tip), oldest first; awk
   # compares the trees and the subjects in that one pass (a process per commit made 2000 commits cost 1995 calls, 45 s).
-  # The commit with the tip's own tree, else the first single-parent commit that names the task. The walk is capped.
-  local cap=5000 res bytree byname seen
+  # The first single-parent commit with the tip's own tree, else the first non-root commit (a merge too) that names the task.
+  # No cap: the walk is bounded by BASE --not TIP, and a window of the newest commits would pick the wrong "first" one.
+  local res bytree byname seen
   ttree=$(git -C "$TX" rev-parse "$tip^{tree}" 2>/dev/null)
-  res=$(git -C "$TX" log --first-parent --reverse -n "$cap" --format='%H %T %P%x09%s' "$base" --not "$tip" 2>/dev/null | awk -v tt="$ttree" -v id="$ID" -v pr="$pr" "$MERGE_NAMES_AWK"'
-    { n = split(substr($0, 1, index($0, "\t") - 1), a, " "); if (n != 3) next
-      if (t == "" && a[2] == tt) t = a[1]
+  res=$(git -C "$TX" log --first-parent --reverse --format='%H %T %P%x09%s' "$base" --not "$tip" 2>/dev/null | awk -v tt="$ttree" -v id="$ID" -v pr="$pr" "$MERGE_NAMES_AWK"'
+    { n = split(substr($0, 1, index($0, "\t") - 1), a, " "); if (n < 3) next
+      if (t == "" && n == 3 && a[2] == tt) t = a[1]
       if (m == "" && names(substr($0, index($0, "\t") + 1), id, pr)) m = a[1] }
     END { print t "," m "," NR }')
   IFS=, read -r bytree byname seen <<EOF_MERGE
@@ -203,7 +204,6 @@ EOF_MERGE
   if [ -n "$bytree" ]; then MERGE_REC=$bytree; return 0; fi
   if [ -n "$byname" ]; then MERGE_REC=$byname; return 0; fi
   MERGE_WHY="the tip is not in the history of $BASE (squash or rebase) and no commit has its tree or names $ID"
-  [ "${seen:-0}" -lt "$cap" ] || MERGE_WHY="$MERGE_WHY (looked at the last $cap commits only)"
   return 0
 }
 # A task nobody claimed (or whose claim never reached REVIEW) gets its record here, from the backlog and the branch

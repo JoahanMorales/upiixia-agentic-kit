@@ -125,16 +125,25 @@ def unknown_when_not_found(r):
     return "unknown, with the reason in the event"
 
 
-def long_history(r, f, count, touch):
+def long_history(r, f, count, touch, named=None):
     """`count` first-parent commits on main in one git fast-import (a process per commit would make the fixture as slow as
-    the code under test). touch=False: empty commits, the tree never changes; touch=True: each one adds its own file."""
+    the code under test). touch=False: empty commits, the tree never changes; touch=True: each one adds its own file.
+    named: {index: (subject, is_merge)} replaces that commit's subject; a merge has a second parent (a side commit)."""
+    named = named or {}
     seed_pull(r, f)
     lines = []
     for i in range(count):
-        msg = "hist %d" % i
-        lines += ["commit refs/heads/main", "committer t <t@t> %d +0000" % (1000000 + i), "data %d" % len(msg), msg]
-        if i == 0:
-            lines += ["from refs/heads/main^0"]
+        msg, is_merge = named.get(i, ("hist %d" % i, False))
+        prev = "refs/heads/main^0" if i == 0 else ":%d" % i
+        if is_merge:
+            side = "side %d" % i
+            lines += ["commit refs/heads/side", "mark :%d" % (100000 + i), "committer t <t@t> %d +0000" % (1000000 + i), "data %d" % len(side), side,
+                      "from " + prev, "M 100644 inline hist/side%d.txt" % i, "data 1", "x", ""]
+        lines += ["commit refs/heads/main", "mark :%d" % (i + 1), "committer t <t@t> %d +0000" % (1000000 + i), "data %d" % len(msg), msg]
+        if i == 0 or is_merge:
+            lines += ["from " + prev]
+        if is_merge:
+            lines += ["merge :%d" % (100000 + i)]
         if touch:
             lines += ["M 100644 inline hist/f%d.txt" % i, "data 1", "x"]
         lines += [""]
@@ -165,11 +174,11 @@ def integrate_counting(r, f, task="HACK-001"):
     return len(log.read_text().split()), field_of(record(f, task), "Merge-Commit")
 
 
-def stale_tip_scenario(r, name, history, touch, subject, rode_along):
+def stale_tip_scenario(r, name, history, touch, subject, rode_along, named=None):
     f = fx3(r, name)
     tip = in_review(r, f, 0, "HACK-001", "src/one.txt", "squashed\n")
     approve_by_third(r, f, "HACK-001", tip)
-    long_history(r, f, history, touch)
+    long_history(r, f, history, touch, named)
     squash_into_main(r, f, f.branches[0], msg=subject)
     if rode_along:  # the squash also carries another change: its tree is not the tip's, the subject must name the task
         seed(r, f, "reset", "-q", "--soft", "HEAD~1")
@@ -178,23 +187,50 @@ def stale_tip_scenario(r, name, history, touch, subject, rode_along):
     squashed = r.g(f.seed, "rev-parse", "HEAD").stdout.strip()
     unrelated_on_main(r, f)
     calls, got = integrate_counting(r, f)
-    return squashed, calls, got
+    return squashed, calls, got, f
 
 
 def lookup_cost_does_not_grow_with_history(r):
-    sq_s, short, got_s = stale_tip_scenario(r, "mcf-hist-short", 10, False, "a squash with a subject that names nothing", False)
-    sq_l, long, got_l = stale_tip_scenario(r, "mcf-hist-long", 300, False, "a squash with a subject that names nothing", False)
+    sq_s, short, got_s, _ = stale_tip_scenario(r, "mcf-hist-short", 10, False, "a squash with a subject that names nothing", False)
+    sq_l, long, got_l, _ = stale_tip_scenario(r, "mcf-hist-long", 300, False, "a squash with a subject that names nothing", False)
     expect(got_s == sq_s and got_l == sq_l, "the squash is found by tree: %s %s, want %s %s" % (got_s, got_l, sq_s, sq_l))
     expect(long - short < 10, "a stale tip: 300 commits cost %d git processes, 10 commits %d (one process per commit?)" % (long, short))
     return "git processes %d (10 commits) vs %d (300 commits)" % (short, long)
 
 
 def forge_subject_found_in_long_history(r):
-    sq, calls, got = stale_tip_scenario(r, "mcf-hist-forge", 300, True, "HACK-001: the work (#1)", True)
+    sq, calls, got, _ = stale_tip_scenario(r, "mcf-hist-forge", 300, True, "HACK-001: the work (#1)", True)
     expect(got == sq, "the squash that names the task (#1) is found in a long history: %s, want %s" % (got, sq))
-    sq2, calls2, got2 = stale_tip_scenario(r, "mcf-hist-forge2", 300, True, "a squash that names nothing", True)
+    sq2, calls2, got2, _ = stale_tip_scenario(r, "mcf-hist-forge2", 300, True, "a squash that names nothing", True)
     expect(got2 == "unknown", "nothing names the task and the trees differ: unknown, got %s" % got2)
     return "named squash found, unnamed one unknown (%d, %d git processes)" % (calls, calls2)
+
+
+def sha_of(r, f, subject):
+    out = r.g(f.seed, "log", "--first-parent", "--format=%H", "--fixed-strings", "--grep=" + subject, "origin/main").stdout.split()
+    expect(len(out) == 1, "fixture: one commit with the subject %r, got %s" % (subject, out))
+    return out[0]
+
+
+def first_naming_commit_wins_in_a_long_history(r):
+    """The first commit since the fork that names the task is the answer, however long the history (a window of the newest
+    commits made "first" the oldest of the window): the oldest named commit is found, a later typo fix is not."""
+    h = {40: ("HACK-001 the true change", False), 500: ("follow-up HACK-001 typo", False)}
+    _, _, got, f = stale_tip_scenario(r, "mcf-first-named", 600, True, "a squash that names nothing", True, named=h)
+    want = sha_of(r, f, "HACK-001 the true change")
+    expect(got == want, "the oldest commit naming the task is %s, got %s" % (want[:7], got))
+    return "oldest named commit of 600 wins"
+
+
+def merge_commit_naming_the_task_is_found(r):
+    """Pinned: the name pass does not skip a commit with two parents (main never did): a true merge "Merge HACK-001 ..." of
+    a rebased tip is the task's own, and it is returned before a later single-parent commit that names the task."""
+    h = {30: ("Merge HACK-001 rebased", True), 400: ("follow-up HACK-001 typo", False)}
+    _, _, got, f = stale_tip_scenario(r, "mcf-merge-named", 500, True, "a squash that names nothing", True, named=h)
+    want = sha_of(r, f, "Merge HACK-001 rebased")
+    expect(len(r.g(f.seed, "rev-list", "--parents", "-n", "1", want).stdout.split()) == 3, "fixture: it is a merge commit")
+    expect(got == want, "the task's own merge commit is %s, got %s" % (want[:7], got))
+    return "a two-parent commit naming the task is found"
 
 
 def metrics_counts_untrusted_records(r):
@@ -227,7 +263,8 @@ def metrics_counts_untrusted_records(r):
 
 
 TESTS = [integrate_records_its_own_merge, two_tasks_merged_together_get_their_own, squash_is_found_by_tree, unknown_when_not_found,
-         lookup_cost_does_not_grow_with_history, forge_subject_found_in_long_history]
+         lookup_cost_does_not_grow_with_history, forge_subject_found_in_long_history,
+         first_naming_commit_wins_in_a_long_history, merge_commit_naming_the_task_is_found]
 
 
 def main():
