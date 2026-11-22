@@ -218,6 +218,10 @@ def selector_keeps_the_commands_tests(r):
     for rel in (".uak/bin/lib/net.sh", ".uak/bin/demo", ".uak/bin/lib/smoke-init.sh", ".uak/bin/lib/security.sh"):
         everything, picked = select_real(r, r.package, rel)
         expect(everything or len(picked) >= 3, "%s: fewer than 3 test files is too few to trust: %s" % (rel, picked))
+    # This file names every engine file in MUST_SELECT: it must not be what lifts a selection over the floor (review of round 2).
+    for rel in (".uak/bin/pace", ".uak/bin/timeline", ".uak/bin/demo"):
+        everything, picked = select_real(r, r.package, rel)
+        expect(everything or len([t for t in picked if t != "test_smoke_affected.py"]) >= 3, "%s: the floor ignores this file: %s" % (rel, picked))
     return "%d pairs, plumbing runs everything, floor of 3" % checked
 
 
