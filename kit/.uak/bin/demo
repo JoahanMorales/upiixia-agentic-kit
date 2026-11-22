@@ -4,6 +4,7 @@
 # Shows: graph waves → uak start → parallel claims → an overlapping claim rejected → the red first → a bounded fix loop →
 # PR + review by another agent → gated merge → a dependent task unlocked → board + stats.
 set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 LC_ALL=C; export LC_ALL
 keep=no pause=1
 for a in "$@"; do case "$a" in --keep) keep=yes;; --fast) pause=0;; *) printf 'Usage: demo [--keep] [--fast]\n' >&2; exit 2;; esac; done

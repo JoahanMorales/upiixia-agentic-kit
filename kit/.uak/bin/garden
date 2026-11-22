@@ -7,6 +7,7 @@
 # drift from the code; a rule nobody needed costs context in every session, and a correction a human typed twice is
 # a rule (better: a check) the harness lacks. Run it after a big change and at every retro.
 set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 LC_ALL=C; export LC_ALL
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 days=14

@@ -601,4 +601,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import ledger_py  # UAK-136: closes this command's ledger line
+    sys.exit(ledger_py.run(main))

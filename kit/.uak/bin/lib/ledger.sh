@@ -37,6 +37,39 @@ ledger_end() { # EXIT_CODE ["TASK" when the command has not set ID]
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ep" "${UAK_CALLER:+$UAK_CALLER-}${CMD:-?}" "$t" "$rc" "${LG_CODE:--}" "$ms" "$ag" "$hn" \
     >> "$LG_DIR/uak-ledger.pending" 2>/dev/null || :
 }
+# An exec'd script of the engine (lib/commands.tsv run=exec) keeps the dispatcher's process, so the line is closed by the script
+# itself (UAK-136; no waiting parent, signals reach the script): `uak` calls ledger_handoff just before the exec, the script calls
+# ledger_owed once at its top, and an EXIT trap writes the line with the real exit code and milliseconds. The script's own EXIT
+# traps are chained through a `trap` function (they all read `trap 'CMD' EXIT`). Not covered, so written at launch with exit and
+# ms "-": wrappers that exec Python themselves (autopsy, design, design-gallery) and `pace set` (re-execs itself). dash, timeline
+# and metrics close the line from Python (lib/ledger_py.py). A signal death writes no line: bash defers a trap while a foreground
+# command runs (measured: TERM waited 4 s for a sleep), so a trap would make the script outlive the signal.
+ledger_handoff() { # ["TASK"]: the dispatcher, just before `exec bash script`
+  unset UAK_LG_OWED
+  [ "$LG_ON" = 1 ] || return 0
+  case "$CMD:${1:-}" in autopsy:*|design:*|design-gallery:*|pace:set) ledger_end - "${1:-}"; return 0;; esac
+  LG_ON=0
+  export UAK_LG_OWED=$LG_DIR UAK_LG_CMD=$CMD UAK_LG_TASK=${1:-} UAK_LG_AGENT=${AGENT:-${UAK_AGENT:-}}
+  [ "${#LG_T0}" -lt 15 ] || export UAK_LG_T0=$LG_T0
+}
+ledger_owed() { # an exec'd engine script, once, at its top (before it sets traps of its own)
+  [ -n "${UAK_LG_OWED:-}" ] || return 0
+  LG_ON=1 LG_DIR=$UAK_LG_OWED LG_CODE= LG_X_CMD=$UAK_LG_CMD LG_X_TASK=${UAK_LG_TASK:-} LG_X_AG=${UAK_LG_AGENT:-}
+  lg_clock
+  if [ "${#UAK_LG_T0}" -ge 15 ] && [ -n "$LG_US" ]; then LG_T0=$UAK_LG_T0; else LG_T0=${LG_US:-$SECONDS}; fi
+  unset UAK_LG_OWED UAK_LG_CMD UAK_LG_TASK UAK_LG_AGENT UAK_LG_T0   # a nested uak never closes this line twice
+  trap() { # chains the script's own EXIT trap with the ledger line
+    if [ "$#" -eq 2 ] && { [ "$2" = EXIT ] || [ "$2" = 0 ]; }; then
+      case "$1" in
+        -|'') builtin trap 'lg_rc=$?; ledger_exit "$lg_rc"' EXIT;;
+        *) builtin trap "lg_rc=\$?; $1
+ledger_exit \"\$lg_rc\"" EXIT;;
+      esac
+    else builtin trap "$@"; fi
+  }
+  builtin trap 'lg_rc=$?; ledger_exit "$lg_rc"' EXIT
+}
+ledger_exit() { CMD=$LG_X_CMD AGENT=$LG_X_AG; ledger_end "$1" "$LG_X_TASK"; }
 # Is the oldest pending ledger line more than 10 min old? Bash 5: the first line's epoch against the clock, builtins only
 # (a find per command would cost a process on every call); bash 3.2 or a first line without epoch asks find (the file's age).
 ledger_due() { # DIR

@@ -7,6 +7,7 @@
 # Exit: 0 ok · 1 cycle, missing dependency or wave 1 below --min-wave1 · 2 usage.
 # Portable awk (mawk-safe: no {n} intervals, no gensub, no arrays of arrays).
 set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }  # closes the ledger line (UAK-136)
 MSYS2_ARG_CONV_EXCL="refs/;origin/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXCL  # Git Bash: keep ref:path arguments
 LC_ALL=C; export LC_ALL
 mermaid=no min1=0 file= assign=no

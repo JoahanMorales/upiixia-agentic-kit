@@ -187,8 +187,85 @@ def exec_commands_record_code_and_ms(r):
     return "exec'd commands record exit code and ms"
 
 
+PROBE = """#!/usr/bin/env bash
+set -u
+[ -z "${UAK_LG_OWED:-}" ] || { . "${0%/*}/lib/ledger.sh"; ledger_owed; }
+trap 'printf "own-trap\\n" >> "$PROBE_OUT"' EXIT
+printf '%s %s\\n' "$$" "$PPID" >> "$PROBE_OUT"
+case "${1:-}" in
+  loop) sleep 30 & wait $!;;
+  nested) bash .uak/bin/uak status > /dev/null 2>&1;;
+  code) exit 7;;
+esac
+"""
+
+
+def probe(f):
+    """A scripted exec row of the fixture's own engine: it calls ledger_owed like the engine's scripts do."""
+    w = f.worktrees[0]
+    b = w / ".uak" / "bin"
+    (b / "lgprobe").write_text(PROBE, encoding="utf-8", newline="\n")
+    with open(str(b / "lib" / "commands.tsv"), "a", encoding="utf-8", newline="\n") as t:
+        t.write("lgprobe\texec\t-\tlgprobe\tuak_cli\tlgprobe   test row\n")
+    return w, w / "probe.out"
+
+
+def exec_script_keeps_the_callers_process(r):
+    """UAK-136: the dispatcher execs the script: no waiting `uak` wrapper, its own EXIT trap still runs, one line with its code."""
+    f = r.fixture("ledger-tree", count=1)
+    w, out = probe(f)
+    common = common_of(r, w)
+    pidfile = w / "pid.txt"
+    res = f.r.run([f.r.bash, "-c", 'echo $$ > pid.txt; exec bash .uak/bin/uak lgprobe code'], cwd=w, allowed=None,
+                  env=dict(ENV, PROBE_OUT=str(out)))
+    expect(res.returncode == 7, "exit code must pass through: %d" % res.returncode)
+    lines = out.read_text(encoding="utf-8").split()
+    expect(lines[0] == pidfile.read_text().strip(), "the script must be the caller's own process (no wrapper): %r vs %s" % (lines, pidfile.read_text()))
+    expect("own-trap" in lines, "the script's own EXIT trap must still run: %r" % lines)
+    got = rows(common)
+    expect(len(got) == 1 and got[0][1] == "lgprobe" and got[0][3] == "7" and got[0][5].isdigit(), "one line with the real code: %r" % got)
+    return "exec keeps the process; own trap chained"
+
+
+def term_stops_an_exec_script_at_once(r):
+    """UAK-136: TERM on the process stops the script within a second (it is not held by a wrapper or a deferred trap)."""
+    import signal
+    import subprocess
+    import time
+    f = r.fixture("ledger-term", count=1)
+    w, out = probe(f)
+    env = dict(os.environ, **dict(ENV, PROBE_OUT=str(out)))
+    p = subprocess.Popen([f.r.bash, ".uak/bin/uak", "lgprobe", "loop"], cwd=str(w), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(100):
+        if out.exists() and out.read_text(encoding="utf-8").strip():
+            break
+        time.sleep(0.1)
+    t0 = time.time()
+    p.send_signal(signal.SIGTERM)
+    try:
+        p.wait(timeout=5)
+    finally:
+        if p.poll() is None:
+            p.kill()
+    expect(time.time() - t0 < 1.5 and p.returncode != 0, "TERM must stop the script at once: rc %s after %.1f s" % (p.returncode, time.time() - t0))
+    return "TERM stops it"
+
+
+def one_line_when_the_script_calls_uak_again(r):
+    """UAK-136: a `uak` call inside an exec'd script writes its own line, and the outer line is closed once."""
+    f = r.fixture("ledger-nested", count=1)
+    w, out = probe(f)
+    common = common_of(r, w)
+    res = f.r.run([f.r.bash, ".uak/bin/uak", "lgprobe", "nested"], cwd=w, allowed=None, env=dict(ENV, PROBE_OUT=str(out)))
+    expect(res.returncode == 0, res.stderr[-300:])
+    cmds = sorted(x[1] for x in rows(common))
+    expect(cmds == ["lgprobe", "status"], "one line for the script and one for the nested uak: %r" % cmds)
+    return "no second line"
+
+
 TESTS = [a_command_appends_one_ledger_line, a_failed_command_records_its_code, flush_publishes_and_empties,
-         the_file_is_capped_with_counts, a_session_with_no_errors_still_publishes, blackbox_off_writes_nothing, output_and_exit_code_unchanged, exec_commands_record_code_and_ms]
+         the_file_is_capped_with_counts, a_session_with_no_errors_still_publishes, blackbox_off_writes_nothing, output_and_exit_code_unchanged, exec_commands_record_code_and_ms,
+         exec_script_keeps_the_callers_process, term_stops_an_exec_script_at_once, one_line_when_the_script_calls_uak_again]
 
 
 def main():
