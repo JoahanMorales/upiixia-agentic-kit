@@ -37,5 +37,6 @@ Pace: auto
 Max-Worktree-Agents: 4
 Blackbox: on
 Additive-Paths: -
+Generated: kit/.uak/settings/known-files.txt = python3 scripts/kit_hashes.py
 Test-First: yes
 ```
