@@ -1772,10 +1772,10 @@
                 </p>
                 <div class="prepare-row">
                   <div>
-                    <label class="field-label" for="human-name">Your name (lowercase, for example ana)</label>
+                    <label class="field-label" for="human-name">Your name (from your Git identity)</label>
                     <input type="text" id="human-name" maxlength="32" autocomplete="off" spellcheck="false" readonly />
                   </div>
-                  <button type="button" class="secondary-button" id="human-save">Save name</button>
+                  <button type="button" class="secondary-button" id="human-save">Use this name</button>
                 </div>
                 <p class="hint" id="human-status" role="status"></p>
                 </div>
@@ -2097,10 +2097,10 @@
           </p>
           <div class="prepare-row">
             <div>
-              <label class="field-label" for="team-name">Your name (lowercase, for example ana)</label>
+              <label class="field-label" for="team-name">Your name (from your Git identity)</label>
               <input type="text" id="team-name" maxlength="32" autocomplete="off" spellcheck="false" readonly />
             </div>
-            <button type="button" class="primary" id="team-name-save">Save name</button>
+            <button type="button" class="primary" id="team-name-save">Use this name</button>
           </div>
           <p class="hint" id="team-name-status" role="status"></p>
         </div>
@@ -2283,20 +2283,30 @@
         "use strict";
         // UAK-153: the address carries a one-time code, not the session. The server exchanges it once for the token.
         var token = "",
+          session = Promise.resolve(),
           codeMatch = /^#code=([A-Za-z0-9_-]+)$/.exec(location.hash);
-        if (codeMatch) {
-          try {
-            var exchange = new XMLHttpRequest();
-            exchange.open("POST", "/api/session", false);
-            exchange.setRequestHeader("Content-Type", "application/json");
-            exchange.send(JSON.stringify({ code: codeMatch[1] }));
-            if (exchange.status === 200) token = JSON.parse(exchange.responseText).token || "";
-          } catch (e) {}
-        }
         try {
-          if (token) sessionStorage.setItem("uak-setup-token", token);
-          else token = sessionStorage.getItem("uak-setup-token") || "";
+          token = sessionStorage.getItem("uak-setup-token") || "";
         } catch (e) {}
+        if (codeMatch) {
+          // Asynchronous, so nothing blocks the page: the first request (below) waits for it.
+          session = fetch("/api/session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: codeMatch[1] }),
+          })
+            .then(function (response) {
+              return response.ok ? response.json() : null;
+            })
+            .then(function (body) {
+              if (!body || !body.token) return;
+              token = body.token;
+              try {
+                sessionStorage.setItem("uak-setup-token", token);
+              } catch (e) {}
+            })
+            .catch(function () {});
+        }
         history.replaceState(null, "", location.pathname);
         var state = {},
           choices = {},
@@ -4851,7 +4861,10 @@
             } else loadDashboard();
           }
         }
-        api("status")
+        session
+          .then(function () {
+            return api("status");
+          })
           .then(function (data) {
             // The person may already have opened the dashboard: restore setup's step without leaving it.
             var stay = currentSection === "dashboard";

@@ -278,16 +278,19 @@ def token_is_not_printed_or_in_argv(root, tmp):
     opener.write_text("#!/bin/sh\nprintf '%%s\\n' \"$@\" >> '%s'\n" % str(seen).replace("'", "'\\''"), encoding="utf-8")
     opener.chmod(0o755)
     env = human_env(BROWSER=str(opener) + " %s", DISPLAY=":0")
-    proc = start_wizard(root, tmp, target, env, args=())
+    # Only Linux's webbrowser runs the program named by BROWSER; macOS and Windows open their own, so there the
+    # terminal and the launcher are checked and the opener's arguments are not.
+    opens = sys.platform.startswith("linux")
+    proc = start_wizard(root, tmp, target, env, args=() if opens else ("--no-open",))
     try:
         lines = first_lines(proc, 2)
         assert lines and "UAK SETUP" in lines[0], lines
         port = int(re.search(r"127\.0\.0\.1:(\d+)", lines[0]).group(1))
         deadline = time.time() + 20
-        while time.time() < deadline and not seen.is_file():
+        while opens and time.time() < deadline and not seen.is_file():
             time.sleep(0.2)
         opened = seen.read_text(encoding="utf-8") if seen.is_file() else ""
-        assert opened, "the browser was opened"
+        assert opened or not opens, "the browser was opened"
         code = launcher_code(lines) or launcher_code(opened.splitlines())
         assert code, "the one-time code is in the launcher page, which the terminal names: %r %r" % (lines, opened)
         assert code not in opened and code not in "".join(lines), "the code is neither printed nor in the opener's argv"

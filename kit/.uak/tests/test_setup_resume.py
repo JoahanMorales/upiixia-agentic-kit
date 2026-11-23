@@ -151,12 +151,21 @@ def restart_lands_on_the_team_step(root, tmp):
                             encoding="utf-8", errors="replace")
     try:
         box = {}
-        reader = threading.Thread(target=lambda: box.setdefault("line", proc.stdout.readline()), daemon=True)
+        reader = threading.Thread(target=lambda: box.update(lines=[proc.stdout.readline(), proc.stdout.readline()]), daemon=True)
         reader.start()
         reader.join(60)
-        match = re.search(r"UAK SETUP http://127\.0\.0\.1:(\d+)/#(\S+)", box.get("line", ""))
+        # UAK-153: the printed address holds no secret; the page opens from a launcher file with a one-time code.
+        box["line"] = (box.get("lines") or [""])[0]
+        match = re.search(r"UAK SETUP http://127\.0\.0\.1:(\d+)/\s*$", box.get("line", ""))
         assert match, "setup prints its address: %r" % box
-        server = types.SimpleNamespace(server_port=int(match.group(1)), token=match.group(2))
+        launcher = re.search(r"Launcher file: (.+\.html)\s*$", box["lines"][1])
+        assert launcher, "setup names the launcher file: %r" % box
+        code_in = re.search(r"#code=([A-Za-z0-9_-]+)", Path(launcher.group(1)).read_text(encoding="utf-8"))
+        assert code_in, "the launcher carries a one-time code"
+        server = types.SimpleNamespace(server_port=int(match.group(1)), token="")
+        code, body, _ = wizard.request(server, "POST", "/api/session", {"code": code_in.group(1)}, token=False)
+        assert code == 200, body
+        server.token = json.loads(body)["token"]
         code, body, _ = wizard.request(server, "GET", "/api/status")
         state = json.loads(body)
         assert code == 200, state
@@ -304,6 +313,7 @@ def name_persists_per_project(root, tmp):
     with tp.live(a, tt.Team()) as srv:
         state = tp.post(srv, "/api/inspect", {"target": str(a)})[1]
         assert state.get("human") == "ana" and state.get("human_source") == "project", state
+        tp.git(b, "config", "user.name", "Bob")  # UAK-153: the name is the checkout's Git identity
         tp.post(srv, "/api/inspect", {"target": str(b)})
         assert tp.post(srv, "/api/human", {"name": "bob"})[0] == 200
         assert tp.post(srv, "/api/inspect", {"target": str(a)})[1].get("human") == "ana"
@@ -368,6 +378,7 @@ def name_persists_per_project(root, tmp):
         assert code == 400 and body.get("need") == "human", body
         code, body = tp.post(srv, "/api/team/reviewer", {"confirm": "dan-r"})
         assert code == 400 and body.get("need") == "human", body
+    tp.git(d, "config", "user.name", "Dan")  # UAK-153: the name is the checkout's Git identity
     with tp.live(d, tt.Team()) as srv:
         tp.post(srv, "/api/inspect", {"target": str(d)})
         assert tp.post(srv, "/api/human", {"name": "dan"})[0] == 200
