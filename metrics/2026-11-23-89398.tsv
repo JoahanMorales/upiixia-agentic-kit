@@ -1,0 +1,15 @@
+# ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
+1795390453	done	UAK-150	3	tests-weakened	3192	kit-a1	claude-code
+1795390517	status	UAK-150	0	-	3209	kit-r2	claude-code
+1795390565	review	UAK-148	0	-	4034	kit-r1	claude-code
+1795390776	lint	-	0	-	945	kit-lint	claude-code
+1795390787	lint	-	0	-	852	kit-lint	claude-code
+1795390797	lint	-	0	-	870	kit-lint	claude-code
+1795390807	lint	-	0	-	921	kit-lint	claude-code
+1795390818	lint	-	0	-	959	kit-lint	claude-code
+1795390828	lint	-	0	-	950	kit-lint	claude-code
+1795390839	lint	-	0	-	974	kit-lint	claude-code
+1795390849	lint	-	0	-	879	kit-lint	claude-code
+1795390927	lint	-	0	-	893	kit-lint	claude-code
+1795390936	lint	-	0	-	820	kit-lint	claude-code
+1795391222	lint	-	0	-	898	kit-a2	claude-code
