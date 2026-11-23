@@ -11,6 +11,7 @@
 Why (CI of v6.5.0 to v6.7.0): these three failed and passed on a rerun on at least five pushes, and "every run green"
 meant rerunning jobs by hand. Standard library only. Run: python3 kit/.uak/tests/test_flaky_guard.py [--case NAME]."""
 import argparse
+import concurrent.futures
 import os
 import subprocess
 import sys
@@ -31,6 +32,7 @@ exec /bin/date "$@"
 """
 RUNS = 20
 RACE_RUNS = 60  # without the engine fix about 4 in 10 of them remove the parent's temp dir
+POOL_WORKERS = 4  # twenty_runs_under_load (test_flaky_guard_race.py): RUNS jobs of each of three kinds in a pool of this size
 
 
 class Failure(Exception):
@@ -40,6 +42,18 @@ class Failure(Exception):
 def expect(cond, msg):
     if not cond:
         raise Failure(msg)
+
+
+def hog_count():
+    return max(1, (os.cpu_count() or 2) // 2)
+
+
+def start_hog():
+    return subprocess.Popen([sys.executable, "-c", "while True: pass"])
+
+
+def make_pool(workers):
+    return concurrent.futures.ThreadPoolExecutor(max_workers=workers)
 
 
 def sh(cmd, env=None, timeout=600):

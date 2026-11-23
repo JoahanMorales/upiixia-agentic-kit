@@ -13,13 +13,12 @@ Standard library only. Run: python3 kit/.uak/tests/test_flaky_guard_race.py [--c
 import argparse
 import concurrent.futures
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_flaky_guard import MCP_TEST, RUNS, expect, lease_once, mcp_once, picker_once  # noqa: E402
+from test_flaky_guard import MCP_TEST, POOL_WORKERS, RUNS, expect, hog_count, lease_once, make_pool, mcp_once, picker_once, start_hog  # noqa: E402
 
 
 def twenty_runs_under_load():
@@ -28,10 +27,10 @@ def twenty_runs_under_load():
     jobs = [("lease", lease_once)] * RUNS + [("mcp", mcp_once)] * RUNS + [("picker", picker_once)] * RUNS
     if not MCP_TEST.is_file():
         jobs = [j for j in jobs if j[0] != "mcp"]
-    hogs = [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(max(1, (os.cpu_count() or 2) // 2))]
+    hogs = [start_hog() for _ in range(hog_count())]
     started, failures = time.time(), []
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        with make_pool(POOL_WORKERS) as pool:
             futures = {pool.submit(fn): (i, name) for i, (name, fn) in enumerate(jobs)}
             for f in concurrent.futures.as_completed(futures):
                 try:
