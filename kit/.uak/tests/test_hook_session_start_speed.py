@@ -939,6 +939,17 @@ def stop_live(r, w, proc, pid):
     expect(not alive(r, w, pid), "test cleanup: PID %d is gone" % pid)
 
 
+def settle_once(r, w, seconds=40):
+    """Also wait for the single-flight jobs (pace, map build), which settle() does not see."""
+    settle(r, w, seconds)
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    deadline = time.monotonic() + seconds
+    while list(gd.glob("uak-once.*.running")):
+        expect(time.monotonic() < deadline, "a pace or map build job never finished within %d s" % seconds)
+        time.sleep(0.25)
+    settle(r, w, seconds)
+
+
 def bash_counts(control, *names):
     return {n: len((control / (n + ".calls")).read_text().split()) if (control / (n + ".calls")).exists() else 0
             for n in names}
@@ -959,8 +970,8 @@ def corrupt_time_file_does_not_end_the_hook(r):
     counting_stubs(r, w, control)
     gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
     extra = {"UAK_START_WAIT": "1", "UAK_ONCE_DIR": control.as_posix()}
-    _, reference = start(r, w, "agent-1", **extra)
-    settle(r, w)
+    _, reference = start(r, w, "agent-1", **dict(extra, UAK_START_WAIT="60"))
+    settle_once(r, w)
     tail = [l for l in reference.splitlines() if l.strip()][-1]
     expect("Next: stub" in reference and tail, "the reference start prints the list: " + reference[-300:])
     seen = bash_counts(control, "pace", "map")
@@ -969,7 +980,7 @@ def corrupt_time_file_does_not_end_the_hook(r):
             (gd / name).write_text(value + "\n", encoding="utf-8")
         (gd / "uak-pace.start").write_text(value + "\nPACE critical: kept from a corrupt time\n", encoding="utf-8")
         _, out = start(r, w, "agent-1", **extra)
-        settle(r, w)
+        settle_once(r, w)
         expect("UAK: agent=agent-1" in out and "Next: stub" in out and tail in out,
                "with %r in the time files the start still prints everything (its last line %r): %s"
                % (value, tail, out[-400:]))
@@ -988,8 +999,8 @@ def future_time_file_is_stale(r):
     counting_stubs(r, w, control)
     gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
     extra = {"UAK_START_WAIT": "1", "UAK_ONCE_DIR": control.as_posix()}
-    start(r, w, "agent-1", **extra)
-    settle(r, w)
+    start(r, w, "agent-1", **dict(extra, UAK_START_WAIT="60"))
+    settle_once(r, w)
     before = bash_counts(control, "pace", "map")
     ahead = str(int(time.time()) + 3600)
     proc, pid = live_process(r, w)
@@ -1000,7 +1011,7 @@ def future_time_file_is_stale(r):
             (gd / ("uak-once.%s.running" % name)).write_text("%d %s\n" % (pid, ahead), encoding="utf-8")
         (gd / "uak-pace.start").write_text(ahead + "\nPACE critical: kept from the future\n", encoding="utf-8")
         _, out = start(r, w, "agent-1", **extra)
-        settle(r, w)
+        settle_once(r, w)
     finally:
         stop_live(r, w, proc, pid)
     after = bash_counts(control, "pace", "map")
