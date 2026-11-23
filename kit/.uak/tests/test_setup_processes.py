@@ -569,6 +569,9 @@ process.stdout.write(JSON.stringify(out));
 
 # --- pre-review of UAK-156 (kit-r2): a bad record, two tabs, time in the cached dashboard, a silent reopen ---------------
 def bad_record_signals_nothing_and_is_removed(root, tmp):
+    line = wizard.MODULE.RECORD_LINE  # a start time as `ps -o lstart=` prints it (macOS) and as /proc gives it (Linux)
+    assert line.fullmatch("4242 Mon Nov 23 22:28:28 2026") and line.fullmatch("4242 98765432")
+    assert not line.fullmatch("0 ") and not line.fullmatch("4242 ") and not line.fullmatch("\u00b2 x")
     if WINDOWS:
         return  # nothing reads the record there
     target = project(root, tmp)

@@ -327,7 +327,7 @@ def stop_children():
 
 
 PAGE_ID = re.compile(r"[A-Za-z0-9]{8,40}")
-RECORD_LINE = re.compile(r"([0-9]{1,9}) ([0-9][0-9 A-Za-z:]*)", re.ASCII)
+RECORD_LINE = re.compile(r"([0-9]{1,9}) ([0-9A-Za-z][0-9 A-Za-z:]*)", re.ASCII)
 
 
 def protected_groups():
