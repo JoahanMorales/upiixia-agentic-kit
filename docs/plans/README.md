@@ -40,5 +40,6 @@ source of truth for what shipped is `CHANGELOG.md`, and for what is next, `docs/
 | [`visual-setup-widgets.md`](visual-setup-widgets.md) | UAK-165 · The summary is made of components the viewer arranges; more components; a component described in words | written 2026-11-23, published 2026-11-23 |
 | [`ci-tiers.md`](ci-tiers.md) | UAK-168 · A pull request waits about ten minutes, not forty: CI in two tiers | integrated 2026-11-23 |
 | [`followups-v69.md`](followups-v69.md) | UAK-169 · The second run of a slow file cannot cost the job; UAK-185 the hook survives its own files being wrong; UAK-186 the merge reads the review mode from the base | written 2026-11-23, waiting for the human to publish; from the reviews of UAK-155, 157 and 168 |
+| [`followups-v69-2.md`](followups-v69-2.md) | UAK-187 · A test's seconds live in its own file; UAK-188 the guard and SECURITY.md know the wizard's reopen key; UAK-189 the gate's smoke does not inherit the caller's task | written 2026-11-23, waiting for the human to publish |
 | [`port-go.md`](port-go.md) | Porting the engine to Go (or Rust): an estimate | decided: not porting |
 | [`video.md`](video.md) | Plan: `uak video` (the project's video, made from the repo's own facts) | not published; v7.2 |
