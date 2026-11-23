@@ -384,7 +384,10 @@ def newline_name_is_refused_by_name(r):
     t, env, git, start, uak = installed(r, "onb-newline", "sprint")
     server = SERVER % {"name": "QueueStore"}
     name = "x\ny.py"
-    (t / name).write_text(server, encoding="utf-8")
+    try:
+        (t / name).write_text(server, encoding="utf-8")
+    except OSError:  # Windows cannot hold such a name: nothing to refuse there
+        return "this filesystem cannot create a name with a newline: skipped"
     detected = r.run([r.bash, ".uak/bin/lib/smoke-init.sh", "detect"], cwd=t, env=env, allowed=None)
     made = uak("init-smoke", env={"UAK_PORT": str(free_port())})
     text = detected.stdout + detected.stderr + made.stdout + made.stderr
