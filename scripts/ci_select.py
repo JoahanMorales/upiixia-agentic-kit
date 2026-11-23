@@ -95,6 +95,16 @@ def _kit_relative(path):
     return path[4:] if path.startswith("kit/") else "../" + path
 
 
+def _bash():
+    """Git's bash on Windows (the first `bash` on PATH there can be WSL's), the PATH's elsewhere."""
+    if os.name == "nt":
+        for root in (os.environ.get("ProgramFiles", "C:/Program Files"), os.environ.get("ProgramW6432", "")):
+            cand = Path(root) / "Git" / "bin" / "bash.exe"
+            if root and cand.is_file():
+                return str(cand)
+    return "bash"
+
+
 def _affected(paths, kit):
     """Run smoke --affected's selector once per changed file, so an escalation to ALL of one file loses nothing of the others.
     Returns {path: [("ALL"|test.py|"-", why)]}."""
@@ -104,8 +114,11 @@ def _affected(paths, kit):
         tmp = Path(tmp)
         (tmp / "changed").write_text("".join(_kit_relative(p) + "\n" for p in paths), encoding="utf-8")
         (tmp / "tests").write_text("".join(t + ".py\n" for t in tests_on_disk(kit)), encoding="utf-8")
-        r = subprocess.run(["bash", "-c", _BASH], env=dict(os.environ, KIT=str(kit), TMP=str(tmp)), stdin=subprocess.DEVNULL,
-                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, universal_newlines=True)
+        r = subprocess.run([_bash(), "-c", _BASH], env=dict(os.environ, KIT=Path(kit).as_posix(), TMP=tmp.as_posix()), stdin=subprocess.DEVNULL,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    if r.stdout.count("@@\t") != len(paths):
+        raise SystemExit("ci_select: the selector of smoke --affected answered for %d of %d files (rc %d): %s"
+                         % (r.stdout.count("@@\t"), len(paths), r.returncode, r.stderr.strip()[-300:]))
     got, cur = {}, None
     by_rel = {_kit_relative(p): p for p in paths}
     for line in r.stdout.splitlines():
