@@ -356,6 +356,32 @@ def doctor_fails_without_required_checks(r):
     return "FAIL with no list; the names printed with a forge list or a PROJECT.md list"
 
 
+def doctor_explains_the_approvals_key(r):
+    """doctor explains Merge-Engine-Approvals: 2 (the libs it adds, the limit of two identities), warns when fewer than two
+    registered reviewers exist, when the value is not 2, and when it is set without `Merge-Engine: ci`."""
+    checks(r, GREEN)
+    forge(r, "doctor2")
+    f = fixture(r, "doctor2", ENGINE_FILE, TWO_KEY)
+    clone = f.clones[0]
+    r.g(clone, "pull", "-q", "origin", "main")
+    project = clone / ".uak/PROJECT.md"
+    base = project.read_text(encoding="utf-8")
+
+    def doctor(text):
+        project.write_text(text, encoding="utf-8")
+        out = r.run([r.bash, ".uak/bin/doctor"], cwd=clone, env={"UAK_AGENT": "agent-1"}, allowed=None)
+        return out.stdout + out.stderr
+    r.env.pop("MOCK_REQUIRED", None)
+    text = doctor(base)
+    expect(re.search(r"OK .*Merge-Engine-Approvals: 2 also releases these loaded libs.*status\.sh.*cannot be told apart", text), "explained: " + text[-1800:])
+    expect(re.search(r"WARN .*Merge-Engine-Approvals: 2 needs two registered reviewers", text), "no reviewers: a warning: " + text[-1800:])
+    text = doctor(base.replace("Merge-Engine-Approvals: 2", "Merge-Engine-Approvals: 3"))
+    expect(re.search(r"WARN .*Merge-Engine-Approvals: 3 is ignored", text), "3 is ignored: " + text[-1800:])
+    text = doctor(base.replace("Merge-Engine: ci\n", "Merge-Engine: human\n"))
+    expect(re.search(r"WARN .*Merge-Engine-Approvals: 2 does nothing without Merge-Engine: ci", text), "without ci: " + text[-1800:])
+    return "explained; warns without reviewers, with a value other than 2, and without ci"
+
+
 def status_and_lone_checks_prove_nothing(r):
     for label, text, status, want in (
             ("a bare success status", "", "success|1\n", "MERGE_WAIT"),
@@ -491,12 +517,239 @@ def no_required_list_goes_to_the_human(r):
     return "no list: the human, with the way to configure it"
 
 
+# UAK-149: Merge-Engine-Approvals: 2. The gate's scope pass and the approval count, without the merge (rm_ci_checks stubbed
+# green: the end-to-end cases below use the real checks), then two real `uak merge` runs.
+TWO_KEY = CI + "Merge-Engine-Approvals: 2\n"
+TIP = "a" * 40
+HARNESS_TWO = r"""# $1 the engine's .uak/bin, $2 the candidate (changes staged over $3), $3 the base SHA, $4 the claims tree, $5 TASKS.md,
+# $6 the merge temp dir, $7 the tip. The claims tree holds the task, its review, the second approvals and the registered reviewers.
+UAK_BIN=$1
+for l in lib/core.sh uak-coordination lib/config.sh lib/backlog.sh lib/review-merge.sh; do . "$UAK_BIN/$l" || exit 9; done
+RM_BUILD=$2 RM_BASE_TIP=$3 TX=$4 BACKLOG=$5 TXROOT=$6 ID=HACK-001 BASE=main RECORD=$4/tasks/HACK-001.md
+RM_REVIEW_MODE=claims RM_REVIEWED_TIP=$7 APPROVED_BY=$(field "$TX/reviews/HACK-001.md" Reviewer)
+rm_ci_checks() { return 0; }
+if rm_gate_scope; then printf 'SCOPE OK\n'; else printf 'SCOPE REFUSED: %s\n' "$RM_REASON"; fi
+"""
+LIB = Path(__file__).resolve().parents[1] / "bin" / "lib"
+
+
+def lib_files():
+    return sorted(f.name for f in LIB.iterdir() if f.is_file() and f.suffix in (".sh", ".awk", ".tsv"))
+
+
+def lib_lists(r):
+    """RM_LIB_HUMAN and RM_LIB_TWO as the engine defines them (one place)."""
+    out = r.run([r.bash, "-c", '. "%s/review-merge.sh"; printf "%%s\\n" "$RM_LIB_HUMAN"; printf "%%s\\n" "$RM_LIB_TWO"' % LIB.as_posix()], allowed=None)
+    human, two = (x.split() for x in out.stdout.strip().splitlines())
+    return human, two
+
+
+def two_verdict(r, name, changes, project=TWO_KEY, first="judge", extra=(), registered=("judge", "judge-2"), reviewed_sha=TIP,
+                links=None, base_extra=None, first_sha=TIP, owner="agent-1"):
+    """rm_gate_scope's verdict (and the approval count) for a candidate. `first` approved reviews/HACK-001.md at first_sha,
+    `extra` are the lines of reviews/HACK-001.approvals as (sha, who), `registered` the identities with a role."""
+    d = r.scratch / ("two-" + name)
+    tx = d / "tx"
+    for q in ("tasks", "reviews", "roles/reviewers", "meta/agents"):
+        (tx / q).mkdir(parents=True)
+    (tx / "tasks/HACK-001.md").write_text("ID: HACK-001\nState: REVIEW\nOwner: %s\nPaths: .\n" % owner, encoding="utf-8")
+    (tx / "reviews/HACK-001.md").write_text(
+        "ID: HACK-001\nSHA: %s\nReviewer: %s\nOwner: %s\nVerdict: approve\nReviewed: 1\nEligible-Via: role:%s\nCommand: uak review\n"
+        % (first_sha, first, owner, first), encoding="utf-8")
+    if extra:
+        (tx / "reviews/HACK-001.approvals").write_text("".join("%s|%s|2|role:%s\n" % (sha, who, who) for sha, who in extra), encoding="utf-8")
+    for who in set(registered) | {first, owner} | {w for _, w in extra}:
+        (tx / "meta/agents" / (who + ".md")).write_text("Agent: %s\n" % who, encoding="utf-8")
+    for who in registered:
+        (tx / "roles/reviewers" / (who + ".md")).write_text("Reviewer: %s\nState: REGISTERED\nRegistered-By: human\nRegistered: 1\n" % who, encoding="utf-8")
+    # scope_verdict builds the repository and runs HARNESS; reuse its repository builder with this harness and tx
+    script = r.scratch / "policy-two-harness.sh"
+    if not script.exists():
+        script.write_text(HARNESS_TWO, encoding="utf-8", newline="\n")
+    return scope_with(r, "two-" + name, changes, links, dict(dict.fromkeys(lib_files(), "x\n"), **(base_extra or {})), project, script, tx, reviewed_sha)
+
+
+def scope_with(r, name, changes, links, base_extra, project, script, tx, tip):
+    d = r.scratch / ("scopetwo-" + name)
+    repo, tmp = d / "repo", d / "tmp"
+    for q in (repo, tmp):
+        q.mkdir(parents=True)
+    (d / "TASKS.md").write_text("# Tasks\n\n## HACK-001 · The task\n- **Paths:** .\n", encoding="utf-8")
+    r.g(repo, "init", "-q")
+    files = dict(BASE_LIB)
+    files.update({".uak/bin/lib/" + k: v for k, v in (base_extra or {}).items() if "/" not in k})
+    files.update({k: v for k, v in (base_extra or {}).items() if "/" in k})
+    files[".uak/PROJECT.md"] = "Mode: sprint\n" + project
+    for rel, text in files.items():
+        target = repo / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8", newline="\n")
+    r.g(repo, "add", "-A")
+    r.g(repo, "-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "commit", "-q", "-m", "base")
+    base = r.g(repo, "rev-parse", "HEAD").stdout.strip()
+    for rel, text in changes.items():
+        target = repo / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        old = target.read_text(encoding="utf-8") if target.exists() else ""
+        target.write_text(old + text, encoding="utf-8", newline="\n")
+    r.g(repo, "add", "-A")
+    for i, (rel, to) in enumerate((links or {}).items()):
+        blob = d / ("blob-%d" % i)
+        blob.write_text(to, encoding="utf-8", newline="\n")
+        sha = r.g(repo, "hash-object", "-w", blob.as_posix()).stdout.strip()
+        r.g(repo, "update-index", "--add", "--cacheinfo", "120000,%s,%s" % (sha, rel))
+    bindir = r.package / ".uak" / "bin"
+    out = r.run([r.bash, script.as_posix(), bindir.as_posix(), repo.as_posix(), base, tx.as_posix(), (d / "TASKS.md").as_posix(), tmp.as_posix(), tip],
+                cwd=d, allowed=None)
+    text = out.stdout.strip()
+    expect(out.returncode == 0 and text.startswith("SCOPE "), "the harness ran: " + (out.stdout + out.stderr)[-600:])
+    return text
+
+
+LIBPATH = ".uak/bin/lib/"
+HUMAN_REASON = "SCOPE REFUSED: Shared resource/CI needs a human: "
+
+
+def one_approval_releases_only_todays_set(r):
+    """One approval, or the key absent, 1, 3, two, 02 or without `ci`: the verdicts of a loaded lib and of an unnamed .py are
+    exactly today's (the same fixture is run with each key); with 2 and a single approval the lib is refused by the count."""
+    change = {LIBPATH + "status.sh": "# ready-HACK-001\n"}
+    want = HUMAN_REASON + LIBPATH + "status.sh"
+    for label, project in (("absent", "Merge-Engine: ci\n"), ("one", CI + "Merge-Engine-Approvals: 1\n"), ("three", CI + "Merge-Engine-Approvals: 3\n"),
+                           ("word", CI + "Merge-Engine-Approvals: two\n"), ("zero2", CI + "Merge-Engine-Approvals: 02\n"),
+                           ("noci", "Merge-Engine-Approvals: 2\n"), ("human", "Merge-Engine: human\nMerge-Engine-Approvals: 2\n")):
+        got = two_verdict(r, "one-" + label, change, project=project, extra=[(TIP, "judge-2")])
+        expect(got == want, "%s: expected today's verdict %r, got %r" % (label, want, got))
+        py = two_verdict(r, "onepy-" + label, {LIBPATH + "metrics.py": "# ready-HACK-001\n"}, project=project, extra=[(TIP, "judge-2")])
+        expect(py == ("SCOPE OK" if label not in ("noci", "human") else HUMAN_REASON + LIBPATH + "metrics.py"), "%s: an unnamed .py: %r" % (label, py))
+    got = two_verdict(r, "one-count", change, extra=())
+    expect(got.startswith("SCOPE REFUSED: Merge-Engine-Approvals: 2: a change to a loaded lib needs 2 approvals of the exact tip") and "has 1 (judge)" in got,
+           "key 2 and one approval: " + got)
+    got = two_verdict(r, "one-py", {LIBPATH + "metrics.py": "# ready-HACK-001\n"}, extra=())
+    expect(got == "SCOPE OK", "an unnamed .py still lands with one approval under key 2: " + got)
+    return "absent/1/3/two/02/no ci/human: today's verdicts; key 2 with one approval: refused by the count"
+
+
+def two_approvals_release_a_loaded_lib(r):
+    """Key 2 and two registered reviewers on the exact tip: every lib of RM_LIB_TWO is released (scope pass), and one real
+    `uak merge` lands through the gate with the second approval recorded by a second `uak review`."""
+    human, two = lib_lists(r)
+    for name in two:
+        got = two_verdict(r, "rel-" + name, {LIBPATH + name: "# ready-HACK-001\n"}, extra=[(TIP, "judge-2")])
+        expect(got == "SCOPE OK", "%s with two approvals: %s" % (name, got))
+    # end to end: a second `uak review` of the same SHA by another registered reviewer is recorded, not skipped
+    forge(r, "two-lands")
+    f = fixture(r, "two-lands", LIBPATH + "hints.sh", TWO_KEY)
+    tip = ship(f, r)
+    actor(f, "human-registrar", "register-reviewer", "judge-2", human=True)
+    expect("SKIP" not in actor(f, "judge-2", "review", "HACK-001", "--start").stdout, "the second reviewer is not told to skip")
+    second = approve(f, "HACK-001", tip, name="judge-2")
+    expect("second approval recorded" in second.stdout, "second review: " + second.stdout)
+    expect("%s|judge-2|" % tip in f.show("reviews/HACK-001.approvals") and "Reviewer: judge\n" in f.show("reviews/HACK-001.md"), "both approvals kept")
+    out = f.hack(0, "merge", "HACK-001", now=1000030, allowed=None)
+    expect(out.returncode == 0 and "INTEGRATED" in out.stdout and merged(r, f), "two approvals land a loaded lib: " + out.stdout + out.stderr)
+    expect("Merge-Policy: ci" in f.show("tasks/HACK-001.md"), "policy recorded")
+    return "%d libs released in the scope pass; hints.sh landed end to end with two approvals" % len(two)
+
+
+def gate_files_are_never_released(r):
+    """With key 2 and two approvals: each lib of RM_LIB_HUMAN, bin/uak, uak-coordination, .github/, the hooks, guard, smoke,
+    smoke-project, secret-scan, lock files, migrations, PROJECT.md and a symlink stay the human's, alone or mixed with a
+    released lib; a lib in neither list, a new lib, a letter-case variant, a deleted one and one that redefines a function
+    of the gate or adds eval / unset -f / alias / source go to the human; every real lib file is in exactly one list."""
+    human, two = lib_lists(r)
+    names = lib_files()
+    expect(not set(human) & set(two), "a lib is in both lists: %s" % sorted(set(human) & set(two)))
+    expect(sorted(set(human) | set(two)) == names, "every .sh/.awk/.tsv of lib/ is classified: unclassified %s, unknown %s" %
+           (sorted(set(names) - set(human) - set(two)), sorted((set(human) | set(two)) - set(names))))
+    for must in ("review-merge.sh", "tx.sh", "security.sh", "config.sh"):  # the four UAK-131 kept
+        expect(must in human, must + " is one of the four the human kept")
+    def refused(label, got, path):
+        expect(got.lower() == (HUMAN_REASON + path).lower(), "%s: expected the human for %s, got %s" % (label, path, got))
+    for name in human:
+        refused(name, two_verdict(r, "never-" + name, {LIBPATH + name: "# ready-HACK-001\n"}, extra=[(TIP, "judge-2")]), LIBPATH + name)
+    for path in (".uak/bin/uak", ".uak/bin/uak-coordination", ".github/workflows/ci.yml", ".github/actions/x/action.yml", ".githooks/pre-commit",
+                 ".uak/bin/guard", ".uak/bin/smoke", ".uak/bin/smoke-project", ".uak/bin/secret-scan", "package-lock.json",
+                 "db/migrations/001.sql", ".uak/PROJECT.md", ".uak/bin/lib/fixtures/x.txt", ".uak/bin/lib/sub/status.sh"):
+        refused(path, two_verdict(r, "never-" + path.replace("/", "-"), {path: "# ready-HACK-001\n"}, extra=[(TIP, "judge-2")]), path)
+    refused("symlink", two_verdict(r, "never-link", {}, links={LIBPATH + "status.sh": "review-merge.sh"}, extra=[(TIP, "judge-2")]), LIBPATH + "status.sh")
+    refused("mixed", two_verdict(r, "never-mixed", {LIBPATH + "status.sh": "# a\n", LIBPATH + "review-merge.sh": "# b\n"}, extra=[(TIP, "judge-2")]), LIBPATH + "review-merge.sh")
+    refused("new lib", two_verdict(r, "never-new", {LIBPATH + "newlib.sh": "# a\n"}, extra=[(TIP, "judge-2")]), LIBPATH + "newlib.sh")
+    # not a plain edit of a base file: case variant, deleted
+    got = two_verdict(r, "never-case", {LIBPATH + "Status.SH": "# a\n"}, extra=[(TIP, "judge-2")])
+    expect(got.startswith("SCOPE REFUSED: Merge-Engine-Approvals: 2 releases an edit of an existing regular lib file only") or got.lower() == (HUMAN_REASON + LIBPATH + "Status.SH").lower(),
+           "case variant: " + got)
+    shape = {"redefines": "approval_check() { return 0; }\n", "defines git": "git() { :; }\n", "eval": "eval \"$x\"\n", "unset": "unset -f field\n",
+             "alias": "alias git=true\n", "source": ". ./evil.sh\n", "source2": "source ./evil.sh\n"}
+    for label, text in shape.items():
+        got = two_verdict(r, "never-shape-" + label.replace(" ", ""), {LIBPATH + "status.sh": text}, extra=[(TIP, "judge-2")],
+                          base_extra={"review-merge.sh": "approval_check() { :; }\n"})
+        expect(got.startswith("SCOPE REFUSED: Merge-Engine-Approvals: 2:") and "a human lands that" in got, "%s: %s" % (label, got))
+    ok = two_verdict(r, "never-shape-ok", {LIBPATH + "status.sh": "status_extra() { printf 'x\\n'; }\n# eval is only a word here\n"}, extra=[(TIP, "judge-2")])
+    expect(ok == "SCOPE OK", "a new helper function and a comment are fine: " + ok)
+    return "%d human libs, %d two-approval libs; gate files, workflows, hooks, symlinks, new, case variants and redefinitions stay with the human" % (len(human), len(two))
+
+
+def same_identity_twice_counts_once(r):
+    """The same identity listed twice, the author, an unregistered name, a retired one, and the first approver again count
+    for nothing: the count stays at one and the gate refuses with it."""
+    change = {LIBPATH + "status.sh": "# ready-HACK-001\n"}
+    for label, kw in (("twice", dict(extra=[(TIP, "judge"), (TIP, "judge"), (TIP, "judge-2"), (TIP, "judge-2")], registered=("judge",))),
+                      ("author", dict(extra=[(TIP, "agent-1")], registered=("judge", "agent-1"))),
+                      ("unregistered", dict(extra=[(TIP, "ghost")], registered=("judge",))),
+                      ("badname", dict(extra=[(TIP, "bad name")], registered=("judge",)))):
+        got = two_verdict(r, "same-" + label, change, **kw)
+        expect(got.startswith("SCOPE REFUSED: Merge-Engine-Approvals: 2: ") and "has 1 (judge)" in got, "%s: %s" % (label, got))
+    # an unregistered FIRST approver (eligible through a claim) does not count either
+    got = two_verdict(r, "same-first-unregistered", change, first="claimer", extra=[(TIP, "judge-2")], registered=("judge-2",))
+    expect("has 1 (judge-2)" in got, "an unregistered first approver: " + got)
+    ok = two_verdict(r, "same-two", change, extra=[(TIP, "judge"), (TIP, "judge-2")])
+    expect(ok == "SCOPE OK", "two distinct registered reviewers, one listed twice: " + ok)
+    return "twice, the author, an unregistered name and the first approver again: one approval"
+
+
+def approval_of_an_older_sha_does_not_count(r):
+    """A second approval, or the first, on another SHA than the exact tip does not count (an approval followed by a new tip)."""
+    change = {LIBPATH + "status.sh": "# ready-HACK-001\n"}
+    old = "b" * 40
+    got = two_verdict(r, "old-second", change, extra=[(old, "judge-2")])
+    expect(got.startswith("SCOPE REFUSED: Merge-Engine-Approvals: 2: ") and "has 1 (judge)" in got, "second on an older SHA: " + got)
+    got = two_verdict(r, "old-first", change, extra=[(TIP, "judge-2")], first_sha=old)
+    expect("has 1 (judge-2)" in got, "first on an older SHA: " + got)
+    got = two_verdict(r, "old-tip", change, extra=[(TIP, "judge-2")], reviewed_sha="c" * 40)
+    expect("has 0 (none)" in got, "both approvals then a new tip: " + got)
+    return "second, first and both approvals of another SHA count for nothing"
+
+
+def status_says_how_many_approvals(r):
+    """The gate's refusal says how many approvals of the tip exist, who, and how many the policy needs, and a real `uak merge`
+    with one approval under key 2 goes to the human with that reason and lands nothing; a reject voids the second approval.
+    (`uak status --task` reads lib/status.sh, outside this task's Paths: its approvals line is a follow-up.)"""
+    forge(r, "two-one")
+    f = fixture(r, "two-one", LIBPATH + "hints.sh", TWO_KEY)
+    tip = ship(f, r)
+    out = f.hack(0, "merge", "HACK-001", now=1000030, allowed=None)
+    expect(out.returncode == 3 and "MERGE_HUMAN" in out.stdout and "needs 2 approvals" in out.stdout and "has 1 (judge)" in out.stdout and not merged(r, f),
+           "one approval under key 2: " + out.stdout + out.stderr)
+    actor(f, "human-registrar", "register-reviewer", "judge-2", human=True)
+    approve(f, "HACK-001", tip, name="judge-2")
+    expect("judge-2" in f.show("reviews/HACK-001.approvals"), "second approval stored")
+    actor(f, "human-registrar", "register-reviewer", "judge-3", human=True)
+    rejected = approve(f, "HACK-001", tip, name="judge-3", verdict="reject", allowed=None)
+    expect("reviews/HACK-001.approvals" not in f.files("reviews") and "Verdict: reject" in f.show("reviews/HACK-001.md"),
+           "a reject voids the second approvals: " + rejected.stdout + rejected.stderr)
+    return "refusal names the count (1 of 2) and the approver; a reject deletes the second approvals"
+
+
 TESTS = [human_is_the_default, ci_merges_when_every_check_is_green, a_running_check_waits, a_red_check_refuses,
          lock_files_still_need_a_human, record_names_the_policy, a_task_cannot_turn_the_policy_on,
          gh_unavailable_is_not_green, doctor_fails_without_required_checks, marathon_needs_human_independence,
          metrics_counts_ci_merges_apart, status_and_lone_checks_prove_nothing, shards_match_by_prefix,
          a_missing_required_check_waits_then_refuses, workflow_or_smoke_goes_to_the_human, forge_required_checks_win,
-         no_required_list_goes_to_the_human, the_gate_itself_and_github_stay_human, released_set_matches_the_source_chain]
+         no_required_list_goes_to_the_human, the_gate_itself_and_github_stay_human, released_set_matches_the_source_chain,
+         two_approvals_release_a_loaded_lib, one_approval_releases_only_todays_set, gate_files_are_never_released,
+         same_identity_twice_counts_once, approval_of_an_older_sha_does_not_count, status_says_how_many_approvals,
+         doctor_explains_the_approvals_key]
 
 
 def main():

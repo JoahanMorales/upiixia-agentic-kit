@@ -246,9 +246,21 @@ if url=$(git config --get "remote.$remote.url"); then
     git rev-parse -q --verify "refs/remotes/$remote/$ci_base" >/dev/null 2>&1 && ci_ref="refs/remotes/$remote/$ci_base"
     ci_rel=$( (. "$(dirname "$0")/lib/review-merge.sh" >/dev/null 2>&1; rm_released_lib "$ci_root" "$ci_ref") 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
     ok "Merge-Engine: ci releases only these files of .uak/bin/lib/, which nothing the gate loads names: ${ci_rel:-none}. Every other file of .uak/bin/lib/, and bin/uak and bin/uak-coordination (the dispatcher sources its libs into one process and the last definition wins, so any loaded file can redefine the gate), .github/, smoke, secret-scan, .githooks/, lock files, migrations and PROJECT.md goes to a human"
+    # Merge-Engine-Approvals (UAK-149): only the literal 2 enables two approvals for the loaded libs of RM_LIB_TWO.
+    ap_key=$(field Merge-Engine-Approvals)
+    if [ -n "$ap_key" ]; then
+      if [ "$ap_key" = 2 ]; then
+        ap_two=$( (. "$(dirname "$0")/lib/review-merge.sh" >/dev/null 2>&1; printf '%s' "$RM_LIB_TWO") 2>/dev/null)
+        ok "Merge-Engine-Approvals: 2 also releases these loaded libs, when two registered reviewers other than the author approved the exact tip: ${ap_two:-none}. Never: the gate's own files, bin/uak, uak-coordination, .github/, hooks, guard, smoke, secret-scan, lock files, migrations, PROJECT.md, symlinks. Two registered identities of one agent cannot be told apart: registering both asserts they are independent"
+        ap_n=$(git ls-tree --name-only "refs/remotes/$remote/claims" roles/reviewers/ 2>/dev/null | wc -l | tr -d ' ')
+        [ "${ap_n:-0}" -ge 2 ] || warn "Merge-Engine-Approvals: 2 needs two registered reviewers on claims (${ap_n:-0} found here; fetch first): without them every loaded-lib change goes to a human (a human runs: uak register-reviewer NAME)"
+        case "$(field Review-Mode)" in claims) ;; *) warn "Merge-Engine-Approvals: 2 counts approvals on claims: with Review-Mode $(field Review-Mode) it releases nothing extra (set Review-Mode: claims)";; esac
+      else warn "Merge-Engine-Approvals: $ap_key is ignored: only the literal 2 enables it (1, 3 and anything else keep the single-approval set)"; fi
+    fi
     if [ -n "$ci_req" ]; then ok "Merge-Engine: ci will require every one of: $ci_req (from $ci_src); a trailing * is a prefix"
     else bad "Merge-Engine: ci is set and no list of required checks exists: protect $ci_base on GitHub with required status checks, or set Merge-Engine-Checks: in .uak/PROJECT.md (check-run names, comma-separated, a trailing * is a prefix: suite (*, windows (*). Until then every engine change goes to a human"; fi
   fi
+  [ "$(field Merge-Engine-Approvals)" != 2 ] || [ "$(field Merge-Engine)" = ci ] || warn "Merge-Engine-Approvals: 2 does nothing without Merge-Engine: ci in .uak/PROJECT.md"
 else
   bad "no remote $remote: uak coordinates through the remote claims branch"
 fi

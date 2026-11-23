@@ -155,6 +155,52 @@ rm_standing_reject() {
   RM_REJECTER=$(field "$rv" Rejected-By); [ -n "$RM_REJECTER" ] || RM_REJECTER=$(field "$rv" Reviewer)
   return 0
 }
+# Merge-Engine-Approvals (UAK-149). `2`, with Merge-Engine: ci, lets the gate land a change to a loaded lib of RM_LIB_TWO when
+# two registered reviewers approved the exact tip. reviews/ID.md holds ONE verdict (a second approve of the same SHA used to
+# be "nothing recorded"), so a second approval of the same SHA is appended to reviews/ID.approvals as
+# `SHA|Reviewer|Reviewed|Eligible-Via`; a reject deletes the file and any other SHA's lines are ignored. The key is read from
+# the base side only (coord-source here, the base tip's PROJECT.md in the gate); only the literal 2 enables it.
+RM_APPROVALS_KEY=1
+rm_approvals_key() { # PROJECT.md-like file: RM_APPROVALS_KEY=2 only with Merge-Engine: ci and Merge-Engine-Approvals: 2
+  local e a
+  RM_APPROVALS_KEY=1
+  [ -f "${1:-/nonexistent}" ] || return 0
+  uak_cfg_var "$1" Merge-Engine human; e=$CFG; uak_cfg_var "$1" Merge-Engine-Approvals 1; a=$CFG
+  [ "$e" = ci ] && [ "$a" = 2 ] && RM_APPROVALS_KEY=2
+  return 0
+}
+# This agent's approve of the tip is the SECOND one the policy needs: it is a registered reviewer, not the author, not the
+# first approver, and the exact tip already has an approval that is not its own.
+rm_second_approval_open() {
+  local rv="$TX/reviews/$ID.md"
+  rm_approvals_key "${TXROOT:-/nonexistent}/coord-source"; [ "$RM_APPROVALS_KEY" = 2 ] || return 1
+  registered_reviewer "$AGENT" || return 1
+  [ -f "$rv" ] && [ "$(field "$rv" Verdict)" = approve ] && [ "$(field "$rv" SHA)" = "$RM_TIP" ] || return 1
+  [ "$(field "$rv" Reviewer)" != "$AGENT" ] && rm_approval_seen "$(field "$rv" Reviewer)" || return 1
+  ! grep -q "^$RM_TIP|$AGENT|" "$TX/reviews/$ID.approvals" 2>/dev/null
+}
+# Distinct identities with a valid approval of $1 (the exact tip), each a registered reviewer who is not the author, seen
+# on claims and not retired, and (Review-Independence: human) another human's agent. RM_APPROVALS, RM_APPROVERS.
+RM_APPROVALS=0 RM_APPROVERS=
+rm_approvals_count() {
+  local tip=$1 rv="$TX/reviews/$ID.md" ap="$TX/reviews/$ID.approvals" author who sha rest ind
+  RM_APPROVALS=0 RM_APPROVERS=
+  author=$(field "$RECORD" Owner); ind=$(rm_config Review-Independence agent)
+  { if [ -f "$rv" ] && [ "$(field "$rv" Verdict)" = approve ] && [ "$(field "$rv" SHA)" = "$tip" ] &&
+       [ "$(field "$rv" Command)" = 'uak review' ] && [ -n "$(field "$rv" Eligible-Via)" ]; then field "$rv" Reviewer; fi
+    if [ -f "$ap" ]; then
+      while IFS='|' read -r sha who rest; do [ "$sha" != "$tip" ] || printf '%s\n' "$who"; done < "$ap"
+    fi; } > "$TXROOT/approvers"
+  while IFS= read -r who; do
+    case "$who" in ''|*[!A-Za-z0-9_.-]*) continue;; esac
+    [ "$who" != "$author" ] || continue
+    case " $RM_APPROVERS " in *" $who "*) continue;; esac
+    registered_reviewer "$who" && rm_approval_seen "$who" || continue
+    if [ "$ind" = human ] && [ "$(rm_human_of "$who")" = "$(rm_human_of "$author")" ]; then continue; fi
+    RM_APPROVERS="$RM_APPROVERS $who"; RM_APPROVALS=$((RM_APPROVALS + 1))
+  done < "$TXROOT/approvers"
+  RM_APPROVERS=${RM_APPROVERS# }
+}
 review_mutate() {
   RECORD=$(task_file)
   [ -f "$RECORD" ] || conflict "$ID has no claimed task."
@@ -184,7 +230,8 @@ review_mutate() {
     [ -n "$REVIEW_SHA" ] || REVIEW_SHA=$RM_TIP
     [ "$REVIEW_SHA" = "$RM_TIP" ] || conflict "The task's current HEAD is ${RM_TIP%"${RM_TIP#???????}"}; review that SHA."
     if [ -f "$TX/reviews/$ID.md" ] && [ "$(field "$TX/reviews/$ID.md" SHA)" = "$RM_TIP" ] &&
-       [ "$(field "$TX/reviews/$ID.md" Verdict)" = approve ] && rm_approval_seen "$(field "$TX/reviews/$ID.md" Reviewer)"; then
+       [ "$(field "$TX/reviews/$ID.md" Verdict)" = approve ] && rm_approval_seen "$(field "$TX/reviews/$ID.md" Reviewer)" &&
+       ! rm_second_approval_open; then
       say "SKIP review $ID | already approved by $(field "$TX/reviews/$ID.md" Reviewer) on this SHA; it needs a merge, not a reviewer."
       return 0
     fi
@@ -237,6 +284,16 @@ review_mutate() {
     UAK_CODE=standing-reject conflict "$RM_REJECTER rejected this code of $ID (SHA ${RM_TIP%"${RM_TIP#???????}"} or one it only merges $BASE into); another verdict does not change it. The owner fixes and pushes (a new commit gets a new review), or $RM_REJECTER changes their verdict. Disagree, or more to add? uak msg $ID --kind reply \"…\"."
   fi
   rm -f "$TX/reviews/$ID.reviewing"
+  # Merge-Engine-Approvals: 2 (UAK-149): a second registered reviewer's approve of the same SHA is recorded, not skipped.
+  if [ "$REVIEW_VERDICT" = approve ] && rm_second_approval_open; then
+    mkdir -p "$TX/reviews"
+    printf '%s|%s|%s|%s\n' "$RM_TIP" "$AGENT" "$NOW" "$RM_ELIGIBLE_VIA" >> "$TX/reviews/$ID.approvals"
+    WL=$(field "$RECORD" Worklog); STATE=$(field "$RECORD" State)
+    event "review; approve (second); SHA $RM_TIP; reviewer $AGENT"
+    msg_append "task:$ID" approve "$ID" "Second approval of SHA ${RM_TIP%"${RM_TIP#???????}"} by $AGENT. Next: bash .uak/bin/uak merge $ID"
+    say "OK review $ID | second approval recorded (the policy needs 2); Next: the owner runs uak merge $ID"
+    return 0
+  fi
   # An approval of a SHA that already has one is duplicate work (Reap: HACK-005 got 7 approvals, 3 on one SHA).
   if [ -f "$TX/reviews/$ID.md" ] && [ "$(field "$TX/reviews/$ID.md" SHA)" = "$RM_TIP" ] &&
      [ "$(field "$TX/reviews/$ID.md" Verdict)" = approve ] && [ "$REVIEW_VERDICT" = approve ] &&
@@ -254,6 +311,13 @@ review_mutate() {
     "Verdict: $REVIEW_VERDICT" "Reviewed: $NOW" "Eligible-Via: $RM_ELIGIBLE_VIA" 'Command: uak review' > "$TX/reviews/$ID.md"
   [ -z "$carried" ] || printf '%s\n' "Carried-From: $carried (later commits are clean merges of $BASE)" >> "$TX/reviews/$ID.md"
   [ "$REVIEW_VERDICT" != reject ] || printf '%s\n' "Rejected-By: $AGENT" >> "$TX/reviews/$ID.md"
+  # A reject, or a verdict on another SHA, voids the second approvals (UAK-149).
+  if [ -f "$TX/reviews/$ID.approvals" ]; then
+    if [ "$REVIEW_VERDICT" = reject ]; then rm -f "$TX/reviews/$ID.approvals"
+    else grep "^$RM_TIP|" "$TX/reviews/$ID.approvals" > "$TXROOT/approvals.keep" 2>/dev/null || : > "$TXROOT/approvals.keep"
+      if [ -s "$TXROOT/approvals.keep" ]; then cp "$TXROOT/approvals.keep" "$TX/reviews/$ID.approvals"; else rm -f "$TX/reviews/$ID.approvals"; fi
+    fi
+  fi
   [ -z "$unseen" ] || say "NOTE review $ID | replaces an approval by $unseen, never seen on claims or retired (merge would have refused it)."
   put "$RECORD" Task-Tip "$RM_TIP"
   WL=$(field "$RECORD" Worklog); STATE=$(field "$RECORD" State)
@@ -516,6 +580,7 @@ rm_coord_mutate() {
       approval_check "$RM_TIP" "$(field "$RECORD" PR)" || return 3
       # The smoke took minutes: read the forge again, so a check that went red or was re-run meanwhile stops the merge.
       [ "$RM_CI_RELEASED" != yes ] || rm_ci_checks "$(field "$RECORD" PR)" "$RM_TIP" || return 3
+      [ "$RM_NEED_TWO" != yes ] || rm_two_approvals "$RM_TIP" || return 3
       git -C "$TX" fetch -q "$RM_BUILD" "$RM_CANDIDATE:refs/uak/candidate" || { RM_REASON='Candidate not available'; return 3; }
       STATE=INTEGRATED; WL=$(field "$RECORD" Worklog)
       put "$RECORD" State INTEGRATED; put "$RECORD" Merge-Commit "$RM_CANDIDATE"; put "$RECORD" Reviewer "$APPROVED_BY"
@@ -604,13 +669,14 @@ RM_ENGINE=human RM_CI_RELEASED=no RM_CI_WAIT=no RM_CI_CHECKS= RM_CI_COUNT=0 RM_P
 RM_CI_REQ= RM_CI_REQ_SRC=
 rm_merge_engine() {
   local f="$TXROOT/merge-engine-project"
-  RM_ENGINE=human RM_PROJECT_MODE= RM_INDEPENDENCE=agent RM_ENGINE_CHECKS=; : > "$TXROOT/merge-generated-list"
+  RM_ENGINE=human RM_PROJECT_MODE= RM_INDEPENDENCE=agent RM_ENGINE_CHECKS= RM_APPROVALS_KEY=1; : > "$TXROOT/merge-generated-list"
   [ -n "${RM_BUILD:-}" ] && [ -n "${RM_BASE_TIP:-}" ] || return 0
   git -C "$RM_BUILD" show "$RM_BASE_TIP:.uak/PROJECT.md" > "$f" 2>/dev/null || return 0
   uak_cfg_var "$f" Merge-Engine human; [ "$CFG" != ci ] || RM_ENGINE=ci
   uak_cfg_var "$f" Mode ''; RM_PROJECT_MODE=$(printf '%s' "$CFG" | tr '[:upper:]' '[:lower:]')
   uak_cfg_var "$f" Review-Independence agent; RM_INDEPENDENCE=$CFG
   uak_cfg_var "$f" Merge-Engine-Checks ''; RM_ENGINE_CHECKS=$CFG
+  rm_approvals_key "$f"   # Merge-Engine-Approvals (UAK-149), from the same base PROJECT.md
   # Generated: lines of the same base PROJECT.md (UAK-148), never of the candidate's.
   uak_generated_list < "$f" > "$TXROOT/merge-generated-list" 2>/dev/null || : > "$TXROOT/merge-generated-list"
 }
@@ -632,10 +698,27 @@ rm_released_lib() {
     while IFS= read -r b; do grep -qF -- "$b" "$tmp" || printf '%s\n' "$b" | tr '[:upper:]' '[:lower:]'; done
   rm -f "$tmp"
 }
+# The loaded libs, classified one by one (UAK-149). With Merge-Engine-Approvals: 2 a change to a loaded lib of RM_LIB_TWO may
+# land with two approvals; every other .sh/.awk/.tsv of lib/ is RM_LIB_HUMAN and stays the human's whatever the key says, and a
+# lib file in neither list (a new one) is the human's too: the test fails until someone classifies it. The reasons are in
+# WHY.md. bin/uak, bin/uak-coordination, .github/, the hooks, guard, smoke, smoke-project, secret-scan, lock files, migrations,
+# PROJECT.md and symlinks are never lib files here: the shared-resource list above sends them to the human under any key.
+RM_LIB_HUMAN="review-merge.sh tx.sh security.sh config.sh core.sh backlog.sh net.sh cache.sh claim.sh done.sh argv.sh commands.tsv plan.sh github.sh messages.sh memory.sh lint.sh tests.sh smoke-init.sh"
+RM_LIB_TWO="status.sh json.sh hints.sh wait.sh ledger.sh state.awk engines.awk"
+# The extra names `Merge-Engine-Approvals: 2` releases: RM_LIB_TWO files that exist, as regular files, in the base tip.
+rm_two_set() {
+  local d=$1 ref=$2 n
+  git -C "$d" ls-tree -r "$ref" 2>/dev/null | grep -E "^100[67][0-9]{2} blob [0-9a-f]+	(.*/)?\.uak/bin/lib/[^/]+\$" | sed 's@.*/@@' | sort -u |
+    while IFS= read -r n; do case " $RM_LIB_TWO " in *" $n "*) printf '%s\n' "$n";; esac; done
+}
 rm_libok_file() {
-  : > "$TXROOT/merge-libok"
+  : > "$TXROOT/merge-libok"; : > "$TXROOT/merge-libok2"
   [ "$RM_ENGINE" = ci ] && [ -n "${RM_BUILD:-}" ] && [ -n "${RM_BASE_TIP:-}" ] || return 0
   rm_released_lib "$RM_BUILD" "$RM_BASE_TIP" > "$TXROOT/merge-libok" || : > "$TXROOT/merge-libok"
+  # Two approvals need the claims reviews (Review-Mode claims): GitHub reviewers are not registered reviewers.
+  [ "$RM_APPROVALS_KEY" = 2 ] && [ "${RM_REVIEW_MODE:-}" = claims ] || return 0
+  rm_two_set "$RM_BUILD" "$RM_BASE_TIP" > "$TXROOT/merge-libok2" 2>/dev/null || : > "$TXROOT/merge-libok2"
+  cat "$TXROOT/merge-libok2" >> "$TXROOT/merge-libok"
 }
 # The checks a `ci` merge requires, from the BASE side only: (a) the forge's required status checks of the base branch,
 # exact names, when readable and non-empty; else (b) `Merge-Engine-Checks:` in the base tip's PROJECT.md, comma-separated
@@ -735,8 +818,63 @@ rm_ci_release() {
     RM_REASON='Merge-Engine ci needs the approval of an identity other than the author'; return 1; }
   if [ "$RM_PROJECT_MODE" != sprint ] && [ "$RM_INDEPENDENCE" != human ]; then
     RM_REASON="Merge-Engine ci outside sprint mode needs Review-Independence: human in PROJECT.md (Mode: ${RM_PROJECT_MODE:-unset})"; return 1; fi
+  RM_NEED_TWO=no
+  if rm_released_needs_two; then
+    RM_NEED_TWO=yes
+    rm_two_approvals "$RM_REVIEWED_TIP" || return 1
+    rm_lib_shape_check || return 1
+  fi
   rm_ci_checks "$(field "$RECORD" PR)" "$RM_REVIEWED_TIP" || return 1
   RM_CI_RELEASED=yes
+}
+# Does the diff touch a lib that only two approvals release? (merge-released has the paths; merge-libok2 the extra names.)
+RM_NEED_TWO=no RM_TWO_PATHS=
+rm_released_needs_two() {
+  local p b
+  RM_TWO_PATHS=
+  [ -s "$TXROOT/merge-libok2" ] && [ -s "$TXROOT/merge-released" ] || return 1
+  while IFS= read -r p; do
+    b=$(printf '%s' "${p##*/}" | tr '[:upper:]' '[:lower:]')
+    grep -qxF -- "$b" "$TXROOT/merge-libok2" && RM_TWO_PATHS="$RM_TWO_PATHS
+$p"
+  done < "$TXROOT/merge-released"
+  [ -n "$RM_TWO_PATHS" ]
+}
+# The policy's count of the exact tip, from claims (the gate reads it again at finalize).
+rm_two_approvals() {
+  rm_approvals_count "$1"
+  [ "$RM_APPROVALS" -ge 2 ] && return 0
+  RM_REASON="Merge-Engine-Approvals: 2: a change to a loaded lib needs 2 approvals of the exact tip by registered reviewers other than the author, and $1 has $RM_APPROVALS (${RM_APPROVERS:-none}); a second registered reviewer runs: bash .uak/bin/uak review $ID --sha ${1%"${1#???????}"} --verdict approve"
+  return 1
+}
+# What a lib that two approvals release may not do: it is sourced into the gate's process, so it may not define a function the
+# gate or the dispatcher defines (the last definition wins) or one named like a program the gate runs, unset functions, alias,
+# eval or source on the lines it adds, nor be new, deleted, retyped or in another letter case than the base's file.
+rm_lib_shape_check() {
+  local p names="$TXROOT/gate-fn-names" mine="$TXROOT/lib-fn-mine" bm sm hit
+  printf '%s\n' "$RM_TWO_PATHS" > "$TXROOT/two-paths"
+  git -C "$RM_BUILD" ls-tree -r --name-only "$RM_BASE_TIP" 2>/dev/null | grep -E '(^|/)\.uak/bin/(uak|uak-coordination)$|(^|/)\.uak/bin/lib/[^/]+$' |
+    while IFS= read -r p; do
+      case "${p##*/}" in uak|uak-coordination) ;; *) case " $RM_LIB_HUMAN " in *" ${p##*/} "*) ;; *) continue;; esac;; esac
+      git -C "$RM_BUILD" show "$RM_BASE_TIP:$p" 2>/dev/null
+    done | sed -n 's/^[[:space:]]*\(function[[:space:]][[:space:]]*\)\{0,1\}\([A-Za-z_][A-Za-z0-9_.-]*\)[[:space:]]*().*/\2/p' > "$names"
+  printf '%s\n' git gh awk sed grep egrep tr cat cut head tail sort uniq mktemp rm mv cp ln mkdir rmdir printf echo read cd pwd test true false \
+    exit return source eval exec command builtin type trap set unset export local declare typeset readonly shift wait kill sleep date wc \
+    find xargs tee python3 python bash sh env basename dirname expr stat curl ssh sha1sum cksum tput >> "$names"
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    bm=$(git -C "$RM_BUILD" ls-tree "$RM_BASE_TIP" -- "$p" 2>/dev/null | cut -d' ' -f1)
+    sm=$(git -C "$RM_BUILD" ls-files -s -- "$p" 2>/dev/null | cut -d' ' -f1)
+    case "$bm" in 100644|100755) [ "$bm" = "$sm" ] || bm=;; *) bm=;; esac
+    [ -n "$bm" ] || { RM_REASON="Merge-Engine-Approvals: 2 releases an edit of an existing regular lib file only: $p is new, deleted, retyped or a letter-case variant of the base's"; return 1; }
+    git -C "$RM_BUILD" show ":$p" 2>/dev/null | sed -n 's/^[[:space:]]*\(function[[:space:]][[:space:]]*\)\{0,1\}\([A-Za-z_][A-Za-z0-9_.-]*\)[[:space:]]*().*/\2/p' > "$mine"
+    hit=$(grep -xFf "$names" "$mine" | head -n 1)
+    [ -z "$hit" ] || { RM_REASON="Merge-Engine-Approvals: 2: $p defines $hit, a function the gate, the dispatcher or a program the gate runs already has; a human lands that"; return 1; }
+    hit=$(git -C "$RM_BUILD" diff --cached -U0 "$RM_BASE_TIP" -- "$p" 2>/dev/null | grep '^+' | grep -v '^+++' | sed 's/^+//' | grep -v '^[[:space:]]*#' |
+      grep -E 'unset[[:space:]]+-[A-Za-z]*f|(^|[^A-Za-z_])alias[[:space:]]|(^|[;&|([:space:]])(eval|source)[[:space:]]|(^|[;&|([:space:]])\.[[:space:]]+[^[:space:]]' | head -n 1)
+    [ -z "$hit" ] || { RM_REASON="Merge-Engine-Approvals: 2: $p adds a line that can redefine or load code into the gate (unset -f, alias, eval, source): ${hit:0:80}; a human lands that"; return 1; }
+  done < "$TXROOT/two-paths"
+  return 0
 }
 rm_gate_scope() {
   local code path additive owner_t added
@@ -769,7 +907,7 @@ rm_gate_scope() {
   # smoke-project and secret-scan stay the human's, as does a path that is an engine file and one of those at once.
   # Why (`uak metrics`, 2026-11-21): 38 of 39 queued tasks were "Shared resource/CI needs a human"; 46 of 104 integrated
   # tasks were built by the gate and landed by a person who added no check.
-  RM_CI_RELEASED=no; : > "$TXROOT/merge-released"; rm_merge_engine
+  RM_CI_RELEASED=no RM_NEED_TWO=no; : > "$TXROOT/merge-released"; rm_merge_engine
   rm_libok_file
   # Generated: files (UAK-148): a path named by the BASE tip's PROJECT.md that is no shared resource of the human is not
   # out of scope; each one is printed to merge-generated (with its command) for rm_generated_check, which holds the content.
