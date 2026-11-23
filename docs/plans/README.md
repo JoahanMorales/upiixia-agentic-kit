@@ -35,5 +35,6 @@ source of truth for what shipped is `CHANGELOG.md`, and for what is next, `docs/
 | [`plan-v68.md`](plan-v68.md) | UAK-127 · An install without the kit's own tests, with skills on demand | shipped in v6.8.0 (UAK-127…139, follow-ups UAK-140…147) |
 | [`plan-v69.md`](plan-v69.md) | UAK-148 · A generated file does not send a task to the human | UAK-148, UAK-150 and its follow-up UAK-151 integrated; UAK-149 cancelled after review (the design is not sound) |
 | [`visual-setup.md`](visual-setup.md) | UAK-152 · The visual setup and the unified dashboard come in (a contributed branch, merged onto v6.8), 11 tasks | written 2026-11-23, waiting for the human to publish; ships as v6.9 |
+| [`visual-setup-join.md`](visual-setup-join.md) | UAK-163 · Someone who joins a project that is already set up | written 2026-11-23, waiting for the human to publish; ships as v6.9 |
 | [`port-go.md`](port-go.md) | Porting the engine to Go (or Rust): an estimate | decided: not porting |
 | [`video.md`](video.md) | Plan: `uak video` (the project's video, made from the repo's own facts) | not published; v7.2 |
