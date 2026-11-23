@@ -543,6 +543,10 @@
       "La operación se detuvo. Corrige el problema y vuelve a intentarlo.",
     ],
     [
+      "That request is not from a setup start of this project.",
+      "Esa solicitud no viene de un inicio de la configuración de este proyecto.",
+    ],
+    [
       "This setup session expired. Reopen the address printed in the terminal.",
       "La sesión de configuración caducó. Vuelve a abrir la dirección que aparece en la terminal.",
     ],
