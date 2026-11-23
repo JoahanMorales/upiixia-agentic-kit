@@ -24,6 +24,7 @@
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
+# ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 1795390453	done	UAK-150	3	tests-weakened	3192	kit-a1	claude-code
 1795390517	status	UAK-150	0	-	3209	kit-r2	claude-code
 1795390565	review	UAK-148	0	-	4034	kit-r1	claude-code
@@ -332,3 +333,14 @@
 1795459687	lint	-	0	-	922	kit-a1	claude-code
 1795459704	status	UAK-186	0	-	2978	kit-r2	claude-code
 1795459761	lint	-	0	-	2724	kit-a2	claude-code
+1795459958	review	UAK-186	0	-	8162	kit-r2	claude-code
+1795459961	status	UAK-186	0	-	398	kit-r2	claude-code
+1795460004	merge	UAK-186	0	-	16880	kit-a2	claude-code
+1795460296	done	UAK-185	0	-	7184	kit-a4	claude-code
+1795460349	status	UAK-185	0	-	3066	kit-r1	claude-code
+1795460394	lint	-	0	-	990	kit-a4	claude-code
+1795460546	lint	-	0	-	944	kit-a1	claude-code
+1795460566	lint	-	0	-	965	kit-a1	claude-code
+1795460942	review	UAK-185	0	-	4003	kit-r1	claude-code
+1795460997	timeline	UAK-185	0	-	2417	kit-a4	claude-code
+1795461001	status	UAK-185	0	-	3679	kit-a4	claude-code
