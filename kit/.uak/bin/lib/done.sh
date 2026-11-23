@@ -380,7 +380,7 @@ done_no_pr_check() {
     die "--pr $PR_URL is neither a PR URL nor this task's branch ($task_branch). With no GitHub PR: --pr none"
   remote=$(git -C "$ROOT" config --get "remote.$REMOTE.url" 2>/dev/null || true)
   case "$remote" in *github.com*) ;; *) return 0;; esac
-  # The mode of the base PROJECT.md, never UAK_REVIEW_MODE: a variable in the shell of whoever runs done could not turn a
+  # The mode of the base PROJECT.md, never the environment (as at merge): nothing in the shell of whoever runs done can turn a
   # GitHub repository that reviews PRs into one that takes a branch with no PR (UAK-155).
   mode=$(rm_config Review-Mode auto)
   [ "$mode" = claims ] || die "--pr $PR_URL: this repository is on GitHub and Review-Mode is $mode, so the PR is what gets reviewed. Open it (bash .uak/bin/wt pr) and pass its URL, or, to review on claims (another agent identity runs uak review), set Review-Mode: claims in .uak/PROJECT.md on $BASE."

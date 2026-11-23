@@ -247,8 +247,42 @@ def env_review_mode_does_not_override_the_base(r):
     return "the base wins"
 
 
+def merge_with_env_mode(r, f, value):
+    """Merge HACK-001 with UAK_REVIEW_MODE=value in the environment of uak merge."""
+    env = env_for(r, f, 0)
+    env["UAK_REVIEW_MODE"] = value
+    return r.run([r.bash, ".uak/bin/uak", "merge", "HACK-001"], cwd=f.worktrees[0], env=env, allowed=None)
+
+
+def env_review_mode_does_not_change_the_merge(r):
+    """UAK-186: the base says gh, the task has no real PR and an approval on claims: the variable in the shell of whoever
+    runs uak merge must not turn that into a claims merge."""
+    f = merge_fixture(r, "dn-envm", mode="gh")
+    ready(r, f, 0, "HACK-001")
+    expect(done(r, f, 0, "HACK-001", "none").returncode == 0, "--pr none accepted on a local remote")
+    as_human(r, f, "register-reviewer", "judge")
+    as_agent(r, f, "judge", "review", "HACK-001", "--sha", tip_of(r, f), "--verdict", "approve")
+    for value in ("claims", "auto", "CLAIMS", " claims"):
+        out = merge_with_env_mode(r, f, value)
+        expect(not moved(r, f), "UAK_REVIEW_MODE=%s merged a task on a gh base: %s" % (value, (out.stdout + out.stderr)[-500:]))
+    return "gh base, 4 variable values, nothing merged"
+
+
+def merge_reads_the_base_mode(r):
+    """UAK-186: the base says claims: a claims approval merges, and a variable that says gh does not stop it."""
+    f = merge_fixture(r, "dn-basem", mode="claims")
+    ready(r, f, 0, "HACK-001")
+    expect(done(r, f, 0, "HACK-001", "none").returncode == 0, "--pr none accepted")
+    as_human(r, f, "register-reviewer", "judge")
+    as_agent(r, f, "judge", "review", "HACK-001", "--sha", tip_of(r, f), "--verdict", "approve")
+    out = merge_with_env_mode(r, f, "gh")
+    expect(out.returncode == 0 and moved(r, f), "the base's claims decides, not the variable: %s" % (out.stdout + out.stderr)[-700:])
+    return "claims base merges with UAK_REVIEW_MODE=gh"
+
+
 TESTS = [done_accepts_no_pr_without_github, wt_pr_names_the_fallback, github_still_needs_a_pr]
 TESTS += [pr_none_still_needs_an_approval, pr_none_goes_to_the_human_under_merge_engine_ci, env_review_mode_does_not_override_the_base]
+TESTS += [env_review_mode_does_not_change_the_merge, merge_reads_the_base_mode]
 
 
 def main():

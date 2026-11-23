@@ -378,8 +378,27 @@ def smoke_boot_does_not_run_a_file_name(r):
     return "4 hostile names refused, a plain one kept"
 
 
+def newline_name_is_refused_by_name(r):
+    """UAK-186: a file or folder name with a newline broke the detection (exit 1, no SMOKE_REFUSED line). It is refused
+    by name like the others, and nothing runs."""
+    t, env, git, start, uak = installed(r, "onb-newline", "sprint")
+    server = SERVER % {"name": "QueueStore"}
+    name = "x\ny.py"
+    (t / name).write_text(server, encoding="utf-8")
+    detected = r.run([r.bash, ".uak/bin/lib/smoke-init.sh", "detect"], cwd=t, env=env, allowed=None)
+    made = uak("init-smoke", env={"UAK_PORT": str(free_port())})
+    text = detected.stdout + detected.stderr + made.stdout + made.stderr
+    expect(detected.returncode != 0 and not detected.stdout.strip() and "SMOKE_REFUSED" in detected.stderr,
+           "detect refuses by name: rc %d %s" % (detected.returncode, text[-500:]))
+    expect("SMOKE_REFUSED" in made.stdout + made.stderr and made.returncode != 0 and "SMOKE_ADAPTER_CREATED" not in made.stdout,
+           "init-smoke says it refused: " + text[-500:])
+    expect(not (t / ".uak/bin/smoke-project").exists(), "no adapter generated")
+    return "newline name refused with SMOKE_REFUSED"
+
+
 TESTS = [start_asks_for_the_smoke, start_notes_the_smoke_before_any_app, web_smoke_boots_the_app, occupied_port_never_answers_for_the_app, init_smoke_leaves_no_stray_dirs]
 TESTS += [smoke_boot_does_not_run_a_file_name]
+TESTS += [newline_name_is_refused_by_name]
 
 
 def main():

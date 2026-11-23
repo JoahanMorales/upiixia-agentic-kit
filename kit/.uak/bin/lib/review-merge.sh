@@ -273,7 +273,8 @@ approval_check() {
   local tip=$1 pr=${2:-} mode review who author meta gh_tip gh_author gh_base gh_branch gh_repo gh_state gh_merged gh_merge remote_repo
   APPROVED_BY= RM_REASON=
   RM_GH_MERGED= RM_GH_MERGE=
-  mode=${UAK_REVIEW_MODE:-$(rm_config Review-Mode auto)}
+  # The mode is the base's: no variable of the shell that runs the merge can turn a gh project into one approved on claims (UAK-186).
+  mode=$(rm_config Review-Mode auto)
   if [ "$mode" = auto ]; then
     case "$pr" in https://github.com/*/pull/*)
       if command -v gh >/dev/null 2>&1; then mode=gh; else mode=claims; fi;;
