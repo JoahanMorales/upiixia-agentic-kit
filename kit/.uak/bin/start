@@ -86,9 +86,10 @@ if [ -n "$newest" ] && [ "$(vnum "$newest")" -gt "$(vnum "${mine:-0.0.0}")" ] &&
   freeze=$({ from Freeze-Epoch < .uak/PROJECT.md; } 2>/dev/null)
   if git cat-file -e "refs/remotes/$remote/$base:.uak/VERSION" 2>/dev/null || case "$freeze" in [1-9]*) true;; *) false;; esac; then
     if ! printf '%s\n' "$mine" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-      note "the kit version of this project is unreadable (${mine:-empty}), so no update check can run: .uak/VERSION should hold MAJOR.MINOR.PATCH"
+      # printf, not note: the setup page's translation table (lib/setup.py) has no pattern for this line yet.
+      printf 'NOTE  the kit version of this project is unreadable (%s), so no update check can run: .uak/VERSION should hold MAJOR.MINOR.PATCH\n' "${mine:-empty}"
     elif [ "${newest%%.*}" -gt "${mine%%.*}" ]; then
-      need "update the kit: this project has uak $mine and $where has the new major version $newest" "$@" "to stay on $mine on purpose: UAK_KIT_PIN=1 uak start"
+      need "update the kit: this project has uak $mine and $where has $newest" "a new major version: it blocks until the kit is updated" "$@" "to stay on $mine on purpose: UAK_KIT_PIN=1 uak start"
     else
       # The line itself stays the gate's (the setup page translates it); the next one says it does not block.
       note "update the kit: this project has uak $mine and $where has $newest"
