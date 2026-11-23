@@ -94,11 +94,11 @@ def ready_project(r, name):
 def newer_release_is_a_note_after_publish(r):
     """The kit is on main: a newer release is a NOTE with the update command, never a TODO, and READY stays."""
     t, env, start, kit_src, kit_bare, _ = ready_project(r, "gate-note")
-    release(r, kit_src, kit_bare, "99.0.0")
+    release(r, kit_src, kit_bare, "%d.99.0" % kit_major(r))
     out = start()
     expect(out.returncode == 0 and "START READY" in out.stdout, "a newer release does not block: " + out.stdout)
     expect("TODO" not in out.stdout, "no TODO for a newer release: " + out.stdout)
-    note = [l for l in out.stdout.splitlines() if l.startswith("NOTE") and "99.0.0" in l]
+    note = [l for l in out.stdout.splitlines() if l.startswith("NOTE") and "%d.99.0" % kit_major(r) in l]
     expect(note and "update the kit" in note[0], "the newer release is a NOTE: " + out.stdout)
     expect("--update" in out.stdout, "the NOTE still says how to update: " + out.stdout)
     return {"note": True}
@@ -138,7 +138,7 @@ def install_records_the_kit_clone(r):
     expect(recorded and os.path.samefile(recorded, str(installer)), "install records the installing clone: " + recorded)
     local = git("config", "--local", "--get", "uak.kitHome").stdout.strip()
     expect(local == recorded and git("status", "--porcelain").stdout.strip() == "", "the record is local Git config, never a file: " + local)
-    release(r, kit_src, kit_bare, "99.0.0")
+    release(r, kit_src, kit_bare, "%d.99.0" % kit_major(r))
     out = start()
     expect(out.returncode == 0 and "START READY" in out.stdout, "READY with a newer release: " + out.stdout)
     expect('git -C "' + recorded + '" pull --ff-only' in out.stdout and 'bash "' + recorded + '"/install.sh --mode marathon --update' in out.stdout,
@@ -166,7 +166,7 @@ def teammate_clone_is_ready(r):
     """A teammate clones the READY project after a newer release and runs uak start --fix once (its hooks): READY,
     no env var, no pin."""
     t, env, start, kit_src, kit_bare, _ = ready_project(r, "gate-mate")
-    release(r, kit_src, kit_bare, "99.0.0")
+    release(r, kit_src, kit_bare, "%d.99.0" % kit_major(r))
     mate = r.scratch / "gate-mate-clone"
     r.run([r.git, "clone", "-q", "-b", "main", "https://github.com/solo/app.git", str(mate)], cwd=r.scratch, env=env)
     r.g(mate, "config", "user.name", "Mate"); r.g(mate, "config", "user.email", "mate@example.invalid")
