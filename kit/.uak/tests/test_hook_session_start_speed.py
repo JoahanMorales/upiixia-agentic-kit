@@ -1151,7 +1151,7 @@ def cached_copy_always_says_its_age(r):
     now = int(time.time())
     for value, want in ((str(now - 42), r"\b4[2-9] s ago"), (None, "age unknown"), ("", "age unknown"),
                         ("abc", "age unknown"), (str(now + 3600), "age unknown"), ("9" * 20, "age unknown"),
-                        ("08", r"\d+ s ago|age unknown")):
+                        ("08", "age unknown"), ("0", "age unknown")):
         at = gd / "uak-start.next.at"
         if at.exists():
             at.unlink()
@@ -1173,6 +1173,216 @@ def cached_copy_always_says_its_age(r):
     return "age said with and without a refresh; a copy without a time file says age unknown"
 
 
+def empty_guard_is_recovered(r):
+    """UAK-185 review: a reclaimer killed between creating its guard and writing it left an empty guard that nothing
+    judged stale: pace and map build never ran again. An empty guard is judged by the file's own age."""
+    f, w = counted_fixture(r, "ss-empty-guard")
+    gd = Path(r.scratch) / "ss-empty-guard-gd"
+    gd.mkdir()
+    script = once_harness(r, w, "emptyguard.sh", r"""gd=$1
+start_once pace 0 bash -c 'echo x >> "$1/pace.calls"; sleep 1' _ "$gd"
+""")
+    (gd / "uak-once.pace.running").write_text("999999 %d 60\n" % (int(time.time()) - 1000), encoding="utf-8")
+    guard = gd / "uak-once.pace.reclaim"
+    guard.write_text("", encoding="utf-8")
+    old = time.time() - 600
+    os.utime(str(guard), (old, old))
+    for _ in range(3):
+        r.run([r.bash, script.as_posix(), gd.as_posix()], cwd=w, allowed=None)
+        time.sleep(0.3)
+    deadline = time.monotonic() + 15
+    while (gd / "uak-once.pace.running").exists() and time.monotonic() < deadline:
+        time.sleep(0.2)
+    expect(bash_counts(gd, "pace")["pace"] == 1, "an old empty guard on a stale lock: pace ran %d times in 3 starts (once)"
+           % bash_counts(gd, "pace")["pace"])
+    expect(not guard.exists(), "the old empty guard is removed")
+    return "an empty guard older than a minute no longer blocks the job"
+
+
+def limited_jobs_poll_coarsely(r):
+    """UAK-185 review: a detached job polled once a second for its whole limit, a process each on Git Bash."""
+    f, w = counted_fixture(r, "ss-poll")
+    gd = Path(r.scratch) / "ss-poll-gd"
+    gd.mkdir()
+    script = Path(r.scratch) / "poll.sh"
+    script.write_text(hook_functions(r, w, "start_pid_ok", "start_children", "start_tree", "start_kill_tree",
+                                     "start_limit_value", "start_limited") + r"""
+gd=$1
+sleep() { echo "$1" >> "$gd/sleeps"; SECONDS=$((SECONDS + ${1%%.*})); command sleep 0.01; }
+UAK_START_LIMIT=300 start_limited bash -c 'echo $$ > "$1/pid"; exec sleep 600' _ "$gd"
+echo "status=$?" > "$gd/status"
+""", encoding="utf-8")
+    pid = None
+    try:
+        r.run([r.bash, script.as_posix(), gd.as_posix()], cwd=w, allowed=None)
+        pid = int((gd / "pid").read_text().strip())
+        sleeps = len((gd / "sleeps").read_text().split())
+        expect((gd / "status").read_text().strip() == "status=1", "a job that passes the limit makes start_limited fail")
+        expect(20 <= sleeps <= 90, "a 300 s limit costs %d sleeps (at most 90, was about 300)" % sleeps)
+        expect(not alive(r, w, pid), "the killed job is gone")
+    finally:
+        if pid:
+            r.run([r.bash, "-c", 'kill -KILL "$1" 2>/dev/null; true', "_", str(pid)], cwd=w, allowed=None)
+    return "a 300 s limit: %d sleeps" % sleeps
+
+
+def first_pending_dir(r, w):
+    return Path(r.run([r.bash, "-c", "git rev-parse --path-format=absolute --git-common-dir"], cwd=w).stdout.strip())
+
+
+def killed_bb_flush_is_recovered_and_published_once(r):
+    """UAK-185 review: a flush killed mid-push left uak-blackbox.pending.PID and a clone, and the lines were never
+    retried. The next start puts them back and publishes them once; the clone goes with the kill."""
+    f, w = counted_fixture(r, "ss-bb-kill")
+    common = first_pending_dir(r, w)
+    gate = Path(r.scratch) / "ss-bb-gate"
+    gate.write_text("closed\n")
+    hook = Path(f.remote) / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\nwhile [ -f '%s' ]; do sleep 0.2; done\nexit 0\n" % gate.as_posix(), encoding="utf-8")
+    hook.chmod(0o755)
+    lines = "".join("2026-11-10T10:0%dZ | agent | kit | error | uak claim | kill-test-%d | - | - | - | v6.4\n" % (i, i)
+                    for i in (1, 2))
+    pending = common / "uak-blackbox.pending"
+    pending.write_text(lines, encoding="utf-8")
+    try:
+        start(r, w, "agent-1", UAK_START_WAIT="1", UAK_START_LIMIT="3")
+        deadline = time.monotonic() + 40
+        left = []
+        while time.monotonic() < deadline:
+            left = [p for p in common.glob("uak-blackbox.pending.*") if p.name.rsplit(".", 1)[1].isdigit()]
+            if left and not alive(r, w, int(left[0].name.rsplit(".", 1)[1])) and not list(common.glob("uak-bb-tmp.*")):
+                break
+            time.sleep(0.3)
+        expect(left, "a flush killed mid-push leaves its snapshot (the test needs it): %r" % list(common.glob("uak-*")))
+        expect(not list(common.glob("uak-bb-tmp.*")), "the killed flush's clone directory is removed: %r"
+               % list(common.glob("uak-bb-tmp.*")))
+    finally:
+        gate.unlink()
+    settle(r, w)
+    start(r, w, "agent-1", UAK_START_WAIT="1")
+    deadline = time.monotonic() + 40
+    found = ""
+    while time.monotonic() < deadline:
+        names = [n for n in r.g(f.remote, "ls-tree", "-r", "--name-only", "claims").stdout.split() if n.startswith("blackbox/")]
+        found = "".join(r.g(f.remote, "show", "claims:" + n).stdout for n in names)
+        if "kill-test-1" in found and "kill-test-2" in found and not list(common.glob("uak-blackbox.pending.*")):
+            break
+        time.sleep(0.5)
+    settle(r, w)
+    expect(found.count("kill-test-1") == 1 and found.count("kill-test-2") == 1,
+           "the next start publishes the recovered lines once: %r" % found[-600:])
+    expect(not list(common.glob("uak-blackbox.pending.*")), "no snapshot is left: %r" % list(common.glob("uak-*")))
+    return "killed mid-push, recovered by the next start, published once"
+
+
+LENS_STUB = 'case "$1" in build) %s;; esac'
+
+
+def lens_tick(r, w, sid, env):
+    tick = '{"session_id":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}}' % (sid, (w / "README.md").as_posix())
+    return r.run([r.bash, "-c", "printf '%s' \"$1\" | bash .uak/bin/hook tick", "_", tick], cwd=w,
+                 env=dict({"UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_AGENT": "agent-1"}, **env), allowed=None)
+
+
+def killed_map_build_is_not_a_built_map(r):
+    """UAK-185 review: a lens `map build` killed mid-way left a partial symbols.tsv that counted as built."""
+    f, w = counted_fixture(r, "ss-map-kill")
+    control = Path(r.scratch) / "ss-map-kill-control"
+    control.mkdir()
+    (w / "README.md").write_text("x\n", encoding="utf-8")
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    shutil.rmtree(str(gd / "uak-map"), ignore_errors=True)
+    stub_engine(r, w, map=LENS_STUB % ('mkdir -p "$(git rev-parse --absolute-git-dir)/uak-map"; '
+                                       'echo partial > "$(git rev-parse --absolute-git-dir)/uak-map/symbols.tsv"; ' + HANG))
+    pids = []
+    env = {"UAK_START_LIMIT": "2", "UAK_HUNG_DIR": control.as_posix()}
+    try:
+        lens_tick(r, w, "s-map-a", env)
+        deadline = time.monotonic() + 15
+        while not (control / "pids").exists() and time.monotonic() < deadline:
+            time.sleep(0.2)
+        pids = [int(x) for line in (control / "pids").read_text().splitlines() for x in line.split()]
+        deadline = time.monotonic() + 25
+        while (any(alive(r, w, p) for p in pids) or (gd / "uak-map/symbols.tsv").exists()) and time.monotonic() < deadline:
+            time.sleep(0.5)
+        expect(not any(alive(r, w, p) for p in pids), "the killed map build is gone")
+        expect(not (gd / "uak-map/symbols.tsv").exists() and not (gd / "uak-map/stamp").exists(),
+               "a killed build leaves no partial index: %r" % list((gd / "uak-map").glob("*")))
+        # A partial symbols.tsv without a stamp is not a built map: the lens starts a build.
+        (gd / "uak-map").mkdir(exist_ok=True)
+        (gd / "uak-map/symbols.tsv").write_text("x\tfunction\tREADME.md\t1\n", encoding="utf-8")
+        stub_engine(r, w, map=LENS_STUB % 'echo "$0 $*" >> "$UAK_HUNG_DIR/jobs"')
+        lens_tick(r, w, "s-map-b", env)
+        deadline = time.monotonic() + 15
+        while not (control / "jobs").exists() and time.monotonic() < deadline:
+            time.sleep(0.2)
+        expect((control / "jobs").exists() and "build" in (control / "jobs").read_text(),
+               "an index without a stamp starts a build")
+    finally:
+        for p in pids:
+            r.run([r.bash, "-c", 'kill -KILL "$1" 2>/dev/null; true', "_", str(p)], cwd=w, allowed=None)
+    settle(r, w)
+    return "no partial index after a kill; an unstamped index is rebuilt"
+
+
+def killed_tokens_publish_is_retried(r):
+    """UAK-185 review: tokens --publish stamped before it ran, so a kill meant no retry for 30 minutes."""
+    f, w = counted_fixture(r, "ss-tokens-kill")
+    control = Path(r.scratch) / "ss-tokens-kill-control"
+    control.mkdir()
+    common = first_pending_dir(r, w)
+    stub_engine(r, w, tokens=HANG)
+    pids = []
+    try:
+        start(r, w, "agent-1", UAK_START_WAIT="1", UAK_START_LIMIT="2", UAK_HUNG_DIR=control.as_posix())
+        deadline = time.monotonic() + 15
+        while not (control / "pids").exists() and time.monotonic() < deadline:
+            time.sleep(0.2)
+        pids = [int(x) for line in (control / "pids").read_text().splitlines() for x in line.split()]
+        deadline = time.monotonic() + 25
+        while (any(alive(r, w, p) for p in pids) or (common / "uak-tokens.published").exists()) and time.monotonic() < deadline:
+            time.sleep(0.5)
+        expect(not any(alive(r, w, p) for p in pids), "the killed tokens job is gone")
+        expect(not (common / "uak-tokens.published").exists(), "a killed publish is not stamped as published")
+    finally:
+        for p in pids:
+            r.run([r.bash, "-c", 'kill -KILL "$1" 2>/dev/null; true', "_", str(p)], cwd=w, allowed=None)
+    settle(r, w)
+    return "a killed tokens --publish is retried at the next start"
+
+
+def counter_files_are_validated(r):
+    """UAK-185 review: `08` in a counter aborted the tick, and `a[$(cmd)]` in one ran cmd (arithmetic expansion)."""
+    f, w = counted_fixture(r, "ss-counters")
+    (w / "README.md").write_text("x\n", encoding="utf-8")
+    (w / ".uak-env").write_text("UAK_TASK=HACK-001\nUAK_AGENT=agent-1\n", encoding="utf-8")
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    project = w / ".uak/PROJECT.md"
+    base = project.read_text(encoding="utf-8") if project.exists() else ""
+    evil = "a[$(touch PWNED)]"
+    try:
+        for value in ("08", evil):
+            coach = gd / "uak-coach-s-count"
+            coach.mkdir(exist_ok=True)
+            for name in ("calls", "explore", "fired.explore"):
+                (coach / name).write_text(value + "\n", encoding="utf-8")
+            (gd / "uak-inbox.poll").write_text(value + "\n", encoding="utf-8")
+            project.write_text(base + "\nLease-Seconds: %s\n" % value, encoding="utf-8")
+            out = lens_tick(r, w, "s-count", {})
+            settle_once(r, w)
+            expect(out.returncode == 0, "a counter holding %r does not abort the tick: %r" % (value, out.stderr[-300:]))
+            expect(not (w / "PWNED").exists() and not (gd / "PWNED").exists(), "%r ran a command" % value)
+            want = "9" if value == "08" else "1"   # 08 is eight, anything that is not digits starts again from 0
+            expect((coach / "calls").read_text().strip() == want, "the call counter after %r is %r, not %s"
+                   % (value, (coach / "calls").read_text(), want))
+            poll = (gd / "uak-inbox.poll").read_text().strip()
+            expect(poll.isdigit() and int(poll) > 10**9, "the tick went on to poll and stamped %r (held %r)" % (poll, value))
+    finally:
+        if base:
+            project.write_text(base, encoding="utf-8")
+    return "08 and a[$(cmd)] in counters, the poll stamp and Lease-Seconds: no abort, no command"
+
+
 TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged,
          session_start_marks_only_the_inbox_snapshot_it_prints, session_start_coalesces_aged_live_refreshes,
          session_start_recovers_a_dead_refresh_owner, session_start_orphan_output_cannot_change_replacement_cache,
@@ -1184,7 +1394,9 @@ TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged,
          session_start_launches_half_the_processes_on_resume, session_start_keeps_reporting_the_pace_level,
          hung_worker_is_killed, pace_and_map_run_once_under_ten_starts, cached_start_does_not_wait]
 TESTS += [corrupt_time_file_does_not_end_the_hook, future_time_file_is_stale, stale_lock_reclaim_runs_once,
-          once_lock_with_a_bad_time_is_stale, every_background_job_has_a_limit, cached_copy_always_says_its_age]
+          once_lock_with_a_bad_time_is_stale, every_background_job_has_a_limit, cached_copy_always_says_its_age,
+          empty_guard_is_recovered, limited_jobs_poll_coarsely, killed_bb_flush_is_recovered_and_published_once,
+          killed_map_build_is_not_a_built_map, killed_tokens_publish_is_retried, counter_files_are_validated]
 
 
 def main():
