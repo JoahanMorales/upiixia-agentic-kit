@@ -8,3 +8,4 @@ Append-only. Format: - ID | epoch | human | reason. Why: a test is a spec; chang
 - UAK-141 | 1795300954 | JoahanMorales | the minimal-count assertions compare against the bound with its 15% margin; calibrated from real Windows runs (one shard took 26m36s of 25)
 - UAK-144 | 1795382352 | JoahanMorales | the Windows table is now in measured Windows seconds, the bound is 30 min (test_flaky_guard alone takes 25 min on Windows), WINDOWS_SCALE is gone
 - UAK-150 | 1795392855 | JoahanMorales | twenty_runs_under_load and its assertion line moved unchanged from test_flaky_guard.py to test_flaky_guard_race.py; the MEASURED_* anchors in test_ci_shards.py got new values for the two files
+- UAK-152 | 1795434435 | JoahanMorales | 19 jobs: los tests del asistente no caben en 9 grupos de Windows
