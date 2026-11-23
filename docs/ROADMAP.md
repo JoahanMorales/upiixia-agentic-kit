@@ -27,9 +27,12 @@ measured times; `uak smoke --affected`; `status` and `next` on one cached fetch 
 `Merge-Commit` field; REVIEW sub-states on every surface; the ledger of every command; hooks health in `doctor` and
 `wt new`; tokens by message time; the three flaky tests.
 
-Left from v6.8: `Merge-Engine: ci` releases nine files, so it saves few of the merges that wait for a human (a
-two-approval variant is the candidate); the merge gate does not regenerate `known-files.txt`, so every task's PR is
-flagged for a file outside its Paths; a whole `integrate` starts about 1,500 git processes, and `heartbeat` 139
+Left from v6.8: `Merge-Engine: ci` releases nine files, so it saves few of the merges that wait for a human. A
+two-approval variant was built and dropped (UAK-149, 2026-11-22): the libraries it would release are sourced into the
+gate's own process, so an approved edit can redefine the gate (an override of `approval_check` landed through a real
+merge on a fixture; `state.awk`'s output is eval'd), and a filter of forbidden words cannot close that. Releasing engine
+code needs a gate that does not run the code it merges; that is not designed yet. Generated files no longer send a task
+to the human (`Generated: PATH = COMMAND`, UAK-148); a whole `integrate` starts about 1,500 git processes, and `heartbeat` 139
 (target 20); the dashboard's tokens change only when someone runs `uak tokens --publish`; `autopsy`, `design` and
 `pace set` stay "outcome not recorded" in the ledger; `smoke --affected` selects by a text match on command names;
 `test_flaky_guard` takes 25 minutes on Windows and leaves its shard 15 s under the planned bound, and
