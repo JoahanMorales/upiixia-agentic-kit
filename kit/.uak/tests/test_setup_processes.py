@@ -630,15 +630,25 @@ def two_tabs_one_closes(root, tmp):
 
 
 def cached_dashboard_keeps_time_moving(root, tmp):
-    target = project(root, tmp)
+    import test_dashboard_truth as truth
+    target, remote = plans.project(root, tmp)
+    t0 = 1800000000
+    stamp = lambda: "Updated: %d\n" % t0  # noqa: E731
+    truth.write_claims(tmp, remote, {
+        "meta/config.md": "Lease-Seconds: 1800\nStall-Seconds: 5400\n",
+        "tasks/APP-001.md": "ID: APP-001\nState: CLAIMED\nOwner: claude-ana\nProgress-Changed: %d\n%s" % (t0, stamp()),
+        "meta/agents/claude-ana.md": "Name: claude-ana\n" + stamp()})
     with Counted(tmp) as counted, wizard.LiveServer(str(target)) as srv:
         wizard.request(srv, "POST", "/api/inspect", {"target": str(target)})
         old = os.environ.get("UAK_NOW")
         try:
-            os.environ["UAK_NOW"] = "1800000000"
+            os.environ["UAK_NOW"] = str(t0 + 60)
             first = json.loads(wizard.request(srv, "GET", "/api/dashboard")[1])
-            assert first["generated"] == 1800000000
-            os.environ["UAK_NOW"] = "1800007200"  # two hours later, the tip has not moved
+            assert first["generated"] == t0 + 60
+            agent = [a for a in first["agents"] if a["name"] == "claude-ana"][0]
+            assert agent["status"] == "online", agent
+            assert not [t for t in first["tasks"] if t["id"] == "APP-001"][0].get("stalled", 0), "not stalled a minute in"
+            os.environ["UAK_NOW"] = str(t0 + 4 * 3600)  # four hours later, the tip has not moved
             mark = counted.mark()
             second = json.loads(wizard.request(srv, "GET", "/api/dashboard")[1])
             cost = counted.since(mark)
@@ -648,7 +658,10 @@ def cached_dashboard_keeps_time_moving(root, tmp):
             else:
                 os.environ["UAK_NOW"] = old
         assert len(cost) == 1 and "ls-remote" in cost[0], "still one git ls-remote: %r" % cost
-        assert second["generated"] == 1800007200, "the time-derived part is computed again: %r" % second["generated"]
+        assert second["generated"] == t0 + 4 * 3600, "the time-derived part is computed again: %r" % second["generated"]
+        agent = [a for a in second["agents"] if a["name"] == "claude-ana"][0]
+        assert agent["status"] == "offline", "the agent went idle on the same tip: %r" % agent
+        assert [t for t in second["tasks"] if t["id"] == "APP-001"][0].get("stalled", 0) > 0, "the task is stalled on the same tip"
 
 
 def reopen_is_never_silent(root, tmp):
@@ -684,7 +697,7 @@ def reopen_is_never_silent(root, tmp):
                                                       "X-UAK-Page": "latepage0002"})
         answer = conn.getresponse()
         answer.read()
-        assert answer.getheader("X-UAK-Reopens") == "0", answer.getheader("X-UAK-Reopens")
+        assert answer.getheader("X-UAK-Reopens") == "1", answer.getheader("X-UAK-Reopens")  # a page no reopen created is told
         conn.close()
         # The session ended: the reopen is refused and the second start says how to start again.
         first.call("POST", "/api/closing", {}, extra=page)  # not relevant to the refusal below
@@ -729,11 +742,99 @@ def two_simultaneous_starts_leave_one_server(root, tmp):
             wiz.stop()
 
 
+# --- pre-review 2 of UAK-156 ---------------------------------------------------------------------------------------------
+def invented_page_ids_are_not_kept(root, tmp):
+    target = project(root, tmp)
+    with wizard.LiveServer(str(target)) as srv:
+        now = [1000.0]
+        srv.clock = lambda: now[0]
+        for n in range(1000):  # no session: every one is refused, none is remembered, none delays anything
+            status = wizard.request(srv, "GET", "/api/status", token=False, extra={"X-UAK-Page": "invented%06d" % n})[0]
+            assert status == 403
+        assert not srv.pages, "unauthenticated ids are not kept: %d" % len(srv.pages)
+        for bad in ("short", "UPPERCASE123", "has space 123", "x" * 80, "a-b-c-d-e-f-g"):
+            wizard.request(srv, "GET", "/api/status", extra={"X-UAK-Page": bad})
+        assert not srv.pages, "a malformed id is not kept: %r" % list(srv.pages)
+        for n in range(200):  # a session: ids are kept, at most 64, the one silent the longest goes first
+            now[0] += 1
+            wizard.request(srv, "GET", "/api/status", extra={"X-UAK-Page": "authentic%05d" % n})
+        assert len(srv.pages) <= 64, len(srv.pages)
+        assert "authentic00199" in srv.pages and "authentic00000" not in srv.pages
+    wiz = Wizard(root, tmp, target, grace=GRACE)
+    try:
+        wiz.session()
+        real = {"X-UAK-Page": "realtab00001"}
+        assert wiz.call("GET", "/api/status", extra=real)[0] == 200
+        for n in range(300):
+            wiz.call("GET", "/api/status", token=False, extra={"X-UAK-Page": "invented%06d" % n})
+        assert wiz.call("POST", "/api/closing", {}, extra=real)[0] == 200
+        assert wiz.ended(GRACE + 12), "invented ids do not keep the server after the real tab closed"
+    finally:
+        wiz.stop()
+
+
+def reopen_before_the_first_request_is_shown(root, tmp):
+    target = project(root, tmp)
+    first = Wizard(root, tmp, target)
+    second = None
+    try:
+        launcher_page = first.launcher().read_text(encoding="utf-8")
+        code = re.search(r"#code=([A-Za-z0-9_\-]+)", launcher_page).group(1)
+        human = {"X-UAK-Page": "humanpage001"}
+        # The person's page exchanges the original code (its first request carries its id) ...
+        status, body = first.call("POST", "/api/session", {"code": code}, token=False, extra=human)
+        assert status == 200
+        first.token = body["token"]
+        # ... a second start reopens before that page asks anything else ...
+        second = Wizard(root, tmp, target, plain=True)
+        assert second.ended(30) and second.proc.returncode == 0, second.out
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", first.port, timeout=10)
+        conn.request("GET", "/api/status", headers={"Host": "127.0.0.1:%d" % first.port, "X-UAK-Token": first.token,
+                                                      "X-UAK-Page": "humanpage001"})
+        answer = conn.getresponse()
+        answer.read()
+        assert answer.getheader("X-UAK-Reopens") == "1", "the person's page is told: %r" % answer.getheader("X-UAK-Reopens")
+        conn.close()
+        # The page that the reopen itself created is not.
+        page = second.launcher().read_text(encoding="utf-8")
+        code2 = re.search(r"#code=([A-Za-z0-9_\-]+)", page).group(1)
+        status, body = first.call("POST", "/api/session", {"code": code2}, token=False, extra={"X-UAK-Page": "reopenpage02"})
+        assert status == 200, (status, body)
+        conn = http.client.HTTPConnection("127.0.0.1", first.port, timeout=10)
+        conn.request("GET", "/api/status", headers={"Host": "127.0.0.1:%d" % first.port, "X-UAK-Token": first.token,
+                                                      "X-UAK-Page": "reopenpage02"})
+        answer = conn.getresponse()
+        answer.read()
+        assert answer.getheader("X-UAK-Reopens") == "0", "the page the reopen made is not told about its own reopen"
+        conn.close()
+    finally:
+        if second:
+            second.stop()
+        first.stop()
+
+
+def reopen_notice_says_what_happened(root, tmp):
+    text = lib(root, "workspace.js")
+    page = lib(root, "setup.html")
+    sentence = re.search(r'"(Another page of setup was opened at \{time\}[^"]*)"', page)
+    assert sentence, "the page's notice names what happened"
+    english = sentence.group(1)
+    for part in ("second start", "terminal", "If you did", "nothing to do", "press Ctrl+C"):
+        assert part in english, (part, english)
+    assert "not you" not in english.split("If you did")[0], "what happened comes before the warning"
+    pairs = dict(re.findall(r'\[\s*"((?:[^"\\]|\\.)*)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*,?\s*\]', text))
+    spanish = pairs.get(english)
+    assert spanish and "segundo inicio" in spanish and "Ctrl+C" in spanish and "{time}" in spanish, spanish
+    assert "!" not in spanish
+
+
 TESTS = [second_start_reuses_the_first, idle_server_ends, closed_page_ends_the_server, no_child_survives_sigterm,
          no_child_survives_sigkill_on_linux, stale_record_is_reaped, idle_page_starts_no_process,
          hidden_page_does_not_poll, dashboard_refresh_is_one_ls_remote, bad_record_signals_nothing_and_is_removed,
          two_tabs_one_closes, cached_dashboard_keeps_time_moving, reopen_is_never_silent,
-         two_simultaneous_starts_leave_one_server]
+         two_simultaneous_starts_leave_one_server, invented_page_ids_are_not_kept,
+         reopen_before_the_first_request_is_shown, reopen_notice_says_what_happened]
 
 
 def main():

@@ -2289,6 +2289,8 @@
       (function () {
         "use strict";
         // UAK-153: the address carries a one-time code, not the session. The server exchanges it once for the token.
+        // UAK-156: each page has an id, so setup knows which pages are open (closing one tab leaves the other's server).
+        var pageId = Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
         var token = "",
           session = Promise.resolve(),
           codeMatch = /^#code=([A-Za-z0-9_-]+)$/.exec(location.hash);
@@ -2299,7 +2301,7 @@
           // Asynchronous, so nothing blocks the page: the first request (below) waits for it.
           session = fetch("/api/session", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-UAK-Page": pageId },
             body: JSON.stringify({ code: codeMatch[1] }),
           })
             .then(function (response) {
@@ -3079,14 +3081,12 @@
           el("error").textContent = UAKWorkspace.t(message);
           el("error").hidden = false;
         }
-        // UAK-156: each page has an id, so setup knows which pages are open (closing one tab leaves the other's server).
-        var pageId = Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
         // A second start of setup for this project opened another page: the answer says how many since this page began.
         function reopenedNotice(response) {
           var count = parseInt(response.headers.get("X-UAK-Reopens") || "0", 10);
           if (count > 0 && el("reopened").hidden) {
             el("reopened-text").textContent = UAKWorkspace.format(
-              "Another page of setup was opened at {time}. If that was not you, press Ctrl+C in the terminal where setup runs and start it again.",
+              "Another page of setup was opened at {time} from a second start in a terminal. If you did that, there is nothing to do. If not, press Ctrl+C in the terminal where setup runs.",
               { time: response.headers.get("X-UAK-Reopened-At") || "" },
             );
             el("reopened").hidden = false;

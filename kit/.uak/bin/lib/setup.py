@@ -326,7 +326,8 @@ def stop_children():
         forget_child(pid)
 
 
-PAGE_ID = re.compile(r"[A-Za-z0-9]{8,40}")
+PAGE_ID = re.compile(r"[a-z0-9]{8,32}")  # the shape the page generates
+MAX_PAGES = 64
 RECORD_LINE = re.compile(r"([0-9]{1,9}) ([0-9A-Za-z][0-9 A-Za-z:]*)", re.ASCII)
 
 
@@ -1111,21 +1112,35 @@ class SetupServer(ThreadingHTTPServer):
             shutil.rmtree(parts.get("dir", ""), ignore_errors=True)
         self.dash_tips.clear()
 
-    def seen_request(self, page=""):
-        """Any request: the server is in use, and a page that said it closed has come back. A request that names its page
-        registers it (with the number of reopens so far, so the page can be told of the later ones)."""
+    def remember_page(self, page, born=None):
+        """Keep PAGE (caller holds the lock): at most MAX_PAGES, the one silent the longest goes first."""
         now = self.clock()
+        seen = self.pages.get(page)
+        if seen is None and len(self.pages) >= MAX_PAGES:
+            del self.pages[min(self.pages, key=lambda p: self.pages[p][0])]
+        self.pages[page] = (now, born if born is not None else (seen[1] if seen else None))
+
+    def seen_request(self, page=""):
+        """A request that passed every check: the server is in use, and a page that said it closed has come back. A
+        request that names its page keeps it (a request that did not pass is never counted, so invented ids cost nothing)."""
         with self.lock:
-            self.last_request, self.closing_at = now, 0.0
+            self.last_request, self.closing_at = self.clock(), 0.0
             if page:
-                seen = self.pages.get(page)
-                self.pages[page] = (now, seen[1] if seen else len(self.reopened))
+                self.remember_page(page)
+
+    def session_began(self, page, code):
+        """The page that exchanged CODE: when the code was minted by a second start, that reopen created this page."""
+        with self.lock:
+            born = next((i for i, (_, minted) in enumerate(self.reopened) if minted == code), None)
+            if page:
+                self.remember_page(page, born)
 
     def reopens_for(self, page):
+        """How many second starts opened a page other than this one, and when the latest of them was."""
         with self.lock:
-            seen = self.pages.get(page)
-            count = len(self.reopened) - (seen[1] if seen else len(self.reopened))
-            return count, (time.strftime("%H:%M", time.localtime(self.reopened[-1])) if self.reopened else "")
+            born = (self.pages.get(page) or (0, None))[1]
+            others = [at for i, (at, _) in enumerate(self.reopened) if i != born]
+            return len(others), (time.strftime("%H:%M", time.localtime(others[-1])) if others else "")
 
     def page_closed(self, page=""):
         """A page says it closed. The grace starts only when no page is left (an idle second tab sends nothing)."""
@@ -1167,11 +1182,12 @@ class SetupServer(ThreadingHTTPServer):
         except (OSError, ValueError, subprocess.SubprocessError):
             raise ValueError("Setup could not record the new page, so it did not open one.")
         log_human_act(self, root, "reopen", "human", "-", "second-start")
+        launcher = self.make_launcher()
         with self.lock:
-            self.reopened.append(at)
+            self.reopened.append((at, self.code))
         self.notify("UAK SETUP: a second start asked for a new page at %s. If that was not you, press Ctrl-C here."
                     % time.strftime("%H:%M", time.localtime(at)))
-        return self.make_launcher()
+        return launcher
 
     def new_code(self):
         """A fresh one-time code (the person asks for a new page); the session ends only by idling."""
@@ -1688,11 +1704,12 @@ class SetupHandler(BaseHTTPRequestHandler):
     def authorized(self, write=False):
         self.page = self.headers.get("X-UAK-Page", "")
         self.page = self.page if PAGE_ID.fullmatch(self.page) else ""
-        self.server.seen_request(self.page)
         origin = "http://127.0.0.1:%d" % self.server.server_port
         if self.headers.get("Host") != origin[len("http://"):] or (write and self.headers.get("Origin") != origin):
             self.reply(403, {"error": "This request must come from the local setup page."})
             return False
+        if not self.path.startswith("/api/") or self.path in ("/api/session", "/api/reopen"):
+            self.server.seen_request()  # the shell, the media and the code exchange: a use, but no page is named
         if self.path.startswith("/api/") and self.path not in ("/api/session", "/api/reopen"):
             if not hmac.compare_digest(self.headers.get("X-UAK-Token", "").encode("utf-8"), self.server.token.encode("utf-8")):
                 self.reply(403, {"error": "This setup session expired. Reopen the address printed in the terminal."})
@@ -1701,6 +1718,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                 self.reply(403, {"error": "This setup session ended after 30 minutes without activity. Start setup again "
                                           "from your terminal: %s" % RESTART})
                 return False
+            self.server.seen_request(self.page)  # a valid session: now the page counts
             if self.path != "/api/status":  # the page's own poll is not an action of the person
                 self.server.touch()
         return True
@@ -2044,6 +2062,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                     self.reply(403, {"error": "That code was already used or has expired. Open a new page from the terminal."})
                 else:
                     self.server.forget_launcher()
+                    self.server.session_began(self.page, data["code"])
                     self.reply(200, {"token": token})
                 return
             # Who signs is read before taking the lock (review of 949eca1: it blocked status polling) and synchronously
@@ -3664,7 +3683,10 @@ def main():
                     (announced.parent / name).unlink()
                 except OSError:
                     pass
-        print("UAK SETUP ended: %s. To open it again run: %s" % (why[0], RESTART), flush=True)
+        try:
+            print("UAK SETUP ended: %s. To open it again run: %s" % (why[0], RESTART), flush=True)
+        except (OSError, ValueError):
+            pass  # the terminal is gone (a closed window): the exit is still clean
     return 0
 
 
