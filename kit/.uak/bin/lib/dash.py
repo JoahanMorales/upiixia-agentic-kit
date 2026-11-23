@@ -189,8 +189,10 @@ def base_mode(root):
     return project_mode(git("show", "refs/uak/dash-base:.uak/PROJECT.md", cwd=root, check=False).decode("utf-8", "replace"))
 
 
-def workspace_data(root):
-    """The same dashboard model, including a clearly labelled offline/local-plan state."""
+def workspace_data(root, keep=None):
+    """The same dashboard model, including a clearly labelled offline/local-plan state. `keep` (a dict, UAK-156): the
+    claims copy and what was read beside it stay on disk and are put in it, for a caller that builds the model again
+    from them (it removes the folder); without it the copy is removed here."""
     remote = os.environ.get("UAK_REMOTE", "origin")
     configured = git("config", "--get", "remote.%s.url" % remote, cwd=root, check=False).strip()
     extracted = None
@@ -201,6 +203,9 @@ def workspace_data(root):
             data = build(extracted, backlog, Path(root).name)
             data.update(source="remote", connection="ok", warning="", refresh=20, live_url=base_live_url(root))
             data["mode"] = data.get("mode") or base_mode(root)
+            if keep is not None:
+                keep.update(dir=str(extracted), backlog=backlog, live_url=data["live_url"], base_mode=data["mode"])
+                extracted = None
             return data
         except (OSError, RuntimeError, subprocess.SubprocessError):
             # A remote that exists but cannot be read is a different problem from no remote at all.

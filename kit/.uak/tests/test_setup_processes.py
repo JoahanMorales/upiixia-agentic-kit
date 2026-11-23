@@ -567,9 +567,170 @@ process.stdout.write(JSON.stringify(out));
     assert out["gone"] == 5, "a lost server sets no dashboard timer"
 
 
+# --- pre-review of UAK-156 (kit-r2): a bad record, two tabs, time in the cached dashboard, a silent reopen ---------------
+def bad_record_signals_nothing_and_is_removed(root, tmp):
+    if WINDOWS:
+        return  # nothing reads the record there
+    target = project(root, tmp)
+    folder = gitdir(target)
+    sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])  # in this test's own group
+    try:
+        own = wizard.MODULE.process_stamp(os.getpgrp())
+        parent = wizard.MODULE.process_stamp(os.getppid())
+        lines = ["0 123", "1 123", "-5 abc", "99999999999999999999 x", "\u00b2 x", "garbage", "", "%d %s" % (os.getpgrp(), own),
+                 "%d %s" % (os.getpid(), own), "%d %s" % (os.getppid(), parent), "%d " % os.getpgrp()]
+        record = folder / "uak-wizard.children"
+        record.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        wiz = Wizard(root, tmp, target)
+        try:
+            assert "UAK SETUP http" in " ".join(wiz.out), "a corrupt record does not stop the start: %r" % wiz.out
+            assert sentinel.poll() is None, "nothing in this test's own group was signalled"
+            assert os.getpgid(os.getpid()) == os.getpgrp()
+            assert not record.exists(), "the record is gone"
+        finally:
+            wiz.stop()
+    finally:
+        sentinel.kill()
+        sentinel.wait(10)
+
+
+def two_tabs_one_closes(root, tmp):
+    target = project(root, tmp)
+    # The decision, with a clock the test moves.
+    with wizard.LiveServer(str(target)) as srv:
+        now = [1000.0]
+        srv.clock = lambda: now[0]
+        srv.seen_request("aaaaaaaa11")
+        srv.seen_request("bbbbbbbb22")
+        srv.page_closed("aaaaaaaa11")
+        now[0] += wizard.MODULE.CLOSE_GRACE_SECONDS + 4
+        assert not srv.end_reason(), "the other tab is open: the server stays"
+        srv.page_closed("bbbbbbbb22")
+        now[0] += wizard.MODULE.CLOSE_GRACE_SECONDS + 1
+        assert "closed" in srv.end_reason(), "both closed: it ends"
+        srv.seen_request("cccccccc33")  # a reload: a new page within the grace
+        assert not srv.end_reason(), "a new page keeps it"
+    # The process, over HTTP.
+    wiz = Wizard(root, tmp, target, grace=GRACE)
+    try:
+        wiz.session()
+        one, two = {"X-UAK-Page": "pageone0001"}, {"X-UAK-Page": "pagetwo0002"}
+        assert wiz.call("GET", "/api/status", extra=one)[0] == 200
+        assert wiz.call("GET", "/api/status", extra=two)[0] == 200
+        assert wiz.call("POST", "/api/closing", {}, extra=one)[0] == 200
+        time.sleep(GRACE + 4)
+        assert wiz.proc.poll() is None, "closing one tab leaves the server under the other"
+        assert wiz.call("POST", "/api/closing", {}, extra=two)[0] == 200
+        assert wiz.ended(20), "both closed: it ends"
+    finally:
+        wiz.stop()
+
+
+def cached_dashboard_keeps_time_moving(root, tmp):
+    target = project(root, tmp)
+    with Counted(tmp) as counted, wizard.LiveServer(str(target)) as srv:
+        wizard.request(srv, "POST", "/api/inspect", {"target": str(target)})
+        old = os.environ.get("UAK_NOW")
+        try:
+            os.environ["UAK_NOW"] = "1800000000"
+            first = json.loads(wizard.request(srv, "GET", "/api/dashboard")[1])
+            assert first["generated"] == 1800000000
+            os.environ["UAK_NOW"] = "1800007200"  # two hours later, the tip has not moved
+            mark = counted.mark()
+            second = json.loads(wizard.request(srv, "GET", "/api/dashboard")[1])
+            cost = counted.since(mark)
+        finally:
+            if old is None:
+                os.environ.pop("UAK_NOW", None)
+            else:
+                os.environ["UAK_NOW"] = old
+        assert len(cost) == 1 and "ls-remote" in cost[0], "still one git ls-remote: %r" % cost
+        assert second["generated"] == 1800007200, "the time-derived part is computed again: %r" % second["generated"]
+
+
+def reopen_is_never_silent(root, tmp):
+    target = project(root, tmp)
+    first = Wizard(root, tmp, target)
+    second = None
+    try:
+        first.session()
+        page = {"X-UAK-Page": "openpage0001"}
+        status, _ = first.call("GET", "/api/status", extra=page)
+        assert status == 200
+        before = len(first.out)
+        second = Wizard(root, tmp, target, plain=True)
+        assert second.ended(30) and second.proc.returncode == 0, second.out
+        assert wait_until(lambda: any("second start" in line for line in first.out[before:]), 10), \
+            "the first terminal says a second start asked for a new page: %r" % first.out[before:]
+        said = [line for line in first.out[before:] if "second start" in line][0]
+        assert re.search(r"\d\d:\d\d", said) and "Ctrl" in said, said
+        register = (gitdir(target) / "uak-direct-main.log").read_text(encoding="utf-8")
+        assert "reopen" in register, "the register of acts has the line: %r" % register
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", first.port, timeout=10)
+        conn.request("GET", "/api/status", headers={"Host": "127.0.0.1:%d" % first.port, "X-UAK-Token": first.token,
+                                                      "X-UAK-Page": "openpage0001"})
+        answer = conn.getresponse()
+        answer.read()
+        assert answer.getheader("X-UAK-Reopens") == "1", "the open page's next answer carries the counter: %r" % answer.getheader("X-UAK-Reopens")
+        assert re.fullmatch(r"\d\d:\d\d", answer.getheader("X-UAK-Reopened-At") or ""), answer.getheader("X-UAK-Reopened-At")
+        conn.close()
+        # A page that began after the reopen sees no counter.
+        conn = http.client.HTTPConnection("127.0.0.1", first.port, timeout=10)
+        conn.request("GET", "/api/status", headers={"Host": "127.0.0.1:%d" % first.port, "X-UAK-Token": first.token,
+                                                      "X-UAK-Page": "latepage0002"})
+        answer = conn.getresponse()
+        answer.read()
+        assert answer.getheader("X-UAK-Reopens") == "0", answer.getheader("X-UAK-Reopens")
+        conn.close()
+        # The session ended: the reopen is refused and the second start says how to start again.
+        first.call("POST", "/api/closing", {}, extra=page)  # not relevant to the refusal below
+        with wizard.LiveServer(str(target)) as srv:
+            srv.ended = True
+            host = "127.0.0.1:%d" % srv.server_port
+            status, body, _ = wizard.request(srv, "POST", "/api/reopen", {}, token=False,
+                                             extra={"X-UAK-Reopen": srv.key})
+            assert status == 409 and "ended" in json.loads(body)["error"], (status, body)
+    finally:
+        if second:
+            second.stop()
+        first.stop()
+
+
+def two_simultaneous_starts_leave_one_server(root, tmp):
+    target = project(root, tmp)
+    boxes = [[], []]
+
+    def start(slot):
+        boxes[slot].append(Wizard(root, tmp, target))
+
+    threads = [threading.Thread(target=start, args=(slot,)) for slot in (0, 1)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(90)
+    wizards = [box[0] for box in boxes if box]
+    try:
+        assert len(wizards) == 2
+        winners = [w for w in wizards if w.proc.poll() is None]
+        for loser in [w for w in wizards if w not in winners]:
+            assert loser.ended(30) and loser.proc.returncode == 0, loser.out
+        assert len(winners) == 1 or wait_until(lambda: len([w for w in wizards if w.proc.poll() is None]) == 1, 30), \
+            "two simultaneous starts leave one server: %r" % [w.out for w in wizards]
+        live = [w for w in wizards if w.proc.poll() is None][0]
+        assert listening(live.port)
+        others = [w for w in wizards if w is not live]
+        assert others and not listening(others[0].port) or others[0].port == live.port
+    finally:
+        for wiz in wizards:
+            wiz.stop()
+
+
 TESTS = [second_start_reuses_the_first, idle_server_ends, closed_page_ends_the_server, no_child_survives_sigterm,
          no_child_survives_sigkill_on_linux, stale_record_is_reaped, idle_page_starts_no_process,
-         hidden_page_does_not_poll, dashboard_refresh_is_one_ls_remote]
+         hidden_page_does_not_poll, dashboard_refresh_is_one_ls_remote, bad_record_signals_nothing_and_is_removed,
+         two_tabs_one_closes, cached_dashboard_keeps_time_moving, reopen_is_never_silent,
+         two_simultaneous_starts_leave_one_server]
 
 
 def main():

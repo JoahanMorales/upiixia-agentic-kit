@@ -547,6 +547,18 @@
       "Esa solicitud no viene de un inicio de la configuración de este proyecto.",
     ],
     [
+      "Another page of setup was opened at {time}. If that was not you, press Ctrl+C in the terminal where setup runs and start it again.",
+      "Se abrió otra página de la configuración a las {time}. Si no fuiste tú, presiona Ctrl+C en la terminal donde corre la configuración y vuelve a iniciarla.",
+    ],
+    [
+      "The session of this setup ended. Press Ctrl+C where it runs and start it again: bash install.sh --wizard",
+      "La sesión de esta configuración terminó. Presiona Ctrl+C donde se ejecuta y vuelve a iniciarla: bash install.sh --wizard",
+    ],
+    [
+      "Setup could not record the new page, so it did not open one.",
+      "La configuración no pudo registrar la página nueva, así que no abrió ninguna.",
+    ],
+    [
       "This setup session expired. Reopen the address printed in the terminal.",
       "La sesión de configuración caducó. Vuelve a abrir la dirección que aparece en la terminal.",
     ],

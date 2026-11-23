@@ -326,27 +326,53 @@ def stop_children():
         forget_child(pid)
 
 
+PAGE_ID = re.compile(r"[A-Za-z0-9]{8,40}")
+RECORD_LINE = re.compile(r"([0-9]{1,9}) ([0-9][0-9 A-Za-z:]*)", re.ASCII)
+
+
+def protected_groups():
+    """The numbers a record must never make us signal: this process, its group, its parent and the parent's group (the
+    person's terminal job)."""
+    mine = {os.getpid(), os.getppid()}
+    for getter in (os.getpgrp, lambda: os.getpgid(0), lambda: os.getpgid(os.getppid())):
+        try:
+            mine.add(getter())
+        except (OSError, AttributeError):
+            pass
+    return mine
+
+
 def reap_children(path):
-    """Kill the groups a server that no longer exists left (the record names group and start time: a leader that is alive
-    with another start time is not touched; a dead leader with members left is the case the record is for), then drop it. Windows closes its jobs with the server: nothing to read there."""
+    """Kill the groups a server that no longer exists left, then drop the record. Each line is "PID START": plain ASCII
+    digits, a PID above 1 that is none of ours, and a start time. A line that does not parse is skipped and signals
+    nothing; a leader that is alive with another start time is not touched; a dead leader whose group still has members
+    is the case the record is for (on Linux the members must be in a session of that number). Windows closes its jobs
+    with the server: nothing to read there."""
     try:
         lines = Path(path).read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return 0
+    except (OSError, UnicodeError):
+        lines = None
     killed = 0
-    for line in lines:
-        pid, _, stamp = line.partition(" ")
-        if os.name == "nt" or not pid.isdigit() or not stamp:
-            continue
-        now = process_stamp(int(pid))
-        if now and now != stamp:
-            continue  # the number belongs to another process now
-        try:
-            os.killpg(int(pid), 0)  # the leader may be gone (it died with the server) while its children are not
-        except OSError:
-            continue
-        kill_group(int(pid))
-        killed += 1
+    if lines is not None and os.name != "nt":
+        keep_away = protected_groups()
+        for line in lines:
+            found = RECORD_LINE.fullmatch(line.strip())
+            if not found:
+                continue
+            pid, stamp = int(found.group(1)), found.group(2)
+            if pid <= 1 or pid in keep_away:
+                continue
+            now = process_stamp(pid)
+            if now and now != stamp:
+                continue  # the number belongs to another process now
+            if not now and sys.platform.startswith("linux") and not group_members(pid):
+                continue
+            try:
+                os.killpg(pid, 0)  # the leader may be gone (it died with the server) while its children are not
+            except (OSError, OverflowError):
+                continue
+            kill_group(pid)
+            killed += 1
     try:
         Path(path).unlink()
     except OSError:
@@ -354,12 +380,45 @@ def reap_children(path):
     return killed
 
 
+def group_members(pid):
+    """Linux: the processes in group PID that started their own session (what the wizard's children do)."""
+    found = []
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return found
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open("/proc/%s/stat" % name, encoding="utf-8") as handle:
+                fields = handle.read().rsplit(")", 1)[1].split()
+            if int(fields[2]) == pid and int(fields[3]) == pid:
+                found.append(int(name))
+        except (OSError, IndexError, ValueError):
+            continue
+    return found
+
+
+LIBC = []
+
+
+def load_libc():
+    """libc, loaded in the parent before any child starts (a preexec_fn must not import or load anything)."""
+    if not LIBC:
+        try:
+            import ctypes
+            LIBC.append(ctypes.CDLL(None, use_errno=True))
+        except Exception:  # noqa: BLE001 - no libc here: the record and the next start do the cleaning
+            LIBC.append(None)
+    return LIBC[0]
+
+
 def die_with_parent():
     """preexec_fn (Linux): SIGKILL for this child when the thread that started it ends, i.e. when the server is killed."""
     try:
-        import ctypes
-        ctypes.CDLL(None, use_errno=True).prctl(1, int(signal.SIGKILL))
-    except Exception:  # noqa: BLE001 - no libc here: the record and the next start do the cleaning
+        LIBC[0].prctl(1, 9)
+    except Exception:  # noqa: BLE001
         pass
 
 
@@ -370,7 +429,7 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
     environment = safe_environment()
     environment.update(env or {})
     extra = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
-    if sys.platform.startswith("linux"):
+    if sys.platform.startswith("linux") and load_libc():
         extra["preexec_fn"] = die_with_parent
     text = {} if binary else {"text": True, "encoding": "utf-8", "errors": "replace"}
     proc = subprocess.Popen(command, cwd=cwd, env=environment, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
@@ -1011,6 +1070,7 @@ class SetupServer(ThreadingHTTPServer):
         self.clock, self.notify, self.ended, self.launcher = time.monotonic, lambda text: print(text, flush=True), False, None
         self.code, self.code_at, self.code_used, self.last_active = "", 0.0, True, self.clock()
         self.last_request, self.closing_at, self.key = self.clock(), 0.0, secrets.token_urlsafe(24)
+        self.pages, self.reopened = {}, []  # open pages: id -> (last seen, reopens when first seen); reopen times
         self.dash_tips = {}
         self.nonce = secrets.token_urlsafe(24)
         self.installer = Path(installer).resolve()
@@ -1045,32 +1105,72 @@ class SetupServer(ThreadingHTTPServer):
     def dash(self):
         return dashboard_module()
 
-    def seen_request(self):
-        """Any request: the server is in use, and a page that said it closed has come back."""
-        self.last_request = self.clock()
-        self.closing_at = 0.0
+    def server_close(self):
+        super().server_close()
+        for _, parts in list(self.dash_tips.values()):
+            shutil.rmtree(parts.get("dir", ""), ignore_errors=True)
+        self.dash_tips.clear()
 
-    def page_closed(self):
-        self.closing_at = self.clock()
+    def seen_request(self, page=""):
+        """Any request: the server is in use, and a page that said it closed has come back. A request that names its page
+        registers it (with the number of reopens so far, so the page can be told of the later ones)."""
+        now = self.clock()
+        with self.lock:
+            self.last_request, self.closing_at = now, 0.0
+            if page:
+                seen = self.pages.get(page)
+                self.pages[page] = (now, seen[1] if seen else len(self.reopened))
+
+    def reopens_for(self, page):
+        with self.lock:
+            seen = self.pages.get(page)
+            count = len(self.reopened) - (seen[1] if seen else len(self.reopened))
+            return count, (time.strftime("%H:%M", time.localtime(self.reopened[-1])) if self.reopened else "")
+
+    def page_closed(self, page=""):
+        """A page says it closed. The grace starts only when no page is left (an idle second tab sends nothing)."""
+        with self.lock:
+            if page:
+                self.pages.pop(page, None)
+            else:
+                self.pages.clear()  # a request that names no page speaks for all of them
+            if not self.pages:
+                self.closing_at = self.clock()
 
     def working(self):
         worker = self.worker
         return bool(worker and worker.is_alive()) or bool(CHILDREN)
 
     def end_reason(self):
-        """Why the server should end now, or "": 15 minutes with no request, or a page that said it closed and did not
-        come back, and no action running. The message says how to open it again."""
+        """Why the server should end now, or "": 15 minutes with no request, or every page said it closed and none came
+        back, and no action running. The message says how to open it again."""
         if self.working():
             return ""
         now = self.clock()
-        if self.closing_at and now - self.closing_at >= CLOSE_GRACE_SECONDS:
+        with self.lock:
+            for page in [p for p, seen in self.pages.items() if now - seen[0] > IDLE_EXIT_SECONDS]:
+                del self.pages[page]  # silent for longer than the limit: that tab is not counted
+            closing = self.closing_at
+        if closing and now - closing >= CLOSE_GRACE_SECONDS:
             return "the page was closed"
         if now - self.last_request > IDLE_EXIT_SECONDS:
-            return "it had no request for %d minutes" % (IDLE_EXIT_SECONDS // 60)
+            return "it had no request for %s" % duration(IDLE_EXIT_SECONDS)
         return ""
 
-    def make_reopening(self):
-        """A launcher with a fresh code for the person who starts setup a second time; returns its path."""
+    def reopening(self):
+        """A second start asked for a new page: say so here, write it in the register, and only then mint the code."""
+        if self.ended:
+            raise Busy("The session of this setup ended. Press Ctrl+C where it runs and start it again: bash install.sh --wizard")
+        at = time.time()
+        try:
+            root = project_root(self.state.get("target") or "")
+        except (OSError, ValueError, subprocess.SubprocessError):
+            raise ValueError("Setup could not record the new page, so it did not open one.")
+        log_human_act(self, root, "reopen", "human", "-", "second-start")
+        with self.lock:
+            self.reopened.append(at)
+        self.notify("UAK SETUP: a second start asked for a new page at %s. If that was not you, press Ctrl-C here."
+                    % time.strftime("%H:%M", time.localtime(at)))
         return self.make_launcher()
 
     def new_code(self):
@@ -1151,7 +1251,9 @@ class SetupServer(ThreadingHTTPServer):
         for cache in (self.remote_cache, self.team_cache):
             for key in [k for k in cache if k[0] == root]:
                 del cache[key]
-        self.dash_tips.pop(os.path.normcase(root), None)
+        old = self.dash_tips.pop(os.path.normcase(root), None)
+        if old:
+            shutil.rmtree(old[1].get("dir", ""), ignore_errors=True)
 
     def open_target(self):
         """On start (main(), never make_server): an installed project on the command line opens where it is, from
@@ -1570,6 +1672,10 @@ class SetupHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-UAK-Setup", "1")
+        if self.path.startswith("/api/") and getattr(self, "page", ""):
+            count, at = self.server.reopens_for(self.page)
+            self.send_header("X-UAK-Reopens", str(count))
+            self.send_header("X-UAK-Reopened-At", at)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'nonce-%s'; style-src 'unsafe-inline'; connect-src 'self'; frame-src 'self'; img-src data: 'self'; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors %s" % (self.server.nonce, "'self'" if self.path == "/dashboard" else "'none'"))
@@ -1580,7 +1686,9 @@ class SetupHandler(BaseHTTPRequestHandler):
             pass  # Closing a tab does not cancel an installation or print session data.
 
     def authorized(self, write=False):
-        self.server.seen_request()
+        self.page = self.headers.get("X-UAK-Page", "")
+        self.page = self.page if PAGE_ID.fullmatch(self.page) else ""
+        self.server.seen_request(self.page)
         origin = "http://127.0.0.1:%d" % self.server.server_port
         if self.headers.get("Host") != origin[len("http://"):] or (write and self.headers.get("Origin") != origin):
             self.reply(403, {"error": "This request must come from the local setup page."})
@@ -1775,37 +1883,57 @@ class SetupHandler(BaseHTTPRequestHandler):
 
     def dashboard_data(self, root, module):
         """The dashboard of the project. When the tips of claims and of the base branch did not move (one `git
-        ls-remote`) and no local file the page reads changed, the last answer is the answer and nothing else runs."""
+        ls-remote`) and no local file the page reads changed, nothing else runs in git: the claims copy of that tip is
+        kept, and what depends on the clock (stalled, idle, gone, lease, late, `generated`) is built again from it on
+        every answer, with no process."""
         s = self.server
         key = dashboard_key(s, root)
         slot = os.path.normcase(str(root))
         with s.lock:
             kept = s.dash_tips.get(slot)
-        if key and kept and kept[0] == key:
-            return copy.deepcopy(kept[1])
-        data = module.workspace_data(root)
+        if key and kept and kept[0] == key and Path(kept[1]["dir"]).is_dir():
+            parts = kept[1]
+            data = module.build(Path(parts["dir"]), parts["backlog"], Path(root).name)
+            data.update(source="remote", connection="ok", warning="", refresh=20, live_url=parts["live_url"])
+            data["mode"] = data.get("mode") or parts["base_mode"]
+            return self.finish_dashboard(root, data, parts["known"], parts)
+        parts = {}
+        data = module.workspace_data(root, keep=parts)
         if data.get("source") == "local" and data.get("connection") == "unreachable":
             # UI-023 (B-08): offline, the last claims this clone read, marked stale, not "everything free".
             try:
                 data = last_claims(s, root, module) or data
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, tarfile.TarError):
                 pass  # no readable copy: the plainly labelled local plan stays
-        try:
-            name_the_team(s, Path(root), data)
-        except (OSError, ValueError, subprocess.SubprocessError):
-            pass  # the dashboard still shows who has acted; only the extra names are missing
-        config = read_config(root)
-        data["mode"] = config.get("Mode", "")
-        if not data.get("freeze"):
-            # UI-023 (B-06): claims' config has no freeze until the engine writes one; PROJECT.md has it.
-            try:
-                data["freeze"] = max(0, int(read_config(root, ("Freeze-Epoch",)).get("Freeze-Epoch") or 0))
-            except ValueError:
-                data["freeze"] = 0
-        truthful(data)
-        if key and data.get("source") == "remote" and data.get("connection") == "ok":
+        known = team_known(s, root, data)
+        data = self.finish_dashboard(root, data, known, parts)
+        if key and parts.get("dir") and data.get("source") == "remote" and data.get("connection") == "ok":
+            parts.update(known=known, mode=data.get("mode", ""), freeze=data.get("freeze") or 0)
             with s.lock:
-                s.dash_tips[slot] = (key, copy.deepcopy(data))
+                old = s.dash_tips.get(slot)
+                s.dash_tips[slot] = (key, parts)
+            if old:
+                shutil.rmtree(old[1].get("dir", ""), ignore_errors=True)
+        elif parts.get("dir"):
+            shutil.rmtree(parts["dir"], ignore_errors=True)
+        return data
+
+    def finish_dashboard(self, root, data, known, parts):
+        name_the_team(self.server, Path(root), data, known)
+        if "mode" in parts and "freeze" in parts:  # a kept answer: the config was read when it was kept
+            data["mode"], freeze = parts["mode"], parts["freeze"]
+            if not data.get("freeze"):
+                data["freeze"] = freeze
+        else:
+            config = read_config(root)
+            data["mode"] = config.get("Mode", "")
+            if not data.get("freeze"):
+                # UI-023 (B-06): claims' config has no freeze until the engine writes one; PROJECT.md has it.
+                try:
+                    data["freeze"] = max(0, int(read_config(root, ("Freeze-Epoch",)).get("Freeze-Epoch") or 0))
+                except ValueError:
+                    data["freeze"] = 0
+        truthful(data)
         return data
 
     def dashboard_meanwhile(self, root, module):
@@ -1896,7 +2024,7 @@ class SetupHandler(BaseHTTPRequestHandler):
             if not isinstance(data, dict):
                 raise ValueError("Expected a settings object.")
             if self.path == "/api/closing":
-                self.server.page_closed()  # the page says it was closed; a request within the grace says it was a reload
+                self.server.page_closed(self.page)  # a request within the grace says it was a reload
                 self.reply(200, {"closing": True})
                 return
             if self.path == "/api/reopen":
@@ -1905,7 +2033,10 @@ class SetupHandler(BaseHTTPRequestHandler):
                 if not key or not hmac.compare_digest(key.encode("utf-8"), self.server.key.encode("utf-8")):
                     self.reply(403, {"error": "That request is not from a setup start of this project."})
                 else:
-                    self.reply(200, {"launcher": str(self.server.make_reopening())})
+                    try:
+                        self.reply(200, {"launcher": str(self.server.reopening())})
+                    except Busy as exc:
+                        self.reply(409, {"error": str(exc)})
                 return
             if self.path == "/api/session":
                 token = self.server.exchange(data.get("code")) if set(data) == {"code"} else None
@@ -2777,20 +2908,31 @@ def project_progress(server, root, session=""):
     return resume, saved
 
 
-def name_the_team(server, root, data):
-    """The Agents tab lists who has acted (dash.py); setup also names the reviewer the person registered and marks the
-    human (UI-012, test round r3: luis-r was missing until its first command, and luis read "offline · 20770 d ago").
-    Read from the claims copy dash.py has just fetched; a registered reviewer never seen has last_seen 0."""
+def team_known(server, root, data):
+    """What the claims copy says about the team (registered reviewers, humans, retired), read once per tip; None when the
+    page is not reading the remote or the copy is not there."""
     if data.get("source") != "remote":
-        return
+        return None
 
     def git(*args):
         return server.planning.git(server.run, root, *args, timeout=60)
 
     if git("rev-parse", "-q", "--verify", DASH_CLAIMS + "^{commit}").returncode:
-        return
+        return None
     known = {"reviewers": {}, "retired": [], "claims": {}, "files": [], "humans": []}
-    read_claims(git, known, DASH_CLAIMS)
+    try:
+        read_claims(git, known, DASH_CLAIMS)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return known
+
+
+def name_the_team(server, root, data, known=None):
+    """The Agents tab lists who has acted (dash.py); setup also names the reviewer the person registered and marks the
+    human (UI-012, test round r3: luis-r was missing until its first command, and luis read "offline · 20770 d ago").
+    Read from the claims copy dash.py has just fetched (`known`); a registered reviewer never seen has last_seen 0."""
+    if known is None:
+        return
     agents = data.setdefault("agents", [])
     names = {a.get("name") for a in agents}
     for agent in agents:
@@ -3337,7 +3479,7 @@ def make_server(target="", installer=None, run=None):
 
 
 def running_wizard(announced):
-    """The first wizard of this project when it answers, as (port, reopened launcher path or ""); None for a stale record
+    """The first wizard of this project when it answers, as (port, reopened launcher path or "", why not); None for a stale record
     (a dead process, or a port nobody answers on, or something that is not a wizard)."""
     import http.client
     try:
@@ -3357,7 +3499,7 @@ def running_wizard(announced):
             return None
     except (OSError, http.client.HTTPException):
         return None
-    launcher = ""
+    launcher, failure = "", ""
     try:
         key = (announced.parent / KEY_FILE).read_text(encoding="ascii").strip()
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
@@ -3368,9 +3510,11 @@ def running_wizard(announced):
         conn.close()
         if answer.status == 200:
             launcher = json.loads(body.decode("utf-8")).get("launcher", "")
+        else:
+            failure = str(json.loads(body.decode("utf-8")).get("error", ""))
     except (OSError, ValueError, http.client.HTTPException):
         launcher = ""
-    return port, launcher
+    return port, launcher, failure
 
 
 def duration(seconds):
@@ -3393,12 +3537,12 @@ def main():
     if announced:
         reused = running_wizard(announced)
         if reused:
-            port, launcher = reused
+            port, launcher, failure = reused
             print("UAK SETUP is already running for this project at http://127.0.0.1:%d/ (it starts nothing new)." % port,
                   flush=True)
             if not launcher:
-                print("It did not give a new page. Use the terminal where it runs, or end it there with Ctrl+C and start "
-                      "again: %s" % RESTART, flush=True)
+                print("%s It did not give a new page. Use the terminal where it runs, or end it there with Ctrl+C and "
+                      "start again: %s" % (failure, RESTART), flush=True)
                 return 1
             print("Launcher file: %s" % launcher, flush=True)
             if not args.no_open:
@@ -3407,12 +3551,21 @@ def main():
                 except (OSError, webbrowser.Error):
                     print("Could not open a browser. Open the launcher file above in your browser.", flush=True)
             return 0
-        reap_children(announced.parent / CHILD_RECORD)
-        for stale in (announced, announced.parent / KEY_FILE):
+        try:
+            seen = announced.read_bytes()
+        except OSError:
+            seen = None
+        if seen is not None:
+            reap_children(announced.parent / CHILD_RECORD)
             try:
-                stale.unlink()
+                unchanged = announced.read_bytes() == seen  # another start may have replaced it meanwhile
             except OSError:
-                pass
+                unchanged = False
+            for stale in ((announced, announced.parent / KEY_FILE) if unchanged else ()):
+                try:
+                    stale.unlink()
+                except OSError:
+                    pass
         CHILD_FILE[0] = announced.parent / CHILD_RECORD
     server = make_server(args.target)
     why = ["it was stopped"]
@@ -3427,15 +3580,53 @@ def main():
     for name in ("SIGTERM", "SIGHUP", "SIGINT"):  # SIGHUP does not exist on Windows
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), ended)  # before anything is printed or created
+    owned = []
+    if announced:
+        # The key first, then the port, each created exclusively: a second start never sees a port without its key, and
+        # of two starts at once one wins and the other opens the winner's page.
+        try:
+            descriptor = os.open(str(announced.parent / KEY_FILE), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            owned.append(announced.parent / KEY_FILE)
+            with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+                handle.write(server.key + "\n")
+            descriptor = os.open(str(announced), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+            owned.append(announced)
+            with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+                handle.write("%d %d\n" % (os.getpid(), server.server_port))
+        except FileExistsError:
+            server.server_close()
+            for name in owned:
+                try:
+                    name.unlink()
+                except OSError:
+                    pass
+            for _ in range(100):  # the winner writes its port a moment after its key
+                time.sleep(0.1)
+                reused = running_wizard(announced)
+                if reused:
+                    port, launcher, failure = reused
+                    print("UAK SETUP is already running for this project at http://127.0.0.1:%d/ (it starts nothing new)."
+                          % port, flush=True)
+                    if launcher:
+                        print("Launcher file: %s" % launcher, flush=True)
+                        return 0
+                    print("%s Start again: %s" % (failure, RESTART), flush=True)
+                    return 1
+            if not announced.exists():  # a start that died between its key and its port
+                try:
+                    (announced.parent / KEY_FILE).unlink()
+                except OSError:
+                    pass
+            print("Another setup is starting for this project and did not answer. Start again: %s" % RESTART, flush=True)
+            return 1
+        except OSError:
+            for name in owned:
+                try:
+                    name.unlink()
+                except OSError:
+                    pass
+            owned, announced = [], None
     try:
-        if announced:
-            try:
-                announced.write_bytes(("%d %d\n" % (os.getpid(), server.server_port)).encode("ascii"))
-                descriptor = os.open(str(announced.parent / KEY_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                with os.fdopen(descriptor, "w", encoding="ascii") as handle:
-                    handle.write(server.key + "\n")
-            except OSError:
-                announced = None
         server.open_target()  # UI-019: an installed project opens where it is, not on the welcome screen
         launcher = server.make_launcher()
         print("UAK SETUP http://127.0.0.1:%d/" % server.server_port, flush=True)
