@@ -141,12 +141,29 @@ def human_env(**extra):
     return env
 
 
-def start_wizard(root, cwd, target, env, args=("--no-open",)):
-    """The wizard as a person starts it: a real process. Returns (process, first two stdout lines or what it said)."""
-    proc = subprocess.Popen([sys.executable, str(root / ".uak/bin/lib/setup.py")] + list(args) + [str(target)], cwd=str(cwd),
-                            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
-                            errors="replace")
+def terminal_input():
+    """What a person's terminal gives a process on POSIX: stdin is a terminal (a pty). (None, DEVNULL) elsewhere: on
+    Windows the wizard asks for no terminal."""
+    if os.name == "nt":
+        return None, subprocess.DEVNULL
+    master, slave = os.openpty()
+    return master, slave
+
+
+def popen_with_terminal(argv, **kwargs):
+    master, slave = terminal_input()
+    proc = subprocess.Popen(argv, stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            encoding="utf-8", errors="replace", **kwargs)
+    if master is not None:
+        os.close(slave)
+    proc.master = master
     return proc
+
+
+def start_wizard(root, cwd, target, env, args=("--no-open",)):
+    """The wizard as a person starts it: a real process with a terminal on its input."""
+    return popen_with_terminal([sys.executable, str(root / ".uak/bin/lib/setup.py")] + list(args) + [str(target)],
+                               cwd=str(cwd), env=env)
 
 
 def stop(proc):
@@ -159,6 +176,13 @@ def stop(proc):
     out, err = proc.stdout.read(), proc.stderr.read()
     proc.stdout.close()
     proc.stderr.close()
+    if getattr(proc, "master", None) is not None:
+        os.close(proc.master)
+    # A killed wizard cannot remove its launcher folder: the test does, so nothing accumulates in the temp folder.
+    for line in (getattr(proc, "seen", []) + out.splitlines()):
+        found = re.match(r"Launcher file: (.+)open\.html\s*$", line)
+        if found:
+            shutil.rmtree(found.group(1), ignore_errors=True)
     return out, err
 
 
@@ -175,6 +199,7 @@ def first_lines(proc, count=3, seconds=60):
     reader = threading.Thread(target=read, daemon=True)
     reader.start()
     reader.join(seconds)
+    proc.seen = [line.rstrip("\n") for line in box]
     return box
 
 
@@ -218,6 +243,8 @@ def agent_identity_cannot_start_the_wizard(root, tmp):
         out, err = proc.stdout.read(), proc.stderr.read()
         proc.stdout.close()
         proc.stderr.close()
+        if proc.master is not None:
+            os.close(proc.master)
         assert proc.returncode not in (0, None), "%s: exit code %r" % (label, proc.returncode)
         assert "UAK SETUP" not in out and "http://127.0.0.1" not in out + err, "%s: no address printed: %r" % (label, out + err)
         said = (out + err)
@@ -288,9 +315,8 @@ def token_is_not_printed_or_in_argv(root, tmp):
         "webbrowser.open = record\n"
         "sys.argv = [setup] + sys.argv[3:]\n"
         "runpy.run_path(setup, run_name='__main__')\n", encoding="utf-8")
-    proc = subprocess.Popen([sys.executable, str(wrapper), str(seen), str(root / ".uak/bin/lib/setup.py"), str(target)],
-                            cwd=str(tmp), env=human_env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            encoding="utf-8", errors="replace")
+    proc = popen_with_terminal([sys.executable, str(wrapper), str(seen), str(root / ".uak/bin/lib/setup.py"), str(target)],
+                               cwd=str(tmp), env=human_env())
     try:
         lines = first_lines(proc, 3)
         assert lines and "UAK SETUP" in lines[0], lines
@@ -452,9 +478,181 @@ def human_acts_are_logged(root, tmp):
     assert lines[0].split()[3] == "ana-r", "it names who was registered: %r" % lines
 
 
+# UAK-153 (review of 9c0bc32): the barrier is the wizard's own refusals and a guard that reads what a command mentions.
+BLOCKED = [
+    # driving a running wizard: other clients
+    "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:41234/api/publish-kit', b'x')\"",
+    "python3 -c 'import requests; requests.post(\"http://localhost:41234/api/team/reviewer\", json={})'",
+    "node -e \"fetch('http://127.0.0.1:41234/api/plan/approve', {method: 'POST'})\"",
+    "printf 'POST /api/publish-kit HTTP/1.0\\r\\n\\r\\n' | nc 127.0.0.1 41234",
+    "exec 3<>/dev/tcp/127.0.0.1/41234; echo 'POST /api/human HTTP/1.0' >&3",
+    # address forms
+    "curl -s http://[::1]:41234/api/session -d '{}'",
+    "curl -s http://127.1:41234/api/session -d '{}'",
+    "curl -s http://127.0.0.2:41234/api/publish-kit -d '{}'",
+    "curl -s http://2130706433:41234/api/publish-kit -d '{}'",
+    "curl -s http://0x7f000001:41234/api/publish-kit -d '{}'",
+    "curl -s http://0.0.0.0:41234/api/human -d '{}'",
+    # path forms
+    "curl -s http://127.0.0.1:41234//api/publish-kit -d '{}'",
+    "curl -s http://127.0.0.1:41234/./api/publish-kit -d '{}'",
+    "curl -s http://127.0.0.1:41234/%61pi/publish-kit -d '{}'",
+    "curl -s http://127.0.0.1:41234/api/./session -d '{}'",
+    "curl -s http://127.0.0.1:41234/API/Publish-Kit -d '{}'",
+    # the token header in any case, and a path held in variables
+    "curl -s -H 'x-uak-token: abc' http://127.0.0.1:41234/api/status",
+    "curl -s -H 'X-Uak-Token: abc' http://127.0.0.1:41234/api/status",
+    "U=http://127.0.0.1:41234/api/publish-kit; curl -s -d '{}' $U",
+    "A=/api; B=/publish-kit; curl -s -d '{}' http://127.0.0.1:41234${A}${B}",
+    "curl -s -d '{}' http://127.0.0.1:41234/api/pub''lish-kit",
+    # starting it: other forms
+    "cd .uak/bin/lib && python3 setup.py",
+    "cd kit/.uak/bin/lib; python3 setup.py --no-open",
+    "python3 -m setup",
+    "python3 -c \"import setup; setup.main()\"",
+    "python3 -c \"import runpy; runpy.run_path('.uak/bin/lib/setup.py', run_name='__main__')\"",
+    "python3 -c \"exec(open('.uak/bin/lib/setup.py').read())\"",
+    "python3 -c \"import importlib; importlib.import_module('setup').main()\"",
+    "python3 kit/.uak/bin/lib/*up.py",
+    "python3 kit/.uak/bin/lib/s[e]tup.py",
+    "python3 kit/.uak/bin/lib/?etup.py",
+    "python3 kit/.uak/bin/lib/setu\\p.py",
+    "python3 kit/.uak/bin/lib/se''tup.py",
+    "P=kit/.uak/bin/lib/set; python3 ${P}up.py",
+    "P=kit/.uak/bin/lib; python3 $P/setup.py",
+    "./kit/.uak/bin/lib/setup.py --no-open",
+    "nohup python3 kit/.uak/bin/lib/setup.py &",
+    "W=--wizard; bash install.sh $W",
+    "W=--wiz''ard; bash install.sh ${W}",
+    "bash install.sh --wizard=1",
+    "bash install.sh '--wizard'",
+    "bash -c 'bash install.sh --wizard'",
+    "env UAK_SETUP_BASH=bash bash install.sh --wizard /tmp/proj",
+]
+ALLOWED = [
+    "curl -s http://localhost:3000/health",
+    "curl -s http://127.0.0.1:3000/api/orders",
+    "python3 setup.py install",
+    "python3 -m json.tool data.json",
+    "python3 -c \"import setuptools; print(setuptools.__version__)\"",
+    "bash install.sh /tmp/proj",
+    "bash install.sh --mode sprint --stack none /tmp/proj",
+    "python3 kit/.uak/tests/test_setup_trust.py",
+    "cd kit/.uak/tests && python3 test_setup_wizard.py",
+    "python3 -m py_compile kit/.uak/bin/lib/setup.py",
+    "cd kit/.uak/bin/lib && python3 -m py_compile setup.py",
+    "grep -n 'api/publish-kit' kit/.uak/bin/lib/setup.py",
+    "cat kit/.uak/bin/lib/setup.py",
+    "git commit -m 'fix: /api/session is exchanged once and --wizard says why'",
+    "rg -n wizard docs/DASHBOARD.md",
+    "bash .uak/bin/uak status",
+]
+
+
+def run_guard(bash, guard, repo, command, hook=False):
+    if hook:
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+        return subprocess.run([bash, str(guard), "bash", "claude"], cwd=str(repo), input=payload, capture_output=True,
+                              text=True, env=human_env())
+    return subprocess.run([bash, str(guard), "check", command], cwd=str(repo), capture_output=True, text=True,
+                          env=human_env())
+
+
+def guard_reads_what_a_command_mentions(root, tmp):
+    guard = root / ".uak/bin/guard"
+    bash = resolve_binary("bash")
+    for mode in ("sprint", "marathon"):
+        repo = tmp / mode
+        repo.mkdir()
+        plans.git(repo, "init", "-q", "-b", "main")
+        (repo / ".uak").mkdir()
+        (repo / ".uak/PROJECT.md").write_text("Mode: %s\n" % mode, encoding="utf-8")
+        for command in BLOCKED:
+            result = run_guard(bash, guard, repo, command)
+            assert result.returncode == 2, "%s: %r must be blocked, got %d %r" % (mode, command, result.returncode, result.stderr)
+            assert "human" in result.stderr.lower(), "the block says who may do it: %r" % result.stderr
+        for command in ALLOWED:
+            result = run_guard(bash, guard, repo, command)
+            assert result.returncode == 0, "%s: %r stays allowed: %d %r" % (mode, command, result.returncode, result.stderr)
+    # As the harness sends it, on a sample of both lists.
+    for command in BLOCKED[::5]:
+        assert run_guard(bash, guard, repo, command, hook=True).returncode == 2, "the hook blocks %r too" % command
+    for command in ALLOWED[::4]:
+        assert run_guard(bash, guard, repo, command, hook=True).returncode == 0, "the hook allows %r too" % command
+
+
+def wizard_refuses_without_a_terminal(root, tmp):
+    if os.name == "nt":
+        return  # no terminal check on Windows (SECURITY.md): its barrier is the identity refusal and the guard
+    target, _ = plans.project(root, tmp)
+    proc = subprocess.Popen([sys.executable, str(root / ".uak/bin/lib/setup.py"), "--no-open", str(target)], cwd=str(tmp),
+                            env=human_env(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True)
+    try:
+        out, err = proc.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise AssertionError("the wizard started with no terminal")
+    said = out + err
+    assert proc.returncode == 2, (proc.returncode, said)
+    assert "UAK SETUP http" not in said and "Launcher file" not in said, "nothing was started: %r" % said
+    assert "terminal" in said and "install.sh --wizard" in said, "it says how a person starts it: %r" % said
+    # A pipe on stdin (how an agent's tool runs a command) is no terminal either.
+    piped = subprocess.run([sys.executable, str(root / ".uak/bin/lib/setup.py"), "--no-open", str(target)], cwd=str(tmp),
+                           env=human_env(), input="\n", capture_output=True, text=True, timeout=30)
+    assert piped.returncode == 2 and "Launcher file" not in piped.stdout, piped
+    # A person's launch: stdin is the terminal, and the output may go to a pipe or a file (`| tee`, `> log`).
+    proc = start_wizard(root, tmp, target, human_env())
+    try:
+        lines = first_lines(proc, 2)
+        assert lines and "UAK SETUP" in lines[0], "a terminal on stdin starts it: %r" % lines
+    finally:
+        stop(proc)
+
+
+def launcher_is_removed_on_sigterm_and_sighup(root, tmp):
+    if os.name == "nt":
+        return  # SIGHUP does not exist there; the folder is removed on a normal exit
+    import signal
+    target, _ = plans.project(root, tmp)
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        proc = start_wizard(root, tmp, target, human_env())
+        try:
+            lines = first_lines(proc, 2)
+            folder = Path(re.match(r"Launcher file: (.+)open\.html\s*$", lines[1]).group(1))
+            assert folder.is_dir() and (folder / "open.html").is_file(), "the launcher exists while it runs"
+            proc.send_signal(sig)
+            proc.wait(20)
+            assert not folder.exists(), "%s removed the launcher folder" % sig.name
+            assert proc.returncode == 0, "it ends cleanly on %s: %r" % (sig.name, proc.returncode)
+        finally:
+            stop(proc)
+
+
+def register_is_logged_before_it_acts(root, tmp):
+    team_tests.MODULE = wizard.MODULE
+    target, remote = team_tests.ready_project(root, tmp)
+    team = team_tests.Team()
+    with plans.live(target, team) as srv:
+        team_tests.ready(srv, target)
+        gd = Path(plans.git(target, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+        (gd / "uak-direct-main.log").mkdir()  # the log cannot be written
+        before = team_tests.claims_head(remote)
+        status, body, state = team_tests.register(srv, "ana-r")
+        assert status in (200, 202), (status, body)
+        assert state.get("phase") == "error" and "uak-direct-main.log" in state.get("error", ""), state
+        assert "ana-r is not registered" in state.get("error", ""), state
+        assert not [c for c in team.calls if "register-reviewer" in c["argv"]], "the engine did not run: %r" % team.calls
+        assert team_tests.claims_head(remote) == before, "nothing was registered"
+        assert not (team_tests.record(remote, "roles/reviewers/ana-r.md")), "no reviewer file on claims"
+
+
 TESTS = [trust_step_is_shown_before_planning, untrusted_planning_run_names_the_cause, planner_survives_a_denied_read]
 TESTS += [agent_identity_cannot_start_the_wizard, guard_blocks_an_agent_starting_the_wizard, token_is_not_printed_or_in_argv,
-          one_time_code_works_once, idle_session_ends, human_name_is_the_git_identity, human_acts_are_logged]
+          one_time_code_works_once, idle_session_ends, human_name_is_the_git_identity, human_acts_are_logged,
+          guard_reads_what_a_command_mentions, wizard_refuses_without_a_terminal, launcher_is_removed_on_sigterm_and_sighup,
+          register_is_logged_before_it_acts]
 
 
 def main():

@@ -128,6 +128,19 @@ def refusal_text(reason):
             % (reason, RESTART))
 
 
+def terminal_reason():
+    """Why this process has no person at a terminal, or "" (POSIX; none on Windows, where the barrier is the identity
+    refusal and the guard). A person's launch (`bash install.sh --wizard`, which execs setup.py) leaves stdin on their
+    terminal, whatever happens to the output (`| tee`, `> log`); an agent's tool runs a command with stdin on a pipe or
+    /dev/null. A process that allocates its own pty passes: this is a refusal, not a sandbox (SECURITY.md)."""
+    if os.name == "nt":
+        return ""
+    try:
+        return "" if sys.stdin is not None and sys.stdin.isatty() else "its input is not a terminal"
+    except (OSError, ValueError):
+        return "its input is not a terminal"
+
+
 def human_slug(name):
     """The person's name for the kit, from the Git name of the checkout: its first word, lowercase ASCII, or ""."""
     words = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode("ascii").lower().split()
@@ -1226,13 +1239,12 @@ class SetupServer(ThreadingHTTPServer):
 
         def work():
             try:
+                # Recorded first, as publishing and approving are: when the record cannot be written, nothing is done.
+                log_human_act(self, root, "register-reviewer", name, planning_head(self, root), detail=who)
                 result = self.run([bash_binary(), str(uak), "register-reviewer", who], cwd=str(root), timeout=180,
                                   group=True, env=registration_env(name))
                 output = redact((result.stdout or "") + "\n" + (result.stderr or "")).strip()
                 found = reviewer_record(remote_state(self, root, fresh=True), who, name)
-                if found["registered"]:
-                    head = planning_head(self, root)
-                    log_human_act(self, root, "register-reviewer", name, head, detail=who)
                 with self.lock:
                     if found["registered"]:
                         self.state.update(phase=back, details=output)
@@ -3104,29 +3116,36 @@ def main():
     parser.add_argument("--no-open", action="store_true", help="print the local address without opening a browser")
     args = parser.parse_args()
     # UAK-153: the wizard acts for the human, so it does not start for an agent.
-    reason = agent_reason(Path.cwd(), args.target)
+    reason = agent_reason(Path.cwd(), args.target) or terminal_reason()
     if reason:
         print(refusal_text(reason), file=sys.stderr, flush=True)
         return 2
     server = make_server(args.target)
-    server.open_target()  # UI-019: an installed project opens where it is, not on the welcome screen
-    launcher = server.make_launcher()
-    print("UAK SETUP http://127.0.0.1:%d/" % server.server_port, flush=True)
-    print("Launcher file: %s" % launcher, flush=True)
-    print("Keep this terminal open. The page opens from that file with a one-time code (valid %d seconds, used once); "
-          "press Ctrl+C here to stop." % CODE_SECONDS, flush=True)
-    if not args.no_open:
-        try:
-            webbrowser.open(launcher.as_uri())
-        except (OSError, webbrowser.Error):
-            print("Could not open a browser. Open the launcher file above in your browser.", flush=True)
 
-    def watch():
-        while not server.expire_if_idle():
-            time.sleep(15)
+    def ended(signum, frame):
+        raise KeyboardInterrupt  # the finally below removes the launcher folder
 
-    threading.Thread(target=watch, daemon=True).start()
+    for name in ("SIGTERM", "SIGHUP"):  # SIGHUP does not exist on Windows
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), ended)  # before anything is printed or created
     try:
+        server.open_target()  # UI-019: an installed project opens where it is, not on the welcome screen
+        launcher = server.make_launcher()
+        print("UAK SETUP http://127.0.0.1:%d/" % server.server_port, flush=True)
+        print("Launcher file: %s" % launcher, flush=True)
+        print("Keep this terminal open. The page opens from that file with a one-time code (valid %d seconds, used once); "
+              "press Ctrl+C here to stop." % CODE_SECONDS, flush=True)
+        if not args.no_open:
+            try:
+                webbrowser.open(launcher.as_uri())
+            except (OSError, webbrowser.Error):
+                print("Could not open a browser. Open the launcher file above in your browser.", flush=True)
+
+        def watch():
+            while not server.expire_if_idle():
+                time.sleep(15)
+
+        threading.Thread(target=watch, daemon=True).start()
         server.serve_forever()
     except KeyboardInterrupt:
         pass

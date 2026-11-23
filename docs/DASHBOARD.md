@@ -9,7 +9,7 @@ bash ~/.uak-kit/install.sh --wizard /path/to/project     # opens your browser
 bash ~/.uak-kit/install.sh --wizard /path/to/project --no-open   # prints the address only
 ```
 
-The terminal prints `UAK SETUP http://127.0.0.1:PORT/` and the path of a launcher file; the browser is opened on that file, which carries a one-time code (valid two minutes, used once) that the page exchanges for the session. The printed line holds no secret. Keep the terminal open; press Ctrl+C there to stop the page. The wizard starts only for a human: it refuses in a process with an agent identity (`UAK_AGENT`, a `.uak-env` naming an agent, `uak.agent` in the git config, a linked worktree), and says how a human starts it.
+The terminal prints `UAK SETUP http://127.0.0.1:PORT/` and the path of a launcher file; the browser is opened on that file, which carries a one-time code (valid two minutes, used once) that the page exchanges for the session. The printed line holds no secret. Keep the terminal open; press Ctrl+C there to stop the page. The wizard starts only for a human: on Linux and macOS it refuses unless its input is a terminal, and in every system it refuses in a process with an agent identity (`UAK_AGENT`, a `.uak-env` naming an agent, `uak.agent` in the git config, a linked worktree), and says how a human starts it.
 
 ## Prerequisites
 

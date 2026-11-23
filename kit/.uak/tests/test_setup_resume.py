@@ -146,9 +146,13 @@ def restart_lands_on_the_team_step(root, tmp):
         assert tp.get(srv, "/api/team")[0] == 200
     # 1. A real restart: the command a person runs again, on the same project.
     env = {k: v for k, v in os.environ.items() if not k.startswith("UAK_")}
+    # UAK-153: the wizard starts only for a person at a terminal (POSIX): stdin is a pty, the output stays captured.
+    master, slave = os.openpty() if os.name != "nt" else (None, subprocess.DEVNULL)
     proc = subprocess.Popen([sys.executable, str(root / ".uak/bin/lib/setup.py"), "--no-open", str(target)],
-                            cwd=str(tmp), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            cwd=str(tmp), env=env, stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                             encoding="utf-8", errors="replace")
+    if master is not None:
+        os.close(slave)
     try:
         box = {}
         reader = threading.Thread(target=lambda: box.update(lines=[proc.stdout.readline(), proc.stdout.readline()]), daemon=True)
@@ -180,6 +184,8 @@ def restart_lands_on_the_team_step(root, tmp):
             proc.kill()
         proc.stdout.close()
         proc.stderr.close()
+        if master is not None:
+            os.close(master)
     # 2. In process: local Git only, no engine and no network, even with the remote unreachable.
     team = tt.Team()
     runner = Recording(team)
