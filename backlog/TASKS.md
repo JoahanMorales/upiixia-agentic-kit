@@ -1435,3 +1435,15 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Tests:** flaky_guard_cases_are_all_kept, no_file_over_half_the_bound, stale_timing_entry_is_reported, message_names_both_tables
 - **Verify:** `python3 kit/.uak/tests/test_ci_shards.py`
 - **Next step:** `engine_renewer_never_runs_the_owners_cleanup` at kit/.uak/tests/test_flaky_guard.py:122 and `timing_problems` in scripts/kit_lint.py; moving test lines needs `uak allow UAK-150 --tests` from the human
+
+## UAK-151 · twenty_runs_under_load runs as three cases, one per kind of job (picker, mcp, lease), so no test file is excepted from the half-bound rule for flaky_guard; the test of the split proves the load (jobs, hogs, workers), not only the case names; the race file's Windows entry is measured again (follow-up of UAK-150)
+
+- **Type:** follow-up
+- **Priority:** P1
+- **Depends on:** UAK-150
+- **Follow-up of:** UAK-150
+- **Paths:** kit/.uak/tests/test_flaky_guard.py, kit/.uak/tests/test_flaky_guard_race.py, scripts/kit_lint.py, kit/.uak/tests/test_ci_shards.py
+- **Freeze-Allowed:** no
+- **Acceptance:**
+  - twenty_runs_under_load runs as three cases, one per kind of job (picker, mcp, lease), so no test file is excepted from the half-bound rule for flaky_guard; the test of the split proves the load (jobs, hogs, workers), not only the case names; the race file's Windows entry is measured again
+- **Verify:** `python3 kit/.uak/tests/test_ci_shards.py`
