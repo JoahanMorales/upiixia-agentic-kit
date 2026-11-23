@@ -112,8 +112,11 @@ def _affected(paths, kit):
         return {}
     with tempfile.TemporaryDirectory(prefix="uak-ci-select-") as tmp:
         tmp = Path(tmp)
-        (tmp / "changed").write_text("".join(_kit_relative(p) + "\n" for p in paths), encoding="utf-8")
-        (tmp / "tests").write_text("".join(t + ".py\n" for t in tests_on_disk(kit)), encoding="utf-8")
+        # LF only: a CRLF list (Python's text mode on Windows) leaves a \r on every name for bash
+        with open(str(tmp / "changed"), "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("".join(_kit_relative(p) + "\n" for p in paths))
+        with open(str(tmp / "tests"), "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("".join(t + ".py\n" for t in tests_on_disk(kit)))
         r = subprocess.run([_bash(), "-c", _BASH], env=dict(os.environ, KIT=Path(kit).as_posix(), TMP=tmp.as_posix()), stdin=subprocess.DEVNULL,
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     if r.stdout.count("@@\t") != len(paths):
@@ -121,7 +124,7 @@ def _affected(paths, kit):
                          % (r.stdout.count("@@\t"), len(paths), r.returncode, r.stderr.strip()[-300:]))
     got, cur = {}, None
     by_rel = {_kit_relative(p): p for p in paths}
-    for line in r.stdout.splitlines():
+    for line in r.stdout.replace("\r", "").splitlines():
         if line.startswith("@@\t"):
             cur = by_rel.get(line[3:])
             got.setdefault(cur, [])
