@@ -38,5 +38,6 @@ source of truth for what shipped is `CHANGELOG.md`, and for what is next, `docs/
 | [`visual-setup-join.md`](visual-setup-join.md) | UAK-163 · Someone who joins a project that is already set up | written 2026-11-23, waiting for the human to publish; ships as v6.9 |
 | [`visual-setup-intake.md`](visual-setup-intake.md) | UAK-164 · Paste or drop what you already have: the agent fills the form | written 2026-11-23, waiting for the human to publish; ships as v6.9 |
 | [`visual-setup-widgets.md`](visual-setup-widgets.md) | UAK-165 · The summary is made of components the viewer arranges; more components; a component described in words | written 2026-11-23, waiting for the human to publish |
+| [`ci-tiers.md`](ci-tiers.md) | UAK-168 · A pull request waits about ten minutes, not forty: CI in two tiers | written 2026-11-23, waiting for the human to publish; goes first, right after UAK-152 |
 | [`port-go.md`](port-go.md) | Porting the engine to Go (or Rust): an estimate | decided: not porting |
 | [`video.md`](video.md) | Plan: `uak video` (the project's video, made from the repo's own facts) | not published; v7.2 |
