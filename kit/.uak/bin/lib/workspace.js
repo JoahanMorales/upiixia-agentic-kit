@@ -547,6 +547,14 @@
       "La sesión de configuración caducó. Vuelve a abrir la dirección que aparece en la terminal.",
     ],
     [
+      "That code was already used or has expired. Open a new page from the terminal.",
+      "Ese código ya se usó o venció. Abre una página nueva desde la terminal.",
+    ],
+    [
+      "Set your Git identity first, in your terminal: git config user.name \"Your Name\". Setup uses it as your name.",
+      "Primero configura tu identidad de Git, en tu terminal: git config user.name \"Tu Nombre\". La configuración usa ese nombre como el tuyo.",
+    ],
+    [
       "The action could not finish. Please retry.",
       "No se pudo completar la acción. Vuelve a intentarlo.",
     ],
@@ -640,6 +648,8 @@
     ["Some steps only a person may do (publishing, approving). Setup records them with this name.", "Algunos pasos solo los puede hacer una persona (publicar, aprobar). La configuración los registra con este nombre."],
     ["Your name (lowercase, for example ana)", "Tu nombre (en minúsculas, por ejemplo ana)"],
     ["Save name", "Guardar nombre"],
+    ["Your name (from your Git identity)", "Tu nombre (el de tu identidad de Git)"],
+    ["Use this name", "Usar este nombre"],
     ["Saved: {name}.", "Guardado: {name}."],
     ["2. Event schedule", "2. Horario del evento"],
     ["The kit stops new work before the deadline (the freeze), so the last minutes go to the demo.", "El kit detiene el trabajo nuevo antes de la hora límite (el cierre de cambios), para que los últimos minutos sean para la demo."],
@@ -939,6 +949,9 @@
   // UI-020 (B-01, B-03, B-09, Dylan's live run): the branch notes, publish refusals with their exact command, and no
   // "command below" without a command. NOTES is read as JSON by the tests: no comments inside it.
   var NOTES = [
+    ["Setup could not record this act in (.+) inside the project's Git folder, so it did not do it\\. Check that folder is writable, then try again\\.", "No se pudo anotar este paso en $1, dentro de la carpeta de Git del proyecto, así que no se hizo. Revisa que esa carpeta se pueda escribir y vuelve a intentarlo."],
+    ["This setup session ended after 30 minutes without activity\\. Start setup again from your terminal: (.+)", "La sesión de configuración terminó porque pasaron 30 minutos sin actividad. Vuelve a iniciar la configuración desde tu terminal: $1"],
+    ["Setup acts as the Git identity of this checkout \\((.+)\\), not as another name\\. Change it with git config user\\.name, not here\\.", "La configuración actúa con la identidad de Git de esta copia ($1), no con otro nombre. Cámbiala con git config user.name, no aquí."],
     ["Register (.+) first \\(step 1\\): agents start only once a reviewer can review their work\\.", "Registra primero a $1 (paso 1): los agentes empiezan solo cuando hay un revisor que pueda revisar su trabajo."],
     ["The check stopped: (.+) did not answer within (\\d+) s\\. Your last result is still shown\\. Check your connection, then press Check again\\.", "La comprobación se detuvo: $1 no respondió en $2 s. Tu último resultado sigue a la vista. Revisa tu conexión y pulsa Comprobar de nuevo."],
     ["(\\S+) needs a person to finish its merge", "$1 necesita que una persona termine su integración"],
