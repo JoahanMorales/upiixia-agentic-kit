@@ -545,7 +545,7 @@ def lib_lists(r):
 
 
 def two_verdict(r, name, changes, project=TWO_KEY, first="judge", extra=(), registered=("judge", "judge-2"), reviewed_sha=TIP,
-                links=None, base_extra=None, first_sha=TIP, owner="agent-1"):
+                links=None, base_extra=None, first_sha=TIP, owner="agent-1", index=None):
     """rm_gate_scope's verdict (and the approval count) for a candidate. `first` approved reviews/HACK-001.md at first_sha,
     `extra` are the lines of reviews/HACK-001.approvals as (sha, who), `registered` the identities with a role."""
     d = r.scratch / ("two-" + name)
@@ -566,10 +566,10 @@ def two_verdict(r, name, changes, project=TWO_KEY, first="judge", extra=(), regi
     script = r.scratch / "policy-two-harness.sh"
     if not script.exists():
         script.write_text(HARNESS_TWO, encoding="utf-8", newline="\n")
-    return scope_with(r, "two-" + name, changes, links, dict(dict.fromkeys(lib_files(), "x\n"), **(base_extra or {})), project, script, tx, reviewed_sha)
+    return scope_with(r, "two-" + name, changes, links, dict(dict.fromkeys(lib_files(), "x\n"), **(base_extra or {})), project, script, tx, reviewed_sha, index)
 
 
-def scope_with(r, name, changes, links, base_extra, project, script, tx, tip):
+def scope_with(r, name, changes, links, base_extra, project, script, tx, tip, index=None):
     d = r.scratch / ("scopetwo-" + name)
     repo, tmp = d / "repo", d / "tmp"
     for q in (repo, tmp):
@@ -598,6 +598,11 @@ def scope_with(r, name, changes, links, base_extra, project, script, tx, tip):
         blob.write_text(to, encoding="utf-8", newline="\n")
         sha = r.g(repo, "hash-object", "-w", blob.as_posix()).stdout.strip()
         r.g(repo, "update-index", "--add", "--cacheinfo", "120000,%s,%s" % (sha, rel))
+    for i, (rel, text) in enumerate((index or {}).items()):  # staged without the working tree: a case-insensitive disk would merge the names
+        blob = d / ("iblob-%d" % i)
+        blob.write_text(text, encoding="utf-8", newline="\n")
+        sha = r.g(repo, "hash-object", "-w", blob.as_posix()).stdout.strip()
+        r.g(repo, "update-index", "--add", "--cacheinfo", "100644,%s,%s" % (sha, rel))
     bindir = r.package / ".uak" / "bin"
     out = r.run([r.bash, script.as_posix(), bindir.as_posix(), repo.as_posix(), base, tx.as_posix(), (d / "TASKS.md").as_posix(), tmp.as_posix(), tip],
                 cwd=d, allowed=None)
@@ -676,7 +681,7 @@ def gate_files_are_never_released(r):
     refused("mixed", two_verdict(r, "never-mixed", {LIBPATH + "status.sh": "# a\n", LIBPATH + "review-merge.sh": "# b\n"}, extra=[(TIP, "judge-2")]), LIBPATH + "review-merge.sh")
     refused("new lib", two_verdict(r, "never-new", {LIBPATH + "newlib.sh": "# a\n"}, extra=[(TIP, "judge-2")]), LIBPATH + "newlib.sh")
     # not a plain edit of a base file: case variant, deleted
-    got = two_verdict(r, "never-case", {LIBPATH + "Status.SH": "# a\n"}, extra=[(TIP, "judge-2")])
+    got = two_verdict(r, "never-case", {}, index={LIBPATH + "Status.SH": "# a\n"}, extra=[(TIP, "judge-2")])
     expect(got.startswith("SCOPE REFUSED: Merge-Engine-Approvals: 2 releases an edit of an existing regular lib file only") or got.lower() == (HUMAN_REASON + LIBPATH + "Status.SH").lower(),
            "case variant: " + got)
     shape = {"redefines": "approval_check() { return 0; }\n", "defines git": "git() { :; }\n", "eval": "eval \"$x\"\n", "unset": "unset -f field\n",
