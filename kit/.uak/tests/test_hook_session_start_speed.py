@@ -1127,7 +1127,7 @@ def every_background_job_has_a_limit(r):
         left = [p for p in pids if alive(r, w, p)]
         expect(not left, "after the 2 s limit these background jobs (and children) still run: PIDs %r of %r; jobs:\n%s"
                % (left, pids, jobs))
-        settle(r, w)
+        settle_once(r, w)
     finally:
         for p in pids:
             r.run([r.bash, "-c", 'kill -KILL "$1" 2>/dev/null; true', "_", str(p)], cwd=w, allowed=None)
@@ -1166,7 +1166,7 @@ def cached_copy_always_says_its_age(r):
     real = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
     (real / "uak-start.next.txt").write_text("Next: old copy\n", encoding="utf-8")
     _, out = start(r, w, "agent-1", UAK_START_WAIT="1")
-    settle(r, w)
+    settle_once(r, w)
     expect("Next: old copy" in out and "age unknown" in out, "a copy without a time file says so: " + out[-500:])
     return "age said with and without a refresh; a copy without a time file says age unknown"
 
@@ -1256,17 +1256,18 @@ def killed_bb_flush_is_recovered_and_published_once(r):
                % list(common.glob("uak-bb-tmp.*")))
     finally:
         gate.unlink()
-    settle(r, w)
+    settle_once(r, w)
     start(r, w, "agent-1", UAK_START_WAIT="1")
     deadline = time.monotonic() + 40
     found = ""
     while time.monotonic() < deadline:
         names = [n for n in r.g(f.remote, "ls-tree", "-r", "--name-only", "claims").stdout.split() if n.startswith("blackbox/")]
         found = "".join(r.g(f.remote, "show", "claims:" + n).stdout for n in names)
-        if "kill-test-1" in found and "kill-test-2" in found and not list(common.glob("uak-blackbox.pending.*")):
+        if ("kill-test-1" in found and "kill-test-2" in found and not list(common.glob("uak-blackbox.pending.*"))
+                and not list(common.glob("uak-bb-tmp.*"))):
             break
         time.sleep(0.5)
-    settle(r, w)
+    settle_once(r, w)
     expect(found.count("kill-test-1") == 1 and found.count("kill-test-2") == 1,
            "the next start publishes the recovered lines once: %r" % found[-600:])
     expect(not list(common.glob("uak-blackbox.pending.*")), "no snapshot is left: %r" % list(common.glob("uak-*")))
@@ -1279,9 +1280,11 @@ LENS_STUB = 'case "$1" in build) %s;; esac'
 def lens_tick(r, w, sid, env):
     tick = '{"session_id":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}}' % (sid, (w / "README.md").as_posix())
     # The payload goes through the environment: Windows drops the double quotes of a command-line argument.
-    return r.run([r.bash, "-c", "printf '%s' \"$TICK_PAYLOAD\" | bash .uak/bin/hook tick"], cwd=w,
+    out = r.run([r.bash, "-c", "printf '%s' \"$TICK_PAYLOAD\" | bash .uak/bin/hook tick"], cwd=w,
                  env=dict({"UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_AGENT": "agent-1", "TICK_PAYLOAD": tick}, **env),
                  allowed=None)
+    time.sleep(2)   # the tick's own background jobs (drift fetch, heartbeat, pr-sync) are short; the directory is removed next
+    return out
 
 
 def killed_map_build_is_not_a_built_map(r):
@@ -1323,7 +1326,7 @@ def killed_map_build_is_not_a_built_map(r):
     finally:
         for p in pids:
             r.run([r.bash, "-c", 'kill -KILL "$1" 2>/dev/null; true', "_", str(p)], cwd=w, allowed=None)
-    settle(r, w)
+    settle_once(r, w)
     return "no partial index after a kill; an unstamped index is rebuilt"
 
 
@@ -1349,7 +1352,7 @@ def killed_tokens_publish_is_retried(r):
     finally:
         for p in pids:
             r.run([r.bash, "-c", 'kill -KILL "$1" 2>/dev/null; true', "_", str(p)], cwd=w, allowed=None)
-    settle(r, w)
+    settle_once(r, w)
     return "a killed tokens --publish is retried at the next start"
 
 
@@ -1358,6 +1361,7 @@ def counter_files_are_validated(r):
     f, w = counted_fixture(r, "ss-counters")
     (w / "README.md").write_text("x\n", encoding="utf-8")
     (w / ".uak-env").write_text("UAK_TASK=HACK-001\nUAK_AGENT=agent-1\n", encoding="utf-8")
+    stub_engine(r, w, uak="exit 0", map="exit 0")
     gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
     project = w / ".uak/PROJECT.md"
     base = project.read_text(encoding="utf-8") if project.exists() else ""
