@@ -274,31 +274,41 @@ def guard_blocks_an_agent_starting_the_wizard(root, tmp):
 def token_is_not_printed_or_in_argv(root, tmp):
     target, _ = plans.project(root, tmp)
     seen = tmp / "browser argv.txt"
-    opener = tmp / "opener.sh"
-    opener.write_text("#!/bin/sh\nprintf '%%s\\n' \"$@\" >> '%s'\n" % str(seen).replace("'", "'\\''"), encoding="utf-8")
-    opener.chmod(0o755)
-    env = human_env(BROWSER=str(opener) + " %s", DISPLAY=":0")
-    # Only Linux's webbrowser runs the program named by BROWSER; macOS and Windows open their own, so there the
-    # terminal and the launcher are checked and the opener's arguments are not.
-    opens = sys.platform.startswith("linux")
-    proc = start_wizard(root, tmp, target, env, args=() if opens else ("--no-open",))
+    # Python's webbrowser picks a program by machine (BROWSER, DISPLAY, the registered order), so the test does not
+    # depend on one: the wizard runs under a wrapper that records what it hands to webbrowser.open(), the one place
+    # it opens a browser. Nothing else of the wizard changes (runpy runs setup.py as __main__).
+    wrapper = tmp / "wrapper.py"
+    wrapper.write_text(
+        "import runpy, sys, webbrowser\n"
+        "log, setup = sys.argv[1], sys.argv[2]\n"
+        "def record(url, *args, **kwargs):\n"
+        "    with open(log, 'a', encoding='utf-8') as handle:\n"
+        "        handle.write(url + '\\n')\n"
+        "    return True\n"
+        "webbrowser.open = record\n"
+        "sys.argv = [setup] + sys.argv[3:]\n"
+        "runpy.run_path(setup, run_name='__main__')\n", encoding="utf-8")
+    proc = subprocess.Popen([sys.executable, str(wrapper), str(seen), str(root / ".uak/bin/lib/setup.py"), str(target)],
+                            cwd=str(tmp), env=human_env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            encoding="utf-8", errors="replace")
     try:
-        lines = first_lines(proc, 2)
+        lines = first_lines(proc, 3)
         assert lines and "UAK SETUP" in lines[0], lines
         port = int(re.search(r"127\.0\.0\.1:(\d+)", lines[0]).group(1))
         deadline = time.time() + 20
-        while opens and time.time() < deadline and not seen.is_file():
-            time.sleep(0.2)
-        opened = seen.read_text(encoding="utf-8") if seen.is_file() else ""
-        assert opened or not opens, "the browser was opened"
-        code = launcher_code(lines) or launcher_code(opened.splitlines())
-        assert code, "the one-time code is in the launcher page, which the terminal names: %r %r" % (lines, opened)
-        assert code not in opened and code not in "".join(lines), "the code is neither printed nor in the opener's argv"
+        while time.time() < deadline and not seen.is_file():
+            time.sleep(0.1)
+        opened = seen.read_text(encoding="utf-8").split() if seen.is_file() else []
+        assert len(opened) == 1 and opened[0].startswith("file:") and opened[0].endswith("/open.html"), \
+            "the browser is opened on the launcher file: %r" % opened
+        code = launcher_code(lines)
+        assert code, "the one-time code is in the launcher page, which the terminal names: %r" % lines
+        assert code not in opened[0] and code not in "".join(lines), "the code is neither printed nor in the browser's argument"
         sess = types_namespace(port, "")
         status, body, _ = wizard.request(sess, "POST", "/api/session", {"code": code}, token=False)
         assert status == 200, body
         token = json.loads(body)["token"]
-        assert token not in opened and token not in "".join(lines), "the session token is never printed"
+        assert token not in opened[0] and token not in "".join(lines), "the session token is never printed"
         if os.path.isdir("/proc/%d" % proc.pid):
             cmdline = Path("/proc/%d/cmdline" % proc.pid).read_bytes().decode("utf-8", "replace")
             assert token not in cmdline and code not in cmdline, "the server's own arguments hold no secret"
