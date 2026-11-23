@@ -6,6 +6,7 @@ A slow remote is simulated with remote.origin.uploadpack ('sleep N; git-upload-p
 import argparse
 import json
 import os
+import re
 import shutil
 import time
 from collections import Counter
@@ -803,6 +804,103 @@ def session_start_keeps_reporting_the_pace_level(r):
     return "critical level reported"
 
 
+def alive(r, cwd, pid):
+    """Whether this PID still runs, asked of Bash so that a Git Bash PID on Windows means the same thing."""
+    return r.run([r.bash, "-c", 'kill -0 "$1" 2>/dev/null', "_", str(pid)], cwd=cwd, allowed=None).returncode == 0
+
+
+def stub_engine(r, w, **bodies):
+    """Replace engine scripts of the worktree by small stubs: NAME -> Bash body."""
+    b = w / ".uak/bin"
+    for name, body in bodies.items():
+        (b / name).write_bytes(("#!/usr/bin/env bash\n" + body + "\n").encode("utf-8"))
+
+
+HUNG_UAK = """case "$1" in next)
+  sleep 300 &
+  printf '%s\\n' "$$" > "$UAK_HUNG_DIR/uak.pid"
+  printf '%s\\n' "$!" > "$UAK_HUNG_DIR/child.pid"
+  wait;;
+esac"""
+
+
+def hung_worker_is_killed(r):
+    """UAK-157: a `git` that hangs in the refresh must not outlive the session start's worker. The stub `uak next`
+    starts a child that sleeps for 300 s, as a git waiting on a dead remote does."""
+    f, w = counted_fixture(r, "ss-hung")
+    control = Path(r.scratch) / "ss-hung-control"
+    control.mkdir()
+    stub_engine(r, w, uak=HUNG_UAK)
+    pids = []
+    try:
+        start(r, w, "agent-1", UAK_START_WAIT="1", UAK_START_LIMIT="2", UAK_HUNG_DIR=control.as_posix())
+        deadline = time.monotonic() + 20
+        while not (control / "child.pid").exists() and time.monotonic() < deadline:
+            time.sleep(0.2)
+        pids = [int((control / n).read_text().strip()) for n in ("uak.pid", "child.pid") if (control / n).exists()]
+        expect(len(pids) == 2, "the stub refresh started: %r" % pids)
+        # The limit is 2 s here (60 s by default); the kill needs a moment more.
+        deadline = time.monotonic() + 15
+        while any(alive(r, w, p) for p in pids) and time.monotonic() < deadline:
+            time.sleep(0.5)
+        left = [p for p in pids if alive(r, w, p)]
+        expect(not left, "after the time limit the hung refresh and its child still run (PIDs %r)" % left)
+        settle(r, w)
+        gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+        expect(not list(gd.glob("uak-start.*.running")), "the killed worker leaves no running marker")
+    finally:
+        for p in pids:
+            r.run([r.bash, "-c", 'kill -KILL "$1" 2>/dev/null; true', "_", str(p)], cwd=w, allowed=None)
+        for p in pids:
+            expect(not alive(r, w, p), "test cleanup: PID %d is gone" % p)
+    return "a refresh that hangs is killed with its child after the limit"
+
+
+def pace_and_map_run_once_under_ten_starts(r):
+    """UAK-157: `pace` and `map build` are single-flight like `next`: ten starts in a row run each at most once."""
+    f, w = counted_fixture(r, "ss-once")
+    control = Path(r.scratch) / "ss-once-control"
+    control.mkdir()
+    stub_engine(r, w, uak='case "$1" in next) echo "Next: stub";; esac',
+                pace='echo x >> "$UAK_ONCE_DIR/pace.calls"; sleep 1; echo "PACE normal: stub"',
+                map='[ "$1" != build ] || { echo x >> "$UAK_ONCE_DIR/map.calls"; sleep 1; }')
+    began = time.monotonic()
+    for _ in range(10):
+        start(r, w, "agent-1", UAK_START_WAIT="1", UAK_ONCE_DIR=control.as_posix())
+    elapsed = time.monotonic() - began
+    settle(r, w)
+    calls = {n: len((control / (n + ".calls")).read_text().split()) if (control / (n + ".calls")).exists() else 0
+             for n in ("pace", "map")}
+    expect(calls["pace"] == 1 and calls["map"] == 1,
+           "ten starts in %.0f s ran pace %d and map build %d times (once each)" % (elapsed, calls["pace"], calls["map"]))
+    return "ten starts in %.0f s: one pace and one map build" % elapsed
+
+
+def cached_start_does_not_wait(r):
+    """UAK-157: with a cached copy the hook answers without waiting for the refresh and says how old the copy is;
+    without one it waits for the refresh (bounded) and shows it."""
+    f, w = counted_fixture(r, "ss-cached")
+    control = Path(r.scratch) / "ss-cached-control"
+    control.mkdir()
+    stub_engine(r, w, uak='case "$1" in next) d=$(cat "$UAK_DELAY_FILE"); sleep "$d"; echo "Next: stub $d";; esac')
+    delay = control / "delay"
+    extra = {"UAK_DELAY_FILE": delay.as_posix()}
+    delay.write_text("1\n")
+    # No copy yet: the hook waits (up to 3 s here) for the 1 s refresh and shows it.
+    _, out = start(r, w, "agent-1", UAK_START_WAIT="30", **extra)
+    expect("Next: stub 1" in out, "without a cached copy the hook waits for the refresh and shows it: " + out[:400])
+    settle(r, w)
+    # A copy exists: a 6 s refresh does not hold the hook, which shows the copy and its age.
+    delay.write_text("6\n")
+    time.sleep(1.2)
+    took, out = start(r, w, "agent-1", UAK_START_WAIT="80", **extra)
+    expect(took < 5, "with a cached copy the hook waited for the refresh (%.1f s)" % took)
+    expect("Next: stub 1" in out, "the cached copy is shown: " + out[:400])
+    expect(re.search(r"\b\d+ s ago", out), "the hook says how old the copy is: " + out[:600])
+    settle(r, w)
+    return "no copy: waits; copy: %.1f s with its age" % took
+
+
 TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged,
          session_start_marks_only_the_inbox_snapshot_it_prints, session_start_coalesces_aged_live_refreshes,
          session_start_recovers_a_dead_refresh_owner, session_start_orphan_output_cannot_change_replacement_cache,
@@ -811,7 +909,8 @@ TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged,
          session_start_corrupt_owner_records_cannot_delete_paths, session_start_internal_owner_refs_bypass_user_hooks,
          session_start_concurrent_claims_launch_one_refresh, session_start_abandoned_handoff_cannot_run_or_release,
          session_start_inbox_failure_preserves_cache_and_status, session_start_launches_half_the_processes_on_startup,
-         session_start_launches_half_the_processes_on_resume, session_start_keeps_reporting_the_pace_level]
+         session_start_launches_half_the_processes_on_resume, session_start_keeps_reporting_the_pace_level,
+         hung_worker_is_killed, pace_and_map_run_once_under_ten_starts, cached_start_does_not_wait]
 
 
 def main():
