@@ -353,7 +353,33 @@ def init_smoke_leaves_no_stray_dirs(r):
     return "no stray folder"
 
 
+def smoke_boot_does_not_run_a_file_name(r):
+    """UAK-155: the boot command init-smoke generates took the app's file name into a shell string, so a file named
+    x';touch PWNED;'.py or x$(touch PWNED).py ran a command. A hostile name is refused (the message says so) and
+    nothing runs; a plain one still boots."""
+    t, env, git, start, uak = installed(r, "onb-names", "sprint")
+    server = SERVER % {"name": "QueueStore"}
+    for label, name in (("quote", "x';touch PWNED;'.py"), ("space", "x y.py"), ("semicolon", "x;touch PWNED.py"), ("subshell", "x$(touch PWNED).py")):
+        (t / name).write_text(server, encoding="utf-8")
+        detected = r.run([r.bash, ".uak/bin/lib/smoke-init.sh", "detect"], cwd=t, env=env, allowed=None)
+        made = uak("init-smoke", env={"UAK_PORT": str(free_port())})
+        expect(not (t / "PWNED").exists(), "%s: a file name ran as a command" % label)
+        text = detected.stdout + detected.stderr + made.stdout + made.stderr
+        expect(not (t / ".uak/bin/smoke-project").exists() or "SMOKE_ADAPTER_CREATED" not in made.stdout,
+               "%s: no adapter is generated for it: %s" % (label, text[-500:]))
+        expect(detected.returncode != 0 and not detected.stdout.strip() and "SMOKE_REFUSED" in detected.stderr,
+               "%s: detect refuses and says which: rc %d %s" % (label, detected.returncode, text[-500:]))
+        expect("SMOKE_REFUSED" in made.stdout + made.stderr and made.returncode != 0, "%s: init-smoke says it refused: %s" % (label, text[-500:]))
+        (t / name).unlink()
+    # A plain name is passed through as it is.
+    (t / "server.py").write_text(server, encoding="utf-8")
+    plain = r.run([r.bash, ".uak/bin/lib/smoke-init.sh", "detect"], cwd=t, env=env, allowed=None)
+    expect(plain.returncode == 0 and "-- 'python3 server.py'" in plain.stdout, "a plain name is kept: " + plain.stdout + plain.stderr)
+    return "4 hostile names refused, a plain one kept"
+
+
 TESTS = [start_asks_for_the_smoke, start_notes_the_smoke_before_any_app, web_smoke_boots_the_app, occupied_port_never_answers_for_the_app, init_smoke_leaves_no_stray_dirs]
+TESTS += [smoke_boot_does_not_run_a_file_name]
 
 
 def main():

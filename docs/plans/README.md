@@ -34,10 +34,11 @@ source of truth for what shipped is `CHANGELOG.md`, and for what is next, `docs/
 | [`plan-v67.md`](plan-v67.md) | UAK-116 · A ledger of every command: name, outcome and milliseconds | shipped in v6.7.0 (UAK-116…126) |
 | [`plan-v68.md`](plan-v68.md) | UAK-127 · An install without the kit's own tests, with skills on demand | shipped in v6.8.0 (UAK-127…139, follow-ups UAK-140…147) |
 | [`plan-v69.md`](plan-v69.md) | UAK-148 · A generated file does not send a task to the human | UAK-148, UAK-150 and its follow-up UAK-151 integrated; UAK-149 cancelled after review (the design is not sound) |
-| [`visual-setup.md`](visual-setup.md) | UAK-152 · The visual setup and the unified dashboard come in (a contributed branch, merged onto v6.8), 11 tasks | written 2026-11-23, waiting for the human to publish; ships as v6.9 |
-| [`visual-setup-join.md`](visual-setup-join.md) | UAK-163 · Someone who joins a project that is already set up | written 2026-11-23, waiting for the human to publish; ships as v6.9 |
-| [`visual-setup-intake.md`](visual-setup-intake.md) | UAK-164 · Paste or drop what you already have: the agent fills the form | written 2026-11-23, waiting for the human to publish; ships as v6.9 |
-| [`visual-setup-widgets.md`](visual-setup-widgets.md) | UAK-165 · The summary is made of components the viewer arranges; more components; a component described in words | written 2026-11-23, waiting for the human to publish |
-| [`ci-tiers.md`](ci-tiers.md) | UAK-168 · A pull request waits about ten minutes, not forty: CI in two tiers | written 2026-11-23, waiting for the human to publish; goes first, right after UAK-152 |
+| [`visual-setup.md`](visual-setup.md) | UAK-152 · The visual setup and the unified dashboard come in (a contributed branch, merged onto v6.8), 11 tasks | written 2026-11-23, published 2026-11-23, UAK-152 integrated 2026-11-23; ships as v6.9; Paths amended by `visual-setup-amend.md`, `-amend-2.md`, `-amend-3.md` |
+| [`visual-setup-join.md`](visual-setup-join.md) | UAK-163 · Someone who joins a project that is already set up | written 2026-11-23, published 2026-11-23; ships as v6.9 |
+| [`visual-setup-intake.md`](visual-setup-intake.md) | UAK-164 · Paste or drop what you already have: the agent fills the form | written 2026-11-23, published 2026-11-23; ships as v6.9 |
+| [`visual-setup-widgets.md`](visual-setup-widgets.md) | UAK-165 · The summary is made of components the viewer arranges; more components; a component described in words | written 2026-11-23, published 2026-11-23 |
+| [`ci-tiers.md`](ci-tiers.md) | UAK-168 · A pull request waits about ten minutes, not forty: CI in two tiers | integrated 2026-11-23 |
+| [`followups-v69.md`](followups-v69.md) | UAK-169 · The second run of a slow file cannot cost the job; UAK-185 the hook survives its own files being wrong; UAK-186 the merge reads the review mode from the base | written 2026-11-23, waiting for the human to publish; from the reviews of UAK-155, 157 and 168 |
 | [`port-go.md`](port-go.md) | Porting the engine to Go (or Rust): an estimate | decided: not porting |
 | [`video.md`](video.md) | Plan: `uak video` (the project's video, made from the repo's own facts) | not published; v7.2 |
