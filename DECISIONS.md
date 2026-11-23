@@ -125,3 +125,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1795424535 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-168 | Why: backlog without PR (Plan-Channel: claims)
 - 1795434231 | deadline lease/UAK-152/1795431051 | REQUIRES_RECOVERY | Claim kept; read the summary and use release --expired --read-summary. No work is deleted.
 - 1795434435 | allow | JoahanMorales | test change: UAK-152 | Why: 19 jobs: los tests del asistente no caben en 9 grupos de Windows
+- 1795451158 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-169 UAK-185 UAK-186 | Why: backlog without PR (Plan-Channel: claims)
