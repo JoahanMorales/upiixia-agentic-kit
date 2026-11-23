@@ -123,7 +123,132 @@ def github_still_needs_a_pr(r):
     return "PR still required"
 
 
+def merge_fixture(r, name, project_lines="", mode="claims", path="src/HACK-001.txt"):
+    """A fixture whose base PROJECT.md says Review-Mode: MODE (plus extra lines) and whose product gate is the file
+    the task adds; one task (HACK-001) and one more agent."""
+    f = r.fixture(name, paths={"HACK-001": path}, count=2)
+    (f.seed / ".uak/PROJECT.md").write_text(
+        "# Fixture\nAutonomy: yes\nAuto-Merge: yes\nBacklog-Approved: yes\nBacklog-Proposed-Epoch: 1000000\n"
+        "Freeze-Epoch: 9999999\nReview-Mode: %s\nEvents-Per-Session: 100000\nCheckpoint-Percent: 60\n"
+        "Merge-Lease-Seconds: 1800\nMerge-Wait-Seconds: 600\n%s" % (mode, project_lines), encoding="utf-8")
+    tasks = (f.seed / ".uak/TASKS.md").read_text(encoding="utf-8").replace(".uak/bin/smoke --package-only", "grep -q change %s" % path)
+    (f.seed / ".uak/TASKS.md").write_text(tasks, encoding="utf-8")
+    (f.seed / ".uak/bin/smoke").write_text(
+        "#!/usr/bin/env bash\nset -eu\ncd \"$(dirname \"$0\")/../..\"\nbash -n .uak/bin/uak\n"
+        "[ -f .uak/bin/smoke-project ] || { echo PRODUCT_UNVERIFIED; exit 2; }\nbash .uak/bin/smoke-project\necho FIXTURE_PRODUCT_PASS\n",
+        encoding="utf-8")
+    (f.seed / ".uak/bin/smoke-project").write_text("#!/usr/bin/env bash\nset -eu\n[ ! -f .red-product-gate ]\n", encoding="utf-8")
+    r.g(f.seed, "add", "-A")
+    r.g(f.seed, "commit", "-q", "-m", "Configure the fixture")
+    r.g(f.seed, "push", "-q", "origin", "main")
+    f.main_head = r.g(f.remote, "rev-parse", "main").stdout.strip()
+    for clone, worktree in zip(f.clones, f.worktrees):
+        r.g(clone, "fetch", "-q", "origin", "main")
+        r.g(worktree, "reset", "-q", "--hard", "origin/main")
+        # The agent's identity file is never part of the task's diff here.
+        with open(str(clone / ".git" / "info" / "exclude"), "a", encoding="utf-8", newline="\n") as handle:
+            handle.write(".uak-env\n")
+    return f
+
+
+def as_human(r, f, *args, github=False):
+    env = env_for(r, f, 0, github)
+    env.update({"UAK_AGENT": "human-registrar", "UAK_HUMAN": "human-registrar"})
+    return r.run([r.bash, ".uak/bin/uak", *map(str, args)], cwd=f.clones[0], env=env)
+
+
+def as_agent(r, f, name, *args, github=False, allowed=(0,)):
+    env = env_for(r, f, 0, github)
+    env.update({"UAK_AGENT": name, "UAK_NOW": "1000021"})
+    return r.run([r.bash, ".uak/bin/uak", *map(str, args)], cwd=f.clones[0], env=env, allowed=allowed)
+
+
+def moved(r, f):
+    return r.g(f.remote, "rev-parse", "main").stdout.strip() != f.main_head
+
+
+def tip_of(r, f):
+    return r.g(f.worktrees[0], "rev-parse", "HEAD").stdout.strip()
+
+
+def pr_none_still_needs_an_approval(r):
+    notes = []
+    for mode in ("claims", "gh", "auto"):
+        f = merge_fixture(r, "dn-appr-" + mode, mode=mode)
+        ready(r, f, 0, "HACK-001")
+        out = done(r, f, 0, "HACK-001", "none")
+        expect(out.returncode == 0, "%s: --pr none is accepted on a local remote: %s" % (mode, (out.stdout + out.stderr)[-500:]))
+        tip = tip_of(r, f)
+        as_human(r, f, "register-reviewer", "judge")
+        # No approval at all.
+        out = uak(r, f, 0, "merge", "HACK-001", allowed=None)
+        expect(not moved(r, f), "%s: --pr none merged with no approval: %s" % (mode, (out.stdout + out.stderr)[-500:]))
+        # The owner approving its own task, and another identity approving a tip that is no longer the tip.
+        as_agent(r, f, "agent-1", "review", "HACK-001", "--sha", tip, "--verdict", "approve", allowed=None)
+        out = uak(r, f, 0, "merge", "HACK-001", allowed=None)
+        expect(not moved(r, f), "%s: --pr none merged on the owner's own approval" % mode)
+        if mode == "gh":
+            # gh reads an approval of a GitHub PR: a task with none never gets one.
+            as_agent(r, f, "judge", "review", "HACK-001", "--sha", tip, "--verdict", "approve", allowed=None)
+            out = uak(r, f, 0, "merge", "HACK-001", allowed=None)
+            expect(not moved(r, f), "gh: --pr none merged: %s" % (out.stdout + out.stderr)[-500:])
+            notes.append("gh refuses")
+            continue
+        as_agent(r, f, "judge", "review", "HACK-001", "--sha", tip, "--verdict", "approve")
+        (f.worktrees[0] / "src" / "HACK-001.txt").write_text("a change, then another\n", encoding="utf-8")
+        r.g(f.worktrees[0], "commit", "-q", "-am", "HACK-001: a later change")
+        r.run([r.git, "push", "-q", "origin", f.branches[0]], cwd=f.worktrees[0], env=env_for(r, f, 0))
+        out = uak(r, f, 0, "merge", "HACK-001", allowed=None)
+        expect(not moved(r, f), "%s: an approval of an older tip let a newer one merge: %s" % (mode, (out.stdout + out.stderr)[-500:]))
+        as_agent(r, f, "judge", "review", "HACK-001", "--sha", tip_of(r, f), "--verdict", "approve")
+        out = uak(r, f, 0, "merge", "HACK-001", allowed=None)
+        expect(out.returncode == 0 and moved(r, f), "%s: the exact tip approved by another identity merges: %s" % (mode, (out.stdout + out.stderr)[-700:]))
+        notes.append(mode + " merges once approved")
+    return ", ".join(notes)
+
+
+def pr_none_goes_to_the_human_under_merge_engine_ci(r):
+    engine = ".uak/bin/lib/metrics.py"  # the one kind of file Merge-Engine: ci releases to the gate, on the checks of a PR
+    f = merge_fixture(r, "dn-ci", project_lines="Mode: sprint\nMerge-Engine: ci\nMerge-Engine-Checks: build (*\n", path=engine)
+    as_github(r, f, 0)
+    uak(r, f, 0, "claim", "HACK-001", "--branch", f.branches[0], "--worktree", f.worktrees[0].as_posix(), "--next", "Ship it", github=True)
+    w = f.worktrees[0]
+    (w / ".uak-env").write_bytes(b"UAK_TASK=HACK-001\nUAK_AGENT=agent-1\n")
+    (w / engine).write_text((w / engine).read_text(encoding="utf-8") + "\n# change\n", encoding="utf-8")
+    r.g(w, "add", "-A")
+    r.g(w, "commit", "-q", "-m", "HACK-001: a change")
+    r.run([r.git, "push", "-q", "origin", f.branches[0]], cwd=w, env=env_for(r, f, 0, True))
+    out = done(r, f, 0, "HACK-001", "none", github=True)
+    expect(out.returncode == 0, "claims on GitHub accepts --pr none: %s" % (out.stdout + out.stderr)[-500:])
+    as_human(r, f, "register-reviewer", "judge", github=True)
+    as_agent(r, f, "judge", "review", "HACK-001", "--sha", tip_of(r, f), "--verdict", "approve", github=True)
+    out = uak(r, f, 0, "merge", "HACK-001", github=True, allowed=None)
+    text = out.stdout + out.stderr
+    expect(not moved(r, f), "Merge-Engine ci merged an engine file of a task with no PR: " + text[-500:])
+    expect("MERGE_HUMAN" in text, "a task with no PR goes to the human: " + text[-500:])
+    expect("Merge-Engine ci reads the checks of a github.com PR: this task has none" in text,
+           "the reason says the required checks need a PR and the task has none: " + text[-500:])
+    return "human, reason names the pull request"
+
+
+def env_review_mode_does_not_override_the_base(r):
+    f = merge_fixture(r, "dn-env", mode="gh")
+    as_github(r, f, 0)
+    ready(r, f, 0, "HACK-001", github=True)
+    for value in ("claims", "auto"):
+        env = env_for(r, f, 0, True)
+        env["UAK_REVIEW_MODE"] = value
+        out = r.run([r.bash, ".uak/bin/uak", "done", "HACK-001", "--pr", "none", "--evidence", "fixture exit 0", "--no-red", "fixture"],
+                    cwd=f.worktrees[0], env=env, allowed=None)
+        text = out.stdout + out.stderr
+        expect(out.returncode != 0 and "Review-Mode is gh" in text,
+               "UAK_REVIEW_MODE=%s let --pr none through on a base that says gh: %s" % (value, text[-500:]))
+        expect(record_field(f, "HACK-001", "State") == "CLAIMED", "still CLAIMED with UAK_REVIEW_MODE=%s" % value)
+    return "the base wins"
+
+
 TESTS = [done_accepts_no_pr_without_github, wt_pr_names_the_fallback, github_still_needs_a_pr]
+TESTS += [pr_none_still_needs_an_approval, pr_none_goes_to_the_human_under_merge_engine_ci, env_review_mode_does_not_override_the_base]
 
 
 def main():
