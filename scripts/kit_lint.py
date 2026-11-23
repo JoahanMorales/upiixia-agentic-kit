@@ -120,8 +120,8 @@ def ci_tests():
 # counted the default 60 s and ran 25 min on Windows and 8 min on macOS. To measure again, take each file's group time
 # (from its ::group:: line to its ::endgroup:: line) in `gh run view RUN --log --job JOB` of recent runs on main.
 CI_SECONDS = {
-    "test_flaky_guard_race": 253, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_review_merge": 93,
-    "test_flaky_guard": 443, "test_merge_commit_field": 91, "test_review_substates": 90, "test_claims_perf": 84, "test_v51": 73,
+    "test_flaky_guard_race": 478, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_review_merge": 93,
+    "test_flaky_guard": 103, "test_merge_commit_field": 91, "test_review_substates": 90, "test_claims_perf": 84, "test_v51": 73,
     "test_design_taste_cli": 72, "test_integrate_unreviewed": 72, "test_design_perf": 67, "test_v54": 66,
     "test_hack": 61, "test_smoke_affected": 58, "test_v5": 58, "test_command_ledger": 46, "test_v57": 46,
     "test_design_shoot_qa": 45, "test_v42": 45, "test_design_color": 43, "test_design_metrics": 39, "test_pre_push":
@@ -151,7 +151,7 @@ CI_SECONDS = {
     "test_policy": 1, "test_q_string": 1
 }
 CI_WINDOWS_SECONDS = {
-    "test_flaky_guard_race": 1175, "test_merge_engine_policy": 905, "test_merge_commit_field": 455, "test_flaky_guard": 714,
+    "test_flaky_guard_race": 1100, "test_merge_engine_policy": 905, "test_merge_commit_field": 455, "test_flaky_guard": 220,
     "test_integrate_unreviewed": 420, "test_claims_perf": 385, "test_review_merge": 380, "test_v51": 374,
     "test_review_substates": 330, "test_v57": 300, "test_hack": 254, "test_smoke_affected": 244, "test_pre_push":
     230, "test_v43": 216, "test_v42": 213, "test_v5": 210, "test_v55": 198, "test_coordination": 196, "test_v54":
@@ -198,8 +198,8 @@ def ci_windows_seconds(test):
 # Not a way to raise the limit: a new file over half is refused, and an entry whose file is not over half any more is
 # reported (so the list shrinks as files are split).
 HALF_BOUND_EXCEPTIONS = {
-    "test_flaky_guard_race": "862, 1175 and 1336 s on Windows in three runs (UAK-151): twenty_lease_runs_under_load alone, 20 lease runs in a pool of 4 beside CPU hogs; splitting by kind did not get it under 900 s, and moving more into test_flaky_guard.py (about 700 s) would put that file over; it needs a third file or fewer lease runs, a decision for a human",
     "test_merge_engine_policy": "905 s on Windows, 5 s over the limit: not split yet (a task of its own, outside UAK-150's paths); until then it takes a shard with little else",
+    "test_flaky_guard_race": "870 to 1363 s on Windows: twenty_runs_under_load, 60 runs under CPU hogs in one case. UAK-151 tried one case per kind with background jobs of the other kinds: lease alone took 862, 1175 and 1336 s, and the two files together 1700 to 1900 s against 1090 to 1580 s before, so no two-file split gets under 900 s; it needs a third file or fewer lease runs, a decision for a human",
 }
 
 

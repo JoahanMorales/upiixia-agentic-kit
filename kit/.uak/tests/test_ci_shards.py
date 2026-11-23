@@ -181,9 +181,9 @@ def workflow_runs_once_per_commit(r):
 # UAK-144. Measured on main (the 12 latest runs up to 45037067147 and five before them; the median of each
 # test file's group in the job logs): Windows seconds and macOS seconds. Before, test_flaky_guard had no entry and counted
 # 60 s: it took 1496 s on Windows (shard 5: 34m39s) and about 495 s on macOS (shard 4: 25m31s).
-MEASURED_WINDOWS_S = {"test_flaky_guard": 714, "test_flaky_guard_race": 1175, "test_merge_engine_policy": 905, "test_review_merge": 380, "test_claims_perf": 385,
+MEASURED_WINDOWS_S = {"test_flaky_guard": 220, "test_flaky_guard_race": 1100, "test_merge_engine_policy": 905, "test_review_merge": 380, "test_claims_perf": 385,
                       "test_v51": 374, "test_review_substates": 330, "test_read_cache": 192, "test_hooks_health": 194, "mcp_tools": 104}
-MEASURED_MACOS_S = {"test_flaky_guard": 443, "test_flaky_guard_race": 253, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_review_merge": 93,
+MEASURED_MACOS_S = {"test_flaky_guard": 103, "test_flaky_guard_race": 478, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_review_merge": 93,
                     "test_v51": 73, "test_read_cache": 35, "test_hooks_health": 34}
 
 
@@ -222,8 +222,7 @@ def every_test_file_has_a_timing(r):
 
 
 BEFORE_THE_SPLIT = ["picker_reads_the_body_before_403", "mcp_server_exits_when_stdin_closes", "engine_renewer_never_runs_the_owners_cleanup",
-                    "lease_test_uses_the_injected_clock", "twenty_picker_runs_under_load", "twenty_mcp_runs_under_load",
-                    "twenty_lease_runs_under_load"]  # UAK-151: twenty_runs_under_load became one case per kind
+                    "lease_test_uses_the_injected_clock", "twenty_runs_under_load"]
 
 
 def flaky_guard_cases_are_all_kept(r):
@@ -235,7 +234,7 @@ def flaky_guard_cases_are_all_kept(r):
         m = re.search(r"(?m)^TESTS = \[(.*?)\]$", t)
         expect(m is not None, "a file has no TESTS list")
         cases.append([x.strip() for x in m.group(1).split(",")])
-    expect(sorted(cases[0] + cases[1]) == sorted(BEFORE_THE_SPLIT), "the two files' cases are the seven (the five before UAK-150, twenty_runs by kind): %s" % cases)
+    expect(sorted(cases[0] + cases[1]) == sorted(BEFORE_THE_SPLIT), "the two files' cases are the five before the split: %s" % cases)
     expect(set(cases[0]).isdisjoint(cases[1]), "no case runs twice: %s" % cases)
     expect(re.search(r"(?m)^RUNS = 20\b", texts[0]) and re.search(r"(?m)^RACE_RUNS = 60\b", texts[0]), "RUNS is 20 and RACE_RUNS 60")
     expect(not re.search(r"(?m)^(RUNS|RACE_RUNS) =", texts[1]), "the second file imports the counts, it does not copy them")
@@ -252,24 +251,21 @@ def flaky_guard_cases_are_all_kept(r):
         expect(t in lint.CI_SECONDS and t in lint.CI_WINDOWS_SECONDS, "%s has a macOS and a Windows entry" % t)
     jobs = 1 + 2 * 4 + lint.windows_shard_count()
     expect(jobs <= 18, "a commit starts %d jobs (discover, 4 shards x 2 OS, Windows shards), over 18" % jobs)
-    return "7 cases in 2 files, %d jobs per commit" % jobs
+    return "5 cases in 2 files, %d jobs per commit" % jobs
 
 
 def flaky_guard_load_is_proved(r):
-    """UAK-151: the three `twenty_*_runs_under_load` cases are run with their pool, hogs and jobs replaced by recorders:
-    each must start at least one hog, use a pool of at least 4 workers and submit at least 20 jobs of its own kind (and
-    some of the other kinds). A case with its job list cut, the hogs set to 0 or the pool to 1 worker fails here."""
+    """UAK-151: twenty_runs_under_load is run with its pool, hogs and job functions replaced by recorders. It must submit
+    20 jobs of each of the three kinds (60), start at least one CPU hog and kill it, and use a pool of 4 workers. A case
+    with a cut job list or RUNS, the hogs set to 0 or the pool to 1 worker fails here; the constants must be the ones it uses."""
     d = REPO / "kit" / ".uak" / "tests"
     sys.path.insert(0, str(d))
-    import test_flaky_guard as tfg
     import test_flaky_guard_race as race
-    expect(tfg.JOBS_PER_KIND >= 20 and tfg.POOL_WORKERS >= 4 and tfg.BACKGROUND_JOBS >= 1, "the load constants: %s %s %s"
-           % (tfg.JOBS_PER_KIND, tfg.POOL_WORKERS, tfg.BACKGROUND_JOBS))
-    expect(tfg.hog_count() >= 1, "at least one hog: %r" % tfg.hog_count())
-    cases = {"picker": tfg.twenty_picker_runs_under_load, "mcp": tfg.twenty_mcp_runs_under_load, "lease": race.twenty_lease_runs_under_load}
-    saved = {n: getattr(tfg, n) for n in ("start_hog", "make_pool", "lease_once", "mcp_once", "picker_once")}
-    seen = {}
-    killed = []
+    expect(race.RUNS >= 20 and race.POOL_WORKERS >= 4, "the load constants: RUNS %s, POOL_WORKERS %s" % (race.RUNS, race.POOL_WORKERS))
+    expect(race.hog_count() >= 1, "at least one hog: %r" % race.hog_count())
+    saved = {n: getattr(race, n) for n in ("start_hog", "make_pool", "lease_once", "mcp_once", "picker_once", "hog_count")}
+    hogs, pools, killed = [], [], []
+    expect(race.MCP_TEST.is_file(), "tests/test_mcp_tools.py is the third kind of the load")
 
     class Hog:
         def kill(self):
@@ -294,43 +290,31 @@ def flaky_guard_load_is_proved(r):
 
         def submit(self, fn):
             self.fns.append(fn)
-            f = Fut()
-            return f
-    pools, hogs = [], []
+            return Fut()
+    fast = os.environ.pop("UAK_SMOKE_FAST", None)
+    saved_as = race.concurrent.futures.as_completed
     try:
-        tfg.start_hog = lambda: hogs.append(1) or Hog()
-        tfg.make_pool = lambda w: pools.append(Pool(w)) or pools[-1]
+        race.start_hog = lambda: hogs.append(1) or Hog()
+        race.make_pool = lambda w: pools.append(Pool(w)) or pools[-1]
         for k in ("lease", "mcp", "picker"):
-            setattr(tfg, k + "_once", (lambda name: lambda *a, **kw: name)(k))
-        saved_as = tfg.concurrent.futures.as_completed
-        tfg.concurrent.futures.as_completed = lambda futures: list(futures)
-        fast = os.environ.pop("UAK_SMOKE_FAST", None)
-        try:
-            for kind, case in cases.items():
-                hogs.clear()
-                pools.clear()
-                if kind == "mcp" and not tfg.MCP_TEST.is_file():
-                    continue
-                case()
-                expect(len(pools) == 1 and pools[0].workers >= 4, "%s: a pool of at least 4 workers: %r" % (kind, [p.workers for p in pools]))
-                expect(len(hogs) >= 1 and len(killed) >= len(hogs), "%s: at least one CPU hog is started (and killed): %d" % (kind, len(hogs)))
-                names = [fn() for fn in pools[0].fns]
-                expect(names.count(kind) >= 20, "%s: at least 20 jobs of its own kind: %d" % (kind, names.count(kind)))
-                expect(len(set(names)) >= 2, "%s: other kinds run beside it (the mix): %s" % (kind, sorted(set(names))))
-                seen[kind] = (names.count(kind), len(names), pools[0].workers, len(hogs))
-        finally:
-            tfg.concurrent.futures.as_completed = saved_as
-            if fast is not None:
-                os.environ["UAK_SMOKE_FAST"] = fast
+            setattr(race, k + "_once", (lambda name: lambda *a, **kw: name)(k))
+        race.concurrent.futures.as_completed = lambda futures: list(futures)
+        race.twenty_runs_under_load()
     finally:
+        race.concurrent.futures.as_completed = saved_as
         for n, v in saved.items():
-            setattr(tfg, n, v)
-    src = (d / "test_flaky_guard.py").read_text(encoding="utf-8")
-    body = src.split("def run_kind_under_load", 1)[1].split("\ndef job_lease", 1)[0]
-    for ref in ("JOBS_PER_KIND", "POOL_WORKERS", "BACKGROUND_JOBS", "hog_count()", "start_hog()", "make_pool("):
-        expect(ref in body, "run_kind_under_load uses %s" % ref)
-    expect("run_kind_under_load(" in (d / "test_flaky_guard_race.py").read_text(encoding="utf-8"), "the race file's case runs run_kind_under_load")
-    return "; ".join("%s %d of %d jobs, %d workers, %d hogs" % ((k,) + v) for k, v in sorted(seen.items()))
+            setattr(race, n, v)
+        if fast is not None:
+            os.environ["UAK_SMOKE_FAST"] = fast
+    expect(len(pools) == 1 and pools[0].workers == 4, "a pool of 4 workers: %r" % [p.workers for p in pools])
+    expect(len(hogs) >= 1 and len(killed) == len(hogs), "at least one CPU hog is started and killed: %d started, %d killed" % (len(hogs), len(killed)))
+    names = [fn() for fn in pools[0].fns]
+    counts = {k: names.count(k) for k in ("lease", "mcp", "picker")}
+    expect(all(c == 20 for c in counts.values()) and len(names) == 60, "20 jobs of each of the three kinds, 60 in all: %s" % counts)
+    body = (d / "test_flaky_guard_race.py").read_text(encoding="utf-8").split("def twenty_runs_under_load", 1)[1].split("\nTESTS = [", 1)[0]
+    for ref in ("RUNS", "POOL_WORKERS", "hog_count()", "start_hog()", "make_pool("):
+        expect(ref in body, "twenty_runs_under_load uses %s" % ref)
+    return "%d jobs (%s), %d workers, %d hogs" % (len(names), ", ".join("%d %s" % (c, k) for k, c in sorted(counts.items())), pools[0].workers, len(hogs))
 
 
 def no_file_over_half_the_bound(r):
