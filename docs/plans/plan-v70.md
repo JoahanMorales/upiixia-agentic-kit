@@ -110,8 +110,8 @@
 - **Depends on:** UAK-156
 - **Paths:** kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/dash.html, kit/.uak/bin/design-lint, kit/.uak/media/, docs/DASHBOARD.md, docs/design/, scripts/kit_lint.py, kit/.uak/tests/test_setup_design.py
 - **Acceptance:**
-  - `setup.html` and `dash.html` declare the same custom properties with the same values in light and dark (page, surface, raised, ink, ink-2, muted, line, accent, accent-ink, critical, shadow, mono, radii): the dashboard's set is the kit's, the wizard's green palette, its 20 px radius and its three hard-coded shadows go. A test compares the two `:root` blocks and fails on any difference
-  - outside `:root` no colour literal remains in either file; the wizard uses at most 6 font sizes and one spacing scale (4, 8, 12, 16, 24, 32, 48), radii of 4, 6 and 8 px, one shadow token, body 14 px as the dashboard
+  - `setup.html` and `dash.html` declare the same custom properties with the same values in light and dark (page, surface, raised, ink, ink-2, muted, line, accent, accent-ink, critical, shadow, mono, radii): the set is the direction the human chose from the three shown to them, recorded in `docs/design/DIRECTION.md` on main before this task starts (palette, type, radii, spacing, in light and dark); the wizard's own palette, its 20 px radius and its three hard-coded shadows go. A test compares the two `:root` blocks and fails on any difference
+  - outside `:root` no colour literal remains in either file; the wizard uses at most 6 font sizes and one spacing scale (4, 8, 12, 16, 24, 32, 48), the radii and the body size of the chosen direction, one shadow token
   - `design-lint` applies its rules to `.html` (inline `<style>` and `style=`), not only the two scale checks: colour literals outside `:root`, coloured side stripes, glass, glow, emoji and glyphs used as icons (`✓ ✗ ! •` included), more than 6 font sizes, more than one primary button visible in a view. Both pages pass with `--strict`, with no finding suppressed
   - status marks are inline SVG icons with a text label, never a glyph; a disabled control keeps 4.5:1 for its label (2.9:1 today); every text/background pair of the tokens is at least 4.5:1 in both themes, computed by the test
   - the tutorial's poster and its frames use the kit's palette (no purple glow)
@@ -121,33 +121,35 @@
 - **Verify:** `python3 kit/.uak/tests/test_setup_design.py && bash kit/.uak/bin/design-lint --strict kit/.uak/bin/lib/setup.html kit/.uak/bin/lib/dash.html`
 - **Next step:** `:root` in setup.html (lines 13-28 and 657-702 of the contributed file) against dash.html lines 12-47; existing tests that assert the old colours or classes need `uak allow UAK-158 --tests` from the human
 
-## UAK-159 · One job per screen: the wizard's flow, errors and mobile layout
+## UAK-159 · The wizard's flow: ten screens, one job each, and it covers what the kit does today
 
 - **Type:** feature
 - **Priority:** P0
-- **Estimate:** 8 h
+- **Estimate:** 12 h
 - **Depends on:** UAK-158
-- **Paths:** kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/setup.py, docs/DASHBOARD.md, kit/.uak/tests/test_setup_forms.py, kit/.uak/tests/test_setup_guide.py, kit/.uak/tests/test_setup_resume.py
+- **Paths:** kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/setup.py, docs/DASHBOARD.md, kit/.uak/tests/test_setup_forms.py, kit/.uak/tests/test_setup_guide.py, kit/.uak/tests/test_setup_resume.py, kit/.uak/tests/test_setup_first_run.py
 - **Acceptance:**
-  - "Get ready" (4518 px at 1280, 6457 px at 390) becomes separate screens, one job each: fix what blocks, your name and schedule, publish the kit, the plan, the team, preferences. No screen is taller than two viewports at 1280×800 or three at 390×844 with real content; each has one primary button
-  - an instruction appears once: the command to run is shown one time, in one copy box, with the folder already in it; raw output of `uak start` is under "Technical details", never the heading. A heading is a sentence that starts with a capital and says what to do
-  - started inside a repository, the wizard does not ask for the folder: it shows it with "Change". The workflow step has a default chosen from the project (Hackathon when a schedule is near or the repository is new, Product otherwise) and says why. A first install takes at most 4 clicks
-  - an error is shown next to the control that caused it and above the button, is in view after the click at both widths, names what to do, and is the message of that step (today "Choose Hackathon or Product before installing" answers a missing tool on the workflow step)
-  - the step is in the URL: reload stays on the step, the browser's Back and Forward move between steps, and reopening a project resumes where it was
-  - the first screen has no slogan, no eyebrow and no benefit pairs: it says what will happen in this project, in two sentences, and has the one button; the video is a link that opens it, not the largest thing on the page. The journey bar and the step rail are one component
-  - at 390 px the content starts within 160 px of the top; every target is at least 44×44 px; nothing scrolls sideways
+  - the flow approved by the human (2026-11-23), one screen per job, each with one primary button: (1) Your project: what was detected (folder, new or existing repository, a hook manager such as husky or lefthook, CI, the project's own tests, the stack) and the mode proposed with its reason; the tools are chosen here. (2) Install: what will be written, how many files, and how the kit's hooks live beside the team's. (3) Unblock: only when something fails, one problem at a time with its fix. (4) How your team will work: the project's rules in plain words with the mode's defaults (`Test-First`, review with or without GitHub, `Review-Independence`, `Merge-Engine`, generated files, the token budget), details under "Advanced"; it writes nothing the human did not confirm. (5) People: the human's identity, reviewers, roles. (6) Schedule: only in Hackathon mode. (7) Publish the kit. (8) Idea and plan: the idea, the design direction when the project has screens (the creativity index and the design lock), the plan, the approval. (9) Start: the command for each agent; the screen says when the first agent has claimed a task. (10) Dashboard: from here, deployment (`uak deploy`, the smoke that boots the app, `Live-URL`), external skills (`uak skill add`) and "Close the wizard", which ends the server
+  - a project that already has the kit opens on the screen it needs; an older kit opens "Update", a path of its own, never an alarm heading over another screen
+  - there is no welcome screen, no slogan, no eyebrow and no benefit pairs; the first screen says what will happen in this project in two sentences. The video is a link. The folder is not asked inside a repository (it is shown with "Change"). A first install takes at most 4 clicks
+  - diagnostics (`Blackbox`) are never pre-checked: the screen says what is published and where, and that a public repository makes it public; the human chooses
+  - no screen is taller than two viewports at 1280×800 or three at 390×844 with real content ("Get ready" was 4518 px and 6457 px)
+  - an instruction appears once: one command, one copy box, the folder already in it; raw output of `uak start` is under "Technical details", never a heading. A heading is a sentence that starts with a capital and says what to do
+  - an error is next to the control that caused it and above the button, in view after the click at both widths, names what to do, and is the message of that step
+  - the step is in the URL: reload stays on it, the browser's Back and Forward move between steps, reopening a project resumes where it was
+  - at 390 px the content starts within 160 px of the top, every target is at least 44×44 px, nothing scrolls sideways; the journey bar and the step rail are one component
   - a running action shows what it is doing and for how long, next to its button; a page whose server ended says so when it comes back into view, with the command that reopens it
   - screenshots at 1280 and 390, light and dark, Spanish and English, of every screen and of one error and one loading state are in `.uak-shots/UAK-159/` with the design critic's `VERDICT: SHIP` for the task's commit
-- **Tests:** no_screen_taller_than_two_viewports, instruction_appears_once, folder_is_not_asked_inside_a_repo, first_install_in_four_clicks, error_is_next_to_its_control, step_survives_reload_and_back, mobile_content_starts_within_160px, targets_are_44px
-- **Verify:** `python3 kit/.uak/tests/test_setup_forms.py && python3 kit/.uak/tests/test_setup_guide.py && python3 kit/.uak/tests/test_setup_resume.py`
-- **Next step:** the "Get ready" markup in setup.html (about lines 1700-2040 of the contributed file) and the hero at 1434-1460; the tests drive the page with the browser the contributed tests already use; changed assertions need `uak allow UAK-159 --tests` from the human
+- **Tests:** flow_has_the_ten_screens, existing_repository_is_detected, rules_screen_writes_only_what_was_confirmed, schedule_only_in_hackathon, diagnostics_are_not_prechecked, old_kit_opens_update, close_ends_the_server, no_screen_taller_than_two_viewports, instruction_appears_once, first_install_in_four_clicks, error_is_next_to_its_control, step_survives_reload_and_back, mobile_content_starts_within_160px, targets_are_44px
+- **Verify:** `python3 kit/.uak/tests/test_setup_forms.py && python3 kit/.uak/tests/test_setup_guide.py && python3 kit/.uak/tests/test_setup_resume.py && python3 kit/.uak/tests/test_setup_first_run.py`
+- **Next step:** the "Get ready" markup in setup.html (about lines 1700-2040 of the contributed file) and the hero at 1434-1460; the detection of hooks is `doctor`'s (UAK-135, UAK-146), reuse it; changed assertions need `uak allow UAK-159 --tests` from the human
 
 ## UAK-160 · The wizard's Spanish is written, not translated from the engine's sentences
 
 - **Type:** fix
 - **Priority:** P1
 - **Estimate:** 5 h
-- **Depends on:** UAK-159
+- **Depends on:** UAK-159, UAK-161
 - **Paths:** kit/.uak/bin/lib/workspace.js, kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/setup.py, kit/.uak/bin/start, kit/.uak/tests/test_setup_language.py
 - **Acceptance:**
   - the page never matches the engine's English prose: `uak --json start` (and the other commands the wizard runs) give each need and note a stable code and its values, and the page's texts are keyed by code in both languages. A test rewords an engine sentence and the Spanish page is unchanged; a code with no text in a language fails the test, it does not fall back to English
@@ -157,3 +159,38 @@
 - **Tests:** texts_are_keyed_by_code, rewording_the_engine_changes_nothing, no_missing_text_in_either_language, one_voice_in_spanish, glossary_is_respected
 - **Verify:** `python3 kit/.uak/tests/test_setup_language.py`
 - **Next step:** the dictionary and the regex table in kit/.uak/bin/lib/workspace.js and the needs of kit/.uak/bin/start; changed assertions need `uak allow UAK-160 --tests` from the human
+
+## UAK-161 · The install asks how you want to continue: in the browser or in the terminal, and both reach the same place
+
+- **Type:** feature
+- **Priority:** P0
+- **Estimate:** 5 h
+- **Depends on:** UAK-154
+- **Paths:** install.sh, kit/.uak/bin/start, kit/.uak/docs/CLI.md, README.md, docs/HACKATHON.md, scripts/kit_lint.py, kit/.uak/tests/test_install_choice.py
+- **Acceptance:**
+  - `bash install.sh` run by a person at a terminal ends with one question: continue in the browser (the wizard) or here in the terminal; Enter takes the terminal, the answer is one key, and the question says in one line what each is. `--wizard` and `--terminal` answer it beforehand
+  - with no terminal (a pipe, CI, an agent, `UAK_AGENT` set) nothing is asked and nothing opens: the install ends as today, so every existing script and test keeps working
+  - the choice is remembered for the project (git config, not a tracked file) and can be changed: `uak start --wizard` opens the wizard later, and the wizard's last screen and its "Close" say the terminal command that continues from the same point
+  - the terminal path covers the same steps as the wizard, in the same order and with the same names: `uak start` prints the one next step with its command (project detected, rules, people, schedule in Hackathon mode, publish the kit, idea and plan, start the agents), and a step done in one is done in the other: the state is the project's, never the page's
+  - a machine without Python 3.8 or without a browser is told so and continues in the terminal; the wizard is never a requirement
+- **Tests:** install_asks_once_at_a_terminal, no_terminal_no_question, flags_answer_the_question, choice_is_remembered, terminal_and_wizard_share_the_state, start_names_the_same_steps, no_python_continues_in_terminal
+- **Verify:** `python3 kit/.uak/tests/test_install_choice.py`
+- **Next step:** the end of install.sh (`--wizard` execs setup.py today) and the needs of kit/.uak/bin/start; a new test file needs its entries in both timing tables
+
+## UAK-162 · The dashboard is redrawn in the chosen direction
+
+- **Type:** feature
+- **Priority:** P0
+- **Estimate:** 8 h
+- **Depends on:** UAK-158
+- **Paths:** kit/.uak/bin/lib/dash.html, kit/.uak/bin/lib/dash.py, docs/DASHBOARD.md, docs/media/, README.md, kit/.uak/tests/test_dashboard_truth.py, kit/.uak/tests/test_dashboard_profiles.py
+- **Acceptance:**
+  - the dashboard is redesigned with the tokens of `docs/design/DIRECTION.md`: the same information as today (progress, agents online, reviews waiting with their sub-state, stalled, needs a human, board, agents, conversation, black box, memory, tokens), nothing dropped; the first thing read is what needs a person now, then progress, then the board
+  - an empty project is not a grid of zeros: it says the one next step and its command; each number that is zero because nothing happened yet says so in words
+  - it stays one file opened from `file://`, with no server, no port, no external request and no build step; the page is not heavier than today (84 KB) and its two timers start no process
+  - both profiles (beginner, advanced), both themes and both languages are complete; every text/background pair is at least 4.5:1; every target is at least 44×44 px at 390; nothing scrolls sideways; it is usable with the keyboard alone, and motion stops under `prefers-reduced-motion`
+  - `design-lint --strict` passes on it with no finding suppressed (main's file has 26 today: 19 colour literals, 5 rgba, 1 glass, 1 emoji)
+  - screenshots at 1280 and 390, light and dark, of an empty project, a project in progress (20 tasks, 3 agents, a review over its lease, a blocked task) and a finished one are in `.uak-shots/UAK-162/` with the design critic's `VERDICT: SHIP` for the task's commit; the README's and the docs' images of the dashboard are replaced
+- **Tests:** dashboard_keeps_every_field, empty_project_says_the_next_step, no_server_no_request, page_is_not_heavier, both_profiles_and_languages_are_complete
+- **Verify:** `python3 kit/.uak/tests/test_dashboard_truth.py && python3 kit/.uak/tests/test_dashboard_profiles.py && bash kit/.uak/bin/design-lint --strict kit/.uak/bin/lib/dash.html`
+- **Next step:** kit/.uak/bin/lib/dash.html (tokens at the top, the hero and the four tiles, the tabs); the data comes from `dash.py`, whose fields the existing tests list; changed assertions need `uak allow UAK-162 --tests` from the human
