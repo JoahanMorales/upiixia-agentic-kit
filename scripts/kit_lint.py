@@ -346,12 +346,20 @@ def check_test_discovery(findings):
             findings.append("kit/.uak/tests/%s.py · no-package-arg · smoke passes --package; add parser.add_argument(\"--package\", ...)" % t)
 
 
+def check_workflow_dispatch(findings):
+    # The suite must be runnable on demand (workflow_dispatch) as well as on pull requests and main.
+    p = ROOT / ".github/workflows/test.yml"
+    if p.is_file() and not re.search(r"^  workflow_dispatch:", p.read_text(encoding="utf-8"), re.M):
+        findings.append(".github/workflows/test.yml · workflow-dispatch · `on:` must list workflow_dispatch so the suite runs on demand")
+
+
 def check_structure(findings):
     # The command registry routes, documents and exposes every command (scripts/gen_registry.py).
     sys.path.insert(0, str(ROOT / "scripts"))
     import gen_registry
     findings.extend("registry · " + x for x in gen_registry.problems())
     check_test_discovery(findings)
+    check_workflow_dispatch(findings)
     install = (ROOT / "install.sh").read_text(encoding="utf-8")
     sources = (ROOT / "kit/.uak/skills/SOURCES.md").read_text(encoding="utf-8")
     named = set(re.findall(r"skills=\"([^\"]+)\"", install))

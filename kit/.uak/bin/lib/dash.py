@@ -22,6 +22,7 @@ import tarfile
 import io
 import tempfile
 import time
+import urllib.parse
 import webbrowser
 from pathlib import Path
 
@@ -35,8 +36,12 @@ GIT_TIMEOUT = 30  # seconds: an unreachable remote must end in a message, not a 
 
 def run_git(*args, cwd=None):
     """subprocess.run of git with the timeout; a timeout becomes a RuntimeError of one line."""
+    # No prompt for credentials, and a git hook's own GIT_DIR must not redirect the call (the page may start from a hook).
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never")
+    for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"):
+        env.pop(key, None)
     try:
-        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, timeout=GIT_TIMEOUT)
+        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, env=env, timeout=GIT_TIMEOUT)
     except subprocess.TimeoutExpired:
         raise RuntimeError("git %s timed out after %d s: is the remote reachable?" % (args[0] if args else "", GIT_TIMEOUT)) from None
 
@@ -102,7 +107,12 @@ def snapshot(root, claims_dir=None):
                 # Plain files and directories only: a symlink on claims could point the page at any local file.
                 if m.name.startswith("/") or ".." in Path(m.name).parts or not (m.isfile() or m.isdir()):
                     continue
-                t.extract(m, tmp)
+                # filter="data" where tarfile has it (3.12+, backports): no DeprecationWarning on stderr, and the
+                # extraction refuses what the check above already skips. Why (QA round C, 2026-11-14, C-11).
+                if hasattr(tarfile, "data_filter"):
+                    t.extract(m, tmp, filter="data")
+                else:
+                    t.extract(m, tmp)
     # TASKS.md and PROJECT.md of the base branch in one git process (UAK-147: the leases are read from the base's PROJECT.md, as status and board do).
     names = ["refs/uak/dash-base:.uak/TASKS.md", "refs/uak/dash-base:.uak/PROJECT.md"]
     try:
@@ -122,6 +132,82 @@ def snapshot(root, claims_dir=None):
             pos = end + 1 if end >= 0 else len(blob)
     (tmp / BASE_PROJECT).write_text(texts[1], encoding="utf-8")
     return tmp, texts[0]
+
+
+# Live-URL in PROJECT.md: where the team's app is deployed. Claims' meta/config.md carries only the engine's keys,
+# so the dashboard reads it from the base branch's PROJECT.md (the copy the team agreed on) or the local one.
+LIVE_URL_KEY = re.compile(r"(?m)^[-* ]*\**Live-URL\**:\**[ \t]*`?([^`\r\n]*?)`?[ \t]*$")
+
+
+def live_url(value):
+    """An absolute https:// link with a host and no credentials, or None: never a guessed or scriptable URL."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value.startswith("https://") or len(value) > 2048:
+        return None
+    if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        return None
+    # The key is optional and hand-edited: a malformed value (an unclosed IPv6 bracket, a bad port) is absent, never
+    # an error that stops setup or the dashboard from reading the project.
+    try:
+        parts = urllib.parse.urlsplit(value)
+        if parts.scheme != "https" or not parts.hostname or "@" in parts.netloc:
+            return None
+        parts.port  # raises ValueError on a non-numeric or out-of-range port
+    except ValueError:
+        return None
+    return value
+
+
+def project_live_url(text):
+    match = LIVE_URL_KEY.search(text or "")
+    return live_url(match.group(1)) if match else None
+
+
+def base_live_url(root):
+    text = git("show", "refs/uak/dash-base:.uak/PROJECT.md", cwd=root, check=False).decode("utf-8", "replace")
+    return project_live_url(text)
+
+
+# Mode (sprint or marathon) is a PROJECT.md key; claims' meta/config.md has it only when the engine wrote one.
+# Why (QA round C, 2026-11-14, C-12): the page reported mode "" for a sprint project. \r: a CRLF PROJECT.md (Windows).
+MODE_KEY = re.compile(r"(?m)^[-* ]*\**Mode\**:\**[ \t]*`?([A-Za-z]+)`?[ \t\r]*$")
+
+
+def project_mode(text):
+    match = MODE_KEY.search(text or "")
+    return match.group(1).lower() if match else ""
+
+
+def base_mode(root):
+    return project_mode(git("show", "refs/uak/dash-base:.uak/PROJECT.md", cwd=root, check=False).decode("utf-8", "replace"))
+
+
+def workspace_data(root):
+    """The same dashboard model, including a clearly labelled offline/local-plan state."""
+    remote = os.environ.get("UAK_REMOTE", "origin")
+    configured = git("config", "--get", "remote.%s.url" % remote, cwd=root, check=False).strip()
+    extracted = None
+    warning = "No remote is connected. Showing the local plan."
+    if configured:
+        try:
+            extracted, backlog = snapshot(root)
+            data = build(extracted, backlog, Path(root).name)
+            data.update(source="remote", connection="ok", warning="", refresh=20, live_url=base_live_url(root))
+            data["mode"] = data.get("mode") or base_mode(root)
+            return data
+        except (OSError, RuntimeError, subprocess.SubprocessError):
+            # A remote that exists but cannot be read is a different problem from no remote at all.
+            warning = "Coordination could not refresh. Showing the local plan."
+        finally:
+            if extracted:
+                shutil.rmtree(extracted, ignore_errors=True)
+    with tempfile.TemporaryDirectory(prefix="uak-local-dashboard-") as folder:
+        data = build(Path(folder), read(Path(root) / ".uak/TASKS.md"), Path(root).name)
+    data.update(source="local", connection="unreachable" if configured else "none", warning=warning, refresh=20,
+                live_url=project_live_url(read(Path(root) / ".uak/PROJECT.md")))
+    return data
 
 
 def backlog_tasks(text):
@@ -816,6 +902,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     tpl = Path(__file__).with_name("dash.html")
     shutil.copyfile(tpl, out / "index.html")
+    shutil.copyfile(tpl.with_name("workspace.js"), out / "workspace.js")
     repo = Path(root).name
     refresh = a.watch or 20
     opened = False
@@ -826,6 +913,10 @@ def main():
             tmp = None if a.claims else c
             data = build(Path(c), backlog, repo, root)
             data["refresh"] = refresh
+            data["live_url"] = (project_live_url(read(Path(root) / ".uak/PROJECT.md")) if a.claims
+                                else base_live_url(root))
+            data["mode"] = data.get("mode") or (project_mode(read(Path(root) / ".uak/PROJECT.md")) if a.claims
+                                                else base_mode(root))
             body = "window.UAK_DATA = " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + ";\n"
             (out / "data.js.tmp").write_text(body, encoding="utf-8")
             os.replace(out / "data.js.tmp", out / "data.js")

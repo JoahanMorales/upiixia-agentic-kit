@@ -1,0 +1,12 @@
+{
+  "name": "uak-tutorial-video",
+  "private": true,
+  "description": "UI-016: renders the kit's demonstration video (kit/.uak/media) from scenes.html with headless Chromium and ffmpeg.",
+  "type": "module",
+  "scripts": {
+    "render": "node render.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.63.0"
+  }
+}

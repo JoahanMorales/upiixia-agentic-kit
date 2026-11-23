@@ -42,28 +42,54 @@ esac
 # A project started from an older one keeps that one's kit. Why (HackADA): the repo began as a copy of the previous
 # hackathon's and ran uak 5.3.0, without five releases of fixes (the frontend gate among them).
 vnum() { printf '%s\n' "$1" | awk -F. '/^[0-9]+\.[0-9]+\.[0-9]+$/ {printf "%d\n", $1 * 1000000 + $2 * 1000 + $3; exit} {print 0}'; }
-kit_home=${UAK_KIT_HOME:-$HOME/.uak-kit}
+# The kit to update from is the clone that installed this checkout: UAK_KIT_HOME, else the one install recorded in this
+# clone's Git config (uak.kitHome: per clone, never committed, so a teammate never reads another machine's path).
+# Never ~/.uak-kit by default. Why (QA rounds 2026-11-14, A-F1): the hint named ~/.uak-kit, another clone, as fact.
+kit_home=${UAK_KIT_HOME:-}
+if [ -z "$kit_home" ]; then
+  kit_home=$(git config --get uak.kitHome 2>/dev/null)
+  [ -z "$kit_home" ] || [ -f "$kit_home/install.sh" ] || kit_home=
+fi
 # { …; } 2>/dev/null: a plain `< file 2>/dev/null` opens the file before stderr moves, so a missing ~/.uak-kit printed
 # "No such file or directory" (Windows audit, Oct 2026).
 mine=$({ tr -d '\r' < "$here/../VERSION"; } 2>/dev/null)
-newest=$({ tr -d '\r' < "$kit_home/kit/.uak/VERSION"; } 2>/dev/null) where=$kit_home
+newest= where=
+[ -z "$kit_home" ] || { newest=$({ tr -d '\r' < "$kit_home/kit/.uak/VERSION"; } 2>/dev/null) where=$kit_home; }
 # Without a local clone (installed from another checkout or the plugin), ask the kit's GitHub directly: HackADA's copied
 # repo is exactly the case that has no ~/.uak-kit. The low-speed limit keeps an offline laptop from waiting.
 kit_url=${UAK_KIT_URL:-https://github.com/JoahanMorales/upiixia-agentic-kit}
-if [ -d "$kit_home/.git" ]; then tags_dir=$kit_home tags_from=origin; else tags_dir=. tags_from=$kit_url; fi
+if [ -n "$kit_home" ] && [ -e "$kit_home/.git" ]; then tags_dir=$kit_home tags_from=origin; else tags_dir=. tags_from=$kit_url; fi
 tag=$(GIT_TERMINAL_PROMPT=0 git -C "$tags_dir" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 \
       ls-remote --tags --refs "$tags_from" 'v*' 2>/dev/null | sed 's#.*refs/tags/v##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' |
       sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
 pull=
+# A path with a space is quoted in the hints, so they still paste (uak.kitHome can be any folder).
+qh=$kit_home qi=$kit_home/install.sh
+case "$kit_home" in *' '*) qh="\"$kit_home\"" qi="\"$kit_home\"/install.sh";; esac
 if [ -n "$tag" ] && [ "$(vnum "$tag")" -gt "$(vnum "${newest:-0.0.0}")" ]; then
   newest=$tag where="the kit's GitHub"
-  if [ -d "$kit_home/.git" ]; then pull="git -C $kit_home pull --ff-only, then "
-  else pull="git clone --depth 1 $kit_url $kit_home, then "; fi
+  if [ -z "$kit_home" ]; then :
+  elif [ -e "$kit_home/.git" ]; then pull="git -C $qh pull --ff-only, then "
+  else pull="git clone --depth 1 $kit_url $qh, then "; fi
 fi
 if [ -n "$newest" ] && [ "$(vnum "$newest")" -gt "$(vnum "${mine:-0.0.0}")" ] && [ -z "${UAK_KIT_PIN:-}" ]; then
-  need "update the kit: this project has uak $mine and $where has $newest" \
-       "${pull}bash $kit_home/install.sh --mode $mode --update .   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)" \
-       "to stay on $mine on purpose: UAK_KIT_PIN=1 uak start"
+  if [ -n "$kit_home" ]; then
+    set -- "${pull}bash $qi --mode $mode --update .   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)"
+  else
+    set -- "in the kit folder you installed this project from (the clone with install.sh): git pull --ff-only, then bash install.sh --mode $mode --update \"$root\"   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)" \
+         "no clone at hand: git clone --depth 1 $kit_url <folder>, then bash <folder>/install.sh --mode $mode --update \"$root\""
+  fi
+  # Once the kit is on the team's main (or the freeze is set) the project works: a newer release is news, not a blocker,
+  # and the decision is here, not in an environment variable the setup page strips. Why (QA rounds 2026-11-14: A-F1,
+  # B-02, C-4): kit 6.3.0 was tagged and every published 6.2.0 project lost READY and its team step.
+  freeze=$({ from Freeze-Epoch < .uak/PROJECT.md; } 2>/dev/null)
+  if git cat-file -e "refs/remotes/$remote/$base:.uak/VERSION" 2>/dev/null || case "$freeze" in [1-9]*) true;; *) false;; esac; then
+    # The line itself stays the gate's (the setup page translates it); the next one says it does not block.
+    note "update the kit: this project has uak $mine and $where has $newest"
+    for l in "not blocking: this project already works on uak $mine; update when the team agrees" "$@"; do printf '         %s\n' "$l"; done
+  else
+    need "update the kit: this project has uak $mine and $where has $newest" "$@" "to stay on $mine on purpose: UAK_KIT_PIN=1 uak start"
+  fi
 fi
 
 # 2. The remote: claims, branches and reviews all live there.
@@ -106,6 +132,7 @@ if ! git fetch -q "$remote" "$base" 2>/dev/null || ! main_project=$(git show "FE
 fi
 main_tasks=$(git show "FETCH_HEAD:.uak/TASKS.md" 2>/dev/null)
 main_version=$(git show "FETCH_HEAD:.uak/VERSION" 2>/dev/null | tr -d '\r')
+base_smoke=no; git cat-file -e "FETCH_HEAD:.uak/bin/smoke-project" 2>/dev/null && base_smoke=yes
 drift=
 for f in .uak/PROJECT.md .uak/TASKS.md .uak/OWNERS.md .uak/VERSION; do
   [ -f "$f" ] || continue
@@ -152,6 +179,30 @@ review=${p_review:-auto}
 case "$review:$url" in auto:*github.com*) review=gh;; auto:*) review=claims;; esac
 [ "$review" != claims ] || [ "$reviewers" -gt 0 ] ||
   note "reviews: no reviewer is registered, so the first PR waits until a second agent holds a claim. Working alone? Register one from this checkout: UAK_HUMAN=<you> UAK_AGENT= bash .uak/bin/uak register-reviewer <you>-r, and a second session as <you>-r runs /uak-review."
+
+# The product smoke: /uak-ship and the merge gate run .uak/bin/smoke-project from $base. Why (QA round C, UAK-181):
+# nothing on the onboarding path created it, start said READY, then the first ship and merge stopped at
+# PRODUCT_UNVERIFIED. Sprint: the kit's merge gate runs it, so it blocks once there is an app to boot; before any app
+# (a fresh hackathon) it is a NOTE, so the first claim, often the walking skeleton, stays possible. Marathon: the human
+# merges on GitHub, always a NOTE.
+if [ "$base_smoke" != yes ]; then
+  app=no; bash "$here/lib/smoke-init.sh" detect >/dev/null 2>&1 && app=yes
+  if [ -f .uak/bin/smoke-project ]; then
+    set -- "commit .uak/bin/smoke-project and .uak/bin/.smoke-project.provenance, then push them to $base"
+  else
+    set -- "$(bash "$here/lib/smoke-init.sh" suggest 2>/dev/null)" \
+      "it boots the app and requests one route (init-smoke with no --command does it for the web app it detects: the stacks of uak deploy except Expo); then commit .uak/bin/smoke-project and .uak/bin/.smoke-project.provenance and push them to $base"
+    [ "$app" = yes ] || set -- "$@" "no app yet: give that step to the walking-skeleton task, or run init-smoke now with the check you have"
+  fi
+  if [ "$mode" = sprint ] && [ "$app" = yes ]; then
+    need "a product smoke: $base has no .uak/bin/smoke-project, so /uak-ship and the merge gate stop at PRODUCT_UNVERIFIED" "$@"
+  else
+    note "a product smoke: $base has no .uak/bin/smoke-project, so /uak-ship and the merge gate stop at PRODUCT_UNVERIFIED"
+    if [ "$mode" = sprint ]; then set -- "not blocking yet: init-smoke finds no web app it can boot here; it blocks once there is one" "$@"
+    else set -- "not blocking in marathon: the human merges on GitHub" "$@"; fi
+    for l in "$@"; do printf '         %s\n' "$l"; done
+  fi
+fi
 
 # 7. The first task: exactly what uak next offers, with the reason when it offers nothing.
 [ "$todo" -eq 0 ] || finish

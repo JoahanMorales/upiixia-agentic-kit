@@ -360,8 +360,10 @@ seen_normal() {
 $1
 EOF_SEEN
 }
-# seen_print KEY TEXT: TEXT, or "= unchanged" when this session already saw the same TEXT in the last 30 min.
-# <git dir>/uak-seen.KEY holds "SESSION EPOCH" and the normalized text it saw (read back with builtins, no cksum).
+# seen_print KEY TEXT: TEXT, or "= unchanged" when this session, as this identity, already saw the same TEXT in the
+# last 30 min. <git dir>/uak-seen.KEY holds "SESSION EPOCH AGENT" and the normalized text it saw (read back with
+# builtins, no cksum). Why the identity (QA round C, 2026-11-14): beto-r ran next after ana-r in one session and was
+# told "Nothing new" about a review it had never been shown.
 seen_print() {
   local key=$1 out=$2 gp prev line t=0
   git_dir_var "$ROOT"
@@ -377,12 +379,12 @@ seen_print() {
 "; done; } < "$GD/uak-seen.$key"
     set -- $line
   else set --; fi
-  if [ "${1:-}" = "$gp" ] && [ "$prev" = "$SEEN_TEXT" ] && [ "$((NOW - ${2:-0}))" -lt 1800 ]; then
+  if [ "${1:-}" = "$gp" ] && [ "${3:-}" = "${AGENT:--}" ] && [ "$prev" = "$SEEN_TEXT" ] && [ "$((NOW - ${2:-0}))" -lt 1800 ]; then
     say "= unchanged since $(((NOW - $2) / 60)) min ago (uak $key). Nothing new. Waiting for something? bash .uak/bin/uak wait ID --for approve|integrated|message (one call). --full reprints."
     return 0
   fi
   printf '%s\n' "$out"
-  printf '%s %s\n%s' "$gp" "$NOW" "$SEEN_TEXT" > "$GD/uak-seen.$key" 2>/dev/null || true
+  printf '%s %s %s\n%s' "$gp" "$NOW" "${AGENT:--}" "$SEEN_TEXT" > "$GD/uak-seen.$key" 2>/dev/null || true
 }
 # Once per 12 h per checkout: say early when PRs cannot be opened by the agent. The file holds the real epoch it ran,
 # read with builtins (bash 4.2+ printf %()T); bash 3.2 keeps the find -mmin check.
@@ -410,6 +412,28 @@ freeze_warning() {
   local f; coord_cfg Freeze-Epoch 0 2>/dev/null; f=$coord_v; case "$f" in ''|*[!0-9]*) return 0;; esac
   [ "$f" -gt 0 ] && [ "$NOW" -lt "$f" ] && [ $((f - NOW)) -le 1800 ] || return 0
   say "FREEZE in $(((f - NOW + 59) / 60)) min: finish the criterion and run uak done, or release; after the freeze a task needs a human uak allow."
+}
+# A registered reviewer (not retired) is never offered implementation work by `next`: the candidate loop runs on a
+# missing backlog, and the "no candidate" lines it then prints are replaced by what a reviewer can do. An identity that
+# is not a reviewer runs coord_next untouched. Why (test round 2026-11-13, r3 P3-6): `UAK_AGENT=luis-r uak next`
+# offered HACK-001 to claim to the registered reviewer identity. Tasks it holds and reviews waiting stay offered.
+next_for_role() {
+  local saved_backlog=$BACKLOG line out= rc=0 text
+  if [ -z "$AGENT" ] || [ ! -f "$TX/roles/reviewers/$AGENT.md" ] || [ -f "$TX/meta/retired/$AGENT.md" ]; then coord_next; return; fi
+  BACKLOG=$TXROOT/no-backlog-for-reviewers
+  text=$(coord_next) || rc=$?
+  BACKLOG=$saved_backlog
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "No eligible candidate"*) line="Nothing to review right now. $AGENT is a registered reviewer: it is offered reviews, never implementation work. Wait for one: bash .uak/bin/uak wait --for message";;
+      "Why: the backlog has no tasks"*) continue;;
+    esac
+    out="$out$line"$'\n'
+  done <<EOF2
+$text
+EOF2
+  printf '%s' "$out"
+  return "$rc"
 }
 # status and next: the deadline reconcile (a tick transaction) first, then the read on its fresh clone.
 # The reconcile is housekeeping: if it fails, status/next still answer from a plain read. Why (MLB hackathon): a failed
@@ -445,7 +469,7 @@ status_run() {
   # The output is taken whole, then deduplicated in this shell: a pipe into seen_print was two more subshells.
   case "$CMD" in
     status) out=$(print_status) || rc=$?; seen_print "status${ID:+-$ID}" "$out"; budget_note; rc_age_line; return "$rc";;
-    next) out=$(coord_next) || rc=$?; seen_print next "$out"; budget_note; preflight_note; rc_age_line;;
+    next) out=$(next_for_role) || rc=$?; seen_print next "$out"; budget_note; preflight_note; rc_age_line;;
   esac
 }
 # The TOKENS_BUDGET line of `tokens --budget-check` (UAK-133) for the task asked (status --task ID) or the agent's live task

@@ -5,6 +5,8 @@ Read `.uak/PROJECT.md`, your mode's §Plan, `.uak/docs/GRAPH.md`, and then `IDEA
 
 **Short event (`uak clock` printed SHORT EVENT, under 6 h):** you have until its "first claim by" time (20 min in a 4 h event). At Reap, planning a 4 h event took 1.5 h and the freeze arrived 1 h after the first claim. So: at most 2 tasks per agent, each 45 min or less; no spikes unless an external API is the product; Setup + Contract may be one task; skip the mermaid graph and show the table only; later work goes in wave 2 with `uak plan`.
 
+**Size the plan to the event.** Task budget: at most hours × people ÷ 1.5 tasks in total, waves included (3 h × 2 people = 4 tasks); each P0 fits in a third of the event. Why (QA 2026-11-14, A-F12): a 3-hour, 2-person stdlib idea got 7 P0 tasks.
+
 Produce in ONE pass, in the format of `.uak/templates/TASKS.template.md`:
 1. `.uak/TASKS.md`:
    - **Setup P0.** It owns lockfiles, the app entry and config. Add every foreseeable dependency at once, and the deploy files (`bash .uak/bin/uak deploy --write`: Dockerfile and a Render Blueprint, or Vercel for Next.js), so the walking skeleton deploys from its first merge. Why (Chilangatón): the deploy file was hand-written 30 min before the deadline.
@@ -24,4 +26,8 @@ Produce in ONE pass, in the format of `.uak/templates/TASKS.template.md`:
 Later waves:
 - **sprint**: write the new tasks to a file, then `UAK_HUMAN=<human> bash .uak/bin/uak plan file.md`. They are claimable instantly. A published task needs more Paths or a new Verify before its review: the same file format with `uak plan file.md --amend`.
 - **marathon**: a reviewed `plan: <spec>` PR.
+
+**Headless, run to REVIEW** (one prompt per task instead of one per criterion; `/uak-start` alone stops after the first green criterion, QA 2026-11-14 C-17). Give the human this, per task ID:
+`claude -p "/uak-start ID. Then do not stop: write the task's Tests and see them fail (uak red ID), run /uak-loop on every criterion until Verify is green, commit and push, and ship with uak done ID --pr URL --evidence '...'. Stop only when the task is in REVIEW or BLOCKED, and say which." --permission-mode acceptEdits`
+(Codex: `codex exec '$uak-start ID. Then do not stop: ...'` with the same text; single quotes, so the shell leaves `$uak-start` alone.)
 '''
