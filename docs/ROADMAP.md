@@ -45,6 +45,21 @@ written in the same second; a non-numeric `UAK_RC_SPINS` disables the read cache
 when a global `core.hooksPath` names a missing directory; `install.sh` run from a checkout copies Python's
 `__pycache__` directories (13 files that pushed a local install from 248 to 261).
 
+**v6.9 · The visual setup, one design, and nothing left running.** Plan: `docs/plans/visual-setup.md` (written
+2026-11-23, UAK-152 … UAK-162). The contributed wizard and unified dashboard (external PR #2 and its two follow-up
+deliveries) come in with their history and are brought to v6.8; then: the wizard acts for the human only when a human
+runs it; one server per project that ends by itself, no child that outlives it, an idle page that starts no process;
+one design system for the wizard and the dashboard, chosen by the human from three directions, and `design-lint` reads
+HTML; a flow of ten screens that covers adoption of an existing repository, the project's rules, the design direction
+and deployment; Spanish written from the engine's codes, not its sentences; the install asks "browser or terminal" and
+both reach the same place; the dashboard redrawn, still one file with no server. With it ships what plan v6.9 already
+landed (generated files at the gate, the split of `test_flaky_guard`).
+
+Later, after v6.9: **`npx upiixia-agentic-kit`**, a second way to install, never a requirement (git clone stays): a
+thin launcher with no dependencies and no `postinstall` that carries the installed files and runs `install.sh`, pinned
+by version (`@7.0.0`), published from CI on the tag with provenance; on Windows it finds Git Bash or says how to get
+it. The name is free on npm (`uak` is taken). Needs the human's npm account and a token as a repository secret.
+
 **v7.0 · A kit that improves itself, behind a gate.** Scenario evals (`uak eval`): seeded mini-repos that replay each
 failure class of the black boxes against the engine, reported as k of n; mutation tests of the guard and the gates (remove
 a rule, a scenario must fail). While agents work: a repeated error in a session brings its lesson into context, and a
@@ -62,7 +77,7 @@ timings, real captures of the app, the terminal and the dashboard, a HyperFrames
 measured MP4; `/uak-video` runs it end to end. Plan: `docs/plans/video.md` (written 2026-11-10, not published yet).
 
 Waiting: the fork with the TLA+ model of claims, the revert rate in `stats`, WHY.md enforcers and verification skills
-(merge when its author finishes); external PR #2 (visual setup).
+(merge when its author finishes).
 
 ## Still open from earlier roadmaps
 
