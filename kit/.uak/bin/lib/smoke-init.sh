@@ -9,9 +9,21 @@ smoke_plain() { case "$1" in ''|-*|*[!A-Za-z0-9_./-]*) return 1;; esac; return 0
 smoke_refuse() {
   printf 'SMOKE_REFUSED: the %s %q has a character outside A-Z a-z 0-9 _ . / - (a quote, a space, ; or $( among them), so it is never put into a shell command. Rename it, or pass the real boot command with --command.\n' "$1" "$2" >&2
 }
+# A name with a newline: deploy lists files one per line, so it would split into two names and the detection would end
+# with exit 1 and no word (UAK-186). The Python files and cmd folders it looks at are checked first, and refused by name.
+smoke_newline_name() {
+  local nl found kind=
+  nl=$(printf '\nx'); nl=${nl%x}
+  found=$(cd "$ROOT" && find . -maxdepth 3 \( -name .git -o -name node_modules -o -name venv \) -prune -o -name "*${nl}*.py" -print 2>/dev/null | head -n 1)
+  [ -z "$found" ] || kind='file name'
+  [ -n "$found" ] || { found=$(cd "$ROOT" && find cmd -maxdepth 2 -type d -name "*${nl}*" 2>/dev/null | head -n 1); kind='folder name'; }
+  [ -n "$found" ] || return 1
+  smoke_refuse "$kind" "${found#./}"
+}
 # The boot check for the web app `uak deploy` detects (read-only: deploy without --write writes nothing), or nothing.
 smoke_detect() {
   local out stack run path entry
+  ! smoke_newline_name || return 1
   out=$(cd "$ROOT" && bash .uak/bin/deploy 2>/dev/null | tr -d '\r') || return 1
   stack=$(printf '%s\n' "$out" | sed -n 's/^DEPLOY \([a-z][a-z-]*\) · target .*/\1/p' | head -n 1)
   path=$(printf '%s\n' "$out" | sed -n 's/^DEPLOY .* · health \(\/[^ ]*\)$/\1/p' | head -n 1)
