@@ -23,6 +23,7 @@
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
+# ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 1795390453	done	UAK-150	3	tests-weakened	3192	kit-a1	claude-code
 1795390517	status	UAK-150	0	-	3209	kit-r2	claude-code
 1795390565	review	UAK-148	0	-	4034	kit-r1	claude-code
@@ -292,3 +293,42 @@
 1795453210	lint	-	0	-	915	kit-a2	claude-code
 1795453389	done	UAK-153	0	-	6081	kit-a1	claude-code
 1795453414	lint	-	0	-	893	kit-a1	claude-code
+1795454681	done	UAK-153	0	-	11776	kit-a1	claude-code
+1795454736	status	UAK-153	0	-	3596	kit-r1	claude-code
+1795454874	done	UAK-154	0	-	6000	kit-a2	claude-code
+1795454882	lint	-	0	-	848	kit-a1	claude-code
+1795454962	lint	-	0	-	782	kit-a2	claude-code
+1795455033	timeline	UAK-154	0	-	2411	kit-r2	claude-code
+1795455078	review	UAK-153	0	-	6262	kit-r1	claude-code
+1795455094	review	UAK-154	0	-	5905	kit-r2	claude-code
+1795455216	status	UAK-153	0	-	2847	kit-a1	claude-code
+1795455583	lint	-	0	-	2265	kit-a1	claude-code
+1795455757	lint	-	0	-	926	kit-a1	claude-code
+1795456542	merge	UAK-154	0	-	1403317	kit-a2	claude-code
+1795456605	lint	-	0	-	900	kit-lint	claude-code
+1795456611	status	UAK-185	0	-	2312	kit-a4	claude-code
+1795456611	status	UAK-186	0	-	2336	kit-a2	claude-code
+1795456623	claim	UAK-186	0	-	4242	kit-a2	claude-code
+1795456625	inbox	-	0	-	1255	kit-a2	claude-code
+1795456627	claim	UAK-185	0	-	8431	kit-a4	claude-code
+1795456629	inbox	-	0	-	1330	kit-a4	claude-code
+1795456658	status	UAK-186	0	-	2086	kit-a2	claude-code
+1795456695	red	UAK-186	0	-	39601	kit-a2	claude-code
+1795456777	lint	-	0	-	929	kit-a1	claude-code
+1795456837	status	UAK-185	0	-	2536	kit-a4	claude-code
+1795456931	lint	-	0	-	946	kit-a2	claude-code
+1795456970	red	UAK-185	0	-	136027	kit-a4	claude-code
+1795457186	lint	-	0	-	961	kit-a1	claude-code
+1795457249	lint	-	0	-	873	kit-a1	claude-code
+1795457327	lint	-	0	-	840	kit-a4	claude-code
+1795458364	lint	-	0	-	867	kit-a2	claude-code
+1795458440	lint	-	0	-	898	kit-a4	claude-code
+1795458684	lint	-	0	-	900	kit-a1	claude-code
+1795458695	lint	-	0	-	915	kit-a1	claude-code
+1795459253	lint	-	0	-	883	kit-a4	claude-code
+1795459460	lint	-	0	-	892	kit-a4	claude-code
+1795459506	done	UAK-153	0	-	6381	kit-a1	claude-code
+1795459657	done	UAK-186	0	-	6139	kit-a2	claude-code
+1795459687	lint	-	0	-	922	kit-a1	claude-code
+1795459704	status	UAK-186	0	-	2978	kit-r2	claude-code
+1795459761	lint	-	0	-	2724	kit-a2	claude-code
