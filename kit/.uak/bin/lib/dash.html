@@ -581,7 +581,7 @@ dialog#story::backdrop { background: rgba(20, 20, 19, .42); }
     var tiles = document.getElementById("tiles"); tiles.innerHTML = "";
     var online = d.agents.filter(function (a) { return a.status === "online" && !a.is_human; });
     var stalled = d.tasks.filter(function (t) { return t.stalled; });
-    var human = d.queue.filter(function (q) { return q.state === "HUMAN" || q.reason; });
+    var human = humanQueue(d);
     // Reviews waiting: the REVIEW tasks no reviewer has taken yet (sub-states "waiting for a reviewer" and "re-review").
     var rw = d.tasks.filter(function (t) { return t.state === "REVIEW" && t.sub && (t.sub.kind === "waiting" || t.sub.kind === "rereview"); });
     var oldest = rw.reduce(function (m, t) { return Math.min(m, t.sub.since); }, Infinity);

@@ -75,10 +75,11 @@ def install_skips_the_kit_tests(r):
     expect((d / ".uak/bin/uak").is_file() and (d / ".uak/bin/smoke").is_file() and (d / ".uak/docs").is_dir(),
            "the engine is still installed")
     expect("tests," not in out.stdout, "assertion failed: install still says it placed the kit tests: " + out.stdout[-400:])
-    # A project installed by an earlier version has the suite: --update takes it out (it is the kit's, never the team's).
+    # A project installed by an earlier version has the suite: --update takes out the files it recognizes by hash
+    # (the kit's, never the team's; a file the team edited stays, as everywhere else).
     old = d / ".uak/tests"
     old.mkdir()
-    (old / "test_hack.py").write_text("# an earlier kit's suite\n", encoding="utf-8")
+    (old / "test_hack.py").write_bytes((r.package / ".uak/tests/test_hack.py").read_bytes())
     install(r, d, "--update", "--mode", "sprint")
     expect(not old.exists(), "assertion failed: --update left the earlier kit's .uak/tests in the project")
     # The product smoke (the merge gate's) never reads .uak/tests: it still runs its syntax and secret checks.
