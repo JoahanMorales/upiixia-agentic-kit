@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1795416651
+Updated: 1795421533
 AVAILABLE: UAK-153 UAK-154 UAK-155 UAK-156 UAK-157 UAK-158 UAK-159 UAK-160 UAK-161 UAK-162 
 CLAIMED: UAK-152 
 BLOCKED: -
@@ -14,11 +14,11 @@ UAK-152 | CLAIMED | kit-a1 | until 1795431051
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1795382352 | allow | JoahanMorales | test change: UAK-144 | Why: the Windows table is now in measured Windows seconds, the bound is 30 min (test_flaky_guard alone takes 25 min on
 - 1795386636 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-148 UAK-149 UAK-150 | Why: backlog without PR (Plan-Channel: claims)
 - 1795392855 | allow | JoahanMorales | test change: UAK-150 | Why: twenty_runs_under_load and its assertion line moved unchanged from test_flaky_guard.py to test_flaky_guard_race.p
 - 1795392957 | UAK-151 | follow-up of UAK-150 by joahanmorales-11: twenty_runs_under_load runs as three cases, one per kind of job (picker, mcp, lease), so no test file is excepted
 - 1795416593 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-152 UAK-153 UAK-154 UAK-155 UAK-156 UAK-157 UAK-158 UAK-159 UAK-160 UAK-161 UAK-162 | Why: backlog without PR (
+- 1795421533 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-163 | Why: backlog without PR (Plan-Channel: claims)
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.
