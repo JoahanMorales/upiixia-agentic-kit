@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1795392996
+Updated: 1795394889
 AVAILABLE: UAK-149 
 CLAIMED: UAK-151 
 BLOCKED: -
@@ -10,7 +10,7 @@ INTEGRATED: (126; last 12) ... UAK-137 UAK-138 UAK-139 UAK-140 UAK-141 UAK-142 U
 CANCELLED: UAK-002 UAK-005 
 
 Claims (first 24; status --task ID shows detail):
-UAK-148 | REVIEW | kit-a2 | until 1795479327
+UAK-148 | REVIEW | kit-a2 | until 1795481289
 UAK-151 | CLAIMED | kit-a1 | until 1795407396
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
