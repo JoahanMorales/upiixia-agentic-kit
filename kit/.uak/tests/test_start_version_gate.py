@@ -94,11 +94,11 @@ def ready_project(r, name):
 def newer_release_is_a_note_after_publish(r):
     """The kit is on main: a newer release is a NOTE with the update command, never a TODO, and READY stays."""
     t, env, start, kit_src, kit_bare, _ = ready_project(r, "gate-note")
-    release(r, kit_src, kit_bare, "99.0.0")
+    release(r, kit_src, kit_bare, "%d.99.0" % kit_major(r))
     out = start()
     expect(out.returncode == 0 and "START READY" in out.stdout, "a newer release does not block: " + out.stdout)
     expect("TODO" not in out.stdout, "no TODO for a newer release: " + out.stdout)
-    note = [l for l in out.stdout.splitlines() if l.startswith("NOTE") and "99.0.0" in l]
+    note = [l for l in out.stdout.splitlines() if l.startswith("NOTE") and "%d.99.0" % kit_major(r) in l]
     expect(note and "update the kit" in note[0], "the newer release is a NOTE: " + out.stdout)
     expect("--update" in out.stdout, "the NOTE still says how to update: " + out.stdout)
     return {"note": True}
@@ -138,7 +138,7 @@ def install_records_the_kit_clone(r):
     expect(recorded and os.path.samefile(recorded, str(installer)), "install records the installing clone: " + recorded)
     local = git("config", "--local", "--get", "uak.kitHome").stdout.strip()
     expect(local == recorded and git("status", "--porcelain").stdout.strip() == "", "the record is local Git config, never a file: " + local)
-    release(r, kit_src, kit_bare, "99.0.0")
+    release(r, kit_src, kit_bare, "%d.99.0" % kit_major(r))
     out = start()
     expect(out.returncode == 0 and "START READY" in out.stdout, "READY with a newer release: " + out.stdout)
     expect('git -C "' + recorded + '" pull --ff-only' in out.stdout and 'bash "' + recorded + '"/install.sh --mode marathon --update' in out.stdout,
@@ -166,7 +166,7 @@ def teammate_clone_is_ready(r):
     """A teammate clones the READY project after a newer release and runs uak start --fix once (its hooks): READY,
     no env var, no pin."""
     t, env, start, kit_src, kit_bare, _ = ready_project(r, "gate-mate")
-    release(r, kit_src, kit_bare, "99.0.0")
+    release(r, kit_src, kit_bare, "%d.99.0" % kit_major(r))
     mate = r.scratch / "gate-mate-clone"
     r.run([r.git, "clone", "-q", "-b", "main", "https://github.com/solo/app.git", str(mate)], cwd=r.scratch, env=env)
     r.g(mate, "config", "user.name", "Mate"); r.g(mate, "config", "user.email", "mate@example.invalid")
@@ -177,8 +177,72 @@ def teammate_clone_is_ready(r):
     return {"ready": True}
 
 
+def kit_major(r):
+    return int(r.package.joinpath(".uak/VERSION").read_text(encoding="utf-8").strip().split(".")[0])
+
+
+def same_major_is_a_note(r):
+    """UAK-154: a published project and a newer release of the same major: a NOTE, no TODO, READY."""
+    t, env, start, kit_src, kit_bare, _ = ready_project(r, "gate-same")
+    major = kit_major(r)
+    release(r, kit_src, kit_bare, "%d.99.0" % major)
+    out = start()
+    expect(out.returncode == 0 and "START READY" in out.stdout and "TODO" not in out.stdout, "same major does not block: " + out.stdout)
+    expect([l for l in out.stdout.splitlines() if l.startswith("NOTE") and "%d.99.0" % major in l], "it is a NOTE: " + out.stdout)
+    return {"note": True}
+
+
+def newer_major_blocks_a_published_project(r):
+    """UAK-154: a newer major version is a TODO that names the version and how to update, even when published; UAK_KIT_PIN
+    keeps today's way out."""
+    t, env, start, kit_src, kit_bare, _ = ready_project(r, "gate-major")
+    new = "%d.0.0" % (kit_major(r) + 1)
+    release(r, kit_src, kit_bare, new)
+    out = start()
+    expect(out.returncode != 0 and "TODO" in out.stdout and new in out.stdout, "a newer major blocks: " + out.stdout)
+    expect("--update" in out.stdout and "START READY" not in out.stdout, "and says how to update: " + out.stdout)
+    pinned = r.run([r.bash, "-c", "UAK_KIT_PIN=1 bash .uak/bin/start"], cwd=t, env=env, allowed=None)
+    expect("START READY" in pinned.stdout and "TODO" not in pinned.stdout, "UAK_KIT_PIN still lets it pass: " + pinned.stdout)
+    return {"blocked": True}
+
+
+def unpublished_project_is_blocked_by_any_release(r):
+    """UAK-154: a kit not yet on the base branch is blocked by any newer release, same major included."""
+    t, env, start, kit_src, kit_bare, _ = ready_project(r, "gate-unpub")
+    r.g(t, "update-ref", "-d", "refs/remotes/origin/main")
+    release(r, kit_src, kit_bare, "%d.99.0" % kit_major(r))
+    out = start()
+    expect(out.returncode != 0 and "TODO" in out.stdout and "update the kit" in out.stdout, "unpublished is blocked: " + out.stdout)
+    return {"blocked": True}
+
+
+def versions_compare_as_numbers(r):
+    """UAK-154: 6.10.0 is newer than 6.9.0; 6.9.0 is not newer than 6.10.0; an unreadable version blocks nothing and says so."""
+    t, env, start, kit_src, kit_bare, _ = ready_project(r, "gate-num")
+    version = t / ".uak/VERSION"
+
+    def set_version(text):
+        version.write_text(text + "\n", encoding="utf-8")
+        r.run([r.git, "commit", "-qam", "chore: version " + text], cwd=t, env=env)
+        r.run([r.git, "push", "-q", "origin", "main"], cwd=t, env=env)
+    set_version("6.9.0")
+    release(r, kit_src, kit_bare, "6.10.0")
+    out = start()
+    expect(out.returncode == 0 and "START READY" in out.stdout and [l for l in out.stdout.splitlines() if l.startswith("NOTE") and "6.10.0" in l],
+           "6.10.0 is newer than 6.9.0: " + out.stdout)
+    set_version("6.11.0")
+    out = start()
+    expect("6.10.0" not in out.stdout and "TODO" not in out.stdout, "6.11.0 is not older than 6.10.0: " + out.stdout)
+    set_version("banana")
+    out = start()
+    expect(out.returncode == 0 and "TODO" not in out.stdout and [l for l in out.stdout.splitlines() if l.startswith("NOTE") and "unreadable" in l],
+           "an unreadable version blocks nothing and says so: " + out.stdout)
+    return {"numbers": True}
+
+
 TESTS = [newer_release_is_a_note_after_publish, update_hint_names_the_installing_kit, install_records_the_kit_clone,
-         teammate_clone_is_ready]
+         teammate_clone_is_ready, same_major_is_a_note, newer_major_blocks_a_published_project,
+         unpublished_project_is_blocked_by_any_release, versions_compare_as_numbers]
 
 
 def main():
