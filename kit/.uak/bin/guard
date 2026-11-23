@@ -108,10 +108,28 @@ runs_code() {
 # wizard endpoint or the token header counts when a loopback host (any spelling) or a client program is in the same
 # command. HONEST LIMIT: a text filter does not see inside a script file or a variable set elsewhere, so the wizard also
 # refuses to start with an agent identity or without a terminal, and logs every act (SECURITY.md lists what is left).
+# A running wizard writes "PID PORT" to uak-wizard.port in the project's git directory and removes it when it ends. The
+# endpoint rule fires only when one is live for this project (a project's own /api/session on localhost is its own
+# business); the token header and the start rules fire always.
+wizard_live() { # sets WZ_LIVE (1 or empty) and WZ_PORT
+  local gd f pid port
+  WZ_LIVE= WZ_PORT=
+  gd=$(git rev-parse --git-common-dir 2>/dev/null) || return 0
+  f="$gd/uak-wizard.port"; [ -r "$f" ] || return 0
+  pid= port=; read -r pid port < "$f" 2>/dev/null || true
+  case "$pid$port" in ''|*[!0-9]*) return 0;; esac
+  [ -n "$pid" ] && [ -n "$port" ] || return 0
+  # A dead PID is no wizard. Git Bash on Windows cannot signal a Windows PID: the file stands (it names a dead port at worst).
+  if ! kill -0 "$pid" 2>/dev/null; then
+    case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) ;; *) return 0;; esac
+  fi
+  WZ_LIVE=1 WZ_PORT=$port
+}
 wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quoted prose removed → WZ reason or empty
   local flat1 flat2
+  wizard_live
   flat1=$(printf '%s' "$1" | tr '\n' ';'); flat2=$(printf '%s' "$2" | tr '\n' ';')
-  WZ=$(awk -v raw="$flat1" -v pro="$flat2" '
+  WZ=$(awk -v raw="$flat1" -v pro="$flat2" -v live="${WZ_LIVE:-0}" -v wport="${WZ_PORT:-0}" '
     function clean(s) { gsub(/[\\\047"`]/, "", s); return s }
     function collect(s,    t, name, val, m) {
       t = s
@@ -174,16 +192,39 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
       }
       return 0
     }
-    function decide(n, p,    loop, client, ep) {
-      if (n ~ /(^|[ ;])--wizard/ && p ~ /--wizard/) return "starts the wizard (--wizard)"
+    function hasglob(n, name,    k, cnt, tok, b) {
+      gsub(/[;&|()]/, " ; ", n); cnt = split(n, tok, /[ \t]+/)
+      for (k = 1; k <= cnt; k++) {
+        b = tok[k]; sub(/.*\//, "", b)
+        if (b == name || (b ~ /[*?\[]/ && literal(b) >= 3 && match(name, globre(b)))) return 1
+      }
+      return 0
+    }
+    # A request to the running wizard: its endpoints, from a client or to a loopback host, to its port or to a port the
+    # command does not show. Only while a wizard is live for this project.
+    function request(n,    m, rest, seen, unreadable, loopre, client) {
+      if (!live) return 0
+      if (!(n ~ /\/api\/(session|human|team|plan|publish-kit|install|repair|settings|idea|schedule|inspect|check|status|dashboard)/)) return 0
+      loopre = "(localhost|127\\.[0-9][0-9.]*|\\[?::1?\\]?|0\\.0\\.0\\.0|2130706433|0x7f[0-9a-f]*|017700000001)"
+      client = (n ~ /(^|[^a-z0-9_])(curl|wget|nc|ncat|netcat|socat|telnet|http|https|xh|node|nodejs|deno|bun|ruby|perl|php|python[0-9.]*|py|powershell|pwsh|invoke-webrequest|iwr|irm|openssl)([^a-z0-9_]|$)|urlopen|requests|httpx|aiohttp|http\.client|fetch|dev\/tcp/)
+      m = n; seen = 0; unreadable = 0
+      while (match(m, loopre)) {
+        rest = substr(m, RSTART + RLENGTH); m = rest; seen = 1
+        if (rest ~ /^:[0-9]/ || rest ~ /^\/[0-9]/ || rest ~ /^ +[0-9]/) continue
+        if (rest ~ /^\/[^0-9]/) continue
+        unreadable = 1
+      }
+      if (!seen && !client) return 0
+      if (n ~ ("(^|[^0-9])" wport "([^0-9]|$)")) return 1
+      return (!seen || unreadable)
+    }
+    function decide(n, p,    c) {
+      if (n ~ /x-uak-token/) return "uses the wizard session header"
+      if (n ~ /(^|[ ;])--wizard/ && p ~ /--wizard/ && (n ~ /install\.sh/ || hasglob(n, "install.sh"))) return "starts the wizard (--wizard)"
       if (runs_setup(n)) return "runs the wizard (setup.py)"
       if (n ~ /(python[0-9.]*|py|pypy[0-9]*)( +-[a-z0-9]+)* +-m +setup([^a-z0-9_]|$)/) return "runs the wizard (-m setup)"
       if (n ~ /(python[0-9.]*|py|pypy[0-9]*)( +-[a-z0-9]+)* +-c / && n ~ /((import|from) +setup([^a-z0-9_]|$)|runpy|import_module *\( *setup|bin\/lib|exec *\(.*open.*(setup|tup\.py))/) return "runs the wizard from Python code"
-      ep = (n ~ /x-uak-token/) || (n ~ /\/api\/(session|human|team|plan|publish-kit|install|repair|settings|idea|schedule|inspect)/)
-      if (!ep) return ""
-      loop = (n ~ /(^|[^0-9.])127\.[0-9.]+/ || n ~ /localhost|\[?::1?\]?|0\.0\.0\.0|2130706433|0x7f|017700000001/)
-      client = (n ~ /(^|[^a-z0-9_])(curl|wget|nc|ncat|netcat|socat|telnet|http|https|xh|node|nodejs|deno|bun|ruby|perl|php|python[0-9.]*|py|powershell|pwsh|invoke-webrequest|iwr|irm|openssl)([^a-z0-9_]|$)|urlopen|requests|httpx|aiohttp|http\.client|fetch|dev\/tcp/)
-      if (loop || client) return "sends a request to a local wizard"
+      if (request(n)) return "sends a request to the running wizard"
       return ""
     }
     BEGIN {

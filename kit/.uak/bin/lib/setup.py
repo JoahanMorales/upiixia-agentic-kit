@@ -141,6 +141,21 @@ def terminal_reason():
         return "its input is not a terminal"
 
 
+PORT_FILE = "uak-wizard.port"
+
+
+def port_file(target):
+    """<git dir>/uak-wizard.port of the project a wizard starts on, or None when it is not a Git repository. The file
+    says "PID PORT" while the wizard runs; the guard reads it to know a wizard is live for this project."""
+    try:
+        result = run_command(["git", "-C", str(target), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                             cwd=str(target), timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    folder = (result.stdout or "").strip()
+    return Path(folder) / PORT_FILE if result.returncode == 0 and folder and Path(folder).is_dir() else None
+
+
 def human_slug(name):
     """The person's name for the kit, from the Git name of the checkout: its first word, lowercase ASCII, or ""."""
     words = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode("ascii").lower().split()
@@ -3128,7 +3143,13 @@ def main():
     for name in ("SIGTERM", "SIGHUP"):  # SIGHUP does not exist on Windows
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), ended)  # before anything is printed or created
+    announced = port_file(args.target)
     try:
+        if announced:
+            try:
+                announced.write_text("%d %d\n" % (os.getpid(), server.server_port), encoding="utf-8")
+            except OSError:
+                announced = None
         server.open_target()  # UI-019: an installed project opens where it is, not on the welcome screen
         launcher = server.make_launcher()
         print("UAK SETUP http://127.0.0.1:%d/" % server.server_port, flush=True)
@@ -3152,6 +3173,11 @@ def main():
     finally:
         server.server_close()
         server.forget_launcher()
+        if announced:
+            try:
+                announced.unlink()
+            except OSError:
+                pass
     return 0
 
 
