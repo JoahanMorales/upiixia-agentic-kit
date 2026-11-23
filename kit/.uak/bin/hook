@@ -62,12 +62,26 @@ if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${
 else NOW=$(date +%s); fi
 # Written less than $2 minutes ago. The hook writes the epoch into its own state files (stamp) and reads it back; a
 # file without one (touched by bb or by an older kit, or one that holds text) is judged by its mtime, through find.
+# AGE: the seconds since the epoch in $1; fails, with AGE empty, when it is not plain digits (a leading 0 is not octal),
+# has over 11 digits, is before 2001 or lies more than 15 s ahead of now: such a value is stale, never an arithmetic error (UAK-185).
+epoch_age() {
+  local v=${1%$'\r'}
+  AGE=
+  case "$v" in ''|*[!0-9]*) return 1;; esac
+  [ "${#v}" -le 11 ] || return 1
+  v=$((10#$v))
+  [ "$v" -ge 1000000000 ] || return 1   # before 2001 is not a time this kit wrote: `08` and `0` are not epochs
+  # A few seconds ahead is another start's clock read a moment after ours (each start reads NOW when it begins), not a
+  # time from the future: it counts as now.
+  [ "$v" -le $((NOW + 15)) ] || return 1
+  if [ "$v" -gt "$NOW" ]; then AGE=0; else AGE=$((NOW - v)); fi
+}
 fresh() {
   local v=
   [ -f "$1" ] || return 1
   { IFS= read -r v < "$1"; } 2>/dev/null
   v=${v%$'\r'}  # written with CRLF it is still an epoch, not "no epoch, go by mtime" (UAK-021)
-  case "$v" in ''|*[!0-9]*) [ -n "$(find "$1" -mmin "-$2" 2>/dev/null)" ];; *) [ $((NOW - v)) -lt $(($2 * 60)) ];; esac
+  case "$v" in ''|*[!0-9]*) [ -n "$(find "$1" -mmin "-$2" 2>/dev/null)" ];; *) epoch_age "$v" && [ "$AGE" -lt $(($2 * 60)) ];; esac
 }
 stamp() { printf '%s\n' "$NOW" > "$1" 2>/dev/null; }
 # This machine's token totals to claims:tokens/, at most every 30 min, in background. From the Claude Code Stop hook,
@@ -82,12 +96,55 @@ common_dir() {
     case "$l" in '') ;; /*|[A-Za-z]:[\\/]*) COMMON=$l;; *) COMMON=$gd/$l;; esac
   fi
 }
+# A map build killed mid-way leaves a partial index: `build` writes the stamp last, so no stamp (and no symbols) means
+# "not built" to the lens and to the next `map` call, which rebuilds.
+map_unbuild() { rm -f "$gd/uak-map/stamp" "$gd/uak-map/symbols.tsv"; }
+# `bb flush` moves the pending lines to uak-blackbox.pending.PID (the ledger likewise) before it pushes, and a flush
+# the limit kills leaves them there. Before a flush, each leftover whose owner is gone goes back to the end of the
+# pending file (a claimed rename first, so two starts never put it back twice); a half-made .d copy is dropped, its
+# snapshot is whole; a clone directory of a flush killed long ago is removed. A line published and then killed before
+# bb removed its snapshot would be published twice: that window is a few milliseconds. Why (UAK-185 review): killed
+# mid-push, the lines were never retried.
+bb_leftover() { # any: 0 when a dead owner left something; take: put it all back
+  local f= pid= base= target=
+  for f in "$COMMON"/uak-blackbox.pending.* "$COMMON"/uak-ledger.pending.*; do
+    [ -f "$f" ] || continue
+    base=${f%.d}; pid=${base##*.}; target=${base%.*}
+    case "$pid" in ''|*[!0-9]*) continue;; esac
+    start_pid_ok "$pid" || continue
+    ! kill -0 "$pid" 2>/dev/null || continue
+    [ "$1" != any ] || return 0
+    if [ "$base" != "$f" ]; then rm -f "$f"; continue; fi
+    mv "$f" "$target.$$" 2>/dev/null || continue
+    cat "$target.$$" >> "$target" && rm -f "$target.$$"
+  done
+  return 1
+}
+bb_work() { [ -n "$COMMON" ] && { [ -s "$COMMON/uak-blackbox.pending" ] || bb_leftover any; }; }
+bb_unclone() { rm -rf "$COMMON"/uak-bb-tmp.*."$$"; }  # a killed flush: its clone goes with it
+bb_flush_job() {
+  local t= d= ts=
+  common_dir
+  bb_leftover take
+  for d in "$COMMON"/uak-bb-tmp.*; do
+    [ -d "$d" ] || continue
+    ts=${d##*/uak-bb-tmp.}; ts=${ts%%.*}
+    ! { epoch_age "$ts" && [ "$AGE" -gt 600 ]; } || rm -rf "$d"
+  done
+  # The clone bb makes lives in a directory of this job, so a kill leaves one place to clean, never /tmp.
+  t="$COMMON/uak-bb-tmp.$NOW.$$"
+  mkdir "$t" 2>/dev/null || t=
+  TMPDIR=${t:-${TMPDIR:-/tmp}} bash .uak/bin/bb flush --quiet
+  [ -z "$t" ] || rm -rf "$t"
+}
+tokens_unstamp() { rm -f "$COMMON/uak-tokens.published"; }
 tokens_publish() {
   local c=
   common_dir; c=$COMMON
   [ -n "$c" ] && ! fresh "$c/uak-tokens.published" 30 || return 0
   stamp "$c/uak-tokens.published"
-  UAK_FG_LOG= nohup bash .uak/bin/tokens --publish --quiet > /dev/null 2>&1 &
+  # 300 s: it reads every transcript (6.4 s for 864 MB on Linux) and pushes. Killed, it is not "published": retry at once.
+  start_detached 300 tokens_unstamp bash .uak/bin/tokens --publish --quiet > /dev/null 2>&1
 }
 # The inbox as tick keeps it: uak-inbox.txt, read at the claims tip in uak-claims.tip. One ls-remote of claims; the full
 # `uak inbox --peek` (a fresh clone, 19 git calls) only when the tip moved or the copy is over 5 min old. The tip is
@@ -222,51 +279,116 @@ start_kill_tree() { # PID: the list is taken before the first signal, as a kille
   for p in $pids; do ! kill -0 "$p" 2>/dev/null || kill -KILL "$p" 2>/dev/null; done
   return 0
 }
-start_limited() { # CMD...: run it; past the limit, kill it and its children
-  local limit=${UAK_START_LIMIT:-60} began=$SECONDS pid= polls=0
-  case "$limit" in ''|*[!0-9]*|0) limit=60;; esac
+# The limit of a job is UAK_START_LIMIT when set, else the job's own (job_limit: a status read is not a push over a slow
+# link nor a map of a big repository), else 60. LIM gets it; job_onkill names what to undo when the limit kills the job.
+start_limit_value() {
+  LIM=${UAK_START_LIMIT:-${job_limit:-60}}
+  case "$LIM" in ''|*[!0-9]*|0) LIM=60;; esac
+  [ "${#LIM}" -le 6 ] || LIM=60
+  LIM=$((10#$LIM))
+}
+start_limited() { # CMD...: run it; past the limit, kill it and its children (then job_onkill); 1 when it had to
+  local began=$SECONDS pid= polls=0 left= killed=
+  start_limit_value
   "$@" &
   pid=$!
+  # Polls: 5 x 0.2 s, 10 x 1 s, then every 5 s (never past the limit): a 300 s job costs about 73 sleeps, not 300.
   while kill -0 "$pid" 2>/dev/null; do
-    if [ $((SECONDS - began)) -ge "$limit" ]; then start_kill_tree "$pid"; break; fi
-    if [ "$polls" -lt 5 ]; then sleep 0.2; polls=$((polls + 1)); else sleep 1; fi
+    left=$((LIM - (SECONDS - began)))
+    if [ "$left" -le 0 ]; then start_kill_tree "$pid"; killed=1; break; fi
+    if [ "$polls" -lt 5 ]; then sleep 0.2
+    elif [ "$polls" -lt 15 ]; then sleep 1
+    elif [ "$left" -gt 5 ]; then sleep 5
+    else sleep "$left"; fi
+    polls=$((polls + 1))
   done
   wait "$pid" 2>/dev/null
+  [ -z "$killed" ] || { [ -z "${job_onkill:-}" ] || "$job_onkill"; return 1; }
   return 0
+}
+# A background job under a limit, outside the session-start process count, immune to the hangup of the hook's
+# terminal; the caller redirects its output. LIMIT seconds (UAK_START_LIMIT overrides), ONKILL a function or ":".
+# Why (UAK-185): five jobs were plain nohup, with no limit at all.
+start_detached() { # LIMIT ONKILL CMD...
+  local job_limit=$1 job_onkill=$2
+  shift 2
+  ( trap '' HUP; UAK_FG_LOG=; start_limited "$@" ) < /dev/null &
 }
 # NAME SECONDS CMD...: for work that has no cached copy of its own (pace, map build): one live worker at a time, and
 # none within SECONDS of the last start, so ten session starts in ten seconds run it once. A builtin-only claim (a
 # no-clobber create): the foreground pays no process for it. The file .at keeps the start time, .running the worker.
+# A lock is "PID SINCE LIMIT": live while SINCE is a usable time less than the worker's limit plus 30 s ago (the limit kills
+# the worker, so a lock older than that is a crash's). The hook that took it exits long before its worker does, so its
+# PID says nothing. A bad, missing or future time is stale, never "now". An empty file is read again: its owner is
+# writing it right now.
+start_once_live() { # LOCK
+  local pid= since= life= n=0
+  while [ "$n" -lt 200 ]; do
+    pid= since= life=
+    { IFS=' ' read -r pid since life < "$1"; } 2>/dev/null
+    [ -z "$pid$since" ] || break
+    [ -f "$1" ] || return 1
+    n=$((n + 1))
+  done
+  # The third field is the limit its worker runs under (60 when it says nothing usable).
+  case "$life" in ''|*[!0-9]*|0) life=60;; esac
+  [ "${#life}" -le 6 ] || life=60
+  life=$((10#$life + 30))
+  epoch_age "$since" && [ "$AGE" -lt "$life" ]
+}
+start_once_recent() { # AT GAP: the last start is a usable time less than GAP seconds ago
+  local began=
+  [ -f "$1" ] || return 1
+  { IFS= read -r began < "$1"; } 2>/dev/null
+  epoch_age "$began" && [ "$AGE" -lt "$2" ]
+}
+start_once_mine() { # LOCK MARK: the lock still holds what this start wrote (another start may have replaced the file)
+  local cur=
+  { IFS= read -r cur < "$1"; } 2>/dev/null
+  [ "$cur" = "$2" ]
+}
 start_once() {
-  local name=$1 gap=$2 lock="$gd/uak-once.$1.running" at="$gd/uak-once.$1.at" began= pid= since=
+  local name=$1 gap=$2 lock="$gd/uak-once.$1.running" at="$gd/uak-once.$1.at" guard="$gd/uak-once.$1.reclaim" g=
+  local mark=
   shift 2
-  if [ -f "$at" ]; then
-    { IFS= read -r began < "$at"; } 2>/dev/null
-    case "$began" in ''|*[!0-9]*) ;; *) [ $((NOW - began)) -ge "$gap" ] || return 0;; esac
-  fi
-  if [ -f "$lock" ]; then
-    { IFS=' ' read -r pid since < "$lock"; } 2>/dev/null
-    case "$since" in ''|*[!0-9]*) since=$NOW;; esac
-    if [ $((NOW - since)) -lt 300 ] && { [ -z "$pid" ] || { start_pid_ok "$pid" && kill -0 "$pid" 2>/dev/null; }; }; then return 0; fi
+  start_limit_value
+  mark="$$ $NOW $LIM"
+  start_once_recent "$at" "$gap" && return 0
+  if ! ( set -C; printf '%s\n' "$mark" > "$lock" ) 2>/dev/null; then
+    start_once_live "$lock" && return 0
+    # One reclaimer at a time, and it judges the lock again under the guard: a lock another start took after our first
+    # read is live and stays (before UAK-185 two starts removed each other's lock and both ran the job).
+    if ! ( set -C; printf '%s\n' "$NOW" > "$guard" ) 2>/dev/null; then
+      { IFS= read -r g < "$guard"; } 2>/dev/null
+      # A guard is held for microseconds: one that is old, or holds something that is not a time, is a crash's.
+      # An empty one may be its owner between create and write: judged by the file's own age, one find, only here.
+      case "$g" in '') [ -z "$(find "$guard" -mmin +1 2>/dev/null)" ] || rm -f "$guard";;
+        *) { epoch_age "$g" && [ "$AGE" -lt 30 ]; } || rm -f "$guard";; esac
+      return 0
+    fi
+    if start_once_live "$lock"; then rm -f "$guard"; return 0; fi
     rm -f "$lock"
+    ( set -C; printf '%s\n' "$mark" > "$lock" ) 2>/dev/null || { rm -f "$guard"; return 0; }
+    rm -f "$guard"
   fi
-  ( set -C; printf '%s %s\n' "$$" "$NOW" > "$lock" ) 2>/dev/null || return 0
+  # Our write may have gone to a file another start has since replaced; and another start may have finished the job
+  # between our first look and the lock.
+  start_once_mine "$lock" "$mark" || return 0
+  if start_once_recent "$at" "$gap"; then rm -f "$lock"; return 0; fi
   printf '%s\n' "$NOW" > "$at" 2>/dev/null
   (
     trap '' HUP
     UAK_FG_LOG=
-    trap 'rm -f "$lock"' EXIT
+    trap '! start_once_mine "$lock" "$mark" || rm -f "$lock"' EXIT
     start_limited "$@"
   ) < /dev/null > /dev/null 2>&1 &
-  printf '%s %s\n' "$!" "$NOW" > "$lock" 2>/dev/null
   return 0
 }
 start_busy() { # NAME: a refresh of it is running
-  local marker= pid= since=
+  local marker=
   for marker in "$gd"/uak-start."$1".*.running; do [ ! -f "$marker" ] || return 0; done
   [ -f "$gd/uak-once.$1.running" ] || return 1
-  { IFS=' ' read -r pid since < "$gd/uak-once.$1.running"; } 2>/dev/null
-  start_pid_ok "$pid" && kill -0 "$pid" 2>/dev/null
+  start_once_live "$gd/uak-once.$1.running"
 }
 start_has_copy() { # NAME: there is something to show without waiting
   case "$1" in pace) [ -n "$p" ];; *) [ -s "$gd/uak-start.$1.txt" ];; esac
@@ -292,13 +414,15 @@ start_show() { # NAME LINES WHAT [age]: the cached copy, and a note when it is s
   if [ "${4:-}" = age ] && [ -s "$f" ]; then
     awk -v n="$2" 'NR > n && /^claims as of [0-9]+ s ago$/ { age = $0 } END { if (age != "") print age }' "$f"
   fi
-  if start_busy "$1"; then
-    if [ -s "$f" ]; then
-      local at= ago=
-      { IFS= read -r at < "$gd/uak-start.$1.at"; } 2>/dev/null
-      case "$at" in ''|*[!0-9]*) ;; *) ago=", $((NOW - at)) s ago";; esac
-      printf '(uak: refreshing %s in the background; the lines above are from the last check%s)\n' "$3" "$ago"
-    else printf '(uak: %s is loading in the background; run bash .uak/bin/uak %s for it now)\n' "$3" "$3"; fi
+  if [ -s "$f" ]; then
+    local at= ago=
+    { IFS= read -r at < "$gd/uak-start.$1.at"; } 2>/dev/null
+    if epoch_age "$at"; then ago="$AGE s ago"; else ago="age unknown"; fi
+    if start_busy "$1"; then
+      printf '(uak: refreshing %s in the background; the lines above are from the last check, %s)\n' "$3" "$ago"
+    else printf '(uak: the lines above are from the last check, %s)\n' "$ago"; fi
+  elif start_busy "$1"; then
+    printf '(uak: %s is loading in the background; run bash .uak/bin/uak %s for it now)\n' "$3" "$3"
   fi
 }
 start_next_inbox() { start_capture next bash .uak/bin/uak next --full; inbox_kept "$start_dir"; }
@@ -319,7 +443,7 @@ pace_load() {
   p=
   [ -s "$gd/uak-pace.start" ] || return 0
   { IFS= read -r pace_at; while IFS= read -r l || [ -n "$l" ]; do p="$p${p:+$NL}$l"; done; } 2>/dev/null < "$gd/uak-pace.start"
-  pace_at=${pace_at%$CR}; case "$pace_at" in ''|*[!0-9]*) p=;; *) [ $((NOW - pace_at)) -lt 1800 ] || p=;; esac
+  pace_at=${pace_at%$CR}; case "$pace_at" in ''|*[!0-9]*) p=;; *) { epoch_age "$pace_at" && [ "$AGE" -lt 1800 ]; } || p=;; esac
 }
 pace_show() { case "$p" in "PACE surge"*|"PACE conserve"*|"PACE critical"*) printf '%s\n' "$p";; esac; }
 pace_late() { # the first start after an install had no reading: the one that just arrived, which the note must not repeat
@@ -338,6 +462,9 @@ start_pace() {
 }
 # A small file's first line into RD (as $(cat) for the one-line state files); 1 when there is no file.
 rd() { RD=; [ -f "$1" ] || return 1; { IFS= read -r RD < "$1"; } 2>/dev/null; return 0; }
+# A counter file into RD: digits only, at most 9, read as decimal (08 is 8, not an octal error); anything else is 0.
+# Never arithmetic on the raw text: `a[$(cmd)]` in $(( )) runs cmd (UAK-185).
+rdn() { rd "$1" || RD=0; RD=${RD%$'\r'}; case "$RD" in ''|*[!0-9]*) RD=0;; esac; [ "${#RD}" -le 9 ] || RD=0; RD=$((10#$RD)); }
 # What sed -n 's/.*"KEY"[[:space:]]*:[[:space:]]*"\([CHARS]*\)".*/\1/p' | head -n 1 printed, into ID: on the first
 # line that has one, the last "KEY": "value" (sed's .* is greedy). sed does it when the key is also past IN_HEAD.
 ID_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-' TOOL_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_'
@@ -548,7 +675,7 @@ manual_move() {
       merge-human) [ -f "$gd/uak-merge-human" ] && fresh "$gd/uak-merge-human" 1440 && kind=merge-human;;
       commit) [ ! -f "$gd/commondir" ] && [ -s "$gd/uak-direct-main.log" ] && {
           last=$(tail -n 1 "$gd/uak-direct-main.log" 2>/dev/null); last=${last//$CR/}; set -- $last
-          case "${1:-x}" in ''|*[!0-9]*) ;; *) [ "${3:-}" != push ] && [ $((NOW - $1)) -lt 120 ] && kind=direct-main;; esac; };;
+          case "${1:-x}" in ''|*[!0-9]*) ;; *) [ "${3:-}" != push ] && epoch_age "$1" && [ "$AGE" -lt 120 ] && kind=direct-main;; esac; };;
       push) case "$input" in *"pre-push: "*"/claims refused"*) kind=claims-push;; esac;;
       uakmerge) # one small file per git dir, overwritten, dropped when a gh pr merge uses it or after a day
         if [ "${#input}" -lt 20000 ]; then tr=${input##*'"tool_response"'}; case "$tr" in *MERGE_HUMAN*) stamp "$gd/uak-merge-human";; esac; fi;;
@@ -579,11 +706,11 @@ coach() {
   coach_dir || return 0; d=$CDIR
   tool_name; tool=$TOOL
   cmd=; case "$tool" in Bash|PowerShell|Shell|run_shell_command|shell) jdecode_var tool_input command; cmd=$JD;; esac
-  fired() { rd "$d/fired.$1" || RD=0; [ "$RD" -ge "$2" ] 2>/dev/null; }
-  fire() { rd "$d/fired.$1" || RD=0; echo $(( RD + 1 )) > "$d/fired.$1"; }
+  fired() { rdn "$d/fired.$1"; [ "$RD" -ge "$2" ] 2>/dev/null; }
+  fire() { rdn "$d/fired.$1"; echo $(( RD + 1 )) > "$d/fired.$1"; }
   fill() { NOTE=$(tmpl "$1" | head -n 1 | sed "s|{n}|${2:-}|g; s|{m}|${3:-}|g; s|{id}|${4:-}|g; s|{files}|${5:-}|g; s|{tasks}|${6:-}|g"); }
   # Calls since the last checkpoint (any tool).
-  rd "$d/calls" || RD=0; n=$(( RD + 1 )); echo "$n" > "$d/calls"
+  rdn "$d/calls"; n=$(( RD + 1 )); echo "$n" > "$d/calls"
   case "$cmd" in *"uak checkpoint"*|*"uak handoff"*|*"/uak-handoff"*) echo 0 > "$d/calls";; esac
   case "$cmd" in *"uak map"*|*".uak/bin/map"*) : > "$d/mapused";; esac
   case "$cmd" in *"uak msg"*) case "$cmd" in *contract*|*impact:*|*related:*) : > "$d/contract";; esac;; esac
@@ -631,7 +758,7 @@ UAK_CMD
   fi
   case "$tool:$first" in
     Read:*|Grep:*|Glob:*|read_file:*|read_many_files:*|grep_search:*|glob:*|list_directory:*|*:cat|*:rg|*:grep|*:find|*:head|*:tail|*:ls|*:sed|*:wc)
-      rd "$d/explore" || RD=0; n=$(( RD + 1 )); echo "$n" > "$d/explore"
+      rdn "$d/explore"; n=$(( RD + 1 )); echo "$n" > "$d/explore"
       if [ "$n" -ge 5 ] && [ ! -f "$d/mapused" ] && ! fired explore 2; then fire explore; echo 0 > "$d/explore"; fill explore "$n"; return 0; fi;;
     *) echo 0 > "$d/explore";;
   esac
@@ -718,8 +845,8 @@ UAK_CMD
   if [ -f "$d/lens.seen" ]; then
     while IFS= read -r line || [ -n "$line" ]; do [ "$line" != "$key" ] || return 0; done < "$d/lens.seen"
   fi
-  if [ ! -s "$gd/uak-map/symbols.tsv" ]; then
-    [ -f "$d/lens.building" ] || { : > "$d/lens.building"; nohup bash .uak/bin/map build > /dev/null 2>&1 & }
+  if [ ! -s "$gd/uak-map/symbols.tsv" ] || [ ! -s "$gd/uak-map/stamp" ]; then
+    [ -f "$d/lens.building" ] || { : > "$d/lens.building"; start_detached 600 map_unbuild bash .uak/bin/map build > /dev/null 2>&1; }
     return 0
   fi
   printf '%s\n' "$key" >> "$d/lens.seen"
@@ -764,7 +891,7 @@ case "${1:-}" in
     # Lines left pending by a crashed or offline session are published now, in background.
     common_dir; common=$COMMON
     tokens_publish
-    [ -z "$common" ] || [ ! -s "$common/uak-blackbox.pending" ] || UAK_FG_LOG= nohup bash .uak/bin/bb flush --quiet > /dev/null 2>&1 &
+    common_dir; ! bb_work || start_detached 300 bb_unclone bb_flush_job > /dev/null 2>&1
     # Two live sessions in one worktree overwrite each other (Reap buildathon: two Codex terminals on HACK-006).
     case "$input" in *'"source":"clear"'*|*'"source":"compact"'*|*'"source":"resume"'*|*'"source": "clear"'*|*'"source": "compact"'*|*'"source": "resume"'*) same_agent=yes;; *) same_agent=no;; esac
     if [ "$same_agent" = no ] && [ -n "$sid" ] && [ -s "$gd/uak-live" ] && fresh "$gd/uak-live" 3; then
@@ -806,7 +933,7 @@ case "${1:-}" in
     pace_late
     start_show next 18 next age
     # The code map is rebuilt in background (0.2 s for ~120 files) so `uak map` queries answer at once.
-    start_once map 60 bash .uak/bin/map build
+    job_limit=600 job_onkill=map_unbuild start_once map 60 bash .uak/bin/map build
     # The quick card (Superpowers-style bootstrap): WHEN to use which part of the harness, at session start.
     tmpl card
     if [ -s "$gd/uak-inbox.txt" ]; then
@@ -851,9 +978,9 @@ case "${1:-}" in
     # write time; at MLB they surfaced only in the merge gate.
     if [ -n "$task" ] && [ -n "$agent" ] && ! fresh "$gd/uak-drift.checked" 5; then
       stamp "$gd/uak-drift.checked"
-      ( git fetch -q "${UAK_REMOTE:-origin}" "${UAK_BASE:-main}" 2>/dev/null &&
-          { bash .uak/bin/map drift --ref "${UAK_REMOTE:-origin}/${UAK_BASE:-main}" > "$gd/uak-drift.tmp" 2>/dev/null || : > "$gd/uak-drift.tmp"; } &&
-          mv "$gd/uak-drift.tmp" "$gd/uak-drift.txt" ) > /dev/null 2>&1 &
+      start_detached 120 : bash -c 'git fetch -q "$1" "$2" 2>/dev/null &&
+          { bash .uak/bin/map drift --ref "$1/$2" > "$3/uak-drift.tmp" 2>/dev/null || : > "$3/uak-drift.tmp"; } &&
+          mv "$3/uak-drift.tmp" "$3/uak-drift.txt"' _ "${UAK_REMOTE:-origin}" "${UAK_BASE:-main}" "$gd" > /dev/null 2>&1
     fi
     # GitHub feedback on this task's PR (failed checks, human comments) becomes a message to the task: the inbox
     # injection below delivers it. Every 5 min, in the background, only when gh is there.
@@ -861,9 +988,9 @@ case "${1:-}" in
       stamp "$gd/uak-prsync.checked"
       # Every REVIEW task of this identity, not only the worktree's: an agent that moved on after done never synced
       # the PR it left in review (Hacktoberfest second autopsy: one pr-sync in 16 h, a merged PR 14 min in REVIEW).
-      nohup bash -c 'bash .uak/bin/uak pr-sync "$1"
+      start_detached 180 : bash -c 'bash .uak/bin/uak pr-sync "$1"
         bash .uak/bin/uak status --full 2>/dev/null | awk -F" [|] " -v a="$2" -v t="$1" "\$2==\"REVIEW\" && \$3==a && \$1!=t {print \$1}" |
-        while read -r id; do bash .uak/bin/uak pr-sync "$id"; done' _ "$task" "$agent" > /dev/null 2>&1 &
+        while read -r id; do bash .uak/bin/uak pr-sync "$id"; done' _ "$task" "$agent" > /dev/null 2>&1
     fi
     # The checksum only when the drift file changed after it was last shown: a shown file newer than it holds its sum.
     if [ -s "$gd/uak-drift.txt" ] && ! [ "$gd/uak-drift.shown" -nt "$gd/uak-drift.txt" ] &&
@@ -883,7 +1010,8 @@ case "${1:-}" in
     # Why (Reap buildathon): 11 agents heartbeating every 8 min plus a status per beat kept the claims branch
     # busy; approvals then needed up to 14 attempts. A 45-min sprint lease is safe with a 15-min beat.
     proj_value Lease-Seconds; hb=$PV; case "$hb" in ''|*[!0-9]*) hb=2700;; esac
-    hb=$(( hb / 180 )); [ "$hb" -ge 8 ] || hb=8; [ "$hb" -le 20 ] || hb=20
+    [ "${#hb}" -le 9 ] || hb=2700
+    hb=$(( 10#$hb / 180 )); [ "$hb" -ge 8 ] || hb=8; [ "$hb" -le 20 ] || hb=20
     # A task handed over (or released) from another machine is no longer this worktree's: one heartbeat says so, then
     # the beats stop and the agent hears it once. Why (Chilangatón): after a Windows → macOS handover the old
     # session kept beating PB-027 ("belongs to", "has no active claim") into the black box.
@@ -897,11 +1025,11 @@ case "${1:-}" in
       stamp "$gd/uak-heartbeat"
       reviews=no; fresh "$gd/uak-heartbeat.reviews" 30 || { reviews=yes; stamp "$gd/uak-heartbeat.reviews"; }
       # REVIEW tasks in other worktrees need a live lease for uak merge.
-      nohup bash -c 'out=$(bash .uak/bin/uak heartbeat "$1" 2>&1); printf "%s\n" "$out"
+      start_detached 180 : bash -c 'out=$(bash .uak/bin/uak heartbeat "$1" 2>&1); printf "%s\n" "$out"
         case "$out" in *"belongs to "*|*"has no active claim"*) printf "%s" "$1" > "$4/uak-task-gone";; esac
         [ "$3" = yes ] || exit 0
         bash .uak/bin/uak status --full 2>/dev/null | awk -F" [|] " -v a="$2" -v t="$1" "\$2==\"REVIEW\" && \$3==a && \$1!=t {print \$1}" |
-          while read -r id; do bash .uak/bin/uak heartbeat "$id"; done' _ "$task" "$agent" "$reviews" "$gd" > "$gd/uak-heartbeat.log" 2>&1 &
+          while read -r id; do bash .uak/bin/uak heartbeat "$id"; done' _ "$task" "$agent" "$reviews" "$gd" > "$gd/uak-heartbeat.log" 2>&1
     fi
     # Poll in background, never blocking the agent: a cheap `ls-remote` of claims every 20 s, and the inbox is read
     # only when the claims tip moved (or every 5 min). Why: the old 2-min full read was the message latency; an
@@ -909,8 +1037,9 @@ case "${1:-}" in
     # The network settings (net.sh) only matter to the git calls started below, so they are set right before them.
     net_ready=
     net_once() { [ -n "$net_ready" ] || { net_ready=1; . .uak/bin/lib/net.sh 2>/dev/null && ssh_mux; }; }
-    now_s=$NOW; rd "$gd/uak-inbox.poll"; last_s=$RD; case "$last_s" in ''|*[!0-9]*) last_s=0;; esac
-    if [ $((now_s - last_s)) -ge "${UAK_POLL_SECONDS:-20}" ]; then
+    now_s=$NOW; rd "$gd/uak-inbox.poll"
+    if epoch_age "$RD"; then last_s=$AGE; else last_s=999999; fi   # a bad or future time is a poll that is due
+    if [ "$last_s" -ge "${UAK_POLL_SECONDS:-20}" ]; then
       net_once
       printf '%s' "$now_s" > "$gd/uak-inbox.poll" 2>/dev/null
       ( inbox_kept ) > /dev/null 2>&1 &
@@ -983,10 +1112,10 @@ $act"
     ;;
   stop)
     # Black box: publish pending lines at most every 10 min, in background (never slows the turn).
-    common=$(git rev-parse --git-common-dir 2>/dev/null)
-    if [ -n "$common" ] && [ -s "$common/uak-blackbox.pending" ] && ! fresh "$common/uak-blackbox.flushed" 10; then
+    common_dir; common=$COMMON
+    if bb_work && ! fresh "$common/uak-blackbox.flushed" 10; then
       touch "$common/uak-blackbox.flushed" 2>/dev/null
-      nohup bash .uak/bin/bb flush --quiet > /dev/null 2>&1 &
+      start_detached 300 bb_unclone bb_flush_job > /dev/null 2>&1
     fi
     # Token spend of this machine (Claude Code and Codex transcripts) to claims:tokens/, at most every 30 min.
     tokens_publish
