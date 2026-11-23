@@ -12,7 +12,6 @@ from collections import Counter
 from pathlib import Path
 
 from test_hack import Runner, expect, resolve_binary
-from fixture_template import cached_fixture
 
 BUDGET = 3.0
 SLOW = 3
@@ -60,7 +59,7 @@ def settle(r, cwd, seconds=40):
 
 
 def session_start_returns_within_budget(r):
-    f = cached_fixture(r, "ss-budget", count=1)
+    f = r.fixture("ss-budget", count=1)
     f.claim(0, "HACK-001")
     slow_remote(r, f)
     w, main = f.worktrees[0], f.clones[0]
@@ -76,7 +75,7 @@ def session_start_returns_within_budget(r):
 
 
 def session_start_output_is_unchanged(r):
-    f = cached_fixture(r, "ss-output", count=1)
+    f = r.fixture("ss-output", count=1)
     f.claim(0, "HACK-001")
     w = f.worktrees[0]
     env = {"UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_AGENT": "agent-1"}
@@ -109,7 +108,7 @@ def session_start_marks_only_the_inbox_snapshot_it_prints(r):
     """A refresh after the first inbox print must leave its unseen request for the next tick."""
     from test_hook_claims import hook
 
-    f = cached_fixture(r, "ss-inbox-snapshot", count=2)
+    f = r.fixture("ss-inbox-snapshot", count=2)
     f.claim(0, "HACK-001")
     f.claim(1, "HACK-002")
     w = f.worktrees[0]
@@ -179,7 +178,7 @@ esac
 
 def refresh_fixture(r, name, body):
     """Run the actual refresh helpers in a real worktree, with barriers and waitable Bash child processes."""
-    f = cached_fixture(r, "ss-owner-" + name, count=1)
+    f = r.fixture("ss-owner-" + name, count=1)
     w = f.worktrees[0]
     gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
     case_dir = r.scratch / ("ss-owner-control-" + name)
@@ -751,7 +750,7 @@ def counted_start(r, f, w, source, tag):
 
 
 def counted_fixture(r, name):
-    f = cached_fixture(r, name, count=1)
+    f = r.fixture(name, count=1)
     f.claim(0, "HACK-001")
     return f, f.worktrees[0]
 
@@ -778,7 +777,7 @@ def session_start_launches_half_the_processes_on_resume(r):
 def session_start_keeps_reporting_the_pace_level(r):
     """Review of cdbb934 (P2): a level that stays critical must still reach the agent when sessions are more than
     30 min apart. Before UAK-177 session start printed it every time; now it may come from the first tick instead."""
-    f = cached_fixture(r, "ss-pace-level", count=1)
+    f = r.fixture("ss-pace-level", count=1)
     f.claim(0, "HACK-001")
     w = f.worktrees[0]
     (w / ".uak/bin/pace").write_text('#!/usr/bin/env bash\ncase "${1:-}" in --caps) echo "critical 1 0";; '
