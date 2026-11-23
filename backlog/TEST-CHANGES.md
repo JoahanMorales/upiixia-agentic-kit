@@ -10,3 +10,4 @@ Append-only. Format: - ID | epoch | human | reason. Why: a test is a spec; chang
 - UAK-150 | 1795392855 | JoahanMorales | twenty_runs_under_load and its assertion line moved unchanged from test_flaky_guard.py to test_flaky_guard_race.py; the MEASURED_* anchors in test_ci_shards.py got new values for the two files
 - UAK-152 | 1795434435 | JoahanMorales | 19 jobs: los tests del asistente no caben en 9 grupos de Windows
 - UAK-153 | 1795451178 | JoahanMorales | el token ya no se imprime y el nombre es la identidad de git; cuatro tests de asistente se ajustan a eso
+- UAK-154 | 1795451182 | JoahanMorales | 99.0.0 ahora es version mayor y bloquea; cuatro lineas de tests publican una version de la misma mayor
