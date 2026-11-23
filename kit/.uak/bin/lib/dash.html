@@ -716,10 +716,10 @@ dialog#story::backdrop { background: rgba(20, 20, 19, .42); }
         s === "REVIEW" && approved(t, D) ? h("span", { "class": "tag info", text: T("approved") }) : null,
         t.stalled ? h("span", { "class": "tag crit", text: T("stalled ") + t.stalled + " min" }) : null, t.away ? h("span", { "class": "tag", text: T("owner away") }) : null,
         sub && sub.rounds ? h("span", { "class": "tag round", title: sub.rounds + " review verdict(s) on this task", text: "round " + (sub.kind === "rereview" ? sub.rounds + 1 : sub.rounds) }) : null,
-        sub && sub.rejects ? h("span", { "class": "tag crit", title: sub.rejects + " reject(s) so far", text: sub.rejects + (sub.rejects === 1 ? " reject" : " rejects") }) : null]),
+        sub && sub.rejects ? h("span", { "class": "tag crit", title: sub.rejects + " reject(s) so far", text: sub.rejects + " " + (sub.rejects === 1 ? T("reject") : T("rejects")) }) : null]),
       h("div", { "class": "title", text: t.title || t.paths, title: t.title || t.paths }),
       sub ? h("div", { "class": "sub k-" + sub.kind + (sub.late ? " late" : ""), title: sub.late ? "Longer than the review lease" : "" }, [h("span", { "class": "what", text: sub.text }),
-        h("span", { "class": "for", text: span(gen - sub.since) + " here" + (sub.late ? " \u00B7 over the review lease" : "") })]) : null,
+        h("span", { "class": "for", text: span(gen - sub.since) + " " + T("here") + (sub.late ? " \u00B7 " + T("over the review lease") : "") })]) : null,
       h("div", { "class": "card-f" }, [t.owner && s !== "AVAILABLE" && s !== "WAITING" ? who(t.owner) : h("span", { "class": "muted", text: s === "WAITING" ? T("waits on ") + waitingOn(t).join(", ") : t.depends && t.depends !== "None" ? T("after ") + t.depends : T("free to claim") }), s !== "AVAILABLE" && s !== "WAITING" ? prLink(t) : null]),
       prog && s !== "INTEGRATED" ? h("div", { "class": "prog", text: T(prog), title: prog }) : null,
       sub ? crew(t) : null]), t.id);
@@ -974,7 +974,7 @@ dialog#story::backdrop { background: rgba(20, 20, 19, .42); }
         h("div", { "class": "head" }, [h("span", { "class": "kd", text: sk[2] }), h("span", { "class": "tx", text: l[5], title: l[8] || null })]),
         quiet && l[2] === "-" ? null : h("div", { "class": "by" }, whoModel(l[2], l[3], l[4])),
         det ? h("div", { "class": "dt" + (long && !open ? " clamp" : ""), text: det }) : null,
-        long ? h("button", { "class": "more", text: open ? "Show less" : "Show all", on: function () { ui.open["st" + storyId + i] = !open; fillStory(true); } }) : null])]);
+        long ? h("button", { "class": "more", text: open ? T("Show less") : T("Show all"), on: function () { ui.open["st" + storyId + i] = !open; fillStory(true); } }) : null])]);
     return li;
   }
   function fillStory(keep) {
@@ -990,7 +990,7 @@ dialog#story::backdrop { background: rgba(20, 20, 19, .42); }
       body.appendChild(h("div", { "class": "st-note", text: "No history yet: " + storyId + " has no plan line, claim or move on the claims branch." }));
     } else {
       sum.appendChild(h("span", {}, ["Owner ", h("b", { text: t.owner || "–" })]));
-      sum.appendChild(h("span", {}, ["Rounds ", h("b", { text: String(tl.rounds) }), tl.rejects ? h("b", { style: "color:var(--crit-ink)", text: " · " + tl.rejects + (tl.rejects === 1 ? " reject" : " rejects") }) : null]));
+      sum.appendChild(h("span", {}, ["Rounds ", h("b", { text: String(tl.rounds) }), tl.rejects ? h("b", { style: "color:var(--crit-ink)", text: " · " + tl.rejects + " " + (tl.rejects === 1 ? T("reject") : T("rejects")) }) : null]));
       sum.appendChild(h("span", {}, ["Moves ", h("b", { text: String(tl.lines.length) })]));
       var total = tl.states.reduce(function (a, x) { return a + x[2]; }, 0);
       if (total) {
@@ -1001,12 +1001,12 @@ dialog#story::backdrop { background: rgba(20, 20, 19, .42); }
           bar.appendChild(h("span", { style: "--c:" + c + ";flex:" + x[2] + " 1 0", tip: nm + " · " + span(x[2]) }));
           leg.appendChild(h("div", { "class": "it", style: "--c:" + c }, [h("span", { "class": "sw" }), h("span", { "class": "nm", text: nm }), h("b", { text: span(x[2]) })]));
         });
-        body.appendChild(h("section", { "class": "st-sec" }, [h("h3", { text: "Time in each state" + (tl.open ? " (the open one counts to now)" : "") }), bar, leg]));
+        body.appendChild(h("section", { "class": "st-sec" }, [h("h3", { text: T("Time in each state") + (tl.open ? " (" + T("the open one counts to now") + ")" : "") }), bar, leg]));
       }
       body.appendChild(h("section", { "class": "st-sec" }, [h("h3", { text: "Who took part" }), h("div", { "class": "crewrow" }, tl.agents.map(function (a) {
         return h("div", { "class": "pcard" }, [avatar(a[0], 26), h("div", { style: "min-width:0" }, [h("div", { "class": "nm", text: a[0] }),
           h("div", { "class": "md" }, a[1] === "unknown" ? [h("i", { text: "model unknown" }), " · " + (a[2] === "unknown" ? "harness unknown" : a[2])] : [a[1] + " · " + (a[2] === "unknown" ? "harness unknown" : a[2])]),
-          h("div", { "class": "rl", text: a[3] + (a[3] === 1 ? " move: " : " moves: ") + a[4].join(", ") })])]);
+          h("div", { "class": "rl", text: a[3] + " " + (a[3] === 1 ? T("move") : T("moves")) + ": " + a[4].join(", ") })])]);
       }))]));
       var ol = h("ol", { "class": "tl" }, []), prev = null, lastDay = "";
       tl.lines.forEach(function (l, i) {

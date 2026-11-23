@@ -362,6 +362,15 @@ integrate_mutate() {
   event "integrate; recorded by $AGENT; PR $PR_URL; merged $mrec; proof $RM_PROOF$([ -z "$MERGE_WHY" ] || printf '; Merge-Commit unknown: %s' "$MERGE_WHY")$([ "$outside" != yes ] || printf '; outside the gate, approval %s' "$approval")$([ "$unreviewed" != yes ] || printf '; unreviewed')$([ -z "${INT_UNREVIEWED:-}" ] || printf '; %s' "$INT_UNREVIEWED")"
   msg_notify_related "$ID" integrated "$ID integrated in $BASE ($mrec), recorded by $AGENT. If you depend on it: git fetch origin && git merge --no-edit origin/$BASE"
 }
+# done --pr BRANCH (harvest 2026-11 x2): a branch name is not a URL; the PR's URL comes from wt pr. Same first words as
+# done_args_check. `--pr none` and the branch this worktree is on (the task's own) go on to done_args_check and
+# done_no_pr_check, which allow them only where no GitHub PR is reviewed; any other value is refused here, and the
+# message names that way out.
+done_pr_shape_check() {
+  case "$PR_URL" in https://*/*|none|NONE|None) return 0;; esac
+  [ "$PR_URL" != "$(git branch --show-current 2>/dev/null || true)" ] || return 0
+  die "done needs --pr HTTPS URL$([ -n "$EVIDENCE" ] || printf ' and --evidence'). '$PR_URL' is a branch name, not a URL: push, then get the URL with bash .uak/bin/wt pr (with no GitHub PR, as on a non-GitHub remote or with Review-Mode: claims: --pr none). Usage: bash .uak/bin/uak done ${ID:-ID} --pr URL --evidence \"<Verify command> exit 0; <criteria checked>\""
+}
 # done: REVIEW with the PR and evidence after the gates (UI shots, test-first), and one reviewer asked; or, with
 # --integrated, INTEGRATED after a human merge with a verified approval.
 # --pr none or the task's branch: only where no GitHub PR is reviewed (a non-GitHub remote, or Review-Mode: claims).
