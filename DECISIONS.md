@@ -130,3 +130,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1795451178 | allow | JoahanMorales | test change: UAK-153 | Why: el token ya no se imprime y el nombre es la identidad de git; cuatro tests de asistente se ajustan a eso
 - 1795451182 | allow | JoahanMorales | test change: UAK-154 | Why: 99.0.0 ahora es version mayor y bloquea; cuatro lineas de tests publican una version de la misma mayor
 - 1795476545 | allow | JoahanMorales | test change: UAK-156 | Why: la tarea quita el temporizador de 60 s que test_dashboard_profiles.py:137 exige
+- 1795476548 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-187 UAK-188 UAK-189 | Why: backlog without PR (Plan-Channel: claims)
