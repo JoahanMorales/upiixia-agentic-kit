@@ -28,6 +28,7 @@ TASKS = """## APP-001 · Core
 
 SERVER = '''import json
 import os
+import socketserver
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -37,6 +38,12 @@ def load_store():
 
 
 STORE = load_store()
+
+
+class Server(ThreadingHTTPServer):
+    def server_bind(self):  # no reverse DNS lookup: it took 36 s on macOS runners (the name is never used)
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "localhost", self.server_address[1]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -53,7 +60,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT") or 8000)
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    Server(("0.0.0.0", port), Handler).serve_forever()
 '''
 QUEUE = "class QueueStore:\n    def size(self):\n        return 0\n"
 # The round C unit test: it forces a fake store, so it passes whether or not the server can import the real one.

@@ -20,9 +20,16 @@ from test_hack import Runner, expect, resolve_binary
 
 SERVER = '''import json
 import os
+import socketserver
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from %(pkg)squeue import size
+
+
+class Server(ThreadingHTTPServer):
+    def server_bind(self):  # no reverse DNS lookup: it took 36 s on macOS runners (the name is never used)
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "localhost", self.server_address[1]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -43,7 +50,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     port = int(os.environ.get("PORT") or os.environ.get("UAK_PORT") or 8000)
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    Server(("0.0.0.0", port), Handler).serve_forever()
 
 
 if __name__ == "__main__":

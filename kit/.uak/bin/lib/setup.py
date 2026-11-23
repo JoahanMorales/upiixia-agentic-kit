@@ -13,6 +13,7 @@ import json
 import os
 import re
 import secrets
+import socketserver
 import shutil
 import signal
 import stat
@@ -726,6 +727,12 @@ def planning_module():
 
 class SetupServer(ThreadingHTTPServer):
     daemon_threads = True
+
+    def server_bind(self):
+        # HTTPServer.server_bind calls socket.getfqdn(), a reverse DNS lookup that took 36 to 43 s on macOS CI runners
+        # (every setup test paid it once, UAK-152); the name is never used. Same fix as design_round.py's capture server.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
 
     def __init__(self, target, installer, run):
         self.planning = planning_module()
