@@ -1,52 +1,30 @@
 #!/usr/bin/env python3
 """UAK-150: the second half of test_flaky_guard.py, so no single file takes a whole Windows shard.
 
-  twenty_runs_under_load             each of the three tests of test_flaky_guard (picker, mcp, lease) passes 20 times in a
-                                     row beside CPU hogs (skipped only when UAK_SMOKE_FAST=1)
+  twenty_lease_runs_under_load       gate_and_lease passes 20 times in a pool of 4 beside CPU hogs, with mcp and picker runs
+                                     as background (skipped only when UAK_SMOKE_FAST=1)
+
+UAK-151 split the former twenty_runs_under_load by kind: picker and mcp are in test_flaky_guard.py, lease is here.
 
 Why a file of its own: test_flaky_guard.py took 1500 s on Windows (11 samples, 1232 to 1628 s) and 508 s on macOS, alone in a
 shard 15 s under its planned limit. The per-case seconds of a Windows job (run 45073300004) showed the renewer race is not
-the long part (3 s): twenty_runs_under_load is (898 s of that run's 1050 s), so it is what moved here, with the same
+the long part (3 s): twenty_runs_under_load was (898 s of that run's 1050 s), so it is what moved here, with the same
 `RUNS = 20`; the other four cases (the renewer race with `RACE_RUNS = 60` among them) stay in test_flaky_guard.py.
 The helpers (picker_once, mcp_once, lease_once, sh, expect) are imported from there, not copied.
 Standard library only. Run: python3 kit/.uak/tests/test_flaky_guard_race.py [--case NAME]."""
 import argparse
-import concurrent.futures
-import os
-import subprocess
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_flaky_guard import MCP_TEST, RUNS, expect, lease_once, mcp_once, picker_once  # noqa: E402
+from test_flaky_guard import run_kind_under_load  # noqa: E402
 
 
-def twenty_runs_under_load():
-    if os.environ.get("UAK_SMOKE_FAST") == "1":
-        return "skipped: UAK_SMOKE_FAST=1"
-    jobs = [("lease", lease_once)] * RUNS + [("mcp", mcp_once)] * RUNS + [("picker", picker_once)] * RUNS
-    if not MCP_TEST.is_file():
-        jobs = [j for j in jobs if j[0] != "mcp"]
-    hogs = [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(max(1, (os.cpu_count() or 2) // 2))]
-    started, failures = time.time(), []
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-            futures = {pool.submit(fn): (i, name) for i, (name, fn) in enumerate(jobs)}
-            for f in concurrent.futures.as_completed(futures):
-                try:
-                    f.result()
-                except Exception as exc:  # noqa: BLE001
-                    failures.append("%s #%d: %s" % (futures[f][1], futures[f][0], str(exc)[:400]))
-    finally:
-        for h in hogs:
-            h.kill()
-            h.wait()
-    expect(not failures, "%d of %d runs failed under load: %s" % (len(failures), len(jobs), " | ".join(failures[:3])))
-    return "%d runs green beside %d CPU hogs in %d s" % (len(jobs), len(hogs), time.time() - started)
+def twenty_lease_runs_under_load():
+    return run_kind_under_load("lease")
 
 
-TESTS = [twenty_runs_under_load]
+TESTS = [twenty_lease_runs_under_load]
 
 
 def main():

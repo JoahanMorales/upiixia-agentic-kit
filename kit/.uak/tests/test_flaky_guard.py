@@ -5,16 +5,19 @@
   mcp_server_exits_when_stdin_closes the MCP server leaves within 2 s of its input closing; a teardown that has to kill it fails
   lease_test_uses_the_injected_clock gate_and_lease passes while the machine's own clock reads the far future and 1970
   engine_renewer_never_runs_the_owners_cleanup  a lease renewer killed right after the fork removes nothing (60 runs)
-  (twenty_runs_under_load, 20 runs of each of the three beside a CPU hog, lives in test_flaky_guard_race.py since UAK-150:
-  on Windows it takes about nine tenths of the time of the whole file, so it is the half of its own shard.)
+  twenty_picker_runs_under_load      20 picker runs beside CPU hogs and a background of mcp and lease runs (UAK-151)
+  twenty_mcp_runs_under_load         the same for the MCP server (skipped only when UAK_SMOKE_FAST=1)
+  (twenty_lease_runs_under_load, the third kind of the former twenty_runs_under_load, is in test_flaky_guard_race.py.)
 
 Why (CI of v6.5.0 to v6.7.0): these three failed and passed on a rerun on at least five pushes, and "every run green"
 meant rerunning jobs by hand. Standard library only. Run: python3 kit/.uak/tests/test_flaky_guard.py [--case NAME]."""
 import argparse
+import concurrent.futures
 import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -31,6 +34,15 @@ exec /bin/date "$@"
 """
 RUNS = 20
 RACE_RUNS = 60  # without the engine fix about 4 in 10 of them remove the parent's temp dir
+
+
+# The load of the "twenty runs" cases (UAK-151), constants the cases really use and test_ci_shards asserts: each case
+# runs JOBS_PER_KIND jobs of its kind (picker, mcp or lease) in a pool of POOL_WORKERS threads beside at least one CPU hog,
+# and BACKGROUND_JOBS jobs of each of the other two kinds at the same time, so the three kinds still run together as in
+# the incident (UAK-138); the 60 measured runs are the 20 of each kind, the background jobs come on top.
+JOBS_PER_KIND = RUNS
+POOL_WORKERS = 4
+BACKGROUND_JOBS = 4
 
 
 class Failure(Exception):
@@ -70,6 +82,51 @@ def lease_once(epoch="4102444800", spy=False):
         cmd = [sys.executable, str(Path(__file__).resolve()), "--job", "lease"] + (["--spy"] if spy else [])
         rc, out = sh(cmd, env=env)
         expect(rc == 0 and "LEASE_JOB_PASS" in out, "gate_and_lease with the clock at %s: %s" % (epoch, out))
+
+
+def hog_count():
+    return max(1, (os.cpu_count() or 2) // 2)
+
+
+def start_hog():
+    return subprocess.Popen([sys.executable, "-c", "while True: pass"])
+
+
+def make_pool(workers):
+    return concurrent.futures.ThreadPoolExecutor(max_workers=workers)
+
+
+def run_kind_under_load(kind):
+    """JOBS_PER_KIND runs of `kind` (picker, mcp, lease) in a pool of POOL_WORKERS beside hog_count() CPU hogs, mixed with
+    BACKGROUND_JOBS of each other kind. Skipped only when UAK_SMOKE_FAST=1."""
+    if os.environ.get("UAK_SMOKE_FAST") == "1":
+        return "skipped: UAK_SMOKE_FAST=1"
+    fns = {"lease": lease_once, "mcp": mcp_once, "picker": picker_once}
+    if not MCP_TEST.is_file():
+        if kind == "mcp":
+            return "skipped: tests/test_mcp_tools.py is not in this checkout (an installed kit)"
+        del fns["mcp"]
+    measured = [(kind, fns[kind])] * JOBS_PER_KIND
+    background = [(k, f) for k, f in sorted(fns.items()) if k != kind for _ in range(BACKGROUND_JOBS)]
+    jobs = list(measured)
+    for i, b in enumerate(background):  # spread the background through the run, not after it
+        jobs.insert(i * len(jobs) // (len(background) + 1) + 1, b)
+    hogs = [start_hog() for _ in range(hog_count())]
+    started, failures = time.time(), []
+    try:
+        with make_pool(POOL_WORKERS) as pool:
+            futures = {pool.submit(fn): (i, name) for i, (name, fn) in enumerate(jobs)}
+            for f in concurrent.futures.as_completed(futures):
+                try:
+                    f.result()
+                except Exception as exc:  # noqa: BLE001
+                    failures.append("%s #%d: %s" % (futures[f][1], futures[f][0], str(exc)[:400]))
+    finally:
+        for h in hogs:
+            h.kill()
+            h.wait()
+    expect(not failures, "%d of %d runs failed under load: %s" % (len(failures), len(jobs), " | ".join(failures[:3])))
+    return "%d %s runs green (and %d background) beside %d CPU hogs in %d s" % (JOBS_PER_KIND, kind, len(jobs) - JOBS_PER_KIND, len(hogs), time.time() - started)
 
 
 def job_lease(spy):
@@ -158,7 +215,15 @@ def lease_test_uses_the_injected_clock():
     return "gate_and_lease passes at clock 2100 and 1970 with UAK_NOW on every process"
 
 
-TESTS = [picker_reads_the_body_before_403, mcp_server_exits_when_stdin_closes, engine_renewer_never_runs_the_owners_cleanup, lease_test_uses_the_injected_clock]
+def twenty_picker_runs_under_load():
+    return run_kind_under_load("picker")
+
+
+def twenty_mcp_runs_under_load():
+    return run_kind_under_load("mcp")
+
+
+TESTS = [picker_reads_the_body_before_403, mcp_server_exits_when_stdin_closes, engine_renewer_never_runs_the_owners_cleanup, lease_test_uses_the_injected_clock, twenty_picker_runs_under_load, twenty_mcp_runs_under_load]
 
 
 def main():
