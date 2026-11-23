@@ -17,7 +17,7 @@ from pathlib import Path
 from test_hack import Runner, expect, resolve_binary
 from test_skills_windows_clone import repo
 
-BOUND = 260
+BOUND = 270  # 260 before the visual setup's four files in bin/lib (setup.py, setup.html, workspace.js, planning.py); the case keeps its name
 SUB = "plugins/ext/skills/motionsites-web-builder"
 NAME = "motionsites-web-builder"
 REAL_PINNED_FILES = 63  # the real pinned skill (settings/external-skills.tsv) places this many files under .claude/skills

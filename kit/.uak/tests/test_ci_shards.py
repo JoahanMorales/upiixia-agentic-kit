@@ -250,7 +250,7 @@ def flaky_guard_cases_are_all_kept(r):
     for t in ("test_flaky_guard", "test_flaky_guard_race"):
         expect(t in lint.CI_SECONDS and t in lint.CI_WINDOWS_SECONDS, "%s has a macOS and a Windows entry" % t)
     jobs = 1 + 2 * 4 + lint.windows_shard_count()
-    expect(jobs <= 18, "a commit starts %d jobs (discover, 4 shards x 2 OS, Windows shards), over 18" % jobs)
+    expect(jobs <= 19, "a commit starts %d jobs (discover, 4 shards x 2 OS, Windows shards), over 19" % jobs)
     return "5 cases in 2 files, %d jobs per commit" % jobs
 
 

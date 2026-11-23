@@ -1,0 +1,28 @@
+{
+ "1280": {
+  "overflow_welcome": 0,
+  "reduced_motion_max_ms": 0,
+  "keyboard_reaches_begin": true,
+  "focus_visible": true,
+  "config_title": "a remote named origin",
+  "beginner_next": "a remote named origin",
+  "overflow_beginner": 0,
+  "advanced_frame": true,
+  "overflow_advanced": 0,
+  "error_text": "A file named .claude is blocking a folder the kit needs. Rename or move that file yourself, then choose Repair or update kit.",
+  "overflow_error": 0
+ },
+ "390": {
+  "overflow_welcome": 0,
+  "reduced_motion_max_ms": 0,
+  "keyboard_reaches_begin": true,
+  "focus_visible": true,
+  "config_title": "a remote named origin",
+  "beginner_next": "a remote named origin",
+  "overflow_beginner": 0,
+  "advanced_frame": true,
+  "overflow_advanced": 0,
+  "error_text": "A file named .claude is blocking a folder the kit needs. Rename or move that file yourself, then choose Repair or update kit.",
+  "overflow_error": 0
+ }
+}

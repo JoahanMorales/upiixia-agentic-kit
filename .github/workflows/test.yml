@@ -1,8 +1,9 @@
 name: test
 # Once per commit: a branch with an open pull request ran everything on push and again on pull_request (audit v6.7 §1:
-# about 200 checks per PR). Pull requests, then main and tags only.
+# about 200 checks per PR). Pull requests, then main and tags only; workflow_dispatch runs it on demand.
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches: [main]
     tags: ['*']

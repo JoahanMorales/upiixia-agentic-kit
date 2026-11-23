@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # UPIIXIA Agentic Kit installer.
+#   bash install.sh --wizard [TARGET] [--no-open]   local visual setup, before installation choices
 #   bash install.sh --mode sprint|marathon [--stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|spring-boot|none]
 #                   [--harness claude,codex,cursor,gemini] [--skills ai,tdd,taste] [--no-blackbox] [--no-mcp|--mcp] [--solo] [--with-tests] [--update] TARGET
 # Never overwrites your files: if AGENTS.md, CLAUDE.md, settings.json… already exist and differ,
@@ -19,6 +20,23 @@
 set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 kit="$here/kit"
+# Visual setup starts before mode/target validation. The old CLI stays noninteractive.
+# Keep this opt-in so CI, --update and existing installation commands never launch a server.
+if [ "${1:-}" = --wizard ]; then
+  shift
+  # Setup runs the installer and uak start with this same Bash (Git for Windows may live anywhere).
+  UAK_SETUP_BASH=${BASH:-}
+  # Git Bash: Python needs the Windows path (C:/.../bash.exe), not /usr/bin/bash.
+  if command -v cygpath >/dev/null 2>&1 && [ -n "$UAK_SETUP_BASH" ]; then UAK_SETUP_BASH=$(cygpath -m "$UAK_SETUP_BASH"); fi
+  export UAK_SETUP_BASH
+  for runtime in python3 python py; do
+    if "$runtime" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then
+      exec "$runtime" "$kit/.uak/bin/lib/setup.py" "$@"
+    fi
+  done
+  printf '%s\n' 'Visual setup needs Python 3.8+. Install Python or use install.sh --mode sprint|marathon TARGET.' >&2
+  exit 2
+fi
 mode= stack=none extra= update=no target= blackbox=on mcp=on mcp_flag= harness=claude,codex,cursor,gemini solo=no with_tests=no
 while [ "$#" -gt 0 ]; do
   # An option missing its value (the last argument) said nothing: `shift 2` failed under set -e (audit, Oct 2026).
@@ -101,11 +119,24 @@ if [ -d "$target/.uak/bin" ] && [ "$update" = no ]; then
   say "The target already has .uak/. Use --update to refresh the engine." >&2; exit 2
 fi
 mkdir -p "$target/.uak"
+# Until the last step succeeds the install is not complete, and says so on disk: setup reads .uak/INSTALLING after a
+# restart too. Why (UAK-171): a failed install had already copied .uak/ and VERSION, and a restarted setup read
+# those files as "installed". An install from before this stamp has none and stays installed.
+: > "$target/.uak/INSTALLING"
 # The project's own smoke adapter lives in .uak/bin but is project data: an --update keeps it.
 # Why (MLB hackathon): an update deleted .uak/bin/smoke-project and its provenance; the team restored them by hand.
 keep=$(mktemp -d)
 ext_tmp=
 trap 'rm -rf "$keep" "$ext_tmp"' EXIT
+# The files this install places or changes, for setup's "Publish the kit to main": ownership is what the installer
+# wrote, never a directory prefix (a person's own file under .github/ or .uak/ is not the kit's). Why (UI-005 review):
+# publishing by prefix pushed .github/private-note.txt. A snapshot of the kit's paths now, another at the end.
+kit_snapshot() {
+  (cd "$target" && for p in .uak .claude .codex .cursor .gemini .agents .githooks .github AGENTS.md CLAUDE.md \
+     .gitattributes .gitignore .mcp.json; do [ -e "$p" ] && find "$p" -type f ! -path .uak/INSTALLING -exec cksum {} +; done) |
+    LC_ALL=C sort   # whole lines: comm compares whole lines (a sort by name made it report unchanged files)
+}
+kit_snapshot > "$keep/kit-before"
 for f in smoke-project .smoke-project.provenance; do [ ! -f "$target/.uak/bin/$f" ] || cp -p "$target/.uak/bin/$f" "$keep/$f"; done
 for part in bin docs modes templates settings stacks; do
   rm -rf "$target/.uak/$part"
@@ -251,7 +282,9 @@ done
 # would then land in .claude/skills and Claude Code would show every /uak-X twice, and Windows checks a symlink out as a
 # text file. Copied again on every install and update, so it never goes stale. Why (a teammate, 2026-11-10): Codex and
 # Cursor had no /uak-*; (portability audit, Oct 2026): Codex and Cursor kept stale skills after --update on Windows.
-if has codex || has cursor || has gemini; then
+# External skills also create .agents/skills for Claude-only installs. Refresh that existing directory too: otherwise
+# it contains only the external skill, and doctor rejects it as stale (UAK-172, 2026-11-11).
+if has codex || has cursor || has gemini || [ -d "$target/.agents/skills" ]; then
   # An older install linked it (and .cursor/skills) to ../.claude/skills: the link goes, the real directory takes its place.
   # A link checked out on Windows (core.symlinks=false) is a one-line text file: it goes too.
   for link in .agents/skills .cursor/skills; do
@@ -346,7 +379,28 @@ case "$cur_hooks" in
   ''|.githooks|.githooks/|.uak/githooks|.uak/githooks/) git -C "$target" config core.hooksPath "$hooks_path";;
   *) say "  ~ core.hooksPath is $cur_hooks (another hook manager): kept. Add the secret scan to its pre-commit: bash .uak/githooks/pre-commit; and, to refuse an agent's push to the base or claims branch, call 'bash .uak/githooks/pre-push \"\$@\"' from its pre-push (it reads git's stdin)";;
 esac
+# The kit clone that installed this checkout, for uak start's update hint and doctor's skills (local Git config: per
+# clone, never committed, so a teammate never reads another machine's path). Only a Git clone of the kit, which can
+# pull. Why (QA rounds 2026-11-14, A-F1; UAK-179): the hint named ~/.uak-kit, another clone, as the kit to update from.
+kit_top=$(git -C "$here" rev-parse --show-toplevel 2>/dev/null || true)
+if [ -n "$kit_top" ] && [ -f "$here/install.sh" ] && [ "$(cd "$kit_top" 2>/dev/null && pwd -P)" = "$(cd "$here" && pwd -P)" ]; then
+  kit_rec=$here
+  # Git Bash: record C:/... (Git, Bash and Python all read it), not /c/...
+  if command -v cygpath >/dev/null 2>&1; then kit_rec=$(cygpath -m "$here"); fi
+  git -C "$target" config uak.kitHome "$kit_rec"
+fi
 
+# The manifest: what changed or appeared now, what disappeared (the installer removes only its own stale copies), and
+# the previous manifest's entries, so an --update before the first publish keeps every kit file listed.
+manifest="$target/.uak/installed-files.txt"
+kit_snapshot > "$keep/kit-after"
+{ LC_ALL=C comm -13 "$keep/kit-before" "$keep/kit-after"; LC_ALL=C comm -23 "$keep/kit-before" "$keep/kit-after"; } |
+  sed 's/^[0-9]* [0-9]* //' > "$keep/kit-touched"
+[ ! -f "$manifest" ] || [ -L "$manifest" ] || grep -v '^#' "$manifest" >> "$keep/kit-touched" || true
+{ printf '%s\n' '# Files the kit installer placed or changed (setup publishes only these). Generated by install.sh.'
+  { cat "$keep/kit-touched"; printf '%s\n' .uak/installed-files.txt; } | grep -v '^$' | LC_ALL=C sort -u
+} > "$keep/manifest" && rm -f "$manifest" && cp "$keep/manifest" "$manifest"
+rm -f "$target/.uak/INSTALLING"  # every step above succeeded (set -eu stops at the first failure)
 cat <<EOF
 
 Done. Next:

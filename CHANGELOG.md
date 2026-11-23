@@ -1,5 +1,148 @@
 # Changelog
 
+## Unreleased · The visual setup
+
+The terminal-only setup was hard to follow. Now the terminal starts a local page and stays in the background;
+installing, the next step, planning and progress happen in the browser. The CLI path is unchanged.
+Guide: [docs/DASHBOARD.md](docs/DASHBOARD.md).
+
+Contributed by DylanMCDS (external PR #52, 201 commits: the setup wizard, the unified dashboard, the hook's background
+session start, `done --pr none`, `deploy` for plain Python, the product smoke from the start, 28 new test files). It is
+merged onto v6.8.0 with its history (UAK-152; it supersedes PR #2, whose commits it contains). What changed in the merge:
+
+- CI stays as on main (macOS on pull requests) and grows from 18 to 19 jobs per commit: the wizard's tests add about 2,100 Windows seconds, which need a tenth Windows shard (accepted by the human, 2026-11-23); the contributed light CI (macOS excluded on pull
+  requests, its lint rule and `test_ci_light.py`, `test_ci_once.py`) is not taken; the lint gains the check that the
+  workflow lists `workflow_dispatch`.
+- `install.sh` keeps `--with-tests` and the pruning of the kit's tests and skill library by known hash; it never runs
+  `rm -rf .uak/tests`. The tutorial video, poster and captions stay in the kit's `.uak/media/` and are not copied into
+  a project: the wizard serves them from the kit's checkout, and shows a link to the video on GitHub when they are absent.
+- `/uak-plan` keeps the design lock and the landing task for every event, short ones too, and takes the cap of tasks by
+  hours x people / 1.5.
+- The hook starts `uak next` and the inbox in the background and still prints the "claims as of N s ago" line;
+  `next` is reviewer-aware and keeps the budget, preflight and age notes; the dashboard keeps the REVIEW sub-states
+  and the single lease rule and gains the profiles, the offline mode and `Live-URL`.
+- The contributed task IDs that collided with IDs of this repository are renumbered (UAK-090, the light CI, is dropped
+  with its code); the UI-001 ... UI-024 numbers are unchanged:
+
+  | Was | Now | What |
+  |---|---|---|
+  | UAK-009 | UAK-170 | the hooks test waits for its background publish |
+  | UAK-010 | UAK-171 | install.sh leaves `.uak/INSTALLING` until its last step succeeds |
+  | UAK-011 | UAK-172 | an external skill never leaves a Claude-only install with a partial `.agents/skills` |
+  | UAK-012 | UAK-173 | test fixtures get their own `HOME` and `GIT_CONFIG_GLOBAL` |
+  | UAK-013 | UAK-174 | session start never waits for the network |
+  | UAK-038 | UAK-175 | `next` as a reviewer still offers the review waiting |
+  | UAK-067 | UAK-176 | the CI runs once per SHA (the lint rule is not taken) |
+  | UAK-068 | UAK-177 | session start's process count |
+  | UAK-069 | UAK-178 | a reviewer is never offered implementation work |
+  | UAK-091 | UAK-179 | a newer kit release never blocks a working project; the kit clone is recorded |
+  | UAK-092 | UAK-180 | a project without GitHub can finish a task (`done --pr none`) |
+  | UAK-093 | UAK-181 | the product smoke exists from the start and boots the app |
+  | UAK-094 | UAK-182 | engine messages and caches that misled agents |
+  | UAK-095 | UAK-183 | deploy for a plain Python web app |
+  | UAK-096 | UAK-184 | small events get small plans |
+
+- **The team step leads a beginner through the first run (UI-024).** Claude Code's trust question is explained before
+  it is asked: it starts on "No, exit", so press ↓ until "Yes, proceed" and then Enter; the English "Ignoring …
+  permissions.allow entries" warning before it is expected. Setup reads only whether Claude Code already trusts the
+  folder, from Claude Code's own config, and never changes it: a ✓ or ✗ (or "could not read") beside each Claude Code
+  command, with **Check again**. Launch commands appear only once the reviewer is registered (the ready line points
+  there too). A running check keeps the last result on screen, dimmed, instead of emptying it; the check stops after
+  45 s (a stalled HTTP transfer after 10 s) and keeps the old result with a plain error; the dashboard and the team
+  step keep answering during a check instead of "An operation is running". A blocked reason is said once; the wizard
+  rail no longer numbers a second 1-5 and hides after install; "Set up my project" is above the fold; buttons waiting
+  for an operation say what they wait for; a planning run that broke a rule reads "Finished with problems" with one
+  undo instruction and its command; a note says who runs what when two or more people share the project. Evidence:
+  QA rounds of 2026-11-14 (A-F6, A-F7, A-F11, A-F15, A-F16, A-F19, B-10, D-1, D-3, D-6, D-7, D-9, D-10).
+
+- **The dashboard tells the truth and is accessible (UI-023).** A task waiting on a dependency that is not integrated
+  is its own "Waiting on dependencies" bucket, never available (nor suggested to claim); an approved review has an
+  "approved" badge; only the human queue counts as "Needs a human", and a merge waiting there is setup's next step
+  first, in a plain translated sentence with no absolute path. Past the freeze setup says frozen everywhere, also
+  before the dashboard was opened and when only `.uak/PROJECT.md` has the freeze. Offline, the dashboard falls back to
+  the last claims this clone read, marked stale with their age. Row labels are singular; muted text is 4.5:1 or more
+  in light and dark; task-ID and small buttons are 24 px; the view tabs are ARIA tabs with arrow keys, wrap at 390 px
+  and carry their count as a separate word; every view has a heading (and an h1 when embedded); the online dot is grey
+  at 0; an offer to everyone reads "todos"; the Advanced next step is a card. Evidence: QA rounds of 2026-11-14 (A-F9;
+  B-06, B-07, B-08, B-12, B-13, B-15; D WCAG 1.4.3, 2.5.3, 2.5.8, 1.3.1, tabs, 390 tab strip, green dot at 0).
+
+- **Forms say what is wrong next to the field, and the page speaks plain Spanish all the way (UI-021, absorbs UI-022).**
+  A refused or empty field (project folder, name, schedule, idea) shows its reason under it with `aria-invalid` and
+  `aria-describedby` and takes the focus; the forms use the page's own translated messages instead of the browser's
+  bubbles. A made-up time zone (`Mars/Base`) is refused (zoneinfo, or the IANA areas where Python has no zone
+  database) and the zone list starts with the browser's zone; the schedule confirmation gives dates in the order they
+  happen; a relative folder asks for the full path; the schedule fields no longer overlap and "Save the idea" has its
+  gap. Every refusal of setup and of the planning module, the readiness hints, the freeze lines and the claim states
+  have Spanish; a failed network Git is one plain sentence with the advice that fits (address, sign-in, connection,
+  timeout) and Git's words under Technical details; the beginner view has a glossary; the header's controls have one
+  visible label each; the plan cards say "Tests first"; the planner writes titles, criteria and test names in the
+  idea's language. Evidence: QA rounds of 2026-11-14 (D top 1, 2, 7, 9 and other findings; A-F10, F13, F14, F20;
+  B-11).
+
+- **Branches and publishing never leave a dead end (UI-020).** Inspect warns and Install or Repair stop when the folder
+  has commits and is not on `main` (a clone of a remote whose default branch is `claims` landed on `claims` and the kit
+  was installed there), with the exact command (`git switch main`, or `git branch -m master main` when there is no
+  `main`); the page says when the remote's default branch is `claims` and how to change it on GitHub (Settings,
+  General, Default branch). The way out of unrelated history adds a second command, `git push origin main`, for a
+  folder with its own commits; publish refusals carry their exact command and read in Spanish; "the command below" is
+  only said when there is one; a quote mark in the project path no longer blocks the way out. Evidence: Dylan's live
+  run (GitHub's default branch became `claims`) and QA round B of 2026-11-14 (B-01, B-03, B-09, B-16).
+
+- **Coming back to a project restores where you were (UI-019).** A restart on an installed project opens on its furthest
+  real step from local Git (the team step for an approved plan), finished Prepare steps fold into a done line, an
+  approved plan is never offered again, the readiness check runs by itself once per inspect, re-picking keeps the last
+  check (10 min), a reload keeps the tab and drafts, the name is remembered per project in `.git/uak-setup/human.json`
+  and the team step asks for it inline (`/api/team` 400s now say `need`), and a closed setup shows one translated
+  banner and backs off instead of polling forever. Evidence: Dylan's live run and QA rounds of 2026-11-14.
+
+- **The setup page says what it is doing (UI-018).** Every request shows a busy label and spinner inside its button and a
+  result line next to it ("Checked at 21:04 · nothing changed · 2 things to do"); a blocked button shows not-allowed
+  and its reason instead of the wait cursor, and a click on it opens a dismissible notice with **Go there**; the page
+  points to its own control (Publish, your name, the schedule, the plan) for the gate's next step; polling no longer
+  hides Preferences or Repair, and the app-link row lays out cleanly at 390 px. Evidence: Dylan's real run.
+
+The visual setup
+- **`bash install.sh --wizard [PROJECT] [--no-open]`** (UI-001): a page on 127.0.0.1 (random port, session token in
+  the URL fragment, Host/Origin/token checks, a JSON body limit) walks five steps: Welcome, Your project, Your workflow
+  (Hackathon = sprint, Product = marathon, coding tools, solo), Review & install, Get ready. Nothing is written before
+  Install. "Check what's next" runs `uak start`; the workspace has Configuration and Dashboard, in Spanish or English,
+  light, dark or auto. Without Python 3.8+ it says so; `install.sh --mode …` never starts a server.
+- **Beginner and Advanced** (UI-002): a view kept in the browser only, never a permission, mode or gate. Beginner shows
+  one step from the readiness gate, why it matters and what is done, re-checks every minute and on tab focus
+  (Configuration too), and opens progress when ready. Only the exact `bash .uak/bin/wt new ID` gets a Copy button.
+- **"Your app"** (UI-002): a `Live-URL:` key in `.uak/PROJECT.md`, absolute https without credentials, editable in
+  Configuration and shown as a link; a malformed value is treated as absent.
+- **Plan in the page** (UI-004): "What are you building?" saves IDEA.md (overwrite needs confirmation); "Create the
+  plan" runs Claude Code or Codex headless with a fixed argv and constant prompt; the server checks that only
+  `.uak/TASKS.md` and `.uak/OWNERS.md` changed (HEAD, index with flags, Git config, hooks, every file) and runs
+  `uak lint` itself. "Approve and publish" needs the typed folder name and a digest of the four reviewed files, commits
+  exactly those (with `Backlog-Approved: yes`) and pushes the verified SHA to main. Gemini and Cursor say why they
+  cannot plan headless.
+- **Start your team** (UI-006): after Ready, "Register NAME-r" registers the reviewer from the page (the third human
+  act: main checkout only, claims read before and after, self-grant and retired identities refused in plain words),
+  and one Copy command per agent: Claude Code claims the task and opens in its worktree with its first prompt; Codex
+  reviews as NAME-r with `$uak-review`. Commands are built only from server values and start with `UAK_HUMAN=`.
+- **The journey stays visible** (UI-007): Install → Prepare → Plan → Start the team → Follow progress, each marked
+  where it happens, the current one highlighted; a finished step moves focus to the next. Spanish covers the readiness
+  check's lines and the Advanced dashboard; the notice under the dashboard title no longer repeats it. The typed
+  approval says what to type, and Prepare warns when another person's Git/GitHub identity would sign the commits.
+- **The welcome screen offers the demo video** (UI-017): "Watch the 75-second demo" plays the video UI-016 ships in
+  `.uak/media/`, in the page, with captions in the page's language (English or Spanish). It never autoplays (`preload`
+  none) and is hidden when the files are missing. The server serves four fixed names from its own kit (never a path
+  from the request), with the Host check, `nosniff`, `Cross-Origin-Resource-Policy: same-origin` and byte ranges so the
+  browser can seek. Test: `test_setup_tutorial.py`.
+- **A reviewer is never offered implementation work** (UAK-178): `UAK_AGENT=luis-r uak next` offered HACK-001 to claim
+  to the registered reviewer identity (test round 2026-11-13, r3 P3-6). A registered, not retired reviewer now sees
+  its reviews, or "Nothing to review right now" with `uak wait --for message`; any other identity sees what it saw
+  before. Test: `test_next_reviewer.py`.
+
+Tests and docs
+- **The hooks test waits for its background publish** (UAK-170): `test_tokens_coverage` returned while
+  `tokens --publish` still ran inside the fixture's worktree, and Windows refused to remove it (WinError 32). The wait
+  needs this machine's new totals on claims and reports a recorded publish failure first. The engine is unchanged.
+- **Journey tests and docs** (UI-003): `test_dashboard_journey.py`; `docs/DASHBOARD.md`; the spec with the test behind
+  each guarantee in `docs/specs/dashboard-onboarding/spec.md`.
+
 ## v6.8.0 · 2026-11-22 · Lighter
 
 v6.7 made everything measurable, and the measurements said where the kit was heavy: 534 files in an install, 121 CI
