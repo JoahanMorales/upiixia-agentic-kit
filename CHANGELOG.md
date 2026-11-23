@@ -2,9 +2,45 @@
 
 ## Unreleased · The visual setup
 
-The human of this project found the terminal-only setup hard to follow. Now the terminal starts a local page and stays
-in the background; installing, the next step, planning and progress happen in the browser. The CLI path is unchanged.
+The terminal-only setup was hard to follow. Now the terminal starts a local page and stays in the background;
+installing, the next step, planning and progress happen in the browser. The CLI path is unchanged.
 Guide: [docs/DASHBOARD.md](docs/DASHBOARD.md).
+
+Contributed by DylanMCDS (external PR #52, 201 commits: the setup wizard, the unified dashboard, the hook's background
+session start, `done --pr none`, `deploy` for plain Python, the product smoke from the start, 28 new test files). It is
+merged onto v6.8.0 with its history (UAK-152; it supersedes PR #2, whose commits it contains). What changed in the merge:
+
+- CI stays as on main (18 jobs per commit, macOS on pull requests); the contributed light CI (macOS excluded on pull
+  requests, its lint rule and `test_ci_light.py`, `test_ci_once.py`) is not taken; the lint gains the check that the
+  workflow lists `workflow_dispatch`.
+- `install.sh` keeps `--with-tests` and the pruning of the kit's tests and skill library by known hash; it never runs
+  `rm -rf .uak/tests`. The tutorial video, poster and captions stay in the kit's `.uak/media/` and are not copied into
+  a project: the wizard serves them from the kit's checkout, and shows a link to the video on GitHub when they are absent.
+- `/uak-plan` keeps the design lock and the landing task for every event, short ones too, and takes the cap of tasks by
+  hours x people / 1.5.
+- The hook starts `uak next` and the inbox in the background and still prints the "claims as of N s ago" line;
+  `next` is reviewer-aware and keeps the budget, preflight and age notes; the dashboard keeps the REVIEW sub-states
+  and the single lease rule and gains the profiles, the offline mode and `Live-URL`.
+- The contributed task IDs that collided with IDs of this repository are renumbered (UAK-090, the light CI, is dropped
+  with its code); the UI-001 ... UI-024 numbers are unchanged:
+
+  | Was | Now | What |
+  |---|---|---|
+  | UAK-009 | UAK-170 | the hooks test waits for its background publish |
+  | UAK-010 | UAK-171 | install.sh leaves `.uak/INSTALLING` until its last step succeeds |
+  | UAK-011 | UAK-172 | an external skill never leaves a Claude-only install with a partial `.agents/skills` |
+  | UAK-012 | UAK-173 | test fixtures get their own `HOME` and `GIT_CONFIG_GLOBAL` |
+  | UAK-013 | UAK-174 | session start never waits for the network |
+  | UAK-038 | UAK-175 | `next` as a reviewer still offers the review waiting |
+  | UAK-067 | UAK-176 | the CI runs once per SHA (the lint rule is not taken) |
+  | UAK-068 | UAK-177 | session start's process count |
+  | UAK-069 | UAK-178 | a reviewer is never offered implementation work |
+  | UAK-091 | UAK-179 | a newer kit release never blocks a working project; the kit clone is recorded |
+  | UAK-092 | UAK-180 | a project without GitHub can finish a task (`done --pr none`) |
+  | UAK-093 | UAK-181 | the product smoke exists from the start and boots the app |
+  | UAK-094 | UAK-182 | engine messages and caches that misled agents |
+  | UAK-095 | UAK-183 | deploy for a plain Python web app |
+  | UAK-096 | UAK-184 | small events get small plans |
 
 - **The team step leads a beginner through the first run (UI-024).** Claude Code's trust question is explained before
   it is asked: it starts on "No, exit", so press ↓ until "Yes, proceed" and then Enter; the English "Ignoring …
