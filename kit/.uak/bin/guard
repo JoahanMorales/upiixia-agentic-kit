@@ -117,6 +117,7 @@ wizard_live() { # sets WZ_LIVE (1 or empty) and WZ_PORT
   gd=$(git rev-parse --git-common-dir 2>/dev/null) || return 0
   f="$gd/uak-wizard.port"; [ -r "$f" ] || return 0
   pid= port=; read -r pid port < "$f" 2>/dev/null || true
+  port=${port//$'\r'/}   # a file written on Windows ends its line with CR LF
   case "$pid$port" in ''|*[!0-9]*) return 0;; esac
   [ -n "$pid" ] && [ -n "$port" ] || return 0
   # A dead PID is no wizard. Git Bash on Windows cannot signal a Windows PID: the file stands (it names a dead port at worst).

@@ -3147,7 +3147,7 @@ def main():
     try:
         if announced:
             try:
-                announced.write_text("%d %d\n" % (os.getpid(), server.server_port), encoding="utf-8")
+                announced.write_bytes(("%d %d\n" % (os.getpid(), server.server_port)).encode("ascii"))
             except OSError:
                 announced = None
         server.open_target()  # UI-019: an installed project opens where it is, not on the welcome screen

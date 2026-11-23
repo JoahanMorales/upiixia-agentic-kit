@@ -601,7 +601,7 @@ def run_guard(bash, guard, repo, command, hook=False):
 
 def live_wizard(repo, pid, port=WIZARD_PORT):
     gd = Path(plans.git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir"))
-    (gd / "uak-wizard.port").write_text("%d %d\n" % (pid, port), encoding="utf-8")
+    (gd / "uak-wizard.port").write_bytes(("%d %d\r\n" % (pid, port)).encode("ascii"))  # CR LF: as Windows writes it
     return gd / "uak-wizard.port"
 
 
