@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import unicodedata
 import threading
 import time
 import webbrowser
@@ -65,6 +66,98 @@ def safe_environment():
     # Windows Store aliases can precede the interpreter that launched the wizard.
     env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
     return env
+
+
+IDLE_SECONDS = 30 * 60   # UAK-153: a session with no action of the person for this long ends
+CODE_SECONDS = 120       # the one-time code of the launcher page is exchanged within this time, once
+RESTART = "bash install.sh --wizard"
+# Where a human authority act is recorded: the same file as a human's direct push (pre-push, pre-commit).
+ACT_LOG = "uak-direct-main.log"
+
+
+def agent_reason(*folders):
+    """Why this process has an agent identity (UAK-153), or "" for a human. The wizard performs a human's acts, and
+    it strips UAK_* from its children, so a hook that looks for the agent would not see one: it must not start."""
+    value = os.environ.get("UAK_AGENT", "")
+    if value:
+        return "UAK_AGENT=%s is set in this environment" % value[:40]
+    seen = set()
+    for folder in folders:
+        folder = str(folder or "")
+        if not folder or not os.path.isdir(folder):
+            continue
+
+        def git(*args):
+            try:
+                result = run_command(["git", "-C", folder] + list(args), cwd=folder, timeout=10)
+            except (OSError, subprocess.SubprocessError):
+                return ""
+            return (result.stdout or "").strip() if result.returncode == 0 else ""
+
+        top = git("rev-parse", "--show-toplevel")
+        for base in {folder, top} - {""}:
+            if base in seen:
+                continue
+            seen.add(base)
+            env_file = Path(base) / ".uak-env"
+            try:
+                text = env_file.read_text(encoding="utf-8", errors="replace") if env_file.is_file() else ""
+            except OSError:
+                text = ""
+            for line in text.splitlines():
+                key, _, named = line.strip().partition("=")
+                if key == "UAK_AGENT" and named.strip().strip("\"'"):
+                    return "%s names the agent %s" % (env_file, named.strip().strip("\"'")[:40])
+        if top:
+            named = git("config", "--get", "uak.agent")
+            if named:
+                return "uak.agent=%s is in the git config of %s" % (named[:40], top)
+            gitdir, common = git("rev-parse", "--absolute-git-dir"), git("rev-parse", "--git-common-dir")
+            if gitdir and common:
+                common = common if os.path.isabs(common) else os.path.join(top, common)
+                if os.path.realpath(gitdir) != os.path.realpath(common):
+                    return "%s is a linked worktree, which is where an agent works (an agent's worktree)" % top
+    return ""
+
+
+def refusal_text(reason):
+    return ("UAK SETUP refused: %s.\n"
+            "The wizard performs a human's acts (registering a reviewer, approving the plan, publishing the kit), so it "
+            "starts only for a human. In your own terminal, outside any agent session and outside an agent's worktree, "
+            "with UAK_AGENT unset, no .uak-env naming an agent and no uak.agent in the git config, run: %s"
+            % (reason, RESTART))
+
+
+def human_slug(name):
+    """The person's name for the kit, from the Git name of the checkout: its first word, lowercase ASCII, or ""."""
+    words = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode("ascii").lower().split()
+    slug = re.sub(r"[^a-z0-9_-]", "", words[0]) if words else ""
+    return slug if re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", slug) else ""
+
+
+def git_human(run, root):
+    try:
+        result = run(["git", "-C", str(root), "config", "user.name"], cwd=str(root), timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return human_slug(result.stdout) if result.returncode == 0 else ""
+
+
+def log_human_act(server, root, what, who, commit, detail=""):
+    """One line in uak-direct-main.log for an act of human authority that bypasses the merge gate, as a human's direct
+    push does (UAK-153): epoch, who, what, [detail,] commit. Written before the act, so an act that cannot be recorded
+    does not happen."""
+    try:
+        _, common = server.git_dirs(root)
+        if not common:
+            raise ValueError("no Git folder")
+        who = who if isinstance(who, str) and HUMAN_NAME.fullmatch(who) else "human"
+        line = "%d %s %s%s %s\n" % (int(time.time()), who, what, " " + detail if detail else "", commit)
+        with open(str(common / ACT_LOG), "a", encoding="utf-8") as handle:
+            handle.write(line)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        raise ValueError("Setup could not record this act in %s inside the project's Git folder, so it did not do it. "
+                         "Check that folder is writable, then try again." % ACT_LOG)
 
 
 def windows_job(proc):
@@ -738,6 +831,9 @@ class SetupServer(ThreadingHTTPServer):
         self.planning = planning_module()
         self.plan = None
         self.token = secrets.token_urlsafe(32)
+        # UAK-153: the browser is opened on a one-time code, never on the token. The server exchanges the code once.
+        self.clock, self.notify, self.ended, self.launcher = time.monotonic, lambda text: print(text, flush=True), False, None
+        self.code, self.code_at, self.code_used, self.last_active = "", 0.0, True, self.clock()
         self.nonce = secrets.token_urlsafe(24)
         self.installer = Path(installer).resolve()
         self.run = run or run_command
@@ -745,6 +841,7 @@ class SetupServer(ThreadingHTTPServer):
         # runner, whose callers count and pace their own commands.
         self.identity_run = run_command
         self.lock = threading.Lock()
+        self.new_code()
         # The slow lane (UI-011): every POST and every GET that may reach the network, the engine or a coding tool holds
         # it; /api/status never does. Order: slow, then lock; never the reverse.
         self.slow = threading.Lock()
@@ -765,6 +862,64 @@ class SetupServer(ThreadingHTTPServer):
 
     def config(self):
         return read_config(self.target)
+
+    def new_code(self):
+        """A fresh one-time code (the person asks for a new page); the session ends only by idling."""
+        with self.lock:
+            self.code, self.code_at, self.code_used = secrets.token_urlsafe(18), self.clock(), False
+            return self.code
+
+    def exchange(self, code):
+        """The session token for a valid, unused, fresh code; the code is spent either way it is presented right."""
+        with self.lock:
+            fresh = (self.code and not self.code_used and not self.ended and isinstance(code, str)
+                     and self.clock() - self.code_at <= CODE_SECONDS
+                     and hmac.compare_digest(code.encode("utf-8"), self.code.encode("utf-8")))
+            if fresh:
+                self.code_used = True
+                self.last_active = self.clock()
+            return self.token if fresh else None
+
+    def git_dirs(self, root):
+        return git_dirs(self, root, self.identity_run)
+
+    def make_launcher(self):
+        """A page that opens setup on the one-time code. The browser is given this file, so the code is in no process's
+        arguments and in no line of the terminal; the folder and the file are private to the person."""
+        self.forget_launcher()
+        folder = Path(tempfile.mkdtemp(prefix="uak-setup-"))
+        try:
+            os.chmod(str(folder), 0o700)
+        except OSError:
+            pass
+        url = "http://127.0.0.1:%d/#code=%s" % (self.server_port, self.new_code())
+        page = folder / "open.html"
+        descriptor = os.open(str(page), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write('<!doctype html><meta charset="utf-8"><title>UAK setup</title>'
+                         '<meta http-equiv="refresh" content="0;url=%s"><p>Opening setup. If nothing happens, '
+                         '<a href="%s">continue</a>.</p>\n' % (url, url))
+        self.launcher = page
+        return page
+
+    def forget_launcher(self):
+        page = getattr(self, "launcher", None)
+        self.launcher = None
+        if page:
+            shutil.rmtree(str(page.parent), ignore_errors=True)
+
+    def touch(self):
+        self.last_active = self.clock()
+
+    def expire_if_idle(self):
+        """End the session after IDLE_SECONDS without an action, and say in the terminal how to open a new one."""
+        with self.lock:
+            if self.ended or self.clock() - self.last_active <= IDLE_SECONDS:
+                return self.ended
+            self.ended = True
+        self.notify("UAK SETUP: the session ended after 30 minutes without activity. Press Ctrl+C here, then open a new "
+                    "one from your terminal: %s" % RESTART)
+        return True
 
     def engine(self):
         """The engine shipped with this setup (kit/.uak or an installed .uak), refused when the project's differs."""
@@ -932,6 +1087,7 @@ class SetupServer(ThreadingHTTPServer):
         planning, uak = self.planning, self.engine()
         with self.lock:
             self.state.update(phase="approving", error="", details="")
+            who = self.state.get("human") or ""
 
         def git(*args, timeout=60):
             return planning.git_out(self.run, root, *args, timeout=timeout)
@@ -954,6 +1110,7 @@ class SetupServer(ThreadingHTTPServer):
                                      "Nothing was pushed. Undo it with: git reset --soft HEAD^")
                 # The verified commit by its SHA, never HEAD: a commit made meanwhile is not published (review of dce95aa).
                 target_ref = "%s:refs/heads/%s" % (commit, base)
+                log_human_act(self, root, "approve-plan", who, commit)
                 result = self.run(list(planning.GIT) + ["-C", str(root), "push", remote, target_ref], cwd=str(root), timeout=120)
                 if result.returncode:
                     raise ValueError("Your approval is committed here (%s) but %s refused the push: %s Fix the cause, then run: "
@@ -1033,6 +1190,7 @@ class SetupServer(ThreadingHTTPServer):
                     raise ValueError("The commit did not match the files you reviewed (a Git hook changed it), so it was "
                                      "undone and nothing was published. Check your pre-commit hooks, then publish again.")
                 ref = "%s:refs/heads/%s" % (commit, base)
+                log_human_act(self, root, "publish-kit", human, commit)
                 result = self.run(list(planning.GIT) + ["-C", str(root), "push", remote, ref], cwd=str(root), timeout=120)
                 if result.returncode:
                     # Review of f8d5d84 (P2): a refused push is a failure before publishing, so the commit is undone
@@ -1072,6 +1230,9 @@ class SetupServer(ThreadingHTTPServer):
                                   group=True, env=registration_env(name))
                 output = redact((result.stdout or "") + "\n" + (result.stderr or "")).strip()
                 found = reviewer_record(remote_state(self, root, fresh=True), who, name)
+                if found["registered"]:
+                    head = planning_head(self, root)
+                    log_human_act(self, root, "register-reviewer", name, head, detail=who)
                 with self.lock:
                     if found["registered"]:
                         self.state.update(phase=back, details=output)
@@ -1212,9 +1373,16 @@ class SetupHandler(BaseHTTPRequestHandler):
         if self.headers.get("Host") != origin[len("http://"):] or (write and self.headers.get("Origin") != origin):
             self.reply(403, {"error": "This request must come from the local setup page."})
             return False
-        if self.path.startswith("/api/") and not hmac.compare_digest(self.headers.get("X-UAK-Token", "").encode("utf-8"), self.server.token.encode("utf-8")):
-            self.reply(403, {"error": "This setup session expired. Reopen the address printed in the terminal."})
-            return False
+        if self.path.startswith("/api/") and self.path != "/api/session":
+            if not hmac.compare_digest(self.headers.get("X-UAK-Token", "").encode("utf-8"), self.server.token.encode("utf-8")):
+                self.reply(403, {"error": "This setup session expired. Reopen the address printed in the terminal."})
+                return False
+            if self.server.expire_if_idle():
+                self.reply(403, {"error": "This setup session ended after 30 minutes without activity. Start setup again "
+                                          "from your terminal: %s" % RESTART})
+                return False
+            if self.path != "/api/status":  # the page's own poll is not an action of the person
+                self.server.touch()
         return True
 
     def do_GET(self):
@@ -1501,6 +1669,14 @@ class SetupHandler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(data, dict):
                 raise ValueError("Expected a settings object.")
+            if self.path == "/api/session":
+                token = self.server.exchange(data.get("code")) if set(data) == {"code"} else None
+                if token is None:
+                    self.reply(403, {"error": "That code was already used or has expired. Open a new page from the terminal."})
+                else:
+                    self.server.forget_launcher()
+                    self.reply(200, {"token": token})
+                return
             # Who signs is read before taking the lock (review of 949eca1: it blocked status polling) and synchronously
             # (a background read kept a process inside the project, and Windows could not delete it: WinError 32).
             self.identity = self.read_identity(data)
@@ -1633,6 +1809,7 @@ class SetupHandler(BaseHTTPRequestHandler):
             # UI-019: where the project is, from local Git only, outside the lock.
             resume, saved = project_progress(s, root, session)
             branch = branch_state(s, root)  # UI-020: on the base branch? the remote's default branch?
+            git_name = git_human(s.identity_run, root)  # UAK-153: the person is the Git identity of this checkout
             with s.lock:
                 s.keep_check()  # the project being left keeps its last check
                 previous = dict(s.state) if s.failed_target == str(root) else {}
@@ -1642,8 +1819,11 @@ class SetupHandler(BaseHTTPRequestHandler):
                 s.tools_cache.pop(str(root), None)
                 if self.identity is not None:
                     s.state["identity"] = self.identity
+                # UAK-153: the name is the Git identity of the checkout, never one typed or kept by something else.
                 human = saved or s.state.get("human") or ""
-                s.state.update(target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], next_command="", next_note="", freeze=0, needs_human=[], details=previous.get("details", ""), error=previous.get("error", ""),
+                human = human if human and human == git_name else ""
+                saved = saved if saved == human else ""
+                s.state.update(git_human=git_name, target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], next_command="", next_note="", freeze=0, needs_human=[], details=previous.get("details", ""), error=previous.get("error", ""),
                                human=human, human_source="project" if saved else "session" if human else "",
                                resume=resume, inspect=s.state.get("inspect", 0) + 1, checked=False, branch=branch)
                 if kept:
@@ -1727,8 +1907,17 @@ class SetupHandler(BaseHTTPRequestHandler):
                 raise FieldError("Use a short name in lowercase letters, digits, - or _ (for example: ana).", "name")
             name = data["name"]
             with s.lock:
-                s.state["human"] = name
                 target = s.target
+            # UAK-153: the name is not free text. It is the Git identity of this checkout, shown on the page.
+            identity = git_human(s.identity_run, project_root(target)) if target else ""
+            if not identity:
+                raise FieldError('Set your Git identity first, in your terminal: git config user.name "Your Name". '
+                                 "Setup uses it as your name.", "name")
+            if name != identity:
+                raise FieldError("Setup acts as the Git identity of this checkout (%s), not as another name. Change it "
+                                 "with git config user.name, not here." % identity, "name")
+            with s.lock:
+                s.state["human"] = name
             # UI-019: remembered for this project in its Git folder; never blocked by that file.
             persisted, note = False, ""
             if target:
@@ -2450,6 +2639,10 @@ def git_dirs(server, root, run=None):
     return tuple(paths + [None] * (2 - len(paths)))
 
 
+def planning_head(server, root):
+    return server.planning.git(server.run, root, "rev-parse", "HEAD").stdout.strip() or "0" * 40
+
+
 def main_checkout(server, root):
     """True in the project's main checkout (its Git dir is the common dir), false in a linked task worktree."""
     git_dir, common = git_dirs(server, root)
@@ -2910,22 +3103,36 @@ def main():
     parser.add_argument("target", nargs="?", default=str(Path.cwd()))
     parser.add_argument("--no-open", action="store_true", help="print the local address without opening a browser")
     args = parser.parse_args()
+    # UAK-153: the wizard acts for the human, so it does not start for an agent.
+    reason = agent_reason(Path.cwd(), args.target)
+    if reason:
+        print(refusal_text(reason), file=sys.stderr, flush=True)
+        return 2
     server = make_server(args.target)
     server.open_target()  # UI-019: an installed project opens where it is, not on the welcome screen
-    url = "http://127.0.0.1:%d/#%s" % (server.server_port, server.token)
-    print("UAK SETUP " + url, flush=True)
-    print("Keep this terminal open. Configure the kit in your browser; press Ctrl+C here to stop.", flush=True)
+    launcher = server.make_launcher()
+    print("UAK SETUP http://127.0.0.1:%d/" % server.server_port, flush=True)
+    print("Launcher file: %s" % launcher, flush=True)
+    print("Keep this terminal open. The page opens from that file with a one-time code (valid %d seconds, used once); "
+          "press Ctrl+C here to stop." % CODE_SECONDS, flush=True)
     if not args.no_open:
         try:
-            webbrowser.open(url)
+            webbrowser.open(launcher.as_uri())
         except (OSError, webbrowser.Error):
-            print("Could not open a browser. Open the local address above manually.", flush=True)
+            print("Could not open a browser. Open the launcher file above in your browser.", flush=True)
+
+    def watch():
+        while not server.expire_if_idle():
+            time.sleep(15)
+
+    threading.Thread(target=watch, daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+        server.forget_launcher()
     return 0
 
 

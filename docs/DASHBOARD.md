@@ -9,7 +9,7 @@ bash ~/.uak-kit/install.sh --wizard /path/to/project     # opens your browser
 bash ~/.uak-kit/install.sh --wizard /path/to/project --no-open   # prints the address only
 ```
 
-The terminal prints `UAK SETUP http://127.0.0.1:PORT/#TOKEN`. Keep it open; press Ctrl+C there to stop the page.
+The terminal prints `UAK SETUP http://127.0.0.1:PORT/` and the path of a launcher file; the browser is opened on that file, which carries a one-time code (valid two minutes, used once) that the page exchanges for the session. The printed line holds no secret. Keep the terminal open; press Ctrl+C there to stop the page. The wizard starts only for a human: it refuses in a process with an agent identity (`UAK_AGENT`, a `.uak-env` naming an agent, `uak.agent` in the git config, a linked worktree), and says how a human starts it.
 
 ## Prerequisites
 
@@ -268,8 +268,12 @@ the file is treated as no link.
 
 ## Security model
 
-The page listens on 127.0.0.1 only, on a random port. Every API call needs the session token from the address's
-fragment (it is never sent in a URL); the server checks the Host header, and every write also checks the Origin.
+The page listens on 127.0.0.1 only, on a random port. Every API call needs the session token, which the page gets by exchanging the one-time code of the launcher file
+once (the token is never printed, never in a process's arguments and never in a URL); a session with no action of the
+person for 30 minutes ends and the terminal says how to open a new one. Your name is the Git identity of the checkout
+(`git config user.name`, its first word), shown on the page and never typed; a request that names another is refused.
+Registering a reviewer, approving the plan and publishing the kit each write one line to `uak-direct-main.log` in the
+project's Git folder (when, who, what, the commit), as a human's direct push does. The server checks the Host header, and every write also checks the Origin.
 JSON bodies are limited to 64 KB and nesting depth. Installation options are an allowlist passed as literal arguments,
 never through a shell. Text from the project is shown as text. The terminal log never prints requests or tokens.
 
@@ -284,7 +288,7 @@ from loading them. When a file is missing the welcome screen simply has no video
 
 | You see | Do |
 |---|---|
-| "This setup session expired. Reopen the address printed in the terminal." | The page lost its token (a new tab, a restarted setup). Open the `UAK SETUP` address from the terminal again. |
+| "This setup session expired. Reopen the address printed in the terminal." | The page lost its token (a new tab, a restarted setup, 30 minutes idle). Stop setup (Ctrl+C) and start it again; it opens a new launcher with a new one-time code. |
 | "The installed kit version differs from this setup. Use Repair or update first…" | Choose **Repair or update kit**. It keeps your workflow and configuration. |
 | "A file named … is blocking a folder the kit needs." | Rename or move that file yourself, then choose **Repair or update kit**. |
 | "Visual setup needs Python 3.8+." | Install Python, or use `install.sh --mode sprint|marathon TARGET`. |

@@ -212,17 +212,24 @@ check_bash() {
   case "$rcmd" in *'$('*|*'`'*) idioms;; esac
   # Only segments with a risky word go through the rules: a 300-line heredoc took 7.5 s, past the hook's 5 s
   # timeout (and a timed-out hook lets the command run). A command with none of them has no such segment.
-  case "$rcmd" in *git*|*rm*|*kill*|*sudo*|*curl*|*wget*|*publish*|*upload*|*gh*|*docker*|*npm*|*pnpm*|*yarn*|*pip*|*uv*|*UAK_*) bt_marks "$rcmd"; rule_segments "$rs";; *) SEGS=;; esac
+  case "$rcmd" in *git*|*rm*|*kill*|*sudo*|*curl*|*wget*|*publish*|*upload*|*gh*|*docker*|*npm*|*pnpm*|*yarn*|*pip*|*uv*|*UAK_*|*wizard*|*setup.py*|*X-UAK-*) bt_marks "$rcmd"; rule_segments "$rs";; *) SEGS=;; esac
   # No segment, no here-document: Git Bash forks a child to feed one (Windows CI: 4 processes for `ls`).
   [ -z "$SEGS" ] || while IFS= read -r seg; do
     s=" $seg "
-    case "$s" in *git*|*rm*|*kill*|*sudo*|*curl*|*wget*|*publish*|*upload*|*gh*|*docker*|*npm*|*pnpm*|*yarn*|*pip*|*uv*|*UAK_*) ;; *) continue;; esac
+    case "$s" in *git*|*rm*|*kill*|*sudo*|*curl*|*wget*|*publish*|*upload*|*gh*|*docker*|*npm*|*pnpm*|*yarn*|*pip*|*uv*|*UAK_*|*wizard*|*setup.py*|*X-UAK-*) ;; *) continue;; esac
     # The clock is the engine's: a lease, a freeze or an offer window read at another time is a lie to everyone.
     case "$s" in *UAK_NOW*|*UAK_TEST_CLOCK*)
       { assigns UAK_NOW "$seg" || assigns UAK_TEST_CLOCK "$seg"; } &&
         block "UAK_NOW/UAK_TEST_CLOCK set the uak clock; only the test suite sets them. Run the command without it.";;
     esac
     case "$s" in *UAK_HUMAN*) assigns UAK_HUMAN "$seg" && human_cmd=yes;; esac
+    # The setup wizard performs a human's acts (register a reviewer, approve the plan, publish the kit), so an agent
+    # neither starts it nor sends it a request, in any mode. Why (audit, 2026-11-22): an agent started it, read the
+    # token from its output, named any human and pushed to main; the wizard strips UAK_*, so no hook saw an agent.
+    case "$s" in *wizard*|*setup.py*|*X-UAK-*|*/api/*)
+      grep -Eq '(^|[[:space:]/])lib/setup\.py([[:space:]]|$)|(^|[[:space:]/])install\.sh[[:space:]]+(.*[[:space:]])?--wizard([[:space:]]|$)|X-UAK-Token|(127\.0\.0\.1|localhost|::1|0\.0\.0\.0)(:[0-9]+)?/api/(session|team/|plan/approve|publish-kit|human([[:space:]]|$)|install|repair|settings|idea|schedule)' <<< "$s" &&
+        block "the setup wizard performs a human's acts (register a reviewer, approve the plan, publish the kit), so only a human starts it, in their own terminal: bash install.sh --wizard. An agent never starts it and never sends it a request.";;
+    esac
     # Merges reach main only through the gate (uak merge) or a human on the forge. Why (Hacktoberfest second
     # autopsy): 5 of 33 sprint merges were an agent's gh pr merge, and the only out-of-Paths merges were among them.
     case "$s" in *gh*merge*)
