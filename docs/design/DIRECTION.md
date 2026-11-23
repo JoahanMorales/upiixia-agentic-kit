@@ -53,7 +53,8 @@ UAK-158 (one design system), UAK-159 (the wizard's flow), UAK-162 (the dashboard
 
 ## Open
 
-- Fonts: the mock loads Inter and JetBrains Mono from the network; the dashboard may not make a request. Either the
-  system stack or an embedded subset (the page's weight limit decides). To be settled in UAK-158.
+- Settled by the human on 2026-11-23: the type of the mock stays (Inter and JetBrains Mono), shipped in the kit as
+  subset `woff2` files with their licence and loaded from files beside the page, never from the network; the default
+  palette is Lavanda in a new install and Clásico where a dashboard of v6.8 or earlier was already in use.
 - The tabs Agents, Messages, Black box, Memory and Tokens, the empty project and the finished project are not in the
   mock; UAK-162 designs them in the same language and shows them to the human before they are built.
