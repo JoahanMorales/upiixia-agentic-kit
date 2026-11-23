@@ -146,7 +146,7 @@ CI_SECONDS = {
     "test_v58": 9, "test_design_breed": 8, "test_lint_paths_hint": 8, "test_plan_owners": 8, "test_wt_resume_claim": 8,
     "test_cli_spelling_hints": 7, "test_design_aspect": 7, "test_plan_scale": 7, "test_setup_forms": 7,
     "test_smoke_parallel": 7, "test_design_breed_rules": 6, "test_design_creativity": 6, "test_git_identity_msg": 6,
-    "test_harness_commands": 6, "test_review_identity": 6, "test_v57_install": 6, "test_ci_shards": 5,
+    "test_harness_commands": 6, "test_review_identity": 6, "test_v57_install": 6, "test_ci_shards": 5, "test_ci_tiers": 15,
     "test_guard_substitution": 5, "test_setup_language": 5, "test_tutorial_video": 5, "test_v591": 5, "test_v592": 5,
     "test_autopsy": 4, "test_setup_tutorial": 4, "test_temp_and_timeouts": 4, "test_design_breed_twins": 3,
     "test_design_creativity_inherit": 3, "test_design_fonts": 3, "test_design_ground": 3, "test_design_round": 3,
@@ -182,7 +182,7 @@ CI_WINDOWS_SECONDS = {
     "test_dashboard_journey": 34, "test_harness_commands": 34, "test_design_perf": 33, "test_dashboard_truth": 32,
     "test_review_identity": 32, "test_v592": 31, "test_guard_substitution": 27, "test_smoke_parallel": 27,
     "test_git_identity_msg": 25, "test_design_density": 23, "test_dashboard_profiles": 22, "test_design_pick": 22,
-    "test_plan_scale": 22, "test_setup_trust": 21, "test_temp_and_timeouts": 21, "test_ci_shards": 19,
+    "test_plan_scale": 22, "test_setup_trust": 21, "test_temp_and_timeouts": 21, "test_ci_shards": 19, "test_ci_tiers": 60,
     "test_design_breed_notes": 17, "test_design_shoot_full": 13, "test_tutorial_video": 13,
     "test_design_lint_scale": 12, "test_design_shoot_qa": 12, "test_gate_scope": 12, "test_snapshot": 12,
     "test_setup_forms": 11, "test_design_breed_rules": 10, "test_setup_language": 10, "test_design_breed": 9,
@@ -214,6 +214,69 @@ HALF_BOUND_EXCEPTIONS = {
     "test_merge_engine_policy": "905 s on Windows, 5 s over the limit: not split yet (a task of its own, outside UAK-150's paths); until then it takes a shard with little else",
     "test_flaky_guard_race": "870 to 1363 s on Windows: twenty_runs_under_load, 60 runs under CPU hogs in one case. UAK-151 tried one case per kind with background jobs of the other kinds: lease alone took 862, 1175 and 1336 s, and the two files together 1700 to 1900 s against 1090 to 1580 s before, so no two-file split gets under 900 s; it needs a third file or fewer lease runs, a decision for a human",
 }
+
+
+# The fixed portability set of the first tier (UAK-168): a pull request runs these on macOS and Windows whatever it changes,
+# because the failures that only those systems show come from a few things and these files are the cheapest that cover each.
+# At most PORTABILITY_MAX files, each under PORTABILITY_WINDOWS_MAX_S on Windows, each with its reason; the lint refuses a
+# file that is missing, too slow or without a reason (portability_problems).
+PORTABILITY_MAX = 6
+PORTABILITY_WINDOWS_MAX_S = 120
+PORTABILITY_SET = {
+    "test_temp_and_timeouts": "paths with a space and an accent in the temp directory, as on C:\\Users\\José Pérez",
+    "test_skills_windows_clone": "symlinks: Git for Windows checks them out as text files (core.symlinks=false)",
+    "test_gate_scope": "Bash 3.2 (no $BASHPID, no bash 4 features) and case folding with accents in paths",
+    "test_snapshot": "CRLF: task and claim records checked out with Windows line endings",
+    "test_v571": "case-insensitive names: accented capitals in Paths on macOS and Windows file systems",
+    "test_merge_renewer_orphan": "process groups: a killed merge must not leave its background renewer running",
+}
+
+
+def portability_problems(tests, table=None, windows=None):
+    """Findings about the portability set: a file that does not exist, over PORTABILITY_WINDOWS_MAX_S on Windows, with no
+    reason, or more than PORTABILITY_MAX files."""
+    table = PORTABILITY_SET if table is None else table
+    windows = CI_WINDOWS_SECONDS if windows is None else windows
+    out = []
+    if len(table) > PORTABILITY_MAX:
+        out.append("scripts/kit_lint.py · portability-set · %d files, at most %d" % (len(table), PORTABILITY_MAX))
+    for t in sorted(table):
+        if t not in tests:
+            out.append("scripts/kit_lint.py · portability-missing · %s is in PORTABILITY_SET but is not a test file" % t)
+        elif windows.get(t, 0) >= PORTABILITY_WINDOWS_MAX_S:
+            out.append("scripts/kit_lint.py · portability-slow · %s takes %d s on Windows, not under %d: choose a cheaper file" % (t, windows.get(t, 0), PORTABILITY_WINDOWS_MAX_S))
+        if not str(table[t]).strip():
+            out.append("scripts/kit_lint.py · portability-reason · %s is in PORTABILITY_SET with no reason" % t)
+    return out
+
+
+def path_filter_problems(text):
+    """No trigger of the workflow is filtered by path: a required check of a workflow that did not run stays Pending and
+    blocks the merge (GitHub's documentation on skipped required checks). The workflow runs and decides inside."""
+    head = "\n".join(re.sub(r"(^|\s)#.*$", "", l) for l in text.split("\njobs:")[0].splitlines())
+    if re.search(r"(?m)^\s*paths(-ignore)?:|[{,]\s*paths(-ignore)?:", head):
+        return [".github/workflows/test.yml · path-filter · a trigger has paths: or paths-ignore: a skipped workflow leaves its required check Pending; select inside the workflow (scripts/ci_select.py)"]
+    return []
+
+
+def workflow_tier_problems(text, select_src):
+    """The two-tier shape: one final job `ci` that always runs and needs every job that runs tests, the label and the manual input."""
+    out = []
+    jobs = re.findall(r"(?m)^  ([a-z][a-z-]*):\n", text.split("\njobs:", 1)[1]) if "\njobs:" in text else []
+    m = re.search(r"(?s)\n  ci:\n(.*?)(?=\n  [a-z][a-z-]*:\n|\Z)", text)
+    if not m or not re.search(r"(?m)^    if: always\(\)\s*$", m.group(1)):
+        out.append(".github/workflows/test.yml · no-final-job · the workflow needs one job `ci` with `if: always()`: it is the one check to require")
+    else:
+        need = re.search(r"(?m)^    needs: \[([^\]]*)\]", m.group(1))
+        listed = {x.strip() for x in need.group(1).split(",")} if need else set()
+        missing = sorted(set(jobs) - {"ci", "red-main"} - listed)
+        if missing:
+            out.append(".github/workflows/test.yml · final-job-needs · `ci` does not wait for %s" % ", ".join(missing))
+    if "ci_select.py" not in text:
+        out.append(".github/workflows/test.yml · no-selector · the discover job must decide the tier with scripts/ci_select.py")
+    if "UAK_SMOKE_TESTS" not in select_src:
+        out.append("scripts/ci_select.py · no-test-shards · the runner must pass each file to smoke in UAK_SMOKE_TESTS")
+    return out
 
 
 def timing_problems(tests, seconds=None, windows=None, exceptions=None):
@@ -341,8 +404,12 @@ def check_test_discovery(findings):
     findings.extend(".github/workflows/test.yml · double-run · " + x for x in push_trigger_problems(ci))
     findings.extend(timing_problems(ci_tests()))
     # The macOS and Linux suites run in shards (UAK-018): their lists come from --ci-shards, and smoke must run only them.
+    select_src = (ROOT / "scripts/ci_select.py").read_text(encoding="utf-8") if (ROOT / "scripts/ci_select.py").is_file() else ""
+    findings.extend(portability_problems(ci_tests()))
+    findings.extend(path_filter_problems(ci))
+    findings.extend(workflow_tier_problems(ci, select_src))
     if "python3 scripts/kit_lint.py --ci-shards" not in ci or "fromJSON(needs.discover.outputs.shards)" not in ci \
-            or "SHARD_TESTS: ${{ matrix.shard.tests }}" not in ci or "UAK_SMOKE_TESTS=$t" not in ci:
+            or "SHARD_TESTS: ${{ matrix.shard.tests }}" not in ci or "UAK_SMOKE_TESTS" not in select_src:
         findings.append(".github/workflows/test.yml · no-test-shards · the suite's shards must come from the discover job (kit_lint.py --ci-shards) into UAK_SMOKE_TESTS")
     if "UAK_SMOKE_TESTS" not in smoke:
         findings.append("kit/.uak/bin/smoke · no-test-shards · smoke must run only the files UAK_SMOKE_TESTS names when it is set")

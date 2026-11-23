@@ -64,6 +64,7 @@ agent ──CLI or MCP──▶ .uak/bin/uak ──▶ lib/commands.tsv (the reg
 | a PROJECT.md key | read it with `uak_cfg FILE KEY DEFAULT` (never a new `sed -n 's/^[-* ]*KEY…'`), CLI.md's field list, both templates | `kit_lint` refuses a copy of the reader |
 | a skill | `kit/.uak/skills/NAME/SKILL.md`, `install.sh`'s list per mode, SOURCES.md | `kit_lint` (vendored and recorded) |
 | a hook behavior | `hook` (keep the common path free of processes: Windows pays 20–50 ms each) | `test_v592` counts processes |
+| a CI job or the selection of a pull request | `.github/workflows/test.yml` (the `discover` job decides the tier; `ci` is the one required check); the selection, the gate, the retry and the red-main issue are `scripts/ci_select.py`; the fixed portability files and the timing tables are `scripts/kit_lint.py` | `kit_lint` (portability set, no path filter, the final job) · `test_ci_tiers.py`, `test_ci_shards.py` |
 | a portability fix | the fix plus a `kit_lint` rule when the pattern can come back | `kit_lint` in CI |
 
 Every engine change ships a test that fails without it (the kit applies test-first to itself), runs on Linux (mawk),
