@@ -10,7 +10,7 @@ Contributed by DylanMCDS (external PR #52, 201 commits: the setup wizard, the un
 session start, `done --pr none`, `deploy` for plain Python, the product smoke from the start, 28 new test files). It is
 merged onto v6.8.0 with its history (UAK-152; it supersedes PR #2, whose commits it contains). What changed in the merge:
 
-- CI stays as on main (18 jobs per commit, macOS on pull requests); the contributed light CI (macOS excluded on pull
+- CI stays as on main (macOS on pull requests) and grows from 18 to 19 jobs per commit: the wizard's tests add about 2,100 Windows seconds, which need a tenth Windows shard (accepted by the human, 2026-11-23); the contributed light CI (macOS excluded on pull
   requests, its lint rule and `test_ci_light.py`, `test_ci_once.py`) is not taken; the lint gains the check that the
   workflow lists `workflow_dispatch`.
 - `install.sh` keeps `--with-tests` and the pruning of the kit's tests and skill library by known hash; it never runs
