@@ -430,6 +430,53 @@ TESTS = [flaky_guard_cases_are_all_kept, flaky_guard_load_is_proved, no_file_ove
          shards_cover_every_test_once, smoke_runs_only_its_shard, a_name_that_is_not_a_test_fails_the_shard]
 
 
+# UAK-168: the second tier keeps the bounds above; the first tier (a pull request) has its own.
+def ci_select():
+    p = REPO / "scripts" / "ci_select.py"
+    spec = importlib.util.spec_from_file_location("ci_select_for_shards", str(p))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def first_tier_keeps_its_bounds(r):
+    """A pull request: at most 9 jobs, each macOS and Windows job predicted under 10 minutes, for diffs of every kind."""
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    cs = ci_select()
+    samples = [[("M", "README.md")], [("M", "kit/.uak/docs/WHY.md")], [("M", "scripts/kit_lint.py")], [("M", "kit/.uak/bin/lib/core.sh")],
+               [("A", "kit/.uak/tests/test_brand_new.py")], [("M", "kit/.uak/tests/test_v51.py")], [("M", "kit/.uak/bin/smoke")]]
+    worst = 0
+    for changed in samples:
+        sel = cs.select(changed)
+        m = cs.matrices("first", sel)
+        expect(cs.job_count(m) <= 9, "%s: %d jobs on a pull request, over 9" % (changed, cs.job_count(m)))
+        for system, p in cs.predict(sel).items():
+            for s in p["shards"]:
+                worst = max(worst, s["seconds"])
+                expect(s["seconds"] < 600, "%s: a %s job is predicted %d s, not under 10 minutes" % (changed, system, s["seconds"]))
+    whole = cs.matrices("full", cs.select([]))
+    expect(cs.job_count(whole) <= 19, "the second tier is still at most the 19 jobs of today: %d" % cs.job_count(whole))
+    return "at most 9 jobs, longest first-tier job %d s" % worst
+
+
+def first_tier_matrix_reaches_the_jobs(r):
+    """The discover job's tier output feeds the suite and Windows matrices; the portability set is checked by the lint."""
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    ci = (REPO / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+    expect("fromJSON(needs.discover.outputs.shards)" in ci and "fromJSON(needs.discover.outputs.wshards)" in ci, "both matrices come from discover")
+    expect("runs-on: ${{ matrix.shard.os }}" in ci, "a suite shard names its own runner (the first tier has no macOS job when nothing is selected there)")
+    expect(lint.portability_problems(lint.ci_tests()) == [], "the portability set passes the lint")
+    expect(lint.portability_problems(lint.ci_tests(), {"test_policy": ""}) != [], "a file with no reason is refused")
+    return "matrices from discover"
+
+
+TESTS = TESTS + [first_tier_keeps_its_bounds, first_tier_matrix_reaches_the_jobs]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[2])

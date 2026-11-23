@@ -1,9 +1,24 @@
 name: test
-# Once per commit: a branch with an open pull request ran everything on push and again on pull_request (audit v6.7 §1:
-# about 200 checks per PR). Pull requests, then main and tags only; workflow_dispatch runs it on demand.
+# Two tiers (UAK-168). A pull request runs the first tier: the whole suite on Linux, and on macOS and Windows only what the
+# change can affect plus a fixed portability set (scripts/ci_select.py). A push to main and a tag run the second tier, the
+# whole matrix. The whole matrix on a pull request: the label ci-full, a manual run, or a change to this workflow or to the
+# selector. No trigger is filtered by path: a required check of a workflow that did not run stays Pending and blocks the
+# merge, so the workflow always runs and the discover job decides what to select. The one job to require is `ci`.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
+    inputs:
+      tier:
+        description: "full runs the whole matrix; first runs the pull request's first tier on this branch"
+        type: choice
+        options: [full, first]
+        default: full
+      windows_temp:
+        description: "d puts the Windows temp directory on D: (TEMP, TMP, TMPDIR); c leaves it on C: (the measurement of UAK-168)"
+        type: choice
+        options: [d, c]
+        default: d
   push:
     branches: [main]
     tags: ['*']
@@ -17,29 +32,50 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   discover:
-    # The suite's shards (Linux, macOS) and the Windows shards split every kit/.uak/tests/test_*.py by measured seconds:
-    # a new test file runs on the three systems with no edit here.
+    # Decides the tier and prints the matrices. The full lists are the kit_lint.py commands as before (the suite's shards
+    # and the Windows shards split every kit/.uak/tests/test_*.py by measured seconds: a new test file runs on the three
+    # systems with no edit here); ci_select.py chooses between them and the pull request's selection.
     runs-on: ubuntu-latest
     outputs:
-      wshards: ${{ steps.list.outputs.wshards }}
-      shards: ${{ steps.list.outputs.shards }}
+      tier: ${{ steps.pick.outputs.tier }}
+      shards: ${{ steps.pick.outputs.shards }}
+      wshards: ${{ steps.pick.outputs.wshards }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the base of the pull request, to diff against
       - id: list
         run: |
-          python3 scripts/kit_lint.py --ci-windows >> "$GITHUB_OUTPUT"
-          python3 scripts/kit_lint.py --ci-shards 4 >> "$GITHUB_OUTPUT"
+          python3 scripts/kit_lint.py --ci-windows | sed 's/^wshards=/full_w=/' >> "$GITHUB_OUTPUT"
+          python3 scripts/kit_lint.py --ci-shards 4 | sed 's/^shards=/full_s=/' >> "$GITHUB_OUTPUT"
+      - id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          TIER_INPUT: ${{ inputs.tier }}
+          BASE: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+          FULL_S: ${{ steps.list.outputs.full_s }}
+          FULL_W: ${{ steps.list.outputs.full_w }}
+        run: |
+          pos=()
+          if [ "$EVENT" = pull_request ] || [ "$EVENT" = workflow_dispatch ]; then pos=("$BASE" "$GITHUB_SHA"); fi
+          args=(--event "$EVENT" --ref "$REF" --labels="$LABELS" --dispatch-tier="$TIER_INPUT" --full-shards "$FULL_S" --full-windows "$FULL_W")
+          python3 scripts/ci_select.py ${pos[@]+"${pos[@]}"} "${args[@]}" --github-output | tee "$RUNNER_TEMP/pick.txt" | cut -c1-200
+          cat "$RUNNER_TEMP/pick.txt" >> "$GITHUB_OUTPUT"
+          python3 scripts/ci_select.py ${pos[@]+"${pos[@]}"} "${args[@]}" --summary >> "$GITHUB_STEP_SUMMARY"
   suite:
-    # 4 shards per OS, balanced by each file's measured seconds (UAK-018): one sequential macOS job took 15.6 min.
-    # The checks that are not test files run once per OS, in shard 1.
+    # 4 shards per OS, balanced by each file's measured seconds (UAK-018: one sequential macOS job took 15.6 min). Linux
+    # always runs all 4. macOS runs 4 on the second tier and, on the first, one or two jobs of the selection (shard.os and
+    # shard.checks come from the discover job). The checks that are not test files run once per OS in the whole matrix, and
+    # on Linux in every tier.
     needs: discover
-    name: suite (${{ matrix.os }}, ${{ matrix.shard.n }})
+    name: suite (${{ matrix.shard.os }}, ${{ matrix.shard.n }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
         shard: ${{ fromJSON(needs.discover.outputs.shards) }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.shard.os }}
     timeout-minutes: 60   # a hang fails in an hour, not six (a Windows job once hung 84 min)
     steps:
       - uses: actions/checkout@v4
@@ -51,48 +87,46 @@ jobs:
       - name: Git identity for fixtures
         run: git config --global user.name ci && git config --global user.email ci@example.invalid
       - name: Codex/Cursor/Gemini subagents are generated from .claude/agents
-        if: matrix.shard.n == 1
+        if: matrix.shard.checks
         run: python3 scripts/gen_harness.py --check
       - name: The kit's own rules as checks (portability, structure)
-        if: matrix.shard.n == 1
+        if: matrix.shard.checks
         run: python3 scripts/kit_lint.py
       - name: install --update recognizes every kit version ever shipped
-        if: matrix.shard.n == 1
+        if: matrix.shard.checks
         run: python3 scripts/kit_hashes.py --check
       - name: Protocol suite (real Git, local bare remotes), this shard's files
-        working-directory: kit
         env:
           SHARD_TESTS: ${{ matrix.shard.tests }}
-        # stdin held open, as in a terminal: a command that reads it (BSD awk -W version did) hangs here, not on a laptop.
-        # One smoke per file: a failing file is named in the job summary, and the rest of the shard still runs.
+          RETRY: ${{ matrix.shard.os != 'ubuntu-latest' && '--retry' || '' }}
+          JOB: suite (${{ matrix.shard.os }}, ${{ matrix.shard.n }})
+        # One smoke per file with stdin held open, as in a terminal (ci_select.py run): a failing file is named in the job
+        # summary and the rest of the shard still runs. On macOS a failed file runs once more: passing the second time
+        # passes the job and says "flaky" (summary, annotation, artifact); Linux never retries.
         run: |
           [ -n "$(echo $SHARD_TESTS)" ] || { echo "FAILED: this shard has no test files (empty SHARD_TESTS)"; exit 1; }
-          mkfifo "$RUNNER_TEMP/stdin"; sleep 7200 > "$RUNNER_TEMP/stdin" 2>/dev/null & holder=$!
           # Linux: temp paths with a space and an accent, like C:\Users\José Pérez
           if [ "$RUNNER_OS" = Linux ]; then export TMPDIR="$RUNNER_TEMP/José Pérez"; mkdir -p "$TMPDIR"; fi
-          failed=''
-          for t in $SHARD_TESTS; do
-            echo "::group::$t"
-            UAK_SMOKE_TESTS=$t bash .uak/bin/smoke --package-only < "$RUNNER_TEMP/stdin" || failed="$failed $t"
-            echo "::endgroup::"
-          done
-          kill "$holder"
-          if [ -n "$failed" ]; then
-            echo "### Failed test files (${{ matrix.os }}, shard ${{ matrix.shard.n }}):$failed" >> "$GITHUB_STEP_SUMMARY"
-            echo "FAILED test files:$failed"; exit 1
-          fi
+          python3 scripts/ci_select.py run --kind smoke $RETRY --job "$JOB" --out "$RUNNER_TEMP/result.json" $SHARD_TESTS
+      - name: What each file did (the count per file is an artifact of the run)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: result-${{ matrix.shard.os }}-${{ matrix.shard.n }}
+          path: ${{ runner.temp }}/result.json
+          if-no-files-found: ignore
       - name: MCP tools, one by one (tests/)
-        if: matrix.shard.n == 1
+        if: matrix.shard.checks
         run: python3 tests/test_mcp_tools.py
       - name: Installer
-        if: matrix.shard.n == 1
+        if: matrix.shard.checks
         run: |
           t=$(mktemp -d) && git -C "$t" init -q -b main && bash install.sh --mode marathon "$t" && test -f "$t/.uak/PROJECT.md"
   windows:
     # Git Bash, a CRLF checkout (core.autocrlf=true, as on a new Windows machine) and the MCP server started the way
-    # Claude Code starts it. Shards from the discover job (kit_lint.py --ci-windows): the Windows runner is slow at
-    # forking, so the count is the smallest that keeps the longest shard within its margin of 30 minutes. The MCP tools of tests/ are in
-    # a shard as `mcp_tools`.
+    # Claude Code starts it. Shards from the discover job: the whole matrix is kit_lint.py --ci-windows (the Windows runner
+    # is slow at forking, so the count is the smallest that keeps the longest shard within its margin of 30 minutes); a
+    # pull request runs one or two jobs of its selection. The MCP tools of tests/ are in a shard as `mcp_tools`.
     needs: discover
     name: windows (${{ matrix.w.n }})
     strategy:
@@ -111,19 +145,59 @@ jobs:
       - uses: actions/checkout@v4
       - name: Git identity for fixtures
         run: git config --global user.name ci && git config --global user.email ci@example.invalid
-      - name: This shard's files
+      - name: Temp directory on the D drive
+        if: inputs.windows_temp != 'c'
+        run: |
+          if [ -d /d ]; then
+            mkdir -p /d/ci-tmp
+            { echo 'TEMP=D:\ci-tmp'; echo 'TMP=D:\ci-tmp'; echo 'TMPDIR=D:\ci-tmp'; } >> "$GITHUB_ENV"
+          else echo "::warning::no D: drive on this runner: the temp directory stays on C:"; fi
+      - name: This shard's files (a failed file runs once more; passing then is reported as flaky)
         env:
           SHARD_TESTS: ${{ matrix.w.tests }}
+          JOB: windows (${{ matrix.w.n }})
         run: |
           [ -n "$(echo $SHARD_TESTS)" ] || { echo "FAILED: this shard has no test files (empty SHARD_TESTS)"; exit 1; }
-          failed=''
-          for t in $SHARD_TESTS; do
-            echo "::group::$t"
-            if [ "$t" = mcp_tools ]; then python tests/test_mcp_tools.py || failed="$failed $t"
-            else (cd kit && python ".uak/tests/$t.py" --package "$PWD") || failed="$failed $t"; fi
-            echo "::endgroup::"
-          done
-          if [ -n "$failed" ]; then
-            echo "### Failed test files (windows, shard ${{ matrix.w.n }}):$failed" >> "$GITHUB_STEP_SUMMARY"
-            echo "FAILED test files:$failed"; exit 1
-          fi
+          python scripts/ci_select.py run --kind windows --retry --job "$JOB" --out "$RUNNER_TEMP/result.json" $SHARD_TESTS
+      - name: What each file did (the count per file is an artifact of the run)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: result-windows-${{ matrix.w.n }}
+          path: ${{ runner.temp }}/result.json
+          if-no-files-found: ignore
+  ci:
+    # The one check to require, on a pull request and on main (and the only name Merge-Engine-Checks needs). It always
+    # runs and passes only when every job that ran passed; a skipped job did not run.
+    name: ci
+    needs: [discover, suite, windows]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every job that ran passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/ci_select.py gate
+  red-main:
+    # The whole matrix of a commit on main failed (after each file that failed on macOS or Windows already ran a second
+    # time in its job): open one issue "main is red at SHA" or add to the open one; the first green run closes it.
+    needs: [ci]
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: result-*
+          path: results
+      - name: Open, add to or close the issue of a red main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci_select.py issue --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --results results --apply
