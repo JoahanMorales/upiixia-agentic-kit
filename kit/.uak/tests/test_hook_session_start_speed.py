@@ -914,7 +914,7 @@ def hook_functions(r, w, *names):
 
 
 ONCE_FUNCS = ("epoch_age", "start_pid_ok", "start_children", "start_tree", "start_kill_tree", "start_limited",
-              "start_once_live", "start_once_recent", "start_once")
+              "start_once_live", "start_once_recent", "start_once_mine", "start_once")
 
 
 def once_harness(r, w, name, body):
@@ -1146,7 +1146,7 @@ def cached_copy_always_says_its_age(r):
     gd.mkdir()
     (gd / "uak-start.next.txt").write_text("Next: copy\n", encoding="utf-8")
     script = Path(r.scratch) / "show.sh"
-    script.write_text("NOW=$(date +%s)\n" + hook_functions(r, w, "epoch_age", "start_pid_ok", "start_busy", "start_show")
+    script.write_text("NOW=$(date +%s)\n" + hook_functions(r, w, "epoch_age", "start_once_live", "start_busy", "start_show")
                       + '\ngd=$1\nstart_show next 18 next\n', encoding="utf-8")
     now = int(time.time())
     for value, want in ((str(now - 42), r"\b4[2-9] s ago"), (None, "age unknown"), ("", "age unknown"),

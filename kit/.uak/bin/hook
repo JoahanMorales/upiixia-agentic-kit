@@ -63,15 +63,17 @@ else NOW=$(date +%s); fi
 # Written less than $2 minutes ago. The hook writes the epoch into its own state files (stamp) and reads it back; a
 # file without one (touched by bb or by an older kit, or one that holds text) is judged by its mtime, through find.
 # AGE: the seconds since the epoch in $1; fails, with AGE empty, when it is not plain digits (a leading 0 is not octal),
-# has over 11 digits or lies ahead of now: such a value is stale, never an arithmetic error (UAK-185).
+# has over 11 digits or lies more than 15 s ahead of now: such a value is stale, never an arithmetic error (UAK-185).
 epoch_age() {
   local v=${1%$'\r'}
   AGE=
   case "$v" in ''|*[!0-9]*) return 1;; esac
   [ "${#v}" -le 11 ] || return 1
   v=$((10#$v))
-  [ "$v" -le "$NOW" ] || return 1
-  AGE=$((NOW - v))
+  # A few seconds ahead is another start's clock read a moment after ours (each start reads NOW when it begins), not a
+  # time from the future: it counts as now.
+  [ "$v" -le $((NOW + 15)) ] || return 1
+  if [ "$v" -gt "$NOW" ]; then AGE=0; else AGE=$((NOW - v)); fi
 }
 fresh() {
   local v=
@@ -251,10 +253,14 @@ start_detached() { ( trap '' HUP; UAK_FG_LOG=; start_limited "$@" ) < /dev/null 
 # NAME SECONDS CMD...: for work that has no cached copy of its own (pace, map build): one live worker at a time, and
 # none within SECONDS of the last start, so ten session starts in ten seconds run it once. A builtin-only claim (a
 # no-clobber create): the foreground pays no process for it. The file .at keeps the start time, .running the worker.
-# A lock is live when its start is a usable time under 300 s old and its owner (if it names one) still runs. The file
-# is read again while it is empty: its owner is writing it right now. A bad or future time is stale, never "now".
+# A lock is "PID SINCE": live while SINCE is a usable time less than the worker's limit plus 30 s ago (the limit kills
+# the worker, so a lock older than that is a crash's). The hook that took it exits long before its worker does, so its
+# PID says nothing. A bad, missing or future time is stale, never "now". An empty file is read again: its owner is
+# writing it right now.
 start_once_live() { # LOCK
-  local pid= since= n=0
+  local pid= since= n=0 life=${UAK_START_LIMIT:-60}
+  case "$life" in ''|*[!0-9]*|0) life=60;; esac
+  life=$((life + 30))
   while [ "$n" -lt 200 ]; do
     pid= since=
     { IFS=' ' read -r pid since < "$1"; } 2>/dev/null
@@ -262,8 +268,7 @@ start_once_live() { # LOCK
     [ -f "$1" ] || return 1
     n=$((n + 1))
   done
-  epoch_age "$since" && [ "$AGE" -lt 300 ] || return 1
-  [ -z "$pid" ] || { start_pid_ok "$pid" && kill -0 "$pid" 2>/dev/null; }
+  epoch_age "$since" && [ "$AGE" -lt "$life" ]
 }
 start_once_recent() { # AT GAP: the last start is a usable time less than GAP seconds ago
   local began=
@@ -271,11 +276,17 @@ start_once_recent() { # AT GAP: the last start is a usable time less than GAP se
   { IFS= read -r began < "$1"; } 2>/dev/null
   epoch_age "$began" && [ "$AGE" -lt "$2" ]
 }
+start_once_mine() { # LOCK MARK: the lock still holds what this start wrote (another start may have replaced the file)
+  local cur=
+  { IFS= read -r cur < "$1"; } 2>/dev/null
+  [ "$cur" = "$2" ]
+}
 start_once() {
   local name=$1 gap=$2 lock="$gd/uak-once.$1.running" at="$gd/uak-once.$1.at" guard="$gd/uak-once.$1.reclaim" g=
+  local mark="$$ $NOW"
   shift 2
   start_once_recent "$at" "$gap" && return 0
-  if ! ( set -C; printf '%s %s\n' "$$" "$NOW" > "$lock" ) 2>/dev/null; then
+  if ! ( set -C; printf '%s\n' "$mark" > "$lock" ) 2>/dev/null; then
     start_once_live "$lock" && return 0
     # One reclaimer at a time, and it judges the lock again under the guard: a lock another start took after our first
     # read is live and stays (before UAK-185 two starts removed each other's lock and both ran the job).
@@ -287,27 +298,27 @@ start_once() {
     fi
     if start_once_live "$lock"; then rm -f "$guard"; return 0; fi
     rm -f "$lock"
-    ( set -C; printf '%s %s\n' "$$" "$NOW" > "$lock" ) 2>/dev/null || { rm -f "$guard"; return 0; }
+    ( set -C; printf '%s\n' "$mark" > "$lock" ) 2>/dev/null || { rm -f "$guard"; return 0; }
     rm -f "$guard"
   fi
-  # Another start may have finished the job between our first look and the lock.
+  # Our write may have gone to a file another start has since replaced; and another start may have finished the job
+  # between our first look and the lock.
+  start_once_mine "$lock" "$mark" || return 0
   if start_once_recent "$at" "$gap"; then rm -f "$lock"; return 0; fi
   printf '%s\n' "$NOW" > "$at" 2>/dev/null
   (
     trap '' HUP
     UAK_FG_LOG=
-    trap 'rm -f "$lock"' EXIT
+    trap '! start_once_mine "$lock" "$mark" || rm -f "$lock"' EXIT
     start_limited "$@"
   ) < /dev/null > /dev/null 2>&1 &
-  printf '%s %s\n' "$!" "$NOW" > "$lock" 2>/dev/null
   return 0
 }
 start_busy() { # NAME: a refresh of it is running
-  local marker= pid= since=
+  local marker=
   for marker in "$gd"/uak-start."$1".*.running; do [ ! -f "$marker" ] || return 0; done
   [ -f "$gd/uak-once.$1.running" ] || return 1
-  { IFS=' ' read -r pid since < "$gd/uak-once.$1.running"; } 2>/dev/null
-  start_pid_ok "$pid" && kill -0 "$pid" 2>/dev/null
+  start_once_live "$gd/uak-once.$1.running"
 }
 start_has_copy() { # NAME: there is something to show without waiting
   case "$1" in pace) [ -n "$p" ];; *) [ -s "$gd/uak-start.$1.txt" ];; esac
