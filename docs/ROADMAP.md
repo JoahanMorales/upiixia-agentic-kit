@@ -35,9 +35,11 @@ code needs a gate that does not run the code it merges; that is not designed yet
 to the human (`Generated: PATH = COMMAND`, UAK-148); a whole `integrate` starts about 1,500 git processes, and `heartbeat` 139
 (target 20); the dashboard's tokens change only when someone runs `uak tokens --publish`; `autopsy`, `design` and
 `pace set` stay "outcome not recorded" in the ledger; `smoke --affected` selects by a text match on command names;
-`test_flaky_guard` takes 25 minutes on Windows and leaves its shard 15 s under the planned bound, and
-`test_merge_renewer_orphan` failed once on a slow Windows runner; a stale entry in the CI timing tables is not
-reported; the dashboard's reader of PROJECT.md does not strip bullets or backticks as the shell reader does, and treats
+`test_flaky_guard_race` still takes about 21 minutes on Windows (UAK-150 split the file, the longest shard is predicted
+158 s under its margin; UAK-151 measured that the lease runs alone take 862 to 1336 s, so no split gets it under half
+the bound, and a test now proves its load: 60 jobs, a pool of 4, at least one hog); that proof does not see a case that
+stops waiting for its results or swallows a failure; `test_merge_engine_policy` ran 1000 s on Windows against an entry
+of 905; `test_merge_renewer_orphan` failed once on a slow Windows runner; the dashboard's reader of PROJECT.md does not strip bullets or backticks as the shell reader does, and treats
 a lease of 0 differently; a `|` in free text splits a row of `uak board --md`; `tokens --since 0` can read a transcript
 written in the same second; a non-numeric `UAK_RC_SPINS` disables the read cache's give-up; `wt new` prints no notice
 when a global `core.hooksPath` names a missing directory; `install.sh` run from a checkout copies Python's
