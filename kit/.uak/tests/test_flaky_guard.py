@@ -42,7 +42,7 @@ RACE_RUNS = 60  # without the engine fix about 4 in 10 of them remove the parent
 # the incident (UAK-138); the 60 measured runs are the 20 of each kind, the background jobs come on top.
 JOBS_PER_KIND = RUNS
 POOL_WORKERS = 4
-BACKGROUND_JOBS = 4
+BACKGROUND_JOBS = 2
 
 
 class Failure(Exception):
