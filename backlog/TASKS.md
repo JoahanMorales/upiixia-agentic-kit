@@ -1447,3 +1447,134 @@ Append-only; added to .uak/TASKS.md from main. Why: adding tasks never waits for
 - **Acceptance:**
   - twenty_runs_under_load runs as three cases, one per kind of job (picker, mcp, lease), so no test file is excepted from the half-bound rule for flaky_guard; the test of the split proves the load (jobs, hogs, workers), not only the case names; the race file's Windows entry is measured again
 - **Verify:** `python3 kit/.uak/tests/test_ci_shards.py`
+## UAK-152 · The visual setup and the unified dashboard come in: the contributed branch is merged onto v6.8 with its history
+
+- **Type:** feature
+- **Priority:** P0
+- **Estimate:** 8 h
+- **Depends on:** None
+- **Test-First:** no (a merge of a contribution that brings its own tests; the task adds no behaviour of its own)
+- **Paths:** .github/workflows/test.yml, CHANGELOG.md, README.md, install.sh, docs/, kit/, scripts/
+- **Acceptance:** the branch of the third delivery (commit `8c9e2f17`, which contains the first two; fetch it with `git fetch https://github.com/DylanMCDS/upiixia-agentic-kit.git pull/52/head`) is merged into the task's branch with a merge commit, so the contributor's 201 commits and authorship stay in the history; nothing is squashed or rebased, conflicts are resolved keeping both sides' behaviour: `hook` keeps the background session start and prints main's "claims as of N s ago" line; `status.sh` keeps `budget_note`, `rc_age_line` and the reviewer-aware `next`; `dash.py` and `dash.html` keep the REVIEW sub-states and the single lease rule of v6.8 and gain the profiles, the offline mode and `Live-URL`; `CLI.md` lists the fields of both sides, decided by the human (2026-11-22), applied here: CI stays as on main (18 jobs per commit, macOS on pull requests); the contributed `exclude` of macOS, `ci_once_problems` and `test_ci_light.py` are not taken, and the check that the workflow has `workflow_dispatch` moves into main's lint; `install.sh` keeps main's handling of tests (`--with-tests`, pruning by known hash) and never runs `rm -rf .uak/tests`; the tutorial video and its poster and captions are not copied into a project (the wizard shows them from the kit's checkout when it is there, and a link otherwise); the design lock stays for events under 24 h, and the task cap by hours and people is taken, task IDs that collide with main are renumbered everywhere they appear (changelog, WHY.md, tests, comments): the contributed UAK-009…013, 038, 067…069 and 087…096 get new numbers from UAK-170 on, listed in one table in the changelog entry; UI-001…024 keep their numbers. WHY.md rows state the rule and its reason without naming who decided; the changelog credits the contributor, every new test file has an entry in `CI_SECONDS` and `CI_WINDOWS_SECONDS` measured in the task's own CI run, no file is over half of `WINDOWS_BOUND_S` (split it, do not add an exception), the longest Windows shard stays under the margin, and the job count stays 18, `kit_lint`, `kit_hashes`, `gen_registry` and the whole smoke pass on Linux, macOS and Windows; a marathon install stays under 270 files, main is not released between this task and UAK-153: the wizard still performs the human's acts unguarded until then
+- **Verify:** `python3 scripts/kit_lint.py && python3 kit/.uak/tests/test_ci_shards.py && python3 kit/.uak/tests/test_install_light.py && python3 kit/.uak/tests/test_setup_wizard.py`
+- **Next step:** `git merge --no-ff 8c9e2f17`; nine files conflict (`test.yml`, `CHANGELOG.md`, `install.sh`, `hook`, `dash.html`, `dash.py`, `status.sh`, `CLI.md`, `known-files.txt`); regenerate `known-files.txt` last
+
+## UAK-153 · The wizard acts for the human only when a human runs it
+
+- **Type:** fix
+- **Priority:** P0
+- **Estimate:** 5 h
+- **Depends on:** UAK-152
+- **Paths:** kit/.uak/bin/lib/setup.py, kit/.uak/bin/lib/setup.html, kit/.uak/bin/guard, kit/.uak/docs/WHY.md, kit/.uak/docs/SECURITY.md, docs/DASHBOARD.md, kit/.uak/tests/test_setup_trust.py
+- **Acceptance:** `setup.py` (and so `install.sh --wizard`) refuses to start when the process has an agent identity: `UAK_AGENT` set, a `.uak-env` naming an agent, `uak.agent` in the git config, or a checkout that is an agent's worktree. The refusal names the reason and how a human starts it, `guard` blocks an agent's command that starts the wizard (`setup.py`, `install.sh --wizard`) or that sends a request to a local wizard, in every mode, as it blocks a command that sets `UAK_HUMAN`, the session token is never printed and never appears in a process's arguments: the browser is opened on a one-time code that the server exchanges, once, for the session; the printed line carries no secret. A session idle for 30 minutes ends, and the terminal says how to open a new one, the human's name is not free text from the page: it is the git identity of the checkout, shown, not typed; a request that names another is refused, registering a reviewer, approving a plan and publishing the kit go through the engine's own commands where one exists, and each writes one line to `uak-direct-main.log` (what, who, when, the commit), as a human's direct push does, a page of another origin, a request with a wrong Host and a request without the session are refused as today, Why (audit, 2026-11-22): an agent could start the wizard, read the token from its own output, name any human and register a reviewer, approve a plan and push to main; the server strips `UAK_*`, so the pre-push hook saw no agent. WHY.md: "Human authority only from the shell"
+- **Tests:** agent_identity_cannot_start_the_wizard, guard_blocks_an_agent_starting_the_wizard, token_is_not_printed_or_in_argv, one_time_code_works_once, idle_session_ends, human_name_is_the_git_identity, human_acts_are_logged
+- **Verify:** `python3 kit/.uak/tests/test_setup_trust.py`
+- **Next step:** `run_command` and the token in kit/.uak/bin/lib/setup.py (search `token_urlsafe`, `UAK SETUP`, `safe_environment`); the POST dispatcher lists the three acts (`/api/team/reviewer`, `/api/plan/approve`, `/api/publish-kit`)
+
+## UAK-154 · A newer kit blocks a published project only on a major version
+
+- **Type:** feature
+- **Priority:** P1
+- **Estimate:** 2 h
+- **Depends on:** UAK-152
+- **Paths:** kit/.uak/bin/start, kit/.uak/docs/CLI.md, kit/.uak/tests/test_start_version_gate.py
+- **Acceptance:** in a project whose kit is already on the team's base branch (or with `Freeze-Epoch` set), a newer release with the same major version is a note that does not block `uak start`; a newer major version is a `need` that blocks until the kit is updated, and says which version and how, a project that has not published the kit yet is blocked by any newer release, as before the contribution, `UAK_KIT_PIN` behaves as today; versions are compared as numbers (`6.10.0` is newer than `6.9.0`), and an unreadable version blocks nothing and says so
+- **Tests:** same_major_is_a_note, newer_major_blocks_a_published_project, unpublished_project_is_blocked_by_any_release, versions_compare_as_numbers
+- **Verify:** `python3 kit/.uak/tests/test_start_version_gate.py`
+- **Next step:** the version check in kit/.uak/bin/start (search `VERSION` and `not blocking`)
+
+## UAK-155 · `done --pr none` is tested under every review mode, and the generated smoke does not trust file names
+
+- **Type:** fix
+- **Priority:** P1
+- **Estimate:** 3 h
+- **Depends on:** UAK-152
+- **Paths:** kit/.uak/bin/lib/done.sh, kit/.uak/bin/lib/smoke-init.sh, kit/.uak/tests/test_done_without_github.py, kit/.uak/tests/test_smoke_onboarding.py
+- **Acceptance:** a task finished with `--pr none` is never merged without an approval of its exact tip by another registered identity, in `Review-Mode` claims, gh and auto; under `Merge-Engine: ci` it goes to the human (the required checks need a pull request), with a reason that says so, `UAK_REVIEW_MODE` in the environment never lets `--pr none` through on a repository whose base PROJECT.md says `Review-Mode: gh`, the boot command that `init-smoke` generates never interpolates a file or package name into a shell string: a name with a quote, a space, `;` or `$(` is passed as an argument or refused, and the generated smoke says which
+- **Tests:** pr_none_still_needs_an_approval, pr_none_goes_to_the_human_under_merge_engine_ci, env_review_mode_does_not_override_the_base, smoke_boot_does_not_run_a_file_name
+- **Verify:** `python3 kit/.uak/tests/test_done_without_github.py && python3 kit/.uak/tests/test_smoke_onboarding.py`
+- **Next step:** `done_no_pr_check` in kit/.uak/bin/lib/done.sh and `boot`/`detect` in kit/.uak/bin/lib/smoke-init.sh
+
+## UAK-156 · The wizard is one process that ends by itself, and an open page costs nothing while nothing happens
+
+- **Type:** fix
+- **Priority:** P0
+- **Estimate:** 6 h
+- **Depends on:** UAK-153
+- **Paths:** kit/.uak/bin/lib/setup.py, kit/.uak/bin/lib/planning.py, kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/dash.py, docs/DASHBOARD.md, scripts/kit_lint.py, kit/.uak/tests/test_setup_processes.py
+- **Acceptance:** one server per project: a start records its pid and port under the git directory; a second start for the same project checks that the first answers and opens that one, and starts nothing; a stale record (dead pid, port not answering) is replaced, the server ends by itself: 15 minutes with no request, or the page closed (the page says so on `pagehide`) and no action running; SIGTERM, SIGHUP and Ctrl-C end it too. The terminal prints why it ended and the one command that opens it again. The port is free at once, no child outlives the server: every child (git, `uak`, `install.sh`, the planner `claude`/`codex`) is in a group the server records and kills on every exit path, on Linux, macOS and Windows; on Linux a child also dies when the server is killed with SIGKILL (parent-death signal); a start reaps what a killed server left, from the record. The planner's time limit is 10 minutes, not 30, no timer runs the readiness check: `/api/check` runs when the page loads, after an action of the user, and on a button; never every 60 s, every poll stops while the page is hidden and backs off while nothing changes (20 s, 60 s, 120 s); progress of a running action may poll every 1.2 s only while that action runs, the dashboard's data inside the wizard imports `dash.py` once per server, and when the claims tip did not move a refresh costs one `git ls-remote` and nothing else, the standalone dashboard keeps main's model (a file under the git directory, opened from `file://`, no server, no port); the wizard shows that same page and never needs a second process for it, measured in the test with a counting `git` in PATH: a visible idle page on any wizard screen starts 0 processes in 60 s after its first load (950 before); the dashboard screen at most 3 `git` per minute when nothing moved (18 before); 200 quick requests leave no extra thread after 30 s, Why (measured 2026-11-22): one `/api/check` costs about 950 forks and 1.25 CPU-s and ran every minute for ever; two starts gave two servers on two ports, neither ended; a planner survived SIGTERM, SIGKILL and SIGHUP of the server with PPID 1
+- **Tests:** second_start_reuses_the_first, idle_server_ends, closed_page_ends_the_server, no_child_survives_sigterm, no_child_survives_sigkill_on_linux, stale_record_is_reaped, idle_page_starts_no_process, hidden_page_does_not_poll, dashboard_refresh_is_one_ls_remote
+- **Verify:** `python3 kit/.uak/tests/test_setup_processes.py`
+- **Next step:** `run_command` (`start_new_session=True`) and `main()` (`serve_forever`) in kit/.uak/bin/lib/setup.py; `autoCheck` (`setInterval(...,60000)`) and `loadDashboard` (`setTimeout(...,20000)`) in setup.html; `PLAN_TIMEOUT` in planning.py. A new test file needs its entries in both timing tables
+
+## UAK-157 · The hook's background start cannot hang or pile up
+
+- **Type:** fix
+- **Priority:** P1
+- **Estimate:** 2 h
+- **Depends on:** UAK-152
+- **Paths:** kit/.uak/bin/hook, kit/.uak/tests/test_hook_session_start_speed.py
+- **Acceptance:** the background worker of a session start has a time limit (60 s): a `git` that hangs is killed with its children and leaves no process with PPID 1, `pace` and `map build` started by the hook are single-flight like `next`: ten session starts in ten seconds run each at most once, the foreground waits only when there is no cached copy to show; with a cached copy the hook answers without waiting for the network, and says how old the copy is
+- **Tests:** hung_worker_is_killed, pace_and_map_run_once_under_ten_starts, cached_start_does_not_wait
+- **Verify:** `python3 kit/.uak/tests/test_hook_session_start_speed.py`
+- **Next step:** `start_bg` in kit/.uak/bin/hook (`trap '' HUP`, no timeout; `UAK_START_WAIT`)
+
+## UAK-158 · One design system: the wizard is drawn with the dashboard's tokens, and `design-lint` reads HTML
+
+- **Type:** feature
+- **Priority:** P0
+- **Estimate:** 6 h
+- **Depends on:** UAK-156
+- **Paths:** kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/dash.html, kit/.uak/bin/design-lint, kit/.uak/media/, docs/DASHBOARD.md, docs/design/, scripts/kit_lint.py, kit/.uak/tests/test_setup_design.py
+- **Acceptance:** `setup.html` and `dash.html` declare the same custom properties with the same values in light and dark (page, surface, raised, ink, ink-2, muted, line, accent, accent-ink, critical, shadow, mono, radii): the set is the direction the human chose from the three shown to them, recorded in `docs/design/DIRECTION.md` on main before this task starts (palette, type, radii, spacing, in light and dark); the wizard's own palette, its 20 px radius and its three hard-coded shadows go. A test compares the two `:root` blocks and fails on any difference, outside `:root` no colour literal remains in either file; the wizard uses at most 6 font sizes and one spacing scale (4, 8, 12, 16, 24, 32, 48), the radii and the body size of the chosen direction, one shadow token, `design-lint` applies its rules to `.html` (inline `<style>` and `style=`), not only the two scale checks: colour literals outside `:root`, coloured side stripes, glass, glow, emoji and glyphs used as icons (`✓ ✗ ! •` included), more than 6 font sizes, more than one primary button visible in a view. Both pages pass with `--strict`, with no finding suppressed, status marks are inline SVG icons with a text label, never a glyph; a disabled control keeps 4.5:1 for its label (2.9:1 today); every text/background pair of the tokens is at least 4.5:1 in both themes, computed by the test, the tutorial's poster and its frames use the kit's palette (no purple glow), screenshots at 1280 and 390, light and dark, of every screen are in `.uak-shots/UAK-158/` with the design critic's `VERDICT: SHIP` for the task's commit, Why (2026-11-22): the two pages share no colour value; the wizard frames the blue dashboard inside a green page; `design-lint` printed PASS for both because it does not read HTML (a copy renamed `.js` gave 40 findings)
+- **Tests:** wizard_and_dashboard_share_tokens, no_colour_literal_outside_root, six_font_sizes_one_spacing_scale, design_lint_reads_html, every_pair_has_contrast, disabled_label_is_readable
+- **Verify:** `python3 kit/.uak/tests/test_setup_design.py && bash kit/.uak/bin/design-lint --strict kit/.uak/bin/lib/setup.html kit/.uak/bin/lib/dash.html`
+- **Next step:** `:root` in setup.html (lines 13-28 and 657-702 of the contributed file) against dash.html lines 12-47; existing tests that assert the old colours or classes need `uak allow UAK-158 --tests` from the human
+
+## UAK-159 · The wizard's flow: ten screens, one job each, and it covers what the kit does today
+
+- **Type:** feature
+- **Priority:** P0
+- **Estimate:** 12 h
+- **Depends on:** UAK-158
+- **Paths:** kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/setup.py, docs/DASHBOARD.md, kit/.uak/tests/test_setup_forms.py, kit/.uak/tests/test_setup_guide.py, kit/.uak/tests/test_setup_resume.py, kit/.uak/tests/test_setup_first_run.py
+- **Acceptance:** the flow approved by the human (2026-11-23), one screen per job, each with one primary button: (1) Your project: what was detected (folder, new or existing repository, a hook manager such as husky or lefthook, CI, the project's own tests, the stack) and the mode proposed with its reason; the tools are chosen here. (2) Install: what will be written, how many files, and how the kit's hooks live beside the team's. (3) Unblock: only when something fails, one problem at a time with its fix. (4) How your team will work: the project's rules in plain words with the mode's defaults (`Test-First`, review with or without GitHub, `Review-Independence`, `Merge-Engine`, generated files, the token budget), details under "Advanced"; it writes nothing the human did not confirm. (5) People: the human's identity, reviewers, roles. (6) Schedule: only in Hackathon mode. (7) Publish the kit. (8) Idea and plan: the idea, the design direction when the project has screens (the creativity index and the design lock), the plan, the approval. (9) Start: the command for each agent; the screen says when the first agent has claimed a task. (10) Dashboard: from here, deployment (`uak deploy`, the smoke that boots the app, `Live-URL`), external skills (`uak skill add`) and "Close the wizard", which ends the server, a project that already has the kit opens on the screen it needs; an older kit opens "Update", a path of its own, never an alarm heading over another screen, there is no welcome screen, no slogan, no eyebrow and no benefit pairs; the first screen says what will happen in this project in two sentences. The video is a link. The folder is not asked inside a repository (it is shown with "Change"). A first install takes at most 4 clicks, diagnostics (`Blackbox`) are never pre-checked: the screen says what is published and where, and that a public repository makes it public; the human chooses, no screen is taller than two viewports at 1280×800 or three at 390×844 with real content ("Get ready" was 4518 px and 6457 px), an instruction appears once: one command, one copy box, the folder already in it; raw output of `uak start` is under "Technical details", never a heading. A heading is a sentence that starts with a capital and says what to do, an error is next to the control that caused it and above the button, in view after the click at both widths, names what to do, and is the message of that step, the step is in the URL: reload stays on it, the browser's Back and Forward move between steps, reopening a project resumes where it was, at 390 px the content starts within 160 px of the top, every target is at least 44×44 px, nothing scrolls sideways; the journey bar and the step rail are one component, a running action shows what it is doing and for how long, next to its button; a page whose server ended says so when it comes back into view, with the command that reopens it, screenshots at 1280 and 390, light and dark, Spanish and English, of every screen and of one error and one loading state are in `.uak-shots/UAK-159/` with the design critic's `VERDICT: SHIP` for the task's commit
+- **Tests:** flow_has_the_ten_screens, existing_repository_is_detected, rules_screen_writes_only_what_was_confirmed, schedule_only_in_hackathon, diagnostics_are_not_prechecked, old_kit_opens_update, close_ends_the_server, no_screen_taller_than_two_viewports, instruction_appears_once, first_install_in_four_clicks, error_is_next_to_its_control, step_survives_reload_and_back, mobile_content_starts_within_160px, targets_are_44px
+- **Verify:** `python3 kit/.uak/tests/test_setup_forms.py && python3 kit/.uak/tests/test_setup_guide.py && python3 kit/.uak/tests/test_setup_resume.py && python3 kit/.uak/tests/test_setup_first_run.py`
+- **Next step:** the "Get ready" markup in setup.html (about lines 1700-2040 of the contributed file) and the hero at 1434-1460; the detection of hooks is `doctor`'s (UAK-135, UAK-146), reuse it; changed assertions need `uak allow UAK-159 --tests` from the human
+
+## UAK-160 · The wizard's Spanish is written, not translated from the engine's sentences
+
+- **Type:** fix
+- **Priority:** P1
+- **Estimate:** 5 h
+- **Depends on:** UAK-159, UAK-161
+- **Paths:** kit/.uak/bin/lib/workspace.js, kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/setup.py, kit/.uak/bin/start, kit/.uak/tests/test_setup_language.py
+- **Acceptance:** the page never matches the engine's English prose: `uak --json start` (and the other commands the wizard runs) give each need and note a stable code and its values, and the page's texts are keyed by code in both languages. A test rewords an engine sentence and the Spanish page is unchanged; a code with no text in a language fails the test, it does not fall back to English, one voice in Spanish: "tú" throughout, usage of Mexico ("haz clic", not "pulsa"), no sentence that mixes languages. A glossary in the page's dictionary fixes the terms that stay in English because they are commands or git words (`commit`, `merge`, `pull request`, `worktree`, `main`) and the ones that are translated (dashboard → panel, claim → tomar una tarea); the test fails on a term outside it, both languages are complete on every screen, including the readiness block and the commands' explanations, no exclamation marks, no filler ("simplemente", "fácilmente", "potente"), sentence case in headings and buttons
+- **Tests:** texts_are_keyed_by_code, rewording_the_engine_changes_nothing, no_missing_text_in_either_language, one_voice_in_spanish, glossary_is_respected
+- **Verify:** `python3 kit/.uak/tests/test_setup_language.py`
+- **Next step:** the dictionary and the regex table in kit/.uak/bin/lib/workspace.js and the needs of kit/.uak/bin/start; changed assertions need `uak allow UAK-160 --tests` from the human
+
+## UAK-161 · The install asks how you want to continue: in the browser or in the terminal, and both reach the same place
+
+- **Type:** feature
+- **Priority:** P0
+- **Estimate:** 5 h
+- **Depends on:** UAK-154
+- **Paths:** install.sh, kit/.uak/bin/start, kit/.uak/docs/CLI.md, README.md, docs/HACKATHON.md, scripts/kit_lint.py, kit/.uak/tests/test_install_choice.py
+- **Acceptance:** `bash install.sh` run by a person at a terminal ends with one question: continue in the browser (the wizard) or here in the terminal; Enter takes the terminal, the answer is one key, and the question says in one line what each is. `--wizard` and `--terminal` answer it beforehand, with no terminal (a pipe, CI, an agent, `UAK_AGENT` set) nothing is asked and nothing opens: the install ends as today, so every existing script and test keeps working, the choice is remembered for the project (git config, not a tracked file) and can be changed: `uak start --wizard` opens the wizard later, and the wizard's last screen and its "Close" say the terminal command that continues from the same point, the terminal path covers the same steps as the wizard, in the same order and with the same names: `uak start` prints the one next step with its command (project detected, rules, people, schedule in Hackathon mode, publish the kit, idea and plan, start the agents), and a step done in one is done in the other: the state is the project's, never the page's, a machine without Python 3.8 or without a browser is told so and continues in the terminal; the wizard is never a requirement
+- **Tests:** install_asks_once_at_a_terminal, no_terminal_no_question, flags_answer_the_question, choice_is_remembered, terminal_and_wizard_share_the_state, start_names_the_same_steps, no_python_continues_in_terminal
+- **Verify:** `python3 kit/.uak/tests/test_install_choice.py`
+- **Next step:** the end of install.sh (`--wizard` execs setup.py today) and the needs of kit/.uak/bin/start; a new test file needs its entries in both timing tables
+
+## UAK-162 · The dashboard is redrawn in the chosen direction
+
+- **Type:** feature
+- **Priority:** P0
+- **Estimate:** 8 h
+- **Depends on:** UAK-158
+- **Paths:** kit/.uak/bin/lib/dash.html, kit/.uak/bin/lib/dash.py, docs/DASHBOARD.md, docs/media/, README.md, kit/.uak/tests/test_dashboard_truth.py, kit/.uak/tests/test_dashboard_profiles.py
+- **Acceptance:** the dashboard is redesigned with the tokens of `docs/design/DIRECTION.md`: the same information as today (progress, agents online, reviews waiting with their sub-state, stalled, needs a human, board, agents, conversation, black box, memory, tokens), nothing dropped; the first thing read is what needs a person now, then progress, then the board, an empty project is not a grid of zeros: it says the one next step and its command; each number that is zero because nothing happened yet says so in words, it stays one file opened from `file://`, with no server, no port, no external request and no build step; the page is not heavier than today (84 KB) and its two timers start no process, both profiles (beginner, advanced), both themes and both languages are complete; every text/background pair is at least 4.5:1; every target is at least 44×44 px at 390; nothing scrolls sideways; it is usable with the keyboard alone, and motion stops under `prefers-reduced-motion`, `design-lint --strict` passes on it with no finding suppressed (main's file has 26 today: 19 colour literals, 5 rgba, 1 glass, 1 emoji), screenshots at 1280 and 390, light and dark, of an empty project, a project in progress (20 tasks, 3 agents, a review over its lease, a blocked task) and a finished one are in `.uak-shots/UAK-162/` with the design critic's `VERDICT: SHIP` for the task's commit; the README's and the docs' images of the dashboard are replaced
+- **Tests:** dashboard_keeps_every_field, empty_project_says_the_next_step, no_server_no_request, page_is_not_heavier, both_profiles_and_languages_are_complete
+- **Verify:** `python3 kit/.uak/tests/test_dashboard_truth.py && python3 kit/.uak/tests/test_dashboard_profiles.py && bash kit/.uak/bin/design-lint --strict kit/.uak/bin/lib/dash.html`
+- **Next step:** kit/.uak/bin/lib/dash.html (tokens at the top, the hero and the four tiles, the tabs); the data comes from `dash.py`, whose fields the existing tests list; changed assertions need `uak allow UAK-162 --tests` from the human
