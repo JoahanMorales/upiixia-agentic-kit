@@ -1297,10 +1297,12 @@ def killed_map_build_is_not_a_built_map(r):
     pids = []
     env = {"UAK_START_LIMIT": "2", "UAK_HUNG_DIR": control.as_posix()}
     try:
-        lens_tick(r, w, "s-map-a", env)
+        t = lens_tick(r, w, "s-map-a", env)
         deadline = time.monotonic() + 15
         while not (control / "pids").exists() and time.monotonic() < deadline:
             time.sleep(0.2)
+        expect((control / "pids").exists(), "the lens started a map build; tick said %r %r; git dir holds %r"
+               % (t.stdout[-300:], t.stderr[-300:], sorted(p.name for p in gd.glob("uak-*"))[:40]))
         pids = [int(x) for line in (control / "pids").read_text().splitlines() for x in line.split()]
         deadline = time.monotonic() + 25
         while (any(alive(r, w, p) for p in pids) or (gd / "uak-map/symbols.tsv").exists()) and time.monotonic() < deadline:
@@ -1373,8 +1375,9 @@ def counter_files_are_validated(r):
             expect(out.returncode == 0, "a counter holding %r does not abort the tick: %r" % (value, out.stderr[-300:]))
             expect(not (w / "PWNED").exists() and not (gd / "PWNED").exists(), "%r ran a command" % value)
             want = "9" if value == "08" else "1"   # 08 is eight, anything that is not digits starts again from 0
-            expect((coach / "calls").read_text().strip() == want, "the call counter after %r is %r, not %s"
-                   % (value, (coach / "calls").read_text(), want))
+            expect((coach / "calls").read_text().strip() == want, "the call counter after %r is %r, not %s; tick said %r %r; "
+                   "git dir %s holds %r" % (value, (coach / "calls").read_text(), want, out.stdout[-300:], out.stderr[-300:],
+                                           gd, sorted(p.name for p in gd.glob("uak-*"))[:40]))
             poll = (gd / "uak-inbox.poll").read_text().strip()
             expect(poll.isdigit() and int(poll) > 10**9, "the tick went on to poll and stamped %r (held %r)" % (poll, value))
     finally:
