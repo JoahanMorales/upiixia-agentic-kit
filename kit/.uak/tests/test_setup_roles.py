@@ -103,10 +103,12 @@ def roles_follow_the_tools_you_have(root, tmp):
             assert status == 400, (bad, body)
             assert roles_file(target).read_bytes() == written, "a refused pick writes nothing: %r" % (bad,)
         # Another person on the same clone starts from the defaults and keeps her pick apart.
+        tp.git(target, "config", "user.name", "Bob")  # UAK-153: the name is the checkout's Git identity
         assert post(srv, "/api/human", {"name": "bob"})[0] == 200
         bob = get(srv, "/api/team")[1]["roles"]
         assert (bob["implement"], bob["review"], bob["saved"]) == ("claude", "codex", False), bob
         assert post(srv, "/api/team/roles", {"implement": "claude", "review": "claude"})[0] == 200
+        tp.git(target, "config", "user.name", "Ana Human")
         assert post(srv, "/api/human", {"name": "ana"})[0] == 200
         ana = get(srv, "/api/team")[1]["roles"]
         assert (ana["implement"], ana["review"]) == ("codex", "claude"), "her pick survives bob's: %r" % ana
@@ -133,7 +135,7 @@ def roles_follow_the_tools_you_have(root, tmp):
     tp.git(clone, "config", "user.name", "Bob")
     tp.git(clone, "config", "user.email", "bob@example.invalid")
     with tp.live(clone, team.Team()) as srv:
-        team.ready(srv, clone)
+        team.ready(srv, clone, "bob")  # UAK-153: the clone's Git identity is Bob
         roles = get(srv, "/api/team")[1]["roles"]
         assert (roles["implement"], roles["review"], roles["saved"]) == ("claude", "codex", False), roles
     # An unreadable file is replaced only when it is a regular file in a real folder; a link is refused.

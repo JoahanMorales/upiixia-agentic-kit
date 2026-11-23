@@ -630,10 +630,12 @@ def reviewer_state_follows_project_and_name(root, tmp):
         view = tp.get(srv, "/api/team")[1]
         assert view["registered"]["registered"] is True and view["registered"]["registered_by"] == "ana", view
         assert len(team.calls) == runs, "read from claims: no engine run"
+        tp.git(a, "config", "user.name", "Bob")  # UAK-153: the name is the checkout's Git identity
         assert tp.post(srv, "/api/human", {"name": "bob"})[0] == 200
         view = tp.get(srv, "/api/team")[1]
         assert view["reviewer"] == "bob-r" and view["registered"]["registered"] is False, view
         assert not (tp.get(srv, "/api/status")[1].get("reviewer") or {}).get("registered")
+        tp.git(a, "config", "user.name", "Ana Human")
         assert tp.post(srv, "/api/human", {"name": "ana"})[0] == 200
         retire(a, "ana-r", "ana")
         check(srv)
