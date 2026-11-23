@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>UAK · propuesta 6</title>
+<title>UAK · propuesta 8</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
 /* Layout: a product shell (icon rail, top bar) taken from the kit's own banner:
@@ -132,7 +132,7 @@ h1,h2,h3,p,ul,ol,dl,dd{margin:0;padding:0}ul,ol{list-style:none}
 .more{display:block;padding:8px 12px;border-top:1px solid var(--line);font-size:12px;font-weight:500;color:var(--accent-ink);text-decoration:none}
 .plus{display:block;padding:2px 0 0}
 /* tablero: four stages; blocked and overdue are conditions shown on the card */
-[data-tab=resumen] .tb,[data-tab=tablero] .page{display:none}
+[data-tab=tablero] .page,[data-tab=mensajes] .page{display:none}.tb,.ms{display:none}[data-tab=tablero] .tb{display:block}[data-tab=mensajes] .ms{display:block}
 .tb{padding:16px 20px 24px}
 .find{margin-left:auto;display:flex;align-items:center;gap:6px;border:1px solid var(--line2);border-radius:var(--r-s);height:28px;padding:0 8px;color:var(--muted);background:var(--surface)}
 .find input{border:0;background:none;outline:0;font:inherit;font-size:12px;color:var(--ink);width:180px}
@@ -168,6 +168,47 @@ h1,h2,h3,p,ul,ol,dl,dd{margin:0;padding:0}ul,ol{list-style:none}
 .mini h3 b{display:flex;align-items:center;gap:6px;font-weight:600}.mini h3 i{width:8px;height:8px;border-radius:2px}.mini h3 span{font:500 10px var(--mono);color:var(--muted)}
 .mini .more{border:0;padding:2px 0;font-size:11px}
 #board{overflow:hidden}
+/* messages: one thread per task, told in the task's stages; same panels, windows and lists as the summary */
+.ms{padding:16px 20px 40px}
+.ms .sec-h .find{margin-left:auto}
+.ms-g3{display:grid;grid-template-columns:296px minmax(0,1fr) 264px;gap:16px;align-items:start}
+.ms-l{position:sticky;top:12px;overflow:hidden}
+.ms-g{font:600 10px var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:10px 12px 6px;border-top:1px solid var(--line)}
+.ms-g:first-child{border-top:0}
+.th{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:8px 12px;border:0;background:none;text-align:left;width:100%;border-radius:0}
+.th:hover{background:var(--raised)}.th[aria-current]{background:var(--accent-soft)}
+.th .a{display:flex;align-items:center;gap:6px;min-width:0}.th .a b{font:500 11px var(--mono);color:var(--ink2)}
+.th time{font-size:10.5px;color:var(--muted);white-space:nowrap}
+.th .tt{grid-column:1/-1;font-weight:600;font-size:12.5px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th p{display:flex;align-items:center;gap:6px;min-width:0;font-size:11.5px;color:var(--muted)}
+.th p .av{width:14px;height:14px;border-radius:3px;padding:2px;flex:none}.th p span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th .u{align-self:center;justify-self:end;min-width:16px;height:16px;border-radius:8px;background:var(--accent-line);color:var(--bg);font:700 10px/16px var(--sans);text-align:center;padding:0 5px}
+.th.ask .u{background:var(--blocked-fill);color:#3a1410}
+.ms-c .win-h .ghost{margin-left:auto;height:26px;padding:0 10px;font-size:11.5px}
+.ms-t{padding:12px 16px 4px}.ms-t h2{font-size:15px;font-weight:700;letter-spacing:-.01em;line-height:1.3}
+.chat{padding:4px 16px 16px;display:flex;flex-direction:column;gap:8px}
+.stg{display:flex;align-items:center;gap:10px;margin:12px 0 2px}
+.stg::before,.stg::after{content:"";flex:1;height:1px;background:var(--line)}
+.stg span{display:flex;align-items:center;gap:6px;font:600 10px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);border:1px solid var(--line);border-radius:999px;padding:4px 9px;background:var(--raised)}
+.stg i{width:7px;height:7px;border-radius:50%}
+.sys{align-self:center;font-size:11.5px;color:var(--muted);display:flex;gap:7px;align-items:center}.sys::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--line2)}
+.sys time{font:500 10.5px var(--mono)}.sys.bad{color:var(--blocked);font-weight:600}.sys.bad::before{background:var(--blocked-fill)}
+.msg{display:grid;grid-template-columns:22px minmax(0,1fr);gap:8px;max-width:74%}
+.msg>.av{width:22px;height:22px;border-radius:6px;padding:3px;margin-top:17px}
+.msg.me{align-self:flex-end;grid-template-columns:minmax(0,1fr) 22px}.msg.me>.av{order:2}
+.msg .hd{display:flex;gap:6px;align-items:baseline;font-size:10.5px;color:var(--muted);margin-bottom:3px}.msg.me .hd{justify-content:flex-end}
+.msg .hd b{color:var(--ink2);font-weight:600;font-size:11.5px}.msg .hd code{font:500 10px var(--mono)}
+.bub{border:1px solid var(--line);background:var(--raised);border-radius:10px;padding:8px 11px;font-size:12.5px;line-height:1.5}
+.msg.me .bub{background:var(--accent-soft);border-color:transparent}
+.bub code{font:500 11.5px var(--mono)}.bub pre{margin:7px 0 2px;font:500 11px/1.55 var(--mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 9px;overflow-x:auto;white-space:pre}
+.bub .k{display:flex;align-items:center;gap:7px;font-weight:600;margin-bottom:4px}
+.k-review .bub{background:var(--review-bg);border-color:transparent}.k-reject .bub{background:var(--blocked-bg);border-color:transparent}.k-approve .bub{background:var(--ok-bg);border-color:transparent}
+.k-ask .bub{background:var(--blocked-bg);border-color:transparent}
+.rd{font-size:10.5px;color:var(--muted);margin-top:3px}.msg.me .rd{text-align:right}
+.say{border-top:1px solid var(--line);background:var(--raised);padding:10px 12px;display:grid;grid-template-columns:1fr auto;gap:8px}
+.say input{border:1px solid var(--line2);border-radius:var(--r-s);background:var(--surface);height:32px;padding:0 10px;font:inherit;color:var(--ink);min-width:0}
+.say small{grid-column:1/-1;color:var(--muted);font-size:11px}.say small code{font:500 10.5px var(--mono)}
+.ms .agents li{grid-template-columns:24px 1fr auto}.ms .agents .chip{font-size:9px;padding:3px 6px}
 /* task detail */
 [data-id]{cursor:pointer}[data-id]:hover{background:var(--raised)}.card[data-id]:hover{border-color:var(--line2)}
 .scrim{position:fixed;inset:0;background:hsl(var(--h) 20% 4% / .45);z-index:20;opacity:0;pointer-events:none;transition:opacity .15s}
@@ -315,6 +356,7 @@ h1,h2,h3,p,ul,ol,dl,dd{margin:0;padding:0}ul,ol{list-style:none}
 .foot .btn{height:34px;padding:0 16px;display:flex;align-items:center;gap:8px}
 [data-view=panel] .wz,[data-view=wiz] .shell{display:none}
 @media (max-width:900px){
+  .ms{padding:16px 16px 96px}.ms-g3{grid-template-columns:minmax(0,1fr)}.ms-l{position:static}.msg{max-width:92%}.ms .sec-h .find{margin-left:0;flex:1 1 100%}
   .mini{grid-template-columns:1fr}.win-h{flex-wrap:wrap}
   .tb-h{position:static}.facts{grid-template-columns:1fr}
   .tb{padding:16px 16px 96px}.tb-cols{grid-template-columns:1fr}.tb-col{max-height:none}.find{margin-left:0;flex:1}.find input{width:100%}.legend{margin-left:0;width:100%}
@@ -336,7 +378,7 @@ h1,h2,h3,p,ul,ol,dl,dd{margin:0;padding:0}ul,ol{list-style:none}
 </style>
 </head>
 <body>
-<div class="mock"><b>Propuesta 6</b>
+<div class="mock"><b>Propuesta 8</b>
   <button data-set="view" data-v="panel">Panel</button><button data-set="view" data-v="wiz">Asistente</button>
   <span class="sp"></span><span>Simular plan de</span><button data-n="11" aria-pressed="true">11 tareas</button><button data-n="60" aria-pressed="false">60 tareas</button>
 </div>
@@ -366,6 +408,11 @@ h1,h2,h3,p,ul,ol,dl,dd{margin:0;padding:0}ul,ol{list-style:none}
           <div class="big"><b>4.2 M</b><span>de 6.8 M</span></div><div class="meter"><i style="width:41%"></i><i style="width:21%"></i></div>
           <div class="kv"><span>Construcción</span><b>2.8 M</b><span>Revisión</span><b>1.4 M</b></div></div>
       </aside>
+    </div>
+    <div class="ms">
+      <div class="sec-h"><h2>Mensajes</h2><span class="n" id="msn"></span><div class="flt" id="msf"></div>
+        <label class="find"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg><input placeholder="Buscar en mensajes"></label></div>
+      <div class="ms-g3"><div class="panel ms-l" id="ths"></div><div class="win flat ms-c" id="msc"></div><aside class="col side" id="msr"></aside></div>
     </div>
     <div class="tb">
       <div class="sec-h"><h2>Tablero</h2><span class="n" id="tbn"></span>
@@ -584,11 +631,59 @@ const detail=id=>{const x=T.find(t=>t.id===id);if(!x)return;const st=Math.max(0,
  <div><h3>Criterios de aceptación</h3><ul class="crit">${[['El trabajador en segundo plano tiene un límite de 60 s','hung_worker_is_killed'],['pace y map build corren una sola vez con diez inicios','pace_and_map_run_once_under_ten_starts'],['Con copia en caché, el inicio no espera a la red','cached_start_does_not_wait']].map((c,i)=>`<li class="${cut>=5||(cut>=3&&i<1)?'':'no'}">${ic(I.check,14)}<span>${c[0]}<code>${c[1]}</code></span></li>`).join('')}</ul></div>
  </div>`;
  document.body.classList.add('open-dr');$('drx').onclick=closeDr;$('drx').focus()};
+const MINE=['kit-a1','kit-a2'];
+const TH=[
+ {g:'Te esperan',id:'UAK-158',t:'Un solo sistema de diseño',s:'blk',ask:1,u:1,time:'hace 2 h',pv:['kit-a1','¿Qué dirección visual registro?'],who:[['kit-a1','pregunta']],m:[
+  {stg:'Por hacer',c:'--line2'},
+  {f:'kit-a1',k:'ask',t:'14:10',to:'ti',x:'Antes de tomar esta tarea necesito que elijas la dirección visual. Dos tareas dependen de ella: UAK-158 y UAK-162.',code:'docs/design/DIRECTION.md'},
+  {sys:'En espera de tu respuesta desde hace 2 h',t:'16:12',bad:1}]},
+ {g:'Tareas en movimiento',id:'UAK-157',t:'El arranque en segundo plano no se cuelga ni se apila',s:'rev',u:2,time:'16:01',pv:['uak','Plazo de revisión vencido'],who:[['kit-a2','autor · 3 mensajes'],['kit-r1','revisión ofrecida'],['kit-r2','revisión ofrecida']],m:[
+  {stg:'En curso',c:'--claimed-fill'},
+  {sys:'kit-a2 tomó la tarea',t:'14:02'},
+  {f:'kit-a2',k:'note',t:'14:18',to:'todos',x:'Reproduje el cuelgue: <code>git ls-remote</code> sin límite deja al trabajador vivo con PPID 1. Voy por un límite de 60 s y un candado para <code>pace</code> y <code>map build</code>.',rd:'leído por kit-r1 14:21'},
+  {sys:'Prueba en rojo registrada en df84216',t:'14:20'},
+  {f:'kit-a1',k:'note',t:'14:44',to:'kit-a2',x:'Ojo: yo toco <code>setup.py</code> en UAK-156, no <code>hook</code>. No nos cruzamos.',rd:'leído por kit-a2 14:45'},
+  {stg:'En revisión · ronda 1',c:'--review-fill'},
+  {f:'kit-a2',k:'review',t:'15:31',to:'kit-r1',h:'Pide revisión · PR #61',x:'Las 3 pruebas pasan, <code>kit_lint</code> sin hallazgos, CI 18 de 18. Cambia solo <code>hook</code> y su test.'},
+  {sys:'Oferta sin respuesta, pasó a kit-r2',t:'15:46'},
+  {sys:'Plazo de revisión vencido: nadie la ha tomado en 30 min',t:'16:01',bad:1}]},
+ {id:'UAK-155',t:'done --pr none probado en cada modo de revisión',s:'rev',u:0,time:'16:00',pv:['kit-r1','Empiezo. Voy a probar con Merge-Engine: ci.'],who:[['kit-a1','autor'],['kit-r1','revisa']],m:[
+  {stg:'En revisión · ronda 1',c:'--review-fill'},
+  {f:'kit-a1',k:'review',t:'15:48',to:'kit-r1',h:'Pide revisión · PR #60',x:'Cuatro pruebas nuevas. <code>--pr none</code> va al humano bajo <code>Merge-Engine: ci</code>.'},
+  {f:'kit-r1',k:'note',t:'16:00',to:'kit-a1',x:'Empiezo. Voy a probar con <code>Merge-Engine: ci</code> y con <code>Review-Mode: gh</code>.',rd:'leído por kit-a1 16:02'}]},
+ {g:'Cerradas',id:'UAK-153',t:'El asistente actúa por la persona solo si una persona lo abre',s:'int',u:0,time:'hace 4 h',pv:['uak','Integrada en 5422daf'],who:[['kit-a1','autor · 2 mensajes'],['kit-r1','revisó · 2 rondas']],m:[
+  {stg:'En revisión · ronda 1',c:'--review-fill'},
+  {f:'kit-a1',k:'review',t:'10:12',to:'kit-r1',h:'Pide revisión · PR #58',x:'El asistente se niega a arrancar con identidad de agente; el token ya no se imprime.'},
+  {f:'kit-r1',k:'reject',t:'10:51',to:'kit-a1',h:'Pide cambios',x:'Un agente todavía puede arrancarlo si borra la variable antes. Reproducción:',code:'env -u UAK_AGENT python3 .uak/bin/lib/setup.py --no-open\n# arranca: debería negarse por .uak-env'},
+  {stg:'En revisión · ronda 2',c:'--review-fill'},
+  {f:'kit-a1',k:'note',t:'11:30',to:'kit-r1',x:'Tienes razón. Ahora lee también <code>.uak-env</code> y <code>uak.agent</code> del git config. Añadí la prueba <code>env_cleared_agent_cannot_start</code>. Commit <code>9f3a1c2</code>.',rd:'leído por kit-r1 11:34'},
+  {f:'kit-r1',k:'approve',t:'12:02',to:'kit-a1',h:'Aprobó 9f3a1c2',x:'Repetí la reproducción y cuatro variantes; todas se niegan.'},
+  {stg:'Integrada',c:'--ok-fill'},
+  {sys:'El gate la integró en 5422daf',t:'12:14'}]},
+ {g:'General',id:'',t:'Para todos',s:'',u:1,time:'15:05',pv:['kit-a2','main cambió install.sh'],who:[['kit-a2','1 mensaje']],m:[
+  {f:'kit-a2',k:'note',t:'15:05',to:'todos',x:'<code>main</code> cambió <code>install.sh</code> con UAK-161. Quien tenga una rama que lo toque, que traiga <code>main</code> antes de pedir revisión.',rd:'leído por 3 de 4'}]}];
+let cur=1,mflt='all';
+const MF={all:['Todo',()=>true],me:['Mis agentes',h=>h.who.some(w=>MINE.includes(w[0]))],ask:['Para mí',h=>h.ask],un:['Sin leer',h=>h.u]};
+const bub=m=>m.stg?`<div class="stg"><span><i style="background:var(${m.c})"></i>${m.stg}</span></div>`:m.sys?`<div class="sys${m.bad?' bad':''}"><time>${m.t}</time>${m.sys}</div>`:
+ `<div class="msg k-${m.k}${MINE.includes(m.f)?' me':''}">${avatar(m.f)}<div><div class="hd"><b>${m.f}</b><code>${(MOD[m.f]||MOD['kit-a1'])[0]}</code><span>para ${m.to}</span><time>${m.t}</time></div>
+ <div class="bub">${m.h?`<div class="k"><span class="pill ${m.k==='reject'?'p-blk':m.k==='approve'?'p-int':'p-rev'}">${m.k==='reject'?'cambios':m.k==='approve'?'aprobada':'revisión'}</span>${m.h}</div>`:''}${m.k==='ask'?`<div class="k"><span class="pill p-blk">pregunta</span>Espera tu respuesta</div>`:''}${m.x}${m.code?`<pre>${m.code}</pre>`:''}</div>${m.rd?`<div class="rd">${m.rd}</div>`:''}</div></div>`;
+const msgs=()=>{$('msn').textContent=TH.reduce((n,h)=>n+h.m.filter(m=>m.f).length,0);
+ $('msf').innerHTML=Object.keys(MF).map(k=>`<button data-mf="${k}" aria-pressed="${k===mflt}">${MF[k][0]} <b>${TH.filter(MF[k][1]).length}</b></button>`).join('');
+ let g='';$('ths').innerHTML=TH.map((h,i)=>{if(!MF[mflt][1](h))return '';const head=h.g&&h.g!==g?`<div class="ms-g">${g=h.g}</div>`:'';
+  return head+`<button class="th${h.ask?' ask':''}" data-th="${i}" ${i===cur?'aria-current="true"':''}><span class="a">${h.id?`<b>${h.id}</b><span class="pill p-${h.s}">${S[h.s]}</span>`:'<b>general</b>'}</span><time>${h.time}</time><span class="tt">${h.t}</span><p>${h.pv[0]==='uak'?'':avatar(h.pv[0])}<span>${h.pv[0]==='uak'?'':h.pv[0]+': '}${h.pv[1]}</span></p>${h.u?`<span class="u">${h.u}</span>`:'<span></span>'}</button>`}).join('');
+ const h=TH[cur],nm=h.m.filter(m=>m.f).length,nr=h.m.filter(m=>m.stg&&/ronda/.test(m.stg)).length,nc=h.m.filter(m=>m.k==='reject').length;
+ $('msc').innerHTML=`<div class="win-h"><i></i><i></i><i></i><span>${h.id?h.id.toLowerCase():'general'} · ${nm} ${nm===1?'mensaje':'mensajes'}${nr?' · '+nr+(nr===1?' ronda':' rondas'):''}</span>${h.id?`<button class="ghost" data-id="${h.id}">Ver la tarea</button>`:''}</div>
+  <div class="ms-t"><h2>${h.t}</h2></div><div class="chat">${h.m.map(bub).join('')}</div>`;
+ const x=T.find(t=>t.id===h.id);
+ $('msr').innerHTML=(x?`<div class="panel"><div class="sec-h"><h2>La tarea</h2><span class="pill p-${x.s}" style="margin-left:auto">${S[x.s]}</span></div>${pipe(x)}<div class="kv" style="margin-top:10px"><span>Ahora</span><b>${x.w.split(' · ')[0]}</b><span>Hace</span><b>${x.w.split(' · ')[1]||'—'}</b></div>
+   <div class="win-f tri"><div><b>${nm}</b><span>mensajes</span></div><div><b>${nr}</b><span>rondas</span></div><div><b>${nc}</b><span>cambios pedidos</span></div></div></div>`:'')+
+  `<div class="panel"><div class="sec-h"><h2>En este hilo</h2><span class="n">${h.who.length}</span></div><ul class="agents">${h.who.map(w=>`<li>${avatar(w[0])}<div><b>${w[0]}</b><small>${w[1]}</small></div>${MINE.includes(w[0])?'<span class="chip">tuyo</span>':'<span></span>'}</li>`).join('')}</ul></div>`};
+document.addEventListener('click',e=>{const t=e.target.closest('[data-th]');if(t){cur=+t.dataset.th;msgs();return}const f=e.target.closest('[data-mf]');if(f){mflt=f.dataset.mf;msgs()}});
 const closeDr=()=>document.body.classList.remove('open-dr');$('scrim').onclick=closeDr;
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDr();if(e.key==='Enter'&&e.target.dataset&&e.target.dataset.id)detail(e.target.dataset.id)});
 document.addEventListener('click',e=>{const c=e.target.closest('[data-col]');if(c){e.preventDefault();openCols[c.dataset.col]=1;tablero();return}const a=e.target.closest('[data-all]');if(a){e.preventDefault();dnAll=true;tablero();return}const t=e.target.closest('[data-id]');if(t)detail(t.dataset.id)});
-$('find').oninput=tablero;document.addEventListener('click',e=>{const g=e.target.closest('[data-go],#rail a');if(!g)return;e.preventDefault();const t=g.dataset.go||g.dataset.tab;if(t==='tablero'||t==='resumen')goTab(t)});
-drawBoard();side();if(q.get('tab'))goTab(q.get('tab'));if(q.get('task'))detail(q.get('task'));
+$('find').oninput=tablero;document.addEventListener('click',e=>{const g=e.target.closest('[data-go],#rail a');if(!g)return;e.preventDefault();const t=g.dataset.go||g.dataset.tab;if(t==='tablero'||t==='resumen'||t==='mensajes')goTab(t)});
+drawBoard();side();msgs();if(q.get('th')){cur=+q.get('th');msgs()}if(q.get('tab'))goTab(q.get('tab'));if(q.get('task'))detail(q.get('task'));
 document.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{T=b.dataset.n==='60'?big():BASE.slice();document.querySelectorAll('[data-n]').forEach(x=>x.setAttribute('aria-pressed',x===b));drawBoard();side()});
 if(q.get('n')==='60')document.querySelector('[data-n="60"]').click();
 const sync=()=>document.querySelectorAll('.mock button[data-set]').forEach(b=>b.setAttribute('aria-pressed',root.dataset[b.dataset.set]===b.dataset.v));

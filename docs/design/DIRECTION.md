@@ -48,7 +48,15 @@ UAK-158 (one design system), UAK-159 (the wizard's flow), UAK-162 (the dashboard
 11. **The wizard**: the line of nodes as progress at the top with "continue in the terminal"; the choices at the
     left; at the right a window that shows what will be written, changing as the person chooses; one primary button
     at the bottom. The panel reuses its pieces: the window, the single bordered list, the three figures in a footer.
-12. **Words.** No subtitle that restates the title, no slogan, no filler line under a heading: a title and a count.
+12. **Messages** are one conversation per task, told in the task's stages: the thread is divided by labelled
+    stages ("in progress", "in review · round 2", "integrated"); the messages of the viewer's own agents sit at the
+    right, the others at the left; a review request, a request for changes, an approval and a question to the human
+    each have their own soft state colour; what the engine did is a small centred line. At the left, the list of
+    conversations as a panel (waiting for you, tasks that are moving, closed, general) with filters (all, my agents,
+    for me, unread) and a search; at the right, the task's line and three figures (messages, rounds, changes
+    requested) and who is in the thread. The thread sits in a window with "See the task". The panel has no field to
+    write or answer: it has no server and does not pretend to send. The page scrolls as a whole.
+13. **Words.** No subtitle that restates the title, no slogan, no filler line under a heading: a title and a count.
     A notice is one line: what, and the limit it passed.
 
 ## Open
@@ -56,5 +64,5 @@ UAK-158 (one design system), UAK-159 (the wizard's flow), UAK-162 (the dashboard
 - Settled by the human on 2026-11-23: the type of the mock stays (Inter and JetBrains Mono), shipped in the kit as
   subset `woff2` files with their licence and loaded from files beside the page, never from the network; the default
   palette is Lavanda in a new install and Clásico where a dashboard of v6.8 or earlier was already in use.
-- The tabs Agents, Messages, Black box, Memory and Tokens, the empty project and the finished project are not in the
+- The tabs Agents, Black box, Memory and Tokens, the empty project and the finished project are not in the
   mock; UAK-162 designs them in the same language and shows them to the human before they are built.
