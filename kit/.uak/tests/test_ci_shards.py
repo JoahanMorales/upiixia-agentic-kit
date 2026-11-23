@@ -181,9 +181,9 @@ def workflow_runs_once_per_commit(r):
 # UAK-144. Measured on main (the 12 latest runs up to 45037067147 and five before them; the median of each
 # test file's group in the job logs): Windows seconds and macOS seconds. Before, test_flaky_guard had no entry and counted
 # 60 s: it took 1496 s on Windows (shard 5: 34m39s) and about 495 s on macOS (shard 4: 25m31s).
-MEASURED_WINDOWS_S = {"test_flaky_guard": 220, "test_flaky_guard_race": 1100, "test_merge_engine_policy": 905, "test_review_merge": 380, "test_claims_perf": 385,
+MEASURED_WINDOWS_S = {"test_flaky_guard": 208, "test_flaky_guard_race": 1278, "test_merge_engine_policy": 905, "test_review_merge": 380, "test_claims_perf": 385,
                       "test_v51": 374, "test_review_substates": 330, "test_read_cache": 192, "test_hooks_health": 194, "mcp_tools": 104}
-MEASURED_MACOS_S = {"test_flaky_guard": 103, "test_flaky_guard_race": 478, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_review_merge": 93,
+MEASURED_MACOS_S = {"test_flaky_guard": 101, "test_flaky_guard_race": 441, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_review_merge": 93,
                     "test_v51": 73, "test_read_cache": 35, "test_hooks_health": 34}
 
 
