@@ -79,14 +79,21 @@ if [ -n "$newest" ] && [ "$(vnum "$newest")" -gt "$(vnum "${mine:-0.0.0}")" ] &&
     set -- "in the kit folder you installed this project from (the clone with install.sh): git pull --ff-only, then bash install.sh --mode $mode --update \"$root\"   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)" \
          "no clone at hand: git clone --depth 1 $kit_url <folder>, then bash <folder>/install.sh --mode $mode --update \"$root\""
   fi
-  # Once the kit is on the team's main (or the freeze is set) the project works: a newer release is news, not a blocker,
-  # and the decision is here, not in an environment variable the setup page strips. Why (QA rounds 2026-11-14: A-F1,
-  # B-02, C-4): kit 6.3.0 was tagged and every published 6.2.0 project lost READY and its team step.
+  # Once the kit is on the team's main (or the freeze is set) the project works: a newer release of the same major version
+  # is news, not a blocker, and a newer major version is a need (UAK-154). The decision is here, not in an environment
+  # variable the setup page strips. Why (QA rounds 2026-11-14: A-F1, B-02, C-4): kit 6.3.0 was tagged and every
+  # published 6.2.0 project lost READY and its team step. An unreadable version blocks nothing and says so.
   freeze=$({ from Freeze-Epoch < .uak/PROJECT.md; } 2>/dev/null)
   if git cat-file -e "refs/remotes/$remote/$base:.uak/VERSION" 2>/dev/null || case "$freeze" in [1-9]*) true;; *) false;; esac; then
-    # The line itself stays the gate's (the setup page translates it); the next one says it does not block.
-    note "update the kit: this project has uak $mine and $where has $newest"
-    for l in "not blocking: this project already works on uak $mine; update when the team agrees" "$@"; do printf '         %s\n' "$l"; done
+    if ! printf '%s\n' "$mine" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+      note "the kit version of this project is unreadable (${mine:-empty}), so no update check can run: .uak/VERSION should hold MAJOR.MINOR.PATCH"
+    elif [ "${newest%%.*}" -gt "${mine%%.*}" ]; then
+      need "update the kit: this project has uak $mine and $where has the new major version $newest" "$@" "to stay on $mine on purpose: UAK_KIT_PIN=1 uak start"
+    else
+      # The line itself stays the gate's (the setup page translates it); the next one says it does not block.
+      note "update the kit: this project has uak $mine and $where has $newest"
+      for l in "not blocking: this project already works on uak $mine; update when the team agrees" "$@"; do printf '         %s\n' "$l"; done
+    fi
   else
     need "update the kit: this project has uak $mine and $where has $newest" "$@" "to stay on $mine on purpose: UAK_KIT_PIN=1 uak start"
   fi
