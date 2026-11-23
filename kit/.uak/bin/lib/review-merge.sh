@@ -1065,9 +1065,7 @@ rm_prepare_candidate() {
   git -C "$RM_BUILD" diff --quiet && git -C "$RM_BUILD" diff --cached --quiet && {
     RM_REASON='Candidate adds no changes'; return 1;
   }
-  git -C "$RM_BUILD" commit -q -m "Merge $ID reviewed by $APPROVED_BY" || { RM_REASON='Could not create the merge commit'; return 1; }
-  rm_generated_check || return 1
-  RM_CANDIDATE=$(git -C "$RM_BUILD" rev-parse HEAD)
+  rm_commit_and_check
 }
 # Generated files (UAK-148): the gate does not trust the content of a file it released from Paths. On the merge COMMIT
 # (HEAD = the result with both parents, so a generator that reads history sees the task's commits, as it does on the
@@ -1104,6 +1102,13 @@ rm_generated_check() {
       { RM_REASON="Generated file $gp is not in the merge result (a deletion is the human's)"; return 1; }
   done < "$TXROOT/merge-generated"
   return 0
+}
+# The merge commit, then the generated-file check ON it (UAK-148: a generator reads the history of the result), then the
+# commit the gate lands. One function so the test drives the gate's own sequence, not a copy of it.
+rm_commit_and_check() {
+  git -C "$RM_BUILD" commit -q -m "Merge $ID reviewed by $APPROVED_BY" || { RM_REASON='Could not create the merge commit'; return 1; }
+  rm_generated_check || return 1
+  RM_CANDIDATE=$(git -C "$RM_BUILD" rev-parse HEAD)
 }
 # Why (Reap): 9 merges went to the human queue; the fast path (merge on the forge + integrate) was not said.
 rm_human_hint() {

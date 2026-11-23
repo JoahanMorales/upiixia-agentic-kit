@@ -33,7 +33,7 @@ if rm_gate_scope; then printf 'SCOPE OK\n'; else printf 'SCOPE REFUSED: %s\n' "$
 # candidate so a refusal's log goes nowhere else; the lines after the verdict are the Generated: list the scope pass read.
 GEN_HARNESS = HARNESS.replace("RM_BUILD=$2", "ROOT=$2 RM_BUILD=$2").replace(
     "if rm_gate_scope; then printf 'SCOPE OK\\n'; else",
-    "if rm_gate_scope && git -C \"$RM_BUILD\" -c user.name=f -c user.email=f@e.test commit -q -m merge && rm_generated_check; then printf 'SCOPE OK\\n'; else") + (
+    "if rm_gate_scope && git -C \"$RM_BUILD\" config user.name f && git -C \"$RM_BUILD\" config user.email f@e.test && ID=HACK-001 APPROVED_BY=rev rm_commit_and_check; then printf 'SCOPE OK\\n'; else") + (
     "[ ! -s \"$TXROOT/merge-generated-list\" ] || sed 's/^/LIST /' \"$TXROOT/merge-generated-list\"\n")
 
 BACKLOG = ("# Tasks\n\n## HACK-001 · The task under merge\n- **Paths:** `src/app/`, `docs/canción.md`\n\n"
@@ -361,6 +361,15 @@ def generated_file_is_checked_against_the_merge_commit(r):
             expect(res.startswith("SCOPE REFUSED: Generated file %s differs from what its command produces" % GEN), "regenerated early: " + res)
         else:
             expect(res == "SCOPE OK", "regenerated at the branch tip: expected: SCOPE OK, got: " + res)
+    # The harness calls the gate's own commit-then-check function; this pins that the gate's sequence is that function.
+    src = (r.package / ".uak/bin/lib/review-merge.sh").read_text(encoding="utf-8")
+    start = src.index("\nrm_prepare_candidate() {")
+    prep = src[start:src.index("\n}\n", start)]
+    fn = src[src.index("\nrm_commit_and_check() {"):src.index("\n}\n", src.index("\nrm_commit_and_check() {"))]
+    expect("rm_generated_check || return 1" in fn and fn.index("commit -q") < fn.index("rm_generated_check"),
+           "rm_commit_and_check commits, then checks")
+    expect(prep.rstrip().endswith("rm_commit_and_check") and src.count("rm_generated_check") == 3,
+           "the gate calls rm_commit_and_check and no other call of rm_generated_check exists: %d" % src.count("rm_generated_check"))
     return "tip passes, one commit early is refused"
 
 
