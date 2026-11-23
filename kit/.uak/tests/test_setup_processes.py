@@ -85,11 +85,12 @@ def sleeper(target, tmp, grandchild=False):
     pids = tmp / "pids"
     pids.mkdir(exist_ok=True)
     python = Path(sys.executable).as_posix()
+    record = "import os,time; open(r'%s','w').write(str(os.getpid())); time.sleep(300)"
     if grandchild:
-        body = ('"%s" -c "import os,time; open(r\'%s\',\'w\').write(str(os.getpid())); time.sleep(300)" &\n'
-                'echo $$ > "%s"\nwait\n') % (python, (pids / "grand").as_posix(), (pids / "child").as_posix())
+        body = '"%s" -c "%s" &\nwait\n' % (python, record % (pids / "grand").as_posix())
+        body = body.replace("&\nwait", "&\necho $$ > \"%s\"\nwait" % (pids / "child").as_posix())
     else:
-        body = 'echo $$ > "%s"\nexec "%s" -c "import time; time.sleep(300)"\n' % ((pids / "child").as_posix(), python)
+        body = 'exec "%s" -c "%s"\n' % (python, record % (pids / "child").as_posix())
     (target / ".uak/bin/uak").write_text("#!/usr/bin/env bash\n" + body, encoding="utf-8")  # target: the package copy
     return pids
 
@@ -251,7 +252,7 @@ def stale_record_is_reaped(root, tmp):
             assert (folder / "uak-wizard.port").read_text(encoding="utf-8").split() == [str(fresh.proc.pid), str(fresh.port)]
         finally:
             fresh.stop()
-    assert not (folder / "uak-wizard.port").exists(), "and removed when it ends"
+    assert WINDOWS or not (folder / "uak-wizard.port").exists(), "and removed when it ends"  # Windows: a hard stop
     if not (LINUX or sys.platform == "darwin"):
         return  # Windows keeps its children in a job that closes with the server; there is no record to reap from
     # A server killed with SIGKILL leaves a grandchild (pdeathsig reaches the direct child only): the next start reaps it.
@@ -368,9 +369,10 @@ def no_child_survives_sigterm(root, tmp):
             assert wiz.ended(30), "SIG%s ends the wizard" % name
             assert wait_until(lambda: not alive(child), 10), "SIG%s: the child is gone" % name
             assert not listening(port), "SIG%s: the port is free" % name
-            assert not any(path.exists() for path in wiz.files().values()), "SIG%s: no record is left" % name
-            said = " ".join(wiz.out)
-            assert "install.sh --wizard" in said and "ended" in said, "it says why and how to open it again: %r" % said
+            if not WINDOWS:  # there the stop is TerminateProcess: nothing runs after it, the job ends the child
+                assert not any(path.exists() for path in wiz.files().values()), "SIG%s: no record is left" % name
+                said = " ".join(wiz.out)
+                assert "install.sh --wizard" in said and "ended" in said, "it says why and how to open it again: %r" % said
         finally:
             wiz.stop()
             if not WINDOWS and (pids / "child").is_file() and alive(int((pids / "child").read_text().strip())):

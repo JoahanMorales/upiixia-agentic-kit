@@ -428,9 +428,11 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
             return subprocess.CompletedProcess(command, 124, out, err + "\nThe run took too long and was stopped.")
         return subprocess.CompletedProcess(command, proc.returncode, out, err)
     finally:
-        stop_group()  # a descendant that outlived its tool does not outlive the call
-        if holder[0]:
-            windows_job_end(holder[0], False)
+        if os.name == "nt":
+            if holder[0]:  # the job holds a descendant that outlived its tool; closing it ends it
+                windows_job_end(holder[0], True)
+        else:
+            kill_group(proc.pid)  # a descendant that outlived its tool does not outlive the call
         forget_child(proc.pid)
 
 
