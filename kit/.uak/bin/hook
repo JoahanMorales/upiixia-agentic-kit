@@ -197,22 +197,88 @@ start_bg() { # NAME CMD...: age never revokes a live owner; dead owners first en
     # Never release ownership before revoking possible surviving publication children. A failed revocation stays
     # referenced and is recovered through REAP after this owner exits; a failed handoff never cleans another owner.
     trap 'if start_revoke "$start_dir"; then start_drop "$ref" "$worker_oid" "$hooks" || :; fi' EXIT
-    "$@"
+    start_limited "$@"
   ) < /dev/null > /dev/null 2>&1 &
   worker_pid=$!
   printf '%s\n' "$worker_pid" > "$dir/pid" && : > "$dir/ready"
   return 0
 }
-start_wait() { # NAME...: wait for these refreshes, bounded
+# A worker has a time limit (UAK_START_LIMIT seconds, default 60): a git that waits on a dead remote is killed with
+# everything it started, so it never lingers as a process of PID 1. Why (UAK-157): the worker had no timeout.
+start_children() { # PID: its direct children
+  if command -v pgrep >/dev/null 2>&1; then pgrep -P "$1" 2>/dev/null; return 0; fi
+  { ps -A -o pid= -o ppid= 2>/dev/null || ps -e 2>/dev/null; } | awk -v p="$1" '$2 == p && $1 ~ /^[0-9]+$/ { print $1 }'
+}
+start_tree() { # PID: itself and all its descendants, parents first
+  local c=
+  printf '%s\n' "$1"
+  for c in $(start_children "$1"); do start_tree "$c"; done
+}
+start_kill_tree() { # PID: the list is taken before the first signal, as a killed parent hides its children
+  local pids= p=
+  pids=$(start_tree "$1")
+  for p in $pids; do kill -TERM "$p" 2>/dev/null; done
+  sleep 0.5
+  for p in $pids; do ! kill -0 "$p" 2>/dev/null || kill -KILL "$p" 2>/dev/null; done
+  return 0
+}
+start_limited() { # CMD...: run it; past the limit, kill it and its children
+  local limit=${UAK_START_LIMIT:-60} began=$SECONDS pid= polls=0
+  case "$limit" in ''|*[!0-9]*|0) limit=60;; esac
+  "$@" &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ $((SECONDS - began)) -ge "$limit" ]; then start_kill_tree "$pid"; break; fi
+    if [ "$polls" -lt 5 ]; then sleep 0.2; polls=$((polls + 1)); else sleep 1; fi
+  done
+  wait "$pid" 2>/dev/null
+  return 0
+}
+# NAME SECONDS CMD...: for work that has no cached copy of its own (pace, map build): one live worker at a time, and
+# none within SECONDS of the last start, so ten session starts in ten seconds run it once. A builtin-only claim (a
+# no-clobber create): the foreground pays no process for it. The file .at keeps the start time, .running the worker.
+start_once() {
+  local name=$1 gap=$2 lock="$gd/uak-once.$1.running" at="$gd/uak-once.$1.at" began= pid= since=
+  shift 2
+  if [ -f "$at" ]; then
+    { IFS= read -r began < "$at"; } 2>/dev/null
+    case "$began" in ''|*[!0-9]*) ;; *) [ $((NOW - began)) -ge "$gap" ] || return 0;; esac
+  fi
+  if [ -f "$lock" ]; then
+    { IFS=' ' read -r pid since < "$lock"; } 2>/dev/null
+    case "$since" in ''|*[!0-9]*) since=$NOW;; esac
+    if [ $((NOW - since)) -lt 300 ] && { [ -z "$pid" ] || { start_pid_ok "$pid" && kill -0 "$pid" 2>/dev/null; }; }; then return 0; fi
+    rm -f "$lock"
+  fi
+  ( set -C; printf '%s %s\n' "$$" "$NOW" > "$lock" ) 2>/dev/null || return 0
+  printf '%s\n' "$NOW" > "$at" 2>/dev/null
+  (
+    trap '' HUP
+    UAK_FG_LOG=
+    trap 'rm -f "$lock"' EXIT
+    start_limited "$@"
+  ) < /dev/null > /dev/null 2>&1 &
+  printf '%s %s\n' "$!" "$NOW" > "$lock" 2>/dev/null
+  return 0
+}
+start_busy() { # NAME: a refresh of it is running
+  local marker= pid= since=
+  for marker in "$gd"/uak-start."$1".*.running; do [ ! -f "$marker" ] || return 0; done
+  [ -f "$gd/uak-once.$1.running" ] || return 1
+  { IFS=' ' read -r pid since < "$gd/uak-once.$1.running"; } 2>/dev/null
+  start_pid_ok "$pid" && kill -0 "$pid" 2>/dev/null
+}
+start_has_copy() { # NAME: there is something to show without waiting
+  case "$1" in pace) [ -n "$p" ];; *) [ -s "$gd/uak-start.$1.txt" ];; esac
+}
+start_wait() { # NAME...: wait for these refreshes, bounded; never for a name that has a copy to show
   # The same bound in growing steps (0.1, 0.2, 0.3, 0.4 s for the default 1 s): each sleep is a process, 20-50 ms on
   # Git Bash, and ten of them were a quarter of what session-start launched (UAK-177).
-  local n=0 step=1 limit=${UAK_START_WAIT:-10} name busy marker
+  local n=0 step=1 limit=${UAK_START_WAIT:-10} name busy
   case "$limit" in ''|*[!0-9]*) limit=10;; esac
   while [ "$n" -lt "$limit" ]; do
     busy=
-    for name in "$@"; do
-      for marker in "$gd"/uak-start."$name".*.running; do [ ! -f "$marker" ] || busy=1; done
-    done
+    for name in "$@"; do start_has_copy "$name" || ! start_busy "$name" || busy=1; done
     [ -n "$busy" ] || return 0
     [ $((n + step)) -le "$limit" ] || step=$((limit - n))
     sleep "$((step / 10)).$((step % 10))"; n=$((n + step)); step=$((step + 1))
@@ -226,18 +292,49 @@ start_show() { # NAME LINES WHAT [age]: the cached copy, and a note when it is s
   if [ "${4:-}" = age ] && [ -s "$f" ]; then
     awk -v n="$2" 'NR > n && /^claims as of [0-9]+ s ago$/ { age = $0 } END { if (age != "") print age }' "$f"
   fi
-  local marker= busy=
-  for marker in "$gd"/uak-start."$1".*.running; do [ ! -f "$marker" ] || busy=1; done
-  if [ -n "$busy" ]; then
-    if [ -s "$f" ]; then printf '(uak: refreshing %s in the background; the lines above are from the last check)\n' "$3"
+  if start_busy "$1"; then
+    if [ -s "$f" ]; then
+      local at= ago=
+      { IFS= read -r at < "$gd/uak-start.$1.at"; } 2>/dev/null
+      case "$at" in ''|*[!0-9]*) ;; *) ago=", $((NOW - at)) s ago";; esac
+      printf '(uak: refreshing %s in the background; the lines above are from the last check%s)\n' "$3" "$ago"
     else printf '(uak: %s is loading in the background; run bash .uak/bin/uak %s for it now)\n' "$3" "$3"; fi
   fi
 }
 start_next_inbox() { start_capture next bash .uak/bin/uak next --full; inbox_kept "$start_dir"; }
 start_capture() { # NAME CMD...: run CMD into the cached copy, replaced atomically
-  local f="$gd/uak-start.$1.txt" output="$start_dir/$1.new"
+  local name=$1 f="$gd/uak-start.$1.txt" output="$start_dir/$1.new"
   shift
   "$@" > "$output" 2>&1; mv -f "$output" "$f"
+  # When this copy was made, for the age the next start reports.
+  if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+    printf '%(%s)T\n' -1 > "$gd/uak-start.$name.at"
+  else date +%s > "$gd/uak-start.$name.at"; fi
+}
+# Pace: the reading the last session start kept, when it is under 30 min old, into p; a new one comes in background
+# (start_pace); a level that changes meanwhile reaches the agent through tick (uak-pace.note). `uak pace` was a dozen
+# processes in the foreground (UAK-177).
+pace_load() {
+  local pace_at= l=
+  p=
+  [ -s "$gd/uak-pace.start" ] || return 0
+  { IFS= read -r pace_at; while IFS= read -r l || [ -n "$l" ]; do p="$p${p:+$NL}$l"; done; } 2>/dev/null < "$gd/uak-pace.start"
+  pace_at=${pace_at%$CR}; case "$pace_at" in ''|*[!0-9]*) p=;; *) [ $((NOW - pace_at)) -lt 1800 ] || p=;; esac
+}
+pace_show() { case "$p" in "PACE surge"*|"PACE conserve"*|"PACE critical"*) printf '%s\n' "$p";; esac; }
+pace_late() { # the first start after an install had no reading: the one that just arrived, which the note must not repeat
+  [ -z "$p" ] || return 0
+  pace_load
+  [ -z "$p" ] || { pace_show; rm -f "$gd/uak-pace.note"; }
+}
+start_pace() {
+  local out=
+  out=$(bash .uak/bin/pace 2>/dev/null) &&
+    printf '%s\n%s\n' "$NOW" "$out" > "$gd/uak-pace.start.$$" && mv -f "$gd/uak-pace.start.$$" "$gd/uak-pace.start" &&
+    case "$p:$out" in
+      :"PACE surge"*|:"PACE conserve"*|:"PACE critical"*)
+        printf '%s\n' "$out" > "$gd/uak-pace.note.$$" && mv -f "$gd/uak-pace.note.$$" "$gd/uak-pace.note";;
+    esac
 }
 # A small file's first line into RD (as $(cat) for the one-line state files); 1 when there is no file.
 rd() { RD=; [ -f "$1" ] || return 1; { IFS= read -r RD < "$1"; } 2>/dev/null; return 0; }
@@ -695,31 +792,21 @@ case "${1:-}" in
     case "$input" in *'"source":"compact"'*|*'"source": "compact"'*)
       [ -z "$task" ] || printf 'UAK: the context was just compacted. Save where %s stands before going on (the next session reads it): bash .uak/bin/uak checkpoint %s --done … --decision … --why … --fails … --commands … --next …\n' "$task" "$task";;
     esac
-    # Pace: the reading the last session start kept, when it is under 30 min old, and a new one in background; a
-    # level that changes meanwhile reaches the agent through tick (uak-pace.note). `uak pace` was a dozen processes in
-    # the foreground (UAK-177).
-    p= pace_at=
-    if [ -s "$gd/uak-pace.start" ]; then
-      { IFS= read -r pace_at; while IFS= read -r l || [ -n "$l" ]; do p="$p${p:+$NL}$l"; done; } 2>/dev/null < "$gd/uak-pace.start"
-      pace_at=${pace_at%$CR}; case "$pace_at" in ''|*[!0-9]*) p=;; *) [ $((NOW - pace_at)) -lt 1800 ] || p=;; esac
-    fi
-    case "$p" in "PACE surge"*|"PACE conserve"*|"PACE critical"*) printf '%s\n' "$p";; esac
+    pace_load
+    pace_show
     # When nothing fresh was printed, a surge/conserve/critical reading is left for the first tick (uak-pace.note): a
-    # level that stays the same is never a "change" for tick (review of cdbb934).
-    ( trap '' HUP; UAK_FG_LOG=; out=$(bash .uak/bin/pace 2>/dev/null) &&
-        printf '%s\n%s\n' "$NOW" "$out" > "$gd/uak-pace.start.$$" && mv -f "$gd/uak-pace.start.$$" "$gd/uak-pace.start" &&
-        case "$p:$out" in
-          :"PACE surge"*|:"PACE conserve"*|:"PACE critical"*)
-            printf '%s\n' "$out" > "$gd/uak-pace.note.$$" && mv -f "$gd/uak-pace.note.$$" "$gd/uak-pace.note";;
-        esac ) > /dev/null 2>&1 &
-    git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 || exit 0
+    # level that stays the same is never a "change" for tick (review of cdbb934). One reading at a time, and not
+    # again within a minute (UAK-157); a first start with no reading waits for it, bounded, like `next` does.
+    start_once pace 60 start_pace
+    git config --get "remote.${UAK_REMOTE:-origin}.url" >/dev/null 2>&1 || { start_wait pace || true; pace_late; exit 0; }
     # One background job, in the old order: `uak next` may commit a tick to claims (the tip moves) before the inbox
     # read keeps the tip it saw, so the next session start does not read the inbox again (test_hook_claims).
     start_bg next start_next_inbox
-    start_wait next || true
+    start_wait next pace || true
+    pace_late
     start_show next 18 next age
     # The code map is rebuilt in background (0.2 s for ~120 files) so `uak map` queries answer at once.
-    UAK_FG_LOG= nohup bash .uak/bin/map build > /dev/null 2>&1 &
+    start_once map 60 bash .uak/bin/map build
     # The quick card (Superpowers-style bootstrap): WHEN to use which part of the harness, at session start.
     tmpl card
     if [ -s "$gd/uak-inbox.txt" ]; then
