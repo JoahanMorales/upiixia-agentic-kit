@@ -285,7 +285,16 @@ def occupied_port_never_answers_for_the_app(r):
     t.mkdir()
     port = free_port()
     py = Path(sys.executable).as_posix()
-    stale = subprocess.Popen([sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1"], cwd=str(t),
+    # `python -m http.server` does a reverse DNS lookup when it binds (36 s on macOS CI runners): a small server without it.
+    (t / "serve.py").write_text(
+        "import http.server, socket, socketserver, sys\n"
+        "class S(http.server.ThreadingHTTPServer):\n"
+        "    address_family = socket.AF_INET6 if ':' in sys.argv[2] else socket.AF_INET\n"
+        "    def server_bind(self):\n"
+        "        socketserver.TCPServer.server_bind(self)\n"
+        "        self.server_name, self.server_port = 'localhost', self.server_address[1]\n"
+        "S((sys.argv[2], int(sys.argv[1])), http.server.SimpleHTTPRequestHandler).serve_forever()\n", encoding="utf-8")
+    stale = subprocess.Popen([sys.executable, "serve.py", str(port), "127.0.0.1"], cwd=str(t),
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         deadline = time.monotonic() + 15
@@ -297,7 +306,7 @@ def occupied_port_never_answers_for_the_app(r):
         hang = boot('"%s" -c "import time; time.sleep(60)"' % py)
         expect(hang.returncode != 0 and "BOOT_PASS" not in hang.stdout and "already answers" in hang.stdout,
                "an app that never answers fails even with a server on UAK_PORT: rc %d %s %s" % (hang.returncode, hang.stdout, hang.stderr))
-        good = boot('"%s" -m http.server $PORT --bind 127.0.0.1' % py, timeout="20")
+        good = boot('"%s" serve.py $PORT 127.0.0.1' % py, timeout="20")
         m = re.search(r"BOOT_PASS: / answered \d+ on port (\d+)", good.stdout)
         expect(good.returncode == 0 and m and int(m.group(1)) != port, "a real app boots on another port: " + good.stdout + good.stderr)
     finally:
@@ -313,7 +322,7 @@ def occupied_port_never_answers_for_the_app(r):
         except OSError:
             v6 = False
     if v6:
-        six = boot('"%s" -m http.server $PORT --bind ::1' % py, timeout="20")
+        six = boot('"%s" serve.py $PORT ::1' % py, timeout="20")
         expect(six.returncode == 0 and "BOOT_PASS" in six.stdout, "an app on ::1 boots: " + six.stdout + six.stderr)
     # The wait is bounded by default (60 s) and by UAK_SMOKE_BOOT_TIMEOUT; usage names both.
     usage = r.run([r.bash, str(r.package / ".uak/bin/lib/smoke-init.sh"), "boot"], cwd=t, allowed=None)
