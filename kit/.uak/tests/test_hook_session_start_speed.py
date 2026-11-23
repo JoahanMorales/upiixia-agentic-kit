@@ -1110,9 +1110,7 @@ def every_background_job_has_a_limit(r):
     pids = []
     try:
         start(r, w, "agent-1", **env)
-        tick = '{"session_id":"s-limits","tool_name":"Read","tool_input":{"file_path":"%s"}}' % (w / "README.md").as_posix()
-        r.run([r.bash, "-c", "printf '%s' \"$1\" | bash .uak/bin/hook tick", "_", tick], cwd=w,
-              env=dict({"UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_AGENT": "agent-1"}, **env), allowed=None)
+        lens_tick(r, w, "s-limits", env)
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             jobs = (control / "jobs").read_text() if (control / "jobs").exists() else ""
@@ -1280,8 +1278,10 @@ LENS_STUB = 'case "$1" in build) %s;; esac'
 
 def lens_tick(r, w, sid, env):
     tick = '{"session_id":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}}' % (sid, (w / "README.md").as_posix())
-    return r.run([r.bash, "-c", "printf '%s' \"$1\" | bash .uak/bin/hook tick", "_", tick], cwd=w,
-                 env=dict({"UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_AGENT": "agent-1"}, **env), allowed=None)
+    # The payload goes through the environment: Windows drops the double quotes of a command-line argument.
+    return r.run([r.bash, "-c", "printf '%s' \"$TICK_PAYLOAD\" | bash .uak/bin/hook tick"], cwd=w,
+                 env=dict({"UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_AGENT": "agent-1", "TICK_PAYLOAD": tick}, **env),
+                 allowed=None)
 
 
 def killed_map_build_is_not_a_built_map(r):
