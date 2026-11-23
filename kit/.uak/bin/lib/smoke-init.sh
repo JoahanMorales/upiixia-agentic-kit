@@ -2,6 +2,13 @@
 # Why (QA round C, UAK-181): the hand-made smoke ran only unit tests that forced a fake store, so two green merges
 # integrated an app that crashed on boot (ImportError). A web app's smoke boots it and requests one route.
 
+# A file, package or route name that is put into the boot command: only plain characters. Why (UAK-155): the command is a
+# shell string (`bash -c`), and a file named x';touch PWNED;'.py or x$(touch PWNED).py ran as a command in the user's
+# shell on `uak init-smoke`. A name outside this set is refused (never quoted and hoped for), and the refusal says which.
+smoke_plain() { case "$1" in ''|-*|*[!A-Za-z0-9_./-]*) return 1;; esac; return 0; }
+smoke_refuse() {
+  printf 'SMOKE_REFUSED: the %s %q has a character outside A-Z a-z 0-9 _ . / - (a quote, a space, ; or $( among them), so it is never put into a shell command. Rename it, or pass the real boot command with --command.\n' "$1" "$2" >&2
+}
 # The boot check for the web app `uak deploy` detects (read-only: deploy without --write writes nothing), or nothing.
 smoke_detect() {
   local out stack run path entry
@@ -9,7 +16,9 @@ smoke_detect() {
   stack=$(printf '%s\n' "$out" | sed -n 's/^DEPLOY \([a-z][a-z-]*\) · target .*/\1/p' | head -n 1)
   path=$(printf '%s\n' "$out" | sed -n 's/^DEPLOY .* · health \(\/[^ ]*\)$/\1/p' | head -n 1)
   case "$stack" in
-    python-stdlib) run=$(printf '%s\n' "$out" | sed -n 's/^DEPLOY start: \(.*\) (from .*)$/\1/p' | head -n 1)
+    python-stdlib) smoke_plain "$(printf '%s\n' "$out" | sed -n 's/^DEPLOY start: .* (from \(.*\))$/\1/p' | head -n 1)" ||
+        { smoke_refuse "file name" "$(printf '%s\n' "$out" | sed -n 's/^DEPLOY start: .* (from \(.*\))$/\1/p' | head -n 1)"; return 1; }
+      run=$(printf '%s\n' "$out" | sed -n 's/^DEPLOY start: \(.*\) (from .*)$/\1/p' | head -n 1)
       entry=$(printf '%s\n' "$out" | sed -n 's/^DEPLOY start: .* (from \(.*\))$/\1/p' | head -n 1)
       # No health route: the route the Render Blueprint checks, else the first quoted "/api/..." the server names.
       [ -n "$path" ] || path=$(sed -n 's/^ *healthCheckPath: *\(\/[^ ]*\).*/\1/p' "$ROOT/render.yaml" 2>/dev/null | tr -d '\r' | head -n 1)
@@ -24,6 +33,7 @@ smoke_detect() {
     streamlit) entry=$(cd "$ROOT" && for f in streamlit_app.py app.py main.py src/app.py; do [ -f "$f" ] && { printf '%s' "$f"; break; }; done)
       [ -z "$entry" ] || run="uv run streamlit run $entry --server.address 127.0.0.1 --server.port \$PORT --server.headless true";;
     go) entry=$(cd "$ROOT" && find cmd -maxdepth 2 -name main.go 2>/dev/null | head -n 1); entry=${entry%/main.go}
+      smoke_plain "${entry:-.}" || { smoke_refuse "folder name" "$entry"; return 1; }
       run="go run ./${entry:-.}"; run=${run%/.};;   # the app reads $PORT, as uak deploy's image runs it
     # Spring Boot reads SERVER_ADDRESS and SERVER_PORT from the environment; the wrapper when the repo has one.
     spring) if [ -f "$ROOT/pom.xml" ]; then run='mvn'; [ ! -f "$ROOT/mvnw" ] || run='./mvnw'; run="$run -q spring-boot:run"
@@ -33,6 +43,7 @@ smoke_detect() {
   esac
   [ -n "$run" ] || return 1
   case "$path" in /*) ;; *) path=/;; esac
+  smoke_plain "$path" || path=/   # a route with a quote or $( is never put into the command: the root answers for the app
   printf "bash .uak/bin/lib/smoke-init.sh boot --path %s -- '%s'\n" "$path" "$run"
 }
 # The init-smoke line `uak start` shows: the exact one for a detected web app, else a template to fill in.
