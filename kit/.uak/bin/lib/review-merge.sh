@@ -604,13 +604,15 @@ RM_ENGINE=human RM_CI_RELEASED=no RM_CI_WAIT=no RM_CI_CHECKS= RM_CI_COUNT=0 RM_P
 RM_CI_REQ= RM_CI_REQ_SRC=
 rm_merge_engine() {
   local f="$TXROOT/merge-engine-project"
-  RM_ENGINE=human RM_PROJECT_MODE= RM_INDEPENDENCE=agent RM_ENGINE_CHECKS=
+  RM_ENGINE=human RM_PROJECT_MODE= RM_INDEPENDENCE=agent RM_ENGINE_CHECKS=; : > "$TXROOT/merge-generated-list"
   [ -n "${RM_BUILD:-}" ] && [ -n "${RM_BASE_TIP:-}" ] || return 0
   git -C "$RM_BUILD" show "$RM_BASE_TIP:.uak/PROJECT.md" > "$f" 2>/dev/null || return 0
   uak_cfg_var "$f" Merge-Engine human; [ "$CFG" != ci ] || RM_ENGINE=ci
   uak_cfg_var "$f" Mode ''; RM_PROJECT_MODE=$(printf '%s' "$CFG" | tr '[:upper:]' '[:lower:]')
   uak_cfg_var "$f" Review-Independence agent; RM_INDEPENDENCE=$CFG
   uak_cfg_var "$f" Merge-Engine-Checks ''; RM_ENGINE_CHECKS=$CFG
+  # Generated: lines of the same base PROJECT.md (UAK-148), never of the candidate's.
+  uak_generated_list < "$f" > "$TXROOT/merge-generated-list" 2>/dev/null || : > "$TXROOT/merge-generated-list"
 }
 # What `ci` may release (UAK-131, decided by the human 2026-11-21): the files of .uak/bin/lib/ that are not loaded into the
 # gate's process. bin/uak sources its libs into ONE bash process and a later definition wins, so any file the gate loads
@@ -769,6 +771,10 @@ rm_gate_scope() {
   # tasks were built by the gate and landed by a person who added no check.
   RM_CI_RELEASED=no; : > "$TXROOT/merge-released"; rm_merge_engine
   rm_libok_file
+  # Generated: files (UAK-148): a path named by the BASE tip's PROJECT.md that is no shared resource of the human is not
+  # out of scope; each one is printed to merge-generated (with its command) for rm_generated_check, which holds the content.
+  : > "$TXROOT/merge-generated"
+  UAK_SCOPE_SHARED=$UAK_SHARED_RES UAK_SCOPE_GEN="$TXROOT/merge-generated-list" UAK_SCOPE_GENOUT="$TXROOT/merge-generated" \
   UAK_SCOPE_ENGINE=$RM_ENGINE UAK_SCOPE_RELEASED="$TXROOT/merge-released" UAK_SCOPE_LIBOK="$TXROOT/merge-libok" \
   UAK_SCOPE_ALLOWED="$TXROOT/merge-allowed" UAK_SCOPE_ADDITIVE="$TXROOT/merge-additive" awk '
     function load(f, list,   n, l) { n = 0; while ((getline l < f) > 0) if (l != "") list[++n] = l; close(f); return n }
@@ -799,14 +805,16 @@ rm_gate_scope() {
     BEGIN {
       engine = (ENVIRON["UAK_SCOPE_ENGINE"] == "ci"); rel = ENVIRON["UAK_SCOPE_RELEASED"]
       if (engine) { while ((getline l < ENVIRON["UAK_SCOPE_LIBOK"]) > 0) if (l != "") relset[l] = 1; close(ENVIRON["UAK_SCOPE_LIBOK"]) }
+      # By the exact path (a case or accent variant is another file) and only once: a path listed twice goes to the human.
+      while ((getline l < ENVIRON["UAK_SCOPE_GEN"]) > 0) if ((t = index(l, "\t")) > 1) {
+        gk = substr(l, 1, t - 1); if (gk in genset) gdup[gk] = 1; else genset[gk] = l
+      }
+      close(ENVIRON["UAK_SCOPE_GEN"]); genout = ENVIRON["UAK_SCOPE_GENOUT"]
       na = load(ENVIRON["UAK_SCOPE_ALLOWED"], allow); nd = load(ENVIRON["UAK_SCOPE_ADDITIVE"], add)
       nfx = split("/fixtures/ /testdata/ /__fixtures__/ /test-fixtures/", fx, " ")
       nkeep = split("/contracts/ /types/ /shared-types/ /migrations/ /db/migration/ /.github/ /.uak/", keep, " ")
       # Each is a "*/name/*" pattern on "/path/": "*/*.lock/*" is any ".lock/" (the path starts with a slash).
-      nsh = split("/contracts/ /types/ /shared-types/ /migrations/ /db/migration/ /gradle.lockfile/ /.github/workflows/ " \
-        "/.gitlab-ci.yml/ /azure-pipelines.yml/ /package-lock.json/ /pnpm-lock.yaml/ .lock/ .lockb/ /go.sum/ " \
-        "/.uak/bin/smoke/ /.uak/bin/smoke-project/ /.uak/bin/.smoke-project.provenance/ /.uak/bin/secret-scan/ " \
-        "/.uak/bin/uak/ /.uak/bin/lib/ /.uak/bin/uak-coordination/ /.githooks/ /hackathon.md/ /.uak/project.md/", shared, " ")
+      nsh = split(ENVIRON["UAK_SCOPE_SHARED"], shared, " ")
       # Under `ci` what judges or guards a merge is never released (workflows, smoke, smoke-project, secret-scan and
       # .githooks/ are shared and not engine above; guard joins them here, and none of them is test data under a
       # fixtures directory). `human` keeps the list as it was.
@@ -835,6 +843,14 @@ rm_gate_scope() {
       if (sk == 2) print path >> rel
       p = fold(path)
       if (under(p, allow, na)) next
+      # A generated file: only one the human did not keep (sk 0: no shared resource, and never .github/ or guard), never a
+      # symlink; its content is checked against its command after the merge, not trusted here.
+      # Only a plain file, added or edited with its mode kept (a deletion or a mode change goes to the human).
+      if (sk == 0 && (path in genset) && !(path in gdup) && nmode == "100644" && (st == "A" || (st == "M" && omode == nmode)) &&
+          index(lp, "/.github/") == 0 && index(lp, "/.uak/bin/guard/") == 0) {
+        if (!(path in genseen)) { genseen[path] = 1; print genset[path] >> genout }
+        next
+      }
       # A new EMPTY file (package marker such as __init__.py, .gitkeep) changes no behavior of other tasks: the empty
       # blob, SHA-1 or SHA-256. Why (MLB hackathon): an empty app/__init__.py and analysis/__init__.py sent two merges to the human.
       if (st == "A" && (under(p, add, nd) || blob == "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391" ||
@@ -1049,7 +1065,49 @@ rm_prepare_candidate() {
   git -C "$RM_BUILD" diff --quiet && git -C "$RM_BUILD" diff --cached --quiet && {
     RM_REASON='Candidate adds no changes'; return 1;
   }
+  rm_commit_and_check
+}
+# Generated files (UAK-148): the gate does not trust the content of a file it released from Paths. On the merge COMMIT
+# (HEAD = the result with both parents, so a generator that reads history sees the task's commits, as it does on the
+# task's tip), in the gate's own checkout, after smoke and Verify and with their environment (PATH, port, SSH, no time
+# limit but the lock's), it runs the BASE tip's COMMAND for each released file and requires that nothing changed: no
+# tracked file (content or mode, staged or not), the file still tracked, no new untracked file COMMAND left that is not
+# ignored, HEAD where it was. Otherwise the merge is refused naming the file and the command, and the commit, which
+# lives only in the gate's clone, is never pushed: the commit that lands is the one this ran on. A COMMAND that fails or
+# is missing refuses too. The command comes from the base tip's PROJECT.md only; what it runs (kit_hashes.py of the
+# candidate) just ran in smoke and Verify. Why (v6.8): 21 tasks went to the human for known-files.txt.
+rm_generated_check() {
+  local line gp cmd head0 changed fresh
+  [ -s "$TXROOT/merge-generated" ] || return 0
+  head0=$(git -C "$RM_BUILD" rev-parse HEAD) || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    gp=${line%%$'\t'*}; cmd=${line#*$'\t'}
+    git -C "$RM_BUILD" ls-files --others --exclude-standard > "$TXROOT/gen-before" 2>/dev/null
+    (cd "$RM_BUILD" && { uak_caller_ssh 2>/dev/null || :; } && PATH="${RM_GATE_PATH:-$PATH}" UAK_MAIN_CHECKOUT="${RM_MAIN:-}" UAK_PORT="${RM_GATE_PORT:-}" bash -c "$cmd" < /dev/null) > "$TXROOT/gate-generated.log" 2>&1 ||
+      { RM_REASON="Generated file $gp: its command failed or is missing ($cmd)$(rm_gate_log generated)"; return 1; }
+    [ "$(git -C "$RM_BUILD" rev-parse HEAD 2>/dev/null)" = "$head0" ] && git -C "$RM_BUILD" diff --cached --quiet ||
+      { RM_REASON="Generated file $gp: its command ($cmd) moved HEAD or staged changes"; return 1; }
+    git -C "$RM_BUILD" ls-files --others --exclude-standard 2>/dev/null | grep -vxF -f "$TXROOT/gen-before" > "$TXROOT/gen-after" || :
+    fresh=$(head -n 5 "$TXROOT/gen-after" | tr '\n' ' ')
+    [ -z "$fresh" ] || { RM_REASON="Generated file $gp: its command ($cmd) left untracked files: ${fresh% }"; return 1; }
+    changed=$(git -C "$RM_BUILD" -c core.quotePath=false diff --name-only HEAD 2>/dev/null | head -n 5 | tr '\n' ' ')
+    [ -z "$changed" ] || {
+      case "$changed" in
+        "$gp ") RM_REASON="Generated file $gp differs from what its command produces ($cmd): run it and commit the result";;
+        *) RM_REASON="Generated file $gp: its command ($cmd) changed other files too: ${changed% }";;
+      esac
+      return 1
+    }
+    git -C "$RM_BUILD" ls-files --error-unmatch -- "$gp" > /dev/null 2>&1 ||
+      { RM_REASON="Generated file $gp is not in the merge result (a deletion is the human's)"; return 1; }
+  done < "$TXROOT/merge-generated"
+  return 0
+}
+# The merge commit, then the generated-file check ON it (UAK-148: a generator reads the history of the result), then the
+# commit the gate lands. One function so the test drives the gate's own sequence, not a copy of it.
+rm_commit_and_check() {
   git -C "$RM_BUILD" commit -q -m "Merge $ID reviewed by $APPROVED_BY" || { RM_REASON='Could not create the merge commit'; return 1; }
+  rm_generated_check || return 1
   RM_CANDIDATE=$(git -C "$RM_BUILD" rev-parse HEAD)
 }
 # Why (Reap): 9 merges went to the human queue; the fast path (merge on the forge + integrate) was not said.

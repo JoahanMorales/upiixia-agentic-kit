@@ -23,3 +23,29 @@ uak_cfg_var() {
   [ -n "$CFG" ] || CFG=${3:-}
 }
 uak_cfg() { uak_cfg_var "$@"; printf '%s\n' "$CFG"; }
+# Shared resources of the human, one list for the merge gate (rm_gate_scope) and for `uak done`: each is a "*/name/*"
+# pattern matched against "/lower-case/path/". Moved here from the gate's awk (UAK-148) so `Generated:` can never release
+# one of them in one place and not in the other.
+UAK_SHARED_RES='/contracts/ /types/ /shared-types/ /migrations/ /db/migration/ /gradle.lockfile/ /.github/workflows/ /.gitlab-ci.yml/ /azure-pipelines.yml/ /package-lock.json/ /pnpm-lock.yaml/ .lock/ .lockb/ /go.sum/ /.uak/bin/smoke/ /.uak/bin/smoke-project/ /.uak/bin/.smoke-project.provenance/ /.uak/bin/secret-scan/ /.uak/bin/uak/ /.uak/bin/lib/ /.uak/bin/uak-coordination/ /.githooks/ /hackathon.md/ /.uak/project.md/'
+# Generated files (UAK-148). `Generated: PATH = COMMAND` lines of the PROJECT.md given on stdin, one "PATH<TAB>COMMAND"
+# per valid line. The first `=` splits (the command may hold more); PATH is one file, never a directory or a glob
+# (no trailing slash, no * ? [ ] { } or backslash, no `..`, not absolute); an empty PATH or COMMAND drops the line.
+# Wrapping backticks are removed from each side. Callers read the BASE tip's PROJECT.md, never the branch under review.
+# Why (v6.8, 21 tasks): every task's PR changed known-files.txt and was sent to the human for it.
+uak_generated_list() {
+  local line v p c
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line#"${line%%[!-* ]*}"}
+    case "$line" in 'Generated:'*) ;; *) continue;; esac
+    v=${line#Generated:}; v=${v//$'\r'/}
+    case "$v" in *=*) ;; *) continue;; esac
+    p=${v%%=*}; c=${v#*=}
+    p=${p#"${p%%[!* ]*}"}; p=${p%"${p##*[! ]}"}; c=${c#"${c%%[! ]*}"}; c=${c%"${c##*[! ]}"}
+    case "$p" in '`'*'`') p=${p#\`}; p=${p%\`};; esac
+    case "$c" in '`'*'`') c=${c#\`}; c=${c%\`};; esac
+    while :; do case "$p" in ./*) p=${p#./};; *) break;; esac; done
+    [ -n "$p" ] && [ -n "$c" ] || continue
+    case "$p" in /*|*/|*'*'*|*'?'*|*'['*|*']'*|*'{'*|*'}'*|*'\'*|*$'\t'*|..|../*|*/..|*/../*|*//*|[A-Za-z]:*) continue;; esac
+    printf '%s\t%s\n' "$p" "$c"
+  done
+}
