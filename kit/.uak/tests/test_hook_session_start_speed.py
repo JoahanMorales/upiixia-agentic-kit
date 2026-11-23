@@ -901,6 +901,267 @@ def cached_start_does_not_wait(r):
     return "no copy: waits; copy: %.1f s with its age" % took
 
 
+def hook_functions(r, w, *names):
+    """The text of these hook functions, as the hook defines them, so a small Bash harness can run them without a
+    whole session start. A name the hook does not define yet is left out (the test then fails on what it checks)."""
+    text = (w / ".uak/bin/hook").read_text(encoding="utf-8")
+    found = []
+    for name in names:
+        m = re.search(r"^%s\(\) \{.*?^\}$|^%s\(\) \{.*\}$" % (name, name), text, re.S | re.M)
+        if m:
+            found.append(m.group(0))
+    return "\n".join(found)
+
+
+ONCE_FUNCS = ("epoch_age", "start_pid_ok", "start_children", "start_tree", "start_kill_tree", "start_limited",
+              "start_once_live", "start_once_recent", "start_once")
+
+
+def once_harness(r, w, name, body):
+    """A Bash script with start_once and what it needs from the hook, NOW as the hook has it, then BODY."""
+    script = Path(r.scratch) / name
+    script.write_text("NOW=$(date +%s)\n" + hook_functions(r, w, *ONCE_FUNCS) + "\n" + body + "\n", encoding="utf-8")
+    return script
+
+
+def live_process(r, w):
+    """A process that stays alive for the test; its PID as Bash sees it. Stopped by PID in `stop_live`."""
+    import subprocess
+    proc = subprocess.Popen([r.bash, "-c", "echo $$; exec sleep 120"], stdout=subprocess.PIPE, text=True)
+    pid = int(proc.stdout.readline().strip())
+    return proc, pid
+
+
+def stop_live(r, w, proc, pid):
+    r.run([r.bash, "-c", 'kill -KILL "$1" 2>/dev/null; true', "_", str(pid)], cwd=w, allowed=None)
+    proc.wait(timeout=20)
+    proc.stdout.close()
+    expect(not alive(r, w, pid), "test cleanup: PID %d is gone" % pid)
+
+
+def bash_counts(control, *names):
+    return {n: len((control / (n + ".calls")).read_text().split()) if (control / (n + ".calls")).exists() else 0
+            for n in names}
+
+
+def counting_stubs(r, w, control):
+    stub_engine(r, w, uak='case "$1" in next) echo "Next: stub";; esac',
+                pace='echo x >> "$UAK_ONCE_DIR/pace.calls"; echo "PACE normal: stub"',
+                map='[ "$1" != build ] || echo x >> "$UAK_ONCE_DIR/map.calls"')
+
+
+def corrupt_time_file_does_not_end_the_hook(r):
+    """UAK-185: a time file that holds `08`, letters, nothing or twenty digits made the hook stop at an arithmetic
+    error: the output ended at the identity line. Now the value is stale, and the start prints what it always does."""
+    f, w = counted_fixture(r, "ss-corrupt")
+    control = Path(r.scratch) / "ss-corrupt-control"
+    control.mkdir()
+    counting_stubs(r, w, control)
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    extra = {"UAK_START_WAIT": "1", "UAK_ONCE_DIR": control.as_posix()}
+    _, reference = start(r, w, "agent-1", **extra)
+    settle(r, w)
+    tail = [l for l in reference.splitlines() if l.strip()][-1]
+    expect("Next: stub" in reference and tail, "the reference start prints the list: " + reference[-300:])
+    seen = bash_counts(control, "pace", "map")
+    for value in ("08", "abc", "", "9" * 20):
+        for name in ("uak-start.next.at", "uak-once.pace.at", "uak-once.map.at"):
+            (gd / name).write_text(value + "\n", encoding="utf-8")
+        (gd / "uak-pace.start").write_text(value + "\nPACE critical: kept from a corrupt time\n", encoding="utf-8")
+        _, out = start(r, w, "agent-1", **extra)
+        settle(r, w)
+        expect("UAK: agent=agent-1" in out and "Next: stub" in out and tail in out,
+               "with %r in the time files the start still prints everything (its last line %r): %s"
+               % (value, tail, out[-400:]))
+        now = bash_counts(control, "pace", "map")
+        expect(now["pace"] == seen["pace"] + 1 and now["map"] == seen["map"] + 1,
+               "with %r in the time files pace and map build still run: before %r, after %r" % (value, seen, now))
+        seen = now
+    return "08, letters, nothing and twenty digits: the whole output, pace and map build run"
+
+
+def future_time_file_is_stale(r):
+    """UAK-185: a time an hour ahead blocked pace and map build for that hour, and a negative age was printed."""
+    f, w = counted_fixture(r, "ss-future")
+    control = Path(r.scratch) / "ss-future-control"
+    control.mkdir()
+    counting_stubs(r, w, control)
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    extra = {"UAK_START_WAIT": "1", "UAK_ONCE_DIR": control.as_posix()}
+    start(r, w, "agent-1", **extra)
+    settle(r, w)
+    before = bash_counts(control, "pace", "map")
+    ahead = str(int(time.time()) + 3600)
+    proc, pid = live_process(r, w)
+    try:
+        for name in ("uak-start.next.at", "uak-once.pace.at", "uak-once.map.at"):
+            (gd / name).write_text(ahead + "\n", encoding="utf-8")
+        for name in ("pace", "map"):  # a live owner whose start lies in the future is not a live owner
+            (gd / ("uak-once.%s.running" % name)).write_text("%d %s\n" % (pid, ahead), encoding="utf-8")
+        (gd / "uak-pace.start").write_text(ahead + "\nPACE critical: kept from the future\n", encoding="utf-8")
+        _, out = start(r, w, "agent-1", **extra)
+        settle(r, w)
+    finally:
+        stop_live(r, w, proc, pid)
+    after = bash_counts(control, "pace", "map")
+    expect(after["pace"] == before["pace"] + 1 and after["map"] == before["map"] + 1,
+           "a time an hour ahead does not block pace or map build: before %r, after %r" % (before, after))
+    expect("PACE critical: kept from the future" not in out, "a pace reading stamped in the future is not shown")
+    expect("Next: stub" in out, "the list is shown: " + out[-300:])
+    expect(not re.search(r"-\d+ s ago", out), "an age is never negative: " + out[-400:])
+    return "a time an hour ahead is stale: pace and map build run, no negative age"
+
+
+def stale_lock_reclaim_runs_once(r):
+    """UAK-185: reclaiming a stale lock deleted the lock another start had just taken (pace ran twice in 1 of 3
+    rounds of 8 simultaneous starts). Ten rounds of eight starts, all released together on a stale lock."""
+    import subprocess
+    f, w = counted_fixture(r, "ss-race")
+    base = Path(r.scratch) / "ss-race-control"
+    base.mkdir()
+    script = once_harness(r, w, "race.sh", r"""gd=$1
+while [ ! -f "$gd/go" ]; do :; done
+for n in pace map; do start_once "$n" 60 bash -c 'echo x >> "$1/$2.calls"; sleep 1' _ "$gd" "$n"; done""")
+    stale = int(time.time()) - 1000
+    totals = []
+    for rnd in range(10):
+        gd = base / ("round%d" % rnd)
+        gd.mkdir()
+        for name in ("pace", "map"):
+            (gd / ("uak-once.%s.running" % name)).write_text("999999 %d\n" % stale, encoding="utf-8")
+        procs = [subprocess.Popen([r.bash, script.as_posix(), gd.as_posix()], stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for _ in range(8)]
+        (gd / "go").write_text("go\n")
+        for p in procs:
+            p.wait(timeout=60)
+        deadline = time.monotonic() + 30
+        while list(gd.glob("uak-once.*.running")) and time.monotonic() < deadline:
+            time.sleep(0.2)
+        counts = bash_counts(gd, "pace", "map")
+        totals.append(counts)
+        expect(counts == {"pace": 1, "map": 1},
+               "round %d: eight simultaneous starts on a stale lock ran pace %d and map build %d times (once each); "
+               "rounds so far %r" % (rnd + 1, counts["pace"], counts["map"], totals))
+        expect(not list(gd.glob("uak-once.*.running")) and not list(gd.glob("uak-once.*.reclaim")),
+               "round %d leaves no lock behind" % (rnd + 1))
+    return "ten rounds of eight starts: each job ran once in every round"
+
+
+def once_lock_with_a_bad_time_is_stale(r):
+    f, w = counted_fixture(r, "ss-lock-time")
+    gd = Path(r.scratch) / "ss-lock-time-gd"
+    gd.mkdir()
+    script = once_harness(r, w, "lock.sh", r"""gd=$1
+start_once pace 0 bash -c 'echo x >> "$1/pace.calls"' _ "$gd"
+sleep 1""")
+    proc, pid = live_process(r, w)
+    try:
+        for value in ("08", "abc", "9" * 20, str(int(time.time()) + 3600)):
+            before = bash_counts(gd, "pace")["pace"]
+            (gd / "uak-once.pace.running").write_text("%d %s\n" % (pid, value), encoding="utf-8")
+            r.run([r.bash, script.as_posix(), gd.as_posix()], cwd=w, allowed=None)
+            deadline = time.monotonic() + 15
+            while bash_counts(gd, "pace")["pace"] == before and time.monotonic() < deadline:
+                time.sleep(0.2)
+            expect(bash_counts(gd, "pace")["pace"] == before + 1,
+                   "a live owner whose lock says %r is stale and pace runs" % value)
+            deadline = time.monotonic() + 15
+            while (gd / "uak-once.pace.running").exists() and time.monotonic() < deadline:
+                time.sleep(0.2)
+    finally:
+        stop_live(r, w, proc, pid)
+    return "08, letters, twenty digits and a time ahead in a lock: stale"
+
+
+HANG = 'echo "$0 $*" >> "$UAK_HUNG_DIR/jobs"; sleep 300 & echo "$$ $!" >> "$UAK_HUNG_DIR/pids"; wait'
+
+
+def every_background_job_has_a_limit(r):
+    """UAK-185: tokens --publish, bb flush, the lens `map build`, pr-sync and heartbeat were plain nohup jobs. Each
+    is stubbed to hang with a child that sleeps for 300 s; with a 2 s limit none of them may be left."""
+    import subprocess
+    f, w = counted_fixture(r, "ss-limits")
+    control = Path(r.scratch) / "ss-limits-control"
+    control.mkdir()
+    gh = Path(r.scratch) / "ss-limits-gh"
+    gh.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    gh.chmod(0o755)
+    stub_engine(r, w, uak='case "$1" in next) echo "Next: stub";; pr-sync|heartbeat) %s;; esac' % HANG,
+                tokens=HANG, bb='case "$1" in flush) %s;; esac' % HANG,
+                map='case "$1" in build) %s;; esac' % HANG, pace='echo "PACE normal: stub"')
+    gd = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    common = (gd / "commondir")
+    cdir = (gd / common.read_text().strip()).resolve() if common.exists() else gd
+    (cdir / "uak-blackbox.pending").write_text('{"x":1}\n', encoding="utf-8")
+    (w / "README.md").write_text("x\n", encoding="utf-8")
+    (w / ".uak-env").write_text("UAK_TASK=HACK-001\nUAK_AGENT=agent-1\n", encoding="utf-8")
+    env = {"UAK_START_WAIT": "1", "UAK_START_LIMIT": "2", "UAK_HUNG_DIR": control.as_posix(), "UAK_GH": gh.as_posix()}
+    pids = []
+    try:
+        start(r, w, "agent-1", **env)
+        tick = '{"session_id":"s-limits","tool_name":"Read","tool_input":{"file_path":"%s"}}' % (w / "README.md").as_posix()
+        r.run([r.bash, "-c", "printf '%s' \"$1\" | bash .uak/bin/hook tick", "_", tick], cwd=w,
+              env=dict({"UAK_REMOTE": "origin", "UAK_HUMAN": "", "UAK_AGENT": "agent-1"}, **env), allowed=None)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            jobs = (control / "jobs").read_text() if (control / "jobs").exists() else ""
+            if all(k in jobs for k in ("tokens", "flush", "build", "pr-sync", "heartbeat")):
+                break
+            time.sleep(0.3)
+        jobs = (control / "jobs").read_text() if (control / "jobs").exists() else ""
+        for key in ("tokens", "flush", "build", "pr-sync", "heartbeat"):
+            expect(key in jobs, "the hook started the %s job: %s" % (key, jobs))
+        pids = [int(x) for line in (control / "pids").read_text().splitlines() for x in line.split()]
+        deadline = time.monotonic() + 25
+        while any(alive(r, w, p) for p in pids) and time.monotonic() < deadline:
+            time.sleep(0.5)
+        left = [p for p in pids if alive(r, w, p)]
+        expect(not left, "after the 2 s limit these background jobs (and children) still run: PIDs %r of %r; jobs:\n%s"
+               % (left, pids, jobs))
+        settle(r, w)
+    finally:
+        for p in pids:
+            r.run([r.bash, "-c", 'kill -KILL "$1" 2>/dev/null; true', "_", str(p)], cwd=w, allowed=None)
+        for p in pids:
+            expect(not alive(r, w, p), "test cleanup: PID %d is gone" % p)
+    return "tokens, bb flush, lens map build, pr-sync and heartbeat killed with their children at the limit"
+
+
+def cached_copy_always_says_its_age(r):
+    """UAK-185: the age of a cached copy was said only while a refresh ran. Now whenever the copy is shown, and a
+    copy without a (usable) time file says "age unknown"."""
+    f, w = counted_fixture(r, "ss-age")
+    gd = Path(r.scratch) / "ss-age-gd"
+    gd.mkdir()
+    (gd / "uak-start.next.txt").write_text("Next: copy\n", encoding="utf-8")
+    script = Path(r.scratch) / "show.sh"
+    script.write_text("NOW=$(date +%s)\n" + hook_functions(r, w, "epoch_age", "start_pid_ok", "start_busy", "start_show")
+                      + '\ngd=$1\nstart_show next 18 next\n', encoding="utf-8")
+    now = int(time.time())
+    for value, want in ((str(now - 42), r"\b4[2-9] s ago"), (None, "age unknown"), ("", "age unknown"),
+                        ("abc", "age unknown"), (str(now + 3600), "age unknown"), ("9" * 20, "age unknown"),
+                        ("08", r"\d+ s ago|age unknown")):
+        at = gd / "uak-start.next.at"
+        if at.exists():
+            at.unlink()
+        if value is not None:
+            at.write_text(value + "\n", encoding="utf-8")
+        out = r.run([r.bash, script.as_posix(), gd.as_posix()], cwd=w, allowed=None)
+        expect("Next: copy" in out.stdout and re.search(want, out.stdout) and not re.search(r"-\d+ s", out.stdout),
+               "with the time file %r, a shown copy (no refresh running) says its age (%s): %r %r"
+               % (value, want, out.stdout, out.stderr[:200]))
+    # And in the real hook: a copy with no time file next to it, shown while the refresh (3 s) runs.
+    control = Path(r.scratch) / "ss-age-control"
+    control.mkdir()
+    stub_engine(r, w, uak='case "$1" in next) sleep 3; echo "Next: stub";; esac')
+    real = Path(r.g(w, "rev-parse", "--absolute-git-dir").stdout.strip())
+    (real / "uak-start.next.txt").write_text("Next: old copy\n", encoding="utf-8")
+    _, out = start(r, w, "agent-1", UAK_START_WAIT="1")
+    settle(r, w)
+    expect("Next: old copy" in out and "age unknown" in out, "a copy without a time file says so: " + out[-500:])
+    return "age said with and without a refresh; a copy without a time file says age unknown"
+
+
 TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged,
          session_start_marks_only_the_inbox_snapshot_it_prints, session_start_coalesces_aged_live_refreshes,
          session_start_recovers_a_dead_refresh_owner, session_start_orphan_output_cannot_change_replacement_cache,
@@ -911,6 +1172,8 @@ TESTS = [session_start_returns_within_budget, session_start_output_is_unchanged,
          session_start_inbox_failure_preserves_cache_and_status, session_start_launches_half_the_processes_on_startup,
          session_start_launches_half_the_processes_on_resume, session_start_keeps_reporting_the_pace_level,
          hung_worker_is_killed, pace_and_map_run_once_under_ten_starts, cached_start_does_not_wait]
+TESTS += [corrupt_time_file_does_not_end_the_hook, future_time_file_is_stale, stale_lock_reclaim_runs_once,
+          once_lock_with_a_bad_time_is_stale, every_background_job_has_a_limit, cached_copy_always_says_its_age]
 
 
 def main():
