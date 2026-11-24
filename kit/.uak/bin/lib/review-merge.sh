@@ -269,6 +269,18 @@ review_mutate() {
     else REVIEW_HINT="If this mistake can happen in other tasks too, keep it for them: bash .uak/bin/uak learn \"what bites · where · what to do\" --task $ID"; fi
   fi
 }
+# Review-Mode: auto with no gh in PATH reviews on claims; the command says so once per run, on stderr (UAK-189: it never
+# said, and a project that expected GitHub approvals waited for reviews that could not come).
+rm_auto_note_for() { # PR: the same choice approval_check makes, said without judging anything
+  case "${1:-}" in https://github.com/*/pull/*)
+    [ "$(rm_config Review-Mode auto)" = auto ] && ! command -v gh >/dev/null 2>&1 && rm_auto_note;; esac
+  return 0
+}
+rm_auto_note() {
+  [ -z "${RM_AUTO_NOTED:-}" ] || return 0
+  RM_AUTO_NOTED=yes
+  printf 'uak: Review-Mode is auto and gh is not in PATH, so the review is read on claims (uak review), not on GitHub. Install gh, or set Review-Mode: claims in .uak/PROJECT.md to say it on purpose.\n' >&2
+}
 approval_check() {
   local tip=$1 pr=${2:-} mode review who author meta gh_tip gh_author gh_base gh_branch gh_repo gh_state gh_merged gh_merge remote_repo
   APPROVED_BY= RM_REASON=
@@ -277,7 +289,7 @@ approval_check() {
   mode=$(rm_config Review-Mode auto)
   if [ "$mode" = auto ]; then
     case "$pr" in https://github.com/*/pull/*)
-      if command -v gh >/dev/null 2>&1; then mode=gh; else mode=claims; fi;;
+      if command -v gh >/dev/null 2>&1; then mode=gh; else mode=claims; rm_auto_note; fi;;
       *) mode=claims;;
     esac
   fi
@@ -1046,7 +1058,7 @@ rm_prepare_candidate() {
   rm_gate_env
   rm_smoke_scope
   # The project's commands run with the caller's SSH settings, not uak's (lib/net.sh, uak_caller_ssh).
-  (cd "$RM_BUILD" && { uak_caller_ssh 2>/dev/null || :; } && unset UAK_SMOKE_TESTS UAK_SMOKE_GATE_NONE && { [ -z "${RM_SMOKE_TESTS:-}" ] || export UAK_SMOKE_TESTS="$RM_SMOKE_TESTS"; } && { [ -z "${RM_SMOKE_NONE:-}" ] || export UAK_SMOKE_GATE_NONE="$RM_SMOKE_NONE"; } && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash .uak/bin/smoke) > "$TXROOT/gate-smoke.log" 2>&1 ||
+  (cd "$RM_BUILD" && { uak_caller_ssh 2>/dev/null || :; } && unset UAK_SMOKE_TESTS UAK_SMOKE_GATE_NONE UAK_TASK UAK_SESSION UAK_AGENT UAK_AGENT_HUMAN && { [ -z "${RM_SMOKE_TESTS:-}" ] || export UAK_SMOKE_TESTS="$RM_SMOKE_TESTS"; } && { [ -z "${RM_SMOKE_NONE:-}" ] || export UAK_SMOKE_GATE_NONE="$RM_SMOKE_NONE"; } && PATH="$RM_GATE_PATH" UAK_MAIN_CHECKOUT="$RM_MAIN" UAK_PORT="$RM_GATE_PORT" bash .uak/bin/smoke) > "$TXROOT/gate-smoke.log" 2>&1 ||
     { RM_REASON="Smoke red or product unverified$(rm_gate_log smoke)"; return 1; }
   verify=$(rm_task_value Verify); verify=$(printf '%s\n' "$verify" | sed 's/^`//;s/`$//')
   [ -n "$verify" ] || { RM_REASON='Missing runnable Verify'; return 1; }

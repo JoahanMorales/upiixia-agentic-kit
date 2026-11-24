@@ -399,9 +399,37 @@ def newline_name_is_refused_by_name(r):
     return "newline name refused with SMOKE_REFUSED"
 
 
+def newline_in_a_folder_is_refused(r):
+    """UAK-189: UAK-186 looked for a newline only in the last name. A Python file in a folder with a newline, or a cmd
+    folder under one, split deploy's list in two just the same: refused by name, nothing generated."""
+    for n, (label, rel) in enumerate((("python folder", "a\nb/sub/server.py"), ("go folder", "cmd/x\ny/z"))):
+        t, env, git, start, uak = installed(r, "onb-nlfolder-%d" % n, "sprint")
+        server = SERVER % {"name": "QueueStore"}
+        target = t / rel
+        try:
+            target.parent.mkdir(parents=True)
+        except OSError:  # Windows cannot hold such a name: nothing to refuse there
+            return "this filesystem cannot create a name with a newline: skipped"
+        if rel.endswith(".py"):
+            target.write_text(server, encoding="utf-8")
+        else:
+            target.mkdir()
+            (target / "main.go").write_text("package main\n", encoding="utf-8")
+        detected = r.run([r.bash, ".uak/bin/lib/smoke-init.sh", "detect"], cwd=t, env=env, allowed=None)
+        made = uak("init-smoke", env={"UAK_PORT": str(free_port())})
+        text = detected.stdout + detected.stderr + made.stdout + made.stderr
+        expect(detected.returncode != 0 and not detected.stdout.strip() and "SMOKE_REFUSED" in detected.stderr,
+               "%s: detect refuses by name: rc %d %s" % (label, detected.returncode, text[-500:]))
+        expect("SMOKE_REFUSED" in made.stdout + made.stderr and made.returncode != 0 and "SMOKE_ADAPTER_CREATED" not in made.stdout,
+               "%s: init-smoke says it refused: %s" % (label, text[-500:]))
+        expect(not (t / ".uak/bin/smoke-project").exists(), "%s: no adapter generated" % label)
+    return "newline in a folder refused with SMOKE_REFUSED"
+
+
 TESTS = [start_asks_for_the_smoke, start_notes_the_smoke_before_any_app, web_smoke_boots_the_app, occupied_port_never_answers_for_the_app, init_smoke_leaves_no_stray_dirs]
 TESTS += [smoke_boot_does_not_run_a_file_name]
 TESTS += [newline_name_is_refused_by_name]
+TESTS += [newline_in_a_folder_is_refused]
 
 
 def main():
