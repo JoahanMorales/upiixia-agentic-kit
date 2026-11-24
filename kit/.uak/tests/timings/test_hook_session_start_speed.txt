@@ -1,3 +1,3 @@
-ci 146
-windows 408
-# measured 2026-11-24 45345902346
+ci 170
+windows 420
+# measured 2026-11-24 45365777029 (Windows 399 s, 3 runs of the same code 399-676 s with the longer diagnostic loop; Linux 170 s; macOS did not run this file in that run)
