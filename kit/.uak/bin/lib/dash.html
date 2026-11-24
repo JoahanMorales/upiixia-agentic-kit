@@ -612,6 +612,8 @@ dialog#story::backdrop { background: var(--scrim); }
   "use strict";
   function T(value) { return window.UAKWorkspace ? UAKWorkspace.t(value) : value; }
   var ES = {
+    'People': 'Personas',
+    'the humans of the project': 'las personas del proyecto',
     'Tasks with the most entries': 'Tareas con más entradas',
     'Entries': 'Entradas',
     'Search the memory': 'Buscar en la memoria',
@@ -1383,7 +1385,7 @@ dialog#story::backdrop { background: var(--scrim); }
     var by = { todo: [], prog: [], rev: [], done: [] };
     d.tasks.forEach(function (t) { if (!match(t)) return; var s = stateOf(t); (s === "AVAILABLE" || s === "WAITING" ? by.todo : s === "CLAIMED" || s === "BLOCKED" ? by.prog : s === "REVIEW" ? by.rev : s === "INTEGRATED" ? by.done : []).push(t); });
     by.done.sort(function (a, b) { return (b.updated || 0) - (a.updated || 0) || (a.id < b.id ? 1 : -1); });
-    var free = by.todo.filter(function (t) { return stateOf(t) === "AVAILABLE"; }).length, stuck = by.prog.filter(function (t) { return t.stalled || t.state === "BLOCKED"; }).length;
+    var free = by.todo.filter(function (t) { return stateOf(t) === "AVAILABLE"; }).length, stuck = by.prog.filter(function (t) { return stalledMin(t, g) || t.state === "BLOCKED"; }).length;
     var revLate = by.rev.filter(function (t) { return t.sub && t.sub.late; }).length, waiting = by.rev.filter(function (t) { return t.sub && (t.sub.kind === "waiting" || t.sub.kind === "rereview"); }).length;
     var cols = [
       ["todo", L('To do'), "AVAILABLE", by.todo.length ? free + " " + T("available") + (by.todo.length - free ? " · " + (by.todo.length - free) + " " + T("waiting on dependencies") : "") : T("Empty"), false],
@@ -1417,8 +1419,9 @@ dialog#story::backdrop { background: var(--scrim); }
     var wrap = h("div", { "class": "wide" }); v.appendChild(wrap);
     var groups = [["online", T("Online"), T("active in the last 30 min")], ["recent", T("Recently active"), T("seen in the last 3 h")], ["away", T("Away"), T("session ended")], ["offline", T("Offline"), T("not seen for 3 h or more")], ["retired", T("Retired"), T("identity retired")]];
     if (!d.agents.length) { wrap.appendChild(h("div", { "class": "card empty" }, [h("b", { text: T("No agents yet") }), T("An agent appears here after its first uak command.")])); return; }
+    groups.push(["people", L('People'), L('the humans of the project')]);
     groups.forEach(function (gr) {
-      var list = d.agents.filter(function (a) { return a.status === gr[0]; }).sort(function (a, b) { return b.last_seen - a.last_seen || a.name.localeCompare(b.name); });
+      var list = d.agents.filter(function (a) { return gr[0] === "people" ? a.is_human : a.status === gr[0] && !a.is_human; }).sort(function (a, b) { return b.last_seen - a.last_seen || a.name.localeCompare(b.name); });
       if (!list.length) return;
       var grid = h("div", { "class": "agrid" });
       list.forEach(function (a) {
@@ -1432,7 +1435,7 @@ dialog#story::backdrop { background: var(--scrim); }
           mhs ? h("div", { "class": "sub ell", title: mhs, text: mhs }) : null,
           h("div", { "class": "sub num", title: a.messages + " " + T("messages") + " · " + a.verdicts + " " + T("verdicts") + " · " + a.checkpoints + " " + T("checkpoints"), text: a.messages + " " + T("messages") + " · " + a.verdicts + " " + T("verdicts") + " · " + a.checkpoints + " " + T("checkpoints") })]));
       });
-      wrap.appendChild(h("section", { style: "margin-bottom:24px" }, [h("div", { "class": "bh" }, [h("h2", { text: gr[1] }), h("span", { "class": "n", text: String(list.filter(function (a) { return !a.is_human; }).length) }), h("div", { "class": "x", text: gr[2] })]), grid]));
+      wrap.appendChild(h("section", { style: "margin-bottom:24px" }, [h("div", { "class": "bh" }, [h("h2", { text: gr[1] }), h("span", { "class": "n", text: String(list.length) }), h("div", { "class": "x", text: gr[2] })]), grid]));
     });
   }
 

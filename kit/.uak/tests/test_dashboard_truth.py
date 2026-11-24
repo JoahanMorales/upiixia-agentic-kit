@@ -524,7 +524,7 @@ def one_definition_of_stalled(root, tmp):
     """)
     if out is not None:
         assert out == [95, 60, 0, 0], out
-    assert "list.filter(function (a) { return !a.is_human; }).length" in dash, "the Agents tab counts agents the way the summary does, without the human"
+    assert "a.status === gr[0] && !a.is_human" in dash and "L('People')" in dash, "the Agents tab counts agents the way the summary does: the humans have their own group"
 
 
 def listbox_replaces_the_selects(root, tmp):
