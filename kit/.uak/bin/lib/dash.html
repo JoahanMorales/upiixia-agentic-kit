@@ -719,13 +719,13 @@ dialog#story::backdrop { background: var(--scrim); }
     var out = [], g = d.generated;
     if (d.stale) out.push({ k: "warn", i: I.pause, t: [T("The remote did not answer: this is the last state this computer read.")], at: d.claims_at || 0 });
     if (frozenNow(d)) out.push({ k: "crit", i: I.hand, t: [T("Project changes are frozen. A human must authorize any new work.")] });
-    humanQueue(d).forEach(function (q) { out.push({ k: "warn", i: I.hand, id: q.task, t: [tid(q.task), T(" needs a human")], s: noPath(q.reason), at: q.at }); });
+    humanQueue(d).forEach(function (q) { out.push({ k: "warn", i: I.hand, id: q.task, t: [tid(q.task), T(" needs a human")], text: noPath(q.reason), at: q.at }); });
     d.offers.slice().sort(function (a, b) { return a.since - b.since; }).forEach(function (o) {
       var to = (o.to || []).map(function (x) { x = x.replace(/^(agent|task):/, ""); return x === "all" ? T("all") : x; }).join(", "), late = g - o.since > 3600;
-      out.push({ k: late ? "crit" : "info", i: I.eye, id: o.task, t: [tid(o.task), T(" waits for review")], s: T("owner ") + o.owner + T(" · offered to ") + (to || T("all")), at: o.since });
+      out.push({ k: late ? "crit" : "info", i: I.eye, id: o.task, t: [tid(o.task), T(" waits for review")], text: T("owner ") + o.owner + T(" · offered to ") + (to || T("all")), at: o.since });
     });
     d.tasks.filter(function (t) { return t.stalled; }).forEach(function (t) {
-      out.push({ k: "crit", i: I.pause, id: t.id, t: [tid(t.id), T(" has not moved in ") + t.stalled + " min"], s: t.progress ? T(t.progress) : t.title, at: t.away ? -1 : 0 });
+      out.push({ k: "crit", i: I.pause, id: t.id, t: [tid(t.id), T(" has not moved in ") + t.stalled + " min"], text: t.progress ? T(t.progress) : t.title, at: t.away ? -1 : 0 });
     });
     return out;
   }
@@ -749,7 +749,7 @@ dialog#story::backdrop { background: var(--scrim); }
     var ul = h("ul", { "class": "list need" });
     list.slice(0, max).forEach(function (n) {
       ul.appendChild(h("li", { "class": n.k === "crit" ? "hot" : "" }, [h("span", { "class": "ico" }, [icon(n.i)]),
-        h("div", {}, [h("b", {}, n.t), n.s ? h("p", { text: n.s }) : null]),
+        h("div", {}, [h("b", {}, n.t), n.text ? h("p", { text: n.text }) : null]),
         n.id ? h("div", { "class": "act" }, [copyBox("uak status --task " + n.id), n.at > 0 ? h("div", { "class": "when num", text: ago(n.at, g) }) : null]) : n.at > 0 ? h("span", { "class": "when num", text: ago(n.at, g) }) : null]));
     });
     if (list.length > max) ul.appendChild(h("li", { "class": "mre muted", style: "padding:8px 12px", text: "+" + (list.length - max) + " " + L('more') }));
