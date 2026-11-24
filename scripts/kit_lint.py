@@ -210,11 +210,21 @@ PORTABILITY_SET = {
 }
 
 
-def portability_problems(tests, table=None, windows=None):
+# Files that failed on Windows and passed on the re-run (the artifact `result-windows-N` counts them: runs 2, failures 1).
+# The portability set runs on every pull request on macOS and Windows, so a member that fails by itself blocks merges for
+# nothing: the lint refuses a member named here (UAK-169). Add a file the day it is seen; each row cites its run.
+KNOWN_INTERMITTENT = {
+    "test_task_participants": "windows (10) at 316583c4 (run 45275593318): failed, passed on the second run",
+    "test_bb_flush_no_hooks": "windows (10) at caf6387b (run 45209873743): failed, passed on the second run",
+}
+
+
+def portability_problems(tests, table=None, windows=None, intermittent=None):
     """Findings about the portability set: a file that does not exist, over PORTABILITY_WINDOWS_MAX_S on Windows, with no
-    reason, or more than PORTABILITY_MAX files."""
+    reason, more than PORTABILITY_MAX files, or one named in KNOWN_INTERMITTENT."""
     table = PORTABILITY_SET if table is None else table
     windows = CI_WINDOWS_SECONDS if windows is None else windows
+    intermittent = KNOWN_INTERMITTENT if intermittent is None else intermittent
     out = []
     if len(table) > PORTABILITY_MAX:
         out.append("scripts/kit_lint.py · portability-set · %d files, at most %d" % (len(table), PORTABILITY_MAX))
@@ -223,8 +233,37 @@ def portability_problems(tests, table=None, windows=None):
             out.append("scripts/kit_lint.py · portability-missing · %s is in PORTABILITY_SET but is not a test file" % t)
         elif windows.get(t, 0) >= PORTABILITY_WINDOWS_MAX_S:
             out.append("scripts/kit_lint.py · portability-slow · %s takes %d s on Windows, not under %d: choose a cheaper file" % (t, windows.get(t, 0), PORTABILITY_WINDOWS_MAX_S))
+        if t in intermittent:
+            out.append("scripts/kit_lint.py · portability-intermittent · %s is in PORTABILITY_SET and in KNOWN_INTERMITTENT (%s): choose a steady file" % (t, intermittent[t]))
         if not str(table[t]).strip():
             out.append("scripts/kit_lint.py · portability-reason · %s is in PORTABILITY_SET with no reason" % t)
+    return out
+
+
+def event_text_problems(text):
+    """A `run:` line (one line or a block) must not hold `${{ github.event` or `${{ inputs`: GitHub pastes the text into the
+    script before the shell reads it, so a pull request title or a branch name becomes code (script injection). Pass it
+    through `env:` and read the variable. Comments and keys other than `run:` are not read."""
+    out, in_block, indent = [], False, 0
+    msg = ".github/workflows/test.yml · event-in-run · line %d puts `${{ github.event` or `${{ inputs` in a run: line: pass it through env: and read the variable"
+    for n, raw in enumerate(text.splitlines(), 1):
+        line = re.sub(r"(^|\s)#.*$", "", raw).rstrip()
+        if in_block:
+            if raw.strip() and len(raw) - len(raw.lstrip()) <= indent:
+                in_block = False
+            else:
+                if re.search(r"\$\{\{\s*(github\.event|inputs)", line):
+                    out.append(msg % n)
+                continue
+        m = re.match(r"^(\s*)(- +)?run:\s*(.*)$", line)
+        if not m:
+            continue
+        indent = len(m.group(1)) + (len(m.group(2)) if m.group(2) else 0)
+        rest = m.group(3).strip()
+        if rest in ("|", ">", "|-", ">-", "|+", ">+"):
+            in_block = True
+        elif re.search(r"\$\{\{\s*(github\.event|inputs)", rest):
+            out.append(msg % n)
     return out
 
 
@@ -386,6 +425,7 @@ def check_test_discovery(findings):
     select_src = (ROOT / "scripts/ci_select.py").read_text(encoding="utf-8") if (ROOT / "scripts/ci_select.py").is_file() else ""
     findings.extend(portability_problems(ci_tests()))
     findings.extend(path_filter_problems(ci))
+    findings.extend(event_text_problems(ci))
     findings.extend(workflow_tier_problems(ci, select_src))
     if "python3 scripts/kit_lint.py --ci-shards" not in ci or "fromJSON(needs.discover.outputs.shards)" not in ci \
             or "SHARD_TESTS: ${{ matrix.shard.tests }}" not in ci or "UAK_SMOKE_TESTS" not in select_src:
