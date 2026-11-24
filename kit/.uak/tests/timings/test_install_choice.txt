@@ -1,3 +1,4 @@
-ci 95
-windows 90
-# measured 2026-11-24 45352111189: macOS 94 s, Windows 86 s; macOS rounded up to 95, windows to 90 (45349448550 had 89 s and 85 s)
+# measured 2026-11-24 45463249224
+# each entry is ceil(MAXIMUM over the runs read) + 1 s: runs 45463249224 (all four files below their entries there) 45456950612 45448338317 45440020253 45400014832 45395715008 45378320442 45377822264 45362548285, `ci` over Linux and macOS, `windows` over Windows: Linux max 51.37, macOS max 101.72, Windows max 95.45
+ci 103
+windows 97
