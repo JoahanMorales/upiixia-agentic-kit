@@ -207,7 +207,7 @@ def select(changed, kit=None):
         sel["budget"][system] = []
         for t in optional:
             shards, _ = _split_jobs(keep + [t], seconds, setup)
-            if max(x["seconds"] for x in shards) <= FIRST_TIER_BOUND_S:
+            if max(x["seconds"] for x in shards) < FIRST_TIER_BOUND_S:   # "under": a job predicted at exactly the bound is over it
                 keep.append(t)
             else:
                 sel["budget"][system].append(t)
@@ -492,6 +492,11 @@ class _RealRunner:
         p = self._popen(name)
         try:
             return self._wait(p)
+        except BaseException:
+            # the driver was cancelled (SIGINT, or SIGTERM turned into SystemExit by cmd_run): the file runs in its own session,
+            # so it would outlive us; end its group (POSIX) or tree (Windows) before leaving
+            self._kill(p)
+            raise
         finally:
             if p.stdin:
                 p.stdin.close()
@@ -499,6 +504,20 @@ class _RealRunner:
 
 def _real_runner(kind):
     return _RealRunner(kind)
+
+
+def _end_on_sigterm():
+    """SIGTERM (what a cancelled step sends the driver on POSIX) ends the driver as `SystemExit(143)` from the main thread, so
+    the runner's cleanup kills the file's group. Windows has no catchable SIGTERM (it is TerminateProcess); there Ctrl-C and
+    Ctrl-Break still arrive as KeyboardInterrupt and take the same path."""
+    import signal
+
+    def handler(signum, frame):
+        raise SystemExit(128 + signum)
+    try:
+        signal.signal(signal.SIGTERM, handler)
+    except (ValueError, OSError):   # not the main thread, or a platform without it
+        pass
 
 
 def cmd_run(argv):
@@ -513,6 +532,7 @@ def cmd_run(argv):
     if not a.files:
         print("FAILED: this shard has no test files (empty list)")
         return 1
+    _end_on_sigterm()
     retry = a.retry and os.environ.get("RUNNER_OS") != "Linux"   # Linux never retries, whatever the workflow passes
     seconds = lint.ci_windows_seconds if a.kind == "windows" else lint.ci_seconds
     res = run_files(a.files, _real_runner(a.kind), retry, seconds=seconds, bound=a.bound, out=a.out, job=a.job)

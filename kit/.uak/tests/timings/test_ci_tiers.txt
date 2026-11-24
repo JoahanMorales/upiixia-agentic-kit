@@ -1,2 +1,4 @@
-ci 8
-windows 25
+# measured 2026-11-24 45400014832
+# median of the same five runs: macOS 14 14 14 13 14 s, Windows 16 29 23 22 23 s
+ci 14
+windows 23

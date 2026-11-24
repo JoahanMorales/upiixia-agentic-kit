@@ -1,3 +1,4 @@
-ci 95
-windows 90
-# measured 2026-11-24 45352111189: macOS 94 s, Windows 86 s; macOS rounded up to 95, windows to 90 (45349448550 had 89 s and 85 s)
+# measured 2026-11-24 45400014832
+# median of the same five runs: macOS 88 75 60 68 102 s, Windows 77 83 95 85 77 s
+ci 75
+windows 83

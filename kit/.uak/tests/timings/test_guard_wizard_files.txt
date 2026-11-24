@@ -1,3 +1,4 @@
-# measured 2026-11-24 45382113786: file time on Linux 48.1 s, on macOS 12.1 s, on Windows 51.2 s; rounded up with a margin (Windows 57 is the most the table takes before the matrix needs a 20th job)
-ci 52
-windows 57
+# measured 2026-11-24 45400014832
+# median of the only two runs of main that have the file (45400014832 45395715008, added by UAK-188): macOS 11 11 s, Windows 49 39 s
+ci 11
+windows 44
