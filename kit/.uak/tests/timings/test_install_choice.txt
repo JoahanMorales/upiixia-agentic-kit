@@ -1,4 +1,4 @@
-# measured 2026-11-24 45400014832
-# median of the same five runs: macOS 88 75 60 68 102 s, Windows 77 83 95 85 77 s
-ci 75
-windows 83
+# measured 2026-11-24 45440020253
+# each entry is the MAXIMUM over the runs read (45440020253 45400014832 45395715008 45378320442 45377822264 45362548285), `ci` over Linux and macOS, `windows` over Windows, rounded up to a whole second: Linux 41 50 37 49 35 38 s, macOS 77 75 60 68 102 88 s, Windows 70 83 95 85 77 77 s; reviewer's 101.7 / 95.4 rounded up
+ci 102
+windows 96

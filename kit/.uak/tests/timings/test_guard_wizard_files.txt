@@ -1,4 +1,4 @@
-# measured 2026-11-24 45400014832
-# median of the only two runs of main that have the file (45400014832 45395715008, added by UAK-188): macOS 11 11 s, Windows 49 39 s
-ci 11
-windows 44
+# measured 2026-11-24 45440020253
+# each entry is the MAXIMUM over the runs read (45440020253 45400014832 45395715008 45378320442 45377822264 45362548285), `ci` over Linux and macOS, `windows` over Windows, rounded up to a whole second: only the 3 runs that have the file: Linux 36 46 48 s (48.3), macOS 16 11 11 s, Windows 56 39 49 s (56.4)
+ci 49
+windows 57

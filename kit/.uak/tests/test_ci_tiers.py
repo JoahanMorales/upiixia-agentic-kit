@@ -906,9 +906,18 @@ def shard_replays_do_not_read_the_live_table(r):
     return "frozen lists, live table untouched"
 
 
+# the file starts a grandchild in its own session (bin/guard, tokens and uak-mcp do) and that one a great-grandchild; the pids of
+# the file, the plain grandchild, the setsid grandchild and its child are written for the case to look at
 _FAKE_FILE = ("import os, subprocess, sys, time\n"
               "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
-              "open(%r, 'w').write('%%d %%d' %% (os.getpid(), g.pid))\n"
+              "code = ('import subprocess, sys, time\\n'\n"
+              "        'c = subprocess.Popen([sys.executable, \"-c\", \"import time; time.sleep(300)\"])\\n'\n"
+              "        'print(c.pid, flush=True)\\n'\n"
+              "        'time.sleep(300)\\n')\n"
+              "s = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE, universal_newlines=True,\n"
+              "                     start_new_session=(os.name != 'nt'))\n"
+              "gg = s.stdout.readline().strip()\n"
+              "open(%r, 'w').write('%%d %%d %%d %%s' %% (os.getpid(), g.pid, s.pid, gg))\n"
               "time.sleep(300)\n")
 
 
@@ -969,23 +978,23 @@ def cancelled_driver_leaves_no_test_running(r):
             interrupted = True
         timer.join()
         expect(interrupted, "the interrupt reaches the caller of the runner")
-        child, grand = [int(x) for x in pids.read_text().split()]
-        left = _gone([child, grand])
-        expect(not left, "after an interrupt neither the file's process nor its grandchild is alive: %s" % left)
+        left = _gone([int(x) for x in pids.read_text().split()])
+        expect(not left, "after an interrupt neither the file's process nor its descendants are alive: %s" % left)
         if os.name == "nt":
             return "interrupt kills the tree (SIGTERM is TerminateProcess on Windows: it cannot be handled, the job's own taskkill/step end covers it)"
         # (b) POSIX: the real driver process, SIGTERM, then SIGINT
         import signal
         out = []
-        for sig in (signal.SIGTERM, signal.SIGINT):
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             pids = Path(tmp) / ("pids-%d" % sig)
             drv = Path(tmp) / "driver.py"
             drv.write_text("import sys\nimport importlib.util as u\nspec = u.spec_from_file_location('ci_select_x', %r)\nm = u.module_from_spec(spec)\n"
                            "spec.loader.exec_module(m)\nm._RealRunner._popen = lambda self, name: m._start([sys.executable, '-c', %r])\n"
-                           "raise SystemExit(m.main(['run', '--kind', 'windows', 'test_fake']))\n" % (str(SCRIPT), _FAKE_FILE % str(pids)))
+                           "raise SystemExit(m.main(['run', '--kind', 'windows', '--out', %r, 'test_fake']))\n" % (str(SCRIPT), _FAKE_FILE % str(pids), str(Path(tmp) / "result.json")))
             d = subprocess.Popen([sys.executable, str(drv)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
             try:
-                child, grand = _wait_for(pids)
+                family = _wait_for(pids)
+                expect(len(family) == 4 and family[2] != family[0], "the fake file started its grandchildren (one in its own session): %s" % family)
                 os.kill(d.pid, sig)
                 try:
                     code = d.wait(timeout=30)
@@ -994,14 +1003,16 @@ def cancelled_driver_leaves_no_test_running(r):
                     d.wait()
                     expect(False, "the driver ends within 30 s of %s" % sig.name)
                 expect(code != 0, "a cancelled driver does not report success: exit %s" % code)
-                left = _gone([child, grand])
-                expect(not left, "after %s to the driver neither the test file (%d) nor its grandchild (%d) is alive: %s" % (sig.name, child, grand, left))
+                left = _gone(family)
+                expect(not left, "after %s to the driver the test file, its grandchild, the grandchild in its own session and that one's child are gone (%s): left %s" % (sig.name, family, left))
+                part = json.loads((Path(tmp) / "result.json").read_text())
+                expect(part["running"] == "test_fake" and part["conclusion"] == "running", "the partial result still names the running file: %s" % part)
             finally:
                 if d.poll() is None:
                     d.kill()
                     d.wait()
             out.append(sig.name)
-    return "driver, file and grandchild gone after interrupt, " + ", ".join(out)
+    return "driver, file, setsid grandchild and its child gone after interrupt, " + ", ".join(out)
 
 
 def event_text_lint_reads_expressions(r):

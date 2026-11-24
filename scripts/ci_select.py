@@ -221,7 +221,7 @@ def select(changed, kit=None):
 def _split_jobs(names, seconds, setup):
     """(list of shards [{seconds, tests}], total seconds): one job, two when the total is predicted over the bound."""
     total = setup + sum(seconds(t) for t in names)
-    k = 1 if total <= FIRST_TIER_BOUND_S else MAX_JOBS_PER_SYSTEM
+    k = 1 if total < FIRST_TIER_BOUND_S else MAX_JOBS_PER_SYSTEM   # "under the bound", as the selection loop in select() reads it
     shards = lint._split(names, k, seconds)
     return [{"n": s["n"], "tests": s["tests"], "seconds": setup + sum(seconds(t) for t in s["tests"].split())} for s in shards], total
 
@@ -471,6 +471,88 @@ class _RealRunner:
                     break
                 time.sleep(0.1)
 
+    @staticmethod
+    def _children_map():
+        """{ppid: [pid]} of every process: /proc where it exists (Linux), `ps -A -o pid=,ppid=` otherwise (macOS)."""
+        kids = {}
+        pairs = []
+        if os.path.isdir("/proc/self"):
+            for name in os.listdir("/proc"):
+                if name.isdigit():
+                    try:
+                        pairs.append((int(name), int(Path("/proc/%s/stat" % name).read_text().rsplit(")", 1)[1].split()[1])))
+                    except (OSError, ValueError, IndexError):
+                        pass
+        else:
+            out = subprocess.run(["ps", "-A", "-o", "pid=,ppid="], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, universal_newlines=True).stdout
+            for line in out.splitlines():
+                f = line.split()
+                if len(f) == 2 and f[0].isdigit() and f[1].isdigit():
+                    pairs.append((int(f[0]), int(f[1])))
+        for pid, ppid in pairs:
+            kids.setdefault(ppid, []).append(pid)
+        return kids
+
+    def _descendants(self, root):
+        """Every live descendant of root (not root), found by walking parent links: it follows a child that called setsid, which
+        a process group does not. Limit: a process that double-forked and was reparented to PID 1 before this ran has no parent
+        link to root, so a tree walk cannot find it."""
+        kids = self._children_map()
+        seen, todo = [], [root]
+        while todo:
+            for c in kids.get(todo.pop(), []):
+                if c not in seen and c != root:
+                    seen.append(c)
+                    todo.append(c)
+        return seen
+
+    def _kill_tree(self, p):
+        """POSIX cancel: collect the file's descendants first (killing the parent would reparent them out of the walk), then
+        SIGTERM them, wait a bounded 5 s, collect again and SIGKILL what is left. Never pid 0 or 1, never the driver, its parent
+        or its own process group."""
+        import signal
+        me, mine = os.getpid(), os.getpgrp()
+        safe = lambda pid: pid > 1 and pid not in (me, os.getppid())
+
+        def hit(pids, sig):
+            for pid in pids:
+                if not safe(pid):
+                    continue
+                try:
+                    if os.getpgid(pid) == mine:
+                        continue
+                    os.kill(pid, sig)
+                except OSError:
+                    pass
+        family = [p.pid] + self._descendants(p.pid)
+        hit(family, signal.SIGTERM)
+        end = time.monotonic() + 5
+        while time.monotonic() < end and (p.poll() is None or any(self._alive(x) for x in family if x != p.pid)):
+            time.sleep(0.1)
+        family = list(dict.fromkeys(family + self._descendants(p.pid)))
+        hit(family, signal.SIGKILL)
+        if p.pid != mine:   # the file's own group (it is a session of its own, never the driver's)
+            try:
+                if os.getpgid(p.pid) != mine:
+                    os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                pass
+        try:
+            p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+
+    @staticmethod
+    def _alive(pid):
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        try:   # a zombie waiting for its parent is gone for this purpose
+            return Path("/proc/%d/stat" % pid).read_text().rsplit(")", 1)[1].split()[0] != "Z"
+        except (OSError, IndexError):
+            return True
+
     def _wait(self, p):
         try:
             return p.wait(timeout=self.timeout) == 0
@@ -493,9 +575,13 @@ class _RealRunner:
         try:
             return self._wait(p)
         except BaseException:
-            # the driver was cancelled (SIGINT, or SIGTERM turned into SystemExit by cmd_run): the file runs in its own session,
-            # so it would outlive us; end its group (POSIX) or tree (Windows) before leaving
-            self._kill(p)
+            # the driver was cancelled (SIGINT, or SIGTERM and SIGHUP turned into SystemExit by cmd_run): the file runs in its own
+            # session, so it would outlive us; end its whole tree (POSIX: walked by parent links, so a child that called setsid
+            # goes too; Windows: taskkill /T) before leaving
+            if os.name == "nt":
+                self._kill(p)
+            else:
+                self._kill_tree(p)
             raise
         finally:
             if p.stdin:
@@ -507,7 +593,7 @@ def _real_runner(kind):
 
 
 def _end_on_sigterm():
-    """SIGTERM (what a cancelled step sends the driver on POSIX) ends the driver as `SystemExit(143)` from the main thread, so
+    """SIGTERM and SIGHUP (a cancelled step, a closed terminal; either left the whole tree running) end the driver as `SystemExit(143)` from the main thread, so
     the runner's cleanup kills the file's group. Windows has no catchable SIGTERM (it is TerminateProcess); there Ctrl-C and
     Ctrl-Break still arrive as KeyboardInterrupt and take the same path."""
     import signal
@@ -516,6 +602,8 @@ def _end_on_sigterm():
         raise SystemExit(128 + signum)
     try:
         signal.signal(signal.SIGTERM, handler)
+        if hasattr(signal, "SIGHUP"):
+            signal.signal(signal.SIGHUP, handler)
     except (ValueError, OSError):   # not the main thread, or a platform without it
         pass
 
