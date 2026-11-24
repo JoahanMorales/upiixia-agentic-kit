@@ -145,3 +145,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1795538018 | deadline lease/UAK-159/1795531661 | REQUIRES_RECOVERY | Claim kept; read the summary and use release --expired --read-summary. No work is deleted.
 - 1795542933 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-162 | Why: scope or criteria fixed before review
 - 1795545972 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-162 | Why: scope or criteria fixed before review
+- 1795547174 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-162 | Why: scope or criteria fixed before review
