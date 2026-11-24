@@ -240,19 +240,24 @@ def portability_problems(tests, table=None, windows=None, intermittent=None):
     return out
 
 
+# Inside any ${{ }}: the event, the head ref of a pull request (a branch name is the author's text) and the dispatch inputs, in
+# any case and inside any function (toJSON(github.event), format(...), join(...)).
+_EVENT_EXPR = re.compile(r"\$\{\{(?:(?!\}\}).)*?(github\.event|github\.head_ref|\binputs[.\[])", re.I)
+
+
 def event_text_problems(text):
     """A `run:` line (one line or a block) must not hold `${{ github.event` or `${{ inputs`: GitHub pastes the text into the
     script before the shell reads it, so a pull request title or a branch name becomes code (script injection). Pass it
     through `env:` and read the variable. Comments and keys other than `run:` are not read."""
     out, in_block, indent = [], False, 0
-    msg = ".github/workflows/test.yml · event-in-run · line %d puts `${{ github.event` or `${{ inputs` in a run: line: pass it through env: and read the variable"
+    msg = ".github/workflows/test.yml · event-in-run · line %d puts `github.event`, `github.head_ref` or `inputs` inside `${{ }}` in a run: line: pass it through env: and read the variable"
     for n, raw in enumerate(text.splitlines(), 1):
         line = re.sub(r"(^|\s)#.*$", "", raw).rstrip()
         if in_block:
             if raw.strip() and len(raw) - len(raw.lstrip()) <= indent:
                 in_block = False
             else:
-                if re.search(r"\$\{\{\s*(github\.event|inputs)", line):
+                if _EVENT_EXPR.search(line):
                     out.append(msg % n)
                 continue
         m = re.match(r"^(\s*)(- +)?run:\s*(.*)$", line)
@@ -262,7 +267,7 @@ def event_text_problems(text):
         rest = m.group(3).strip()
         if rest in ("|", ">", "|-", ">-", "|+", ">+"):
             in_block = True
-        elif re.search(r"\$\{\{\s*(github\.event|inputs)", rest):
+        elif _EVENT_EXPR.search(rest):
             out.append(msg % n)
     return out
 

@@ -486,8 +486,8 @@ def cancelled_job_names_its_file(r):
 
 def slow_runner_fails_fast_with_a_clear_line(r):
     cs = select_module()
-    table = {"test_a": 20, "test_b": 15, "test_c": 12, "test_d": 60, "test_e": 70}
-    names = ["test_a", "test_b", "test_c", "test_d", "test_e"]
+    table = {"test_a": 10, "test_b": 10, "test_c": 10, "test_d": 10, "test_e": 10, "test_f": 200, "test_g": 200}
+    names = list(table)
     # 10 times slower than the table from the first file (windows (4) at 14ccdbc0): stop when the rest cannot fit
     clock = Clock()
     run = timed_runner(clock, {k: v * 10 for k, v in table.items()})
@@ -750,6 +750,148 @@ TESTS = TESTS + [slow_file_is_not_run_twice, second_run_must_fit_the_bound, canc
                  ci_needs_success_not_skipped, cancelled_main_does_not_close_the_issue, red_main_says_which_kind_of_failure,
                  portability_set_has_no_intermittent_file, label_reaches_the_selector, linux_never_retries_by_behaviour,
                  no_event_text_in_run_lines, selector_failure_fails_discover, runs_on_main_counts_both_systems]
+
+
+# ---- UAK-169, review of 4617b86a: the fail-fast rule, the retry's bound, the group kill, the wider event lint ----------
+def _replay(cs, names, table, factor, bound, actual_override=None):
+    """Run `names` in order on a fake clock, each file taking factor x its table entry (or its override); returns (result, calls)."""
+    clock = Clock()
+    over = actual_override or {}
+    run = timed_runner(clock, {n: over.get(n, table[n] * factor) for n in names})
+    res = cs.run_files(names, run, retry=True, log=lambda s: None, seconds=table.get, bound=bound, clock=clock)
+    return res, run.calls
+
+
+def one_stale_entry_cannot_trip_the_slow_rule(r):
+    cs = select_module()
+    lint = lint_module()
+    # the reviewer's scenario: the 13-file Windows shard that holds test_done_without_github (68 s in the table, 187 to 263 s
+    # really), every other file 1.55 times its entry: the job still ends inside its bound
+    shard = next(s["tests"].split() for s in lint.ci_windows_shards(lint.windows_shard_count()) if "test_done_without_github" in s["tests"].split())
+    table = {t: lint.ci_windows_seconds(t) for t in shard}
+    for real in (187, 225, 263):
+        res, calls = _replay(cs, shard, table, 1.55, 2400, {"test_done_without_github": real})
+        expect(not res["slow"] and len(calls) == len(shard), "1.55 times with test_done_without_github at %d s is not a slow runner: %s after %d of %d files" % (real, res["slow"], len(calls), len(shard)))
+    # the same stale entry first, among small files: a total/total ratio is 3.3 here, the median of the ratios is 1.55
+    small = {"test_done_without_github": 68, "test_s1": 5, "test_s2": 5, "test_s3": 5, "test_s4": 5, "test_s5": 600, "test_s6": 600}
+    names = list(small)
+    res, calls = _replay(cs, names, small, 1.55, 2400, {"test_done_without_github": 263})
+    expect(not res["slow"] and len(calls) == len(names), "one stale entry among small files does not trip it: %s" % res["slow"])
+    # a rule over fewer than 5 finished files, or fewer than 30 table seconds, says nothing
+    few = {"test_a": 40, "test_b": 40, "test_c": 40, "test_d": 40, "test_e": 400}
+    res, calls = _replay(cs, list(few), few, 10, 2400)
+    expect(len(calls) >= 5 or not res["slow"], "4 files are not enough to judge: %s after %d" % (res["slow"], len(calls)))
+    return "1.55x with a stale entry passes"
+
+
+def truly_slow_job_trips_early(r):
+    cs = select_module()
+    lint = lint_module()
+    # windows (4) of run 45232891834: every file 9 to 10 times its entry
+    names = ["test_design_breed_rules", "test_design_brief_real", "test_design_metrics", "test_design_prior", "test_design_shoot_full",
+             "test_done_without_github", "test_guard_substitution", "test_harvest_discovery", "test_integrate_unreviewed"]
+    table = {t: lint.ci_windows_seconds(t) for t in names}
+    res, calls = _replay(cs, names, table, 9.5, 2400)
+    expect(res["slow"].startswith("slow runner, re-run"), "9.5 times slower is a slow runner: %r" % res["slow"])
+    expect(len(calls) == 5 and res["stopped"] == "test_done_without_github", "it stops after the fifth file, before the long one: %s, stopped %s" % (calls, res["stopped"]))
+    expect("median" in res["slow"], "the line says what it measured: %s" % res["slow"])
+    return "stops after %d files" % len(calls)
+
+
+def retry_gets_the_time_left_to_the_bound(r):
+    cs = select_module()
+    clock = Clock()
+    table = {"test_a": 2000, "test_b": 100}
+
+    class Runner:
+        def __init__(self):
+            self.timeout, self.timed_out, self.timeouts, self.n = None, False, [], {}
+
+        def __call__(self, name):
+            self.timeouts.append(self.timeout)
+            self.n[name] = self.n.get(name, 0) + 1
+            self.timed_out = False
+            if name == "test_a":
+                clock.t += 2000
+                return True
+            if self.n[name] == 1:
+                clock.t += 50
+                return False
+            clock.t += self.timeout            # the retry hangs until it is killed
+            self.timed_out = True
+            return False
+    h = Runner()
+    res = cs.run_files(["test_a", "test_b"], h, retry=True, log=lambda s: None, seconds=table.get, bound=2400, clock=clock)
+    expect(h.timeouts == [2400, 400, 350], "every run gets what is left of the bound (2400; 2400-2000 for test_b; 2400-2050 for its retry): %s" % h.timeouts)
+    expect(clock() - 1000.0 <= 2400, "the job ends inside its bound, not at 2500: %s" % (clock() - 1000.0))
+    expect(res["stopped"] == "test_b" and res["failed"] == ["test_b"], "the retry killed by the bound stops the job: %s" % res)
+    rep = cs.flaky_report("windows (2)", res)
+    expect("stopped at the job's bound" in rep["summary"] and "failed both times" not in rep["summary"].lower(), "it says the bound, not 'failed both times': %s" % rep["summary"])
+    expect(not any("both times" in a for a in rep["annotations"]), "no annotation says both times: %s" % rep["annotations"])
+    return "timeouts %s" % h.timeouts
+
+
+def bound_kill_reaches_the_grandchild(r):
+    cs = select_module()
+    with tempfile.TemporaryDirectory(prefix="uak-ci-kill-") as tmp:
+        pids = Path(tmp) / "pids"
+        code = ("import os, subprocess, sys, time\n"
+                "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
+                "open(%r, 'w').write('%%d %%d' %% (os.getpid(), g.pid))\n"
+                "time.sleep(300)\n" % str(pids))
+        run = cs._real_runner("windows")
+        run._popen = lambda name: cs._start([sys.executable, "-c", code])
+        run.timeout = 6
+        started = time.monotonic()
+        ok = run("test_fake")
+        expect(ok is False and run.timed_out, "a file that passes its timeout fails and says it timed out: %s %s" % (ok, run.timed_out))
+        expect(time.monotonic() - started < 60, "and the kill does not wait for the sleep")
+        expect(pids.is_file(), "the file started its grandchild before the kill")
+        child, grand = [int(x) for x in pids.read_text().split()]
+
+        def alive(pid):
+            if os.name == "nt":
+                out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid], stdout=subprocess.PIPE, universal_newlines=True).stdout
+                return str(pid) in out
+            try:
+                state = Path("/proc/%d/stat" % pid).read_text().rsplit(")", 1)[1].split()[0]
+                return state not in ("Z", "X")
+            except OSError:
+                try:
+                    os.kill(pid, 0)
+                except OSError:
+                    return False
+                return True
+        end = time.monotonic() + 10
+        while time.monotonic() < end and (alive(child) or alive(grand)):
+            time.sleep(0.2)
+        left = [p for p in (child, grand) if alive(p)]
+        for p in left:   # only the PIDs this case created
+            try:
+                os.kill(p, 9)
+            except OSError:
+                pass
+        expect(not left, "after the kill neither the file's process nor its grandchild is alive: %s" % left)
+    return "child and grandchild gone"
+
+
+def event_text_lint_reads_expressions(r):
+    lint = lint_module()
+    for why, expr in (("toJSON", "toJSON(github.event)"), ("format", "format('{0}', github.event.pull_request.title)"), ("join", "join(github.event.pull_request.labels.*.name, ',')"),
+                      ("head_ref", "github.head_ref"), ("upper case", "GitHub.Event.number"), ("inputs in a function", "fromJSON(inputs.tier)"),
+                      ("inputs upper", "INPUTS.tier"), ("no spaces", "format('{0}',github.head_ref)")):
+        for form in ("      - run: echo ${{ %s }}\n" % expr, "      - run: |\n          echo ${{ %s }}\n" % expr):
+            got = lint.event_text_problems("jobs:\n  a:\n    steps:\n" + form)
+            expect(len(got) == 1, "the lint refuses %s in a run line: %s" % (why, got))
+    for why, text in (("env", "      - run: echo \"$T\"\n        env:\n          T: ${{ github.head_ref }}\n"),
+                      ("a safe expression", "      - run: echo ${{ matrix.shard.n }} ${{ runner.os }}\n"),
+                      ("an input named like one", "      - run: echo ${{ steps.pick.outputs.inputs_x }}\n")):
+        expect(lint.event_text_problems("jobs:\n  a:\n    steps:\n" + text) == [], "the lint accepts %s" % why)
+    return "expressions read"
+
+
+TESTS = TESTS + [one_stale_entry_cannot_trip_the_slow_rule, truly_slow_job_trips_early, retry_gets_the_time_left_to_the_bound,
+                 bound_kill_reaches_the_grandchild, event_text_lint_reads_expressions]
 
 
 def main():

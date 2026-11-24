@@ -39,8 +39,9 @@ RED_TITLE = "main is red at "
 NOT_COUNTED = ("ci", "red-main")   # jobs that are not the matrix: the gate and the issue job
 # UAK-169: a failed file runs once more only when the second run fits.
 RETRY_MAX_S = 300             # a file whose timing entry is over this fails the job on its first failure
-SLOW_FACTOR = 3.0             # a runner this many times slower than the table (windows (4) at 14ccdbc0 was 9 to 10 times)
+SLOW_FACTOR = 3.0             # the median file is this many times slower than its entry (windows (4) at 14ccdbc0: 9 to 10 times)
 SLOW_MIN_TABLE_S = 30         # table seconds measured before the speed is judged: one short file says nothing
+SLOW_MIN_FILES = 5            # finished files before it is judged: one stale entry (test_done_without_github: 68 s, really 187 to 263) must not decide
 JOB_LIMIT_S = (("windows", 45 * 60), ("suite", 60 * 60))   # timeout-minutes of the jobs, to tell a time limit from a hand
 
 
@@ -314,16 +315,27 @@ def write_result(path, job, res, running=""):
     os.replace(tmp, str(path))
 
 
+def _time_left(runner, bound, start, clock):
+    """Every run of a file, the first or the second, gets what is left of the job's bound."""
+    if hasattr(runner, "timed_out"):
+        runner.timed_out = False
+    if bound is not None and hasattr(runner, "timeout"):
+        runner.timeout = max(bound - (clock() - start), 1)
+
+
 def run_files(files, runner, retry, log=_say, seconds=None, bound=None, clock=time.monotonic, out=None, job="job"):
     """Run each file; with retry a failed file runs once more, but only when the second run fits (its timing entry is at most
     RETRY_MAX_S and the job's elapsed time plus that entry stays under `bound`, the job's seconds for tests). {ran, failed,
     flaky, counts, not_rerun, slow, stopped}: failed = failed every time, flaky = failed then passed (the job passes, and
     says so), not_rerun = {file: why} for a failure that was not run again, slow = the "slow runner, re-run" line when the
     files left cannot end inside the bound at the speed seen so far, stopped = the file the job did not start or cut short.
-    Before each file the name and the clock are printed (flushed) and the partial result is written."""
+    Speed is the median of the per-file ratios (actual / entry) of the files finished on their first run, judged after
+    SLOW_MIN_FILES files and SLOW_MIN_TABLE_S table seconds: one stale entry cannot decide it. Before each file the name and
+    the clock are printed (flushed) and the partial result is written; a run that passes the bound is killed (the runner's
+    `timeout`, the time left) and the job stops there."""
     res = {"ran": list(files), "failed": [], "flaky": [], "counts": {}, "not_rerun": {}, "slow": "", "stopped": ""}
     start = clock()
-    seen_actual = seen_table = 0.0
+    ratios, seen_table = [], 0.0
     for i, f in enumerate(files):
         elapsed = clock() - start
         entry = seconds(f) if seconds else 0
@@ -334,18 +346,17 @@ def run_files(files, runner, retry, log=_say, seconds=None, bound=None, clock=ti
         log("::group::" + f)
         log("%s %s starts, job elapsed %s%s" % (time.strftime("%H:%M:%SZ", time.gmtime()), f, _stamp(elapsed), (", table %d s" % entry) if seconds else ""))
         write_result(out, job, res, running=f)
-        if bound is not None and hasattr(runner, "timeout"):
-            runner.timeout = max(bound - elapsed, 1)
+        _time_left(runner, bound, start, clock)
         began = clock()
         ok = runner(f)
         took = clock() - began
+        runs, failures = 1, 0 if ok else 1
         if not ok and getattr(runner, "timed_out", False):
             res["failed"].append(f)
             res["counts"][f] = {"runs": 1, "failures": 1}
             res["stopped"] = f
             log("::endgroup::")
             break
-        runs, failures = 1, 0 if ok else 1
         if not ok and retry:
             used = clock() - start
             if seconds and entry > RETRY_MAX_S:
@@ -355,8 +366,15 @@ def run_files(files, runner, retry, log=_say, seconds=None, bound=None, clock=ti
             else:
                 log("::endgroup::")
                 log("::group::%s (second run)" % f)
+                _time_left(runner, bound, start, clock)
                 ok = runner(f)
                 runs, failures = 2, failures + (0 if ok else 1)
+                if not ok and getattr(runner, "timed_out", False):
+                    res["failed"].append(f)
+                    res["counts"][f] = {"runs": 2, "failures": 2}
+                    res["stopped"] = f
+                    log("::endgroup::")
+                    break
                 if ok:
                     res["flaky"].append(f)
         if not ok:
@@ -364,15 +382,15 @@ def run_files(files, runner, retry, log=_say, seconds=None, bound=None, clock=ti
         res["counts"][f] = {"runs": runs, "failures": failures}
         log("::endgroup::")
         if runs == 1 and seconds and entry:
-            seen_actual += took
+            ratios.append(took / entry)
             seen_table += entry
             left = sum(seconds(g) for g in files[i + 1:])
-            if left and seen_table >= SLOW_MIN_TABLE_S and seen_actual >= SLOW_FACTOR * seen_table:
-                ratio = seen_actual / seen_table
-                ends = (clock() - start) + left * ratio
-                if bound is not None and ends > bound:
-                    res["slow"] = ("slow runner, re-run: %d s for %d s of table seconds so far (%.1f times slower); the %d s of files left would end at %s, past the %s for tests"
-                                   % (seen_actual, seen_table, ratio, left, _stamp(ends), _stamp(bound)))
+            if left and len(ratios) >= SLOW_MIN_FILES and seen_table >= SLOW_MIN_TABLE_S:
+                median = sorted(ratios)[len(ratios) // 2] if len(ratios) % 2 else sum(sorted(ratios)[len(ratios) // 2 - 1:len(ratios) // 2 + 1]) / 2
+                ends = (clock() - start) + left * median
+                if median >= SLOW_FACTOR and bound is not None and ends > bound:
+                    res["slow"] = ("slow runner, re-run: the median file ran %.1f times its entry over the %d files done (%d table seconds); the %d table seconds left would end at %d s, past the %d s for tests"
+                                   % (median, len(ratios), seen_table, left, ends, bound))
                     res["stopped"] = files[i + 1]
                     log(res["slow"])
                     break
@@ -389,7 +407,10 @@ def flaky_report(job, res):
         md.append("- flaky: %s passed on the second run" % f)
     for f in res["failed"]:
         n = res["counts"].get(f, {}).get("runs", 1)
-        ann.append("::error title=test failed::%s failed%s (%s)" % (f, " both times" if n > 1 else "", job))
+        if f == res.get("stopped"):
+            ann.append("::error title=test failed::%s was cut at the job's bound (%s)" % (f, job))
+        else:
+            ann.append("::error title=test failed::%s failed%s (%s)" % (f, " both times" if n > 1 else "", job))
     extra = []
     for f, why in res.get("not_rerun", {}).items():
         ann.append("::error title=not run again::%s (%s)" % (why, job))
@@ -398,7 +419,7 @@ def flaky_report(job, res):
         ann.append("::error title=slow runner::%s (%s)" % (res["slow"], job))
         extra.append(res["slow"])
     if res.get("stopped") and not res.get("slow"):
-        why = "stopped at %s: the job reached the %s of its bound for tests; the files after it did not run" % (res["stopped"], "end")
+        why = "stopped at %s (stopped at the job's bound for tests): the run was killed there and the files after it did not run" % res["stopped"]
         ann.append("::error title=time bound::%s (%s)" % (why, job))
         extra.append(why)
     conclusion = "failed" if (res["failed"] or res.get("slow") or res.get("stopped")) else ("flaky" if res["flaky"] else "passed")
@@ -406,7 +427,7 @@ def flaky_report(job, res):
     summary = [head] + md + ["- " + x for x in extra]
     if res["failed"]:
         summary.append("Failed test files (%s):%s" % (job, "".join(" " + f for f in res["failed"])))
-        both = [f for f in res["failed"] if res["counts"].get(f, {}).get("runs", 1) > 1]
+        both = [f for f in res["failed"] if res["counts"].get(f, {}).get("runs", 1) > 1 and f != res.get("stopped")]
         if both:
             summary.append("Failed both times: " + " ".join(both))
     return {"job": job, "conclusion": conclusion, "annotations": ann, "summary": "\n".join(summary) + "\n",
@@ -414,38 +435,66 @@ def flaky_report(job, res):
             "slow": res.get("slow", ""), "stopped": res.get("stopped", "")}
 
 
+def _start(argv, **kw):
+    """Popen with the file in its own session on POSIX (its process group is its pid), so the bound's kill reaches the
+    grandchildren too: one that survived, reparented to PID 1, kept the step's pipes open."""
+    if os.name != "nt":
+        kw["start_new_session"] = True
+    return subprocess.Popen(argv, **kw)
+
+
 class _RealRunner:
-    """Runs one file; `timeout` (seconds, set by run_files from the job's bound) stops a file that would end the job by the
-    platform's cancel: the process is killed by its handle and the job says where it was (`timed_out`)."""
+    """Runs one file; `timeout` (seconds, set by run_files to the time left to the job's bound) stops a file that would end
+    the job by the platform's cancel: the whole group (POSIX) or tree (Windows) is killed and `timed_out` is set."""
     def __init__(self, kind):
         self.kind = kind
         self.timeout = None
         self.timed_out = False
+
+    def _kill(self, p):
+        if os.name == "nt":
+            subprocess.call(["taskkill", "/F", "/T", "/PID", str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            p.kill()
+        else:
+            import signal
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                p.kill()
+        p.wait()
+        if os.name != "nt":   # confirm the group is gone: a signal sent to a group that still has members succeeds
+            end = time.monotonic() + 10
+            while time.monotonic() < end:
+                try:
+                    os.killpg(p.pid, 0)
+                except OSError:
+                    break
+                time.sleep(0.1)
 
     def _wait(self, p):
         try:
             return p.wait(timeout=self.timeout) == 0
         except subprocess.TimeoutExpired:
             self.timed_out = True
-            if os.name == "nt":
-                subprocess.call(["taskkill", "/F", "/T", "/PID", str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            p.kill()
-            p.wait()
+            self._kill(p)
             return False
+
+    def _popen(self, name):
+        if self.kind == "smoke":
+            # stdin held open, as in a terminal: a command that reads it (BSD awk -W version did) hangs here, not on a laptop.
+            return _start(["bash", ".uak/bin/smoke", "--package-only"], cwd=str(KIT), env=dict(os.environ, UAK_SMOKE_TESTS=name), stdin=subprocess.PIPE)
+        if name == "mcp_tools":
+            return _start([sys.executable, "tests/test_mcp_tools.py"], cwd=str(ROOT), stdin=subprocess.DEVNULL)
+        return _start([sys.executable, ".uak/tests/%s.py" % name, "--package", str(KIT)], cwd=str(KIT), stdin=subprocess.DEVNULL)
 
     def __call__(self, name):
         sys.stdout.flush()
-        if self.kind == "smoke":
-            env = dict(os.environ, UAK_SMOKE_TESTS=name)
-            # stdin held open, as in a terminal: a command that reads it (BSD awk -W version did) hangs here, not on a laptop.
-            p = subprocess.Popen(["bash", ".uak/bin/smoke", "--package-only"], cwd=str(KIT), env=env, stdin=subprocess.PIPE)
-            try:
-                return self._wait(p)
-            finally:
+        p = self._popen(name)
+        try:
+            return self._wait(p)
+        finally:
+            if p.stdin:
                 p.stdin.close()
-        if name == "mcp_tools":
-            return self._wait(subprocess.Popen([sys.executable, "tests/test_mcp_tools.py"], cwd=str(ROOT), stdin=subprocess.DEVNULL))
-        return self._wait(subprocess.Popen([sys.executable, ".uak/tests/%s.py" % name, "--package", str(KIT)], cwd=str(KIT), stdin=subprocess.DEVNULL))
 
 
 def _real_runner(kind):
@@ -603,7 +652,7 @@ def cmd_issue(argv):
             r = json.loads(p.read_text(encoding="utf-8"))
         except ValueError:
             continue
-        files = [f for f in r.get("failed", []) if r.get("counts", {}).get(f, {}).get("runs", 1) > 1]
+        files = [f for f in r.get("failed", []) if r.get("counts", {}).get(f, {}).get("runs", 1) > 1 and f != r.get("stopped")]
         if r.get("slow") and r.get("job") in causes:
             causes[r["job"]] = "slow runner"
         elif r.get("running") and causes.get(r.get("job")) == "time limit":
