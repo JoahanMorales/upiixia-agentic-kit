@@ -9,6 +9,7 @@ import argparse
 import os
 import re
 import select
+import shlex
 import shutil
 import signal
 import subprocess
@@ -48,7 +49,7 @@ class Case:
     def env(self, **extra):
         env = {k: v for k, v in os.environ.items() if not k.startswith("UAK_") and k not in ("CI", "BROWSER")}
         env.update({"GIT_CONFIG_GLOBAL": str(self.tmp / "gitconfig"), "GIT_CONFIG_NOSYSTEM": "1",
-                    "BROWSER": "%s %s %%s" % (Path(sys.executable).as_posix(), self.opener.as_posix()),
+                    "BROWSER": "%s %s %%s" % (shlex.quote(Path(sys.executable).as_posix()), shlex.quote(self.opener.as_posix())),
                     "PYTHONDONTWRITEBYTECODE": "1"})
         env.update(extra)
         return env
