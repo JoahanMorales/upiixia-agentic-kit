@@ -1,3 +1,3 @@
-ci 112
-windows 150
-# measured 2026-11-24 45343981687 (before the test was made cheaper; replaced by this commit's run)
+ci 89
+windows 90
+# measured 2026-11-24 45349448550: macOS 89 s, Windows 85 s; windows rounded up to 90
