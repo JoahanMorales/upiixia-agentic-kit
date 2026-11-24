@@ -1979,6 +1979,10 @@ Not deployed yet. When your app is online, add its link under More.
           }
         }
         function drawJourney() {
+          if (currentScreen === "closed") {
+            Array.from(el("journey").querySelectorAll("li")).forEach(function (li) { li.removeAttribute("aria-current"); li.classList.remove("done"); });
+            return;
+          }
           var here = RAIL[currentScreen] || "project", seen = false, sprint = modeOf(state) === "sprint", shown = [], count = 0, at = 0;
           Array.from(el("journey").querySelectorAll("li")).forEach(function (li) {
             var mine = li.dataset.step === here;
@@ -2220,15 +2224,16 @@ Not deployed yet. When your app is online, add its link under More.
         }
         function drawUnblock(data) {
           var rows = [], g = data.guidance || {};
-          if (data.branch && data.branch.wrong) rows.push(["mod", UAKWorkspace.t("Branch"), data.branch.current || ""]);
+          if (data.branch && data.branch.wrong) rows.push(["mod", UAKWorkspace.t("Branch"), data.branch.head || ""]);
           if (g.terminal) rows.push(["mod", UAKWorkspace.t("Needs a terminal"), ""]);
           if (!rows.length) rows.push(["keep", UAKWorkspace.t("Nothing blocks the next step"), ""]);
           drawWindow("unblock", UAKWorkspace.t("what is blocked"), rows, [[String(rows.length), "problems"], ["0", "files changed"], ["–", "waiting"]]);
           var wrong = !!(data.branch && data.branch.wrong);
           // One problem at a time: the branch first; the terminal steps when it is on the right branch.
           el("branch-warning").hidden = !wrong;
-          el("setup-branch-warning").hidden = !wrong;
+          el("setup-branch-warning").hidden = true; // the same warning as the one above, from the old Check step
           el("terminal-step").hidden = wrong || !g.terminal;
+          setLabel(el("unblock-again"), UAKWorkspace.t(wrong ? "Check project folder again" : "Check again"));
         }
         function drawProjectWindow(data) {
           var k = kitFiles(data);

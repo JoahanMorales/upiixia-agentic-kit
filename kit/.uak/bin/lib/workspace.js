@@ -800,6 +800,8 @@
     ["Saving…", "Guardando…"],
     // UAK-159: the ten screens
     ["Terminal", "Terminal"],
+    ["lines added", "líneas agregadas"],
+    ["Check project folder again", "Comprobar la carpeta otra vez"],
     ["1 task claimed: an agent has started.", "1 tarea tomada: un agente ya empezó."],
     ["Your idea", "Tu idea"],
     ["To continue in the terminal:", "Para seguir en la terminal:"],
