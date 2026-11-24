@@ -48,5 +48,6 @@ source of truth for what shipped is `CHANGELOG.md`, and for what is next, `docs/
 | [`visual-setup-amend-6.md`](visual-setup-amend-6.md) | Amend of UAK-159: `docs/DASHBOARD.md` leaves its Paths (no clause needs it), so UAK-162 can run beside it | written 2026-11-24, published 2026-11-24 |
 | [`visual-setup-amend-7.md`](visual-setup-amend-7.md) | Amend of UAK-162: the page may weigh up to 128 KiB (the human raised the bound) | written 2026-11-24, published 2026-11-24 |
 | [`visual-setup-amend-8.md`](visual-setup-amend-8.md) | Amend of UAK-162: 150 KiB, and the views the human asked for on seeing the screens (all tasks as squares, dependencies, model and harness, Black box filter, Memory graph, Tokens) | written 2026-11-24, published 2026-11-24 |
+| [`visual-setup-amend-9.md`](visual-setup-amend-9.md) | Amend of UAK-162: the "Share" button that makes a stats card image | written 2026-11-24, waiting for the human |
 | [`port-go.md`](port-go.md) | Porting the engine to Go (or Rust): an estimate | decided: not porting |
 | [`video.md`](video.md) | Plan: `uak video` (the project's video, made from the repo's own facts) | not published; v7.2 |
