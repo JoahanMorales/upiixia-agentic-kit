@@ -906,19 +906,25 @@ def shard_replays_do_not_read_the_live_table(r):
     return "frozen lists, live table untouched"
 
 
-# the file starts a grandchild in its own session (bin/guard, tokens and uak-mcp do) and that one a great-grandchild; the pids of
-# the file, the plain grandchild, the setsid grandchild and its child are written for the case to look at
-_FAKE_FILE = ("import os, subprocess, sys, time\n"
-              "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
-              "code = ('import subprocess, sys, time\\n'\n"
-              "        'c = subprocess.Popen([sys.executable, \"-c\", \"import time; time.sleep(300)\"])\\n'\n"
-              "        'print(c.pid, flush=True)\\n'\n"
-              "        'time.sleep(300)\\n')\n"
-              "s = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE, universal_newlines=True,\n"
-              "                     start_new_session=(os.name != 'nt'))\n"
-              "gg = s.stdout.readline().strip()\n"
-              "open(%r, 'w').write('%%d %%d %%d %%s' %% (os.getpid(), g.pid, s.pid, gg))\n"
-              "time.sleep(300)\n")
+# The fake test file starts a plain grandchild and a second grandchild that has a child of its own. `setsid` puts the second one in
+# its own session (bin/guard, tokens and uak-mcp do); without it the tree stays in the file's process group. `ignore` makes the
+# whole tree ignore TERM, INT and HUP (a disposition survives exec), so only KILL ends it. Its pids are written to `pids`:
+# the file, the plain grandchild, the second grandchild, its child.
+def fake_file(pids, setsid=True, ignore=False):
+    return ("import os, signal, subprocess, sys, time\n"
+            "if %r:\n"
+            "    for s in (signal.SIGTERM, signal.SIGINT, getattr(signal, 'SIGHUP', signal.SIGTERM)):\n"
+            "        signal.signal(s, signal.SIG_IGN)\n"
+            "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
+            "code = ('import subprocess, sys, time\\n'\n"
+            "        'c = subprocess.Popen([sys.executable, \"-c\", \"import time; time.sleep(300)\"])\\n'\n"
+            "        'print(c.pid, flush=True)\\n'\n"
+            "        'time.sleep(300)\\n')\n"
+            "s = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE, universal_newlines=True,\n"
+            "                     start_new_session=%r and os.name != 'nt')\n"
+            "gg = s.stdout.readline().strip()\n"
+            "open(%r, 'w').write('%%d %%d %%d %%s' %% (os.getpid(), g.pid, s.pid, gg))\n"
+            "time.sleep(300)\n" % (ignore, setsid, str(pids)))
 
 
 def _alive(pid):
@@ -965,7 +971,7 @@ def cancelled_driver_leaves_no_test_running(r):
         # (a) every platform: an interrupt (Ctrl-C, what the runner sends a Windows step first) inside a file's run kills its tree
         pids = Path(tmp) / "pids-a"
         run = cs._real_runner("windows")
-        run._popen = lambda name: cs._start([sys.executable, "-c", _FAKE_FILE % str(pids)])
+        run._popen = lambda name: cs._start([sys.executable, "-c", fake_file(pids)])
         run.timeout = 60   # a bounded wait polls, so a simulated interrupt is seen at once
         import _thread
         import threading
@@ -982,37 +988,80 @@ def cancelled_driver_leaves_no_test_running(r):
         expect(not left, "after an interrupt neither the file's process nor its descendants are alive: %s" % left)
         if os.name == "nt":
             return "interrupt kills the tree (SIGTERM is TerminateProcess on Windows: it cannot be handled, the job's own taskkill/step end covers it)"
-        # (b) POSIX: the real driver process, SIGTERM, then SIGINT
+        # (b) POSIX: the real driver process, every shape of tree and every sequence of signals, all started together
         import signal
-        out = []
+        scenarios = []   # (name, ignore, [(signal, seconds after the previous one)])
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-            pids = Path(tmp) / ("pids-%d" % sig)
-            drv = Path(tmp) / "driver.py"
-            drv.write_text("import sys\nimport importlib.util as u\nspec = u.spec_from_file_location('ci_select_x', %r)\nm = u.module_from_spec(spec)\n"
-                           "spec.loader.exec_module(m)\nm._RealRunner._popen = lambda self, name: m._start([sys.executable, '-c', %r])\n"
-                           "raise SystemExit(m.main(['run', '--kind', 'windows', '--out', %r, 'test_fake']))\n" % (str(SCRIPT), _FAKE_FILE % str(pids), str(Path(tmp) / "result.json")))
-            d = subprocess.Popen([sys.executable, str(drv)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
-            try:
-                family = _wait_for(pids)
-                expect(len(family) == 4 and family[2] != family[0], "the fake file started its grandchildren (one in its own session): %s" % family)
-                os.kill(d.pid, sig)
+            scenarios.append(("single %s" % sig.name, False, [(sig, 0)]))
+        scenarios.append(("burst of 6 SIGTERM 5 ms apart", False, [(signal.SIGTERM, 0)] + [(signal.SIGTERM, 0.005)] * 5))
+        scenarios.append(("TERM-ignoring tree, SIGTERM twice", True, [(signal.SIGTERM, 0), (signal.SIGTERM, 0.5)]))
+        scenarios.append(("TERM-ignoring tree, SIGINT then SIGHUP", True, [(signal.SIGINT, 0), (signal.SIGHUP, 0.5)]))
+        runs = []
+        try:
+            for setsid in (False, True):
+                for name, ignore, seq in scenarios:
+                    k = len(runs)
+                    pids = Path(tmp) / ("pids-%d" % k)
+                    result = Path(tmp) / ("result-%d.json" % k)
+                    drv = Path(tmp) / ("driver-%d.py" % k)
+                    drv.write_text("import sys\nimport importlib.util as u\nspec = u.spec_from_file_location('ci_select_x', %r)\nm = u.module_from_spec(spec)\n"
+                                   "spec.loader.exec_module(m)\nm._RealRunner.GRACE_S = 2\n"
+                                   "m._RealRunner._popen = lambda self, name: m._start([sys.executable, '-c', %r])\n"
+                                   "raise SystemExit(m.main(['run', '--kind', 'windows', '--out', %r, 'test_fake']))\n" % (str(SCRIPT), fake_file(pids, setsid, ignore), str(result)))
+                    d = subprocess.Popen([sys.executable, str(drv)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+                    runs.append(dict(d=d, pids=pids, result=result, label="%s tree, %s" % ("setsid" if setsid else "same-group", name), seq=seq))
+            for run_ in runs:
+                run_["family"] = _wait_for(run_["pids"], 30)
+                expect(len(run_["family"]) == 4, "the fake file started its grandchildren: %s" % run_["family"])
+            import threading
+
+            def send(run_):
+                for sig, delay in run_["seq"]:
+                    time.sleep(delay)
+                    try:
+                        os.kill(run_["d"].pid, sig)
+                    except OSError:
+                        pass
+            threads = [threading.Thread(target=send, args=(x,)) for x in runs]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            clean = 0
+            for run_ in runs:
                 try:
-                    code = d.wait(timeout=30)
+                    code = run_["d"].wait(timeout=40)
                 except subprocess.TimeoutExpired:
-                    d.kill()
-                    d.wait()
-                    expect(False, "the driver ends within 30 s of %s" % sig.name)
-                expect(code != 0, "a cancelled driver does not report success: exit %s" % code)
-                left = _gone(family)
-                expect(not left, "after %s to the driver the test file, its grandchild, the grandchild in its own session and that one's child are gone (%s): left %s" % (sig.name, family, left))
-                part = json.loads((Path(tmp) / "result.json").read_text())
-                expect(part["running"] == "test_fake" and part["conclusion"] == "running", "the partial result still names the running file: %s" % part)
-            finally:
-                if d.poll() is None:
-                    d.kill()
-                    d.wait()
-            out.append(sig.name)
-    return "driver, file, setsid grandchild and its child gone after interrupt, " + ", ".join(out)
+                    expect(False, "%s: the driver ends within 40 s" % run_["label"])
+                expect(code != 0, "%s: a cancelled driver does not report success: exit %s" % (run_["label"], code))
+                left = _gone(run_["family"])
+                expect(not left, "%s: the test file, its grandchild, the second grandchild and its child are gone (%s): left %s" % (run_["label"], run_["family"], left))
+                part = json.loads(run_["result"].read_text())
+                expect(part["running"] == "test_fake" and part["conclusion"] == "running", "%s: the partial result still names the running file: %s" % (run_["label"], part))
+                clean += 1
+        finally:
+            for run_ in runs:
+                if run_["d"].poll() is None:
+                    run_["d"].kill()
+                    run_["d"].wait()
+                _gone(run_.get("family", []), 1)
+    return "%d of %d runs clean (both tree shapes: single signals, burst, TERM-ignoring tree with a second signal), %s" % (clean, len(runs), "interrupt")
+
+
+def bound_timeout_takes_the_whole_tree(r):
+    """UAK-191: the --bound timeout kills the file's whole tree, a grandchild that called setsid and its child included."""
+    cs = select_module()
+    with tempfile.TemporaryDirectory(prefix="uak-ci-bound-") as tmp:
+        pids = Path(tmp) / "pids"
+        run = cs._real_runner("windows")
+        run._popen = lambda name: cs._start([sys.executable, "-c", fake_file(pids)])
+        run.timeout = 4
+        ok = run("test_fake")
+        expect(ok is False and run.timed_out, "a file past its timeout fails and says it timed out: %s %s" % (ok, run.timed_out))
+        family = [int(x) for x in pids.read_text().split()]
+        left = _gone(family)
+        expect(not left, "after the bound's kill the file, its grandchild, the setsid grandchild and its child are gone: %s of %s" % (left, family))
+    return "4 processes gone"
 
 
 def event_text_lint_reads_expressions(r):
@@ -1032,7 +1081,8 @@ def event_text_lint_reads_expressions(r):
 
 TESTS = TESTS + [one_stale_entry_cannot_trip_the_slow_rule, truly_slow_job_trips_early, retry_gets_the_time_left_to_the_bound,
                  bound_kill_reaches_the_grandchild, event_text_lint_reads_expressions,
-                 shard_replays_do_not_read_the_live_table, cancelled_driver_leaves_no_test_running]
+                 shard_replays_do_not_read_the_live_table, cancelled_driver_leaves_no_test_running,
+                 bound_timeout_takes_the_whole_tree]
 
 
 def main():

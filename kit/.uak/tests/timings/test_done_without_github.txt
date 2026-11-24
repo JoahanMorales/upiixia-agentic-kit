@@ -1,4 +1,4 @@
-# measured 2026-11-24 45440020253
-# each entry is the MAXIMUM over the runs read (45440020253 45400014832 45395715008 45378320442 45377822264 45362548285), `ci` over Linux and macOS, `windows` over Windows, rounded up to a whole second: Linux 26 27 25 23 20 19 s, macOS 67 68 60 40 64 71 s, Windows 192 191 195 171 163 154 s
-ci 71
-windows 195
+# measured 2026-11-24 45448338317
+# each entry is ceil(MAXIMUM over the runs read) + 1 s: runs 45448338317 45440020253 45400014832 45395715008 45378320442 45377822264 45362548285, `ci` over Linux and macOS, `windows` over Windows: Linux max 27.48, macOS max 70.58, Windows max 194.77
+ci 72
+windows 196

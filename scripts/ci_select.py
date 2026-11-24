@@ -455,21 +455,9 @@ class _RealRunner:
         if os.name == "nt":
             subprocess.call(["taskkill", "/F", "/T", "/PID", str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             p.kill()
+            p.wait()
         else:
-            import signal
-            try:
-                os.killpg(p.pid, signal.SIGKILL)
-            except OSError:
-                p.kill()
-        p.wait()
-        if os.name != "nt":   # confirm the group is gone: a signal sent to a group that still has members succeeds
-            end = time.monotonic() + 10
-            while time.monotonic() < end:
-                try:
-                    os.killpg(p.pid, 0)
-                except OSError:
-                    break
-                time.sleep(0.1)
+            self._kill_tree(p)
 
     @staticmethod
     def _children_map():
@@ -506,17 +494,25 @@ class _RealRunner:
                     todo.append(c)
         return seen
 
+    GRACE_S = 5   # SIGTERM to SIGKILL
+
     def _kill_tree(self, p):
-        """POSIX cancel: collect the file's descendants first (killing the parent would reparent them out of the walk), then
-        SIGTERM them, wait a bounded 5 s, collect again and SIGKILL what is left. Never pid 0 or 1, never the driver, its parent
-        or its own process group."""
+        """POSIX cancel and bound kill: collect the file's descendants first (killing the parent would reparent them out of the
+        walk), SIGTERM them, wait at most GRACE_S, then SIGKILL what is left, always (`finally`). A further SIGTERM, SIGHUP or
+        SIGINT while this runs is ignored, so a burst of signals cannot stop the cleanup half way. Never pid 0 or 1, never the
+        driver, its parent or its own process group."""
         import signal
         me, mine = os.getpid(), os.getpgrp()
-        safe = lambda pid: pid > 1 and pid not in (me, os.getppid())
+        old = {}
+        for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+            try:
+                old[sig] = signal.signal(sig, signal.SIG_IGN)
+            except (ValueError, OSError):
+                pass
 
         def hit(pids, sig):
             for pid in pids:
-                if not safe(pid):
+                if pid <= 1 or pid in (me, os.getppid()):
                     continue
                 try:
                     if os.getpgid(pid) == mine:
@@ -524,23 +520,33 @@ class _RealRunner:
                     os.kill(pid, sig)
                 except OSError:
                     pass
-        family = [p.pid] + self._descendants(p.pid)
-        hit(family, signal.SIGTERM)
-        end = time.monotonic() + 5
-        while time.monotonic() < end and (p.poll() is None or any(self._alive(x) for x in family if x != p.pid)):
-            time.sleep(0.1)
-        family = list(dict.fromkeys(family + self._descendants(p.pid)))
-        hit(family, signal.SIGKILL)
-        if p.pid != mine:   # the file's own group (it is a session of its own, never the driver's)
+        family = [p.pid]
+        try:
+            family += self._descendants(p.pid)
+            hit(family, signal.SIGTERM)
+            end = time.monotonic() + self.GRACE_S
+            while time.monotonic() < end and (p.poll() is None or any(self._alive(x) for x in family if x != p.pid)):
+                time.sleep(0.05)
+        finally:
+            family = list(dict.fromkeys(family + self._descendants(p.pid)))
+            hit(family, signal.SIGKILL)
             try:
-                if os.getpgid(p.pid) != mine:
+                if os.getpgid(p.pid) != mine:   # the file's own group (a session of its own, never the driver's)
                     os.killpg(p.pid, signal.SIGKILL)
             except OSError:
                 pass
-        try:
-            p.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            pass
+            try:
+                p.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+            end = time.monotonic() + 10   # confirm the tree is gone
+            while time.monotonic() < end and any(self._alive(x) for x in family if x != p.pid):
+                time.sleep(0.05)
+            for sig, handler in old.items():
+                try:
+                    signal.signal(sig, handler)
+                except (ValueError, OSError):
+                    pass
 
     @staticmethod
     def _alive(pid):
@@ -578,10 +584,7 @@ class _RealRunner:
             # the driver was cancelled (SIGINT, or SIGTERM and SIGHUP turned into SystemExit by cmd_run): the file runs in its own
             # session, so it would outlive us; end its whole tree (POSIX: walked by parent links, so a child that called setsid
             # goes too; Windows: taskkill /T) before leaving
-            if os.name == "nt":
-                self._kill(p)
-            else:
-                self._kill_tree(p)
+            self._kill(p)
             raise
         finally:
             if p.stdin:
@@ -599,16 +602,33 @@ def _end_on_sigterm():
     import signal
 
     def handler(signum, frame):
+        for sig in (signal.SIGTERM, signal.SIGINT, getattr(signal, "SIGHUP", signal.SIGTERM)):   # the first signal is the one that counts
+            signal.signal(sig, signal.SIG_IGN)
         raise SystemExit(128 + signum)
+    old = {}
     try:
-        signal.signal(signal.SIGTERM, handler)
-        if hasattr(signal, "SIGHUP"):
-            signal.signal(signal.SIGHUP, handler)
+        for sig in (signal.SIGTERM, signal.SIGINT, getattr(signal, "SIGHUP", None)):
+            if sig is not None:
+                old[sig] = signal.signal(sig, handler)
     except (ValueError, OSError):   # not the main thread, or a platform without it
         pass
+    return old
 
 
 def cmd_run(argv):
+    import signal
+    old = _end_on_sigterm()
+    try:
+        return _cmd_run(argv)
+    finally:   # a process that calls this twice (the tests do) keeps its own handlers
+        for sig, h in old.items():
+            try:
+                signal.signal(sig, h)
+            except (ValueError, OSError, TypeError):
+                pass
+
+
+def _cmd_run(argv):
     ap = argparse.ArgumentParser(prog="ci_select.py run", description="run test files one by one; a failed file runs once more with --retry")
     ap.add_argument("--kind", choices=("smoke", "windows"), required=True, help="smoke: bash .uak/bin/smoke --package-only per file; windows: python per file")
     ap.add_argument("--job", default="job", help="the job's name, as GitHub shows it")
@@ -620,7 +640,6 @@ def cmd_run(argv):
     if not a.files:
         print("FAILED: this shard has no test files (empty list)")
         return 1
-    _end_on_sigterm()
     retry = a.retry and os.environ.get("RUNNER_OS") != "Linux"   # Linux never retries, whatever the workflow passes
     seconds = lint.ci_windows_seconds if a.kind == "windows" else lint.ci_seconds
     res = run_files(a.files, _real_runner(a.kind), retry, seconds=seconds, bound=a.bound, out=a.out, job=a.job)
