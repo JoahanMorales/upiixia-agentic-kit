@@ -359,6 +359,16 @@ def no_python_continues_in_terminal(c):
 NAMES = ["with space", "acc\u00e9nto", "it's", 'say"hi', "dol$HOME", "bt`id`x", "sub$(touch PWNED)x", "line\nbreak"]
 
 
+def same(a, b):
+    """The same folder or file, one spelled by Bash (on Git Bash /d/a/x) and one by Python (D:/a/x)."""
+    def norm(x):
+        if WINDOWS and x.startswith("/"):
+            r = subprocess.run(["cygpath", "-m", x], stdout=subprocess.PIPE, universal_newlines=True)
+            x = r.stdout.strip() or x
+        return os.path.normcase(os.path.realpath(x))
+    return norm(a) == norm(b)
+
+
 def words(command, cwd, env):
     """The words Bash makes of the arguments of a printed command, NUL separated, run in cwd."""
     r = subprocess.run([bash(), "-c", command], cwd=str(cwd), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -388,9 +398,9 @@ def printed_commands_are_safe(c):
         wiz = after.split(BROWSER_WORDS)[1].strip()
         expect(term.endswith("&& bash .uak/bin/uak start"), "terminal line shape: %r" % term)
         landed = words(term[:-len("bash .uak/bin/uak start")] + "pwd -P", c.tmp, env).strip()
-        expect(os.path.realpath(landed) == os.path.realpath(str(d)), "the terminal line lands in %r, not %r" % (name, landed))
+        expect(same(landed, str(d)), "the terminal line lands in %r, not %r" % (name, landed))
         got = words("printf '%s\\0' " + wiz[len("bash "):], c.tmp, env).split("\0")[:-1]
-        expect(got == [str(INSTALL), "--wizard", str(d)] or [os.path.realpath(x) for x in got[:1]] == [os.path.realpath(str(INSTALL))] and got[1:] == ["--wizard", str(d)],
+        expect(len(got) == 3 and same(got[0], str(INSTALL)) and got[1] == "--wizard" and same(got[2], str(d)),
                "the browser line is the kit's install.sh --wizard and the project, whole: %r" % got)
         expect(not list(holder.rglob("PWNED")) and not list(c.tmp.glob("PWNED")), "nothing ran from the name %r" % name)
         # uak start --wizard with no kit clone says the same command, quoted the same way
@@ -401,7 +411,7 @@ def printed_commands_are_safe(c):
         expect(len(tail) == 2, "start --wizard names the clone command: " + st.stdout[-300:])
         cmd = tail[1].strip().split("\nUAK_")[0]
         got = words("printf '%s\\0' " + cmd[len("bash <clone>/install.sh "):], c.tmp, env).split("\0")[:-1]
-        expect(got == ["--wizard", str(d)] or got == ["--wizard", os.path.realpath(str(d))], "start's line: %r" % got)
+        expect(len(got) == 2 and got[0] == "--wizard" and same(got[1], str(d)), "start's line: %r" % got)
         expect(not list(holder.rglob("PWNED")), "nothing ran from start for %r" % name)
         checked += 1
     expect(checked >= 6, "enough names could be created: %d" % checked)
