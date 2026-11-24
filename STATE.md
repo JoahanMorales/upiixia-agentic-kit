@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1795493865
+Updated: 1795494033
 AVAILABLE: UAK-159 UAK-160 UAK-162 UAK-163 UAK-164 UAK-165 UAK-166 UAK-167 UAK-189 
 CLAIMED: UAK-158 UAK-161 
 BLOCKED: -
@@ -17,11 +17,11 @@ UAK-188 | REVIEW | kit-a4 | until 1795579483
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1795451182 | allow | JoahanMorales | test change: UAK-154 | Why: 99.0.0 ahora es version mayor y bloquea; cuatro lineas de tests publican una version de la misma mayor
 - 1795476545 | allow | JoahanMorales | test change: UAK-156 | Why: la tarea quita el temporizador de 60 s que test_dashboard_profiles.py:137 exige
 - 1795476548 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-187 UAK-188 UAK-189 | Why: backlog without PR (Plan-Channel: claims)
 - 1795490931 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-158 Paths: kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/dash.html, kit/.uak/bin/lib/dash.py, kit/.uak/bin/
 - 1795491024 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-158 UAK-161 UAK-163 UAK-164 UAK-165 UAK-167 UAK-188 UAK-189 | Why: scope or criteria fixed before review
+- 1795494033 | allow | JoahanMorales | test change: UAK-158 | Why: el asistente usa los tokens del panel y marcas SVG; cuatro líneas de test leían la paleta vieja y el glifo ✓
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.

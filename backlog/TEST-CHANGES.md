@@ -12,3 +12,4 @@ Append-only. Format: - ID | epoch | human | reason. Why: a test is a spec; chang
 - UAK-153 | 1795451178 | JoahanMorales | el token ya no se imprime y el nombre es la identidad de git; cuatro tests de asistente se ajustan a eso
 - UAK-154 | 1795451182 | JoahanMorales | 99.0.0 ahora es version mayor y bloquea; cuatro lineas de tests publican una version de la misma mayor
 - UAK-156 | 1795476545 | JoahanMorales | la tarea quita el temporizador de 60 s que test_dashboard_profiles.py:137 exige
+- UAK-158 | 1795494033 | JoahanMorales | el asistente usa los tokens del panel y marcas SVG; cuatro líneas de test leían la paleta vieja y el glifo ✓
