@@ -111,11 +111,10 @@ runs_code() {
 # A running wizard writes "PID PORT" to uak-wizard.port in the project's git directory and removes it when it ends. The
 # endpoint rule fires only when one is live for this project (a project's own /api/session on localhost is its own
 # business); the token header and the start rules fire always.
-wizard_live() { # sets WZ_LIVE (1 or empty) and WZ_PORT
-  local gd f pid port
-  WZ_LIVE= WZ_PORT=
-  gd=$(git rev-parse --git-common-dir 2>/dev/null) || return 0
-  f="$gd/uak-wizard.port"; [ -r "$f" ] || return 0
+wizard_live() { # sets WZ_LIVE (1 or empty), WZ_PORT and WZ_INGIT (1 when the shell stands inside the git directory)
+  local f pid port
+  WZ_LIVE= WZ_PORT= WZ_INGIT=$WZ_CWDGIT
+  f=$WZ_PF; [ -n "$f" ] || return 0   # wizard_port_file found it with builtins, no git process
   pid= port=; read -r pid port < "$f" 2>/dev/null || true
   port=${port//$'\r'/}   # a file written on Windows ends its line with CR LF
   case "$pid$port" in ''|*[!0-9]*) return 0;; esac
@@ -125,12 +124,40 @@ wizard_live() { # sets WZ_LIVE (1 or empty) and WZ_PORT
     case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) ;; *) return 0;; esac
   fi
   WZ_LIVE=1 WZ_PORT=$port
+  return 0
+}
+# Where is the uak-wizard.port of the project of the working directory? Builtins only (no git, no process): sets WZ_PF
+# (the file, or empty) and WZ_CWDGIT (1 when the working directory is inside the git directory that holds it). A
+# linked worktree reads its .git file and commondir; GIT_DIR is honoured. With no port file a command costs what it cost
+# before the file rules existed, and with one a command that has nothing to do with the wizard costs nothing more.
+wizard_port_file() {
+  local d=$PWD g c
+  WZ_PF= WZ_CWDGIT=
+  if [ -n "${GIT_DIR:-}" ] && [ -r "$GIT_DIR/uak-wizard.port" ]; then WZ_PF=$GIT_DIR/uak-wizard.port; return 0; fi
+  while [ -n "$d" ]; do
+    if [ -r "$d/uak-wizard.port" ]; then WZ_PF=$d/uak-wizard.port WZ_CWDGIT=1; return 0; fi
+    if [ -d "$d/.git" ]; then [ ! -r "$d/.git/uak-wizard.port" ] || WZ_PF=$d/.git/uak-wizard.port; return 0; fi
+    if [ -f "$d/.git" ]; then
+      g= c=; read -r g < "$d/.git" 2>/dev/null || true
+      g=${g#gitdir: }; g=${g//$'\r'/}
+      read -r c < "$g/commondir" 2>/dev/null || true
+      case "$c" in '') c=$g;; /*|[A-Za-z]:*) ;; *) c="$g/$c";; esac
+      [ ! -r "$c/uak-wizard.port" ] || WZ_PF=$c/uak-wizard.port
+      return 0
+    fi
+    case "$d" in */*) ;; *) return 0;; esac
+    [ "$d" != / ] || return 0
+    d=${d%/*}; [ -n "$d" ] || d=/
+  done
+  return 0
 }
 wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quoted prose removed → WZ reason or empty
   local flat1 flat2
   wizard_live
-  flat1=$(printf '%s' "$1" | tr '\n' ';'); flat2=$(printf '%s' "$2" | tr '\n' ';')
-  WZ=$(awk -v raw="$flat1" -v pro="$flat2" -v live="${WZ_LIVE:-0}" -v wport="${WZ_PORT:-0}" '
+  local nl=$'\n'
+  flat1=${1//"$nl"/;}; flat2=${2//"$nl"/;}
+  # ENVIRON, not -v: awk would read \a or \x75 in a -v value as an escape (cat .git/uak-wiz\ard.key passed)
+  WZ=$(WZ_NL=$1 WZ_RAW=$flat1 WZ_PRO=$flat2 awk -v live="${WZ_LIVE:-0}" -v wport="${WZ_PORT:-0}" -v ingit="${WZ_INGIT:-0}" '
     function clean(s) { gsub(/[\\\047"`]/, "", s); return s }
     function collect(s,    t, name, val, m) {
       t = s
@@ -143,7 +170,7 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
     function expand(s,    n, name, ref, r) {
       for (n = 0; n < 40 && match(s, /\$(\{[a-z_][a-z0-9_]*\}|[a-z_][a-z0-9_]*)/); n++) {
         ref = substr(s, RSTART, RLENGTH); name = ref; gsub(/[${}]/, "", name)
-        s = substr(s, 1, RSTART - 1) ((name in V) ? V[name] : "") substr(s, RSTART + RLENGTH)
+        s = substr(s, 1, RSTART - 1) ((name in V) ? V[name] : (name ~ /^git_(common_)?dir$/ ? ".git" : "")) substr(s, RSTART + RLENGTH)
       }
       return s
     }
@@ -161,7 +188,28 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
       for (n = 0; n < 40 && index(s, "/./"); n++) { i = index(s, "/./"); s = substr(s, 1, i) substr(s, i + 3) }
       return s
     }
-    function norm(s) { s = clean(tolower(s)); collect(s); s = expand(s); return squash(unpercent(s)) }
+    # \xHH and \ooo (the text of a dollar-quoted string), then the git directory by its own command: $(git rev-parse --git-dir) is .git
+    function unesc(s,    h, c, o) {
+      h = "0123456789abcdef"
+      while (match(s, /\\x[0-9a-f][0-9a-f]/)) {
+        c = (index(h, substr(s, RSTART + 2, 1)) - 1) * 16 + index(h, substr(s, RSTART + 3, 1)) - 1
+        o = (c >= 32 && c < 127) ? sprintf("%c", c) : " "
+        s = substr(s, 1, RSTART - 1) o substr(s, RSTART + RLENGTH)
+      }
+      gsub(/\$\047/, "\047", s)
+      # a Windows path: a backslash that opens .git or a record file, or follows .git, is a separator (the others are escapes)
+      gsub(/\\\.git/, "/.git", s); gsub(/\.git\\/, ".git/", s); gsub(/\\uak-/, "/uak-", s)
+      return s
+    }
+    function gitsub(s,    b, nme) {
+      while (match(s, /(\$\(|`)git +rev-parse[^)`]*(git-dir|git-common-dir|git-path)[^)`]*(\)|`)/)) {
+        b = substr(s, RSTART, RLENGTH); nme = ".git"
+        if (match(b, /--git-path +[^ )`]+/)) { nme = substr(b, RSTART, RLENGTH); sub(/--git-path +/, "", nme); nme = ".git/" nme }
+        s = substr(s, 1, index(s, b) - 1) nme substr(s, index(s, b) + length(b))
+      }
+      return s
+    }
+    function norm(s) { s = tolower(s); s = clean(gitsub(unesc(s))); collect(s); s = expand(s); return squash(unpercent(s)) }
     function globre(g,    out, i, c, inb) {
       out = ""; inb = 0
       for (i = 1; i <= length(g); i++) {
@@ -201,11 +249,471 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
       }
       return 0
     }
+    # UAK-188. While a wizard is live: the reopen key (a second start presents it to /api/reopen for a fresh page), and
+    # the three record files in the git directory (without the port file the rules above stop matching). A command is
+    # judged only when it ADDRESSES those files in the git directory: a path with a .git component (or the git
+    # directory by $GIT_DIR, $(git rev-parse --git-dir), --git-dir=), or a bare name or glob after `cd .git`,
+    # `pushd .git`, `git -C .git`, a find rooted there, or with the working directory of the guard itself inside it. A message,
+    # a note, a search pattern or a file of the project that merely holds the words or matches `*.key` is not an access.
+    # The text is cut into segments at ; & | ( ) < > and each is judged by its command word (wrappers skipped).
+    function bname(w,    b) { b = w; sub(/\/+$/, "", b); sub(/.*[\/=@:]/, "", b); return b }
+    function nm(b, name) { return b == name || (b ~ /[*?\[]/ && literal(b) >= 3 && match(name, globre(b))) }
+    function anyname(b) { return nm(b, "uak-wizard.key") || nm(b, "uak-wizard.port") || nm(b, "uak-wizard.children") }
+    function iswrap(w) { return w ~ /^(sudo|doas|env|nohup|command|time|timeout|nice|ionice|setsid|stdbuf|exec|builtin)$/ }
+    function gitpath(p,    d, k, c, cc) {   # a path whose directory part runs through the git directory
+      sub(/^[-a-z0-9_.~$]*[=@:]/, "", p); if (index(p, "/") == 0) return 0
+      d = p; sub(/\/[^\/]*$/, "", d); c = split(d, cc, /\/+/)
+      for (k = 1; k <= c; k++) if (cc[k] == ".git" || cc[k] ~ /git-dir|git-common-dir/) return 1
+      return 0
+    }
+    function barepath(p) { sub(/^[-a-z0-9_.~$]*[=@:]/, "", p); sub(/^\.\/+/, "", p); return index(p, "/") == 0 }
+    function braces(t, out,    cur, nxt, cnt, nn, k, e, pre, body, post, alts, na, a, ch, pass) {
+      cnt = 1; cur[1] = t
+      for (pass = 0; pass < 6; pass++) {
+        ch = 0; nn = 0
+        for (k = 1; k <= cnt; k++) {
+          e = cur[k]
+          if (nn < 64 && match(e, /\{[^{}]*\}/) && RLENGTH > 2) {
+            pre = substr(e, 1, RSTART - 1); body = substr(e, RSTART + 1, RLENGTH - 2); post = substr(e, RSTART + RLENGTH)
+            na = split(body, alts, ","); if (na == 0) na = 1
+            if (substr(body, length(body)) == ",") alts[++na] = ""
+            for (a = 1; a <= na; a++) nxt[++nn] = pre alts[a] post
+            ch = 1
+          } else nxt[++nn] = e
+        }
+        for (k = 1; k <= nn; k++) cur[k] = nxt[k]; cnt = nn
+        if (!ch) break
+      }
+      for (k = 1; k <= cnt; k++) out[k] = cur[k]
+      return cnt
+    }
+    function benignexec(c) { return c ~ /^(ls|stat|echo|printf|file|test|wc|du|chmod|chown|touch|true)$/ }
+    function files(n, cw0,    s, segs, ns, q, seg, tok, nt, i, j, k, fw, b, bn, cand, kh, rh, gh, hasx, hasclean, rem, cwdgit, ctx, kseen, fgit, fincl, fact, fpat, fexcl, nroots, endroots, w, ex, npat, pat_ok, nb, insub) {
+      s = n; gsub(/\$\(|[<>]\(/, " ; @sub@ ", s); gsub(/[;&|()]/, " ; ", s); gsub(/>/, " ; > ", s); gsub(/</, " ; < ", s)
+      ns = split(s, segs, /;/); cwdgit = (cw0 == 1); kseen = 0
+      for (q = 1; q <= ns; q++) {
+        seg = segs[q]; nt = split(seg, tok, /[ \t]+/); insub = (tok[2] == "@sub@" || tok[1] == "@sub@")
+        i = 1
+        while (i <= nt && (tok[i] == "" || tok[i] == "@sub@" || iswrap(bname(tok[i])) || tok[i] ~ /^-/ || tok[i] ~ /^[a-z_][a-z0-9_]*=/ || tok[i] ~ /^[0-9]+$/)) i++
+        if (i > nt) continue
+        fw = bname(tok[i]); rem = (fw ~ /^(rm|mv|unlink|truncate|shred|del|erase|rd|rmdir|ri|remove-item|mi|move-item|move)$/)
+        if (fw ~ /^(cd|pushd|chdir|set-location|sl|push-location)$/) {   # the next segments run in the git directory, or no longer do
+          cwdgit = 0
+          for (j = i + 1; j <= nt; j++) if (tok[j] != "" && tok[j] !~ /^-/) {
+            if (gitpath(tok[j] "/x") || tok[j] ~ /^\.git\/*$/ || tok[j] ~ /git-dir|git-common-dir/) cwdgit = 1
+            break
+          }
+          continue
+        }
+        ctx = cwdgit; fgit = 0; fincl = 0; fact = 0; fexcl = 0; npat = 0; pat_ok = 0
+        if (fw == "git") for (j = i + 1; j < nt; j++) if (tok[j] == "-c" && (gitpath(tok[j+1] "/x") || tok[j+1] ~ /^\.git\/*$/)) ctx = 1
+        if (fw == "find") {
+          nroots = 0; endroots = 0
+          for (j = i + 1; j <= nt; j++) {
+            w = tok[j]; if (w == "") continue
+            if (!endroots && w !~ /^[-!]/) {
+              nroots++
+              if (w ~ /^(\.\/*|\.\.\/*|~\/*|\/+)$/ || w ~ /^(\.\.\/)+(\.\.?)?\/*$/) fincl = 1
+              if (w ~ /^\.git\/*$/ || gitpath(w "/x")) { fgit = 1; ctx = 1 }
+              continue
+            }
+            endroots = 1
+            if (w ~ /^-(name|iname|path|ipath|wholename|iwholename)$/ && j < nt) {
+              b = tok[j+1]; sub(/.*\//, "", b); npat++; if (anyname(b)) pat_ok = 1
+              if (w ~ /path|wholename/ && tok[j+1] ~ /\.git/) fexcl = 1
+            }
+            if (w == "-delete") fact = 1
+            if (w ~ /^-(exec|execdir|ok|okdir)$/ && j < nt) { ex = bname(tok[j+1]); if (!benignexec(ex)) fact = 1 }
+          }
+          if (nroots == 0) { fincl = 1; if (cwdgit) fgit = 1 }
+          if (cwdgit && fincl) fgit = 1
+          if (fincl && !fgit && seg ~ /-prune|\.git/) fexcl = 1
+          # a find that names the key and feeds xargs is a read of it (seen below); one that acts is judged here
+          if (fact && ((fgit && (npat == 0 || pat_ok)) || (fincl && !fexcl && !fgit && pat_ok)))
+            return "removes or reads the wizard record files (uak-wizard.port, .key, .children) in the git directory"
+          if (fgit && pat_ok) kseen = 1
+        }
+        kh = 0; rh = 0; gh = 0; hasx = 0; hasclean = 0
+        for (j = i; j <= nt; j++) {
+          nb = braces(tok[j], cand)
+          for (k = 1; k <= nb; k++) {
+            w = cand[k]; b = bname(w)
+            if ((gitpath(w) || (ctx && barepath(w))) && anyname(b)) {
+              if (nm(b, "uak-wizard.key")) { kh = 1; rh = 1 } else rh = 1
+            }
+            if (b == ".git") gh = 1
+          }
+          b = bname(tok[j])
+          if (b == "clean") hasclean = 1
+          if (tok[j] ~ /^-[a-z]*x[a-z]*$/) hasx = 1
+        }
+        if (kh) kseen = 1
+        if (rh && (rem || fw ~ /^(cp|ln|tee|dd|install|rsync|xargs|perl|ruby|node|nodejs|php|awk|gawk|mawk|:|>|true)$/ || fw ~ /^(python[0-9.]*|py|pypy[0-9]*|sh|bash|zsh|dash|ksh|powershell|pwsh|cmd)$/ ||
+                   fw ~ /^(del|erase|rd|rmdir|ri|remove-item|mi|move-item|move|ren|rename|rename-item|rni|copy|xcopy|robocopy|copy-item|set-content|sc|add-content|ac|out-file|clear-content|clc|new-item|ni)$/ ||
+                   (fw == "sed" && seg ~ /[ \t](-[a-z]*i|--in-place)/) || (fw == "find" && seg ~ /[ \t]-(delete|exec|execdir|ok)/)))
+          return "removes or rewrites the wizard record files (uak-wizard.port, .key, .children) in the git directory"
+        if (kh && !rem && (insub || !(fw ~ /^(ls|stat|test|\[|\[\[|echo|printf|file)$/)))
+          return "reads or copies the wizard reopen key (uak-wizard.key) in the git directory"
+        if (kseen && fw ~ /^(xargs|parallel)$/)
+          return "reads or copies the wizard reopen key (uak-wizard.key) in the git directory"
+        if (gh && rem)
+          return "removes the git directory that holds the wizard record files"
+        if (fw == "git" && hasclean && hasx && (cwdgit || n ~ /\.git|git-dir/))
+          return "cleans the git directory that holds the wizard record files"
+      }
+      return ""
+    }
+    # A command is cut into shell words (a word is its adjacent quoted and unquoted pieces, $-quote decoded), and a word
+    # is decided by its POSITION, then scanned or skipped:
+    #   PROSE, never scanned: the value of a message option (-m, --message, --note, --body, --title, --done, --summary,
+    #     --reason, --evidence, --description, --next, also --opt=value), the here-document of -F -, the pattern of grep,
+    #     rg, ag, ack and git grep, the arguments of echo and printf when no other command consumes their output, and a
+    #     string that an inline interpreter only prints. A word that holds a command substitution is never prose.
+    #   SCRIPT, judged as a command line (as far as three levels): the argument of sh, bash, zsh, dash, ksh after an option
+    #     word with a c (-c, -ec, -lc), skipping -o NAME, -O NAME, --, --norc and the other long options; of eval, ssh HOST,
+    #     su -c, script -c, watch, tmux, parallel, npx -c, powershell -c, cmd /c, also behind env, nohup, timeout, xargs,
+    #     find -exec and docker; the here-string or here-document of a shell that has no -c; what echo or printf pipes into one.
+    #   every other word is scanned as before (a quoted span of three words or more with no substitution is prose).
+    function hexv(c) { return index("0123456789abcdef", tolower(c)) - 1 }
+    function emit(T, W, QF, SF, IS, n, typ, text, qf, sf, ins) { n++; T[n] = typ; W[n] = text; QF[n] = qf; SF[n] = sf; IS[n] = ins; return n }
+    function tokenize(s, T, W, QF, SF, IS,    n, i, len, ch, nx, cur, has, qf, sf, j, d, c, stk, ns, nS, bt, np, pd, pq, pdash, k, body, line, cmp, ins, q, isb, dl, dq, dash, e, x) {
+      n = 0; i = 1; len = length(s); cur = ""; has = 0; qf = 0; sf = 0; ns = 0; nS = 0; bt = 0; np = 0
+      split("", stk); split("", pd); split("", pq); split("", pdash)
+      while (i <= len) {
+        ch = substr(s, i, 1); nx = substr(s, i + 1, 1); ins = (bt || nS > 0)
+        isb = (ch == " " || ch == "\t" || ch == "\n" || ch == ";" || ch == "&" || ch == "|" || ch == "(" || ch == ")" || ch == "`" ||
+               (ch == "$" && nx == "(") || ((ch == "<" || ch == ">") && nx == "(") || (ch == "<" && nx == "<" && substr(s, i + 2, 1) != "<" && substr(s, i - 1, 1) != "<") || (ch == "<" && nx == "<" && substr(s, i + 2, 1) == "<" && substr(s, i - 1, 1) != "<"))
+        if (isb && has) { n = emit(T, W, QF, SF, IS, n, "w", cur, qf, sf, ins); cur = ""; has = 0; qf = 0; sf = 0 }
+        if (ch == "\047") {
+          j = index(substr(s, i + 1), "\047")
+          if (j == 0) { cur = cur substr(s, i + 1); i = len + 1 } else { cur = cur substr(s, i + 1, j - 1); i += j + 1 }
+          has = 1; qf = 1; continue
+        }
+        if (ch == "$" && nx == "\047") {
+          i += 2; has = 1; qf = 1
+          while (i <= len) {
+            c = substr(s, i, 1)
+            if (c == "\047") break
+            if (c == "\\" && i < len) {
+              x = substr(s, i + 1, 1); i += 2
+              if (x == "n") cur = cur "\n"; else if (x == "t") cur = cur "\t"; else if (x == "e") cur = cur " "
+              else if (x == "x" && substr(s, i, 1) ~ /[0-9a-fA-F]/) {
+                d = hexv(substr(s, i, 1)); i++
+                if (substr(s, i, 1) ~ /[0-9a-fA-F]/) { d = d * 16 + hexv(substr(s, i, 1)); i++ }
+                cur = cur sprintf("%c", d)
+              } else if (x ~ /[0-7]/) {
+                d = x + 0
+                if (substr(s, i, 1) ~ /[0-7]/) { d = d * 8 + substr(s, i, 1); i++ }
+                if (substr(s, i, 1) ~ /[0-7]/) { d = d * 8 + substr(s, i, 1); i++ }
+                cur = cur sprintf("%c", d)
+              } else cur = cur x
+              continue
+            }
+            cur = cur c; i++
+          }
+          i++; continue
+        }
+        if (ch == "\"") {
+          i++; has = 1; qf = 1
+          while (i <= len) {
+            c = substr(s, i, 1)
+            if (c == "\\" && i < len && index("\"\\$`", substr(s, i + 1, 1)) > 0) { cur = cur substr(s, i + 1, 1); i += 2; continue }
+            if (c == "\"") break
+            if (c == "$" && substr(s, i + 1, 1) == "(") {
+              sf = 1; d = 0
+              while (i <= len) { c = substr(s, i, 1); cur = cur c; i++; if (c == "(") d++; else if (c == ")") { d--; if (d == 0) break } }
+              continue
+            }
+            if (c == "`") {
+              sf = 1; cur = cur c; i++
+              while (i <= len && substr(s, i, 1) != "`") { cur = cur substr(s, i, 1); i++ }
+              if (i <= len) { cur = cur "`"; i++ }
+              continue
+            }
+            cur = cur c; i++
+          }
+          i++; continue
+        }
+        if (ch == "\\") {
+          if (nx == "\n") { i += 2; continue }
+          if (nx == "\047" || nx == "\"") { cur = cur nx; has = 1; i += 2; continue }
+          cur = cur ch nx; has = 1; i += 2; continue
+        }
+        if (ch == "$" && nx == "(") { n = emit(T, W, QF, SF, IS, n, "open", "S", 0, 0, ins); stk[++ns] = "S"; nS++; i += 2; continue }
+        if ((ch == "<" || ch == ">") && nx == "(") { n = emit(T, W, QF, SF, IS, n, "open", "S", 0, 0, ins); stk[++ns] = "S"; nS++; i += 2; continue }
+        if (ch == "`") {
+          if (bt) { n = emit(T, W, QF, SF, IS, n, "close", "", 0, 0, ins); bt = 0 }
+          else { n = emit(T, W, QF, SF, IS, n, "open", "S", 0, 0, ins); bt = 1 }
+          i++; continue
+        }
+        if (ch == "(") { n = emit(T, W, QF, SF, IS, n, "open", "P", 0, 0, ins); stk[++ns] = "P"; i++; continue }
+        if (ch == ")") {
+          if (ns > 0) { if (stk[ns] == "S") nS--; ns-- }
+          n = emit(T, W, QF, SF, IS, n, "close", "", 0, 0, ins); i++; continue
+        }
+        if (ch == ";" || ch == "&") { n = emit(T, W, QF, SF, IS, n, "sep", "", 0, 0, ins); i++; continue }
+        if (ch == "|") {
+          if (nx == "|") { n = emit(T, W, QF, SF, IS, n, "sep", "", 0, 0, ins); i += 2; continue }
+          n = emit(T, W, QF, SF, IS, n, "pipe", "", 0, 0, ins); i += (nx == "&" ? 2 : 1); continue
+        }
+        if (ch == "\n") {
+          if (np > 0) {
+            i++
+            for (k = 1; k <= np; k++) {
+              body = ""
+              while (i <= len) {
+                j = index(substr(s, i), "\n")
+                if (j == 0) { line = substr(s, i); i = len + 1 } else { line = substr(s, i, j - 1); i += j }
+                cmp = line; if (pdash[k]) sub(/^\t+/, "", cmp)
+                if (cmp == pd[k]) break
+                body = body line "\n"
+              }
+              n = emit(T, W, QF, SF, IS, n, "hd", body, pq[k], 0, ins)
+            }
+            np = 0
+            n = emit(T, W, QF, SF, IS, n, "sep", "", 0, 0, ins); continue
+          }
+          n = emit(T, W, QF, SF, IS, n, "sep", "", 0, 0, ins); i++; continue
+        }
+        if (ch == " " || ch == "\t") { i++; continue }
+        if (ch == "#" && !has) { while (i <= len && substr(s, i, 1) != "\n") i++; continue }
+        if (ch == "<" && nx == "<" && substr(s, i + 2, 1) == "<" && substr(s, i - 1, 1) != "<") { n = emit(T, W, QF, SF, IS, n, "w", "<<<", 0, 0, ins); i += 3; continue }
+        if (ch == "<" && nx == "<" && substr(s, i + 2, 1) != "<" && substr(s, i - 1, 1) != "<") {
+          j = i + 2; dash = 0
+          if (substr(s, j, 1) == "-") { dash = 1; j++ }
+          while (substr(s, j, 1) == " " || substr(s, j, 1) == "\t") j++
+          dq = 0; dl = ""
+          while (j <= len && !(substr(s, j, 1) ~ /[ \t\n;&|()<>]/)) {
+            c = substr(s, j, 1)
+            if (c == "\047" || c == "\"") { dq = 1; e = index(substr(s, j + 1), c); if (e == 0) { dl = dl substr(s, j + 1); j = len + 1 } else { dl = dl substr(s, j + 1, e - 1); j += e + 1 } continue }
+            if (c == "\\") { dq = 1; j++; continue }
+            dl = dl c; j++
+          }
+          np++; pd[np] = dl; pq[np] = dq; pdash[np] = dash
+          n = emit(T, W, QF, SF, IS, n, "w", "<<", 0, 0, ins); i = j; continue
+        }
+        cur = cur ch; has = 1; i++
+      }
+      if (has) n = emit(T, W, QF, SF, IS, n, "w", cur, qf, sf, ins)
+      return n
+    }
+    # the command substitutions of text that the shell expands (an unquoted here-document): $(...) and backticks
+    function substs(body, OUT,    n, i, len, c, d, st, e)
+    {
+      n = 0; i = 1; len = length(body)
+      while (i <= len) {
+        c = substr(body, i, 1)
+        if (c == "$" && substr(body, i + 1, 1) == "(") {
+          st = i + 2; d = 1; i += 2
+          while (i <= len && d > 0) { c = substr(body, i, 1); if (c == "(") d++; else if (c == ")") d--; i++ }
+          OUT[++n] = substr(body, st, i - st - 1); continue
+        }
+        if (c == "`") {
+          e = index(substr(body, i + 1), "`")
+          if (e == 0) break
+          OUT[++n] = substr(body, i + 1, e - 1); i += e + 1; continue
+        }
+        i++
+      }
+      return n
+    }
+    function wbase(w,    b) { b = tolower(w); sub(/.*[\/\\]/, "", b); sub(/\.exe$/, "", b); return b }
+    function isredir(w) { return w ~ /^[0-9]*(<<<|>>|>&|<&|>\||>|<)$/ }
+    function ismsgopt(w) { return w ~ /^(-m|--message|--note|--body|--title|--done|--summary|--reason|--evidence|--description|--next|--msg|--grep|-S|-G)$/ }
+    function issh(b) { return b ~ /^(sh|bash|zsh|dash|ksh|ash|rbash)$/ }
+    function isrunwrap(b) { return b ~ /^(env|exec|command|sudo|doas|time|nohup|timeout|nice|ionice|setsid|stdbuf|builtin|busybox)$/ }
+    # sh-family word at word position p of command c: the token of its script (-c), -1 when it reads standard input
+    # (no -c, no file operand), -2 when it runs a file, 0 when p is not a shell
+    function shparse(W, CWI, M, c, p,    j, w, seenc, t) {
+      if (!issh(wbase(W[CWI[c, p]]))) return 0
+      seenc = 0
+      for (j = p + 1; j <= M[c]; j++) {
+        t = CWI[c, j]; w = W[t]
+        if (w == "<<") continue
+        if (isredir(w)) { j++; continue }
+        if (w == "--") continue
+        if (w ~ /^--/) { if (w == "--rcfile" || w == "--init-file") j++; continue }
+        if (w ~ /^[-+][A-Za-z]+$/) { if (substr(w, 1, 1) == "-" && w ~ /c/) seenc = 1; if (w ~ /[oO]$/) j++; continue }
+        if (seenc) return t
+        return -2
+      }
+      return seenc ? 0 : -1
+    }
+    function lastc(w) { return w ~ /^(-[a-z]?c|-command|\/[ck])$/ }
+    function inlinecode(code, cw,    s, st, rest, e, q, g, n2) {
+      s = code
+      # a string literal handed to print, puts, say or console.log is text, not an access
+      while (match(s, /(print|puts|say|console\.log|console\.error|warn|printf|echo|println)[ (]*["\047]/)) {
+        st = RSTART + RLENGTH - 1; q = substr(s, st, 1); rest = substr(s, st + 1); e = index(rest, q)
+        if (e == 0) { s = substr(s, 1, RSTART - 1) " "; break }
+        s = substr(s, 1, RSTART - 1) " " substr(rest, e + 1)
+      }
+      n2 = norm(s)
+      if (n2 ~ /(chdir|cd|set-location|sl|pushd|push-location)[ (]*\.git/ && (n2 ~ /uak-wizard\.(key|port|children)/ || n2 ~ /uak-[w*?\[]/))
+        return "changes into the git directory and names a wizard record file (uak-wizard.key, .port, .children)"
+      if (n2 ~ /(\.git|git-dir)\/+uak-(wizard|[*?\[w])/)
+        return (n2 ~ /uak-wizard\.(key|k)|uak-[*?\[w]/) ? "reads or copies the wizard reopen key (uak-wizard.key) in the git directory" : "removes or rewrites the wizard record files (uak-wizard.port, .key, .children) in the git directory"
+      if (cw == 1 && (n2 ~ /uak-wizard\.(key|port|children)/ || n2 ~ /uak-[w*?\[]/))
+        return "names a wizard record file from inside the git directory (uak-wizard.key, .port, .children)"
+      if (request(n2, 2)) return "sends a request to the running wizard"
+      return ""
+    }
+    function judge(line, depth, cw0,    T, W, QF, SF, IS, n, i, k, a, nc, c, p, m, CS, CE, CB, FI, FW, M, CWI, PR, PAY, PCW, npay, cw, t, txt, r, w, b, j, pt, nsp, tmp, seenpat, pk, consumed, shk, tw, x, pcmd, KEEP, SUBS) {
+      n = tokenize(gitsub(line), T, W, QF, SF, IS)
+      nc = 0; a = 0
+      for (i = 1; i <= n + 1; i++) {
+        if (i > n || (T[i] != "w" && T[i] != "hd")) {
+          if (a) { nc++; CS[nc] = a; CE[nc] = i - 1; CB[nc] = (i <= n) ? T[i] : ""; a = 0 }
+        } else if (!a) a = i
+      }
+      for (c = 1; c <= nc; c++) {
+        m = 0
+        for (i = CS[c]; i <= CE[c]; i++) if (T[i] == "w") { m++; CWI[c, m] = i }
+        M[c] = m
+        p = 1
+        while (p <= m) {
+          w = W[CWI[c, p]]; b = wbase(w)
+          if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w ~ /^[0-9]+$/) { p++; continue }
+          if (isrunwrap(b) && !issh(b)) {
+            p++
+            while (p <= m && W[CWI[c, p]] ~ /^-/) { if (W[CWI[c, p]] ~ /^-[ugnChpUT]$/) p++; p++ }
+            if (b == "timeout" && p <= m && W[CWI[c, p]] ~ /^[0-9.]+[smhd]?$/) p++
+            continue
+          }
+          break
+        }
+        FI[c] = p; FW[c] = (p <= m) ? wbase(W[CWI[c, p]]) : ""
+      }
+      npay = 0; cw = cw0; txt = ""
+      for (c = 1; c <= nc; c++) {
+        m = M[c]; p = FI[c]; b = FW[c]
+        # message options
+        for (k = 1; k <= m; k++) {
+          t = CWI[c, k]; w = W[t]
+          if (isredir(w)) { k++; continue }
+          if (ismsgopt(w) && k < m && !SF[CWI[c, k + 1]] && !isredir(W[CWI[c, k + 1]])) PR[CWI[c, k + 1]] = 1
+          else if (w ~ /^--(message|note|body|title|done|summary|reason|evidence|description|next|msg|grep)=/ && !SF[t]) PR[t] = 1
+        }
+        # grep family: the pattern
+        pk = 0
+        if (b ~ /^(grep|egrep|fgrep|rg|ag|ack)$/) pk = p
+        else if (b == "git") { for (k = p + 1; k <= m; k++) if (W[CWI[c, k]] !~ /^-/) { if (W[CWI[c, k]] == "grep") pk = k; break } }
+        if (pk) {
+          seenpat = 0
+          for (k = pk + 1; k <= m; k++) {
+            t = CWI[c, k]; w = W[t]
+            if (isredir(w)) { k++; continue }
+            if (w == "-e" || w == "--regexp") { if (k < m && !SF[CWI[c, k + 1]]) PR[CWI[c, k + 1]] = 1; k++; seenpat = 1; continue }
+            if (w ~ /^--regexp=/) { if (!SF[t]) PR[t] = 1; seenpat = 1; continue }
+            if (w ~ /^-[ABCmfdDgtTM]$/ || w ~ /^--(include|exclude|exclude-dir|max-count|file|type|glob|context)$/) { k++; continue }
+            if (w ~ /^-/) continue
+            if (!seenpat) { if (!SF[t]) PR[t] = 1; seenpat = 1 }
+            break
+          }
+        }
+        # echo, printf: text, unless another command consumes it
+        if (b == "echo" || b == "printf") {
+          consumed = (IS[CWI[c, p]] || CB[c] == "pipe")
+          shk = 0
+          if (CB[c] == "pipe" && c < nc) { t = FI[c + 1]; if (t <= M[c + 1] && issh(FW[c + 1]) && shparse(W, CWI, M, c + 1, FI[c + 1]) == -1) shk = 1 }
+          if (consumed && !shk) for (k = p + 1; k <= m; k++) KEEP[CWI[c, k]] = 1
+          if (shk || !consumed) {
+            pcmd = ""
+            for (k = p + 1; k <= m; k++) {
+              t = CWI[c, k]; w = W[t]
+              if (isredir(w)) { k++; continue }
+              if (w ~ /^[0-9]*[<>]/ || SF[t]) continue
+              if (w ~ /^-[neE]+$/ && pcmd == "") continue
+              PR[t] = 1; if (shk) pcmd = pcmd (pcmd == "" ? "" : " ") w
+            }
+            if (shk && pcmd != "") { gsub(/\\n/, "\n", pcmd); PAY[++npay] = pcmd; PCW[npay] = cw }
+          }
+        }
+        # inline interpreter code
+        if (b ~ /^(python[0-9.]*|py|pypy[0-9]*|perl|ruby|node|nodejs|deno|bun|php)$/) {
+          for (k = p + 1; k < m; k++) {
+            w = W[CWI[c, k]]
+            if (w ~ /^-[A-Za-z]*[cerEp]$/ || w == "--eval") { t = CWI[c, k + 1]; PR[t] = 1; r = inlinecode(W[t], cw); if (r != "") return r; break }
+          }
+          for (k = CS[c]; k <= CE[c]; k++) if (T[k] == "hd") { PR[k] = 1; r = inlinecode(W[k], cw); if (r != "") return r }
+        }
+        if (b ~ /^(awk|gawk|mawk|nawk)$/) {
+          for (k = p + 1; k <= m; k++) { w = W[CWI[c, k]]; if (w !~ /^-/) { PR[CWI[c, k]] = 1; r = inlinecode(W[CWI[c, k]], cw); if (r != "") return r; break } }
+        }
+        # runners: any word position (behind env, nohup, timeout, xargs, find -exec, docker...)
+        for (k = 1; k <= m; k++) {
+          t = CWI[c, k]
+          if (PR[t]) continue
+          w = W[t]; x = wbase(w)
+          if (issh(x)) {
+            pt = shparse(W, CWI, M, c, k)
+            if (pt > 0) { PR[pt] = 1; PAY[++npay] = W[pt]; PCW[npay] = cw }
+            else if (pt == -1) {
+              for (i = CS[c]; i <= CE[c]; i++) {
+                if (T[i] == "hd") { PR[i] = 1; PAY[++npay] = W[i]; PCW[npay] = cw }
+                else if (T[i] == "w" && W[i] == "<<<" && i < CE[c] && T[i + 1] == "w") { PR[i + 1] = 1; PAY[++npay] = W[i + 1]; PCW[npay] = cw }
+              }
+            }
+            continue
+          }
+          if (x == "eval" || x == "watch" || x == "tmux" || x == "parallel" || x == "ssh") {
+            pcmd = ""; j = k + 1
+            if (x == "ssh") { while (j <= m && W[CWI[c, j]] ~ /^-/) j += (W[CWI[c, j]] ~ /^-[pilofjbcdemqrswx]$/ ? 2 : 1); j++ }
+            if (x == "tmux" && j <= m && W[CWI[c, j]] !~ /^-/) j++
+            for (; j <= m; j++) {
+              t = CWI[c, j]
+              if (isredir(W[t])) { j++; continue }
+              if (pcmd == "" && (W[t] ~ /^-/ || W[t] ~ /^[0-9.]+$/)) continue
+              PR[t] = 1; pcmd = pcmd (pcmd == "" ? "" : " ") W[t]
+            }
+            if (pcmd != "") { PAY[++npay] = pcmd; PCW[npay] = cw }
+          } else if (x == "su" || x == "script" || x == "npx" || x == "powershell" || x == "pwsh" || x == "cmd") {
+            tw = 0
+            for (j = k + 1; j <= m; j++) { if (lastc(tolower(W[CWI[c, j]]))) { tw = j + 1; break } if (W[CWI[c, j]] !~ /^[-\/]/) break }
+            if (!tw || tw > m) continue
+            pcmd = ""
+            for (j = tw; j <= m; j++) {
+              t = CWI[c, j]
+              if (isredir(W[t])) { j++; continue }
+              PR[t] = 1; pcmd = pcmd (pcmd == "" ? "" : " ") W[t]
+              if (x == "su" || x == "script" || x == "npx") break
+            }
+            if (pcmd != "") { PAY[++npay] = pcmd; PCW[npay] = cw }
+          }
+        }
+        # the working directory the next commands run in
+        if (b ~ /^(cd|pushd|chdir|set-location|sl|push-location)$/) {
+          cw = 0
+          for (k = p + 1; k <= m; k++) if (W[CWI[c, k]] !~ /^-/) { x = norm(W[CWI[c, k]]); if (gitpath(x "/x") || x ~ /^\.git\/*$/ || x ~ /git-dir|git-common-dir/) cw = 1; break }
+        }
+        # a here-document that no runner or interpreter reads is text
+        for (k = CS[c]; k <= CE[c]; k++) if (T[k] == "hd" && !PR[k]) {
+          PR[k] = 1
+          if (!QF[k]) { nsp = substs(W[k], SUBS); for (i = 1; i <= nsp; i++) { PAY[++npay] = SUBS[i]; PCW[npay] = cw } }
+        }
+      }
+      # the text that is scanned: every word that is not prose, a script or code
+      for (i = 1; i <= n; i++) {
+        if (T[i] == "w") {
+          if (PR[i]) { txt = txt " \"\""; continue }
+          if (QF[i] && !SF[i] && !KEEP[i]) { nsp = split(W[i], tmp, /[ \t]+/); if (nsp >= 3) { txt = txt " \"\""; continue } }
+          txt = txt " " W[i]
+        } else if (T[i] == "sep") txt = txt " ; "
+        else if (T[i] == "pipe") txt = txt " | "
+        else if (T[i] == "open") txt = txt (W[i] == "S" ? " $( " : " ( ")
+        else if (T[i] == "close") txt = txt " ) "
+      }
+      r = files(norm(txt), cw0)
+      if (r == "" && request(norm(txt), 2)) r = "sends a request to the running wizard"
+      if (r != "") return r
+      if (depth < 4) for (k = 1; k <= npay; k++) { r = judge(PAY[k], depth + 1, PCW[k]); if (r != "") return r }
+      return ""
+    }
     # A request to the running wizard: its endpoints, from a client or to a loopback host, to its port or to a port the
     # command does not show. Only while a wizard is live for this project.
-    function request(n,    m, rest, seen, unreadable, loopre, client) {
+    function request(n, rt,    m, rest, seen, unreadable, loopre, client) {
       if (!live) return 0
-      if (!(n ~ /\/api\/(session|human|team|plan|publish-kit|install|repair|settings|idea|schedule|inspect|check|status|dashboard)/)) return 0
+      if (rt == 2 ? !(n ~ /\/api\/(reopen|closing)/) : !(n ~ /\/api\/(session|human|team|plan|publish-kit|install|repair|settings|idea|schedule|inspect|check|status|dashboard)/)) return 0
       loopre = "(localhost|127\\.[0-9][0-9.]*|\\[?::1?\\]?|0\\.0\\.0\\.0|2130706433|0x7f[0-9a-f]*|017700000001)"
       client = (n ~ /(^|[^a-z0-9_])(curl|wget|nc|ncat|netcat|socat|telnet|http|https|xh|node|nodejs|deno|bun|ruby|perl|php|python[0-9.]*|py|powershell|pwsh|invoke-webrequest|iwr|irm|openssl)([^a-z0-9_]|$)|urlopen|requests|httpx|aiohttp|http\.client|fetch|dev\/tcp/)
       m = n; seen = 0; unreadable = 0
@@ -229,8 +737,9 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
       return ""
     }
     BEGIN {
-      n = norm(raw); p = norm(pro); r = decide(n, p)
+      rawcmd = ENVIRON["WZ_RAW"]; n = norm(rawcmd); p = norm(ENVIRON["WZ_PRO"]); r = decide(n, p)
       if (r == "") r = decide(p, p)
+      if (r == "" && live) r = judge(ENVIRON["WZ_NL"], 1, ingit + 0)
       print r
     }' </dev/null)
 }
@@ -341,11 +850,20 @@ check_bash() {
   # envcmd: the .env checks read the command with its prose removed but its quotes kept.
   envcmd=$rcmd
   # The wizard: only commands that could mention it pay for the one awk (case-folded by the patterns).
-  case "$cmd" in *[Ww][Ii][Zz]*|*[Tt][Uu][Pp]*|*[Uu][Pp].[Pp][Yy]*|*[Aa][Pp][Ii]*|*[Uu][Aa][Kk]-[Tt]*|*[Rr][Uu][Nn][Pp][Yy]*|*bin/lib*|*[Ss][Ee][Tt][Uu]*|*%[0-9A-Fa-f][0-9A-Fa-f]*)
+  wizard_port_file
+  wzg=
+  case "$cmd" in *[Ww][Ii][Zz]*|*[Tt][Uu][Pp]*|*[Uu][Pp].[Pp][Yy]*|*[Aa][Pp][Ii]*|*[Uu][Aa][Kk]-[Tt]*|*[Rr][Uu][Nn][Pp][Yy]*|*bin/lib*|*[Ss][Ee][Tt][Uu]*|*%[0-9A-Fa-f][0-9A-Fa-f]*) wzg=1;; esac
+  # While a wizard is live a command is read for its files only when its text can address them: .git, a git-dir
+  # spelling, rev-parse, a uak- name, a find that acts, or when the working directory is inside the git directory (bare names). A command
+  # with none of these (ls, git status, pytest, uak status) costs no process: the decision is a case, a builtin.
+  if [ -z "$wzg" ] && [ -n "$WZ_PF" ]; then
+    case "$cmd" in *[.][Gg][Ii][Tt]*|*[Gg][Ii][Tt][-_][Dd][Ii][Rr]*|*rev-parse*|*[Uu][Aa][Kk]-*|*find*-delete*|*find*-exec*|*find*-ok*) wzg=1;; *) [ -z "$WZ_CWDGIT" ] || wzg=1;; esac
+  fi
+  if [ -n "$wzg" ]; then
     wizard_mentioned "$cmd" "$envcmd"
     [ -z "$WZ" ] ||
-      block "the setup wizard performs a human's acts (register a reviewer, approve the plan, publish the kit), so only a human starts it, in their own terminal (bash install.sh --wizard), and an agent never drives it. This command $WZ.";;
-  esac
+      block "the setup wizard performs a human's acts (register a reviewer, approve the plan, publish the kit), so only a human starts it, in their own terminal (bash install.sh --wizard), and an agent never drives it. This command $WZ."
+  fi
   if [ "${#rcmd}" -le "$SHORT" ]; then rcmd=${rcmd//[\"\']/}; else rcmd=$(printf '%s' "$rcmd" | tr -d "\"'"); fi
   human_cmd= dyn=
   base=${UAK_BASE:-main}
