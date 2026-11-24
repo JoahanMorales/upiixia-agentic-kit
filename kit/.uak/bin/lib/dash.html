@@ -571,6 +571,7 @@ dialog#story::backdrop{background:var(--scrim)}
   "use strict";
   function T(value) { return window.UAKWorkspace ? UAKWorkspace.t(value) : value; }
   var ES = {
+    'To do': 'Por hacer',
     'Commits on main': 'Commits en main',
     'Share': 'Compartir',
     'since': 'desde',
@@ -1146,7 +1147,7 @@ dialog#story::backdrop{background:var(--scrim)}
     if (!n) return id + " " + L('is ready: nothing blocks it') + (up ? " · " + L('unblocks') + " " + up : "");
     return id + " " + L('cannot start: it waits for') + " " + n + " " + (n === 1 ? T(" task").trim() : T(" tasks").trim()) + " — " + u.slice(0, 3).map(function (x) { return x.id + " (" + depState(x.state) + ")"; }).join(", ") + (n > 3 ? ", " + L('and') + " " + (n - 3) + " " + L('more') : "");
   }
-  function depState(s) { return s === "MISSING" ? L('not in the plan') : s === "CANCELLED" ? L('cancelled') : rowLabel(s); }
+  function depState(s) { return s === "WAITING" ? T("Waiting") : s === "MISSING" ? L('not in the plan') : s === "CANCELLED" ? L('cancelled') : rowLabel(s); }
   function pick(id) {
     SEL = id; var w = {}, u = {};
     if (id) { unmet(DG, id).forEach(function (x) { w[x.id] = 1; }); (DG.unb[id] || []).forEach(function (x) { u[x] = 1; }); }
@@ -1251,7 +1252,7 @@ dialog#story::backdrop{background:var(--scrim)}
     var free = by.todo.filter(function (t) { return stateOf(t) === "AVAILABLE"; }).length, stuck = by.prog.filter(function (t) { return t.stalled || t.state === "BLOCKED"; }).length;
     var revLate = by.rev.filter(function (t) { return t.sub && t.sub.late; }).length, waiting = by.rev.filter(function (t) { return t.sub && (t.sub.kind === "waiting" || t.sub.kind === "rereview"); }).length;
     var cols = [
-      ["todo", T("Available"), "AVAILABLE", by.todo.length ? free + " " + T("available") + (by.todo.length - free ? " · " + (by.todo.length - free) + " " + T("waiting on dependencies") : "") : T("Empty"), false],
+      ["todo", L('To do'), "AVAILABLE", by.todo.length ? free + " " + T("available") + (by.todo.length - free ? " · " + (by.todo.length - free) + " " + T("waiting on dependencies") : "") : T("Empty"), false],
       ["prog", T("In progress"), "CLAIMED", by.prog.length ? (stuck ? T("Stalled") + " / " + T("Blocked") + " " + stuck : T("every task is moving")) : T("Nobody is on a task"), stuck > 0],
       ["rev", T("In review"), "REVIEW", by.rev.length ? (waiting ? T("Reviews waiting") + " " + waiting : T("Waiting for review")) + (revLate ? " · " + revLate + " " + T("over the review lease") : "") : T("Empty"), revLate > 0],
       ["done", T("Integrated"), "INTEGRATED", by.done.length ? L('last') + " " + ago(by.done[0].updated || g, g) + T(" ago") : T("Empty"), false]];
@@ -1607,11 +1608,11 @@ dialog#story::backdrop{background:var(--scrim)}
   }
   function depSection(id) {
     var dd = DG.dep[id] || [], un = DG.unb[id] || []; if (!dd.length && !un.length) return null;
-    function node(x) { var t = DG.task[x], st = t ? t.state : "MISSING"; return h("button", { "class": "dn2", type: "button", disabled: t ? null : "", on: function () { openStory(x); } }, [h("span", { "class": "pill " + (PILL[st] || ""), text: depState(st) }), h("b", { "class": "mono", text: x }), h("span", { "class": "muted", text: t ? t.owner || "" : "" })]); }
+    function node(x) { var t = DG.task[x], st = t ? stateOf(t) : "MISSING"; return h("button", { "class": "dn2", type: "button", disabled: t ? null : "", on: function () { openStory(x); } }, [h("span", { "class": "pill " + (PILL[st] || ""), text: depState(st) }), h("b", { "class": "mono", text: x }), h("span", { "class": "muted", text: t ? t.owner || "" : "" })]); }
     var far = behind(DG, id), open = ui.open["dep" + id], t0 = DG.task[id];
     return h("section", { "class": "st-sec" }, [h("h3", { text: L('Waits for') + " / " + L('Unblocks') }), h("div", { "class": "dg" }, [
       h("div", {}, dd.length ? dd.map(node) : [h("span", { "class": "muted", text: L('Nothing: it starts on its own') })]), h("i", { "class": "dl" }),
-      h("div", { "class": "dm" }, [h("b", { "class": "mono", text: id }), h("span", { text: t0 ? depState(t0.state) : "" })]), h("i", { "class": "dl" }),
+      h("div", { "class": "dm" }, [h("b", { "class": "mono", text: id }), h("span", { text: t0 ? depState(stateOf(t0)) : "" })]), h("i", { "class": "dl" }),
       h("div", {}, un.length ? un.map(node) : [h("span", { "class": "muted", text: L('Nothing waits for it') })])]),
       far.length ? h("div", { style: "margin-top:8px" }, [h("button", { "class": "expand", type: "button", text: ["+" + far.length, L('further back'), open ? "· " + T("Show less") : ""].join(" "), on: function () { ui.open["dep" + id] = !open; fillStory(true); } }), open ? h("div", { "class": "chips" }, far.map(function (x) { return node(x.id); })) : null]) : null]);
   }
