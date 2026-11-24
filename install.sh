@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # UPIIXIA Agentic Kit installer.
 #   bash install.sh --wizard [TARGET] [--no-open]   local visual setup, before installation choices
+#   ... --mode M [--wizard|--terminal] TARGET        answer the end-of-install question (browser or terminal) beforehand
 #   bash install.sh --mode sprint|marathon [--stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|spring-boot|none]
 #                   [--harness claude,codex,cursor,gemini] [--skills ai,tdd,taste] [--no-blackbox] [--no-mcp|--mcp] [--solo] [--with-tests] [--update] TARGET
 # Never overwrites your files: if AGENTS.md, CLAUDE.md, settings.json… already exist and differ,
@@ -19,14 +20,15 @@
 # keeps that choice (no MCP config in the project = none); --mcp adds the server back.
 set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# A path in a command we print is single-quoted (a ' inside becomes '\''): pasted, it is one word whatever the folder is
+# called ($HOME, backticks, a quote, a newline). The x keeps a trailing newline of the name.
+shq() { _q=$(printf '%sx' "$1" | sed "s/'/'\\\\''/g"); printf "'%s'" "${_q%x}"; }
 kit="$here/kit"
-# Visual setup starts before mode/target validation. The old CLI stays noninteractive.
-# Keep this opt-in so CI, --update and existing installation commands never launch a server.
-if [ "${1:-}" = --wizard ]; then
-  shift
-  # Setup runs the installer and uak start with this same Bash (Git for Windows may live anywhere).
-  UAK_SETUP_BASH=${BASH:-}
+# Visual setup: the wizard runs the installer and uak start with this same Bash. Used by the first-argument form below
+# (before installing) and by the end-of-install choice (UAK-161).
+run_wizard() { # TARGET [--no-open]: replaces this process on success
   # Git Bash: Python needs the Windows path (C:/.../bash.exe), not /usr/bin/bash.
+  UAK_SETUP_BASH=${BASH:-}
   if command -v cygpath >/dev/null 2>&1 && [ -n "$UAK_SETUP_BASH" ]; then UAK_SETUP_BASH=$(cygpath -m "$UAK_SETUP_BASH"); fi
   export UAK_SETUP_BASH
   for runtime in python3 python py; do
@@ -34,10 +36,17 @@ if [ "${1:-}" = --wizard ]; then
       exec "$runtime" "$kit/.uak/bin/lib/setup.py" "$@"
     fi
   done
-  printf '%s\n' 'Visual setup needs Python 3.8+. Install Python or use install.sh --mode sprint|marathon TARGET.' >&2
-  exit 2
+  return 2
+}
+# `--wizard` first and no --mode: the wizard before installing (opt-in; CI, --update and existing commands never launch
+# a server). With --mode it only answers the question at the end of the install.
+wizard_first=yes
+for a in "$@"; do case "$a" in --mode) wizard_first=no;; esac; done
+if [ "${1:-}" = --wizard ] && [ "$wizard_first" = yes ]; then
+  shift
+  run_wizard "$@" || { printf '%s\n' 'Visual setup needs Python 3.8+. Install Python or use install.sh --mode sprint|marathon TARGET.' >&2; exit 2; }
 fi
-mode= stack=none extra= update=no target= blackbox=on mcp=on mcp_flag= harness=claude,codex,cursor,gemini solo=no with_tests=no
+mode= stack=none extra= update=no target= blackbox=on mcp=on mcp_flag= harness=claude,codex,cursor,gemini solo=no with_tests=no choice= no_open=
 while [ "$#" -gt 0 ]; do
   # An option missing its value (the last argument) said nothing: `shift 2` failed under set -e (audit, Oct 2026).
   case "$1" in --mode|--stack|--skills|--harness)
@@ -52,8 +61,11 @@ while [ "$#" -gt 0 ]; do
     --mcp) mcp=on; mcp_flag=on; shift;;
     --solo) solo=yes; shift;;
     --with-tests) with_tests=yes; shift;;
+    --wizard) case "$choice" in terminal) printf '%s\n' '--wizard and --terminal answer the same question: use one' >&2; exit 2;; esac; choice=browser; shift;;
+    --terminal) case "$choice" in browser) printf '%s\n' '--wizard and --terminal answer the same question: use one' >&2; exit 2;; esac; choice=terminal; shift;;
+    --no-open) no_open=--no-open; shift;;
     --harness) harness=${2:-}; shift 2;;
-    -h|--help) sed -n '2,19p' "$0"; exit 0;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0;;
     -*) printf 'Unknown option: %s\n' "$1" >&2; exit 2;;
     *) target=$1; shift;;
   esac
@@ -405,7 +417,7 @@ rm -f "$target/.uak/INSTALLING"  # every step above succeeded (set -eu stops at 
 cat <<EOF
 
 Done. Next:
-  1. cd "$target" && bash .uak/bin/uak start   (each step to the first claim, in order; runs doctor; again after each fix)
+  1. cd $(shq "$target") && bash .uak/bin/uak start   (each step to the first claim, in order; runs doctor; again after each fix)
   2. Open Claude Code (or Codex / Cursor / Gemini CLI) there and run /uak-setup
   3. /uak-plan → each agent: bash .uak/bin/wt new ID (reuses a free identity, or --agent NAME)
 Files ending in .uak-new: merge them by hand; the kit never overwrites yours.
@@ -414,3 +426,78 @@ MCP server: $mcp. $( [ "$mcp" = on ] && echo "Claude Code asks once to approve '
 Black box: $blackbox. Agents record kit problems in claims:blackbox/ so the kit can be fixed
 (no code, paths or identities). Turn off any time: 'Blackbox: off' in .uak/PROJECT.md.
 EOF
+
+# How to continue (UAK-161): in the browser (the wizard) or here in the terminal. Both read the project's own files, so a
+# step done in one is done in the other. A person at a terminal is asked one key; with no terminal (a pipe, CI, an agent)
+# nothing is asked and nothing opens: the two commands are said. The wizard refuses an agent and a missing terminal by
+# itself (lib/setup.py agent_reason / terminal_reason); this agrees with it and never works around it.
+qt=$(shq "$target")
+term_cmd="cd $qt && bash .uak/bin/uak start"
+wiz_cmd="bash $(shq "$here/install.sh") --wizard $qt"
+both() { printf 'Continue in the terminal: %s\nContinue in the browser:  %s\n' "$term_cmd" "$wiz_cmd"; }
+agent_here=
+[ -z "${UAK_AGENT:-}" ] || agent_here=yes
+[ -z "${CI:-}" ] || agent_here=yes
+grep -qs '^UAK_AGENT=.' "$target/.uak-env" && agent_here=yes
+[ -z "$(git -C "$target" config --get uak.agent 2>/dev/null || true)" ] || agent_here=yes
+# A linked worktree is where an agent works (the wizard refuses it too).
+[ "$(cd "$target" && cd "$(git rev-parse --git-dir)" && pwd -P)" = "$(cd "$target" && cd "$(git rev-parse --git-common-dir)" && pwd -P)" ] || agent_here=yes
+at_terminal=
+[ -t 0 ] && [ -t 1 ] && at_terminal=yes
+printf '\n'
+# --terminal is safe anywhere, so it is remembered; the browser is remembered only once it opens.
+[ "$choice" != terminal ] || git -C "$target" config --local uak.start terminal
+if [ -n "$agent_here" ] || [ -z "$at_terminal" ]; then
+  if [ "$choice" = browser ]; then
+    if [ -n "$agent_here" ]; then printf '%s\n' "You asked for the browser, but an agent or CI runs this, so the page was not opened."
+    else printf '%s\n' "You asked for the browser, but there is no terminal here, so the page was not opened."; fi
+  fi
+  both; exit 0
+fi
+have_browser() {
+  [ -z "${BROWSER:-}" ] || return 0
+  case "$(uname -s 2>/dev/null)" in Darwin|MINGW*|MSYS*|CYGWIN*) return 0;; esac
+  command -v wslview >/dev/null 2>&1 && return 0
+  { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } && { command -v xdg-open || command -v gio || command -v sensible-browser || command -v firefox || command -v google-chrome; } >/dev/null 2>&1
+}
+have_python() {
+  for runtime in python3 python py; do
+    "$runtime" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+remembered=$(git -C "$target" config --local --get uak.start 2>/dev/null || true)
+case "$remembered" in browser) dflt=b;; *) dflt=t;; esac
+if [ -z "$choice" ]; then
+  printf 'Continue in the browser (b: a local page) or here in the terminal (t or Enter: uak start)? [%s] ' "$dflt"
+  line=; got=yes
+  read -r line || got=
+  [ -n "$got" ] || [ -n "$line" ] || printf '\n'  # Ctrl-D: the line the person never ended
+  shown=$(printf '%s' "$line" | tr -d '[:cntrl:]' | sed 's/^ *//; s/ *$//')
+  key=$(printf '%s' "$shown" | tr '[:upper:]' '[:lower:]')
+  if [ -z "$got" ] && [ -z "$key" ]; then
+    printf 'No answer, so here in the terminal.\n'; both; exit 0
+  fi
+  case "$key" in
+    '') case "$dflt" in b) choice=browser;; *) choice=terminal;; esac;;
+    b|browser|navegador) choice=browser;;
+    t|terminal) choice=terminal;;
+    *) printf '"%s" is not b or t, so here in the terminal.\n' "$shown"; both; exit 0;;
+  esac
+fi
+if [ "$choice" = browser ]; then
+  if ! have_python; then
+    printf 'No Python 3.8 or newer here, so the browser page cannot run. Continue in the terminal: %s\n' "$term_cmd"; exit 0
+  fi
+  if ! have_browser; then
+    printf 'No browser to open here. Continue in the terminal: %s\n' "$term_cmd"
+    printf 'Or open the page by hand: %s --no-open\n' "$wiz_cmd"; exit 0
+  fi
+  git -C "$target" config --local uak.start browser
+  printf 'Opening the browser setup. Keep this terminal open; Ctrl+C ends it. The terminal way stays: %s\n' "$term_cmd"
+  # exec: the wizard replaces this process (it keeps this terminal). have_python above already made sure it can start.
+  run_wizard "$target" $no_open
+  exit 1
+fi
+git -C "$target" config --local uak.start terminal
+printf 'Next: %s\n' "$term_cmd"
