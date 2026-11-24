@@ -193,6 +193,8 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
         s = substr(s, 1, RSTART - 1) o substr(s, RSTART + RLENGTH)
       }
       gsub(/\$\047/, "\047", s)
+      # a Windows path: a backslash that opens .git or a record file, or follows .git, is a separator (the others are escapes)
+      gsub(/\\\.git/, "/.git", s); gsub(/\.git\\/, ".git/", s); gsub(/\\uak-/, "/uak-", s)
       return s
     }
     function gitsub(s,    b, nme) {
