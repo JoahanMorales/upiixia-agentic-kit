@@ -4,6 +4,10 @@
 #   design-lint --changed [BASE]   only the lines this branch adds since origin/BASE (uak done runs it)
 #   design-lint --file PATH        one file (the post-edit hook runs it on each UI file an agent writes)
 #   design-lint --strict ...       the scale warnings below fail too
+#   design-lint [--strict] FILE.html...   whole HTML pages (UAK-158): their <style>, style= and scripts are read like code
+#                                  (colour literals outside :root and the token rules, coloured side stripes, glass, glow,
+#                                  gradients, emoji and glyphs used as icons, more than 6 font sizes, more than one primary
+#                                  button visible in a view). Every finding fails; a line marked "design-lint: ok" is skipped.
 #   design-lint .uak/design/rounds/R<k>   a round of static pages: every v*/index.html, tokens read from its <style>,
 #                                  each warning names the variant by its path (R2/v3/index.html:44)
 # Fails on, outside the UI kit: raw Tailwind palette classes (bg-stone-400, text-emerald-900), hex colors in code
@@ -44,6 +48,77 @@ for h in web/public/design-lock/*.html public/design-lock/*.html design-lock/*.h
     inroot && /\}/ { inroot = 0 }' "$h" | head -n 10)
 "
 done
+# Whole HTML pages: design-lint [--strict] a.html b.html. Why (UAK-158, 2026-11-22): both pages of the visual setup printed
+# PASS because only code files were read; a copy renamed .js gave 40 findings. The pages carry their tokens in :root rules
+# (and [data-pal] / [data-theme] rules): those hold the only colour literals. Bash 3.2 and mawk: no {n} intervals.
+html_lint() {
+  local f out n=0 k=0 emoji sym
+  emoji=$(printf '\360\237'); sym=$(printf '\342\234\250|\342\232\241|\342\234\205|\342\230\205|\342\255\220|\342\234\224|\342\235\214|\342\232\240')
+  out=$(mktemp "${TMPDIR:-/tmp}/uak-dlint.XXXXXX") || exit 2
+  for f in "$@"; do
+    k=$((k + 1))
+    awk -v f="$f" -v q="'" '
+      function hexlit(l,   r, c, m) { r = l
+        while (match(r, /(^|[^,&0-9A-Za-z_-])#[0-9a-fA-F]+([^0-9A-Za-z_-]|$)/)) { c = substr(r, RSTART, RLENGTH); r = substr(r, RSTART + RLENGTH - 1)
+          m = c; sub(/^[^#]*#/, "", m); sub(/[^0-9a-fA-F].*$/, "", m); if (length(m) == 3 || length(m) == 6 || length(m) == 8) return "#" m }
+        return "" }
+      BEGIN { tok = 0; depth = 0; nsz = 0 }
+      { line = $0; n = FNR }
+      line ~ /design-lint: ok/ { next }
+      { if (!tok && line ~ /^[[:space:]]*(:root|\[data-pal|\[data-theme|@font-face)/) { tok = 1; depth = 0 }
+        if (tok) { o = gsub(/\{/, "{", line); c = gsub(/\}/, "}", line); depth += o - c; if (depth <= 0 && (o + c) > 0) tok = 0; next }
+        if ((h = hexlit(line)) != "") printf "%s:%d · colour literal %s outside :root: read it from a token (var(--x))\n", f, n, h
+        if (line ~ /(^|[^A-Za-z0-9_-])(rgba?|hsla?|oklch|oklab|lab|lch|hwb)\([[:space:]]*[0-9.]/) printf "%s:%d · colour literal in code: read it from a token (var(--x))\n", f, n
+        if (line ~ /border-(left|right|inline-start|inline-end)(-width)?:[^;}]*[2-9]px/ || line ~ /box-shadow:[^;}]*inset[[:space:]]+-?[2-9][0-9.]*px[[:space:]]+0(px)?[[:space:]]+0(px)?[[:space:]]/)
+          printf "%s:%d · coloured side stripe on a row or card reads as generated: use a leading icon, a pill or weight\n", f, n
+        if (line ~ /backdrop-filter/) printf "%s:%d · glass (backdrop-filter): one solid surface per level\n", f, n
+        if (line ~ /text-shadow|drop-shadow\(|(box-shadow:|,)[[:space:]]*0(px)?[[:space:]]+0(px)?[[:space:]]+[1-9][0-9.]*px/) printf "%s:%d · glow or text shadow reads as generated: contrast comes from the tokens, depth from the one elevation\n", f, n
+        if (line ~ /linear-gradient\(|radial-gradient\(|conic-gradient\(/) printf "%s:%d · gradient: if the direction has one, it is a token\n", f, n
+        if (line ~ /(✓|✔|✗|✘|✕|✖|✅|❌|⚠|★|☆|▶|⬢|⧖|↻|•)/ || line ~ ("[\"" q ">][[:space:]]*![[:space:]]*[\"" q "<]")) printf "%s:%d · glyph used as an icon: draw an inline SVG with a text label next to it\n", f, n
+        r = line
+        while (match(r, /font-size:[[:space:]]*[0-9.]+(px|rem)/)) { t = substr(r, RSTART, RLENGTH); r = substr(r, RSTART + RLENGTH); sub(/^[^0-9.]*/, "", t); v = t + 0; if (t ~ /rem$/) v = v * 16; if (!(v in seen)) { seen[v] = 1; nsz++; list = list " " v; if (!first) first = n } }
+        r = line
+        while (match(r, /font:[^;}"]*[0-9.]+(px|rem)/)) { t = substr(r, RSTART, RLENGTH); r = substr(r, RSTART + RLENGTH); sub(/^font:/, "", t); match(t, /[0-9.]+(px|rem)/); t = substr(t, RSTART, RLENGTH); v = t + 0; if (t ~ /rem$/) v = v * 16; if (!(v in seen)) { seen[v] = 1; nsz++; list = list " " v; if (!first) first = n } }
+      }
+      END { if (nsz > 6) printf "%s:%d · %d font sizes (%s ): a scale has 6 at most\n", f, first, nsz, substr(list, 2) }' "$f" >> "$out"
+    # emoji bytes, byte-wise as the code mode does
+    { grep -n "$emoji" "$f"; grep -nE "$sym" "$f"; } 2>/dev/null | grep -v 'design-lint: ok' | while IFS= read -r l; do
+      printf '%s:%s · emoji in the UI: draw an inline SVG icon at one size and stroke\n' "$f" "${l%%:*}"
+    done >> "$out"
+    grep -niE "(^|[^A-Za-z])(elevate your|unlock (the|your)|supercharge|revolutioni[sz]e|seamless(ly)?|effortless(ly)?|unleash|game[- ]?changer|cutting[- ]edge|next[- ]level|world[- ]class|harness the power|in today.s (fast|digital|world))([^A-Za-z]|$)" "$f" 2>/dev/null |
+      grep -v 'design-lint: ok' | head -n 2 | while IFS= read -r l; do
+        printf '%s:%s · marketing filler: say what it does for whom, with a number\n' "$f" "${l%%:*}"
+      done >> "$out"
+    # more than one primary button visible in a view: a view is a <section>; a button inside an element marked hidden is not visible
+    awk -v f="$f" '
+      BEGIN { RS = "<"; top = 0; ln = 1 }
+      function voidtag(t) { return t ~ /^(input|br|img|meta|link|hr|source|track|area|base|col|embed|wbr)$/ }
+      { rec = $0; nl = gsub(/\n/, "\n", rec); cur = ln; ln += nl
+        if (NR == 1) next
+        if (rec ~ /^!--/) next
+        if (rec ~ /^\//) { t = rec; sub(/^\/[[:space:]]*/, "", t); sub(/[^A-Za-z0-9].*$/, "", t); t = tolower(t)
+          while (top > 0 && tag[top] != t) top--
+          if (top > 0) { top--; } ; next }
+        t = rec; sub(/[^A-Za-z0-9].*$/, "", t); t = tolower(t); if (t == "") next
+        head = rec; sub(/>.*$/, "", head); hid = (head ~ /[[:space:]]hidden([[:space:]=\/]|$)/)
+        cls = ""; if (match(head, /class="[^"]*"/)) cls = substr(head, RSTART, RLENGTH)
+        isprim = (t == "button" || t == "a") && cls ~ /(^|[" ])(primary|btn)([" ])/ 
+        if (isprim) { vis = !hid; sec = 0; for (i = top; i >= 1 && !sec; i--) { if (tag[i] == "section") sec = i; else if (hide[i]) vis = 0 }
+          if (sec && vis) { cnt[secline[sec]]++; if (cnt[secline[sec]] == 2) printf "%s:%d · more than one primary button visible in the view starting at line %d: one primary action, the rest ghost\n", f, cur, secline[sec] } }
+        if (!voidtag(t) && head !~ /\/$/) { top++; tag[top] = t; hide[top] = hid; secline[top] = cur } }' "$f" >> "$out"
+  done
+  n=$(awk 'END {print NR + 0}' "$out")
+  if [ "$n" -gt 0 ]; then
+    head -n 30 "$out" | sed 's/^/DESIGN_LINT /'
+    [ "$n" -le 30 ] || printf 'DESIGN_LINT … %s more\n' "$((n - 30))"
+    printf 'DESIGN_LINT_FAIL %s finding(s) in %s file(s) of %s\n' "$n" "$(cut -d: -f1 "$out" | sort -u | awk 'END {print NR + 0}')" "$k"
+    rm -f "$out"; exit 1
+  fi
+  rm -f "$out"
+  printf 'DESIGN_LINT_PASS files=%s html\n' "$k"; exit 0
+}
+htmls=1; for a in "$@"; do case "$a" in *.html) [ -f "$a" ] || htmls=0;; *) htmls=0;; esac; done
+[ "$#" -gt 0 ] && [ "$htmls" = 1 ] && html_lint "$@"
 src=${1:-}
 if [ -z "$src" ]; then for d in web/src src app; do [ -d "$d" ] && { src=$d; break; }; done; fi
 if [ -z "$src" ] || [ ! -d "$src" ]; then

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-pal="clasico">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -9,1301 +9,474 @@
     />
     <title>Set up your team · UPIIXIA</title>
     <link rel="icon" href="data:," />
+    <script nonce="__NONCE__">
+/* uak-look:begin (the same script in setup.html and dash.html): theme and palette are the viewer's, kept in this browser only */
+(function () {
+  var PALS = ["clasico", "lavanda", "cielo", "menta", "salvia", "durazno", "rosa", "arena", "grafito"];
+  var root = document.documentElement, state = { theme: "auto", pal: root.getAttribute("data-pal") || "clasico" };
+  var dark = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null, listeners = [];
+  function paint() {
+    root.setAttribute("data-theme", state.theme === "auto" ? (dark && dark.matches ? "dark" : "light") : state.theme);
+    root.setAttribute("data-pal", state.pal);
+  }
+  function read() {
+    try {
+      var saved = JSON.parse(localStorage.getItem("uak-look") || "null");
+      if (saved) return saved;
+      var old = localStorage.getItem("uak-dash-theme");
+      if (old === "light" || old === "dark") return { theme: old };
+    } catch (e) {}
+    return {};
+  }
+  var saved = read();
+  if (saved.theme === "light" || saved.theme === "dark") state.theme = saved.theme;
+  if (PALS.indexOf(saved.pal) >= 0) state.pal = saved.pal;
+  paint();
+  function sync() {
+    var box = document.getElementById("look");
+    if (!box) return;
+    var select = box.querySelector("select");
+    if (select) select.value = state.theme === "auto" ? "" : state.theme;
+    Array.prototype.forEach.call(box.querySelectorAll("[data-pal-set]"), function (b) {
+      b.setAttribute("aria-pressed", String(b.getAttribute("data-pal-set") === state.pal));
+    });
+  }
+  function set(change, keep) {
+    if (change.theme !== undefined) state.theme = change.theme === "light" || change.theme === "dark" ? change.theme : "auto";
+    if (change.pal !== undefined && PALS.indexOf(change.pal) >= 0) state.pal = change.pal;
+    paint();
+    sync();
+    if (keep !== false) {
+      try { localStorage.setItem("uak-look", JSON.stringify(state)); } catch (e) {}
+    }
+    listeners.forEach(function (f) { f(get()); });
+  }
+  function get() { return { theme: state.theme, pal: state.pal }; }
+  if (dark && dark.addEventListener) dark.addEventListener("change", function () { if (state.theme === "auto") { paint(); listeners.forEach(function (f) { f(get()); }); } });
+  function mount() {
+    var box = document.getElementById("look");
+    if (!box) return;
+    box.querySelector("select").addEventListener("change", function () { set({ theme: this.value }); });
+    Array.prototype.forEach.call(box.querySelectorAll("[data-pal-set]"), function (b) {
+      b.addEventListener("click", function () { set({ pal: b.getAttribute("data-pal-set") }); });
+    });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && box.open) { box.open = false; box.querySelector("summary").focus(); } });
+    document.addEventListener("click", function (e) { if (box.open && !box.contains(e.target)) box.open = false; });
+    sync();
+  }
+  window.UAKLook = { get: get, set: set, mount: mount, onchange: function (f) { listeners.push(f); } };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount); else mount();
+})();
+/* uak-look:end */
+    </script>
     <style>
-      :root {
-        color-scheme: light;
-        --bg: #f4f6f3;
-        --paper: #fff;
-        --ink: #182b28;
-        --secondary: #52645e;
-        --muted: #5c6a63;
-        --line: #dce4dc;
-        --accent: #14634e;
-        --accent-hover: #104f3e;
-        --wash: #e8f1e9;
-        --error: #a12e24;
-        --error-bg: #fff0ed;
-        --radius: 20px;
-        --small: 10px;
-        --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--ink);
-        font: 16px/1.6 var(--sans);
-      }
-      button,
-      input,
-      select {
-        font: inherit;
-        color: inherit;
-      }
-      button,
-      a,
-      input,
-      select {
-        touch-action: manipulation;
-      }
-      button {
-        cursor: pointer;
-      }
-      /* Blocked is not busy (UI-018): a button that waits for an earlier step shows not-allowed and says why;
-         the wait cursor and the spinner are only for the button whose request is running. */
-      button:disabled,
-      button[aria-disabled="true"] {
-        cursor: not-allowed;
-        opacity: 0.6;
-      }
-      button[aria-busy="true"] {
-        cursor: wait;
-        opacity: 0.85;
-      }
-      button[aria-busy="true"]::before {
-        content: "";
-        display: inline-block;
-        width: 0.9em;
-        height: 0.9em;
-        margin-right: 8px;
-        vertical-align: -0.1em;
-        border: 2px solid currentColor;
-        border-right-color: transparent;
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-      }
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-      .action-result {
-        min-height: 1.6em;
-        margin: 8px 0 0;
-        font-size: 14px;
-        color: var(--secondary);
-      }
-      .action-result.error {
-        color: var(--error);
-      }
-      .blocked-reason {
-        color: var(--secondary);
-      }
-      .spotlight {
-        outline: 3px solid var(--accent);
-        outline-offset: 4px;
-        box-shadow: 0 0 0 8px var(--wash);
-        transition: box-shadow 0.3s;
-      }
-      .toast {
-        position: fixed;
-        z-index: 20;
-        right: 24px;
-        bottom: 24px;
-        width: min(380px, calc(100vw - 48px));
-        background: var(--paper);
-        color: var(--ink);
-        border: 1px solid var(--line);
-        border-left: 4px solid var(--accent);
-        border-radius: var(--small);
-        box-shadow: 0 16px 40px -20px #173d2d88;
-        padding: 14px 16px;
-        font-size: 15px;
-        overflow-wrap: anywhere;
-        transition: opacity 0.2s, transform 0.2s;
-      }
-      .toast-title {
-        font-weight: 650;
-        margin-bottom: 4px;
-      }
-      .toast-actions {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        margin-top: 10px;
-      }
-      .toast-close {
-        border: 0;
-        background: transparent;
-        min-width: 44px;
-        min-height: 44px;
-        font-size: 22px;
-        line-height: 1;
-      }
-      @media (max-width: 600px) {
-        .toast {
-          left: 16px;
-          right: 16px;
-          bottom: 16px;
-          width: auto;
-        }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .toast,
-        .spotlight {
-          transition: none;
-        }
-      }
-      /* Until the first status arrives the panel shows no step (it flashed the welcome screen, UI-018). */
-      #content[data-loading] > section {
-        display: none;
-      }
-      a {
-        color: var(--accent);
-      }
-      :focus-visible {
-        outline: 3px solid var(--accent);
-        outline-offset: 4px;
-      }
-      input,
-      select {
-        background: var(--paper);
-        border: 1px solid var(--line);
-        border-radius: var(--small);
-        min-height: 48px;
-        padding: 10px 14px;
-      }
-      input[type="text"] {
-        width: 100%;
-      }
-      input[type="radio"],
-      input[type="checkbox"] {
-        accent-color: var(--accent);
-        min-height: auto;
-        width: 19px;
-        height: 19px;
-        flex: none;
-      }
-      h1,
-      h2,
-      h3,
-      p {
-        margin: 0;
-      }
-      h1 {
-        font-size: clamp(38px, 5vw, 64px);
-        line-height: 1.07;
-        letter-spacing: -0.045em;
-        max-width: 650px;
-        font-weight: 650;
-      }
-      h2 {
-        font-size: 30px;
-        line-height: 1.2;
-        letter-spacing: -0.025em;
-      }
-      h3 {
-        font-size: 19px;
-        line-height: 1.35;
-      }
-      .secondary {
-        color: var(--secondary);
-      }
-      /* A folder path has no spaces to break at: let it wrap so 390px never scrolls sideways. */
-      #selected-project,
-      #dashboard-project {
-        overflow-wrap: anywhere;
-      }
-      .muted {
-        color: var(--muted);
-      }
-      [hidden] {
-        display: none !important;
-      }
-      .skip {
-        position: absolute;
-        left: -9999px;
-      }
-      .skip:focus {
-        left: 16px;
-        top: 16px;
-        background: var(--paper);
-        padding: 10px;
-        z-index: 10;
-      }
-      .header {
-        max-width: 1240px;
-        margin: auto;
-        padding: 24px 40px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 24px;
-      }
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-size: 18px;
-        font-weight: 700;
-        letter-spacing: -0.03em;
-      }
-      .mark {
-        background: var(--ink);
-        color: var(--paper);
-        display: grid;
-        place-items: center;
-        width: 36px;
-        height: 36px;
-        border-radius: 11px;
-        font-size: 21px;
-      }
-      .profile {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        font-size: 14px;
-      }
-      .profile select {
-        min-height: 40px;
-        padding: 6px 10px;
-      }
-      .shell {
-        max-width: 1240px;
-        margin: 16px auto 0;
-        padding: 0 40px 32px;
-      }
-      .layout {
-        display: grid;
-        grid-template-columns: 260px minmax(0, 1fr);
-        gap: 48px;
-      }
-      .sidebar {
-        padding-top: 40px;
-      }
-      .sidebar p {
-        margin-bottom: 26px;
-      }
-      .steps {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-      }
-      .steps li {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 14px 0;
-        color: var(--muted);
-        font-size: 15px;
-      }
-      .step-number {
-        width: 30px;
-        height: 30px;
-        border-radius: 50%;
-        display: grid;
-        place-items: center;
-        border: 1px solid var(--line);
-        font-size: 13px;
-      }
-      .steps li[aria-current="step"] {
-        color: var(--accent);
-        font-weight: 650;
-      }
-      .steps li[aria-current="step"] .step-number {
-        background: var(--accent);
-        color: var(--paper);
-        border-color: var(--accent);
-      }
-      .steps .done .step-number {
-        background: var(--wash);
-        border-color: var(--wash);
-        color: var(--accent);
-      }
-      .local-note {
-        margin-top: 40px;
-        padding-top: 20px;
-        border-top: 1px solid var(--line);
-        font-size: 13px;
-        color: var(--secondary);
-      }
-      .surface {
-        background: var(--paper);
-        border: 1px solid var(--line);
-        border-radius: var(--radius);
-        min-height: 590px;
-        padding: 44px 48px;
-        box-shadow: 0 16px 50px -36px #173d2d55;
-      }
-      .intro {
-        max-width: 640px;
-        margin: 20px 0 28px;
-        color: var(--secondary);
-        font-size: 18px;
-      }
-      .eyeline {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: var(--accent);
-        font-size: 14px;
-        margin-bottom: 24px;
-      }
-      .dot {
-        height: 8px;
-        width: 8px;
-        background: var(--accent);
-        border-radius: 50%;
-      }
-      .journey {
-        margin: 36px 0;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        flex-wrap: wrap;
-      }
-      .journey-node {
-        font-size: 14px;
-        padding: 8px 13px;
-        background: var(--wash);
-        border-radius: 8px;
-        color: var(--accent);
-      }
-      .journey-line {
-        width: 20px;
-        height: 1px;
-        background: var(--line);
-      }
-      .journey-bar {
-        max-width: 1160px;
-        margin: 0 auto;
-        padding: 0 24px;
-      }
-      .journey-bar ol {
-        list-style: none;
-        margin: 8px 0 0;
-        padding: 0;
-        display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-        gap: 8px;
-      }
-      .journey-bar li {
-        padding: 8px 10px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        font-size: 14px;
-        color: var(--secondary);
-        min-width: 0;
-      }
-      .journey-bar li strong {
-        display: block;
-        color: inherit;
-      }
-      .journey-bar li small {
-        display: block;
-        font-size: 12px;
-        color: var(--muted);
-      }
-      .journey-bar li.done {
-        color: var(--accent);
-      }
-      .journey-bar li[aria-current="step"] {
-        border-color: var(--accent);
-        background: var(--wash);
-        color: var(--accent);
-      }
-      .benefit {
-        border-top: 1px solid var(--line);
-        padding: 20px 0;
-        margin-bottom: 16px;
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 24px;
-        font-size: 14px;
-      }
-      .benefit strong {
-        display: block;
-        font-size: 15px;
-        margin-bottom: 4px;
-      }
-      .demo {
-        border-top: 1px solid var(--line);
-        margin-top: 24px;
-        padding-top: 20px;
-      }
-      .demo h2 {
-        font-size: 18px;
-        margin: 0 0 4px;
-      }
-      .demo p {
-        margin: 0 0 12px;
-        font-size: 14px;
-      }
-      .demo video {
-        display: block;
-        width: 100%;
-        max-width: 640px;
-        height: auto;
-        aspect-ratio: 16 / 9;
-        border-radius: var(--small);
-        border: 1px solid var(--line);
-        background: #000;
-      }
-      .primary,
-      .secondary-button {
-        border-radius: var(--small);
-        min-height: 48px;
-        padding: 11px 22px;
-        font-weight: 600;
-      }
-      .primary {
-        border: 1px solid var(--accent);
-        background: var(--accent);
-        color: var(--paper);
-      }
-      .primary:hover {
-        background: var(--accent-hover);
-      }
-      .secondary-button {
-        border: 1px solid var(--line);
-        background: transparent;
-      }
-      .actions {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 16px;
-        margin-top: 32px;
-        padding-top: 24px;
-        border-top: 1px solid var(--line);
-      }
-      .actions .primary {
-        margin-left: auto;
-      }
-      .field {
-        margin: 26px 0;
-      }
-      label.field-label {
-        display: block;
-        font-weight: 600;
-        margin-bottom: 8px;
-      }
-      .hint {
-        font-size: 14px;
-        color: var(--secondary);
-        margin-top: 8px;
-      }
-      .field-error {
-        color: var(--error);
-        font-size: 14px;
-        margin-top: 8px;
-      }
-      fieldset {
-        border: 0;
-        padding: 0;
-        margin: 28px 0;
-      }
-      legend {
-        font-weight: 600;
-        margin-bottom: 12px;
-      }
-      .choice {
-        display: flex;
-        align-items: flex-start;
-        gap: 14px;
-        padding: 18px;
-        border: 1px solid var(--line);
-        border-radius: var(--small);
-        cursor: pointer;
-        margin: 10px 0;
-      }
-      .choice:has(input:checked) {
-        border-color: var(--accent);
-        background: var(--wash);
-      }
-      .choice input {
-        margin-top: 5px;
-      }
-      .choice strong {
-        display: block;
-      }
-      .choice small {
-        font-size: 14px;
-        color: var(--secondary);
-        display: block;
-        margin-top: 4px;
-      }
-      .tools {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-      }
-      .tools label {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        border: 1px solid var(--line);
-        padding: 10px 14px;
-        border-radius: var(--small);
-        cursor: pointer;
-      }
-      .tools label:has(input:checked) {
-        border-color: var(--accent);
-        background: var(--wash);
-      }
-      details {
-        margin: 24px 0;
-        border-top: 1px solid var(--line);
-        padding-top: 16px;
-      }
-      summary {
-        cursor: pointer;
-        min-height: 44px;
-        display: list-item;
-        color: var(--secondary);
-        font-size: 14px;
-      }
-      pre {
-        white-space: pre-wrap;
-        word-break: break-word;
-        background: var(--bg);
-        padding: 18px;
-        border-radius: var(--small);
-        font-size: 12px;
-        max-height: 320px;
-        overflow: auto;
-      }
-      .review {
-        margin-top: 26px;
-      }
-      .review div {
-        display: grid;
-        grid-template-columns: 140px 1fr;
-        gap: 16px;
-        padding: 13px 0;
-        border-bottom: 1px solid var(--line);
-      }
-      .review dt {
-        color: var(--secondary);
-      }
-      .review dd {
-        margin: 0;
-        overflow-wrap: anywhere;
-      }
-      .notice {
-        padding: 16px 20px;
-        background: var(--wash);
-        border-radius: var(--small);
-        margin: 22px 0;
-        color: var(--accent);
-        font-size: 14px;
-        /* Git messages carry long paths and URLs (a refused push names the remote): wrap, never scroll sideways. */
-        overflow-wrap: anywhere;
-      }
-      .notice.error {
-        background: var(--error-bg);
-        color: var(--error);
-      }
-      .checklist {
-        padding: 0;
-        list-style: none;
-        margin: 24px 0;
-      }
-      .checklist li {
-        padding: 14px 0;
-        border-bottom: 1px solid var(--line);
-        display: flex;
-        gap: 12px;
-        align-items: flex-start;
-        white-space: pre-line;
-        font-size: 14px;
-      }
-      .check-mark {
-        font-weight: 700;
-        color: var(--accent);
-        flex: none;
-      }
-      .checklist .todo .check-mark {
-        color: var(--error);
-      }
-      .status-heading {
-        display: flex;
-        gap: 16px;
-        align-items: center;
-      }
-      .status-icon {
-        background: var(--wash);
-        color: var(--accent);
-        border-radius: 50%;
-        height: 48px;
-        width: 48px;
-        display: grid;
-        place-items: center;
-        font-size: 24px;
-        flex: none;
-      }
-      .working .status-icon {
-        animation: pulse 1.6s infinite;
-      }
-      .footer {
-        max-width: 1240px;
-        margin: auto;
-        padding: 20px 40px 28px;
-        display: flex;
-        justify-content: space-between;
-        gap: 16px;
-        font-size: 13px;
-        color: var(--secondary);
-      }
-      .footer span {
-        max-width: 580px;
-      }
-      .advanced-only {
-        display: none;
-      }
-      :root[data-theme="dark"] {
-        color-scheme: dark;
-        --bg: #111b18;
-        --paper: #1a2722;
-        --ink: #e5eee9;
-        --secondary: #b7c8be;
-        --muted: #a2b6aa;
-        --line: #34483d;
-        --accent: #a3d8bc;
-        --accent-hover: #b7e8cd;
-        --wash: #243c30;
-        --error: #ffc2b8;
-        --error-bg: #442a27;
-      }
-      :root[data-theme="dark"] .primary {
-        color: #10291e;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root:not([data-theme="light"]):not([data-theme="dark"]) {
-          color-scheme: dark;
-          --bg: #111b18;
-          --paper: #1a2722;
-          --ink: #e5eee9;
-          --secondary: #b7c8be;
-          --muted: #a2b6aa;
-          --line: #34483d;
-          --accent: #a3d8bc;
-          --accent-hover: #b7e8cd;
-          --wash: #243c30;
-          --error: #ffc2b8;
-          --error-bg: #442a27;
-        }
-        :root:not([data-theme="light"]):not([data-theme="dark"]) .primary {
-          color: #10291e;
-        }
-      }
-      .header {
-        flex-wrap: wrap;
-      }
-      .workspace-nav {
-        display: flex;
-        gap: 6px;
-      }
-      .workspace-nav button {
-        border: 0;
-        border-radius: 10px;
-        padding: 10px 16px;
-        background: transparent;
-        min-height: 44px;
-      }
-      .workspace-nav button[aria-pressed="true"] {
-        background: var(--wash);
-        color: var(--accent);
-        font-weight: 650;
-      }
-      .actions {
-        flex-wrap: wrap;
-      }
-      .dashboard-shell {
-        max-width: 1240px;
-        margin: auto;
-        padding: 0 40px 24px;
-      }
-      .dashboard-bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        margin: 16px 0;
-      }
-      .dashboard-bar h1 {
-        font-size: 32px;
-      }
-      #dashboard-frame {
-        width: 100%;
-        min-height: 560px;
-        border: 0;
-        border-radius: 20px;
-        background: var(--paper);
-      }
-      #beginner-dashboard {
-        padding: 32px;
-        border: 1px solid var(--line);
-        border-radius: 20px;
-        background: var(--paper);
-      }
-      .dashboard-metrics {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 32px;
-        margin: 24px 0;
-      }
-      .dashboard-metrics strong {
-        display: block;
-        font-size: 40px;
-        line-height: 1.2;
-        font-variant-numeric: tabular-nums;
-      }
-      .dashboard-metrics span {
-        color: var(--secondary);
-      }
-      #simple-next {
-        padding-top: 24px;
-        border-top: 1px solid var(--line);
-      }
-      #simple-next h3 {
-        margin: 12px 0;
-      }
-      .beginner-checklist {
-        list-style: none;
-        padding: 0;
-        margin: 4px 0 0;
-        color: var(--secondary);
-      }
-      .beginner-checklist li {
-        padding: 4px 0;
-        overflow-wrap: anywhere;
-      }
-      .team-step {
-        margin: 0 0 24px;
-        padding-bottom: 20px;
-        border-bottom: 1px solid var(--line);
-      }
-      /* UI-023 (B-15): the Advanced next step is its own card, not a line squeezed under "Your app". */
-      .advanced-next {
-        margin: 24px 0;
-        padding: 18px 20px;
-        background: var(--paper);
-        border: 1px solid var(--line);
-        border-radius: var(--small);
-      }
-      .advanced-next h3 {
-        margin: 2px 0 6px;
-      }
-      .team-step:focus {
-        outline: none;
-      }
-      .team-block {
-        margin-top: 18px;
-      }
-      .team-block h3 {
-        margin-bottom: 6px;
-      }
-      .team-block .next-command code,
-      #publish-way-out .next-command code {
-        flex-basis: 100%;
-      }
-      .team-block fieldset {
-        margin: 12px 0 0;
-      }
-      #team-claimed {
-        padding-left: 18px;
-      }
-      #team-claimed li {
-        margin: 8px 0;
-        overflow-wrap: anywhere;
-      }
-      #team-note-actions {
-        margin-top: 8px;
-      }
-      .your-app {
-        margin-top: 24px;
-        padding-top: 20px;
-        border-top: 1px solid var(--line);
-      }
-      .your-app a {
-        font-weight: 600;
-        overflow-wrap: anywhere;
-      }
-      #live-url-input {
-        width: 100%;
-        max-width: 520px;
-        margin: 4px 0;
-      }
-      /* Planning (UI-004): the idea, the proposed plan as cards, and the typed approval. */
-      /* Prepare (UI-005): the steps a terminal used to do, in order, and the terminal box for the rest. */
-      #prepare {
-        margin-top: 26px;
-        padding-top: 22px;
-        border-top: 1px solid var(--line);
-        display: grid;
-        gap: 18px;
-      }
-      .prepare-step {
-        border: 1px solid var(--line);
-        border-radius: var(--small);
-        padding: 16px;
-        display: grid;
-        gap: 10px;
-      }
-      /* UI-019: a finished step shows one done line and folds its body; Change opens it again. */
-      .prepare-step[data-done]:not([data-open]) .step-body {
-        display: none;
-      }
-      .step-body {
-        display: grid;
-        gap: 10px;
-      }
-      .step-done {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 8px;
-        margin: 0;
-      }
-      .step-done strong::before {
-        content: "✓ ";
-      }
-      .link-button {
-        background: none;
-        border: 0;
-        padding: 0;
-        color: var(--accent);
-        text-decoration: underline;
-        cursor: pointer;
-        font: inherit;
-      }
-      .server-gone {
-        position: fixed;
-        top: 12px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 60;
-        width: min(720px, calc(100% - 32px));
-        box-sizing: border-box;
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        margin: 0;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-      }
-      .server-gone[hidden] {
-        display: none;
-      }
-      .reopened {
-        top: 68px;
-      }
-      #team-name-block input {
-        width: 100%;
-        box-sizing: border-box;
-      }
-      .prepare-step.current {
-        border-color: var(--accent);
-        background: var(--wash);
-      }
-      .prepare-step h4 {
-        margin: 0;
-        font-size: 16px;
-      }
-      .prepare-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        align-items: end;
-      }
-      .prepare-row > div {
-        display: grid;
-        gap: 4px;
-        min-width: 0;
-        flex: 1 1 180px;
-      }
-      /* UI-021 (A-F13): a datetime-local input has a wide intrinsic size; without this it overlapped its neighbour. */
-      .prepare-row input {
-        min-width: 0;
-        max-width: 100%;
-      }
-      /* UI-021 (A-F14): the same gap above the button as between the fields. */
-      #idea-save {
-        margin-top: 16px;
-      }
-      .field-error:empty {
-        display: none;
-      }
-      [aria-invalid="true"] {
-        border-color: var(--error) !important;
-      }
-      details.technical {
-        margin-top: 6px;
-        font-size: 13px;
-      }
-      details.technical pre {
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-        max-height: 200px;
-        overflow: auto;
-      }
-      .beginner-only {
-        display: none;
-      }
-      body[data-profile="beginner"] .beginner-only {
-        display: block;
-      }
-      #glossary {
-        margin-top: 16px;
-        font-size: 14px;
-      }
-      #glossary dl {
-        margin: 8px 0 0;
-      }
-      #glossary dt {
-        font-weight: 600;
-        margin-top: 8px;
-      }
-      #glossary dd {
-        margin: 2px 0 0;
-        color: var(--secondary);
-      }
-      #prepare input[type="text"],
-      #prepare input[type="datetime-local"] {
-        width: 100%;
-        box-sizing: border-box;
-      }
-      #publish-files {
-        max-height: 220px;
-      }
-      #terminal-step {
-        display: grid;
-        gap: 10px;
-      }
-      #terminal-step ul {
-        margin: 0;
-        padding-left: 20px;
-        overflow-wrap: anywhere;
-      }
-      #planning {
-        margin-top: 26px;
-        padding-top: 22px;
-        border-top: 1px solid var(--line);
-      }
-      #planning textarea,
-      #planning input[type="number"],
-      #approve-name {
-        width: 100%;
-        box-sizing: border-box;
-        background: var(--paper);
-        border: 1px solid var(--line);
-        border-radius: var(--small);
-        padding: 10px 14px;
-        font: inherit;
-        color: inherit;
-      }
-      #planning .field-label {
-        display: block;
-        margin: 14px 0 4px;
-      }
-      .field-row {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
-      }
-      .plan-cards {
-        list-style: none;
-        padding: 0;
-        margin: 14px 0;
-        display: grid;
-        gap: 10px;
-      }
-      .plan-cards li {
-        border: 1px solid var(--line);
-        border-radius: var(--small);
-        padding: 12px 14px;
-        overflow-wrap: anywhere;
-      }
-      .plan-cards strong {
-        display: block;
-        margin-bottom: 4px;
-      }
-      .plan-cards span {
-        display: block;
-        font-size: 14px;
-        color: var(--secondary);
-      }
-      .plan-problems {
-        margin: 10px 0;
-        padding-left: 20px;
-        overflow-wrap: anywhere;
-      }
-      #plan-review {
-        margin-top: 28px;
-      }
-      #planning + #preferences {
-        margin-top: 28px;
-      }
-      /* The app link row: input, hint and button each on their own line, at any width (UI-018). */
-      #preferences input[type="url"] {
-        display: block;
-        width: 100%;
-      }
-      #live-url-hint {
-        display: block;
-        margin: 6px 0 14px;
-      }
-      #approve-project {
-        display: block;
-        margin: 2px 0 10px;
-        overflow-wrap: anywhere;
-      }
-      #idea-saved pre {
-        margin-top: 8px;
-      }
-      #approve-confirm {
-        margin-top: 16px;
-        padding: 16px;
-        border: 1px solid var(--accent);
-        border-radius: var(--small);
-      }
-      #plan-review .actions,
-      #approve-confirm .actions {
-        margin-top: 14px;
-      }
-      .next-command,
-      .ready-next {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 12px;
-        margin: 12px 0;
-      }
-      .next-command code,
-      .ready-next code {
-        flex: 1 1 260px;
-        min-width: 0;
-        padding: 10px 12px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-      }
-      #simple-tasks {
-        list-style: none;
-        padding: 0;
-      }
-      #simple-tasks li {
-        display: flex;
-        justify-content: space-between;
-        gap: 20px;
-        padding: 14px 0;
-        border-top: 1px solid var(--line);
-      }
-      #simple-tasks li > span:first-child {
-        overflow-wrap: anywhere;
-      }
-      .running-review {
-        margin: 0 0 24px;
-      }
-      @media (max-width: 600px) {
-        .dashboard-shell {
-          padding: 0 16px 20px;
-        }
-        .header {
-          gap: 12px;
-        }
-        .workspace-nav {
-          order: 3;
-          width: 100%;
-        }
-        .workspace-nav button {
-          flex: 1;
-          padding: 8px;
-        }
-        .profile {
-          margin-left: auto;
-          flex-wrap: wrap;
-          justify-content: flex-end;
-        }
-        .dashboard-bar {
-          flex-wrap: wrap;
-        }
-        #beginner-dashboard {
-          padding: 24px 20px;
-        }
-        .dashboard-metrics {
-          gap: 20px;
-        }
-        .dashboard-metrics strong {
-          font-size: 32px;
-        }
-      }
-      body[data-profile="advanced"] .advanced-only {
-        display: block;
-      }
-      @keyframes pulse {
-        50% {
-          opacity: 0.45;
-        }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        *,
-        *::before,
-        *::after {
-          animation: none !important;
-          scroll-behavior: auto !important;
-        }
-      }
-      @media (max-width: 850px) {
-        .layout {
-          grid-template-columns: 1fr;
-          gap: 20px;
-        }
-        .sidebar {
-          padding-top: 0;
-        }
-        .sidebar > p,
-        .local-note {
-          display: none;
-        }
-        .steps {
-          display: flex;
-          justify-content: space-between;
-          gap: 8px;
-        }
-        .steps li {
-          font-size: 12px;
-          gap: 6px;
-        }
-        .step-number {
-          width: 24px;
-          height: 24px;
-        }
-        .surface {
-          padding: 32px;
-          min-height: 0;
-        }
-        .header {
-          padding: 20px 24px;
-        }
-        .shell {
-          padding: 0 24px 20px;
-        }
-        .footer {
-          padding: 20px 24px;
-        }
-      }
-      @media (max-width: 480px) {
-        .header {
-          gap: 12px;
-          padding: 16px;
-        }
-        .brand {
-          font-size: 16px;
-        }
-        /* Out of sight on a phone, still each control's one name (UI-021: no second aria-label). */
-        .profile > label {
-          position: absolute;
-          width: 1px;
-          height: 1px;
-          overflow: hidden;
-          clip: rect(0 0 0 0);
-          white-space: nowrap;
-        }
-        .shell {
-          padding: 0 16px 16px;
-          margin-top: 4px;
-        }
-        .surface {
-          padding: 26px 20px;
-        }
-        .steps .step-label {
-          display: none;
-        }
-        .steps li[aria-current="step"] .step-label {
-          display: inline;
-        }
-        .steps li {
-          gap: 5px;
-        }
-        .steps {
-          gap: 4px;
-        }
-        .benefit {
-          grid-template-columns: 1fr;
-          gap: 16px;
-        }
-        .intro {
-          font-size: 16px;
-        }
-        .review div {
-          grid-template-columns: 1fr;
-          gap: 4px;
-        }
-        .actions {
-          gap: 8px;
-        }
-        .primary,
-        .secondary-button {
-          padding: 10px 14px;
-        }
-        .footer {
-          padding: 16px;
-          flex-direction: column;
-        }
-        .journey-bar {
-          padding: 0 16px;
-        }
-        .journey-bar ol {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-        .journey {
-          gap: 6px;
-        }
-        .journey-line {
-          width: 8px;
-        }
-        .journey-node {
-          padding: 7px 9px;
-          font-size: 13px;
-        }
-      }
-      /* UI-024 (A-F7): a running check dims the last result instead of emptying it; B-10: stale views too. */
-      #checks.stale,
-      .team-step.stale,
-      #beginner-dashboard.stale {
-        opacity: 0.55;
-        transition: opacity 0.2s;
-      }
-      @media (prefers-reduced-motion: reduce) {
-        #checks.stale,
-        .team-step.stale,
-        #beginner-dashboard.stale {
-          transition: none;
-        }
-      }
-      /* UI-024 (A-F16): after install the journey bar is the only step model. */
-      /* Only the rail: the glossary and the local note stay beside every later step (UI-021). */
-      body.installed #steps,
-      body.installed .rail-heading {
-        display: none;
-      }
-      .rail-heading {
-        margin: 0 0 4px;
-      }
-      /* UI-024 (A-F6): what Claude Code's trust question looks like, and whether it will ask. */
-      .trust-help {
-        margin: 10px 0;
-      }
-      .trust-help p {
-        margin: 4px 0;
-      }
-      .trust-mark {
-        font-weight: 700;
-      }
-      .trust-help kbd {
-        border: 1px solid var(--line);
-        border-radius: 4px;
-        padding: 0 4px;
-        font: inherit;
-        font-size: 0.9em;
-      }
+/* uak-system:begin (one design system: setup.html and dash.html carry this block byte for byte; test_setup_design.py compares them) */
+@font-face { font-family: Inter; src: url(fonts/Inter.woff2) format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url(fonts/JetBrainsMono.woff2) format("woff2"); font-weight: 100 800; font-style: normal; font-display: swap; }
+/* Tokens. :root is Clasico, the exact colours of the dashboard of v6.8 (amber in progress, blue in review). The eight
+   other palettes set one hue (--h) and one saturation (--sa); grounds, lines and inks are tinted from them. */
+:root {
+  color-scheme: light;
+  --h: 212; --sa: 70%;
+  --page: #f4f4f1; --surface: #fcfcfb; --raised: #ffffff; --hover: #f0efea;
+  --ink: #141413; --ink-2: #52514e; --muted: #68665f; --line: #e6e5df; --line-2: #d4d3cc;
+  --accent: #2a78d6; --accent-line: #2a78d6; --accent-ink: #1c5cab; --accent-wash: #e6f0fc;
+  --btn: #1c5cab; --on-btn: #ffffff;
+  --integrated: #1baf7a; --integrated-ink: #0f7a55; --integrated-wash: #e2f5ee;
+  --claimed: #eda100; --claimed-ink: #7a5300; --claimed-wash: #fdf3dc;
+  --review: #2a78d6; --review-ink: #1c5cab; --review-wash: #e6f0fc;
+  --blocked: #e34948; --blocked-ink: #9e2525; --blocked-wash: #fbe7e6;
+  --available: #c3c2b7; --waiting: #a99fe6; --cancelled: #d9d8d2;
+  --good: #0ca30c; --warning: #fab219; --critical: #d03b3b; --violet: #6250d6; --orange: #eb6834;
+  --warn-wash: #fdf3dc; --warn-ink: #7a5300; --crit-wash: #fbe7e6; --crit-ink: #9e2525;
+  --shadow: 0 12px 32px -12px hsl(0 0% 0% / .28); --scrim: hsl(0 0% 8% / .42); --on-node: #141413;
+  --idc-bg-l: 93%; --idc-bg-s: 40%; --idc-px-l: 45%; --idc-px-s: 58%;
+  --sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  --r: 8px; --r-s: 6px;
+  --sw-clasico: #2a78d6; --sw-lavanda: hsl(250 72% 78%); --sw-cielo: hsl(212 72% 78%); --sw-menta: hsl(164 55% 70%); --sw-salvia: hsl(128 28% 70%);
+  --sw-durazno: hsl(22 80% 76%); --sw-rosa: hsl(338 70% 80%); --sw-arena: hsl(42 45% 72%); --sw-grafito: hsl(230 0% 66%);
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0f0f0e; --surface: #1a1a19; --raised: #201f1e; --hover: #262624;
+  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9c9a93; --line: #2c2c2a; --line-2: #3a3a37;
+  --accent: #3987e5; --accent-line: #3987e5; --accent-ink: #86b6ef; --accent-wash: #16273d;
+  --btn: #3987e5; --on-btn: #0f0f0e;
+  --integrated: #199e70; --integrated-ink: #6fd3ac; --integrated-wash: #12281f;
+  --claimed: #c98500; --claimed-ink: #f5c766; --claimed-wash: #33280f;
+  --review: #3987e5; --review-ink: #86b6ef; --review-wash: #16273d;
+  --blocked: #e66767; --blocked-ink: #ffaaa6; --blocked-wash: #3a1b1b;
+  --available: #5d5c57; --waiting: #6b62b8; --cancelled: #3f3f3c;
+  --violet: #9085e9; --orange: #d95926;
+  --warn-wash: #33280f; --warn-ink: #f5c766; --crit-wash: #3a1b1b; --crit-ink: #ffaaa6;
+  --shadow: 0 12px 32px -12px hsl(0 0% 0% / .6); --scrim: hsl(0 0% 0% / .6); --on-node: #0f0f0e;
+  --idc-bg-l: 21%; --idc-bg-s: 22%; --idc-px-l: 62%; --idc-px-s: 60%;
+}
+[data-pal="lavanda"] { --h: 250; --sa: 72%; }
+[data-pal="cielo"] { --h: 212; --sa: 72%; }
+[data-pal="menta"] { --h: 164; --sa: 55%; }
+[data-pal="salvia"] { --h: 128; --sa: 28%; }
+[data-pal="durazno"] { --h: 22; --sa: 80%; }
+[data-pal="rosa"] { --h: 338; --sa: 70%; }
+[data-pal="arena"] { --h: 42; --sa: 45%; }
+[data-pal="grafito"] { --h: 230; --sa: 0%; }
+:root[data-pal]:not([data-pal="clasico"]) {
+  --page: hsl(var(--h) 22% 97%); --surface: hsl(0 0% 100%); --raised: hsl(var(--h) 24% 98.5%); --hover: hsl(var(--h) 14% 93.5%);
+  --ink: hsl(var(--h) 18% 13%); --ink-2: hsl(var(--h) 9% 31%); --muted: hsl(var(--h) 7% 40%); --line: hsl(var(--h) 16% 90%); --line-2: hsl(var(--h) 13% 82%);
+  --accent: hsl(var(--h) var(--sa) 86%); --accent-line: hsl(var(--h) var(--sa) 68%); --accent-ink: hsl(var(--h) calc(var(--sa) * .65) 34%); --accent-wash: hsl(var(--h) var(--sa) 96%);
+  --btn: hsl(var(--h) var(--sa) 86%); --on-btn: hsl(var(--h) 45% 20%);
+  --integrated: #a3dcbd; --integrated-ink: #2a7551; --integrated-wash: #e0f3e9;
+  --claimed: #a9cdf3; --claimed-ink: #2c69ab; --claimed-wash: #e4eefa;
+  --review: #ecd28c; --review-ink: #80600f; --review-wash: #faf0d4;
+  --blocked: #f1b0a8; --blocked-ink: #a8463c; --blocked-wash: #fbe8e5;
+  --available: hsl(var(--h) 10% 72%); --waiting: #c9c1f0; --cancelled: hsl(var(--h) 8% 86%);
+  --good: #4fb883; --warning: #ecd28c; --critical: #e07f74;
+  --warn-wash: #faf0d4; --warn-ink: #80600f; --crit-wash: #fbe8e5; --crit-ink: #a8463c;
+}
+:root[data-pal]:not([data-pal="clasico"])[data-theme="dark"] {
+  --page: hsl(var(--h) 9% 6%); --surface: hsl(var(--h) 9% 10%); --raised: hsl(var(--h) 9% 13.5%); --hover: hsl(var(--h) 8% 15%);
+  --ink: hsl(var(--h) 25% 96%); --ink-2: hsl(var(--h) 12% 78%); --muted: hsl(var(--h) 7% 62%); --line: hsl(var(--h) 8% 17.5%); --line-2: hsl(var(--h) 8% 27%);
+  --accent: hsl(var(--h) var(--sa) 78%); --accent-line: hsl(var(--h) var(--sa) 74%); --accent-ink: hsl(var(--h) var(--sa) 82%); --accent-wash: hsl(var(--h) calc(var(--sa) * .5) 16%);
+  --btn: hsl(var(--h) var(--sa) 78%); --on-btn: hsl(var(--h) 45% 12%);
+  --integrated: #84d3a9; --integrated-ink: #94dcb6; --integrated-wash: #11291e;
+  --claimed: #8fbff0; --claimed-ink: #9cc8f5; --claimed-wash: #13263a;
+  --review: #e6c66a; --review-ink: #f0d27c; --review-wash: #2f2710;
+  --blocked: #ee958a; --blocked-ink: #f5a79e; --blocked-wash: #361d19;
+  --available: hsl(var(--h) 6% 40%); --waiting: #8a80cf; --cancelled: hsl(var(--h) 6% 26%);
+  --good: #4fb883; --warning: #e6c66a; --critical: #ee958a;
+  --warn-wash: #2f2710; --warn-ink: #f0d27c; --crit-wash: #361d19; --crit-ink: #f5a79e;
+}
+/* Menta and Salvia are green: integrated gets a deeper emerald so it never reads as the accent. */
+:root[data-pal="menta"]:not([data-pal="clasico"]), :root[data-pal="salvia"]:not([data-pal="clasico"]) { --integrated: #2f9e5f; }
+:root[data-pal="menta"]:not([data-pal="clasico"])[data-theme="dark"], :root[data-pal="salvia"]:not([data-pal="clasico"])[data-theme="dark"] { --integrated: #3dbb78; }
+/* Parts both pages use: the pill, the line of nodes, the window, the single bordered list, the three figures, the
+   buttons and the Apariencia control. */
+*, ::before, ::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 13px/1.5 var(--sans); -webkit-font-smoothing: antialiased; font-feature-settings: "cv11", "ss01"; }
+button, select, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.mono { font-family: var(--mono); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.pill { display: inline-flex; align-items: center; font: 600 11px/1 var(--mono); letter-spacing: .04em; text-transform: uppercase; padding: 4px 8px; border-radius: 4px; white-space: nowrap; color: var(--muted); background: var(--hover); }
+.p-prog { color: var(--claimed-ink); background: var(--claimed-wash); }
+.p-rev { color: var(--review-ink); background: var(--review-wash); }
+.p-int { color: var(--integrated-ink); background: var(--integrated-wash); }
+.p-blk { color: var(--blocked-ink); background: var(--blocked-wash); }
+.btn, .primary, .ghost, .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 32px; padding: 4px 16px; border: 1px solid var(--line-2); border-radius: var(--r-s); font-weight: 600; line-height: 1.3; text-align: center; text-decoration: none; cursor: pointer; }
+.btn, .primary { background: var(--btn); border-color: var(--btn); color: var(--on-btn); }
+.btn:hover, .primary:hover { background: color-mix(in srgb, var(--btn) 86%, var(--ink)); }
+.ghost, .secondary-button { background: none; color: var(--ink-2); }
+.ghost:hover, .secondary-button:hover { background: var(--hover); color: var(--ink); }
+.btn:disabled, .primary:disabled, .ghost:disabled, .secondary-button:disabled, button[aria-disabled="true"] { background: var(--hover); border-color: var(--line-2); color: var(--ink-2); cursor: not-allowed; }
+.nodes { display: flex; align-items: center; list-style: none; margin: 0; padding: 0; }
+.nodes li { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; color: var(--muted); }
+.nodes li:last-child { flex: none; }
+.nodes li::after { content: ""; flex: 1; min-width: 8px; height: 2px; background: var(--line-2); }
+.nodes li:last-child::after { display: none; }
+.nodes i { flex: none; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--line-2); background: var(--page); box-sizing: content-box; }
+.nodes .on, .nodes .done { color: var(--ink-2); }
+.nodes .on i, .nodes .done i, .nodes [aria-current] i { border-color: var(--accent-line); background: var(--accent-line); }
+.nodes .on:not([aria-current])::after, .nodes .done:not([aria-current])::after { background: var(--accent-line); }
+.nodes [aria-current] { color: var(--ink); font-weight: 600; }
+.nodes [aria-current] i { box-shadow: 0 0 0 4px var(--accent-wash); }
+.win { border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+.win-h { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--raised); }
+.win-h > i { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); }
+.win-h > span { margin-left: 8px; font: 500 11px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.win-f { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.win-f > * { padding: 8px 12px; border-left: 1px solid var(--line); font-size: 11px; color: var(--muted); line-height: 1.3; }
+.win-f > :first-child { border-left: 0; }
+.win-f b, .win-f strong { display: block; font-size: 16px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+.list > * { padding: 8px 12px; border-top: 1px solid var(--line); }
+.list > :first-child { border-top: 0; }
+.ap { position: relative; margin: 0; padding: 0; border: 0; }
+.ap summary { list-style: none; display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); color: var(--ink-2); font-size: 12px; font-weight: 500; cursor: pointer; }
+.ap summary::-webkit-details-marker { display: none; }
+.ap summary i { width: 10px; height: 10px; border-radius: 50%; background: var(--accent-line); }
+.ap .pop { position: absolute; right: 0; top: 32px; z-index: 60; width: 256px; padding: 12px; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r); box-shadow: var(--shadow); }
+.ap label, .ap .lbl { display: block; margin-bottom: 4px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.ap select { width: 100%; height: 32px; margin: 0 0 12px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--raised); }
+.pals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.pals button { display: grid; justify-items: center; gap: 4px; min-height: 52px; padding: 8px 0 4px; border: 1px solid var(--line); border-radius: var(--r-s); background: none; color: var(--ink-2); font-size: 11px; cursor: pointer; }
+.pals button[aria-pressed="true"] { border-color: var(--accent-line); background: var(--accent-wash); color: var(--ink); }
+.pals i { width: 24px; height: 24px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--line-2); }
+.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 640px) {
+  .btn, .primary, .ghost, .secondary-button, .ap summary, .ap select, .pals button { min-height: 44px; }
+  .ap .pop { position: fixed; left: 16px; right: 16px; top: auto; bottom: 16px; width: auto; }
+}
+/* uak-system:end */
+/* The wizard: its own layout, drawn only with the tokens above. */
+html { scroll-padding-top: 16px; }
+body { min-height: 100vh; }
+button { cursor: pointer; touch-action: manipulation; }
+a, input, select { touch-action: manipulation; }
+button[aria-busy="true"] { cursor: wait; }
+button[aria-busy="true"]::before { content: ""; width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+a { color: var(--accent-ink); text-underline-offset: 2px; }
+h1, h2, h3, h4, p, dl, dd, ul, ol, fieldset { margin: 0; padding: 0; }
+ul, ol { list-style: none; }
+h1 { font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: -.02em; max-width: 24ch; }
+h2 { font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: -.02em; }
+h3 { font-size: 16px; line-height: 1.3; font-weight: 600; }
+h4 { font-size: 13px; font-weight: 600; }
+.secondary, .hint { color: var(--ink-2); }
+.muted { color: var(--muted); }
+.hint { font-size: 12px; margin-top: 8px; }
+.skip { position: absolute; left: -9999px; }
+.skip:focus { left: 16px; top: 16px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-s); z-index: 70; }
+code, kbd, pre { font-family: var(--mono); }
+#selected-project, #dashboard-project { overflow-wrap: anywhere; }
+#content[data-loading] > section { display: none; }
+
+/* top bar */
+.header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; max-width: 1240px; margin: 0 auto; padding: 12px 32px; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-right: auto; }
+.mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r); background: var(--btn); color: var(--on-btn); font: 700 16px/1 var(--mono); }
+.workspace-nav { display: flex; gap: 4px; }
+.workspace-nav button { min-height: 32px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--r-s); background: none; color: var(--ink-2); font-weight: 500; }
+.workspace-nav button[aria-pressed="true"] { background: var(--surface); border-color: var(--line-2); color: var(--ink); }
+.profile { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 12px; color: var(--muted); }
+.profile select { height: 28px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); color: var(--ink-2); font-size: 12px; }
+.journey-bar { max-width: 1240px; margin: 0 auto; padding: 8px 32px 16px; }
+.journey-bar ol { display: flex; align-items: center; }
+.journey-bar li { align-items: flex-start; }
+.journey-bar li > span { display: grid; gap: 4px; min-width: 0; padding-top: 0; }
+.journey-bar li i { margin-top: 4px; }
+.journey-bar strong { font-size: 12px; font-weight: inherit; white-space: nowrap; }
+.journey-bar small { display: block; font-size: 11px; font-weight: 400; color: var(--muted); white-space: nowrap; }
+.journey-bar li::after { margin-top: 8px; align-self: flex-start; }
+.journey-bar li.done strong { color: var(--ink-2); }
+
+/* layout */
+.shell { max-width: 1240px; margin: 0 auto; padding: 0 32px 32px; }
+.layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 32px; align-items: start; }
+.sidebar { position: sticky; top: 16px; display: grid; gap: 24px; font-size: 12px; color: var(--ink-2); }
+.sidebar > p strong { color: var(--ink); font-size: 13px; }
+.rail-heading { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.steps { display: grid; }
+.steps li { position: relative; display: flex; align-items: center; gap: 12px; padding: 8px 0; color: var(--muted); }
+.steps li::before { content: ""; position: absolute; left: 5px; top: -50%; height: 100%; width: 2px; background: var(--line-2); }
+.steps li:first-child::before { display: none; }
+.step-number { position: relative; z-index: 1; flex: none; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line-2); background: var(--page); }
+.steps .done { color: var(--ink-2); }
+.steps .done .step-number, .steps li[aria-current="step"] .step-number { border-color: var(--accent-line); background: var(--accent-line); }
+.steps .done::before, .steps li[aria-current="step"]::before { background: var(--accent-line); }
+.steps li[aria-current="step"] { color: var(--ink); font-weight: 600; }
+.steps li[aria-current="step"] .step-number { box-shadow: 0 0 0 4px var(--accent-wash); }
+.local-note { padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); }
+.surface { min-width: 0; padding: 32px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); min-height: 480px; }
+.surface:focus { outline: none; }
+.surface > section > * + * { margin-top: 16px; }
+.surface > section > h1 + p, .surface > section > h2 + p { margin-top: 8px; }
+.intro { max-width: 62ch; color: var(--ink-2); font-size: 13px; }
+.eyeline { display: inline-flex; align-items: center; gap: 8px; font: 500 11px var(--mono); color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-line); }
+.benefit { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--r); background: var(--raised); }
+.benefit > div { padding: 12px 16px; color: var(--ink-2); }
+.benefit > div + div { border-left: 1px solid var(--line); }
+.benefit strong { display: block; color: var(--ink); margin-bottom: 4px; }
+.demo { max-width: 640px; }
+.demo .win-h h2 { font-size: 12px; letter-spacing: 0; margin-left: 4px; }
+.demo .win-b { display: grid; gap: 8px; padding: 12px; }
+.demo p { font-size: 12px; }
+.demo video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: var(--r-s); background: var(--ink); }
+
+/* forms */
+.actions { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
+.actions .primary { margin-left: auto; }
+.field { margin-top: 16px; }
+label.field-label, legend { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+legend { padding: 0; }
+fieldset { border: 0; min-width: 0; margin-top: 24px; }
+input, select, textarea { min-height: 36px; padding: 4px 12px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--raised); color: var(--ink); }
+textarea { width: 100%; min-height: 96px; }
+input[type="text"], input[type="url"], input[type="number"], input[type="datetime-local"] { width: 100%; }
+input[type="radio"], input[type="checkbox"] { flex: none; width: 16px; height: 16px; min-height: 0; padding: 0; accent-color: var(--accent-ink); }
+input::placeholder, textarea::placeholder { color: var(--muted); }
+input:disabled, select:disabled, textarea:disabled { background: var(--hover); color: var(--ink-2); cursor: not-allowed; }
+[aria-invalid="true"] { border-color: var(--blocked) !important; }
+.field-error { margin-top: 8px; font-size: 12px; color: var(--blocked-ink); }
+.field-error:empty { display: none; }
+.field-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.choice { display: flex; align-items: flex-start; gap: 12px; margin-top: 8px; padding: 12px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface); cursor: pointer; }
+.choice input { margin-top: 4px; }
+.choice:has(input:checked) { border-color: var(--accent-line); background: var(--accent-wash); }
+.choice strong { display: block; font-weight: 600; }
+.choice small { display: block; margin-top: 4px; font-size: 12px; color: var(--ink-2); }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.tools label { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); font-weight: 500; cursor: pointer; }
+.tools label:has(input:checked) { border-color: var(--accent-line); background: var(--accent-wash); }
+details { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+summary { min-height: 28px; cursor: pointer; color: var(--ink-2); font-size: 12px; font-weight: 500; }
+pre { margin-top: 8px; padding: 12px; max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--raised); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+kbd { padding: 0 4px; border: 1px solid var(--line-2); border-radius: 4px; font-size: 11px; }
+.link-button { padding: 0; border: 0; background: none; color: var(--accent-ink); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.action-result { min-height: 20px; margin-top: 8px; font-size: 12px; color: var(--ink-2); }
+.action-result.error { color: var(--blocked-ink); }
+.blocked-reason { color: var(--ink-2); }
+.spotlight { outline: 2px solid var(--accent-line); outline-offset: 4px; }
+
+/* review, notices, checks */
+.review { border: 1px solid var(--line); border-radius: var(--r); background: var(--raised); overflow: hidden; }
+.review > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 16px; padding: 8px 12px; border-top: 1px solid var(--line); }
+.review > div:first-child { border-top: 0; }
+.review dt { color: var(--muted); }
+.review dd { overflow-wrap: anywhere; }
+.notice { padding: 8px 12px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--accent-wash); color: var(--ink); overflow-wrap: anywhere; }
+.notice.error { border-color: var(--blocked); background: var(--blocked-wash); color: var(--blocked-ink); }
+.notice > * + * { margin-top: 8px; }
+.checklist > li { display: flex; align-items: flex-start; gap: 12px; white-space: pre-line; overflow-wrap: anywhere; }
+.mk { display: inline-grid; place-items: center; flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--hover); color: var(--ink-2); }
+.mk .ic { width: 12px; height: 12px; stroke-width: 2.5; }
+.mk-ok { background: var(--integrated-wash); color: var(--integrated-ink); }
+.mk-todo { background: var(--blocked-wash); color: var(--blocked-ink); }
+.mk-info { background: var(--accent-wash); color: var(--accent-ink); }
+.status-heading { display: flex; align-items: center; gap: 16px; }
+.status-icon { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: var(--r); background: var(--accent-wash); color: var(--accent-ink); }
+.status-icon .ic { width: 16px; height: 16px; stroke-width: 2.5; }
+.working .status-icon { animation: pulse 1.6s infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
+.step-done { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.step-done strong { display: inline-flex; align-items: center; gap: 4px; color: var(--integrated-ink); }
+.step-done .ic { width: 14px; height: 14px; stroke-width: 2.5; }
+.trust-help { margin-top: 8px; }
+.trust-help p { margin-top: 4px; }
+.trust-mark { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+
+/* prepare, planning, team */
+.running-review { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+#prepare, #planning { display: grid; gap: 16px; margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
+#planning > * { margin: 0; }
+.prepare-step { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.prepare-step.current { border-color: var(--accent-line); background: var(--accent-wash); }
+.prepare-step[data-done]:not([data-open]) .step-body { display: none; }
+.step-body { display: grid; gap: 8px; }
+.prepare-row { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.prepare-row > div { display: grid; gap: 4px; min-width: 0; flex: 1 1 180px; }
+.prepare-row input { min-width: 0; max-width: 100%; }
+#publish-files { max-height: 220px; }
+#terminal-step { display: grid; gap: 8px; }
+#terminal-step ul { padding-left: 16px; list-style: disc; overflow-wrap: anywhere; }
+#idea-save { margin-top: 16px; }
+#planning .field-label { margin: 16px 0 4px; }
+.plan-cards { display: grid; gap: 8px; margin: 16px 0; }
+.plan-cards li { padding: 12px; border: 1px solid var(--line); border-radius: var(--r-s); overflow-wrap: anywhere; }
+.plan-cards strong { display: block; margin-bottom: 4px; }
+.plan-cards span { display: block; font-size: 12px; color: var(--ink-2); }
+.plan-problems { margin: 8px 0; padding-left: 16px; list-style: disc; overflow-wrap: anywhere; }
+#plan-review { margin-top: 24px; }
+#approve-confirm { margin-top: 16px; padding: 16px; border: 1px solid var(--accent-line); border-radius: var(--r); }
+#approve-confirm .actions, #plan-review .actions { margin-top: 12px; }
+#approve-project { display: block; margin: 4px 0 8px; overflow-wrap: anywhere; }
+#idea-saved pre { margin-top: 8px; }
+#preferences input[type="url"] { display: block; width: 100%; }
+#live-url-hint { display: block; margin: 4px 0 12px; }
+#preferences { margin-top: 24px; }
+#planning + #preferences { margin-top: 24px; }
+.next-command, .ready-next { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0; }
+.next-command code, .ready-next code { flex: 1 1 260px; min-width: 0; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--raised); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.team-step { margin: 0 0 24px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+.team-step:focus { outline: none; }
+.team-block { margin-top: 16px; }
+.team-block h3 { margin-bottom: 8px; }
+.team-block .next-command code, #publish-way-out .next-command code { flex-basis: 100%; }
+.team-block fieldset { margin: 12px 0 0; }
+#team-claimed { padding-left: 16px; list-style: disc; }
+#team-claimed li { margin: 8px 0; overflow-wrap: anywhere; }
+#team-note-actions { margin-top: 8px; }
+.advanced-next { margin: 24px 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.advanced-next h3 { margin: 4px 0 8px; }
+.advanced-only { display: none; }
+body[data-profile="advanced"] .advanced-only { display: block; }
+.beginner-only { display: none; }
+body[data-profile="beginner"] .beginner-only { display: block; }
+details.technical { margin-top: 8px; font-size: 12px; }
+details.technical pre { max-height: 200px; overflow-wrap: anywhere; }
+#glossary dl { margin-top: 8px; }
+#glossary dt { margin-top: 8px; font-weight: 600; color: var(--ink); }
+#glossary dd { margin-top: 4px; color: var(--ink-2); }
+body.installed #steps, body.installed .rail-heading { display: none; }
+
+/* dashboard */
+.dashboard-shell { max-width: 1240px; margin: 0 auto; padding: 0 32px 24px; }
+.dashboard-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 0; }
+.dashboard-bar h1 { font-size: 24px; }
+#dashboard-frame { width: 100%; min-height: 560px; border: 1px solid var(--line); border-radius: var(--r); background: var(--page); }
+#beginner-dashboard { padding: 24px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.dashboard-metrics { margin: 0 0 24px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raised); overflow: hidden; }
+.dashboard-metrics strong { font-size: 26px; line-height: 1.2; font-weight: 700; }
+#simple-next { padding-top: 24px; border-top: 1px solid var(--line); }
+#simple-next h3 { margin: 12px 0 8px; }
+.beginner-checklist { display: grid; gap: 4px; margin-top: 4px; color: var(--ink-2); }
+.beginner-checklist li { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.beginner-checklist .ic { width: 14px; height: 14px; stroke-width: 2.5; color: var(--integrated-ink); }
+#simple-tasks { margin-top: 16px; }
+#simple-tasks li { display: flex; justify-content: space-between; gap: 24px; }
+#simple-tasks li > span:first-child { overflow-wrap: anywhere; }
+.your-app { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
+.your-app a { font-weight: 600; overflow-wrap: anywhere; }
+#live-url-input { width: 100%; max-width: 520px; margin: 4px 0; }
+#checks.stale, .team-step.stale, #beginner-dashboard.stale { opacity: .55; transition: opacity .2s; }
+
+/* toast and the notices that stay on top */
+.toast { position: fixed; z-index: 50; right: 24px; bottom: 24px; display: grid; gap: 8px; width: min(380px, calc(100vw - 48px)); padding: 12px 16px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.toast-title { font-weight: 600; }
+.toast-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.toast-close { min-width: 44px; min-height: 44px; border: 0; background: none; font-size: 16px; line-height: 1; }
+.server-gone { position: fixed; top: 12px; left: 50%; z-index: 60; transform: translateX(-50%); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; width: min(720px, calc(100% - 32px)); margin: 0; box-shadow: var(--shadow); }
+.reopened { top: 68px; }
+.footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; max-width: 1240px; margin: 0 auto; padding: 16px 32px 32px; font-size: 12px; color: var(--muted); }
+.footer span { max-width: 580px; }
+
+@media (max-width: 850px) {
+  .header, .journey-bar, .shell, .dashboard-shell, .footer { padding-left: 16px; padding-right: 16px; }
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .sidebar { position: static; }
+  .sidebar > p, .local-note, .steps { display: none; }
+  .surface { padding: 24px; min-height: 0; }
+}
+@media (max-width: 640px) {
+  .header { gap: 8px 12px; }
+  .workspace-nav { order: 3; width: 100%; }
+  .workspace-nav button { flex: 1; min-height: 44px; }
+  .profile { margin-left: auto; }
+  .profile > label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .profile select { min-height: 44px; }
+  .journey-bar small { display: none; }
+  .journey-bar li:not([aria-current]) strong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .surface { padding: 16px; }
+  .benefit { grid-template-columns: minmax(0, 1fr); }
+  .benefit > div + div { border-left: 0; border-top: 1px solid var(--line); }
+  .field-row { grid-template-columns: minmax(0, 1fr); }
+  .review > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .actions .primary, .actions .secondary-button { flex: 1 1 auto; }
+  .footer { flex-direction: column; }
+  input, select, textarea, .tools label { min-height: 44px; }
+  input[type="radio"], input[type="checkbox"] { min-height: 0; width: 20px; height: 20px; }
+  .dashboard-bar { align-items: stretch; }
+}
+@media (max-width: 600px) {
+  .toast {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    width: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .spotlight {
+    transition: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after { animation: none !important; scroll-behavior: auto !important; transition: none !important; }
+}
     </style>
   </head>
   <body data-profile="beginner">
@@ -1321,6 +494,14 @@
         <span class="mark" aria-hidden="true">u</span> UPIIXIA
         <span class="muted">/ setup</span>
       </div>
+      <nav class="workspace-nav" aria-label="Workspace">
+        <button type="button" id="open-setup" aria-pressed="true">
+          Configuration
+        </button>
+        <button type="button" id="open-dashboard" aria-pressed="false">
+          Dashboard
+        </button>
+      </nav>
       <div class="profile">
         <label for="language" data-i18n-aria="Language">Language</label>
         <select id="language" data-no-i18n>
@@ -1332,29 +513,34 @@
           <option value="beginner">Beginner</option>
           <option value="advanced">Advanced</option>
         </select>
-        <label for="workspace-theme">Theme</label
-        ><select id="workspace-theme">
-          <option value="">Auto</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
+        <details class="ap" id="look">
+          <summary data-no-i18n><i aria-hidden="true"></i>Apariencia</summary>
+          <div class="pop">
+            <label for="workspace-theme">Theme</label>
+            <select id="workspace-theme"><option value="">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select>
+            <span class="lbl" id="pal-label" data-no-i18n>Palette</span>
+            <div class="pals" data-no-i18n role="group" aria-labelledby="pal-label">
+              <button type="button" data-pal-set="clasico" aria-pressed="false"><i style="background: var(--sw-clasico)"></i>Clásico</button>
+              <button type="button" data-pal-set="lavanda" aria-pressed="false"><i style="background: var(--sw-lavanda)"></i>Lavanda</button>
+              <button type="button" data-pal-set="cielo" aria-pressed="false"><i style="background: var(--sw-cielo)"></i>Cielo</button>
+              <button type="button" data-pal-set="menta" aria-pressed="false"><i style="background: var(--sw-menta)"></i>Menta</button>
+              <button type="button" data-pal-set="salvia" aria-pressed="false"><i style="background: var(--sw-salvia)"></i>Salvia</button>
+              <button type="button" data-pal-set="durazno" aria-pressed="false"><i style="background: var(--sw-durazno)"></i>Durazno</button>
+              <button type="button" data-pal-set="rosa" aria-pressed="false"><i style="background: var(--sw-rosa)"></i>Rosa</button>
+              <button type="button" data-pal-set="arena" aria-pressed="false"><i style="background: var(--sw-arena)"></i>Arena</button>
+              <button type="button" data-pal-set="grafito" aria-pressed="false"><i style="background: var(--sw-grafito)"></i>Grafito</button>
+            </div>
+          </div>
+        </details>
       </div>
-      <nav class="workspace-nav" aria-label="Workspace">
-        <button type="button" id="open-setup" aria-pressed="true">
-          Configuration
-        </button>
-        <button type="button" id="open-dashboard" aria-pressed="false">
-          Dashboard
-        </button>
-      </nav>
     </header>
     <nav class="journey-bar" id="journey" aria-label="Your journey">
-      <ol>
-        <li data-step="install"><strong>1. Install</strong><small data-where="page">in this page</small></li>
-        <li data-step="prepare"><strong>2. Prepare</strong><small data-where="page">in this page</small></li>
-        <li data-step="plan"><strong>3. Plan</strong><small data-where="page">in this page</small></li>
-        <li data-step="team"><strong>4. Start the team</strong><small data-where="terminal">in a terminal</small></li>
-        <li data-step="progress"><strong>5. Follow progress</strong><small data-where="agents">your agents do it</small></li>
+      <ol class="nodes">
+        <li data-step="install"><i></i><span><strong>1. Install</strong><small data-where="page">in this page</small></span></li>
+        <li data-step="prepare"><i></i><span><strong>2. Prepare</strong><small data-where="page">in this page</small></span></li>
+        <li data-step="plan"><i></i><span><strong>3. Plan</strong><small data-where="page">in this page</small></span></li>
+        <li data-step="team"><i></i><span><strong>4. Start the team</strong><small data-where="terminal">in a terminal</small></span></li>
+        <li data-step="progress"><i></i><span><strong>5. Follow progress</strong><small data-where="agents">your agents do it</small></span></li>
       </ol>
     </nav>
     <div class="shell" id="setup-shell">
@@ -1368,24 +554,19 @@
           <p class="rail-heading"><strong>1. Install</strong></p>
           <ol class="steps" id="steps">
             <li aria-current="step">
-              <span class="step-number" aria-hidden="true">•</span
-              ><span class="step-label">Welcome</span>
+              <span class="step-number" aria-hidden="true"></span><span class="step-label">Welcome</span>
             </li>
             <li>
-              <span class="step-number" aria-hidden="true">•</span
-              ><span class="step-label">Your project</span>
+              <span class="step-number" aria-hidden="true"></span><span class="step-label">Your project</span>
             </li>
             <li>
-              <span class="step-number" aria-hidden="true">•</span
-              ><span class="step-label">Your workflow</span>
+              <span class="step-number" aria-hidden="true"></span><span class="step-label">Your workflow</span>
             </li>
             <li>
-              <span class="step-number" aria-hidden="true">•</span
-              ><span class="step-label">Review &amp; install</span>
+              <span class="step-number" aria-hidden="true"></span><span class="step-label">Review &amp; install</span>
             </li>
             <li>
-              <span class="step-number" aria-hidden="true">•</span
-              ><span class="step-label">Get ready</span>
+              <span class="step-number" aria-hidden="true"></span><span class="step-label">Get ready</span>
             </li>
           </ol>
           <div class="local-note">
@@ -1467,13 +648,9 @@
                 >
               </div>
             </div>
-            <section
-              id="demo"
-              class="demo"
-              aria-labelledby="demo-heading"
-              hidden
-            >
-              <h2 id="demo-heading">Watch the 75-second demo</h2>
+            <section id="demo" class="demo win" aria-labelledby="demo-heading" hidden>
+              <div class="win-h"><i></i><i></i><i></i><h2 id="demo-heading">Watch the 75-second demo</h2></div>
+              <div class="win-b">
               <p class="secondary">
                 A simulated walkthrough: from an empty project to a deployed
                 app. Captions in English and Spanish.
@@ -1501,6 +678,7 @@
                   data-src="/media/tutorial-es.vtt"
                 />
               </video>
+              </div>
             </section>
             <!-- The video is served from the kit's own checkout; a project that has no copy of it gets this link. -->
             <p id="demo-link" class="secondary" hidden>
@@ -1691,7 +869,7 @@
               These choices control the files added to your project. You can go
               back to change them.
             </p>
-            <dl class="review" id="summary"></dl>
+            <dl class="review list" id="summary"></dl>
             <div class="notice">
               Adds the kit’s coordination tools, project instructions, hooks and
               review workflow. Existing files are preserved; conflicting
@@ -1711,9 +889,7 @@
           </section>
           <section id="finish" hidden>
             <div class="status-heading" id="status-heading">
-              <span class="status-icon" id="status-icon" aria-hidden="true"
-                >…</span
-              >
+              <span class="status-icon" id="status-icon" aria-hidden="true"></span>
               <h2 id="result-title">Installing your workspace</h2>
             </div>
             <p class="intro" id="result-description">
@@ -1742,7 +918,7 @@
               <strong>GitHub opens this project on the wrong branch</strong>
               <p id="remote-default-text" data-no-i18n></p>
             </div>
-            <ul class="checklist" id="checks"></ul>
+            <ul class="checklist list" id="checks"></ul>
             <div class="notice" id="terminal-step" hidden>
               <h3>Do this in a terminal</h3>
               <p>
@@ -1768,7 +944,7 @@
               <div class="prepare-step" id="name-step">
                 <h4>1. Your name</h4>
                 <p class="step-done" id="name-done" hidden>
-                  <strong>Done</strong>
+                  <strong><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Done</strong>
                   <span id="name-done-text" data-no-i18n></span>
                   <button type="button" class="link-button" id="name-reopen">Change</button>
                 </p>
@@ -1790,7 +966,7 @@
               <form class="prepare-step" id="schedule-form" novalidate>
                 <h4>2. Event schedule</h4>
                 <p class="step-done" id="schedule-done" hidden>
-                  <strong>Done</strong>
+                  <strong><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Done</strong>
                   <span id="schedule-done-text" data-no-i18n></span>
                   <button type="button" class="link-button" id="schedule-reopen">Change</button>
                 </p>
@@ -1821,7 +997,7 @@
               <div class="prepare-step" id="publish-step">
                 <h4>3. Publish the kit to main</h4>
                 <p class="step-done" id="publish-done" hidden>
-                  <strong>Done</strong>
+                  <strong><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Done</strong>
                   <span id="publish-done-text" data-no-i18n></span>
                   <button type="button" class="link-button" id="publish-reopen">Change</button>
                 </p>
@@ -1948,7 +1124,7 @@
                   <p id="plan-lint-summary"></p>
                   <ul class="plan-problems" id="plan-lint-lines" data-no-i18n></ul>
                 </div>
-                <ul class="plan-cards" id="plan-cards"></ul>
+                <ul class="plan-cards list" id="plan-cards"></ul>
                 <details>
                   <summary>Plan files as written</summary>
                   <pre id="plan-files"></pre>
@@ -2203,7 +1379,7 @@
         <p class="hint" id="team-copy-status" role="status"></p>
       </section>
       <section id="beginner-dashboard" hidden>
-        <div class="dashboard-metrics">
+        <div class="dashboard-metrics win-f">
           <div>
             <strong id="simple-completed">0</strong><span>Completed</span>
           </div>
@@ -2233,7 +1409,7 @@
           <ul class="beginner-checklist" id="beginner-checklist" data-no-i18n hidden></ul>
           </div>
         </div>
-        <ul id="simple-tasks"></ul>
+        <ul class="list" id="simple-tasks"></ul>
       </section>
       <section class="your-app" id="your-app" aria-labelledby="your-app-heading">
         <h3 id="your-app-heading">Your app</h3>
@@ -2332,6 +1508,19 @@
           dashboardSignature = "",
           checkRequested = false,
           lastStepTitle = "";
+        // Status marks are drawn, never typed: an inline SVG with its word beside it (UAK-158).
+        var ICON_PATHS = { ok: "M3 8.5l3 3 7-7", todo: "M8 3.5v6M8 12.5v.5", info: "M8 7.5v5M8 4v.5", no: "M4 4l8 8M12 4l-8 8", busy: "M3 8h.5M8 8h.5M12.5 8h.5" };
+        function icon(kind) {
+          var NS = "http://www.w3.org/2000/svg",
+            svg = document.createElementNS(NS, "svg"),
+            path = document.createElementNS(NS, "path");
+          svg.setAttribute("viewBox", "0 0 16 16");
+          svg.setAttribute("class", "ic");
+          svg.setAttribute("aria-hidden", "true");
+          path.setAttribute("d", ICON_PATHS[kind] || ICON_PATHS.info);
+          svg.appendChild(path);
+          return svg;
+        }
         function el(id) {
           return document.getElementById(id);
         }
@@ -2388,7 +1577,7 @@
                 type: "uak:dashboard",
                 snapshot: latestDashboard,
                 language: UAKWorkspace.language(),
-                theme: el("workspace-theme").value,
+                look: UAKLook.get(),
               },
               "*",
             );
@@ -2451,7 +1640,7 @@
           el("beginner-checklist").replaceChildren();
           done.forEach(function (line) {
             var li = document.createElement("li");
-            li.textContent = "✓ " + UAKWorkspace.gate(line);
+            li.append(icon("ok"), document.createTextNode(UAKWorkspace.gate(line)));
             el("beginner-checklist").append(li);
           });
           el("beginner-checklist").hidden = !done.length;
@@ -2515,12 +1704,12 @@
         function isBusy(phase) {
           return ["installing", "checking", "planning", "approving", "publishing", "registering"].indexOf(phase) >= 0;
         }
-        // The status heading (UI-012, r3): ✓ only when nothing is left to do; the gate's line in the page's language.
+        // The status heading (UI-012, r3): "ok" only when nothing is left to do; the gate's line in the page's language.
         function statusIcon(data) {
-          if (isBusy(data.phase)) return "…";
-          if (data.ready) return "✓";
+          if (isBusy(data.phase)) return "busy";
+          if (data.ready) return "ok";
           var todo = (data.checks || []).some(function (c) { return c.state === "todo"; });
-          return data.phase === "error" || todo || !data.installed ? "!" : "✓";
+          return data.phase === "error" || todo || !data.installed ? "todo" : "ok";
         }
         function statusTitle(data) {
           var title = isBusy(data.phase)
@@ -3062,7 +2251,6 @@
           Array.from(el("steps").children).forEach(function (node, n) {
             node.classList.toggle("done", n < index);
             // UI-024 (A-F16): sub-steps of 1. Install, marked, never numbered a second time.
-            node.querySelector(".step-number").textContent = n < index ? "✓" : "•";
             if (n === index) node.setAttribute("aria-current", "step");
             else node.removeAttribute("aria-current");
           });
@@ -3544,7 +2732,9 @@
             mark = document.createElement("span"),
             text = document.createElement("span");
           mark.className = "trust-mark";
-          mark.textContent = value === true ? "✓" : value === false ? "✗" : "i";
+          function drawn(kind) { if (!document.createElementNS) return null; var NS = "http://www.w3.org/2000/svg", s = document.createElementNS(NS, "svg"), p = document.createElementNS(NS, "path"); s.setAttribute("viewBox", "0 0 16 16"); s.setAttribute("class", "ic"); s.setAttribute("aria-hidden", "true"); p.setAttribute("d", { ok: "M3 8.5l3 3 7-7", no: "M4 4l8 8M12 4l-8 8", todo: "M8 3.5v6M8 12.5v.5", info: "M8 7.5v5M8 4v.5" }[kind]); s.appendChild(p); return s; }
+          var shape = drawn(value === true ? "ok" : value === false ? "no" : "info");
+          if (shape) mark.append(shape);
           mark.setAttribute("aria-label", UAKWorkspace.t(value === true ? "Trusted" : value === false ? "Not trusted yet" : "Not known"));
           text.textContent =
             " " +
@@ -3568,7 +2758,7 @@
           again.type = "button";
           again.className = "link-button trust-recheck";
           again.textContent = UAKWorkspace.t("Check again");
-          // After accepting in the terminal, ✗ turns ✓: setup reads Claude Code's config again.
+          // After accepting in the terminal, the mark turns from not trusted to trusted: setup reads Claude Code's config again.
           again.onclick = function () {
             if (box.dataset.reload === "plan") loadPlan();
             else loadTeam();
@@ -3592,14 +2782,16 @@
           (data.checks || []).forEach(function (check) {
             var li = document.createElement("li"),
               mark = document.createElement("span"),
+              word = document.createElement("span"),
               text = document.createElement("span");
             li.className = check.state;
-            mark.className = "check-mark";
-            mark.textContent = check.state === "ok" ? "✓" : check.state === "todo" ? "!" : "i";
-            mark.setAttribute(
-              "aria-label",
-              check.state === "ok" ? "Passed" : check.state === "todo" ? "Action needed" : "Information",
-            );
+            function drawn(kind) { if (!document.createElementNS) return null; var NS = "http://www.w3.org/2000/svg", s = document.createElementNS(NS, "svg"), p = document.createElementNS(NS, "path"); s.setAttribute("viewBox", "0 0 16 16"); s.setAttribute("class", "ic"); s.setAttribute("aria-hidden", "true"); p.setAttribute("d", { ok: "M3 8.5l3 3 7-7", no: "M4 4l8 8M12 4l-8 8", todo: "M8 3.5v6M8 12.5v.5", info: "M8 7.5v5M8 4v.5" }[kind]); s.appendChild(p); return s; }
+            mark.className = "mk mk-" + (check.state === "ok" ? "ok" : check.state === "todo" ? "todo" : "info");
+            var shape = drawn(check.state === "ok" ? "ok" : check.state === "todo" ? "todo" : "info");
+            if (shape) mark.append(shape);
+            word.className = "sr-only";
+            word.textContent = UAKWorkspace.t(check.state === "ok" ? "Passed" : check.state === "todo" ? "Action needed" : "Information");
+            mark.append(word);
             // The gate's first line in the page's language.
             // The lines under it (doctor's failures, the fix) through the catalog: a command stays as it is (UI-012).
             var lines = String(check.text || "").split("\n");
@@ -3820,9 +3012,9 @@
             UAKWorkspace.format("Published on main (commit {sha}).", { sha: resume.base_sha || "?" }));
           var approved = !!data.installed && resume.plan_approved === true;
           el("plan-done").hidden = !approved;
-          el("plan-done").textContent = approved
-            ? "✓ " + UAKWorkspace.format("Plan approved on main (commit {sha}).", { sha: resume.base_sha || "?" })
-            : "";
+          el("plan-done").replaceChildren();
+          if (approved)
+            el("plan-done").append(icon("ok"), document.createTextNode(UAKWorkspace.format("Plan approved on main (commit {sha}).", { sha: resume.base_sha || "?" })));
         }
         ["name", "schedule", "publish"].forEach(function (name) {
           var button = el(name + "-reopen");
@@ -3934,23 +3126,8 @@
           profile(this.value);
         });
         UAKWorkspace.start(document.body);
-        function workspaceTheme(value) {
-          if (value) document.documentElement.dataset.theme = value;
-          else delete document.documentElement.dataset.theme;
-          try {
-            localStorage.setItem("uak-dash-theme", value);
-          } catch (e) {}
-          sendDashboard();
-        }
-        try {
-          var savedTheme = localStorage.getItem("uak-dash-theme");
-          if (savedTheme === "dark" || savedTheme === "light")
-            el("workspace-theme").value = savedTheme;
-        } catch (e) {}
-        workspaceTheme(el("workspace-theme").value);
-        el("workspace-theme").onchange = function () {
-          workspaceTheme(this.value);
-        };
+        // Apariencia: theme and palette are the viewer's, kept in this browser (UAKLook, in the head); the dashboard follows.
+        UAKLook.onchange(sendDashboard);
         el("language").value = UAKWorkspace.language();
         el("language").onchange = function () {
           UAKWorkspace.setLanguage(this.value);
@@ -4262,7 +3439,7 @@
         window.addEventListener("uak:language", function () {
           if (teamView && !el("team-step").hidden) drawTeam(teamView);
         });
-        // UI-024 (A-F6): back from the terminal where Claude Code asked about trust, the ✓/✗ is read again.
+        // UI-024 (A-F6): back from the terminal where Claude Code asked about trust, the trust mark is read again.
         document.addEventListener("visibilitychange", function () {
           if (!document.hidden && teamView && !el("team-step").hidden && !operationBusy() && !requestBusy) loadTeam();
         });
@@ -4791,7 +3968,7 @@
           maybeAutoCheck(data);
           var busy = isBusy(data.phase);
           el("status-heading").classList.toggle("working", busy);
-          el("status-icon").textContent = statusIcon(data);
+          el("status-icon").replaceChildren(icon(statusIcon(data)));
           el("result-title").textContent = statusTitle(data);
           el("result-description").textContent = busy
             ? "This can take a moment. Keep the terminal and this page open."

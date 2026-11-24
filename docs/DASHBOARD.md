@@ -159,6 +159,25 @@ Choosing coding tools explains the roles: one tool implements, the other reviews
 Codex is the recommended pair. "I'm the only human on this repository" means your agents review each other under a
 second name you register.
 
+## Appearance: one design system, nine palettes
+
+The setup page and the dashboard are drawn with the same tokens (`docs/design/DIRECTION.md`): one block of CSS custom
+properties, the pill, the line of nodes, the window, the single bordered list and the three-figure footer are the same
+text in `setup.html` and `dash.html` (a test compares them). One control, **Apariencia**, sets the theme (Auto, Light,
+Dark) and the palette: Clásico (the exact colours of the dashboard of v6.8), Lavanda, Cielo, Menta, Salvia, Durazno, Rosa,
+Arena and Grafito, each in light and dark. The choice is the viewer's: it stays in the browser (`localStorage`, key
+`uak-look`) and changes no tracked file. A page starts in Lavanda in a checkout that never had a dashboard, and in Clásico
+where the dashboard's output directory (`<git dir>/uak-dash`) already existed, so nobody's panel changes colour by itself;
+the first answer is kept in `uak-dash/palette`.
+
+Type is Inter for text and JetBrains Mono for IDs, commands, pills and counters, shipped as Latin subsets
+(`kit/.uak/bin/lib/fonts/`, SIL Open Font License, `OFL.txt`), written next to the dashboard's page and served by the wizard
+(`/fonts/…`, `font-src 'self'`), with the system stack behind them. Neither page makes a network request.
+
+`design-lint --strict setup.html dash.html` reads whole HTML pages: colour literals outside the token rules, coloured side
+stripes, glass, glow, gradients, emoji and glyphs used as icons, more than six font sizes, and more than one primary button
+visible in a view. Status marks are inline SVG icons with their word, never a glyph.
+
 ## Plan from the page
 
 In "Get ready", after the kit is installed:
