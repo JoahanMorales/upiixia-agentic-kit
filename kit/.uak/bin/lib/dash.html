@@ -292,6 +292,7 @@ dialog#share::backdrop { background: var(--scrim); }
 .lbp li { min-height: 32px; display: flex; align-items: center; padding: 0 12px; border-radius: var(--r-s); color: var(--ink); cursor: pointer; white-space: nowrap; }
 .lbp li.act { background: var(--hover); }
 .lbp li[aria-selected="true"] { font-weight: 600; color: var(--accent-ink); }
+.ac .chip { white-space: nowrap; }
 .agrid.sm { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 4px; }
 .agrid.sm .ac { padding: 8px; gap: 4px; }
 .agrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
@@ -1438,7 +1439,7 @@ dialog#story::backdrop { background: var(--scrim); }
             a.role === "reviewer" ? h("span", { "class": "tag", text: T("reviewer") }) : null]),
           // last_seen 0: registered but never active (UI-012: "20770 d ago" was the time since 1970).
           h("div", { "class": "sub" }, [pres(a.status), " " + T(a.status) + " · " + (a.last_seen ? ago(a.last_seen, d.generated) + T(" ago") : T("never seen"))]),
-          compact && !ts.length ? null : h("div", { "class": "chips", style: "margin:0" }, ts.length ? ts.map(function (t) { return h("button", { "class": "chip", on: function () { openStory(t.id); } }, [h("i", { "class": "sw", style: "--c:" + color(t.state), "aria-hidden": "true" }), h("span", { "class": "mono", text: t.id }), h("span", { "class": "muted", text: rowLabel(t.state) })]); }).concat(a.tasks.length > 2 ? [h("span", { "class": "muted", text: "+" + (a.tasks.length - 2) })] : []) : [h("span", { "class": "muted", text: T("No live task") })]),
+          compact && !ts.length ? null : h("div", { "class": "chips", style: "margin:0" }, ts.length ? ts.map(function (t) { return h("button", { "class": "chip", on: function () { openStory(t.id); } }, [h("i", { "class": "sw", style: "--c:" + color(t.state), "aria-hidden": "true" }), h("span", { "class": "mono", text: t.id }), compact ? null : h("span", { "class": "muted", text: rowLabel(t.state) })]); }).concat(a.tasks.length > 2 ? [h("span", { "class": "muted", text: "+" + (a.tasks.length - 2) })] : []) : [h("span", { "class": "muted", text: T("No live task") })]),
           mhs && !compact ? h("div", { "class": "sub ell", title: mhs, text: mhs }) : null,
           compact ? null : h("div", { "class": "sub num", title: cnt(a.messages, L('message'), L('messages')) + " · " + cnt(a.verdicts, L('verdict'), L('verdicts')) + " · " + cnt(a.checkpoints, L('checkpoint'), L('checkpoints')), text: cnt(a.messages, L('message'), L('messages')) + " · " + cnt(a.verdicts, L('verdict'), L('verdicts')) + " · " + cnt(a.checkpoints, L('checkpoint'), L('checkpoints')) })]));
       });
@@ -1674,7 +1675,7 @@ dialog#story::backdrop { background: var(--scrim); }
     svg.addEventListener("pointerdown", function (e) { if (GZ.z > 1 && e.target === svg) drag = { x: e.clientX, y: e.clientY, gx: vx, gy: vy }; });
     svg.addEventListener("pointermove", function (e) { if (!drag) return; var k = vw / svg.getBoundingClientRect().width; GZ.x = drag.gx - (e.clientX - drag.x) * k; GZ.y = drag.gy - (e.clientY - drag.y) * k; svg.setAttribute("viewBox", Math.max(fx, Math.min(fx + fw - vw, GZ.x)) + " " + Math.max(fy, Math.min(fy + fh - vh, GZ.y)) + " " + vw + " " + vh); });
     svg.addEventListener("pointerup", function () { drag = null; });
-    var leg = h("div", { "class": "legend" }, [["task", T("Tasks")], ["lesson", L('Lesson')], ["decision", L('Decision')], ["file", L('File')], ["agent", T("Agents")]].filter(function (x) { return !GHIDE[kindOfNode({ type: x[0] })]; }).map(function (x) { return h("span", {}, [h("i", { "class": "sw g-" + x[0], "aria-hidden": "true" }), x[1]]); }));
+    var leg = h("div", { "class": "legend" }, [["task", T("Tasks")], ["lesson", L('Lesson')], ["decision", L('Decision')], ["file", L('File')], ["agent", T("Agents")]].filter(function (x) { return shown.some(function (n) { return n.type === x[0]; }); }).map(function (x) { return h("span", {}, [h("i", { "class": "sw g-" + x[0], "aria-hidden": "true" }), x[1]]); }));
     var side = h("div", { "class": "card pad gside" }), orphans = mg.entries.filter(function (e) { return !vis[e.id]; });
     function chip(id, t) { return h("button", { "class": "chip", type: "button", text: t, title: t, on: function () { SEL_NODE = id; render(); } }); }
     if (!sel) {
@@ -1683,8 +1684,8 @@ dialog#story::backdrop { background: var(--scrim); }
       side.appendChild(h("div", { "class": "gh", text: L('Tasks with the most entries') }));
       side.appendChild(h("div", { "class": "chips", style: "margin-bottom:12px" }, top.map(function (x) { return h("button", { "class": "chip", type: "button", on: function () { SEL_NODE = x.id; render(); } }, [x.label, h("b", { "class": "num", text: String(x.deg) })]); })));
       if (orphans.length) {
-        side.appendChild(h("div", { "class": "gh", text: orphans.length + " " + L('entries with no link shown') }));
         var seen2 = {}, groups = []; orphans.forEach(function (e) { var t = lab({ id: e.id, type: e.kind }), k = t; if (seen2[k]) seen2[k].n++; else groups.push(seen2[k] = { t: t, full: e.text.replace(/\s+/g, " "), n: 1 }); });
+        side.appendChild(h("div", { "class": "gh", text: orphans.length + " " + L('entries with no link shown') + " · " + groups.length }));
         side.appendChild(h("div", { "class": "chips" }, groups.slice(0, ui.more.orph ? groups.length : 12).map(function (g) { return h("button", { "class": "chip ell", type: "button", style: "max-width:100%", text: g.t + (g.n > 1 ? " ×" + g.n : ""), title: g.full, on: function () { SEL_NODE = ""; GQ = g.full.slice(0, 20); render(); } }); }).concat(groups.length > 12 ? [h("button", { "class": "chip", type: "button", text: ui.more.orph ? T("Show less") : "+" + (groups.length - 12) + " " + L('more'), on: function () { ui.more.orph = !ui.more.orph; render(); } })] : [])));
       }
     } else {
@@ -1721,9 +1722,9 @@ dialog#story::backdrop { background: var(--scrim); }
     box(0, 0, W, H, 0, tok("surface"));
     if (v) {
       idc(S.name, S.name, 90, SAFE_TOP + 40, 150); var fs = fit(S.name, 84, 900); text(S.name, 90, SAFE_TOP + 330, fs, 700, tok("ink")); if (since) text(since, 90, SAFE_TOP + 390, 34, 500, tok("muted"));
-      ag.slice(0, 7).forEach(function (a, i) { idc(a.name, a.human, 90 + i * 130, SAFE_TOP + 470, 110); });
-      if (S.total) { box(90, SAFE_TOP + 580, 900, 14, 7, tok("hover")); box(90, SAFE_TOP + 580, 900 * S.integrated / S.total, 14, 7, tok("accent-line")); }
-      if (ag.length > 7) text("+" + (ag.length - 7), W - 90, SAFE_TOP + 535, 40, 600, tok("muted"), null, "right");
+      ag.slice(0, ag.length > 7 ? 6 : 7).forEach(function (a, i) { idc(a.name, a.human, 90 + i * 130, SAFE_TOP + 470, 110); });
+      if (S.total) { box(90, SAFE_TOP + 610, 900, 14, 7, tok("hover")); box(90, SAFE_TOP + 610, 900 * S.integrated / S.total, 14, 7, tok("accent-line")); }
+      if (ag.length > 7) { box(90 + 6 * 130, SAFE_TOP + 470, 110, 110, 18, tok("hover")); text("+" + (ag.length - 6), 90 + 6 * 130 + 55, SAFE_TOP + 540, 36, 600, tok("ink-2"), null, "center"); }
       f.forEach(function (x, i) { var y = SAFE_TOP + 760 + i * 170; text(x[0], 90, y, 104, 700, tok("ink")); text(x[1], 90, y + 44, 30, 500, tok("muted")); });
       if (S.total) text(Math.round(100 * S.integrated / S.total) + "%", W - 90, SAFE_TOP + 130, 96, 700, tok("accent-ink"), null, "right");
     } else {
