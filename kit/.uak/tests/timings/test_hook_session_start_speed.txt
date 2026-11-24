@@ -1,4 +1,4 @@
 ci 170
 windows 370
-# measured 2026-11-24 45365777029
-# Windows 399 s in that run with a 15 s diagnostic case and 3 fresh kill rounds, both since removed; above about 375 test_ci_tiers one_stale_entry_cannot_trip_the_slow_rule fails on the shard layout and at 405 a Windows shard is added
+# measured 2026-11-24 45383987406
+# Windows 486 s in that run on a slow runner (startup case 16.7 s against 13 s on a normal one; 399 s for 3 kill rounds and a diagnostic case on a normal one), Linux 164 s. The table stays at 370: above about 375 test_ci_tiers one_stale_entry_cannot_trip_the_slow_rule fails on the shard layout and at 405 an 11th Windows shard starts, neither in this task's Paths
