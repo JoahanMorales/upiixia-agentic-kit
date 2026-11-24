@@ -22,6 +22,7 @@ cd your-team-repo && bash ~/.uak-kit/install.sh --mode sprint --stack python-dat
 bash .uak/bin/uak clock "2026-10-09 17:00" "2026-10-09 21:00" America/Mexico_City --write   # schedule + Freeze-Epoch
 bash .uak/bin/doctor                                               # every laptop, until DOCTOR PASS
 ```
+The install ends by asking whether to continue in the browser (`b`) or in the terminal (Enter); either way the steps are the same (`bash .uak/bin/uak start --steps`).
 Then open your agent in the repo:
 1. `/uak-setup`: the event, the rubric, the humans and the submission owner. Commit.
 2. `/uak-plan` turns IDEA.md into tasks with a wide wave 1 (short event: at most 2 tasks per agent, 45 min each).
