@@ -957,8 +957,10 @@ def look_default(out):
 
 def page_html(template, pal):
     """dash.html as served: the default palette written into the <html> tag."""
-    html = Path(template).read_text(encoding="utf-8").replace('content="dev"', 'content="%s"' % page_version(template), 1)
-    return html.replace(LOOK_TAG, LOOK_TAG.replace("clasico", pal), 1) if re.fullmatch(r"[a-z]+", pal) else html
+    html = Path(template).read_text(encoding="utf-8")
+    if not re.fullmatch(r"[a-z]+", pal):
+        return html
+    return html.replace('content="dev"', 'content="%s"' % page_version(template), 1).replace(LOOK_TAG, LOOK_TAG.replace("clasico", pal), 1)
 
 
 def main():
