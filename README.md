@@ -66,6 +66,8 @@ bash ~/.uak-kit/install.sh --mode sprint .          # hackathon / AI prototype
 bash .uak/bin/uak start                              # every step to the first claim, in order, then the command that starts
 ```
 
+At a terminal the install ends with one question: continue in the browser (`b`) or here in the terminal (`t` or Enter). `--wizard` or `--terminal` answer it beforehand; with no terminal (a pipe, CI, an agent) nothing is asked or opened and the two commands are printed. Both ways read the project's files: `bash .uak/bin/uak start --steps` lists the same steps the page shows.
+
 It never overwrites your files: a kit file you edited gets its new text beside it as `.uak-new`; an older kit file nobody touched is simply updated by `--update`. Your hook manager (husky, lefthook) keeps its `core.hooksPath`.
 
 **Or, in Claude Code:**
@@ -558,7 +560,7 @@ Mix them freely: coordination lives in Git, not in any tool.
 | Command | What |
 |---|---|
 | `uak demo` | see everything in 30 s |
-| `uak start [--fix]` | install → first claim: what is missing, in order, then the one command that starts |
+| `uak start [--fix \| --steps \| --wizard]` | install → first claim: what is missing, in order, then the one command that starts |
 | `uak next` | what you should do now; with nothing to offer, why (per task) |
 | `wt new ID [--agent NAME]` | start a task (branch, worktree, port, claim); without `--agent` it reuses a free identity of this machine |
 | `uak loop --verify CMD [--parallel N --each CMD]` | bounded autonomous fix loop, one per failing file |

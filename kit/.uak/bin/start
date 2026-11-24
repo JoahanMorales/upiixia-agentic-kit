@@ -9,9 +9,19 @@ set -u
 # Git Bash rewrites "rev:.path" arguments for native git unless told not to (the same list as uak).
 MSYS2_ARG_CONV_EXCL="refs/;origin/;${UAK_REMOTE:-origin}/;HEAD;FETCH_HEAD;:"; export MSYS2_ARG_CONV_EXCL
 LC_ALL=C; export LC_ALL
-fix=no
-for a in "$@"; do case "$a" in --fix) fix=yes;; *) printf 'Usage: uak start [--fix]\n' >&2; exit 2;; esac; done
+fix=no steps=no wizard=no
+for a in "$@"; do case "$a" in --fix) fix=yes;; --steps) steps=yes;; --wizard) wizard=yes;; *) printf 'Usage: uak start [--fix | --steps | --wizard]\n' >&2; exit 2;; esac; done
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# A path inside a command we print: left bare when it is plain, else single-quoted with ' written as '\'' (a pasted
+# line is one word whatever the folder is called: $HOME, backticks, a quote, a newline).
+shw() { # PATH [always]: plain stays bare (or "double-quoted" with a space, or always); anything the shell would read is single-quoted
+  [ -n "$1" ] || return 0
+  case "$1" in
+    *[\$\`\"\\\'[:cntrl:]]*) _q=$(printf '%sx' "$1" | sed "s/'/'\\\\''/g"); printf "'%s'" "${_q%x}";;
+    *' '*) printf '"%s"' "$1";;
+    *) if [ -n "${2:-}" ]; then printf '"%s"' "$1"; else printf '%s' "$1"; fi;;
+  esac
+}
 remote=${UAK_REMOTE:-origin} base=${UAK_BASE:-main}
 n=0 todo=0
 ok()   { n=$((n + 1)); printf 'OK    %s. %s\n' "$n" "$1"; }
@@ -31,6 +41,64 @@ from() { uak_cfg - "$1"; }
 root=$(git rev-parse --show-toplevel 2>/dev/null) || {
   need "a Git repository" "git init -b main, then: bash ~/.uak-kit/install.sh --mode sprint|marathon ."; finish; }
 cd "$root" || exit 1
+
+# --wizard (UAK-161): the same steps in the browser. The wizard refuses an agent and a missing terminal by itself
+# (lib/setup.py); this only finds the kit clone that has install.sh and hands over, never working around it.
+if [ "$wizard" = yes ]; then
+  kh=${UAK_KIT_HOME:-}
+  [ -n "$kh" ] || kh=$(git config --get uak.kitHome 2>/dev/null)
+  if [ -n "$kh" ] && [ -f "$kh/install.sh" ]; then exec bash "$kh/install.sh" --wizard "$root"; fi
+  printf 'The browser setup runs from the kit clone that installed this project (install.sh), and none is recorded here.\n'
+  printf 'Continue in the terminal: bash .uak/bin/uak start\n'
+  printf 'Or from a clone of the kit: bash <clone>/install.sh --wizard %s\n' "$(shw "$root")"
+  exit 1
+fi
+# --steps (UAK-161): the journey in the wizard's order and names, read from the project's own files and the remote
+# branches already fetched (no network), so a step done in the browser or in the terminal is done in both. The one
+# next step comes last with its command.
+if [ "$steps" = yes ]; then
+  mode=$({ from Mode < .uak/PROJECT.md; } 2>/dev/null)
+  sn=0 next_name= next_cmd=
+  step() { # DONE(yes|no|default) NAME COMMAND-or-reason
+    sn=$((sn + 1))
+    case "$1" in
+      yes) printf '[x] %s. %s\n' "$sn" "$2";;
+      default) printf '[~] %s. %s  (%s)\n' "$sn" "$2" "$3";;  # nothing says a person did it: never shown as done
+      *) printf '[ ] %s. %s  ->  %s\n' "$sn" "$2" "$3"; [ -n "$next_name" ] || { next_name=$2; next_cmd=$3; };;
+    esac
+  }
+  case "$mode" in sprint|marathon) detected=yes;; *) detected=no; mode=sprint;; esac
+  step "$detected" "Project detected" "bash <kit clone>/install.sh --mode sprint|marathon ."
+  # Rules: the installer writes Autonomy: yes itself, and the wizard changes only Blackbox, Pace and Live-URL, so nothing
+  # records that a person confirmed the rules. They are never "done" here: the default is shown as the default.
+  if [ "$(from Autonomy < .uak/PROJECT.md)" = yes ]; then
+    step default "Rules" "default, not confirmed: nothing records that a person read them; they are in .uak/PROJECT.md"
+  else step no "Rules" "set Autonomy: yes in .uak/PROJECT.md"; fi
+  rv=$(from Review-Mode < .uak/PROJECT.md)
+  if [ -n "$(git ls-tree --name-only "refs/remotes/$remote/claims" roles/reviewers/ 2>/dev/null)" ]; then
+    step yes "People" ""
+  elif [ "$rv" = gh ]; then
+    step default "People" "reviews go through GitHub accounts; no reviewer is registered here"
+  else step no "People" "UAK_HUMAN=<you> UAK_AGENT= bash .uak/bin/uak register-reviewer <you>-r"; fi
+  if [ "$mode" = sprint ]; then
+    case "$(from Freeze-Epoch < .uak/PROJECT.md)" in ''|0) r=no;; *[!0-9]*) r=no;; *) r=yes;; esac
+    step "$r" "Schedule" "bash .uak/bin/uak clock \"YYYY-MM-DD HH:MM\" \"YYYY-MM-DD HH:MM\" America/Mexico_City --write"
+  fi
+  cur=$(git symbolic-ref --short HEAD 2>/dev/null || printf '%s' HEAD)
+  if git cat-file -e "refs/remotes/$remote/$base:.uak/PROJECT.md" 2>/dev/null &&
+     git diff --quiet "refs/remotes/$remote/$base" -- .uak/PROJECT.md .uak/VERSION 2>/dev/null; then r=yes; else r=no; fi
+  step "$r" "Publish the kit" "git add -A && git commit -m 'chore: uak setup' && git push -u $remote HEAD:$base"
+  t=$( { cat .uak/TASKS.md 2>/dev/null; git show "refs/remotes/$remote/claims:backlog/TASKS.md" 2>/dev/null; } | grep -c '^## [A-Z][A-Z0-9]*-[0-9]')
+  if [ "$t" -gt 0 ] && [ "$(from Backlog-Approved < .uak/PROJECT.md)" = yes ]; then r=yes; else r=no; fi
+  step "$r" "Idea and plan" "open your agent here and run /uak-plan, then set Backlog-Approved: yes in .uak/PROJECT.md"
+  if [ -n "$(git ls-tree --name-only "refs/remotes/$remote/claims" claims/ 2>/dev/null)" ]; then r=yes; else r=no; fi
+  step "$r" "Start the agents" "UAK_HUMAN=<you> bash .uak/bin/uak up 2 --tmux"
+  printf '\n'
+  if [ -n "$next_name" ]; then printf 'NEXT STEP · %s · %s\n' "$next_name" "$next_cmd"
+  else printf 'NEXT STEP · none left · bash .uak/bin/uak next\n'; fi
+  printf 'The same steps in the browser: bash .uak/bin/uak start --wizard\n'
+  exit 0
+fi
 
 # 1. The kit
 mode=$({ from Mode < .uak/PROJECT.md; } 2>/dev/null)
@@ -65,7 +133,7 @@ tag=$(GIT_TERMINAL_PROMPT=0 git -C "$tags_dir" -c http.lowSpeedLimit=1000 -c htt
 pull=
 # A path with a space is quoted in the hints, so they still paste (uak.kitHome can be any folder).
 qh=$kit_home qi=$kit_home/install.sh
-case "$kit_home" in *' '*) qh="\"$kit_home\"" qi="\"$kit_home\"/install.sh";; esac
+qh=$(shw "$kit_home") qi=$(shw "$kit_home")/install.sh
 if [ -n "$tag" ] && [ "$(vnum "$tag")" -gt "$(vnum "${newest:-0.0.0}")" ]; then
   newest=$tag where="the kit's GitHub"
   if [ -z "$kit_home" ]; then :
@@ -76,8 +144,8 @@ if [ -n "$newest" ] && [ "$(vnum "$newest")" -gt "$(vnum "${mine:-0.0.0}")" ] &&
   if [ -n "$kit_home" ]; then
     set -- "${pull}bash $qi --mode $mode --update .   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)"
   else
-    set -- "in the kit folder you installed this project from (the clone with install.sh): git pull --ff-only, then bash install.sh --mode $mode --update \"$root\"   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)" \
-         "no clone at hand: git clone --depth 1 $kit_url <folder>, then bash <folder>/install.sh --mode $mode --update \"$root\""
+    set -- "in the kit folder you installed this project from (the clone with install.sh): git pull --ff-only, then bash install.sh --mode $mode --update $(shw "$root" always)   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)" \
+         "no clone at hand: git clone --depth 1 $kit_url <folder>, then bash <folder>/install.sh --mode $mode --update $(shw "$root" always)"
   fi
   # Once the kit is on the team's main (or the freeze is set) the project works: a newer release of the same major version
   # is news, not a blocker, and a newer major version is a need (UAK-154). The decision is here, not in an environment

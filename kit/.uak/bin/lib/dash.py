@@ -894,6 +894,31 @@ def compact_timeline(tl, cut=700):
             "history": tl["sources"]["reviews_history"]}
 
 
+LOOK_TAG = '<html lang="en" data-pal="clasico">'
+FONT_FILES = ("Inter.woff2", "JetBrainsMono.woff2", "OFL.txt")
+
+
+def look_default(out):
+    """The palette a page starts with, before the viewer chooses one (the choice stays in their browser).
+    Lavanda in a checkout that never had a dashboard; Clasico, the colours of v6.8, where its output directory already
+    exists, so nobody's panel changes colour by itself. The answer is kept in the directory (`palette`) once given."""
+    out = Path(out)
+    mark = out / "palette"
+    try:
+        saved = mark.read_text(encoding="utf-8").strip()
+        if re.fullmatch(r"[a-z]+", saved):
+            return saved
+    except OSError:
+        pass
+    return "clasico" if out.exists() else "lavanda"
+
+
+def page_html(template, pal):
+    """dash.html as served: the default palette written into the <html> tag."""
+    html = Path(template).read_text(encoding="utf-8")
+    return html.replace(LOOK_TAG, LOOK_TAG.replace("clasico", pal), 1) if re.fullmatch(r"[a-z]+", pal) else html
+
+
 def main():
     ap = argparse.ArgumentParser(prog="uak dash")
     ap.add_argument("--watch", nargs="?", const=20, type=int, default=0)
@@ -909,10 +934,19 @@ def main():
     root = git("rev-parse", "--show-toplevel").decode().strip()
     common = Path(root) / git("rev-parse", "--git-common-dir", cwd=root).decode().strip()
     out = Path(a.out) if a.out else common.resolve() / "uak-dash"
+    pal = look_default(out)
     out.mkdir(parents=True, exist_ok=True)
+    if not (out / "palette").exists():
+        (out / "palette").write_text(pal + "\n", encoding="utf-8")
     tpl = Path(__file__).with_name("dash.html")
-    shutil.copyfile(tpl, out / "index.html")
+    (out / "index.html").write_text(page_html(tpl, pal), encoding="utf-8")
     shutil.copyfile(tpl.with_name("workspace.js"), out / "workspace.js")
+    fonts = tpl.with_name("fonts")
+    if fonts.is_dir():
+        (out / "fonts").mkdir(exist_ok=True)
+        for name in FONT_FILES:
+            if (fonts / name).is_file():
+                shutil.copyfile(fonts / name, out / "fonts" / name)
     repo = Path(root).name
     refresh = a.watch or 20
     opened = False

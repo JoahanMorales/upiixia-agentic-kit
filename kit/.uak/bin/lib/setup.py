@@ -1635,6 +1635,26 @@ MEDIA = {
 }
 
 
+FONTS = {"/fonts/Inter.woff2": "Inter.woff2", "/fonts/JetBrainsMono.woff2": "JetBrainsMono.woff2"}
+
+
+def look_palette(target):
+    """The palette the pages start with (UAK-158): what dash.py would pick for this project, read from files only (a page
+    load starts no process). Lavanda unless the project's dashboard directory already exists: then Clasico."""
+    if not target:
+        return "lavanda"
+    try:
+        git = Path(target) / ".git"
+        if git.is_file():
+            text = git.read_text(encoding="utf-8").strip()
+            git = Path(text[len("gitdir:"):].strip()) if text.startswith("gitdir:") else git
+            if git.parent.name == "worktrees":
+                git = git.parent.parent
+        return dashboard_module().look_default(git / "uak-dash")
+    except (OSError, ValueError, TypeError):
+        return "lavanda"
+
+
 def media_file(name):
     """The engine's media file `name` when it is a regular file reached without a symlink, else None."""
     folder = Path(__file__).resolve().parents[2] / "media"
@@ -1694,7 +1714,7 @@ class SetupHandler(BaseHTTPRequestHandler):
             self.send_header("X-UAK-Reopened-At", at)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'nonce-%s'; style-src 'unsafe-inline'; connect-src 'self'; frame-src 'self'; img-src data: 'self'; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors %s" % (self.server.nonce, "'self'" if self.path == "/dashboard" else "'none'"))
+        self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'nonce-%s'; style-src 'unsafe-inline'; font-src 'self'; connect-src 'self'; frame-src 'self'; img-src data: 'self'; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors %s" % (self.server.nonce, "'self'" if self.path == "/dashboard" else "'none'"))
         try:
             self.end_headers()
             self.wfile.write(data)
@@ -1728,19 +1748,23 @@ class SetupHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/":
             html = Path(__file__).with_name("setup.html").read_text(encoding="utf-8")
+            html = html.replace('data-pal="clasico">', 'data-pal="%s">' % look_palette(self.server.target or self.server.state.get("target", "")), 1)
             self.reply(200, html.replace("__NONCE__", self.server.nonce), html=True)
+        elif self.path in FONTS:
+            self.font(FONTS[self.path])
         elif self.path == "/workspace.js":
             self.reply(200, Path(__file__).with_name("workspace.js").read_text(encoding="utf-8"), javascript=True)
         elif self.path in MEDIA:
             self.media(*MEDIA[self.path])
         elif self.path == "/dashboard":
             html = Path(__file__).with_name("dash.html").read_text(encoding="utf-8")
+            html = html.replace('data-pal="clasico">', 'data-pal="%s">' % look_palette(self.server.target or self.server.state.get("target", "")), 1)
             bridge = ('<script nonce="%s">window.UAK_EMBEDDED=true;'
                       'window.addEventListener("message",function(e){'
                       'if(e.source!==window.parent||!e.data||e.data.type!=="uak:dashboard")return;'
                       'window.UAK_DATA=e.data.snapshot;'
                       'window.UAK_DASH_LANGUAGE=e.data.language;'
-                      'window.UAK_DASH_THEME=e.data.theme;'
+                      'window.UAK_DASH_LOOK=e.data.look;'
                       'document.dispatchEvent(new Event("uak:state"));});</script>') % self.server.nonce
             html = html.replace('<script src="data.js"></script>', bridge)
             html = html.replace('<script src="workspace.js">', '<script nonce="%s" src="workspace.js">' % self.server.nonce)
@@ -1800,6 +1824,25 @@ class SetupHandler(BaseHTTPRequestHandler):
                 self.reply(400, {"error": redact(exc)})
         else:
             self.reply(404, {"error": "Page not found."})
+
+    def font(self, name):
+        """One of the two shipped font files (Inter, JetBrains Mono): same-origin only, never from the network."""
+        try:
+            data = (Path(__file__).with_name("fonts") / name).read_bytes()
+        except OSError:
+            self.reply(404, {"error": "Page not found."})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "font/woff2")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "max-age=86400")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.end_headers()
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
 
     def media(self, name, kind):
         """One file of the demo video, whole or one byte range so the browser can seek (UI-017).
