@@ -292,9 +292,11 @@ def page_is_not_heavier(root, tmp):
     page was 103,903 once UAK-158 added the shared block (11 KB) and the look script (4 KB). The human raised the bound twice:
     to 128 KiB on 2026-11-24 (docs/plans/visual-setup-amend-7.md) and, for the views they asked for after seeing the screens
     (every task as a square, what waits for what, the black box as a tool, the memory graph, the token breakdown), to
-    150 KiB the same day (docs/plans/visual-setup-amend-8.md). Measured on the file's bytes."""
+    150 KiB the same day (docs/plans/visual-setup-amend-8.md) and, for the changes after the human signed off the look
+    (agents as cards, listboxes, a readable memory graph, the page reloading itself), to 200 KiB (docs/plans/visual-setup-amend-10.md).
+    Measured on the file's bytes."""
     size = len((root / ".uak/bin/lib/dash.html").read_bytes().replace(b"\r\n", b"\n"))  # a Windows checkout adds a byte per line: the bound is on the file as committed
-    assert size <= 150 * 1024, "dash.html is %d bytes; the bound is 150 KiB (%d)" % (size, 150 * 1024)
+    assert size <= 200 * 1024, "dash.html is %d bytes; the bound is 200 KiB (%d)" % (size, 200 * 1024)
 
 
 def both_profiles_and_languages_are_complete(root, tmp):
