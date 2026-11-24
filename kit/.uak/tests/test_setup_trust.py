@@ -546,6 +546,10 @@ REQUESTS = [
     "P=$((40000+1234)); curl -s -d '{}' http://127.0.0.1:$P/api/publish-kit",
     "curl -s -d '{}' $WIZARD/api/session",
     "python3 -c \"import os,urllib.request as u; u.urlopen('http://localhost:%s/api/human' % os.environ['P'])\"",
+    # UAK-188: the reopen and closing routes, and the key file (more in test_guard_wizard_files)
+    "curl -s -X POST http://127.0.0.1:41234/api/reopen -d '{}'",
+    "curl -s -X POST http://127.0.0.1:41234/api/closing -d '{}'",
+    "curl -s -d '{}' http://127.0.0.1:${P}/api/reopen",
 ]
 # Allowed with no wizard live: a project's own API, text that is not a request, and its own setup.py or flags.
 OWN_API = [
@@ -587,6 +591,7 @@ LIVE_ALLOWED = [
     "git commit -m 'fix POST /api/session'",
     "echo /api/publish-kit",
     "grep -rn '/api/team' src/",
+    "curl -s -X POST http://127.0.0.1:3000/api/reopen -d x",
 ] + [c for c in ALLOWED if "api" not in c.lower() or "orders" in c]
 
 
