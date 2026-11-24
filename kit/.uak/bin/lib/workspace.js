@@ -543,6 +543,22 @@
       "La operación se detuvo. Corrige el problema y vuelve a intentarlo.",
     ],
     [
+      "That request is not from a setup start of this project.",
+      "Esa solicitud no viene de un inicio de la configuración de este proyecto.",
+    ],
+    [
+      "Another page of setup was opened at {time} from a second start in a terminal. If you did that, there is nothing to do. If not, press Ctrl+C in the terminal where setup runs.",
+      "Se abrió otra página del asistente a las {time} desde un segundo inicio en una terminal. Si fuiste tú, no tienes que hacer nada. Si no, presiona Ctrl+C en la terminal donde corre el asistente.",
+    ],
+    [
+      "The session of this setup ended. Press Ctrl+C where it runs and start it again: bash install.sh --wizard",
+      "La sesión de esta configuración terminó. Presiona Ctrl+C donde se ejecuta y vuelve a iniciarla: bash install.sh --wizard",
+    ],
+    [
+      "Setup could not record the new page, so it did not open one.",
+      "La configuración no pudo registrar la página nueva, así que no abrió ninguna.",
+    ],
+    [
       "This setup session expired. Reopen the address printed in the terminal.",
       "La sesión de configuración caducó. Vuelve a abrir la dirección que aparece en la terminal.",
     ],

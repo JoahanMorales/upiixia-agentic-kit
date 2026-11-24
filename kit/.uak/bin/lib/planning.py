@@ -23,7 +23,7 @@ AUTH = {"claude": ("auth", "status"), "codex": ("login", "status")}
 PLAN_FILES = ("IDEA.md", ".uak/TASKS.md", ".uak/OWNERS.md", ".uak/PROJECT.md")
 CHANGEABLE = (".uak/TASKS.md", ".uak/OWNERS.md")
 NOTE_FILE = ".uak/plan-request.md"
-PLAN_TIMEOUT = 1800
+PLAN_TIMEOUT = 600  # UAK-156: 10 minutes, not 30
 GIT = ("git", "-c", "core.fsmonitor=false")
 
 # One line, no % ^ & | < > " or backticks: it survives a Windows .cmd shim, and it is never passed through a shell.

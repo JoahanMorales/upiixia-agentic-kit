@@ -6,6 +6,7 @@ or changes a remote. Its one act of human authority is approving the plan (plann
 project name, and only the reviewed plan files are committed and pushed (WHY.md, UI-004).
 """
 import argparse
+import copy
 import hmac
 import importlib.util
 import io
@@ -69,6 +70,8 @@ def safe_environment():
 
 
 IDLE_SECONDS = 30 * 60   # UAK-153: a session with no action of the person for this long ends
+IDLE_EXIT_SECONDS = 15 * 60   # UAK-156: the server itself ends after this long with no request at all
+CLOSE_GRACE_SECONDS = 8       # UAK-156: after the page says it closed, a request within this time says it was a reload
 CODE_SECONDS = 120       # the one-time code of the launcher page is exchanged within this time, once
 RESTART = "bash install.sh --wizard"
 # Where a human authority act is recorded: the same file as a human's direct push (pre-push, pre-commit).
@@ -248,18 +251,191 @@ def windows_job_end(job, kill):
     kernel.CloseHandle(job)
 
 
-def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=None, **kwargs):
+# UAK-156: every child of the wizard (git, `uak`, install.sh, the planner) runs in a group of its own that the server
+# records in <git dir>/uak-wizard.children and kills on every way out; on Linux a child also dies with a server that is
+# killed (parent-death signal), and the next start kills what a killed server left, from that record.
+CHILDREN = {}
+CHILD_LOCK = threading.Lock()
+CHILD_FILE = [None]
+CHILD_RECORD = "uak-wizard.children"
+KEY_FILE = "uak-wizard.key"
+
+
+def process_stamp(pid):
+    """Something that changes when the number is reused: the start time of the process, or "" when it is not there."""
+    if os.name == "nt":
+        return ""
+    try:
+        with open("/proc/%d/stat" % pid, encoding="utf-8") as handle:
+            return handle.read().rsplit(")", 1)[1].split()[19]
+    except (OSError, IndexError):
+        pass
+    try:
+        done = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=10)
+        return " ".join(done.stdout.split()) if done.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def write_children():
+    path = CHILD_FILE[0]
+    if not path:
+        return
+    try:
+        with CHILD_LOCK:
+            lines = ["%d %s\n" % (pid, stamp) for pid, stamp in CHILDREN.items()]
+            if lines:
+                Path(path).write_text("".join(lines), encoding="utf-8")
+            elif Path(path).exists():
+                Path(path).unlink()
+    except OSError:
+        pass
+
+
+def track_child(pid):
+    with CHILD_LOCK:
+        CHILDREN[pid] = process_stamp(pid) if CHILD_FILE[0] else ""
+    write_children()
+
+
+def forget_child(pid):
+    with CHILD_LOCK:
+        CHILDREN.pop(pid, None)
+    write_children()
+
+
+def kill_group(pid):
+    if os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def stop_children():
+    """Every child still running, with its descendants (the way out of the server, whatever the cause)."""
+    with CHILD_LOCK:
+        pids = list(CHILDREN)
+    for pid in pids:
+        kill_group(pid)
+        forget_child(pid)
+
+
+PAGE_ID = re.compile(r"[a-z0-9]{8,32}")  # the shape the page generates
+MAX_PAGES = 64
+RECORD_LINE = re.compile(r"([0-9]{1,9}) ([0-9A-Za-z][0-9 A-Za-z:]*)", re.ASCII)
+
+
+def protected_groups():
+    """The numbers a record must never make us signal: this process, its group, its parent and the parent's group (the
+    person's terminal job)."""
+    mine = {os.getpid(), os.getppid()}
+    for getter in (os.getpgrp, lambda: os.getpgid(0), lambda: os.getpgid(os.getppid())):
+        try:
+            mine.add(getter())
+        except (OSError, AttributeError):
+            pass
+    return mine
+
+
+def reap_children(path):
+    """Kill the groups a server that no longer exists left, then drop the record. Each line is "PID START": plain ASCII
+    digits, a PID above 1 that is none of ours, and a start time. A line that does not parse is skipped and signals
+    nothing; a leader that is alive with another start time is not touched; a dead leader whose group still has members
+    is the case the record is for (on Linux the members must be in a session of that number). Windows closes its jobs
+    with the server: nothing to read there."""
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        lines = None
+    killed = 0
+    if lines is not None and os.name != "nt":
+        keep_away = protected_groups()
+        for line in lines:
+            found = RECORD_LINE.fullmatch(line.strip())
+            if not found:
+                continue
+            pid, stamp = int(found.group(1)), found.group(2)
+            if pid <= 1 or pid in keep_away:
+                continue
+            now = process_stamp(pid)
+            if now and now != stamp:
+                continue  # the number belongs to another process now
+            if not now and sys.platform.startswith("linux") and not group_members(pid):
+                continue
+            try:
+                os.killpg(pid, 0)  # the leader may be gone (it died with the server) while its children are not
+            except (OSError, OverflowError):
+                continue
+            kill_group(pid)
+            killed += 1
+    try:
+        Path(path).unlink()
+    except OSError:
+        pass
+    return killed
+
+
+def group_members(pid):
+    """Linux: the processes in group PID that started their own session (what the wizard's children do)."""
+    found = []
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return found
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open("/proc/%s/stat" % name, encoding="utf-8") as handle:
+                fields = handle.read().rsplit(")", 1)[1].split()
+            if int(fields[2]) == pid and int(fields[3]) == pid:
+                found.append(int(name))
+        except (OSError, IndexError, ValueError):
+            continue
+    return found
+
+
+LIBC = []
+
+
+def load_libc():
+    """libc, loaded in the parent before any child starts (a preexec_fn must not import or load anything)."""
+    if not LIBC:
+        try:
+            import ctypes
+            LIBC.append(ctypes.CDLL(None, use_errno=True))
+        except Exception:  # noqa: BLE001 - no libc here: the record and the next start do the cleaning
+            LIBC.append(None)
+    return LIBC[0]
+
+
+def die_with_parent():
+    """preexec_fn (Linux): SIGKILL for this child when the thread that started it ends, i.e. when the server is killed."""
+    try:
+        LIBC[0].prctl(1, 9)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=None, input=None, binary=False, **kwargs):
     """`env` adds a few named variables to the sanitized environment (UI-006: UAK_HUMAN for one human act).
-    `on_line` (group runs, UI-010) receives each line of standard output while the process runs."""
+    `on_line` (UI-010) receives each line of standard output while the process runs. UAK-156: whatever `group` says, the
+    child has a process group of its own that is recorded and killed when it ends, times out or the server ends."""
     environment = safe_environment()
     environment.update(env or {})
-    if not group:
-        return subprocess.run(command, cwd=cwd, timeout=timeout, env=environment,
-                              capture_output=True, text=True, encoding="utf-8", errors="replace")
-    # A coding tool starts its own children (shells, tests): on timeout the whole process group stops.
     extra = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
-    proc = subprocess.Popen(command, cwd=cwd, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", **extra)
+    if sys.platform.startswith("linux") and load_libc():
+        extra["preexec_fn"] = die_with_parent
+    text = {} if binary else {"text": True, "encoding": "utf-8", "errors": "replace"}
+    proc = subprocess.Popen(command, cwd=cwd, env=environment, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, **text, **extra)
+    track_child(proc.pid)
     job = windows_job(proc)
     holder = [job]  # the job is closed once, by whichever of stop_group or the final cleanup gets there first
     readers, lines, errors = [], [], []
@@ -282,16 +458,13 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
                 windows_job_end(holder[0], True)
                 holder[0] = None
             else:
-                subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+                kill_group(proc.pid)
         else:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except OSError:
-                pass
+            kill_group(proc.pid)
 
     def finish(wait=None):
         if not readers:
-            return proc.communicate(timeout=wait)
+            return proc.communicate(input, timeout=wait)
         proc.wait(timeout=wait)
         # One grace period for both readers, not 10 s each (UI-015: Windows QA measured 20 s).
         deadline = time.monotonic() + 10
@@ -310,11 +483,17 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
         except subprocess.TimeoutExpired:
             stop_group()
             out, err = finish()
+            if not group:
+                raise subprocess.TimeoutExpired(command, timeout, output=out, stderr=err)
             return subprocess.CompletedProcess(command, 124, out, err + "\nThe run took too long and was stopped.")
         return subprocess.CompletedProcess(command, proc.returncode, out, err)
     finally:
-        if holder[0]:
-            windows_job_end(holder[0], False)
+        if os.name == "nt":
+            if holder[0]:  # the job holds a descendant that outlived its tool; closing it ends it
+                windows_job_end(holder[0], True)
+        else:
+            kill_group(proc.pid)  # a descendant that outlived its tool does not outlive the call
+        forget_child(proc.pid)
 
 
 def redact(text):
@@ -372,11 +551,18 @@ def install_command(installer, target, options):
     return cmd + [str(target)]
 
 
+DASH = []
+
+
 def dashboard_module():
-    spec = importlib.util.spec_from_file_location("uak_dashboard", Path(__file__).with_name("dash.py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """dash.py, imported once for the whole life of the server; its git calls go through the wizard's own runner."""
+    if not DASH:
+        spec = importlib.util.spec_from_file_location("uak_dashboard", Path(__file__).with_name("dash.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.RUNNER = run_command
+        DASH.append(module)
+    return DASH[0]
 
 
 def valid_setting(key, value):
@@ -799,6 +985,28 @@ def truthful(data):
     return data
 
 
+def dashboard_key(server, root):
+    """What the dashboard of ROOT depends on, read with one `git ls-remote` and two stats; None when the remote does
+    not answer (then the full read runs and says so)."""
+    try:
+        remote, base = remote_and_base()
+        done = server.identity_run(["git", "-C", str(root), "ls-remote", "--heads", remote, "claims", base],
+                                   cwd=str(root), timeout=NET_TIMEOUT)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    tips = (done.stdout or "").strip()
+    if done.returncode != 0 or not tips:
+        return None
+    files = []
+    for name in (".uak/PROJECT.md", ".uak/TASKS.md"):
+        try:
+            seen = os.stat(os.path.join(str(root), name))
+            files.append((seen.st_mtime_ns, seen.st_size))
+        except OSError:
+            files.append(None)
+    return (tips, tuple(files))
+
+
 def last_claims(server, root, module):
     """UI-023 (B-08): the remote does not answer: the newest local copy of claims this clone has (the dashboard's,
     setup's or Git's tracking ref), built like a live read and marked stale; None when there is none."""
@@ -862,6 +1070,9 @@ class SetupServer(ThreadingHTTPServer):
         # UAK-153: the browser is opened on a one-time code, never on the token. The server exchanges the code once.
         self.clock, self.notify, self.ended, self.launcher = time.monotonic, lambda text: print(text, flush=True), False, None
         self.code, self.code_at, self.code_used, self.last_active = "", 0.0, True, self.clock()
+        self.last_request, self.closing_at, self.key = self.clock(), 0.0, secrets.token_urlsafe(24)
+        self.pages, self.reopened = {}, []  # open pages: id -> (last seen, reopens when first seen); reopen times
+        self.dash_tips = {}
         self.nonce = secrets.token_urlsafe(24)
         self.installer = Path(installer).resolve()
         self.run = run or run_command
@@ -890,6 +1101,93 @@ class SetupServer(ThreadingHTTPServer):
 
     def config(self):
         return read_config(self.target)
+
+    @property
+    def dash(self):
+        return dashboard_module()
+
+    def server_close(self):
+        super().server_close()
+        for _, parts in list(self.dash_tips.values()):
+            shutil.rmtree(parts.get("dir", ""), ignore_errors=True)
+        self.dash_tips.clear()
+
+    def remember_page(self, page, born=None):
+        """Keep PAGE (caller holds the lock): at most MAX_PAGES, the one silent the longest goes first."""
+        now = self.clock()
+        seen = self.pages.get(page)
+        if seen is None and len(self.pages) >= MAX_PAGES:
+            del self.pages[min(self.pages, key=lambda p: self.pages[p][0])]
+        self.pages[page] = (now, born if born is not None else (seen[1] if seen else None))
+
+    def seen_request(self, page=""):
+        """A request that passed every check: the server is in use, and a page that said it closed has come back. A
+        request that names its page keeps it (a request that did not pass is never counted, so invented ids cost nothing)."""
+        with self.lock:
+            self.last_request, self.closing_at = self.clock(), 0.0
+            if page:
+                self.remember_page(page)
+
+    def session_began(self, page, code):
+        """The page that exchanged CODE: when the code was minted by a second start, that reopen created this page."""
+        with self.lock:
+            born = next((i for i, (_, minted) in enumerate(self.reopened) if minted == code), None)
+            if page:
+                self.remember_page(page, born)
+
+    def reopens_for(self, page):
+        """How many second starts opened a page other than this one, and when the latest of them was."""
+        with self.lock:
+            born = (self.pages.get(page) or (0, None))[1]
+            others = [at for i, (at, _) in enumerate(self.reopened) if i != born]
+            return len(others), (time.strftime("%H:%M", time.localtime(others[-1])) if others else "")
+
+    def page_closed(self, page=""):
+        """A page says it closed. The grace starts only when no page is left (an idle second tab sends nothing)."""
+        with self.lock:
+            if page:
+                self.pages.pop(page, None)
+            else:
+                self.pages.clear()  # a request that names no page speaks for all of them
+            if not self.pages:
+                self.closing_at = self.clock()
+
+    def working(self):
+        worker = self.worker
+        return bool(worker and worker.is_alive()) or bool(CHILDREN)
+
+    def end_reason(self):
+        """Why the server should end now, or "": 15 minutes with no request, or every page said it closed and none came
+        back, and no action running. The message says how to open it again."""
+        if self.working():
+            return ""
+        now = self.clock()
+        with self.lock:
+            for page in [p for p, seen in self.pages.items() if now - seen[0] > IDLE_EXIT_SECONDS]:
+                del self.pages[page]  # silent for longer than the limit: that tab is not counted
+            closing = self.closing_at
+        if closing and now - closing >= CLOSE_GRACE_SECONDS:
+            return "the page was closed"
+        if now - self.last_request > IDLE_EXIT_SECONDS:
+            return "it had no request for %s" % duration(IDLE_EXIT_SECONDS)
+        return ""
+
+    def reopening(self):
+        """A second start asked for a new page: say so here, write it in the register, and only then mint the code."""
+        if self.ended:
+            raise Busy("The session of this setup ended. Press Ctrl+C where it runs and start it again: bash install.sh --wizard")
+        at = time.time()
+        try:
+            root = project_root(self.state.get("target") or "")
+        except (OSError, ValueError, subprocess.SubprocessError):
+            raise ValueError("Setup could not record the new page, so it did not open one.")
+        log_human_act(self, root, "reopen", "human", "-", "second-start")
+        launcher = self.make_launcher()
+        with self.lock:
+            self.reopened.append((at, self.code))
+        self.notify("UAK SETUP: a second start asked for a new page at %s. If that was not you, press Ctrl-C here."
+                    % time.strftime("%H:%M", time.localtime(at)))
+        return launcher
 
     def new_code(self):
         """A fresh one-time code (the person asks for a new page); the session ends only by idling."""
@@ -969,6 +1267,9 @@ class SetupServer(ThreadingHTTPServer):
         for cache in (self.remote_cache, self.team_cache):
             for key in [k for k in cache if k[0] == root]:
                 del cache[key]
+        old = self.dash_tips.pop(os.path.normcase(root), None)
+        if old:
+            shutil.rmtree(old[1].get("dir", ""), ignore_errors=True)
 
     def open_target(self):
         """On start (main(), never make_server): an installed project on the command line opens where it is, from
@@ -1386,6 +1687,11 @@ class SetupHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8" if html else "text/javascript; charset=utf-8" if javascript else "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-UAK-Setup", "1")
+        if self.path.startswith("/api/") and getattr(self, "page", ""):
+            count, at = self.server.reopens_for(self.page)
+            self.send_header("X-UAK-Reopens", str(count))
+            self.send_header("X-UAK-Reopened-At", at)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'nonce-%s'; style-src 'unsafe-inline'; connect-src 'self'; frame-src 'self'; img-src data: 'self'; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors %s" % (self.server.nonce, "'self'" if self.path == "/dashboard" else "'none'"))
@@ -1396,11 +1702,15 @@ class SetupHandler(BaseHTTPRequestHandler):
             pass  # Closing a tab does not cancel an installation or print session data.
 
     def authorized(self, write=False):
+        self.page = self.headers.get("X-UAK-Page", "")
+        self.page = self.page if PAGE_ID.fullmatch(self.page) else ""
         origin = "http://127.0.0.1:%d" % self.server.server_port
         if self.headers.get("Host") != origin[len("http://"):] or (write and self.headers.get("Origin") != origin):
             self.reply(403, {"error": "This request must come from the local setup page."})
             return False
-        if self.path.startswith("/api/") and self.path != "/api/session":
+        if not self.path.startswith("/api/") or self.path in ("/api/session", "/api/reopen"):
+            self.server.seen_request()  # the shell, the media and the code exchange: a use, but no page is named
+        if self.path.startswith("/api/") and self.path not in ("/api/session", "/api/reopen"):
             if not hmac.compare_digest(self.headers.get("X-UAK-Token", "").encode("utf-8"), self.server.token.encode("utf-8")):
                 self.reply(403, {"error": "This setup session expired. Reopen the address printed in the terminal."})
                 return False
@@ -1408,6 +1718,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                 self.reply(403, {"error": "This setup session ended after 30 minutes without activity. Start setup again "
                                           "from your terminal: %s" % RESTART})
                 return False
+            self.server.seen_request(self.page)  # a valid session: now the page counts
             if self.path != "/api/status":  # the page's own poll is not an action of the person
                 self.server.touch()
         return True
@@ -1442,33 +1753,12 @@ class SetupHandler(BaseHTTPRequestHandler):
                     busy = self.server.worker and self.server.worker.is_alive()
                 if not root:
                     raise ValueError("Choose a project first.")
-                spec = importlib.util.spec_from_file_location("uak_dashboard", Path(__file__).with_name("dash.py"))
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
+                module = dashboard_module()
                 if busy:
                     # UI-024 (B-10): while the engine runs the dashboard still answers, from what is known here.
                     self.reply(200, self.dashboard_meanwhile(root, module))
                     return
-                data = module.workspace_data(root)
-                if data.get("source") == "local" and data.get("connection") == "unreachable":
-                    # UI-023 (B-08): offline, the last claims this clone read, marked stale, not "everything free".
-                    try:
-                        data = last_claims(self.server, root, module) or data
-                    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, tarfile.TarError):
-                        pass  # no readable copy: the plainly labelled local plan stays
-                try:
-                    name_the_team(self.server, Path(root), data)
-                except (OSError, ValueError, subprocess.SubprocessError):
-                    pass  # the dashboard still shows who has acted; only the extra names are missing
-                config = read_config(root)
-                data["mode"] = config.get("Mode", "")
-                if not data.get("freeze"):
-                    # UI-023 (B-06): claims' config has no freeze until the engine writes one; PROJECT.md has it.
-                    try:
-                        data["freeze"] = max(0, int(read_config(root, ("Freeze-Epoch",)).get("Freeze-Epoch") or 0))
-                    except ValueError:
-                        data["freeze"] = 0
-                truthful(data)
+                data = self.dashboard_data(root, module)
                 with self.server.lock:
                     self.server.state["freeze"] = data.get("freeze") or 0
                     self.server.state["needs_human"] = data["needs_human"]
@@ -1609,6 +1899,61 @@ class SetupHandler(BaseHTTPRequestHandler):
                 "people": team_size(target) if target else 0,
                 "registered": {"name": who, "registered": None, "registered_by": "", "retired": False, "message": ""}}
 
+    def dashboard_data(self, root, module):
+        """The dashboard of the project. When the tips of claims and of the base branch did not move (one `git
+        ls-remote`) and no local file the page reads changed, nothing else runs in git: the claims copy of that tip is
+        kept, and what depends on the clock (stalled, idle, gone, lease, late, `generated`) is built again from it on
+        every answer, with no process."""
+        s = self.server
+        key = dashboard_key(s, root)
+        slot = os.path.normcase(str(root))
+        with s.lock:
+            kept = s.dash_tips.get(slot)
+        if key and kept and kept[0] == key and Path(kept[1]["dir"]).is_dir():
+            parts = kept[1]
+            data = module.build(Path(parts["dir"]), parts["backlog"], Path(root).name)
+            data.update(source="remote", connection="ok", warning="", refresh=20, live_url=parts["live_url"])
+            data["mode"] = data.get("mode") or parts["base_mode"]
+            return self.finish_dashboard(root, data, parts["known"], parts)
+        parts = {}
+        data = module.workspace_data(root, keep=parts)
+        if data.get("source") == "local" and data.get("connection") == "unreachable":
+            # UI-023 (B-08): offline, the last claims this clone read, marked stale, not "everything free".
+            try:
+                data = last_claims(s, root, module) or data
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, tarfile.TarError):
+                pass  # no readable copy: the plainly labelled local plan stays
+        known = team_known(s, root, data)
+        data = self.finish_dashboard(root, data, known, parts)
+        if key and parts.get("dir") and data.get("source") == "remote" and data.get("connection") == "ok":
+            parts.update(known=known, mode=data.get("mode", ""), freeze=data.get("freeze") or 0)
+            with s.lock:
+                old = s.dash_tips.get(slot)
+                s.dash_tips[slot] = (key, parts)
+            if old:
+                shutil.rmtree(old[1].get("dir", ""), ignore_errors=True)
+        elif parts.get("dir"):
+            shutil.rmtree(parts["dir"], ignore_errors=True)
+        return data
+
+    def finish_dashboard(self, root, data, known, parts):
+        name_the_team(self.server, Path(root), data, known)
+        if "mode" in parts and "freeze" in parts:  # a kept answer: the config was read when it was kept
+            data["mode"], freeze = parts["mode"], parts["freeze"]
+            if not data.get("freeze"):
+                data["freeze"] = freeze
+        else:
+            config = read_config(root)
+            data["mode"] = config.get("Mode", "")
+            if not data.get("freeze"):
+                # UI-023 (B-06): claims' config has no freeze until the engine writes one; PROJECT.md has it.
+                try:
+                    data["freeze"] = max(0, int(read_config(root, ("Freeze-Epoch",)).get("Freeze-Epoch") or 0))
+                except ValueError:
+                    data["freeze"] = 0
+        truthful(data)
+        return data
+
     def dashboard_meanwhile(self, root, module):
         """GET /api/dashboard while a worker runs: the last good dashboard of this project marked stale, or one built
         from local copies only (the last claims this clone read, else the local plan). Never the network."""
@@ -1696,12 +2041,28 @@ class SetupHandler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(data, dict):
                 raise ValueError("Expected a settings object.")
+            if self.path == "/api/closing":
+                self.server.page_closed(self.page)  # a request within the grace says it was a reload
+                self.reply(200, {"closing": True})
+                return
+            if self.path == "/api/reopen":
+                # A second start of setup for this project: the key is in a private file of the git directory.
+                key = self.headers.get("X-UAK-Reopen", "")
+                if not key or not hmac.compare_digest(key.encode("utf-8"), self.server.key.encode("utf-8")):
+                    self.reply(403, {"error": "That request is not from a setup start of this project."})
+                else:
+                    try:
+                        self.reply(200, {"launcher": str(self.server.reopening())})
+                    except Busy as exc:
+                        self.reply(409, {"error": str(exc)})
+                return
             if self.path == "/api/session":
                 token = self.server.exchange(data.get("code")) if set(data) == {"code"} else None
                 if token is None:
                     self.reply(403, {"error": "That code was already used or has expired. Open a new page from the terminal."})
                 else:
                     self.server.forget_launcher()
+                    self.server.session_began(self.page, data["code"])
                     self.reply(200, {"token": token})
                 return
             # Who signs is read before taking the lock (review of 949eca1: it blocked status polling) and synchronously
@@ -2566,20 +2927,31 @@ def project_progress(server, root, session=""):
     return resume, saved
 
 
-def name_the_team(server, root, data):
-    """The Agents tab lists who has acted (dash.py); setup also names the reviewer the person registered and marks the
-    human (UI-012, test round r3: luis-r was missing until its first command, and luis read "offline · 20770 d ago").
-    Read from the claims copy dash.py has just fetched; a registered reviewer never seen has last_seen 0."""
+def team_known(server, root, data):
+    """What the claims copy says about the team (registered reviewers, humans, retired), read once per tip; None when the
+    page is not reading the remote or the copy is not there."""
     if data.get("source") != "remote":
-        return
+        return None
 
     def git(*args):
         return server.planning.git(server.run, root, *args, timeout=60)
 
     if git("rev-parse", "-q", "--verify", DASH_CLAIMS + "^{commit}").returncode:
-        return
+        return None
     known = {"reviewers": {}, "retired": [], "claims": {}, "files": [], "humans": []}
-    read_claims(git, known, DASH_CLAIMS)
+    try:
+        read_claims(git, known, DASH_CLAIMS)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return known
+
+
+def name_the_team(server, root, data, known=None):
+    """The Agents tab lists who has acted (dash.py); setup also names the reviewer the person registered and marks the
+    human (UI-012, test round r3: luis-r was missing until its first command, and luis read "offline · 20770 d ago").
+    Read from the claims copy dash.py has just fetched (`known`); a registered reviewer never seen has last_seen 0."""
+    if known is None:
+        return
     agents = data.setdefault("agents", [])
     names = {a.get("name") for a in agents}
     for agent in agents:
@@ -3125,6 +3497,49 @@ def make_server(target="", installer=None, run=None):
     return SetupServer(target, installer, run)
 
 
+def running_wizard(announced):
+    """The first wizard of this project when it answers, as (port, reopened launcher path or "", why not); None for a stale record
+    (a dead process, or a port nobody answers on, or something that is not a wizard)."""
+    import http.client
+    try:
+        pid, port = announced.read_text(encoding="ascii").split()[:2]
+        port = int(port)
+        int(pid)
+    except (OSError, ValueError):
+        return None
+    host = "127.0.0.1:%d" % port
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/", headers={"Host": host})
+        answer = conn.getresponse()
+        answer.read()
+        conn.close()
+        if answer.status != 200 or answer.getheader("X-UAK-Setup") != "1":
+            return None
+    except (OSError, http.client.HTTPException):
+        return None
+    launcher, failure = "", ""
+    try:
+        key = (announced.parent / KEY_FILE).read_text(encoding="ascii").strip()
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("POST", "/api/reopen", b"{}", {"Host": host, "Origin": "http://" + host, "X-UAK-Reopen": key,
+                                                    "Content-Type": "application/json"})
+        answer = conn.getresponse()
+        body = answer.read()
+        conn.close()
+        if answer.status == 200:
+            launcher = json.loads(body.decode("utf-8")).get("launcher", "")
+        else:
+            failure = str(json.loads(body.decode("utf-8")).get("error", ""))
+    except (OSError, ValueError, http.client.HTTPException):
+        launcher = ""
+    return port, launcher, failure
+
+
+def duration(seconds):
+    return "%d minutes" % (seconds // 60) if seconds >= 60 and seconds % 60 == 0 else "%d seconds" % seconds
+
+
 def main():
     parser = argparse.ArgumentParser(description="Configure the kit in a local browser. Keep this terminal open.")
     parser.add_argument("target", nargs="?", default=str(Path.cwd()))
@@ -3135,27 +3550,109 @@ def main():
     if reason:
         print(refusal_text(reason), file=sys.stderr, flush=True)
         return 2
+    # UAK-156: one server per project. A record that answers is the server to open; a stale one is replaced, and the
+    # children a killed server left are ended from its record.
+    announced = port_file(args.target)
+    if announced:
+        reused = running_wizard(announced)
+        if reused:
+            port, launcher, failure = reused
+            print("UAK SETUP is already running for this project at http://127.0.0.1:%d/ (it starts nothing new)." % port,
+                  flush=True)
+            if not launcher:
+                print("%s It did not give a new page. Use the terminal where it runs, or end it there with Ctrl+C and "
+                      "start again: %s" % (failure, RESTART), flush=True)
+                return 1
+            print("Launcher file: %s" % launcher, flush=True)
+            if not args.no_open:
+                try:
+                    webbrowser.open(Path(launcher).as_uri())
+                except (OSError, webbrowser.Error):
+                    print("Could not open a browser. Open the launcher file above in your browser.", flush=True)
+            return 0
+        try:
+            seen = announced.read_bytes()
+        except OSError:
+            seen = None
+        if seen is not None:
+            reap_children(announced.parent / CHILD_RECORD)
+            try:
+                unchanged = announced.read_bytes() == seen  # another start may have replaced it meanwhile
+            except OSError:
+                unchanged = False
+            for stale in ((announced, announced.parent / KEY_FILE) if unchanged else ()):
+                try:
+                    stale.unlink()
+                except OSError:
+                    pass
+        CHILD_FILE[0] = announced.parent / CHILD_RECORD
     server = make_server(args.target)
+    why = ["it was stopped"]
 
     def ended(signum, frame):
+        try:
+            why[0] = "it received %s" % signal.Signals(signum).name
+        except ValueError:
+            pass
         raise KeyboardInterrupt  # the finally below removes the launcher folder
 
-    for name in ("SIGTERM", "SIGHUP"):  # SIGHUP does not exist on Windows
+    for name in ("SIGTERM", "SIGHUP", "SIGINT"):  # SIGHUP does not exist on Windows
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), ended)  # before anything is printed or created
-    announced = port_file(args.target)
+    owned = []
+    if announced:
+        # The key first, then the port, each created exclusively: a second start never sees a port without its key, and
+        # of two starts at once one wins and the other opens the winner's page.
+        try:
+            descriptor = os.open(str(announced.parent / KEY_FILE), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            owned.append(announced.parent / KEY_FILE)
+            with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+                handle.write(server.key + "\n")
+            descriptor = os.open(str(announced), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+            owned.append(announced)
+            with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+                handle.write("%d %d\n" % (os.getpid(), server.server_port))
+        except FileExistsError:
+            server.server_close()
+            for name in owned:
+                try:
+                    name.unlink()
+                except OSError:
+                    pass
+            for _ in range(100):  # the winner writes its port a moment after its key
+                time.sleep(0.1)
+                reused = running_wizard(announced)
+                if reused:
+                    port, launcher, failure = reused
+                    print("UAK SETUP is already running for this project at http://127.0.0.1:%d/ (it starts nothing new)."
+                          % port, flush=True)
+                    if launcher:
+                        print("Launcher file: %s" % launcher, flush=True)
+                        return 0
+                    print("%s Start again: %s" % (failure, RESTART), flush=True)
+                    return 1
+            if not announced.exists():  # a start that died between its key and its port
+                try:
+                    (announced.parent / KEY_FILE).unlink()
+                except OSError:
+                    pass
+            print("Another setup is starting for this project and did not answer. Start again: %s" % RESTART, flush=True)
+            return 1
+        except OSError:
+            for name in owned:
+                try:
+                    name.unlink()
+                except OSError:
+                    pass
+            owned, announced = [], None
     try:
-        if announced:
-            try:
-                announced.write_bytes(("%d %d\n" % (os.getpid(), server.server_port)).encode("ascii"))
-            except OSError:
-                announced = None
         server.open_target()  # UI-019: an installed project opens where it is, not on the welcome screen
         launcher = server.make_launcher()
         print("UAK SETUP http://127.0.0.1:%d/" % server.server_port, flush=True)
         print("Launcher file: %s" % launcher, flush=True)
         print("Keep this terminal open. The page opens from that file with a one-time code (valid %d seconds, used once); "
-              "press Ctrl+C here to stop." % CODE_SECONDS, flush=True)
+              "press Ctrl+C here to stop. Setup ends by itself when the page is closed or after %s with no request."
+              % (CODE_SECONDS, duration(IDLE_EXIT_SECONDS)), flush=True)
         if not args.no_open:
             try:
                 webbrowser.open(launcher.as_uri())
@@ -3163,21 +3660,33 @@ def main():
                 print("Could not open a browser. Open the launcher file above in your browser.", flush=True)
 
         def watch():
-            while not server.expire_if_idle():
-                time.sleep(15)
+            while True:
+                time.sleep(1)
+                server.expire_if_idle()
+                found = server.end_reason()
+                if found:
+                    why[0] = found
+                    server.shutdown()
+                    return
 
         threading.Thread(target=watch, daemon=True).start()
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        server.server_close()
+        server.server_close()  # the port is free before anything else is done
+        stop_children()
         server.forget_launcher()
         if announced:
-            try:
-                announced.unlink()
-            except OSError:
-                pass
+            for name in (announced.name, KEY_FILE, CHILD_RECORD):
+                try:
+                    (announced.parent / name).unlink()
+                except OSError:
+                    pass
+        try:
+            print("UAK SETUP ended: %s. To open it again run: %s" % (why[0], RESTART), flush=True)
+        except (OSError, ValueError):
+            pass  # the terminal is gone (a closed window): the exit is still clean
     return 0
 
 

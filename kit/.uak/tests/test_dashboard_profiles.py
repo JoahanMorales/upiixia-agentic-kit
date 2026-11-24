@@ -134,7 +134,7 @@ def configuration_rechecks_automatically(root, tmp):
     assert 'currentSection !== "dashboard"' not in body, "the re-check is not limited to the Dashboard section"
     assert "state.guidance" in body, "in Configuration the re-check follows the status guidance"
     assert re.search(r'addEventListener\("visibilitychange", autoCheck\)', text)
-    assert re.search(r"setInterval\(autoCheck, 60000\)", text)
+    assert not re.search(r"setInterval\(autoCheck, 60000\)", text)
 
 
 def long_project_path_wraps(root, tmp):

@@ -34,14 +34,22 @@ BASE_PROJECT = "base-project.md"  # snapshot() leaves the base branch's PROJECT.
 GIT_TIMEOUT = 30  # seconds: an unreachable remote must end in a message, not a hang (audit of v6.5.0, #9)
 
 
-def run_git(*args, cwd=None):
+RUNNER = None  # UAK-156: the wizard sets this to its own runner, so every git of the page is a child it records and ends
+
+
+def run_git(*args, cwd=None, input=None):
     """subprocess.run of git with the timeout; a timeout becomes a RuntimeError of one line."""
+    if RUNNER:
+        try:
+            return RUNNER(["git", *args], cwd=cwd, timeout=GIT_TIMEOUT, binary=True, input=input)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("git %s timed out after %d s: is the remote reachable?" % (args[0] if args else "", GIT_TIMEOUT)) from None
     # No prompt for credentials, and a git hook's own GIT_DIR must not redirect the call (the page may start from a hook).
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never")
     for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"):
         env.pop(key, None)
     try:
-        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, env=env, timeout=GIT_TIMEOUT)
+        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, env=env, timeout=GIT_TIMEOUT, input=input)
     except subprocess.TimeoutExpired:
         raise RuntimeError("git %s timed out after %d s: is the remote reachable?" % (args[0] if args else "", GIT_TIMEOUT)) from None
 
@@ -115,10 +123,7 @@ def snapshot(root, claims_dir=None):
                     t.extract(m, tmp)
     # TASKS.md and PROJECT.md of the base branch in one git process (UAK-147: the leases are read from the base's PROJECT.md, as status and board do).
     names = ["refs/uak/dash-base:.uak/TASKS.md", "refs/uak/dash-base:.uak/PROJECT.md"]
-    try:
-        blob = subprocess.run(["git", "cat-file", "--batch"], cwd=root, input="\n".join(names).encode() + b"\n", capture_output=True, timeout=GIT_TIMEOUT).stdout
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("git cat-file timed out after %d s" % GIT_TIMEOUT) from None
+    blob = run_git("cat-file", "--batch", cwd=root, input="\n".join(names).encode() + b"\n").stdout
     texts, pos = [], 0
     for _ in names:
         end = blob.find(b"\n", pos)
@@ -184,8 +189,10 @@ def base_mode(root):
     return project_mode(git("show", "refs/uak/dash-base:.uak/PROJECT.md", cwd=root, check=False).decode("utf-8", "replace"))
 
 
-def workspace_data(root):
-    """The same dashboard model, including a clearly labelled offline/local-plan state."""
+def workspace_data(root, keep=None):
+    """The same dashboard model, including a clearly labelled offline/local-plan state. `keep` (a dict, UAK-156): the
+    claims copy and what was read beside it stay on disk and are put in it, for a caller that builds the model again
+    from them (it removes the folder); without it the copy is removed here."""
     remote = os.environ.get("UAK_REMOTE", "origin")
     configured = git("config", "--get", "remote.%s.url" % remote, cwd=root, check=False).strip()
     extracted = None
@@ -196,6 +203,9 @@ def workspace_data(root):
             data = build(extracted, backlog, Path(root).name)
             data.update(source="remote", connection="ok", warning="", refresh=20, live_url=base_live_url(root))
             data["mode"] = data.get("mode") or base_mode(root)
+            if keep is not None:
+                keep.update(dir=str(extracted), backlog=backlog, live_url=data["live_url"], base_mode=data["mode"])
+                extracted = None
             return data
         except (OSError, RuntimeError, subprocess.SubprocessError):
             # A remote that exists but cannot be read is a different problem from no remote at all.

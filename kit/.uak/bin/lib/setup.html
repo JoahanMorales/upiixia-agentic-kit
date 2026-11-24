@@ -890,6 +890,9 @@
       .server-gone[hidden] {
         display: none;
       }
+      .reopened {
+        top: 68px;
+      }
       #team-name-block input {
         width: 100%;
         box-sizing: border-box;
@@ -1307,6 +1310,10 @@
     <div class="notice error server-gone" id="server-gone" role="alert" hidden>
       <span id="server-gone-text">Setup has closed: run the command again and open the new link.</span>
       <button type="button" class="secondary-button" id="server-gone-retry">Retry</button>
+    </div>
+    <div class="notice error server-gone reopened" id="reopened" role="alert" hidden>
+      <span id="reopened-text"></span>
+      <button type="button" class="secondary-button" id="reopened-dismiss" data-i18n="Dismiss">Dismiss</button>
     </div>
     <a class="skip" href="#content">Skip to setup</a>
     <header class="header">
@@ -2282,6 +2289,8 @@
       (function () {
         "use strict";
         // UAK-153: the address carries a one-time code, not the session. The server exchanges it once for the token.
+        // UAK-156: each page has an id, so setup knows which pages are open (closing one tab leaves the other's server).
+        var pageId = Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
         var token = "",
           session = Promise.resolve(),
           codeMatch = /^#code=([A-Za-z0-9_-]+)$/.exec(location.hash);
@@ -2292,7 +2301,7 @@
           // Asynchronous, so nothing blocks the page: the first request (below) waits for it.
           session = fetch("/api/session", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-UAK-Page": pageId },
             body: JSON.stringify({ code: codeMatch[1] }),
           })
             .then(function (response) {
@@ -2319,6 +2328,8 @@
           currentSection = "setup",
           dashboardLoading = false,
           dashboardAgain = false,
+          dashboardUnchanged = 0,
+          dashboardSignature = "",
           checkRequested = false,
           lastStepTitle = "";
         function el(id) {
@@ -2466,7 +2477,9 @@
         }
         // Guided re-check: when the person comes back to the tab, and every minute while a blocker is shown,
         // in whichever section shows it (Configuration reads the status guidance, the Dashboard its own).
+        var lastAutoCheck = 0;
         function autoCheck() {
+          if (Date.now() - lastAutoCheck < 120000) return;
           var g =
             (currentSection === "dashboard" &&
               latestDashboard &&
@@ -2483,6 +2496,7 @@
             g.kind !== "todo"
           )
             return;
+          lastAutoCheck = Date.now();
           startCheck(false);
           lastButton = currentSection === "dashboard" ? "next-check" : "check";
           api("check", {})
@@ -2493,7 +2507,8 @@
             .catch(function () {});
         }
         document.addEventListener("visibilitychange", autoCheck);
-        setInterval(autoCheck, 60000);
+        // UAK-156: no timer runs the readiness check. It runs when the page loads, after an action and on a button;
+        // coming back to the tab asks again at most every two minutes, and only while a blocker is shown.
         function operationBusy() {
           return isBusy(state.phase);
         }
@@ -2961,6 +2976,26 @@
           sendDashboard();
         }
         var dashboardTries = 0;
+        // UAK-156: the dashboard asks again after 20 s, then 60 s, then 120 s while nothing changes, and not at all
+        // while the page is hidden (it asks once when the page is shown again).
+        var DASH_BACKOFF = [20000, 60000, 120000];
+        function dashboardDelay(unchanged) {
+          return DASH_BACKOFF[Math.min(unchanged, DASH_BACKOFF.length - 1)];
+        }
+        function scheduleDashboard(soon) {
+          if (dashboardTimer) clearTimeout(dashboardTimer);
+          dashboardTimer = null;
+          if (gone || document.hidden || currentSection !== "dashboard") return;
+          dashboardTimer = setTimeout(loadDashboard, soon ? 1500 : dashboardDelay(dashboardUnchanged));
+        }
+        function dashboardChanged(data) {
+          var signature = JSON.stringify([data.progress, data.counts, (data.tasks || []).map(function (t) {
+            return t.id + ":" + t.status;
+          }), (data.agents || []).length, (data.messages || []).length, data.connection, data.stale, data.source]);
+          var changed = signature !== dashboardSignature;
+          dashboardSignature = signature;
+          dashboardUnchanged = changed ? 0 : dashboardUnchanged + 1;
+        }
         async function loadDashboard() {
           if (gone) return;
           // A request while one is in flight (e.g. a check just finished) loads again right after it.
@@ -2995,6 +3030,7 @@
           try {
             var data = await api("dashboard");
             if (state.target === target) drawDashboard(data);
+            dashboardChanged(data);
             dashboardTries = 0;
           } catch (e) {
             if (e.gone) {
@@ -3013,8 +3049,7 @@
             if (dashboardAgain && currentSection === "dashboard") {
               dashboardAgain = false;
               loadDashboard();
-            } else if (currentSection === "dashboard" && !gone)
-              dashboardTimer = setTimeout(loadDashboard, soon ? 1500 : 20000);
+            } else scheduleDashboard(soon);
           }
         }
         function show(index, focus) {
@@ -3046,8 +3081,23 @@
           el("error").textContent = UAKWorkspace.t(message);
           el("error").hidden = false;
         }
+        // A second start of setup for this project opened another page: the answer says how many since this page began.
+        function reopenedNotice(response) {
+          var count = parseInt(response.headers.get("X-UAK-Reopens") || "0", 10);
+          if (count > 0 && el("reopened").hidden) {
+            el("reopened-text").textContent = UAKWorkspace.format(
+              "Another page of setup was opened at {time} from a second start in a terminal. If you did that, there is nothing to do. If not, press Ctrl+C in the terminal where setup runs.",
+              { time: response.headers.get("X-UAK-Reopened-At") || "" },
+            );
+            el("reopened").hidden = false;
+          }
+        }
+        el("reopened-dismiss").onclick = function () {
+          el("reopened").hidden = true;
+        };
         async function api(path, data) {
           var options = { headers: { "X-UAK-Token": token } };
+          if (typeof pageId === "string") options.headers["X-UAK-Page"] = pageId;
           if (data !== undefined) {
             options.method = "POST";
             options.headers["Content-Type"] = "application/json";
@@ -3056,6 +3106,7 @@
           var response, body;
           try {
             response = await fetch("/api/" + path, options);
+            if (typeof reopenedNotice === "function" && response.headers) reopenedNotice(response);
             body = await response.json();
           } catch (e) {
             throw serverLost(e); // no answer, or not setup's answer: setup has closed (UI-019)
@@ -3812,6 +3863,7 @@
         function scheduleProbe() {
           clearTimeout(probeTimer);
           probeTimer = null;
+          if (document.hidden) return; // back in view, the visibilitychange below asks once
           var delay = probeDelay(probeTries);
           if (delay === undefined) return;
           probeTries += 1;
@@ -3839,6 +3891,28 @@
         };
         document.addEventListener("visibilitychange", function () {
           if (gone && !document.hidden && !probeTimer) probe();
+          // UAK-156: what stopped while the page was hidden starts again, once.
+          if (!document.hidden && !gone) {
+            api("status").catch(function () {}); // this page says it is here (another tab may have closed meanwhile)
+            if (currentSection === "dashboard" && !dashboardTimer) loadDashboard();
+            if (!timer && isBusy(state.phase)) refresh();
+          }
+        });
+        // UAK-156: a page that closes says so, so setup can end by itself (a reload comes back within seconds and
+        // keeps it; an action that runs keeps it too). The session may already be gone: nothing to do then.
+        window.addEventListener("pagehide", function (event) {
+          if (gone || !token) return;
+          try {
+            fetch("/api/closing", {
+              method: "POST",
+              keepalive: true,
+              headers: { "X-UAK-Token": token, "X-UAK-Page": pageId, "Content-Type": "application/json" },
+              body: "{}",
+            }).catch(function () {});
+          } catch (e) {}
+        });
+        window.addEventListener("pageshow", function (event) {
+          if (event.persisted && !gone) refresh();
         });
         // UI-019 resume: end
         function profile(value) {
@@ -4829,7 +4903,8 @@
           try {
             var data = await api("status");
             render(data);
-            if (isBusy(data.phase))
+            // Progress of a running action: every 1.2 s while it runs and the page is shown, never while it is hidden.
+            if (isBusy(data.phase) && !document.hidden)
               timer = setTimeout(refresh, 1200);
           } catch (e) {
             if (e.gone) return; // the banner says it once (UI-019)
