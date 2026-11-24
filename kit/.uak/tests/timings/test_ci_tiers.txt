@@ -1,4 +1,4 @@
-# measured 2026-11-24 45448338317
-# each entry is ceil(MAXIMUM over the runs read) + 1 s: runs 45448338317 45440020253 45400014832 45395715008 45378320442 45377822264 45362548285, `ci` over Linux and macOS, `windows` over Windows: Linux max 4.12, macOS max 15.14, Windows max 28.6 over the runs read, plus about 8 s on every system for the two cases UAK-191 adds (to be checked against the next run of this branch)
-ci 22
-windows 35
+# measured 2026-11-24 45456950612
+# each entry is ceil(MAXIMUM over the runs read) + 1 s: runs 45456950612 45448338317 45440020253 45400014832 45395715008 45378320442 45377822264 45362548285, `ci` over Linux and macOS, `windows` over Windows: Linux max 4.12, macOS max 15.14, Windows max 28.6
+ci 17
+windows 30
