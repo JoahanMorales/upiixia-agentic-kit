@@ -45,5 +45,6 @@ source of truth for what shipped is `CHANGELOG.md`, and for what is next, `docs/
 | [`followups-v69-3.md`](followups-v69-3.md) | UAK-190 · A killed black-box flush leaves no clone directory on Windows; UAK-191 CI leftovers | written 2026-11-24, published 2026-11-24 |
 | [`followups-v69-amend-191.md`](followups-v69-amend-191.md) | Amend of UAK-191: the shard replays of `test_ci_tiers` stop reading the live table; priority P0 | written 2026-11-24, waiting for the human to publish with `--amend` |
 | [`visual-setup-amend-5.md`](visual-setup-amend-5.md) | Amend of UAK-159 (the last screen says the terminal command, rail names) and UAK-160 (the install's question in Spanish) | written 2026-11-24, published 2026-11-24 |
+| [`visual-setup-amend-6.md`](visual-setup-amend-6.md) | Amend of UAK-159: `docs/DASHBOARD.md` leaves its Paths (no clause needs it), so UAK-162 can run beside it | written 2026-11-24, waiting for the human |
 | [`port-go.md`](port-go.md) | Porting the engine to Go (or Rust): an estimate | decided: not porting |
 | [`video.md`](video.md) | Plan: `uak video` (the project's video, made from the repo's own facts) | not published; v7.2 |
