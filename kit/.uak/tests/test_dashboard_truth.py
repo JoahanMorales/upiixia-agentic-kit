@@ -235,8 +235,85 @@ def dashboard_meets_contrast_and_targets(root, tmp):
     assert re.search(r'pres\(online\.length \? "online" : "offline"\)', dash), "grey dot at 0 agents"
 
 
+def dash_source(root):
+    return (root / ".uak/bin/lib/dash.html").read_text(encoding="utf-8")
+
+
+def dashboard_keeps_every_field(root, tmp):
+    """UAK-162: the redesign drops no field the dashboard showed (v6.8 and the UAK-158 page): every part of the data the
+    old page read is still read, and the four figures, the four stages and the seven views are still drawn."""
+    dash = dash_source(root)
+    for field in ("d.progress", "d.agents", "d.offers", "d.queue", "d.messages", "d.blackbox", "d.usage", "d.lessons", "d.decisions",
+                  "d.tokens", "d.timelines", "d.reviews", "d.freeze", "d.stale", "d.claims_at", "d.mode", "d.repo", "D.refresh",
+                  "t.stalled", "t.sub", "t.pr", "t.participants", "t.harnesses", "t.priority", "t.depends", "t.away", "t.progress",
+                  "a.messages", "a.verdicts", "a.checkpoints", "a.role", "a.last_seen", "p.weighted"):
+        assert field in dash, "the page no longer reads %s" % field
+    for label in ("Agents online", "Reviews waiting", "Stalled", "Needs a human", "Available", "In progress", "In review", "Integrated"):
+        assert 'T("%s")' % label in dash, "the label %r is gone" % label
+    for view in ("sum", "board", "agents", "talk", "bb", "memory", "tokens"):
+        assert '["%s", "' % view in dash, "the view %s is gone" % view
+    # one registry: each block has a name, a title, a column, a maximum of rows and one render function
+    blocks = re.search(r"var BLOCKS = \[(.*?)\n  \];", dash, re.S).group(1)
+    entries = re.findall(r"\{ name: \"(\w+)\", title: function \(\) \{[^}]*\}, col: \"(main|side)\", max: ([\w]+), render: (\w+) \}", blocks)
+    assert [e[0] for e in entries] == ["needs", "tasks", "lanes", "progress", "agents", "pace", "tokens"], entries
+    assert [e[1] for e in entries] == ["main"] * 3 + ["side"] * 4, "the order of the summary: what needs you, tasks, activity; at the side progress, agents, pace, tokens"
+    assert len(re.findall(r"BLOCKS\.forEach", dash)) == 1, "the summary is drawn from the registry only"
+    # the summary never grows with the plan: tasks 8 rows, agents 4, progress blocks up to 24
+    maxima = {e[0]: e[2] for e in entries}
+    assert maxima["agents"] == "4" and maxima["tasks"] == "MAXTASKS" and "MAXTASKS = 8" in dash and maxima["progress"] == "24", maxima
+    assert "total <= 24" in dash, "progress is one block per task up to 24 and one bar beyond"
+    assert "document.title = (n ?" in dash, "the tab's title says how many things need the person"
+
+
+def empty_project_says_the_next_step(root, tmp):
+    """An empty project is not a grid of zeros: it says the one next step and its command; a finished one says it is finished."""
+    dash = dash_source(root)
+    assert "empty = !d.tasks.length" in dash and 'copyBox("bash .uak/bin/uak start")' in dash, "the empty project shows its command"
+    assert "L('Your project has no plan yet')" in dash and "L('Nothing is claimed, reviewed or integrated yet, so every figure here is zero.')" in dash
+    assert "finished = p.total > 0 && p.done === 100" in dash and "L('Everything is integrated')" in dash, "the finished project says so"
+    for zero in ("none in the last 30 min", "none waiting", "every task is moving", "nothing for you"):
+        assert 'T("%s")' % zero in dash, "a zero says why in words: %s" % zero
+    assert "L('Nothing has been integrated yet: the first integration starts this chart.')" in dash
+
+
+def no_server_no_request(root, tmp):
+    """One file opened from file://: no request of its own, no server, no external address, two timers that start no process."""
+    dash = dash_source(root)
+    for needle in ("fetch(", "XMLHttpRequest", "WebSocket", "EventSource", "sendBeacon", "new Worker", "child_process", "importScripts"):
+        assert needle not in dash, "the page must not use %s" % needle
+    assert not re.search(r"(?:src|href)=\"https?:", dash), "no external script, style or link"
+    assert re.findall(r'<script src="([^"]+)"', dash) == ["workspace.js", "data.js"], "the only scripts beside the page are its own files"
+    assert len(re.findall(r"setInterval\(", dash)) == 2, "two timers: the freshness label and the data reload"
+    assert 'url(fonts/' in dash and 'url(http' not in dash, "fonts load from files beside the page"
+
+
+def page_is_not_heavier(root, tmp):
+    """The clause says "not heavier than today (84 KB)": the page of 2026-11-23 was 84,057 bytes. It is measured on bytes, as
+    written (84 KiB). The page of main on 2026-11-24 was 103,903 bytes, 11 KB of it the shared design block of UAK-158."""
+    size = len((root / ".uak/bin/lib/dash.html").read_bytes())
+    assert size <= 84 * 1024, "dash.html is %d bytes; the clause allows 84 KiB (%d)" % (size, 84 * 1024)
+
+
+def both_profiles_and_languages_are_complete(root, tmp):
+    """Every label the page draws has its Spanish, those of workspace.js and those the page holds itself (ES), and the
+    embedded profile hooks (the wizard's beginner and advanced views) are still wired."""
+    dash = dash_source(root)
+    text = (root / ".uak/bin/lib/workspace.js").read_text(encoding="utf-8")
+    catalog = {json.loads(a): json.loads(b) for a, b in re.findall(r'\[\s*("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*")\s*,?\s*\]', text)}
+    own = dict(re.findall(r"\n    '((?:[^'\\]|\\.)*)': '((?:[^'\\]|\\.)*)'", dash))
+    used = set(m.replace("\\'", "'") for m in re.findall(r"\bL\('((?:[^'\\]|\\.)*)'\)", dash))
+    own = {k.replace("\\'", "'"): v for k, v in own.items()}
+    missing = sorted(k for k in used if k not in own and k not in catalog)
+    assert not missing, "labels with no Spanish: %r" % missing
+    assert not [k for k, v in own.items() if not v or v == k], "a Spanish line that is empty or equal to its English"
+    assert not sorted(k for k in own if k not in used), "Spanish lines for labels the page does not draw: %r" % sorted(k for k in own if k not in used)
+    for hook in ("UAK_EMBEDDED", "UAK_DASH_LOOK", "uak:state", "uak:language", "UAKLook", "UAKWorkspace.start(document.body)", "prefers-reduced-motion"):
+        assert hook in dash, "the page lost %s" % hook
+
+
 TESTS = [blocked_tasks_are_not_available, frozen_is_frozen, needs_human_comes_first, offline_uses_last_claims,
-         dashboard_meets_contrast_and_targets]
+         dashboard_meets_contrast_and_targets, dashboard_keeps_every_field, empty_project_says_the_next_step, no_server_no_request,
+         page_is_not_heavier, both_profiles_and_languages_are_complete]
 
 
 def main():
