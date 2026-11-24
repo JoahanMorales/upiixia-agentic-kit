@@ -1,2 +1,3 @@
 ci 60
-windows 90
+windows 105
+# measured 2026-11-24 45327694530

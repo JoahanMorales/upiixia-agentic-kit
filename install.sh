@@ -20,6 +20,9 @@
 # keeps that choice (no MCP config in the project = none); --mcp adds the server back.
 set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# A path in a command we print is single-quoted (a ' inside becomes '\''): pasted, it is one word whatever the folder is
+# called ($HOME, backticks, a quote, a newline). The x keeps a trailing newline of the name.
+shq() { _q=$(printf '%sx' "$1" | sed "s/'/'\\\\''/g"); printf "'%s'" "${_q%x}"; }
 kit="$here/kit"
 # Visual setup: the wizard runs the installer and uak start with this same Bash. Used by the first-argument form below
 # (before installing) and by the end-of-install choice (UAK-161).
@@ -414,7 +417,7 @@ rm -f "$target/.uak/INSTALLING"  # every step above succeeded (set -eu stops at 
 cat <<EOF
 
 Done. Next:
-  1. cd "$target" && bash .uak/bin/uak start   (each step to the first claim, in order; runs doctor; again after each fix)
+  1. cd $(shq "$target") && bash .uak/bin/uak start   (each step to the first claim, in order; runs doctor; again after each fix)
   2. Open Claude Code (or Codex / Cursor / Gemini CLI) there and run /uak-setup
   3. /uak-plan → each agent: bash .uak/bin/wt new ID (reuses a free identity, or --agent NAME)
 Files ending in .uak-new: merge them by hand; the kit never overwrites yours.
@@ -428,9 +431,9 @@ EOF
 # step done in one is done in the other. A person at a terminal is asked one key; with no terminal (a pipe, CI, an agent)
 # nothing is asked and nothing opens: the two commands are said. The wizard refuses an agent and a missing terminal by
 # itself (lib/setup.py agent_reason / terminal_reason); this agrees with it and never works around it.
-qt="\"$target\""
+qt=$(shq "$target")
 term_cmd="cd $qt && bash .uak/bin/uak start"
-wiz_cmd="bash \"$here/install.sh\" --wizard $qt"
+wiz_cmd="bash $(shq "$here/install.sh") --wizard $qt"
 both() { printf 'Continue in the terminal: %s\nContinue in the browser:  %s\n' "$term_cmd" "$wiz_cmd"; }
 agent_here=
 [ -z "${UAK_AGENT:-}" ] || agent_here=yes
@@ -445,6 +448,10 @@ printf '\n'
 # --terminal is safe anywhere, so it is remembered; the browser is remembered only once it opens.
 [ "$choice" != terminal ] || git -C "$target" config --local uak.start terminal
 if [ -n "$agent_here" ] || [ -z "$at_terminal" ]; then
+  if [ "$choice" = browser ]; then
+    if [ -n "$agent_here" ]; then printf '%s\n' "You asked for the browser, but an agent or CI runs this, so the page was not opened."
+    else printf '%s\n' "You asked for the browser, but there is no terminal here, so the page was not opened."; fi
+  fi
   both; exit 0
 fi
 have_browser() {
@@ -463,18 +470,19 @@ remembered=$(git -C "$target" config --local --get uak.start 2>/dev/null || true
 case "$remembered" in browser) dflt=b;; *) dflt=t;; esac
 if [ -z "$choice" ]; then
   printf 'Continue in the browser (b: a local page) or here in the terminal (t or Enter: uak start)? [%s] ' "$dflt"
-  key=; got=yes
-  read -r -n 1 key || got=
-  printf '\n'
-  if [ "$key" = "$(printf '\004')" ]; then key=; got=; fi  # Ctrl-D at a terminal
+  line=; got=yes
+  read -r line || got=
+  [ -n "$got" ] || [ -n "$line" ] || printf '\n'  # Ctrl-D: the line the person never ended
+  shown=$(printf '%s' "$line" | tr -d '[:cntrl:]' | sed 's/^ *//; s/ *$//')
+  key=$(printf '%s' "$shown" | tr '[:upper:]' '[:lower:]')
   if [ -z "$got" ] && [ -z "$key" ]; then
     printf 'No answer, so here in the terminal.\n'; both; exit 0
   fi
   case "$key" in
     '') case "$dflt" in b) choice=browser;; *) choice=terminal;; esac;;
-    b|B) choice=browser;;
-    t|T) choice=terminal;;
-    *) printf '"%s" is not b or t, so here in the terminal.\n' "$key"; both; exit 0;;
+    b|browser|navegador) choice=browser;;
+    t|terminal) choice=terminal;;
+    *) printf '"%s" is not b or t, so here in the terminal.\n' "$shown"; both; exit 0;;
   esac
 fi
 if [ "$choice" = browser ]; then
@@ -487,8 +495,9 @@ if [ "$choice" = browser ]; then
   fi
   git -C "$target" config --local uak.start browser
   printf 'Opening the browser setup. Keep this terminal open; Ctrl+C ends it. The terminal way stays: %s\n' "$term_cmd"
-  run_wizard "$target" $no_open || { printf 'Could not start the browser setup. Continue in the terminal: %s\n' "$term_cmd"; }
-  exit 0
+  # exec: the wizard replaces this process (it keeps this terminal). have_python above already made sure it can start.
+  run_wizard "$target" $no_open
+  exit 1
 fi
 git -C "$target" config --local uak.start terminal
 printf 'Next: %s\n' "$term_cmd"

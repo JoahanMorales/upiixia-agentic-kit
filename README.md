@@ -560,7 +560,7 @@ Mix them freely: coordination lives in Git, not in any tool.
 | Command | What |
 |---|---|
 | `uak demo` | see everything in 30 s |
-| `uak start [--fix]` | install → first claim: what is missing, in order, then the one command that starts |
+| `uak start [--fix \| --steps \| --wizard]` | install → first claim: what is missing, in order, then the one command that starts |
 | `uak next` | what you should do now; with nothing to offer, why (per task) |
 | `wt new ID [--agent NAME]` | start a task (branch, worktree, port, claim); without `--agent` it reuses a free identity of this machine |
 | `uak loop --verify CMD [--parallel N --each CMD]` | bounded autonomous fix loop, one per failing file |

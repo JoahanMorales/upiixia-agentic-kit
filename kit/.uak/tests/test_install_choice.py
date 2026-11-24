@@ -148,7 +148,7 @@ def install_asks_once_at_a_terminal(c):
     if why:
         return why
     d = c.repo()
-    out, code, _ = c.pty(d, b"t")
+    out, code, _ = c.pty(d, b"t\n")
     expect(code == 0, "install exits 0: " + tail(out))
     expect(out.count(QUESTION) == 1, "the question appears once: " + tail(out))
     line = [l for l in out.splitlines() if QUESTION in l][0]
@@ -164,14 +164,14 @@ def install_asks_once_at_a_terminal(c):
     expect(cfg(d2) == "terminal", "Enter is remembered as terminal")
     # the browser: one key, the wizard starts and the opener is called with its launcher
     d3 = c.repo()
-    out, code, opened = c.pty(d3, b"b", wait_open=True)
+    out, code, opened = c.pty(d3, b"b\n", wait_open=True)
     expect(opened, "the wizard opened its page through the opener: " + tail(out))
     expect(c.opens()[0].startswith("file:"), "the opener got the launcher file: %r" % c.opens())
     expect("UAK SETUP http://127.0.0.1:" in out, "the wizard printed its address: " + tail(out))
     # an unknown answer and Ctrl-D continue in the terminal and say so
     before = len(c.opens())
     d4 = c.repo()
-    out, code, _ = c.pty(d4, b"x")
+    out, code, _ = c.pty(d4, b"x\n")
     expect(code == 0 and '"x"' in out and "terminal" in out.splitlines()[-2] + out.splitlines()[-1],
            "an unknown key says so and continues here: " + tail(out))
     expect(len(c.opens()) == before, "an unknown key opens nothing")
@@ -257,10 +257,10 @@ def choice_is_remembered(c):
     why = pty_only()
     if why:
         return "git config checked; the default on a re-install " + why
-    out, code, _ = c.pty(d, b"b", "--update", wait_open=True)
+    out, code, _ = c.pty(d, b"b\n", "--update", wait_open=True)
     expect(re.search(r"\[t\]", out), "a re-install over the project shows the remembered answer as the default: " + tail(out))
     expect(cfg(d) == "browser", "the answer can be changed: " + cfg(d))
-    out, code, _ = c.pty(d, b"t", "--update")
+    out, code, _ = c.pty(d, b"t\n", "--update")
     expect(re.search(r"\[b\]", out), "the new answer is the default now: " + tail(out))
     return "uak.start in git config, default on re-install, changeable"
 
@@ -301,7 +301,7 @@ def terminal_and_wizard_share_the_state(c):
 def start_names_the_same_steps(c):
     d = make_state(c)
     out = uak(d, "start", "--steps", env=c.env())
-    names = re.findall(r"(?m)^\[[ x]\] \d+\. (.+?)(?:  .*)?$", out.stdout)
+    names = re.findall(r"(?m)^\[[ x~]\] \d+\. (.+?)(?:  .*)?$", out.stdout)
     expect(names == STEPS, "steps in the wizard's order and names: %r\n%s" % (names, out.stdout))
     nxt = [l for l in out.stdout.splitlines() if l.startswith("NEXT STEP")]
     expect(len(nxt) == 1 and "·" in nxt[0], "exactly one next step with its command: " + out.stdout)
@@ -310,7 +310,7 @@ def start_names_the_same_steps(c):
     subprocess.run([bash(), str(INSTALL), "--mode", "marathon", "--terminal", str(m)], stdin=subprocess.DEVNULL,
                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=c.env(), check=True)
     out = uak(m, "start", "--steps", env=c.env())
-    names = re.findall(r"(?m)^\[[ x]\] \d+\. (.+?)(?:  .*)?$", out.stdout)
+    names = re.findall(r"(?m)^\[[ x~]\] \d+\. (.+?)(?:  .*)?$", out.stdout)
     expect(names == [s for s in STEPS if s != "Schedule"], "marathon: no schedule: %r" % names)
     # the default start keeps its own text (the wizard reads it)
     plain = uak(d, "start", env=c.env())
@@ -337,7 +337,7 @@ def no_python_continues_in_terminal(c):
         d = c.repo()
         return "fake python needs a pty: " + why
     d = c.repo()
-    out, code, _ = c.pty(d, b"b", env=c.env(PATH=path))
+    out, code, _ = c.pty(d, b"b\n", env=c.env(PATH=path))
     expect(code == 0, "install still succeeds: " + tail(out))
     expect("Python 3.8" in out and "terminal" in out.splitlines()[-1], "no Python: said, and continues here: " + tail(out))
     expect(not c.opens() or True, "no opener")
@@ -350,14 +350,120 @@ def no_python_continues_in_terminal(c):
         env.pop("WAYLAND_DISPLAY", None)
         before = len(c.opens())
         d2 = c.repo()
-        out, code, _ = c.pty(d2, b"b", env=env)
+        out, code, _ = c.pty(d2, b"b\n", env=env)
         expect(code == 0 and "browser" in out.lower() and "No browser" in out and len(c.opens()) == before,
                "no browser on this machine: said, continues here: " + tail(out))
     return "no Python 3.8 and no browser both continue in the terminal"
 
 
+NAMES = ["with space", "acc\u00e9nto", "it's", 'say"hi', "dol$HOME", "bt`id`x", "sub$(touch PWNED)x", "line\nbreak"]
+
+
+def words(command, cwd, env):
+    """The words Bash makes of the arguments of a printed command, NUL separated, run in cwd."""
+    r = subprocess.run([bash(), "-c", command], cwd=str(cwd), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, timeout=120)
+    return r.stdout.decode("utf-8", "replace")
+
+
+def printed_commands_are_safe(c):
+    env = c.env()
+    holder = c.tmp / "safe"
+    holder.mkdir()
+    checked = 0
+    for name in NAMES:
+        if WINDOWS and any(ch in name for ch in '"\n'):
+            continue
+        d = holder / name
+        try:
+            d.mkdir()
+        except OSError:
+            continue
+        subprocess.run(["git", "init", "-q", "-b", "main", str(d)], check=True, env=env)
+        out = c.piped(d, "--terminal", env=env)
+        expect(out.returncode == 0, "install into %r: %s" % (name, out.stdout[-300:]))
+        text = out.stdout
+        after = text[text.index(TERMINAL_WORDS):]
+        term = after[len(TERMINAL_WORDS):].split("\nContinue in the browser:")[0].strip()
+        wiz = after.split(BROWSER_WORDS)[1].strip()
+        expect(term.endswith("&& bash .uak/bin/uak start"), "terminal line shape: %r" % term)
+        landed = words(term[:-len("bash .uak/bin/uak start")] + "pwd -P", c.tmp, env).strip()
+        expect(os.path.realpath(landed) == os.path.realpath(str(d)), "the terminal line lands in %r, not %r" % (name, landed))
+        got = words("printf '%s\\0' " + wiz[len("bash "):], c.tmp, env).split("\0")[:-1]
+        expect(got == [str(INSTALL), "--wizard", str(d)] or [os.path.realpath(x) for x in got[:1]] == [os.path.realpath(str(INSTALL))] and got[1:] == ["--wizard", str(d)],
+               "the browser line is the kit's install.sh --wizard and the project, whole: %r" % got)
+        expect(not list(holder.rglob("PWNED")) and not list(c.tmp.glob("PWNED")), "nothing ran from the name %r" % name)
+        # uak start --wizard with no kit clone says the same command, quoted the same way
+        subprocess.run(["git", "-C", str(d), "config", "--unset", "uak.kitHome"], env=env)
+        st = uak(d, "start", "--wizard", env=c.env(UAK_KIT_HOME=str(c.tmp / "nowhere")))
+        line = [l for l in st.stdout.splitlines() + [""] if False]
+        tail = st.stdout.split("Or from a clone of the kit: ")
+        expect(len(tail) == 2, "start --wizard names the clone command: " + st.stdout[-300:])
+        cmd = tail[1].strip().split("\nUAK_")[0]
+        got = words("printf '%s\\0' " + cmd[len("bash <clone>/install.sh "):], c.tmp, env).split("\0")[:-1]
+        expect(got == ["--wizard", str(d)] or got == ["--wizard", os.path.realpath(str(d))], "start's line: %r" % got)
+        expect(not list(holder.rglob("PWNED")), "nothing ran from start for %r" % name)
+        checked += 1
+    expect(checked >= 6, "enough names could be created: %d" % checked)
+    return "%d hostile folder names: every printed line lands in the right place, nothing runs" % checked
+
+
+def the_answer_is_a_whole_line(c):
+    why = pty_only()
+    if why:
+        return why
+    d = c.repo()
+    out, code, opened = c.pty(d, b"browser\n", wait_open=True)
+    expect(opened, "the word browser is b: " + tail(out))
+    d = c.repo()
+    out, code, _ = c.pty(d, b" \n")
+    expect(code == 0 and cfg(d) == "terminal" and len(c.opens()) == 1, "a space then Enter is Enter: " + tail(out))
+    d = c.repo()
+    out, code, _ = c.pty(d, b"  TERMINAL \n")
+    expect(code == 0 and cfg(d) == "terminal", "Terminal in capitals with spaces: " + tail(out))
+    d = c.repo()
+    out, code, opened = c.pty(d, b"navegador\n", wait_open=True)
+    expect(opened, "navegador is the browser: " + tail(out))
+    d = c.repo()
+    out, code, _ = c.pty(d, b"bx\n")
+    expect(code == 0 and '"bx" is not b or t' in out and not cfg(d), "a word that is neither: " + tail(out))
+    d = c.repo()
+    out, code, _ = c.pty(d, b"q\x1bz\n")
+    expect('"qz" is not b or t' in out and "\x1b" not in out.split("is not b or t")[0].split("]")[-1], "control characters removed: " + repr(tail(out)))
+    return "whole line, trimmed, any case, b/browser/navegador, t/terminal/Enter"
+
+
+def the_flag_says_why_nothing_opened(c):
+    d = c.repo()
+    out = c.piped(d, "--wizard")
+    expect("no terminal here, so the page was not opened" in out.stdout, "the reason is said: " + tail(out.stdout))
+    expect(out.stdout.index("so the page was not opened") < out.stdout.index(TERMINAL_WORDS), "before the two commands")
+    return "said before the two commands"
+
+
+def steps_do_not_call_a_default_done(c):
+    d = make_state(c)
+    out = uak(d, "start", "--steps", env=c.env()).stdout
+    expect(re.search(r"(?m)^\[~\] 2\. Rules .*not confirmed", out), "Rules on a fresh install is a default, not done: " + out)
+    expect("NEXT STEP \u00b7 Rules" not in out, "a default is not the next step: " + out)
+    m = c.repo()
+    subprocess.run([bash(), str(INSTALL), "--mode", "marathon", "--terminal", str(m)], stdin=subprocess.DEVNULL,
+                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=c.env(), check=True)
+    out = uak(m, "start", "--steps", env=c.env()).stdout
+    expect(re.search(r"(?m)^\[~\] 3\. People ", out), "People through GitHub accounts with nobody registered is not done: " + out)
+    return "Rules and People read [~] with the reason, never [x] by default"
+
+
+def cli_row_names_the_flags(c):
+    row = [l for l in (ROOT / "kit/.uak/docs/CLI.md").read_text(encoding="utf-8").splitlines() if l.startswith("| `start [")]
+    expect(row and "--steps" in row[0].split("` | ")[0] and "--wizard" in row[0].split("` | ")[0], "the row label: %r" % row[:1])
+    return "label lists --steps and --wizard"
+
+
 TESTS = [install_asks_once_at_a_terminal, no_terminal_no_question, flags_answer_the_question, choice_is_remembered,
-         terminal_and_wizard_share_the_state, start_names_the_same_steps, no_python_continues_in_terminal]
+         terminal_and_wizard_share_the_state, start_names_the_same_steps, no_python_continues_in_terminal,
+         printed_commands_are_safe, the_answer_is_a_whole_line, the_flag_says_why_nothing_opened,
+         steps_do_not_call_a_default_done, cli_row_names_the_flags]
 
 
 def main():
