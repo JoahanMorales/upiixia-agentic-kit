@@ -811,6 +811,7 @@ dialog#story::backdrop { background: var(--scrim); }
         a2.dx += dx * f; a2.dy += dy * f; b2.dx -= dx * f; b2.dy -= dy * f;
       }
       edges.forEach(function (e) { var a2 = pos[e[0]], b2 = pos[e[1]], dx = a2.x - b2.x, dy = a2.y - b2.y, d = Math.sqrt(dx * dx + dy * dy) + .01, f = d / k * 1.6; a2.dx -= dx * f; a2.dy -= dy * f; b2.dx += dx * f; b2.dy += dy * f; });
+      nodes.forEach(function (x) { var p0 = pos[x.id]; p0.dx += (w / 2 - p0.x) * .02; p0.dy += (h / 2 - p0.y) * .02; });
       nodes.forEach(function (x) { var p = pos[x.id], d = Math.sqrt(p.dx * p.dx + p.dy * p.dy) + .01, s2 = Math.min(d, t) / d; p.x = Math.min(w - pad, Math.max(pad, p.x + p.dx * s2)); p.y = Math.min(h - pad, Math.max(pad, p.y + p.dy * s2)); });
     }
     for (m = 0; m < 6; m++) for (i = 0; i < n; i++) for (j = i + 1; j < n; j++) {
@@ -1584,7 +1585,8 @@ dialog#story::backdrop { background: var(--scrim); }
     function kindOfNode(x) { return x.type === "lesson" || x.type === "decision" ? "entry" : x.type; }
     function text(x) { return ent[x.id] ? ent[x.id].text : x.label; }
     function hit(x) { return !ql || (x.label + " " + text(x)).toLowerCase().indexOf(ql) >= 0; }
-    function lab(x) { var t = ent[x.id] ? text(x).replace(/\s+/g, " ") : x.label; return t.length > 30 ? t.slice(0, 28) + "…" : t; }
+    function lab(x) { var t = ent[x.id] ? text(x).replace(/\s+/g, " ").replace(/^(tasks added|test change allowed by [^:]*|amended|test change):?\s*/i, "") : x.label; return t.length > 30 ? t.slice(0, 28) + "…" : t; }
+    var busy = mg.nodes.filter(function (x) { return ent[x.id]; }).map(function (x) { return x.deg; }).sort(function (a, b) { return b - a; })[11] || 0;
     var tools = h("div", { "class": "filters" }, [[["entry", L('Entries')], ["task", T("Tasks")], ["file", L('File')], ["agent", T("Agents")]].map(function (k) { return h("button", { "class": "chip", type: "button", "aria-pressed": String(!GHIDE[k[0]]), style: GHIDE[k[0]] ? null : "background:var(--accent-wash)", text: k[1], on: function () { GHIDE[k[0]] = !GHIDE[k[0]]; render(); } }); }), null].reduce(function (a, x) { return a.concat(x); }, []).filter(Boolean));
     var q = h("input", { type: "search", placeholder: L('Search the memory'), value: GQ, "aria-label": L('Search the memory') }), qt = 0;
     q.addEventListener("input", function () { clearTimeout(qt); qt = setTimeout(function () { GQ = q.value; render(); }, 150); });
@@ -1601,7 +1603,7 @@ dialog#story::backdrop { background: var(--scrim); }
     var order = shown.slice().sort(function (a, b) { return (b.id === sel ? 2 : near[b.id] ? 1 : 0) - (a.id === sel ? 2 : near[a.id] ? 1 : 0) || (kindOfNode(a) === "entry" ? 0 : 1) - (kindOfNode(b) === "entry" ? 0 : 1); });
     var labels = {};
     order.forEach(function (x) {
-      var p = pos[x.id], t = lab(x), w = t.length * 6.4, must = x.id === sel || near[x.id] || (ql && hit(x)), want = kindOfNode(x) === "entry" || must;
+      var p = pos[x.id], t = lab(x), w = t.length * 6.4, must = x.id === sel || near[x.id] || (ql && hit(x)), want = (kindOfNode(x) === "entry" && x.deg >= busy) || must;
       if (!want) return; var cx = p.x + nodeR(x) + 5 + w / 2;
       if (cx + w / 2 > vx + vw - 6) cx = p.x - nodeR(x) - 5 - w / 2;
       if (must || room(cx, p.y, w)) { placed.push([cx, p.y, w]); labels[x.id] = [cx - w / 2, p.y + 4, t, cx < p.x]; }
@@ -1627,7 +1629,8 @@ dialog#story::backdrop { background: var(--scrim); }
     if (!sel) {
       side.appendChild(h("div", { "class": "bh" }, [h("h2", { text: mg.nodes.length + " " + L('nodes') + " · " + mg.edges.length + " " + L('links') })]));
       side.appendChild(h("p", { "class": "muted", style: "margin:0 0 12px", text: L('Click a node to read it and see what it links to.') }));
-      if (orphans.length) { side.appendChild(h("div", { "class": "gh", text: orphans.length + " " + L('entries link to nothing') })); side.appendChild(h("div", { "class": "chips" }, orphans.slice(0, 14).map(function (e) { var t = e.text.replace(/\s+/g, " "); return h("button", { "class": "chip ell", type: "button", style: "max-width:100%", text: t.slice(0, 40), title: t, on: function () { SEL_NODE = ""; GQ = t.slice(0, 20); render(); } }); }))); }
+      if (orphans.length) { side.appendChild(h("div", { "class": "gh", text: orphans.length + " " + L('entries link to nothing') })); var seen2 = {}, groups = []; orphans.forEach(function (e) { var t = e.text.replace(/\s+/g, " "), k = t.slice(0, 30); if (seen2[k]) seen2[k].n++; else groups.push(seen2[k] = { t: t, n: 1 }); });
+        side.appendChild(h("div", { "class": "chips" }, groups.slice(0, 12).map(function (g) { return h("button", { "class": "chip ell", type: "button", style: "max-width:100%", text: g.t.slice(0, 40) + (g.n > 1 ? " ×" + g.n : ""), title: g.t, on: function () { SEL_NODE = ""; GQ = g.t.slice(0, 20); render(); } }); }))); }
     } else {
       var x = by[sel], es = ent[sel] ? [ent[sel]] : mg.entries.filter(function (e) { return e.refs[sel]; });
       side.appendChild(h("div", { "class": "bh" }, [h("h2", { text: x.type + " · " + lab(x) }), h("span", { "class": "n", text: x.deg + " " + L('links') }), h("button", { "class": "chip", style: "margin-left:auto", type: "button", text: L('Clear'), on: function () { SEL_NODE = ""; render(); } })]));
