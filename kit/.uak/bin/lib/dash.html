@@ -260,12 +260,12 @@ button.chip:hover { background: var(--hover); }
 .gn:focus-visible > :first-child, .gn.sel > :first-child { stroke: var(--ink); stroke-width: 3; }
 .n-lesson > :first-child { fill: var(--accent-line); }
 .n-decision > :first-child { fill: var(--surface); stroke: var(--accent-line); stroke-width: 2; }
-.n-task > :first-child { fill: var(--claimed); }
+.n-task > :first-child { fill: var(--claimed); stroke: var(--ink-2); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .n-file > :first-child { fill: var(--available); }
 .n-agent > :first-child { fill: var(--violet); }
-.gn text { font: 500 11px var(--mono); fill: var(--ink-2); }
+.gn text { font-family: var(--mono); font-weight: 500; fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .sw.g-lesson { background: var(--accent-line); } .sw.g-decision { background: var(--surface); border: 2px solid var(--accent-line); }
-.sw.g-task { background: var(--claimed); } .sw.g-file { background: var(--available); transform: rotate(45deg) scale(.8); } .sw.g-agent { background: var(--violet); border-radius: 50%; }
+.sw.g-task { background: var(--claimed); border-radius: 3px; width: 14px; height: 14px; } .sw.g-file { background: var(--available); transform: rotate(45deg) scale(.8); } .sw.g-agent { background: var(--violet); border-radius: 50%; }
 .sq.dim { opacity: .3; }
 .sq.w { box-shadow: 0 0 0 2px var(--orange); }
 .sq.u { box-shadow: 0 0 0 2px var(--violet); }
@@ -297,6 +297,7 @@ dialog#share::backdrop { background: var(--scrim); }
 .ac-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .ac-h b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ac .sub { margin: 0; }
+.chip b { margin-left: 8px; }
 .ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
 .ppl small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -553,6 +554,11 @@ dialog#story::backdrop { background: var(--scrim); }
   .need > li { grid-template-columns: 24px minmax(0,1fr); } .need > li > :last-child { grid-column: 1 / -1; } .need .cmd { width: 100%; } .need .cmd code { flex: 1; }
   .scs, .gv { grid-template-columns: minmax(0, 1fr); } .gside { position: static; max-height: none; }
   .lbb, .lbp li { min-height: 44px; }
+  .lbp { left: 8px !important; right: 8px; top: auto !important; bottom: 8px; width: auto; max-height: 50vh; }
+  .brand { flex: 1 1 100%; }
+  .head { gap: 8px; }
+  .fresh { flex: 1 1 0; min-width: 0; } #freshtxt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sq { position: relative; } .sq::after { content: ""; position: absolute; inset: -6px; }
   .tid, .more, .expand, .filters .clear, .cmd button, .seg button, .lang, .find, .filters select, .chip { min-height: 44px; }
   .cmd button { width: 44px; } .find input { width: 100%; flex: 1; } .find { flex: 1 1 100%; }
   .lane { grid-template-columns: 56px minmax(0,1fr); } .laxis { margin-left: 64px; }
@@ -606,6 +612,7 @@ dialog#story::backdrop { background: var(--scrim); }
   "use strict";
   function T(value) { return window.UAKWorkspace ? UAKWorkspace.t(value) : value; }
   var ES = {
+    'Tasks with the most entries': 'Tareas con más entradas',
     'Entries': 'Entradas',
     'Search the memory': 'Buscar en la memoria',
     'Zoom in': 'Acercar',
@@ -613,8 +620,7 @@ dialog#story::backdrop { background: var(--scrim); }
     'Fit': 'Ajustar',
     'Clear': 'Quitar',
     'Links': 'Vínculos',
-    'entries link to nothing': 'entradas no enlazan con nada',
-    'Click a node to read it and see what it links to.': 'Pulsa un nodo para leerlo y ver con qué se vincula.',
+    'entries with no link shown': 'entradas sin vínculo visible',
     'Story': 'Historia',
     'The browser refused to copy: use Download PNG.': 'El navegador no permitió copiar: usa Descargar PNG.',
     'similar messages': 'mensajes parecidos',
@@ -796,32 +802,49 @@ dialog#story::backdrop { background: var(--scrim); }
     });
     return { nodes: Object.keys(nodes).map(function (k) { return nodes[k]; }), edges: edges, entries: entries, linked: linked, isolated: entries.length - linked };
   }
-  // A stable layout: positions seeded from each node's id, springs short between an entry and what it cites, repulsion, then a
-  // pass that pushes apart anything closer than its radii and keeps every node inside the frame with a padding.
-  function nodeR(x) { return x.type === "lesson" || x.type === "decision" ? 7 : 3.5 + Math.min(3, x.deg / 3); }
-  function layout(nodes, edges, w, h) {
-    var pos = {}, n = nodes.length, pad = 44, k = Math.sqrt((w - 2 * pad) * (h - 2 * pad) / Math.max(1, n)) * 1, it = 320, i, j, m;
-    function seed(id, salt) { var x = 2166136261; for (var q = 0; q < id.length; q++) { x ^= id.charCodeAt(q) + salt; x = Math.imul(x, 16777619) >>> 0; } return (x % 10000) / 10000; }
-    nodes.forEach(function (x) { pos[x.id] = { x: pad + seed(x.id, 1) * (w - 2 * pad), y: pad + seed(x.id, 2) * (h - 2 * pad), dx: 0, dy: 0 }; });
-    for (m = 0; m < it; m++) {
-      var t = (w / 10) * (1 - m / it) + .5;
-      nodes.forEach(function (x) { pos[x.id].dx = 0; pos[x.id].dy = 0; });
-      for (i = 0; i < n; i++) for (j = i + 1; j < n; j++) {
-        var a2 = pos[nodes[i].id], b2 = pos[nodes[j].id], dx = a2.x - b2.x, dy = a2.y - b2.y, d = Math.sqrt(dx * dx + dy * dy) + .01, f = k * k / d / d;
-        a2.dx += dx * f; a2.dy += dy * f; b2.dx -= dx * f; b2.dy -= dy * f;
-      }
-      edges.forEach(function (e) { var a2 = pos[e[0]], b2 = pos[e[1]], dx = a2.x - b2.x, dy = a2.y - b2.y, d = Math.sqrt(dx * dx + dy * dy) + .01, f = d / k * 1.6; a2.dx -= dx * f; a2.dy -= dy * f; b2.dx += dx * f; b2.dy += dy * f; });
-      nodes.forEach(function (x) { var p0 = pos[x.id]; p0.dx += (w / 2 - p0.x) * .02; p0.dy += (h / 2 - p0.y) * .02; });
-      nodes.forEach(function (x) { var p = pos[x.id], d = Math.sqrt(p.dx * p.dx + p.dy * p.dy) + .01, s2 = Math.min(d, t) / d; p.x = Math.min(w - pad, Math.max(pad, p.x + p.dx * s2)); p.y = Math.min(h - pad, Math.max(pad, p.y + p.dy * s2)); });
-    }
-    for (m = 0; m < 6; m++) for (i = 0; i < n; i++) for (j = i + 1; j < n; j++) {
-      var a3 = pos[nodes[i].id], b3 = pos[nodes[j].id], dx3 = b3.x - a3.x, dy3 = b3.y - a3.y, d3 = Math.sqrt(dx3 * dx3 + dy3 * dy3) + .01, min = nodeR(nodes[i]) + nodeR(nodes[j]) + 10;
-      if (d3 < min) { var push = (min - d3) / 2 / d3; a3.x -= dx3 * push; a3.y -= dy3 * push; b3.x += dx3 * push; b3.y += dy3 * push; }
-    }
+  // Structure instead of one force blob: each task is the centre of a small cluster of the entries that cite it most, entries that
+  // cite several tasks sit between them, clusters are packed side by side (largest component first), files and agents hang off
+  // the entries they link to. The space is unbounded: the caller scales the view to fit, nothing is clamped.
+  function nodeR(x) { return x.type === "task" ? 8 + Math.min(8, Math.round(x.deg / 2)) : x.type === "lesson" || x.type === "decision" ? 5 : x.type === "agent" ? 4.5 : 3.5; }
+  function clusterLayout(nodes, edges) {
+    var by = {}, adj = {}, pos = {}, tasks = [], cl = {}, comp = {};
+    nodes.forEach(function (n) { by[n.id] = n; adj[n.id] = []; if (n.type === "task") tasks.push(n); });
+    edges.forEach(function (e) { if (by[e[0]] && by[e[1]]) { adj[e[0]].push(e[1]); adj[e[1]].push(e[0]); } });
+    function tasksOf(id) { return adj[id].filter(function (x) { return by[x].type === "task"; }); }
+    var entries = nodes.filter(function (n) { return n.type === "lesson" || n.type === "decision"; }), home = {};
+    entries.forEach(function (e) {
+      var ts = tasksOf(e.id).sort(function (a, b) { return by[b].deg - by[a].deg || (a < b ? -1 : 1); });
+      if (ts.length) { home[e.id] = ts[0]; (cl[ts[0]] = cl[ts[0]] || []).push(e.id); }
+    });
+    // components over tasks joined by an entry that cites both
+    var up = {}; tasks.forEach(function (t) { up[t.id] = t.id; });
+    function find(x) { while (up[x] !== x) { up[x] = up[up[x]]; x = up[x]; } return x; }
+    entries.forEach(function (e) { var ts = tasksOf(e.id); for (var i = 1; i < ts.length; i++) up[find(ts[i])] = find(ts[0]); });
+    var csize = {}; tasks.forEach(function (t) { var r = find(t.id); csize[r] = (csize[r] || 0) + 1 + (cl[t.id] || []).length; });
+    var order = tasks.slice().sort(function (a, b) { return csize[find(b.id)] - csize[find(a.id)] || (find(a.id) < find(b.id) ? -1 : find(a.id) > find(b.id) ? 1 : 0) || (cl[b.id] || []).length - (cl[a.id] || []).length || (a.id < b.id ? -1 : 1); });
+    var x = 0, y = 0, rowH = 0, area = 0;
+    order.forEach(function (t) { var n = (cl[t.id] || []).length, dd = 2 * (n ? 34 + n * 2.4 : 0) + 110; area += dd * dd; });
+    var maxW = Math.sqrt(area * 1.5);
+    order.forEach(function (t) {
+      var m = cl[t.id] || [], R = m.length ? 34 + m.length * 2.4 : 0, d = 2 * R + 110;
+      if (x + d > maxW && x > 0) { x = 0; y += rowH; rowH = 0; }
+      var cx = x + d / 2, cy = y + d / 2; pos[t.id] = { x: cx, y: cy };
+      m.forEach(function (id, i) { var a = 6.2832 * i / m.length - 1.57; pos[id] = { x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * R }; });
+      x += d; rowH = Math.max(rowH, d);
+    });
+    entries.forEach(function (e) {   // an entry that cites several tasks sits between them
+      var ts = tasksOf(e.id).filter(function (t) { return pos[t]; });
+      if (ts.length > 1) { var sx = 0, sy = 0; ts.forEach(function (t) { sx += pos[t].x; sy += pos[t].y; }); pos[e.id] = { x: sx / ts.length, y: sy / ts.length }; }
+    });
+    var loose = nodes.filter(function (n) { return !pos[n.id] && n.type !== "file" && n.type !== "agent"; });
+    loose.forEach(function (n, i) { pos[n.id] = { x: (i % 10) * 26, y: y + rowH + 20 + Math.floor(i / 10) * 26 }; });
+    nodes.filter(function (n) { return n.type === "file" || n.type === "agent"; }).forEach(function (n, k) {
+      var sx = 0, sy = 0, c = 0; adj[n.id].forEach(function (id) { if (pos[id]) { sx += pos[id].x; sy += pos[id].y; c++; } });
+      var a = k * 2.4; pos[n.id] = c ? { x: sx / c + Math.cos(a) * 16, y: sy / c + Math.sin(a) * 16 } : { x: 0, y: y + rowH + 80 };
+    });
     var x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
-    nodes.forEach(function (x) { var p = pos[x.id]; x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); });
-    nodes.forEach(function (x) { var p = pos[x.id]; p.x = pad + (p.x - x0) / Math.max(1, x1 - x0) * (w - 2 * pad); p.y = pad + (p.y - y0) / Math.max(1, y1 - y0) * (h - 2 * pad); });
-    return pos;
+    nodes.forEach(function (n) { var p = pos[n.id]; if (p) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); } });
+    return { pos: pos, box: { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) }, home: home };
   }
   function bbFilter(recs, f, now) {
     var PER = { d: 86400000, w: 7 * 86400000 }, ql = (f.q || "").toLowerCase();
@@ -846,6 +869,11 @@ dialog#story::backdrop { background: var(--scrim); }
     var ag = d.agents.filter(function (a) { return !a.is_human; }), st = (d.progress.states || {}), began = ag.map(function (a) { return a.started; }).filter(Boolean);
     return { name: d.repo, integrated: st.INTEGRATED || 0, total: d.progress.total, agents: ag.length, tokens: d.tokens && d.tokens.total ? d.tokens.total : null,
       commits: typeof d.commits === "number" ? d.commits : null, since: began.length ? Math.min.apply(null, began) : null };
+  }
+  // One definition of "stalled" for the figure, the list and the board: no move for the stall limit, or a claim past its lease.
+  function stalledMin(t, now) {
+    if (t.stalled) return t.stalled;
+    return t.state === "CLAIMED" && t.lease && t.lease < now ? Math.max(1, Math.round((now - (t.progress_changed || t.updated || t.lease)) / 60)) : 0;
   }
   function lbMove(n, cur, key) {
     if (!n) return -1;
@@ -924,6 +952,7 @@ dialog#story::backdrop { background: var(--scrim); }
   }
   function mh(n) { var x = AGM[n] || {}; return x.model || x.harness ? [x.harness, x.model].filter(Boolean).join(" · ") : L('not recorded'); }
   var lastGen = -1, D = null, STATES = {}, focusTab = false;
+  // A task whose dependencies are not integrated waits; it is not available (UI-023). The setup server marks waiting_on; `uak dash` alone computes the same.
   function waitingOn(t) {
     if (Object.prototype.toString.call(t.waiting_on) === "[object Array]") return t.waiting_on;
     if (t.state !== "AVAILABLE") return [];
@@ -940,6 +969,7 @@ dialog#story::backdrop { background: var(--scrim); }
     var last = d.reviews.filter(function (r) { return r.task === t.id; }).sort(function (a, b) { return (a.at || 0) - (b.at || 0); }).pop();
     return !!last && last.verdict === "approve";
   }
+  // Only the human queue is a person's job (a merge waiting for the queue is not), and reasons carry no disk path.
   function humanQueue(d) { return d.queue.filter(function (q) { return q.state === "HUMAN"; }); }
   function noPath(text) {
     return String(text || "").replace(/\s*\(log: [^)]*\)/g, "").replace(/(^|[\s"'=])(?:[A-Za-z]:[\\/]|\/)[^\s;,()]+/g, function (m, pre) {
@@ -1015,6 +1045,7 @@ dialog#story::backdrop { background: var(--scrim); }
     if (d.freeze) { fz.hidden = false; fz.textContent = !frozenNow(d) ? T("Freeze in ") + ago(d.generated, d.freeze) : T("Frozen"); } else fz.hidden = true;
     fresh();
   }
+  // Freshness uses the real clock: a page whose data stopped moving says so instead of looking live.
   function fresh() {
     if (!D) return;
     var age = Math.max(0, Math.round(Date.now() / 1000 - D.generated)), stale = D.stale || age > Math.max(90, 3 * (D.refresh || 20));
@@ -1044,6 +1075,7 @@ dialog#story::backdrop { background: var(--scrim); }
     e.preventDefault(); ui.tab = keys[next]; focusTab = true; save(); render();
   });
 
+  // What needs the person, most urgent first: the title count, the rail's badge and the first block all read this one list.
   function needs(d) {
     var out = [], g = d.generated;
     if (d.stale) out.push({ k: "warn", i: I.pause, t: [T("The remote did not answer: this is the last state this computer read.")], at: d.claims_at || 0 });
@@ -1053,8 +1085,8 @@ dialog#story::backdrop { background: var(--scrim); }
       var to = (o.to || []).map(function (x) { x = x.replace(/^(agent|task):/, ""); return x === "all" ? T("all") : x; }).join(", "), late = g - o.since > 3600;
       out.push({ k: late ? "crit" : "info", i: I.eye, id: o.task, t: [tid(o.task), T(" waits for review")], text: T("owner ") + o.owner + T(" · offered to ") + (to || T("all")), at: o.since });
     });
-    d.tasks.filter(function (t) { return t.stalled; }).forEach(function (t) {
-      out.push({ k: "crit", i: I.pause, id: t.id, t: [tid(t.id), T(" has not moved in ") + t.stalled + " min"], text: t.progress ? T(t.progress) : t.title, at: t.away ? -1 : 0 });
+    d.tasks.filter(function (t) { return stalledMin(t, g); }).forEach(function (t) {
+      out.push({ k: "crit", i: I.pause, id: t.id, t: [tid(t.id), T(" has not moved in ") + stalledMin(t, g) + " min"], text: t.progress ? T(t.progress) : t.title, at: t.away ? -1 : 0 });
     });
     return out;
   }
@@ -1074,7 +1106,7 @@ dialog#story::backdrop { background: var(--scrim); }
     var online = d.agents.filter(function (a) { return a.status === "online" && !a.is_human; });
     var rw = d.tasks.filter(function (t) { return t.state === "REVIEW" && t.sub && (t.sub.kind === "waiting" || t.sub.kind === "rereview"); });
     var oldest = rw.reduce(function (m, t) { return Math.min(m, t.sub.since); }, Infinity);
-    var stalled = d.tasks.filter(function (t) { return t.stalled; }), human = humanQueue(d);
+    var stalled = d.tasks.filter(function (t) { return stalledMin(t, g); }), human = humanQueue(d);
     var ul = h("ul", { "class": "list need" });
     list.slice(0, max).forEach(function (n) {
       ul.appendChild(h("li", { "class": n.k === "crit" ? "hot" : "" }, [h("span", { "class": "ico" }, [icon(n.i)]),
@@ -1097,7 +1129,8 @@ dialog#story::backdrop { background: var(--scrim); }
     for (var i = 0; i < 4; i++) ol.appendChild(h("li", { "class": i <= at ? "on" : "", "aria-current": i === at && s !== "INTEGRATED" ? "step" : null }, [h("i")]));
     return ol;
   }
-  function late(t) { return !!(t.stalled || (t.sub && t.sub.late) || (t.state === "CLAIMED" && t.lease && t.lease < D.generated)); }
+  // A task is late when it stalled, its review is over the lease, or a claim passed its lease.
+  function late(t) { return !!(stalledMin(t, D.generated) || (t.sub && t.sub.late) || (t.state === "CLAIMED" && t.lease && t.lease < D.generated)); }
   function when(t, s) {
     var g = D.generated, sub = t.sub;
     if (s === "REVIEW" && sub) return sub.text + " · " + span(g - sub.since);
@@ -1146,6 +1179,7 @@ dialog#story::backdrop { background: var(--scrim); }
     return frame(b, all.length + " " + T(" tasks"), x, h("div", {}, [todo ? h("p", { "class": "muted", style: "margin:0 0 8px", text: L('Nothing is moving: the next tasks to claim.') }) : null, body]));
   }
 
+  // Who did what: lanes from the stories the page already carries (claim to done is a build, done to a verdict is a review).
   function lanesBlock(d, max, b) {
     var g = d.generated, segs = [], lastBy = {}, tls = d.timelines || {};
     Object.keys(tls).forEach(function (id) {
@@ -1204,6 +1238,7 @@ dialog#story::backdrop { background: var(--scrim); }
     counts.forEach(function (c, k) { box.appendChild(h("div", { "class": k === counts.length - 1 ? "now" : "", tip: tips[k] }, [h("i", { style: "height:" + (c ? Math.max(6, 100 * c / max) : 0) + "%" }), h("span", { text: c ? String(c) : "" }), h("span", { text: labels[k] })])); });
     return box;
   }
+  // Integrations per period: the period adapts to the time elapsed so that 6 to 8 bars show; the viewer can fix it.
   function paceBlock(d, max, b) {
     var g = d.generated, done = d.tasks.filter(function (t) { return t.state === "INTEGRATED" && t.updated; }), PS = [3600, 7200, 10800, 14400, 21600, 43200, 86400];
     if (!done.length) return frame(b, "", null, h("div", { "class": "card pad muted", text: L('Nothing has been integrated yet: the first integration starts this chart.') }));
@@ -1395,9 +1430,9 @@ dialog#story::backdrop { background: var(--scrim); }
           h("div", { "class": "sub" }, [pres(a.status), " " + T(a.status) + " · " + (a.last_seen ? ago(a.last_seen, d.generated) + T(" ago") : T("never seen"))]),
           h("div", { "class": "chips", style: "margin:0" }, ts.length ? ts.map(function (t) { return h("button", { "class": "chip", on: function () { openStory(t.id); } }, [h("i", { "class": "sw", style: "--c:" + color(t.state), "aria-hidden": "true" }), h("span", { "class": "mono", text: t.id }), h("span", { "class": "muted", text: rowLabel(t.state) })]); }).concat(a.tasks.length > 2 ? [h("span", { "class": "muted", text: "+" + (a.tasks.length - 2) })] : []) : [h("span", { "class": "muted", text: T("No live task") })]),
           mhs ? h("div", { "class": "sub ell", title: mhs, text: mhs }) : null,
-          h("div", { "class": "sub ell num", title: a.messages + " " + T("messages") + " · " + a.verdicts + " " + T("verdicts") + " · " + a.checkpoints + " " + T("checkpoints"), text: a.messages + " " + T("messages") + " · " + a.verdicts + " " + T("verdicts") + " · " + a.checkpoints + " " + T("checkpoints") })]));
+          h("div", { "class": "sub num", title: a.messages + " " + T("messages") + " · " + a.verdicts + " " + T("verdicts") + " · " + a.checkpoints + " " + T("checkpoints"), text: a.messages + " " + T("messages") + " · " + a.verdicts + " " + T("verdicts") + " · " + a.checkpoints + " " + T("checkpoints") })]));
       });
-      wrap.appendChild(h("section", { style: "margin-bottom:24px" }, [h("div", { "class": "bh" }, [h("h2", { text: gr[1] }), h("span", { "class": "n", text: String(list.length) }), h("div", { "class": "x", text: gr[2] })]), grid]));
+      wrap.appendChild(h("section", { style: "margin-bottom:24px" }, [h("div", { "class": "bh" }, [h("h2", { text: gr[1] }), h("span", { "class": "n", text: String(list.filter(function (a) { return !a.is_human; }).length) }), h("div", { "class": "x", text: gr[2] })]), grid]));
     });
   }
 
@@ -1428,6 +1463,7 @@ dialog#story::backdrop { background: var(--scrim); }
   function mine(n, me) { var a = AG[n]; return !!a && (n === me || a.human === me); }
   var SEEN = {}; try { SEEN = JSON.parse(store.getItem("uak-seen") || "{}"); } catch (e) {}
   function seen(k, now) { if (!SEEN._0) SEEN._0 = now; if (k) SEEN[k] = now; try { store.setItem("uak-seen", JSON.stringify(SEEN)); } catch (e) {} }
+  // The stages a conversation is told in, from the task's story: in progress, in review (round n), integrated.
   function stagesOf(id) {
     var out = [], r = 0;
     ((D.timelines || {})[id] || { lines: [] }).lines.forEach(function (l) {
@@ -1574,63 +1610,73 @@ dialog#story::backdrop { background: var(--scrim); }
     capped(dc, "dec", d.decisions.slice().reverse(), function (x) { return (h("li", { "class": "row", style: "grid-template-columns:24px minmax(0,1fr)" }, [avatar(x.who || "?", 24), h("div", { style: "min-width:0" }, [h("div", {}, [rich(x.text)]), h("div", { "class": "sub" }, [h("span", { "class": "tag", text: x.kind }), " " + x.who + " · " + ago(x.t, d.generated) + T(" ago")])])])); });
     g.appendChild(panel(T("Decisions"), "DECISIONS.md", d.decisions.length ? dc : none(T("No decisions yet"), L('Agreed contracts and calls land here.'))));
   }
-  var SEL_NODE = "", GCACHE = null, GZ = { z: 1, x: 0, y: 0 }, GHIDE = {}, GQ = "";
+  var SEL_NODE = "", GZ = { z: 1, x: 0, y: 0 }, GHIDE = { file: true, agent: true }, GQ = "";
+  // Memory as a graph: entries and the tasks they cite by default (files and agents are one chip away), real references only.
   function memGraphView(wrap, d) {
-    var W = 1100, H = 640, SV = "http://www.w3.org/2000/svg", mg = memGraph(d.lessons, d.decisions);
+    var W = 760, H = 560, SV = "http://www.w3.org/2000/svg", mg = memGraph(d.lessons, d.decisions);
     if (mg.nodes.length < 4) { wrap.appendChild(h("div", { "class": "card empty" }, [h("b", { text: L('Too few links for a graph') }), mg.entries.length + " " + L('entries, of which') + " " + mg.linked + " " + L('share a task, a file or an agent with another one.')])); return; }
-    if (!GCACHE || GCACHE.g !== d.generated) GCACHE = { g: d.generated, pos: layout(mg.nodes, mg.edges, W, H) };
-    var pos = GCACHE.pos, by = {}, ent = {}, near = {}; mg.nodes.forEach(function (x) { by[x.id] = x; }); mg.entries.forEach(function (e) { ent[e.id] = e; });
+    var by = {}, ent = {}, near = {}, kinds = { entry: 0, task: 0, file: 0, agent: 0 };
+    mg.nodes.forEach(function (x) { by[x.id] = x; }); mg.entries.forEach(function (e) { ent[e.id] = e; });
+    function kindOfNode(x) { return x.type === "lesson" || x.type === "decision" ? "entry" : x.type; }
+    mg.nodes.forEach(function (x) { kinds[kindOfNode(x)]++; });
+    var vis = {}; mg.nodes.forEach(function (x) { if (!GHIDE[kindOfNode(x)]) vis[x.id] = 1; });
+    var edges = mg.edges.filter(function (e) { return vis[e[0]] && vis[e[1]]; }), linked = {}; edges.forEach(function (e) { linked[e[0]] = linked[e[1]] = 1; });
+    var shown = mg.nodes.filter(function (x) { return vis[x.id] && linked[x.id]; }); vis = linked;
+    var lay = clusterLayout(shown, edges), pos = lay.pos;
     var sel = SEL_NODE && by[SEL_NODE] ? SEL_NODE : "", ql = GQ.toLowerCase();
     mg.edges.forEach(function (e) { if (e[0] === sel) near[e[1]] = 1; if (e[1] === sel) near[e[0]] = 1; });
-    function kindOfNode(x) { return x.type === "lesson" || x.type === "decision" ? "entry" : x.type; }
     function text(x) { return ent[x.id] ? ent[x.id].text : x.label; }
     function hit(x) { return !ql || (x.label + " " + text(x)).toLowerCase().indexOf(ql) >= 0; }
-    function lab(x) { var t = ent[x.id] ? text(x).replace(/\s+/g, " ").replace(/^(tasks added|test change allowed by [^:]*|amended|test change):?\s*/i, "") : x.label; return t.length > 30 ? t.slice(0, 28) + "…" : t; }
-    var busy = mg.nodes.filter(function (x) { return ent[x.id]; }).map(function (x) { return x.deg; }).sort(function (a, b) { return b - a; })[11] || 0;
-    var tools = h("div", { "class": "filters" }, [[["entry", L('Entries')], ["task", T("Tasks")], ["file", L('File')], ["agent", T("Agents")]].map(function (k) { return h("button", { "class": "chip", type: "button", "aria-pressed": String(!GHIDE[k[0]]), style: GHIDE[k[0]] ? null : "background:var(--accent-wash)", text: k[1], on: function () { GHIDE[k[0]] = !GHIDE[k[0]]; render(); } }); }), null].reduce(function (a, x) { return a.concat(x); }, []).filter(Boolean));
+    // A short human title: the kind and the first meaningful words, cut at a word; the full text is in the side panel.
+    function lab(x) {
+      if (!ent[x.id]) return x.label.length > 24 ? "…" + x.label.slice(-23) : x.label;
+      var t = ent[x.id].text.replace(/\s+/g, " ").replace(/^(tasks added|test change allowed by [^:]*|test change|amended|why|[A-Z][A-Z0-9]*-\d+)\s*[:|]?\s*/i, "").replace(/\|\s*Why:\s*/i, " · ").replace(/\b[A-Z][A-Z0-9]*-\d+\b/g, "").replace(/\s+/g, " ").trim();
+      var cut = t.length > 26 ? t.slice(0, 26).replace(/\s+\S*$/, "") + "…" : t;
+      return (x.type === "lesson" ? L('Lesson') : L('Decision')) + ": " + (cut || ent[x.id].kind || "");
+    }
+    var tools = h("div", { "class": "filters" }, [["entry", L('Entries')], ["task", T("Tasks")], ["file", L('File')], ["agent", T("Agents")]].map(function (k) { return h("button", { "class": "chip", type: "button", "aria-pressed": String(!GHIDE[k[0]]), style: GHIDE[k[0]] ? null : "background:var(--accent-wash)", on: function () { GHIDE[k[0]] = !GHIDE[k[0]]; render(); } }, [k[1], h("b", { "class": "num", text: String(kinds[k[0]]) })]); }));
     var q = h("input", { type: "search", placeholder: L('Search the memory'), value: GQ, "aria-label": L('Search the memory') }), qt = 0;
     q.addEventListener("input", function () { clearTimeout(qt); qt = setTimeout(function () { GQ = q.value; render(); }, 150); });
     tools.appendChild(h("label", { "class": "find" }, [icon(I.find), q]));
     [["+", 1.4], ["-", 1 / 1.4]].forEach(function (z) { tools.appendChild(h("button", { "class": "chip", type: "button", "aria-label": z[0] === "+" ? L('Zoom in') : L('Zoom out'), text: z[0], on: function () { GZ.z = Math.max(1, Math.min(6, GZ.z * z[1])); render(); } })); });
     tools.appendChild(h("button", { "class": "chip", type: "button", text: L('Fit'), on: function () { GZ = { z: 1, x: 0, y: 0 }; render(); } }));
-    var vw = W / GZ.z, vh = H / GZ.z, vx = Math.max(0, Math.min(W - vw, GZ.x)), vy = Math.max(0, Math.min(H - vh, GZ.y));
+    // Scale to fit, with a padding, over the unbounded layout: nothing is clamped to the frame.
+    var pad = 40, sc = Math.min(1.4, (W - 2 * pad) / lay.box.w, (H - 2 * pad) / lay.box.h), fw = W / sc, fh = H / sc, fx = lay.box.x - (fw - lay.box.w) / 2, fy = lay.box.y - (fh - lay.box.h) / 2;
+    var vw = fw / GZ.z, vh = fh / GZ.z, vx = Math.max(fx, Math.min(fx + fw - vw, GZ.x || fx)), vy = Math.max(fy, Math.min(fy + fh - vh, GZ.y || fy));
+    if (GZ.z === 1) { vx = fx; vy = fy; }
+    var u = 1 / (sc * GZ.z);   // user units per pixel
     var svg = document.createElementNS(SV, "svg"); svg.setAttribute("viewBox", vx + " " + vy + " " + vw + " " + vh); svg.setAttribute("class", "mg"); svg.setAttribute("role", "group"); svg.setAttribute("aria-label", L('Memory graph'));
     function el(tag, at, parent) { var e = document.createElementNS(SV, tag); for (var k in at) e.setAttribute(k, at[k]); (parent || svg).appendChild(e); return e; }
-    var shown = mg.nodes.filter(function (x) { return !GHIDE[kindOfNode(x)]; }), vis = {}; shown.forEach(function (x) { vis[x.id] = 1; });
-    mg.edges.forEach(function (e) { if (!vis[e[0]] || !vis[e[1]]) return; var a = pos[e[0]], b = pos[e[1]], on = sel && (e[0] === sel || e[1] === sel); el("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, "class": "ge" + (on ? " on" : sel ? " dim" : "") }); });
-    var placed = [];
-    function room(x, y, w) { for (var i = 0; i < placed.length; i++) { var p = placed[i]; if (Math.abs(p[0] - x) < (p[2] + w) / 2 && Math.abs(p[1] - y) < 14) return false; } return true; }
-    var order = shown.slice().sort(function (a, b) { return (b.id === sel ? 2 : near[b.id] ? 1 : 0) - (a.id === sel ? 2 : near[a.id] ? 1 : 0) || (kindOfNode(a) === "entry" ? 0 : 1) - (kindOfNode(b) === "entry" ? 0 : 1); });
-    var labels = {};
-    order.forEach(function (x) {
-      var p = pos[x.id], t = lab(x), w = t.length * 6.4, must = x.id === sel || near[x.id] || (ql && hit(x)), want = (kindOfNode(x) === "entry" && x.deg >= busy) || must;
-      if (!want) return; var cx = p.x + nodeR(x) + 5 + w / 2;
-      if (cx + w / 2 > vx + vw - 6) cx = p.x - nodeR(x) - 5 - w / 2;
-      if (must || room(cx, p.y, w)) { placed.push([cx, p.y, w]); labels[x.id] = [cx - w / 2, p.y + 4, t, cx < p.x]; }
-    });
+    edges.forEach(function (e) { var a = pos[e[0]], b = pos[e[1]], on = sel && (e[0] === sel || e[1] === sel); el("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, "class": "ge" + (on ? " on" : sel ? " dim" : ""), "stroke-width": (on ? 2 : 1) * u }); });
     shown.forEach(function (x) {
-      var p = pos[x.id], r = nodeR(x), on = sel === x.id, dim = (sel && !on && !near[x.id]) || (ql && !hit(x));
+      var p = pos[x.id], r = nodeR(x) * Math.max(1, u * .9), on = sel === x.id, dim = (sel && !on && !near[x.id]) || (ql && !hit(x));
       var g = el("g", { "class": "gn n-" + x.type + (on ? " sel" : "") + (dim ? " dim" : "") + (ql && hit(x) ? " hit" : ""), tabindex: "0", role: "button", "aria-label": x.type + " " + lab(x) + ", " + x.deg + " " + L('links') });
-      if (x.type === "task") el("rect", { x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r, rx: 2 }, g);
+      if (x.type === "task") el("rect", { x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r, rx: r * .25 }, g);
       else if (x.type === "file") el("rect", { x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r, transform: "rotate(45 " + p.x + " " + p.y + ")" }, g);
-      else el("circle", { cx: p.x, cy: p.y, r: r }, g);
-      if (labels[x.id]) { var tx = el("text", { x: labels[x.id][0], y: labels[x.id][1] }, g); tx.textContent = labels[x.id][2]; }
+      else el("circle", { cx: p.x, cy: p.y, r: r, "stroke-width": 2 * u }, g);
+      // labels: every task by its id; an entry only when selected, next to the selection, or found by the search
+      if (x.type === "task" || x.id === sel || near[x.id] || (ql && hit(x))) { var tx = el("text", { x: p.x + r + 4 * u, y: p.y + 4 * u, "font-size": 11 * u }, g); tx.textContent = lab(x); }
       var t2 = el("title", {}, g); t2.textContent = x.type + " · " + lab(x);
       function choose() { SEL_NODE = SEL_NODE === x.id ? "" : x.id; render(); }
       g.addEventListener("click", choose); g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); } });
     });
     var drag = null;
-    svg.addEventListener("pointerdown", function (e) { if (GZ.z > 1 && e.target === svg) drag = { x: e.clientX, y: e.clientY, gx: GZ.x, gy: GZ.y }; });
-    svg.addEventListener("pointermove", function (e) { if (!drag) return; var k = vw / svg.getBoundingClientRect().width; GZ.x = drag.gx - (e.clientX - drag.x) * k; GZ.y = drag.gy - (e.clientY - drag.y) * k; svg.setAttribute("viewBox", Math.max(0, Math.min(W - vw, GZ.x)) + " " + Math.max(0, Math.min(H - vh, GZ.y)) + " " + vw + " " + vh); });
+    svg.addEventListener("pointerdown", function (e) { if (GZ.z > 1 && e.target === svg) drag = { x: e.clientX, y: e.clientY, gx: vx, gy: vy }; });
+    svg.addEventListener("pointermove", function (e) { if (!drag) return; var k = vw / svg.getBoundingClientRect().width; GZ.x = drag.gx - (e.clientX - drag.x) * k; GZ.y = drag.gy - (e.clientY - drag.y) * k; svg.setAttribute("viewBox", Math.max(fx, Math.min(fx + fw - vw, GZ.x)) + " " + Math.max(fy, Math.min(fy + fh - vh, GZ.y)) + " " + vw + " " + vh); });
     svg.addEventListener("pointerup", function () { drag = null; });
-    var leg = h("div", { "class": "legend" }, [["lesson", L('Lesson')], ["decision", L('Decision')], ["task", T("Tasks")], ["file", L('File')], ["agent", T("Agents")]].map(function (x) { return h("span", {}, [h("i", { "class": "sw g-" + x[0], "aria-hidden": "true" }), x[1]]); }));
-    var side = h("div", { "class": "card pad gside" }), orphans = mg.entries.filter(function (e) { return !by[e.id]; });
+    var leg = h("div", { "class": "legend" }, [["task", T("Tasks")], ["lesson", L('Lesson')], ["decision", L('Decision')], ["file", L('File')], ["agent", T("Agents")]].map(function (x) { return h("span", {}, [h("i", { "class": "sw g-" + x[0], "aria-hidden": "true" }), x[1]]); }));
+    var side = h("div", { "class": "card pad gside" }), orphans = mg.entries.filter(function (e) { return !vis[e.id]; });
     function chip(id, t) { return h("button", { "class": "chip", type: "button", text: t, title: t, on: function () { SEL_NODE = id; render(); } }); }
     if (!sel) {
-      side.appendChild(h("div", { "class": "bh" }, [h("h2", { text: mg.nodes.length + " " + L('nodes') + " · " + mg.edges.length + " " + L('links') })]));
-      side.appendChild(h("p", { "class": "muted", style: "margin:0 0 12px", text: L('Click a node to read it and see what it links to.') }));
-      if (orphans.length) { side.appendChild(h("div", { "class": "gh", text: orphans.length + " " + L('entries link to nothing') })); var seen2 = {}, groups = []; orphans.forEach(function (e) { var t = e.text.replace(/\s+/g, " "), k = t.slice(0, 30); if (seen2[k]) seen2[k].n++; else groups.push(seen2[k] = { t: t, n: 1 }); });
-        side.appendChild(h("div", { "class": "chips" }, groups.slice(0, 12).map(function (g) { return h("button", { "class": "chip ell", type: "button", style: "max-width:100%", text: g.t.slice(0, 40) + (g.n > 1 ? " ×" + g.n : ""), title: g.t, on: function () { SEL_NODE = ""; GQ = g.t.slice(0, 20); render(); } }); }))); }
+      var top = mg.nodes.filter(function (x) { return x.type === "task"; }).sort(function (a, b) { return b.deg - a.deg; }).slice(0, 5);
+      side.appendChild(h("div", { "class": "bh" }, [h("h2", { text: shown.length + " " + L('nodes') + " · " + edges.length + " " + L('links') })]));
+      side.appendChild(h("div", { "class": "gh", text: L('Tasks with the most entries') }));
+      side.appendChild(h("div", { "class": "chips", style: "margin-bottom:12px" }, top.map(function (x) { return h("button", { "class": "chip", type: "button", on: function () { SEL_NODE = x.id; render(); } }, [x.label, h("b", { "class": "num", text: String(x.deg) })]); })));
+      if (orphans.length) {
+        side.appendChild(h("div", { "class": "gh", text: orphans.length + " " + L('entries with no link shown') }));
+        var seen2 = {}, groups = []; orphans.forEach(function (e) { var t = lab({ id: e.id, type: e.kind }), k = t; if (seen2[k]) seen2[k].n++; else groups.push(seen2[k] = { t: t, full: e.text.replace(/\s+/g, " "), n: 1 }); });
+        side.appendChild(h("div", { "class": "chips" }, groups.slice(0, 12).map(function (g) { return h("button", { "class": "chip ell", type: "button", style: "max-width:100%", text: g.t + (g.n > 1 ? " ×" + g.n : ""), title: g.full, on: function () { SEL_NODE = ""; GQ = g.full.slice(0, 20); render(); } }); })));
+      }
     } else {
       var x = by[sel], es = ent[sel] ? [ent[sel]] : mg.entries.filter(function (e) { return e.refs[sel]; });
       side.appendChild(h("div", { "class": "bh" }, [h("h2", { text: x.type + " · " + lab(x) }), h("span", { "class": "n", text: x.deg + " " + L('links') }), h("button", { "class": "chip", style: "margin-left:auto", type: "button", text: L('Clear'), on: function () { SEL_NODE = ""; render(); } })]));
@@ -1666,7 +1712,9 @@ dialog#story::backdrop { background: var(--scrim); }
     if (v) {
       idc(S.name, S.name, 90, SAFE_TOP + 40, 150); var fs = fit(S.name, 84, 900); text(S.name, 90, SAFE_TOP + 330, fs, 700, tok("ink")); if (since) text(since, 90, SAFE_TOP + 390, 34, 500, tok("muted"));
       ag.slice(0, 7).forEach(function (a, i) { idc(a.name, a.human, 90 + i * 130, SAFE_TOP + 470, 110); });
-      f.forEach(function (x, i) { var y = SAFE_TOP + 720 + i * 180; text(x[0], 90, y, 104, 700, tok("ink")); text(x[1], 90, y + 44, 30, 500, tok("muted")); });
+      if (S.total) { box(90, SAFE_TOP + 580, 900, 14, 7, tok("hover")); box(90, SAFE_TOP + 580, 900 * S.integrated / S.total, 14, 7, tok("accent-line")); }
+      if (ag.length > 7) text("+" + (ag.length - 7), 90 + 7 * 130, SAFE_TOP + 535, 40, 600, tok("muted"));
+      f.forEach(function (x, i) { var y = SAFE_TOP + 760 + i * 170; text(x[0], 90, y, 104, 700, tok("ink")); text(x[1], 90, y + 44, 30, 500, tok("muted")); });
       if (S.total) text(Math.round(100 * S.integrated / S.total) + "%", W - 90, SAFE_TOP + 130, 96, 700, tok("accent-ink"), null, "right");
     } else {
       idc(S.name, S.name, 64, 64, 88); var fs2 = fit(S.name, 56, 640); text(S.name, 176, 118, fs2, 700, tok("ink")); if (since) text(since, 176, 158, 24, 500, tok("muted"));
@@ -1700,6 +1748,7 @@ dialog#story::backdrop { background: var(--scrim); }
     if (shareEl.showModal) shareEl.showModal(); else shareEl.setAttribute("open", "");
   }
   shareEl.addEventListener("click", function (e) { if (e.target === shareEl) shareEl.close(); });
+  // Tokens: what the data really holds (kind, harness, model, scope, task); it carries no dates and no budget, and the page says so.
   function tokens(v, d) {
     viewHeading(v, T("Tokens"));
     var t = d.tokens, wrap = h("div", { "class": "wide" }); v.appendChild(wrap);
@@ -1767,6 +1816,7 @@ dialog#story::backdrop { background: var(--scrim); }
         long ? h("button", { "class": "more", text: open ? T("Show less") : T("Show all"), on: function () { ui.open["st" + storyId + i] = !open; fillStory(true); } }) : null])]);
     return li;
   }
+  // The task drawer's Waits for / Unblocks: direct dependencies at the left, what it unblocks at the right, blockers further back counted.
   function depSection(id) {
     var dd = DG.dep[id] || [], un = DG.unb[id] || []; if (!dd.length && !un.length) return null;
     function node(x) { var t = DG.task[x], st = t ? stateOf(t) : "MISSING"; return h("button", { "class": "dn2", type: "button", disabled: t ? null : "", on: function () { openStory(x); } }, [h("span", { "class": "pill " + (PILL[st] || ""), text: depState(st) }), h("b", { "class": "mono", text: x }), h("span", { "class": "muted", text: t ? t.owner || "" : "" })]); }

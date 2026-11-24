@@ -472,7 +472,7 @@ def share_card_has_both_formats(root, tmp):
         assert needle in dash, "the share card lost %s" % needle
     vertical = dash[dash.index("if (v) {"):dash.index("} else {", dash.index("if (v) {"))]
     ys = [int(n) for n in re.findall(r"SAFE_TOP \+ (\d+)", vertical)]
-    assert ys and min(ys) >= 40 and 250 + max(ys) + 3 * 180 + 44 <= 1920 - 340, ys
+    assert ys and min(ys) >= 40 and 250 + 760 + 3 * 170 + 44 <= 1920 - 340 and max(ys) == 760, ys
     assert dash.count('text("UPIIXIA Agentic Kit"') == 1 and "12, 500, tok(\"muted\"), mono" in dash, "one small credit"
 
 
@@ -514,11 +514,24 @@ def page_reloads_when_a_newer_page_is_written(root, tmp):
         assert out == [True, False, False, False, False], out
 
 
+def one_definition_of_stalled(root, tmp):
+    """The figure, the list and the board's red read one rule: no move for the stall limit, or a claim past its lease."""
+    dash = dash_source(root)
+    assert dash.count("stalledMin(t, g)") >= 2 and "stalledMin(t, D.generated)" in dash, "figure, list and board use stalledMin"
+    out = under_node(root, """
+      var now = 1000000;
+      return [stalledMin({ stalled: 95 }, now), stalledMin({ state: "CLAIMED", lease: now - 600, updated: now - 3600 }, now), stalledMin({ state: "CLAIMED", lease: now + 600 }, now), stalledMin({ state: "REVIEW", lease: now - 600 }, now)];
+    """)
+    if out is not None:
+        assert out == [95, 60, 0, 0], out
+    assert "list.filter(function (a) { return !a.is_human; }).length" in dash, "the Agents tab counts agents the way the summary does, without the human"
+
+
 def listbox_replaces_the_selects(root, tmp):
     """No native select shows a list of its own: the one left is the shared Apariencia control's hidden state holder; the page's
     listbox has a keyboard contract (arrows, Home, End, type-ahead, Escape, Enter) in pure functions."""
     dash = dash_source(root)
-    assert re.findall(r"<select[^>]*>", dash) == ['<select id="workspace-theme" hidden aria-hidden="true" tabindex="-1">'], "only the hidden holder"
+    assert re.findall(r"<select[^>]*>", dash) == ['<select id="workspace-theme" hidden aria-hidden="true" tabindex="-1">'], "the only native select is the hidden state holder of the shared Appearance control: hidden, aria-hidden and out of the tab order, so never visible or focusable"
     assert 'h("select"' not in dash and 'role: "listbox"' in dash and '"aria-expanded"' in dash and '"aria-activedescendant"' in dash
     for key in ("Escape", "Enter", "Tab"):
         assert 'e.key === "%s"' % key in dash, key
@@ -535,7 +548,7 @@ TESTS = [blocked_tasks_are_not_available, frozen_is_frozen, needs_human_comes_fi
          dashboard_meets_contrast_and_targets, dashboard_keeps_every_field, empty_project_says_the_next_step, no_server_no_request,
          page_is_not_heavier, both_profiles_and_languages_are_complete, messages_are_one_conversation_per_task, every_task_is_visible, square_says_why_it_waits,
          agents_show_model_and_harness, black_box_filter_finds_an_error, memory_graph_edges_come_from_data, tokens_break_down, share_card_matches_the_page,
-         share_card_has_both_formats, project_name_is_not_the_worktree, page_reloads_when_a_newer_page_is_written, listbox_replaces_the_selects]
+         share_card_has_both_formats, project_name_is_not_the_worktree, page_reloads_when_a_newer_page_is_written, listbox_replaces_the_selects, one_definition_of_stalled]
 
 
 def main():
