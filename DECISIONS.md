@@ -137,3 +137,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1795498652 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-159 UAK-160 Paths: kit/.uak/bin/lib/workspace.js, kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/setup.py, kit/.uak/bin/start, kit/.uak/tests/test_setup_language.py → kit/.uak/bin/lib/workspace.js, kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/setup.py, kit/.uak/bin/start, kit/.uak/tests/test_setup_language.py, install.sh, kit/.uak/tests/test_install_choice.py; Verify changed; | Why: scope or criteria fixed before review
 - 1795498656 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-190 UAK-191 | Why: backlog without PR (Plan-Channel: claims)
 - 1795502193 | allow | JoahanMorales | test change: UAK-159 | Why: el flujo pasa a diez pantallas; los tests de Dylan describen el flujo anterior
+- 1795502196 | allow | JoahanMorales | test change: UAK-160 | Why: el español se escribe desde códigos; los tests comparan frases traducidas
