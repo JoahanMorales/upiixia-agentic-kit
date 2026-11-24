@@ -4,7 +4,7 @@
     python3 scripts/ci_select.py BASE HEAD            # the files per system and the predicted seconds, for a person
     python3 scripts/ci_select.py BASE HEAD --github-output --event pull_request --labels ci-full >> "$GITHUB_OUTPUT"
     python3 scripts/ci_select.py run --kind smoke --retry --job NAME --out result.json test_a test_b
-    python3 scripts/ci_select.py gate                 # reads NEEDS (toJSON(needs)); fails unless every job that ran passed
+    python3 scripts/ci_select.py gate                 # reads NEEDS (toJSON(needs)) and PLANNED; fails unless discover and every planned job succeeded
     python3 scripts/ci_select.py issue --sha SHA --run-id ID --repo OWNER/REPO [--apply]
 
 Why: every push of every pull request paid the whole matrix (19 jobs, macOS 15 to 19 minutes, Windows 17 to 26, plus the
@@ -19,6 +19,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,12 @@ FORCE_PREFIXES = (".github/workflows/",)
 FORCE_FILES = ("scripts/ci_select.py", "kit/.uak/bin/lib/tests.sh")
 RED_TITLE = "main is red at "
 NOT_COUNTED = ("ci", "red-main")   # jobs that are not the matrix: the gate and the issue job
+# UAK-169: a failed file runs once more only when the second run fits.
+RETRY_MAX_S = 300             # a file whose timing entry is over this fails the job on its first failure
+SLOW_FACTOR = 3.0             # the median file is this many times slower than its entry (windows (4) at 14ccdbc0: 9 to 10 times)
+SLOW_MIN_TABLE_S = 30         # table seconds measured before the speed is judged: one short file says nothing
+SLOW_MIN_FILES = 5            # finished files before it is judged: one stale entry (test_done_without_github: 68 s, really 187 to 263) must not decide
+JOB_LIMIT_S = (("windows", 45 * 60), ("suite", 60 * 60))   # timeout-minutes of the jobs, to tell a time limit from a hand
 
 
 def tests_on_disk(kit=None):
@@ -80,6 +87,7 @@ def decide(event, labels, dispatch_tier, changed, ref=""):
 
 
 # ---- the selection --------------------------------------------------------------------------------------------------
+# A selector that fails for a file is a failure of the job, not "no test names it" (that one is an answer: a `-` line).
 _BASH = r'''
 set -u
 . "$KIT/.uak/bin/lib/tests.sh"
@@ -87,7 +95,10 @@ while IFS= read -r f; do
   [ -n "$f" ] || continue
   printf '%s\n' "$f" > "$TMP/one"
   printf '@@\t%s\n' "$f"
-  tf_affected_select "$KIT" "$TMP/one" "$TMP/tests" 2>/dev/null || true
+  tf_affected_select "$KIT" "$TMP/one" "$TMP/tests" 2>"$TMP/err"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf '@!\t%s\t%s\t%s\n' "$f" "$rc" "$(tail -c 300 "$TMP/err" | tr '\n\r\t' '   ')"
+  fi
 done < "$TMP/changed"
 '''
 
@@ -120,6 +131,9 @@ def _affected(paths, kit):
             fh.write("".join(t + ".py\n" for t in tests_on_disk(kit)))
         r = subprocess.run([_bash(), "-c", _BASH], env=dict(os.environ, KIT=Path(kit).as_posix(), TMP=tmp.as_posix()), stdin=subprocess.DEVNULL,
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    broke = [l.replace("\r", "").split("\t", 3) for l in r.stdout.splitlines() if l.startswith("@!\t")]
+    if broke:
+        raise SystemExit("ci_select: the selector of smoke --affected failed for %s (exit %s): %s" % (broke[0][1], broke[0][2], (broke[0][3] if len(broke[0]) > 3 else "").strip() or "no message"))
     if r.stdout.count("@@\t") != len(paths):
         raise SystemExit("ci_select: the selector of smoke --affected answered for %d of %d files (rc %d): %s"
                          % (r.stdout.count("@@\t"), len(paths), r.returncode, r.stderr.strip()[-300:]))
@@ -259,7 +273,8 @@ def report(tier, why, changed, sel, m, markdown=False):
             lines.append("  %s%s  %d s  (%s)" % ("- " if markdown else "", t, secs, "; ".join(sel[system][t])))
     left = [t for t in suite if t not in sel["macos"] or t not in sel["windows"]]
     lines.append("")
-    lines.append("%sruns on main: %d of %d test files on macOS and Windows are not in this run" % (h, len([t for t in suite if t not in sel["macos"]]), len(suite)))
+    lines.append("%sruns on main: macOS %d of %d, Windows %d of %d test files are not in this run" % (
+        h, len([t for t in suite if t not in sel["macos"]]), len(suite), len([t for t in suite if t not in sel["windows"]]), len(suite)))
     for system, label in (("macos", "macOS"), ("windows", "Windows")):
         if sel["budget"].get(system):
             lines.append("over the first tier's budget on %s, they run on main: %s" % (label, " ".join(sel["budget"][system])))
@@ -272,30 +287,115 @@ def report(tier, why, changed, sel, m, markdown=False):
 
 
 def github_output(tier, why, m):
-    return "tier=%s\nreason=%s\nshards=%s\nwshards=%s\n" % (tier, why.replace("\n", " "), json.dumps(m["shards"], separators=(",", ":")),
-                                                            json.dumps(m["wshards"], separators=(",", ":")))
+    planned = ["discover"] + (["suite"] if m["shards"] else []) + (["windows"] if m["wshards"] else [])
+    return "tier=%s\nreason=%s\nplanned=%s\nshards=%s\nwshards=%s\n" % (tier, why.replace("\n", " "), ",".join(planned),
+                                                                       json.dumps(m["shards"], separators=(",", ":")), json.dumps(m["wshards"], separators=(",", ":")))
 
 
 # ---- running files, with one retry on macOS and Windows -------------------------------------------------------------
-def run_files(files, runner, retry, log=print):
-    """Run each file; with retry a failed file runs once more. {ran, failed, flaky, counts}: failed = failed every time,
-    flaky = failed then passed (the job passes, and says so)."""
-    res = {"ran": list(files), "failed": [], "flaky": [], "counts": {}}
-    for f in files:
+def _say(line):
+    print(line, flush=True)
+
+
+def _stamp(secs):
+    return "%d s" % secs
+
+
+def write_result(path, job, res, running=""):
+    """The result JSON, written before each file and at the end: a job cancelled by its time limit leaves it, so the artifact
+    says which file the job was in (windows (1) at e4f2f83d was cancelled with no log left and nothing to say where)."""
+    if not path:
+        return
+    done = [f for f in res["ran"] if f in res["counts"]]
+    body = {"job": job, "conclusion": "running" if running else res.get("conclusion", "passed"), "running": running, "done": done,
+            "failed": res["failed"], "flaky": res["flaky"], "counts": res["counts"], "not_rerun": res["not_rerun"],
+            "slow": res["slow"], "stopped": res["stopped"]}
+    tmp = str(path) + ".part"
+    Path(tmp).write_text(json.dumps(body), encoding="utf-8")
+    os.replace(tmp, str(path))
+
+
+def _time_left(runner, bound, start, clock):
+    """Every run of a file, the first or the second, gets what is left of the job's bound."""
+    if hasattr(runner, "timed_out"):
+        runner.timed_out = False
+    if bound is not None and hasattr(runner, "timeout"):
+        runner.timeout = max(bound - (clock() - start), 1)
+
+
+def run_files(files, runner, retry, log=_say, seconds=None, bound=None, clock=time.monotonic, out=None, job="job"):
+    """Run each file; with retry a failed file runs once more, but only when the second run fits (its timing entry is at most
+    RETRY_MAX_S and the job's elapsed time plus that entry stays under `bound`, the job's seconds for tests). {ran, failed,
+    flaky, counts, not_rerun, slow, stopped}: failed = failed every time, flaky = failed then passed (the job passes, and
+    says so), not_rerun = {file: why} for a failure that was not run again, slow = the "slow runner, re-run" line when the
+    files left cannot end inside the bound at the speed seen so far, stopped = the file the job did not start or cut short.
+    Speed is the median of the per-file ratios (actual / entry) of the files finished on their first run, judged after
+    SLOW_MIN_FILES files and SLOW_MIN_TABLE_S table seconds: one stale entry cannot decide it. Before each file the name and
+    the clock are printed (flushed) and the partial result is written; a run that passes the bound is killed (the runner's
+    `timeout`, the time left) and the job stops there."""
+    res = {"ran": list(files), "failed": [], "flaky": [], "counts": {}, "not_rerun": {}, "slow": "", "stopped": ""}
+    start = clock()
+    ratios, seen_table = [], 0.0
+    for i, f in enumerate(files):
+        elapsed = clock() - start
+        entry = seconds(f) if seconds else 0
+        if bound is not None and elapsed >= bound:
+            res["stopped"] = f
+            log("stopped before %s: the job used %s of its %s for tests" % (f, _stamp(elapsed), _stamp(bound)))
+            break
         log("::group::" + f)
+        log("%s %s starts, job elapsed %s%s" % (time.strftime("%H:%M:%SZ", time.gmtime()), f, _stamp(elapsed), (", table %d s" % entry) if seconds else ""))
+        write_result(out, job, res, running=f)
+        _time_left(runner, bound, start, clock)
+        began = clock()
         ok = runner(f)
+        took = clock() - began
         runs, failures = 1, 0 if ok else 1
-        if not ok and retry:
+        if not ok and getattr(runner, "timed_out", False):
+            res["failed"].append(f)
+            res["counts"][f] = {"runs": 1, "failures": 1}
+            res["stopped"] = f
             log("::endgroup::")
-            log("::group::%s (second run)" % f)
-            ok = runner(f)
-            runs, failures = 2, failures + (0 if ok else 1)
-            if ok:
-                res["flaky"].append(f)
+            break
+        if not ok and retry:
+            used = clock() - start
+            if seconds and entry > RETRY_MAX_S:
+                res["not_rerun"][f] = "not run again: %s takes %d s (over %d s)" % (f, entry, RETRY_MAX_S)
+            elif seconds and bound is not None and used + entry >= bound:
+                res["not_rerun"][f] = "not run again: %s takes %d s and the job used %s of its %s for tests" % (f, entry, _stamp(used), _stamp(bound))
+            else:
+                log("::endgroup::")
+                log("::group::%s (second run)" % f)
+                _time_left(runner, bound, start, clock)
+                ok = runner(f)
+                runs, failures = 2, failures + (0 if ok else 1)
+                if not ok and getattr(runner, "timed_out", False):
+                    res["failed"].append(f)
+                    res["counts"][f] = {"runs": 2, "failures": 2}
+                    res["stopped"] = f
+                    log("::endgroup::")
+                    break
+                if ok:
+                    res["flaky"].append(f)
         if not ok:
             res["failed"].append(f)
         res["counts"][f] = {"runs": runs, "failures": failures}
         log("::endgroup::")
+        if runs == 1 and seconds and entry:
+            ratios.append(took / entry)
+            seen_table += entry
+            left = sum(seconds(g) for g in files[i + 1:])
+            if left and len(ratios) >= SLOW_MIN_FILES and seen_table >= SLOW_MIN_TABLE_S:
+                median = sorted(ratios)[len(ratios) // 2] if len(ratios) % 2 else sum(sorted(ratios)[len(ratios) // 2 - 1:len(ratios) // 2 + 1]) / 2
+                ends = (clock() - start) + left * median
+                if median >= SLOW_FACTOR and bound is not None and ends > bound:
+                    res["slow"] = ("slow runner, re-run: the median file ran %.1f times its entry over the %d files done (%d table seconds); the %d table seconds left would end at %d s, past the %d s for tests"
+                                   % (median, len(ratios), seen_table, left, ends, bound))
+                    res["stopped"] = files[i + 1]
+                    log(res["slow"])
+                    break
+    res["conclusion"] = "failed" if (res["failed"] or res["slow"] or res["stopped"]) else ("flaky" if res["flaky"] else "passed")
+    write_result(out, job, res)
     return res
 
 
@@ -307,34 +407,98 @@ def flaky_report(job, res):
         md.append("- flaky: %s passed on the second run" % f)
     for f in res["failed"]:
         n = res["counts"].get(f, {}).get("runs", 1)
-        ann.append("::error title=test failed::%s failed%s (%s)" % (f, " both times" if n > 1 else "", job))
-    conclusion = "failed" if res["failed"] else ("flaky" if res["flaky"] else "passed")
+        if f == res.get("stopped"):
+            ann.append("::error title=test failed::%s was cut at the job's bound (%s)" % (f, job))
+        else:
+            ann.append("::error title=test failed::%s failed%s (%s)" % (f, " both times" if n > 1 else "", job))
+    extra = []
+    for f, why in res.get("not_rerun", {}).items():
+        ann.append("::error title=not run again::%s (%s)" % (why, job))
+        extra.append(why)
+    if res.get("slow"):
+        ann.append("::error title=slow runner::%s (%s)" % (res["slow"], job))
+        extra.append(res["slow"])
+    if res.get("stopped") and not res.get("slow"):
+        why = "stopped at %s (stopped at the job's bound for tests): the run was killed there and the files after it did not run" % res["stopped"]
+        ann.append("::error title=time bound::%s (%s)" % (why, job))
+        extra.append(why)
+    conclusion = "failed" if (res["failed"] or res.get("slow") or res.get("stopped")) else ("flaky" if res["flaky"] else "passed")
     head = {"passed": "### %s: passed" % job, "flaky": "### %s: passed, with flaky files" % job, "failed": "### %s: failed" % job}[conclusion]
-    summary = [head] + md
+    summary = [head] + md + ["- " + x for x in extra]
     if res["failed"]:
         summary.append("Failed test files (%s):%s" % (job, "".join(" " + f for f in res["failed"])))
-        both = [f for f in res["failed"] if res["counts"].get(f, {}).get("runs", 1) > 1]
+        both = [f for f in res["failed"] if res["counts"].get(f, {}).get("runs", 1) > 1 and f != res.get("stopped")]
         if both:
             summary.append("Failed both times: " + " ".join(both))
     return {"job": job, "conclusion": conclusion, "annotations": ann, "summary": "\n".join(summary) + "\n",
-            "failed": res["failed"], "flaky": res["flaky"], "counts": res["counts"]}
+            "failed": res["failed"], "flaky": res["flaky"], "counts": res["counts"], "not_rerun": res.get("not_rerun", {}),
+            "slow": res.get("slow", ""), "stopped": res.get("stopped", "")}
+
+
+def _start(argv, **kw):
+    """Popen with the file in its own session on POSIX (its process group is its pid), so the bound's kill reaches the
+    grandchildren too: one that survived, reparented to PID 1, kept the step's pipes open."""
+    if os.name != "nt":
+        kw["start_new_session"] = True
+    return subprocess.Popen(argv, **kw)
+
+
+class _RealRunner:
+    """Runs one file; `timeout` (seconds, set by run_files to the time left to the job's bound) stops a file that would end
+    the job by the platform's cancel: the whole group (POSIX) or tree (Windows) is killed and `timed_out` is set."""
+    def __init__(self, kind):
+        self.kind = kind
+        self.timeout = None
+        self.timed_out = False
+
+    def _kill(self, p):
+        if os.name == "nt":
+            subprocess.call(["taskkill", "/F", "/T", "/PID", str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            p.kill()
+        else:
+            import signal
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                p.kill()
+        p.wait()
+        if os.name != "nt":   # confirm the group is gone: a signal sent to a group that still has members succeeds
+            end = time.monotonic() + 10
+            while time.monotonic() < end:
+                try:
+                    os.killpg(p.pid, 0)
+                except OSError:
+                    break
+                time.sleep(0.1)
+
+    def _wait(self, p):
+        try:
+            return p.wait(timeout=self.timeout) == 0
+        except subprocess.TimeoutExpired:
+            self.timed_out = True
+            self._kill(p)
+            return False
+
+    def _popen(self, name):
+        if self.kind == "smoke":
+            # stdin held open, as in a terminal: a command that reads it (BSD awk -W version did) hangs here, not on a laptop.
+            return _start(["bash", ".uak/bin/smoke", "--package-only"], cwd=str(KIT), env=dict(os.environ, UAK_SMOKE_TESTS=name), stdin=subprocess.PIPE)
+        if name == "mcp_tools":
+            return _start([sys.executable, "tests/test_mcp_tools.py"], cwd=str(ROOT), stdin=subprocess.DEVNULL)
+        return _start([sys.executable, ".uak/tests/%s.py" % name, "--package", str(KIT)], cwd=str(KIT), stdin=subprocess.DEVNULL)
+
+    def __call__(self, name):
+        sys.stdout.flush()
+        p = self._popen(name)
+        try:
+            return self._wait(p)
+        finally:
+            if p.stdin:
+                p.stdin.close()
 
 
 def _real_runner(kind):
-    def run(name):
-        sys.stdout.flush()
-        if kind == "smoke":
-            env = dict(os.environ, UAK_SMOKE_TESTS=name)
-            # stdin held open, as in a terminal: a command that reads it (BSD awk -W version did) hangs here, not on a laptop.
-            p = subprocess.Popen(["bash", ".uak/bin/smoke", "--package-only"], cwd=str(KIT), env=env, stdin=subprocess.PIPE)
-            try:
-                return p.wait() == 0
-            finally:
-                p.stdin.close()
-        if name == "mcp_tools":
-            return subprocess.call([sys.executable, "tests/test_mcp_tools.py"], cwd=str(ROOT), stdin=subprocess.DEVNULL) == 0
-        return subprocess.call([sys.executable, ".uak/tests/%s.py" % name, "--package", str(KIT)], cwd=str(KIT), stdin=subprocess.DEVNULL) == 0
-    return run
+    return _RealRunner(kind)
 
 
 def cmd_run(argv):
@@ -342,13 +506,16 @@ def cmd_run(argv):
     ap.add_argument("--kind", choices=("smoke", "windows"), required=True, help="smoke: bash .uak/bin/smoke --package-only per file; windows: python per file")
     ap.add_argument("--job", default="job", help="the job's name, as GitHub shows it")
     ap.add_argument("--retry", action="store_true", help="run a failed file once more (macOS and Windows; Linux never retries)")
-    ap.add_argument("--out", help="write the result JSON here (the artifact of the run)")
+    ap.add_argument("--out", help="write the result JSON here (the artifact of the run), before each file and at the end")
+    ap.add_argument("--bound", type=int, help="the job's seconds for tests: a retry must fit under it, the job stops itself at it and says which file it was in")
     ap.add_argument("files", nargs="*")
     a = ap.parse_args(argv)
     if not a.files:
         print("FAILED: this shard has no test files (empty list)")
         return 1
-    res = run_files(a.files, _real_runner(a.kind), a.retry)
+    retry = a.retry and os.environ.get("RUNNER_OS") != "Linux"   # Linux never retries, whatever the workflow passes
+    seconds = lint.ci_windows_seconds if a.kind == "windows" else lint.ci_seconds
+    res = run_files(a.files, _real_runner(a.kind), retry, seconds=seconds, bound=a.bound, out=a.out, job=a.job)
     rep = flaky_report(a.job, res)
     for line in rep["annotations"]:
         print(line)
@@ -359,20 +526,34 @@ def cmd_run(argv):
     else:
         print(rep["summary"])
     if a.out:
-        Path(a.out).write_text(json.dumps({k: rep[k] for k in ("job", "conclusion", "failed", "flaky", "counts")}), encoding="utf-8")
+        write_result(a.out, a.job, dict(res, conclusion=rep["conclusion"]))
     return 1 if rep["conclusion"] == "failed" else 0
 
 
 # ---- the gate and the issue ------------------------------------------------------------------------------------------
-def gate(needs):
-    """Problems of the jobs before the gate: every job that ran must have passed (skipped is a job that did not run)."""
-    return ["%s: %s" % (name, v.get("result")) for name, v in sorted(needs.items()) if v.get("result") not in ("success", "skipped")]
+def gate(needs, planned=None):
+    """Problems of the jobs before the gate. With `planned` (the jobs the tier planned, from discover): discover and every
+    planned job must have concluded `success`; `skipped` and `cancelled` fail, only a job the tier did not plan may be
+    skipped. Without it (a caller that does not know) a skipped job is a job that did not run, as before UAK-169."""
+    must = None if planned is None else set(planned) | {"discover"}
+    out = []
+    for name, v in sorted(needs.items()):
+        r = v.get("result")
+        if r == "success" or (r == "skipped" and (must is None or name not in must)):
+            continue
+        out.append("%s: %s" % (name, r or "no result"))
+    for name in sorted((must or set()) - set(needs)):
+        out.append("%s: not among the jobs the gate waits for" % name)
+    return out
 
 
 def cmd_gate(argv):
     raw = os.environ.get("NEEDS") or "{}"
-    problems = gate(json.loads(raw))
-    text = "### ci: %s\n" % ("failed" if problems else "every job that ran passed") + "".join("- %s\n" % p for p in problems)
+    needs = json.loads(raw)
+    # An empty PLANNED (discover failed before it could say) plans everything: fail closed.
+    planned = [x for x in (os.environ.get("PLANNED") or "").split(",") if x] or list(needs)
+    problems = gate(needs, planned)
+    text = "### ci: %s\n" % ("failed" if problems else "discover and every planned job succeeded") + "".join("- %s\n" % p for p in problems)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as fh:
@@ -381,16 +562,40 @@ def cmd_gate(argv):
     return 1 if problems else 0
 
 
-def plan_issue(sha, failed_jobs, failed_both, pr, open_issues, run_url):
-    """What to do about the issue of a red main, as data: create one, add to the open one, close it, or nothing."""
+def job_outcome(job):
+    """success | failed | time limit | cancelled | skipped, of a job row {name, conclusion, started_at, completed_at}. A job
+    cancelled by its own timeout-minutes says `cancelled` like one cancelled by a hand; it ran about as long as its limit."""
+    import datetime as dt
+    c = job.get("conclusion") or ""
+    if c in ("failure", "timed_out"):
+        return "failed"
+    if c != "cancelled":
+        return c or "skipped"
+    try:
+        fmt = "%Y-%m-%dT%H:%M:%SZ"
+        ran = (dt.datetime.strptime(job["completed_at"], fmt) - dt.datetime.strptime(job["started_at"], fmt)).total_seconds()
+    except (KeyError, TypeError, ValueError):
+        return "cancelled"
+    limit = next((s for prefix, s in JOB_LIMIT_S if job.get("name", "").startswith(prefix)), 0)
+    return "time limit" if limit and ran >= limit - 90 else "cancelled"
+
+
+def plan_issue(sha, failed_jobs, failed_both, pr, open_issues, run_url, ci_result="success", causes=None, attempt=1):
+    """What to do about the issue of a red main, as data: create one, add to the open one, close it, or nothing. The issue is
+    closed only by a run whose `ci` job succeeded (a run cancelled by hand, or one that failed without a named job, closes
+    nothing). `causes` = {job: failed|time limit|slow runner|set-up}; a file that failed both times needs no re-run, any other
+    failure is not confirmed until the failed jobs ran again (attempt 2 of the run)."""
     short = sha[:7]
+    causes = causes or {}
     existing = next((i for i in open_issues if i.get("title", "").startswith(RED_TITLE)), None)
     if not failed_jobs:
-        if existing:
+        if existing and ci_result == "success":
             return {"action": "close", "number": existing["number"], "body": "main is green again at %s (%s). Closing." % (short, run_url)}
         return {"action": "none"}
-    lines = ["The whole matrix failed at %s (%s)." % (short, run_url), "", "Failed jobs:"] + ["- %s" % j for j in failed_jobs]
-    lines += ["", "Files that failed both times (each file runs a second time in its job on macOS and Windows):"]
+    lines = ["The whole matrix failed at %s (%s)." % (short, run_url), "", "Failed jobs:"]
+    for j in failed_jobs:
+        lines.append("- %s%s" % (j, (" (%s)" % causes[j]) if causes.get(j) else ""))
+    lines += ["", "Files that failed both times (each file runs a second time in its job on macOS and Windows, when the second run fits):"]
     any_both = False
     for job in failed_jobs:
         files = failed_both.get(job) or []
@@ -398,7 +603,19 @@ def plan_issue(sha, failed_jobs, failed_both, pr, open_issues, run_url):
             any_both = True
             lines.append("- %s: %s" % (job, " ".join(files)))
     if not any_both:
-        lines.append("- none recorded (a Linux job never retries; a job can also fail before its tests)")
+        lines.append("- none recorded (a Linux job never retries; a job can also fail before its tests, or hit its time limit)")
+    open_ones = [j for j in failed_jobs if not failed_both.get(j)]
+    lines.append("")
+    if attempt > 1:
+        lines.append("This is attempt %d: the failed jobs ran again and failed after a re-run of the failed jobs." % attempt)
+    elif open_ones and any_both:
+        lines.append("Jobs with a file that failed both times need no re-run. Not confirmed by a re-run: %s. Run: gh run rerun %s --failed (attempt 2 confirms or closes this issue)."
+                     % (", ".join(open_ones), run_url.rsplit("/", 1)[-1]))
+    elif open_ones:
+        lines.append("Not confirmed by a re-run: a Linux failure, a set-up failure, a slow runner or a time limit can pass on the same commit. Run: gh run rerun %s --failed (attempt 2 confirms or closes this issue)."
+                     % run_url.rsplit("/", 1)[-1])
+    else:
+        lines.append("Every failed job has a file that failed both times: no re-run needed.")
     if pr:
         lines += ["", "Brought by #%s: %s" % (pr["number"], pr.get("title", ""))]
     lines += ["", "Nobody merges on a red main except the fix or the revert (AGENTS.md)."]
@@ -421,18 +638,27 @@ def cmd_issue(argv):
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--repo", required=True)
     ap.add_argument("--results", help="the folder of the jobs' result JSON files (artifacts)")
+    ap.add_argument("--ci-result", default="success", help="the result of the run's `ci` job (needs.ci.result): only success closes the issue")
+    ap.add_argument("--attempt", type=int, default=1, help="the run's attempt (github.run_attempt): 2 or more is a re-run of the failed jobs")
     ap.add_argument("--apply", action="store_true", help="open, comment or close the issue; without it the plan is only printed")
     a = ap.parse_args(argv)
-    rows = _gh("api", "repos/%s/actions/runs/%s/jobs" % (a.repo, a.run_id), "--paginate", "--jq", ".jobs[] | {name, conclusion}")
+    rows = _gh("api", "repos/%s/actions/runs/%s/jobs" % (a.repo, a.run_id), "--paginate", "--jq", ".jobs[] | {name, conclusion, started_at, completed_at}")
     jobs = [json.loads(l) for l in rows.splitlines() if l.strip()]
-    failed = [j["name"] for j in jobs if j["conclusion"] in ("failure", "timed_out") and j["name"] not in NOT_COUNTED]
+    causes = {j["name"]: job_outcome(j) for j in jobs if j["name"] not in NOT_COUNTED}
+    failed = [n for n, c in causes.items() if c in ("failed", "time limit")]
     both = {}
     for p in sorted(Path(a.results).rglob("*.json")) if a.results else []:
         try:
             r = json.loads(p.read_text(encoding="utf-8"))
         except ValueError:
             continue
-        files = [f for f in r.get("failed", []) if r.get("counts", {}).get(f, {}).get("runs", 1) > 1]
+        files = [f for f in r.get("failed", []) if r.get("counts", {}).get(f, {}).get("runs", 1) > 1 and f != r.get("stopped")]
+        if r.get("slow") and r.get("job") in causes:
+            causes[r["job"]] = "slow runner"
+        elif r.get("running") and causes.get(r.get("job")) == "time limit":
+            causes[r["job"]] = "time limit, in %s" % r["running"]
+        elif r.get("stopped") and r.get("job") in causes:
+            causes[r["job"]] = "time bound, stopped at %s" % r["stopped"]
         if files:
             both[r.get("job", p.stem)] = files
     pr = None
@@ -442,7 +668,8 @@ def cmd_issue(argv):
         if pr and not pr.get("number"):
             pr = None
     listing = _gh("issue", "list", "--repo", a.repo, "--state", "open", "--search", RED_TITLE + " in:title", "--json", "number,title")
-    plan = plan_issue(a.sha, failed, both, pr, json.loads(listing or "[]"), "https://github.com/%s/actions/runs/%s" % (a.repo, a.run_id))
+    plan = plan_issue(a.sha, failed, both, pr, json.loads(listing or "[]"), "https://github.com/%s/actions/runs/%s" % (a.repo, a.run_id),
+                      ci_result=a.ci_result, causes=causes, attempt=a.attempt)
     print(json.dumps(plan, indent=2))
     if not a.apply or plan["action"] == "none":
         return 0
