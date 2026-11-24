@@ -799,8 +799,9 @@ def last_screen_says_the_terminal_command(root, tmp):
     if out is not None:
         assert out["plain"] == "cd ~/proyectos/tienda-api && pwd", "the shown line is typed as it reads: %r" % out
         env = dict(os.environ, HOME=str(home))
-        done = subprocess.run(["sh", "-c", out["plain"]], env=env, capture_output=True, text=True)
-        assert done.returncode == 0 and Path(done.stdout.strip()).resolve() == (home / "proyectos/tienda-api").resolve(), done
+        (home / "proyectos/tienda-api/marker.txt").write_text("here", encoding="utf-8")
+        done = subprocess.run(["sh", "-c", out["plain"].replace("pwd", "cat marker.txt")], env=env, capture_output=True, text=True)
+        assert done.returncode == 0 and done.stdout.strip() == "here", "typed as shown, it changes into the folder: %r" % done
         assert "~" not in out["spaced"] and out["spaced"].startswith("cd '"), "a path that needs quotes stays whole and quoted: %r" % out
     html = tf.page()
     assert 'id="closed-command"' in tg.section(html, "screen-closed") and 'id="terminal-command"' in html
