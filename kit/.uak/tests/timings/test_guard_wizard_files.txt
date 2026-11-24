@@ -1,2 +1,3 @@
-ci 30
-windows 120
+# measured 2026-11-24 45346276380: file time on Linux 34 s, on macOS 15 s, on Windows 57 s
+ci 34
+windows 57
