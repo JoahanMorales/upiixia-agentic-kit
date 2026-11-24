@@ -13,3 +13,4 @@ Append-only. Format: - ID | epoch | human | reason. Why: a test is a spec; chang
 - UAK-154 | 1795451182 | JoahanMorales | 99.0.0 ahora es version mayor y bloquea; cuatro lineas de tests publican una version de la misma mayor
 - UAK-156 | 1795476545 | JoahanMorales | la tarea quita el temporizador de 60 s que test_dashboard_profiles.py:137 exige
 - UAK-158 | 1795494033 | JoahanMorales | el asistente usa los tokens del panel y marcas SVG; cuatro líneas de test leían la paleta vieja y el glifo ✓
+- UAK-159 | 1795502193 | JoahanMorales | el flujo pasa a diez pantallas; los tests de Dylan describen el flujo anterior
