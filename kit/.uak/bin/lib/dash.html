@@ -368,7 +368,9 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
 .hb .l { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hb .b { display: block; height: 8px; border-radius: 0 3px 3px 0; background: var(--accent-line); min-width: 3px; }
 .hb .v { font-variant-numeric: tabular-nums; text-align: right; }
-.tbl { width: 100%; border-collapse: collapse; }
+.tbl { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.tbl th, .tbl td { overflow-wrap: anywhere; }
+.tbl th:first-child { width: 24%; }
 .tbl th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .tbl td { padding: 8px 12px; border-top: 1px solid var(--line); vertical-align: top; }
 .tbl .n { text-align: right; font-variant-numeric: tabular-nums; }
@@ -464,6 +466,7 @@ dialog#story::backdrop { background: var(--scrim); }
   .st-h, .st-body { padding-left: 16px; padding-right: 16px; } .slegend, .crewrow { grid-template-columns: 1fr; }
   dialog#story { width: 100vw; border-left: 0; }
   .win-f > * { padding: 8px; }
+  .tbl th, .tbl td { padding: 8px 4px; }
   .row { grid-template-columns: 32px minmax(0, 1fr); } .row .meta { grid-column: 2; white-space: normal; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
