@@ -1503,9 +1503,16 @@ def kill_round(r, f, w, common, gate, n):
 
 def killed_flush_leaves_no_clone_on_windows(r):
     """UAK-190: on main at 967f794 (run 45326081765, windows (10)) the clone directory of a killed flush was still there
-    when the test looked. This case repeats the kill and measures how long after the owner's death the directory can
-    be removed. UAK_KILL_ROUNDS sets the rounds."""
-    rounds = int(os.environ.get("UAK_KILL_ROUNDS", "20"))
+    when killed_bb_flush_is_recovered_and_published_once looked (once; it passed on the re-run and in earlier runs).
+    Measured on Windows, 20 rounds of this scenario in one job: before the fix (run 45338123292, job 138255069367)
+    0 of 20 left a clone and the directory was gone 0.5-0.6 s after the owner's death; after the fix (run 45342514688,
+    job 138269556072) 0 of 20, same 0.5-0.6 s. So the race is rare (under 1 in 40 here) and was not reproduced; the
+    cause is read from the code: Windows refuses to remove a directory a dying process still uses (a native git's
+    cwd or an open file), and bb_unclone tried once, leaving the directory for the next flush, which removed only a
+    clone older than 600 s. The fix retries the removal for up to 10 s and lets the next flush remove a clone whose
+    owner is gone (leftover_clone_is_removed_by_the_next_flush). The loop costs about 9 s a round on Windows, so the
+    default is 3; UAK_KILL_ROUNDS=20 repeats it as in the measurement."""
+    rounds = int(os.environ.get("UAK_KILL_ROUNDS", "3"))
     f, w = counted_fixture(r, "ss-bb-kill-loop")
     common = first_pending_dir(r, w)
     gate = Path(r.scratch) / "ss-bb-loop-gate"
