@@ -472,7 +472,7 @@ def share_card_has_both_formats(root, tmp):
         assert needle in dash, "the share card lost %s" % needle
     vertical = dash[dash.index("if (v) {"):dash.index("} else {", dash.index("if (v) {"))]
     ys = [int(n) for n in re.findall(r"SAFE_TOP \+ (\d+)", vertical)]
-    assert ys and min(ys) >= 40, ys
+    assert ys and min(ys) >= 40 and 250 + max(ys) + 3 * 180 + 44 <= 1920 - 340, ys
     assert dash.count('text("UPIIXIA Agentic Kit"') == 1 and "12, 500, tok(\"muted\"), mono" in dash, "one small credit"
 
 

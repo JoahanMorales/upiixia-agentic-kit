@@ -800,7 +800,7 @@ dialog#story::backdrop { background: var(--scrim); }
   // pass that pushes apart anything closer than its radii and keeps every node inside the frame with a padding.
   function nodeR(x) { return x.type === "lesson" || x.type === "decision" ? 7 : 3.5 + Math.min(3, x.deg / 3); }
   function layout(nodes, edges, w, h) {
-    var pos = {}, n = nodes.length, pad = 44, k = Math.sqrt((w - 2 * pad) * (h - 2 * pad) / Math.max(1, n)) * .75, it = 320, i, j, m;
+    var pos = {}, n = nodes.length, pad = 44, k = Math.sqrt((w - 2 * pad) * (h - 2 * pad) / Math.max(1, n)) * 1, it = 320, i, j, m;
     function seed(id, salt) { var x = 2166136261; for (var q = 0; q < id.length; q++) { x ^= id.charCodeAt(q) + salt; x = Math.imul(x, 16777619) >>> 0; } return (x % 10000) / 10000; }
     nodes.forEach(function (x) { pos[x.id] = { x: pad + seed(x.id, 1) * (w - 2 * pad), y: pad + seed(x.id, 2) * (h - 2 * pad), dx: 0, dy: 0 }; });
     for (m = 0; m < it; m++) {
@@ -817,7 +817,9 @@ dialog#story::backdrop { background: var(--scrim); }
       var a3 = pos[nodes[i].id], b3 = pos[nodes[j].id], dx3 = b3.x - a3.x, dy3 = b3.y - a3.y, d3 = Math.sqrt(dx3 * dx3 + dy3 * dy3) + .01, min = nodeR(nodes[i]) + nodeR(nodes[j]) + 10;
       if (d3 < min) { var push = (min - d3) / 2 / d3; a3.x -= dx3 * push; a3.y -= dy3 * push; b3.x += dx3 * push; b3.y += dy3 * push; }
     }
-    nodes.forEach(function (x) { var p = pos[x.id]; p.x = Math.min(w - pad, Math.max(pad, p.x)); p.y = Math.min(h - pad, Math.max(pad, p.y)); });
+    var x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    nodes.forEach(function (x) { var p = pos[x.id]; x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); });
+    nodes.forEach(function (x) { var p = pos[x.id]; p.x = pad + (p.x - x0) / Math.max(1, x1 - x0) * (w - 2 * pad); p.y = pad + (p.y - y0) / Math.max(1, y1 - y0) * (h - 2 * pad); });
     return pos;
   }
   function bbFilter(recs, f, now) {
@@ -1661,7 +1663,7 @@ dialog#story::backdrop { background: var(--scrim); }
     if (v) {
       idc(S.name, S.name, 90, SAFE_TOP + 40, 150); var fs = fit(S.name, 84, 900); text(S.name, 90, SAFE_TOP + 330, fs, 700, tok("ink")); if (since) text(since, 90, SAFE_TOP + 390, 34, 500, tok("muted"));
       ag.slice(0, 7).forEach(function (a, i) { idc(a.name, a.human, 90 + i * 130, SAFE_TOP + 470, 110); });
-      f.forEach(function (x, i) { var y = SAFE_TOP + 760 + i * 190; text(x[0], 90, y, 120, 700, tok("ink")); text(x[1], 90, y + 48, 32, 500, tok("muted")); });
+      f.forEach(function (x, i) { var y = SAFE_TOP + 720 + i * 180; text(x[0], 90, y, 104, 700, tok("ink")); text(x[1], 90, y + 44, 30, 500, tok("muted")); });
       if (S.total) text(Math.round(100 * S.integrated / S.total) + "%", W - 90, SAFE_TOP + 130, 96, 700, tok("accent-ink"), null, "right");
     } else {
       idc(S.name, S.name, 64, 64, 88); var fs2 = fit(S.name, 56, 640); text(S.name, 176, 118, fs2, 700, tok("ink")); if (since) text(since, 176, 158, 24, 500, tok("muted"));
@@ -1671,7 +1673,7 @@ dialog#story::backdrop { background: var(--scrim); }
       if (ag.length > 16) text("+" + (ag.length - 16), 64 + 16 * 64, 508, 26, 600, tok("muted"));
     }
     // The kit's credit: a very small mark and name in a corner, low contrast.
-    var cx = v ? 90 : W - 190, cy = v ? SAFE_TOP + 1010 : H - 44;
+    var cx = W - (v ? 250 : 190), cy = v ? H - SAFE_BOTTOM - 50 : H - 44;
     c.globalAlpha = .55; idc("UPIIXIA Agentic Kit", "UPIIXIA", cx, cy, 14); text("UPIIXIA Agentic Kit", cx + 22, cy + 12, 12, 500, tok("muted"), mono); c.globalAlpha = 1;
     return f;
   }
