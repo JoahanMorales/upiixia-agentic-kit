@@ -113,6 +113,8 @@ bb_leftover() { # any: 0 when a dead owner left something; take: put it all back
     case "$pid" in ''|*[!0-9]*) continue;; esac
     start_pid_ok "$pid" || continue
     ! kill -0 "$pid" 2>/dev/null || continue
+    # kill -0 also fails for lack of permission: a process of another user is alive, its file is its own (UAK-189).
+    ! ps -p "$pid" >/dev/null 2>&1 || continue
     [ "$1" != any ] || return 0
     if [ "$base" != "$f" ]; then rm -f "$f"; continue; fi
     mv "$f" "$target.$$" 2>/dev/null || continue
