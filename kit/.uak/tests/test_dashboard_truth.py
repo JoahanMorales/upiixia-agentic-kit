@@ -288,10 +288,11 @@ def no_server_no_request(root, tmp):
 
 
 def page_is_not_heavier(root, tmp):
-    """The clause says "not heavier than today (84 KB)": the page of 2026-11-23 was 84,057 bytes. It is measured on bytes, as
-    written (84 KiB). The page of main on 2026-11-24 was 103,903 bytes, 11 KB of it the shared design block of UAK-158."""
+    """UAK-162's weight clause. It said "not heavier than today (84 KB)": the page of 2026-11-23 was 84,057 bytes, and main's
+    page was 103,903 once UAK-158 added the shared block (11 KB) and the look script (4 KB). The human raised the bound on
+    2026-11-24 (docs/plans/visual-setup-amend-7.md): at most 128 KiB, measured on the file's bytes."""
     size = len((root / ".uak/bin/lib/dash.html").read_bytes())
-    assert size <= 84 * 1024, "dash.html is %d bytes; the clause allows 84 KiB (%d)" % (size, 84 * 1024)
+    assert size <= 128 * 1024, "dash.html is %d bytes; the bound is 128 KiB (%d)" % (size, 128 * 1024)
 
 
 def both_profiles_and_languages_are_complete(root, tmp):
