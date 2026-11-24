@@ -1274,6 +1274,32 @@ def killed_bb_flush_is_recovered_and_published_once(r):
     return "killed mid-push, recovered by the next start, published once"
 
 
+def other_users_pending_file_is_left(r):
+    """UAK-185 review: `kill -0` fails with EPERM for a process of another user, and bb_leftover read that as a dead
+    owner and took the file under a live flush. PID 1 is alive and not ours: its pending file stays; a dead PID's goes."""
+    f, w = counted_fixture(r, "ss-bb-eperm")
+    probe = r.run([r.bash, "-c", 'kill -0 1 2>&1; echo "rc=$?"'], cwd=w, allowed=None).stdout
+    if "rc=0" in probe:
+        return "kill -0 1 succeeds here (same user): nothing to prove, skipped"
+    if "ermission" not in probe and "not permitted" not in probe.lower():
+        return "kill -0 1 does not report a permission error here (%r): skipped" % probe.strip()[:80]
+    dead = r.run([r.bash, "-c", "sleep 0 & echo $!; wait"], cwd=w).stdout.split()[0]
+    common = Path(r.scratch) / "ss-eperm-common"
+    common.mkdir()
+    foreign = common / "uak-blackbox.pending.1"
+    foreign.write_text("line-of-a-live-flush\n", encoding="utf-8")
+    harness = Path(r.scratch) / "ss-eperm.sh"
+    harness.write_text('COMMON="$1"\n' + hook_functions(r, w, "start_pid_ok", "bb_leftover") +
+                       '\nbb_leftover any; echo "any=$?"\n', encoding="utf-8")
+    out = r.run([r.bash, harness.as_posix(), common.as_posix()], cwd=w, allowed=None)
+    expect("any=1" in out.stdout, "a pending file of PID 1 (alive, another user) is not a dead owner's: %r %r" % (out.stdout, out.stderr))
+    expect(foreign.exists() and foreign.read_text(encoding="utf-8") == "line-of-a-live-flush\n", "its file is left as it was")
+    (common / ("uak-blackbox.pending." + dead)).write_text("line-of-a-dead-flush\n", encoding="utf-8")
+    out = r.run([r.bash, harness.as_posix(), common.as_posix()], cwd=w, allowed=None)
+    expect("any=0" in out.stdout, "a dead owner's file is still found: %r %r" % (out.stdout, out.stderr))
+    return "PID 1's pending file is left; a dead PID's is taken"
+
+
 LENS_STUB = 'case "$1" in build) %s;; esac'
 
 
@@ -1404,6 +1430,7 @@ TESTS += [corrupt_time_file_does_not_end_the_hook, future_time_file_is_stale, st
           once_lock_with_a_bad_time_is_stale, every_background_job_has_a_limit, cached_copy_always_says_its_age,
           empty_guard_is_recovered, limited_jobs_poll_coarsely, killed_bb_flush_is_recovered_and_published_once,
           killed_map_build_is_not_a_built_map, killed_tokens_publish_is_retried, counter_files_are_validated]
+TESTS += [other_users_pending_file_is_left]
 
 
 def main():

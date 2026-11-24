@@ -14,9 +14,11 @@ smoke_refuse() {
 smoke_newline_name() {
   local nl found kind=
   nl=$(printf '\nx'); nl=${nl%x}
-  found=$(cd "$ROOT" && find . -maxdepth 3 \( -name .git -o -name node_modules -o -name venv \) -prune -o -name "*${nl}*.py" -print 2>/dev/null | head -n 1)
+  found=$(cd "$ROOT" && find . -maxdepth 3 \( -name .git -o -name node_modules -o -name venv \) -prune -o -path "*${nl}*.py" -exec sh -c 'printf "%s" "$1" | tr "\n" "~"; echo' _ {} \; 2>/dev/null | head -n 1)
   [ -z "$found" ] || kind='file name'
-  [ -n "$found" ] || { found=$(cd "$ROOT" && find cmd -maxdepth 2 -type d -name "*${nl}*" 2>/dev/null | head -n 1); kind='folder name'; }
+  # A newline in any folder above the file counts (UAK-189), also in the folder the project itself sits in.
+  case "$ROOT" in *"$nl"*) found=$(printf '%s' "$ROOT" | tr '\n' '~'); kind='folder name';; esac
+  [ -n "$found" ] || { found=$(cd "$ROOT" && find cmd -maxdepth 2 -type d -path "*${nl}*" -exec sh -c 'printf "%s" "$1" | tr "\n" "~"; echo' _ {} \; 2>/dev/null | head -n 1); kind='folder name'; }
   [ -n "$found" ] || return 1
   smoke_refuse "$kind" "${found#./}"
 }
