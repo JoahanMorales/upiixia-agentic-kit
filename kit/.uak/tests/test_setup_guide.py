@@ -365,7 +365,12 @@ def first_install_in_four_clicks(root, tmp):
         for button in ("#project-continue", "#install"):
             page.click(button)
             clicks += 1
-        page.wait_for_selector('.screen[data-on][data-screen="rules"]', timeout=60000)
+        try:
+            page.wait_for_selector('.screen[data-on][data-screen="rules"]', timeout=30000)
+        except Exception:  # noqa: BLE001
+            raise AssertionError("after Install the page shows %s (%s)" % (page.evaluate(
+                "document.querySelector('.screen[data-on]').dataset.screen"), page.evaluate(
+                "[...document.querySelectorAll('#error, .action-result, .toast')].map(e => e.textContent.trim()).filter(Boolean).join(' | ')")))
         assert clicks <= 4 and page.evaluate("document.getElementById('blackbox').checked") is False, clicks
         browser.close()
 

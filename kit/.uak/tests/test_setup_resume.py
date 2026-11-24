@@ -393,8 +393,8 @@ def name_persists_per_project(root, tmp):
         assert code == 400 and body.get("need") == "check", body
     # 6. The page asks for the name inside the team step.
     html = tf.page()
-    team = section(html, "team-step")
-    assert 'id="team-name"' in team and 'id="team-name-save"' in team, "the team step has its own name field"
+    team = section(html, "screen-people")
+    assert 'id="team-name"' in team and 'id="team-name-save"' in team, "the People screen has the team's own name field"
     assert "need" in tf.page_function(tf.script(html), "loadTeam"), "loadTeam reads what the refusal needs"
 
 

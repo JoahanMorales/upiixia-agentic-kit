@@ -1305,7 +1305,7 @@ class SetupServer(ThreadingHTTPServer):
                                   phase="setup", identity=identity, git_human=git_human(self.identity_run, root), human=saved, human_source="project" if saved else "",
                                   resume=resume, inspect=self.state.get("inspect", 0) + 1, checked=False, ready=False,
                                   checks=[], next_command="", next_note="", freeze=0, needs_human=[], details="", error="",
-                                  versions=kit_versions(self, root), detected=detect_project(self, root))
+                                  versions=kit_versions(self, root), detected=detect_project(self, root), design=design_state(root), home=str(Path.home()))
                 self.plan_known.setdefault(str(root), ([], bool(resume["kit_on_main"]), "", ""))
         except (OSError, ValueError, subprocess.SubprocessError):
             return
@@ -1322,6 +1322,7 @@ class SetupServer(ThreadingHTTPServer):
             if self.target == target:
                 self.state["resume"] = resume
                 self.state["branch"] = branch
+                self.state["design"] = design_state(target)
 
     def keep_check(self, at=None):
         """Remember the current project's finished check (caller holds the lock)."""
@@ -2284,7 +2285,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                 s.state.update(git_human=git_name, target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], next_command="", next_note="", freeze=0, needs_human=[], details=previous.get("details", ""), error=previous.get("error", ""),
                                human=human, human_source="project" if saved else "session" if human else "",
                                resume=resume, inspect=s.state.get("inspect", 0) + 1, checked=False, branch=branch,
-                               detected=detected, versions=versions)
+                               detected=detected, versions=versions, design=design_state(root), home=str(Path.home()))
                 if kept:
                     s.state.update(ready=kept["ready"], checks=list(kept["checks"]), next_command=kept["next_command"],
                                    next_note=kept["next_note"], details=kept["details"], phase=kept["phase"],
@@ -3001,6 +3002,27 @@ def detect_project(server, root):
     elif "fastapi" in python:
         found["stack"] = "fastapi-react"
     return found
+
+
+def design_state(root):
+    """The design direction of a project that has screens (UAK-159): whether it has any (a web/ folder or UI-Paths in
+    PROJECT.md), whether the lock exists (web/DESIGN.md), how many rounds were made and the creativity index (1-5,
+    Design-Creativity in PROJECT.md, 3 when unset). Local files only."""
+    root = Path(root)
+    out = {"screens": False, "locked": False, "rounds": 0, "creativity": 3}
+    try:
+        text = (root / ".uak/PROJECT.md").read_text(encoding="utf-8", errors="replace")[:65536] if (root / ".uak/PROJECT.md").is_file() else ""
+        paths = re.search(r"(?m)^UI-Paths:[ \t]*(\S.*)$", text)
+        out["screens"] = (root / "web").is_dir() or bool(paths and paths.group(1).strip() not in ("-", ""))
+        design = root / "web/DESIGN.md"
+        out["locked"] = design.is_file() and design.stat().st_size > 400
+        rounds = root / ".uak/design/rounds"
+        out["rounds"] = len([p for p in rounds.iterdir() if p.is_dir()]) if rounds.is_dir() else 0
+        level = re.search(r"(?m)^Design-Creativity:[ \t]*([1-5])\b", text)
+        out["creativity"] = int(level.group(1)) if level else 3
+    except OSError:
+        pass
+    return out
 
 
 def kit_file_counts(server):
