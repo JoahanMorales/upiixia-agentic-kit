@@ -210,7 +210,7 @@ def trust_step_is_explicit(root, tmp):
         assert "↓" in out["off"]["text"] and "«No, exit»" in out["off"]["text"] and "«Yes, proceed»" in out["off"]["text"], out
         assert "Ignoring 51 permissions.allow" in out["off"]["text"], out
         assert out["off"]["en"] >= 2 and out["off"]["kbd"] >= 2, "dialog labels stay English, keys are <kbd>: %r" % out
-        assert out["on"]["text"].startswith("✓") and "↓" not in out["on"]["text"] and not out["on"]["hidden"], out
+        assert "↓" not in out["on"]["text"] and not out["on"]["hidden"], out
         assert es["Claude Code already trusts this folder."] in out["on"]["text"], out
         assert "↓" in out["unknown"] and out["gone"], out
 

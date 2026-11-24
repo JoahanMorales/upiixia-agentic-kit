@@ -203,8 +203,8 @@ def dashboard_meets_contrast_and_targets(root, tmp):
     dash = (root / ".uak/bin/lib/dash.html").read_text(encoding="utf-8")
     page = team.page()
     low = []
-    themes = {"dash light": css_tokens(dash, ":root"), "dash dark": css_tokens(dash, ':root[data-theme="dark"]'),
-              "dash auto dark": css_tokens(dash, ':root:not([data-theme="light"])')}
+    # UAK-158: the pages share one token block; every pair of every palette is measured in test_setup_design.py.
+    themes = {"dash light": css_tokens(dash, ":root"), "dash dark": css_tokens(dash, ':root[data-theme="dark"]')}
     for name, t in themes.items():
         for text in ("ink", "ink-2", "muted", "accent-ink"):
             for back in ("page", "surface", "raised", "hover"):
@@ -214,13 +214,6 @@ def dashboard_meets_contrast_and_targets(root, tmp):
                            ("muted", "accent-wash"), ("muted", "warn-wash"), ("muted", "crit-wash")):
             if contrast(t[text], t[back]) < 4.5:
                 low.append("%s --%s on --%s %.2f" % (name, text, back, contrast(t[text], t[back])))
-    themes = {"setup light": css_tokens(page, ":root"), "setup dark": css_tokens(page, ':root[data-theme="dark"]'),
-              "setup auto dark": css_tokens(page, ':root:not([data-theme="light"]):not([data-theme="dark"])')}
-    for name, t in themes.items():
-        for text in ("ink", "secondary", "muted"):
-            for back in ("bg", "paper", "wash"):
-                if contrast(t[text], t[back]) < 4.5:
-                    low.append("%s --%s on --%s %.2f" % (name, text, back, contrast(t[text], t[back])))
     assert not low, "text below 4.5:1: %s" % "; ".join(low)
     # 2.5.8: the task-ID buttons and the other small text buttons are at least 24 px tall.
     for rule in (".tid", ".expand", ".filters .clear", ".chip"):
