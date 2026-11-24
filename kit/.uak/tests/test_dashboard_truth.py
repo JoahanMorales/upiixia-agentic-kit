@@ -293,7 +293,7 @@ def page_is_not_heavier(root, tmp):
     to 128 KiB on 2026-11-24 (docs/plans/visual-setup-amend-7.md) and, for the views they asked for after seeing the screens
     (every task as a square, what waits for what, the black box as a tool, the memory graph, the token breakdown), to
     150 KiB the same day (docs/plans/visual-setup-amend-8.md). Measured on the file's bytes."""
-    size = len((root / ".uak/bin/lib/dash.html").read_bytes())
+    size = len((root / ".uak/bin/lib/dash.html").read_bytes().replace(b"\r\n", b"\n"))  # a Windows checkout adds a byte per line: the bound is on the file as committed
     assert size <= 150 * 1024, "dash.html is %d bytes; the bound is 150 KiB (%d)" % (size, 150 * 1024)
 
 
