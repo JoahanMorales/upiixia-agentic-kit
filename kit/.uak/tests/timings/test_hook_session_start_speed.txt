@@ -1,4 +1,4 @@
 ci 170
-windows 400
+windows 370
 # measured 2026-11-24 45365777029
-# Windows 399 s in that run with 3 fresh rounds in the kill loop (676 s on a slower runner with 8); the file must stay at or under 400 s or the Windows matrix needs an 11th shard
+# Windows 399 s in that run with a 15 s diagnostic case and 3 fresh kill rounds, both since removed; above about 375 test_ci_tiers one_stale_entry_cannot_trip_the_slow_rule fails on the shard layout and at 405 a Windows shard is added
