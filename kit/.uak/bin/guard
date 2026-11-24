@@ -382,7 +382,7 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
       while (i <= len) {
         ch = substr(s, i, 1); nx = substr(s, i + 1, 1); ins = (bt || nS > 0)
         isb = (ch == " " || ch == "\t" || ch == "\n" || ch == ";" || ch == "&" || ch == "|" || ch == "(" || ch == ")" || ch == "`" ||
-               (ch == "$" && nx == "(") || ((ch == "<" || ch == ">") && nx == "(") || (ch == "<" && nx == "<" && substr(s, i + 2, 1) != "<" && substr(s, i - 1, 1) != "<"))
+               (ch == "$" && nx == "(") || ((ch == "<" || ch == ">") && nx == "(") || (ch == "<" && nx == "<" && substr(s, i + 2, 1) != "<" && substr(s, i - 1, 1) != "<") || (ch == "<" && nx == "<" && substr(s, i + 2, 1) == "<" && substr(s, i - 1, 1) != "<"))
         if (isb && has) { n = emit(T, W, QF, SF, IS, n, "w", cur, qf, sf, ins); cur = ""; has = 0; qf = 0; sf = 0 }
         if (ch == "\047") {
           j = index(substr(s, i + 1), "\047")
@@ -477,6 +477,7 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
         }
         if (ch == " " || ch == "\t") { i++; continue }
         if (ch == "#" && !has) { while (i <= len && substr(s, i, 1) != "\n") i++; continue }
+        if (ch == "<" && nx == "<" && substr(s, i + 2, 1) == "<" && substr(s, i - 1, 1) != "<") { n = emit(T, W, QF, SF, IS, n, "w", "<<<", 0, 0, ins); i += 3; continue }
         if (ch == "<" && nx == "<" && substr(s, i + 2, 1) != "<" && substr(s, i - 1, 1) != "<") {
           j = i + 2; dash = 0
           if (substr(s, j, 1) == "-") { dash = 1; j++ }
@@ -494,6 +495,26 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
         cur = cur ch; has = 1; i++
       }
       if (has) n = emit(T, W, QF, SF, IS, n, "w", cur, qf, sf, ins)
+      return n
+    }
+    # the command substitutions of text that the shell expands (an unquoted here-document): $(...) and backticks
+    function substs(body, OUT,    n, i, len, c, d, st, e)
+    {
+      n = 0; i = 1; len = length(body)
+      while (i <= len) {
+        c = substr(body, i, 1)
+        if (c == "$" && substr(body, i + 1, 1) == "(") {
+          st = i + 2; d = 1; i += 2
+          while (i <= len && d > 0) { c = substr(body, i, 1); if (c == "(") d++; else if (c == ")") d--; i++ }
+          OUT[++n] = substr(body, st, i - st - 1); continue
+        }
+        if (c == "`") {
+          e = index(substr(body, i + 1), "`")
+          if (e == 0) break
+          OUT[++n] = substr(body, i + 1, e - 1); i += e + 1; continue
+        }
+        i++
+      }
       return n
     }
     function wbase(w,    b) { b = tolower(w); sub(/.*[\/\\]/, "", b); sub(/\.exe$/, "", b); return b }
@@ -537,7 +558,7 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
       if (request(n2, 2)) return "sends a request to the running wizard"
       return ""
     }
-    function judge(line, depth, cw0,    T, W, QF, SF, IS, n, i, k, a, nc, c, p, m, CS, CE, CB, FI, FW, M, CWI, PR, PAY, PCW, npay, cw, t, txt, r, w, b, j, pt, nsp, tmp, seenpat, pk, consumed, shk, tw, x, pcmd, KEEP) {
+    function judge(line, depth, cw0,    T, W, QF, SF, IS, n, i, k, a, nc, c, p, m, CS, CE, CB, FI, FW, M, CWI, PR, PAY, PCW, npay, cw, t, txt, r, w, b, j, pt, nsp, tmp, seenpat, pk, consumed, shk, tw, x, pcmd, KEEP, SUBS) {
       n = tokenize(gitsub(line), T, W, QF, SF, IS)
       nc = 0; a = 0
       for (i = 1; i <= n + 1; i++) {
@@ -666,7 +687,10 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
           for (k = p + 1; k <= m; k++) if (W[CWI[c, k]] !~ /^-/) { x = norm(W[CWI[c, k]]); if (gitpath(x "/x") || x ~ /^\.git\/*$/ || x ~ /git-dir|git-common-dir/) cw = 1; break }
         }
         # a here-document that no runner or interpreter reads is text
-        for (k = CS[c]; k <= CE[c]; k++) if (T[k] == "hd" && !PR[k]) PR[k] = 1
+        for (k = CS[c]; k <= CE[c]; k++) if (T[k] == "hd" && !PR[k]) {
+          PR[k] = 1
+          if (!QF[k]) { nsp = substs(W[k], SUBS); for (i = 1; i <= nsp; i++) { PAY[++npay] = SUBS[i]; PCW[npay] = cw } }
+        }
       }
       # the text that is scanned: every word that is not prose, a script or code
       for (i = 1; i <= n; i++) {
