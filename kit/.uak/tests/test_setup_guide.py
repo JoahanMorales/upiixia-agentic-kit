@@ -177,7 +177,8 @@ MEASURE = """() => {
   const primary = [...s.querySelectorAll('.primary')].filter(e => e.getClientRects().length).map(e => e.id);
   const code = [...s.querySelectorAll('code')].filter(e => e.getClientRects().length).map(e => e.textContent.trim());
   return {screen: s.dataset.screen, height: document.documentElement.scrollHeight, width: document.documentElement.scrollWidth,
-          vw: innerWidth, h1: Math.round(h.getBoundingClientRect().top), small: small, primary: primary, code: code};
+          vw: innerWidth, h1: Math.round(h.getBoundingClientRect().top), small: small, primary: primary, code: code,
+          says: (document.getElementById('project-says') || {}).textContent || '', focus: document.activeElement ? document.activeElement.id : ''};
 }"""
 _MEASURED = {}
 
@@ -193,18 +194,45 @@ def measured(tmp):
         return None
     sync_playwright, kwargs = found
     project = kit_project(tmp, "measured", "sprint")
+    fresh = tmp / "measured-fresh"
+    fresh.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(fresh)], check=True)
+    for i in range(3):
+        (fresh / ("f%d.txt" % i)).write_text(str(i))
+        tp.git(fresh, "add", "-A")
+        tp.git(fresh, "-c", "user.name=ana", "-c", "user.email=ana@example.com", "commit", "-q", "-m", "c%d" % i)
     out = {}
-    with wizard.LiveServer(str(project)) as srv, sync_playwright() as p:
+    with sync_playwright() as p:
         browser = p.chromium.launch(args=["--no-sandbox"], **kwargs)
         for width, height in ((1280, 800), (390, 844)):
-            context = browser.new_context(viewport={"width": width, "height": height}, reduced_motion="reduce", locale="en-US")
-            page = context.new_page()
-            for name in SCREENS[3:] + ["update"]:  # the screens of an installed project
-                page.goto("http://127.0.0.1:%d/?step=%s#code=%s" % (srv.server_port, name, srv.new_code()))
+            with wizard.LiveServer(str(fresh)) as srv:  # a repository without the kit: project and install
+                context = browser.new_context(viewport={"width": width, "height": height}, reduced_motion="reduce", locale="en-US")
+                page = context.new_page()
+                for name in ("project", "install"):
+                    page.goto("http://127.0.0.1:%d/?step=%s#code=%s" % (srv.server_port, name, srv.new_code()))
+                    page.wait_for_selector("#content:not([data-loading])")
+                    page.wait_for_selector("#found li" if name == "project" else "#install-facts li")
+                    out[(width, name)] = page.evaluate(MEASURE)
+                context.close()
+            with wizard.LiveServer(str(project)) as srv:
+                context = browser.new_context(viewport={"width": width, "height": height}, reduced_motion="reduce", locale="en-US")
+                page = context.new_page()
+                for name in SCREENS[2:] + ["update"]:  # unblock and the screens of an installed project
+                    page.goto("http://127.0.0.1:%d/?step=%s#code=%s" % (srv.server_port, name, srv.new_code()))
+                    page.wait_for_selector("#content:not([data-loading])")
+                    page.wait_for_timeout(900)
+                    out[(width, name)] = page.evaluate(MEASURE)
+                # closed: press Close the wizard once the check the page starts on load is over
+                page.goto("http://127.0.0.1:%d/?step=dashboard#code=%s" % (srv.server_port, srv.new_code()))
                 page.wait_for_selector("#content:not([data-loading])")
-                page.wait_for_timeout(900)
-                out[(width, name)] = page.evaluate(MEASURE)
-            context.close()
+                for _ in range(40):
+                    page.wait_for_timeout(500)
+                    page.click("#close-wizard")
+                    page.wait_for_timeout(400)
+                    if page.evaluate("document.querySelector('.screen[data-on]').dataset.screen") == "closed":
+                        break
+                out[(width, "closed")] = page.evaluate(MEASURE)
+                context.close()
         browser.close()
     _MEASURED["all"] = out
     return out
@@ -236,10 +264,22 @@ def flow_has_the_ten_screens(root, tmp):
     code = script(html)
     assert "function arbitrate()" in code and re.search(r"Number\(b\.dataset\.p\) < Number\(best\.dataset\.p\)", code), \
         "the page keeps the lowest-numbered visible candidate as the one primary"
+    for name in SCREENS + ["update", "closed"]:  # a step moves the focus to the heading of the next screen
+        assert re.search(r'<h1 id="[^"]+" tabindex="-1">', screen_html(html, name)), "%s: its heading takes the focus" % name
+    show = re.search(r"function show\(name, focus, how\) \{[\s\S]*?\n        \}", code).group(0)
+    assert 'querySelector("h1")' in show and "heading.focus(" in show, "show() focuses the heading of the screen it shows"
+    assert re.search(r'if \(previous === "installing"[^\n]*show\(screenFor\(data\), true\)', code), \
+        "a finished install moves to the next screen and its heading"
+    assert "NEXT_FOCUS" not in code, "the old map of headings is gone: show() does it"
+    assert 'id="project-says"' in screen_html(html, "project"), "the first screen says what will happen in this project"
     found = measured(tmp)
     if found:
         for (width, name), m in found.items():
             assert len(m["primary"]) == 1, "%s at %d: one primary button in view, found %r" % (name, width, m["primary"])
+        for width in (1280, 390):
+            says = found[(width, "project")]["says"]
+            assert len(re.findall(r"[.!?](?:\s|$)", says)) == 2 and "files" in says and "Nothing is committed" in says, \
+                "the first screen says what will happen in two sentences: %r" % says
 
 
 def rail_names_match_the_terminal_steps(root, tmp):
@@ -293,6 +333,8 @@ def mobile_content_starts_within_160px(root, tmp):
 
 
 def targets_are_44px(root, tmp):
+    # The clause: "every target is at least 44x44 px" sits in the sentence about 390 px, so it is read as the phone's
+    # rule (a mouse at 1280 keeps the direction's 28-36 px controls). The measure below is at 390 only.
     css = re.sub(r"/\*[\s\S]*?\*/", "", lib("setup.html"))
     phone = css[css.index("@media (max-width: 640px)"):]
     assert re.search(r"\.btn, \.primary, \.ghost, \.secondary-button \{ min-height: 44px", phone), "buttons are 44 px tall on a phone"
@@ -513,6 +555,33 @@ def advanced_dashboard_is_translated(root, tmp):
     status = section(setup, "dashboard-status")
     assert heading not in status and not re.search(r'dashboard-status"\)\.textContent = [^;]*"%s"' % re.escape(heading), script(setup)), \
         "the notice under the title never repeats the heading %r" % heading
+
+
+def where_each_step_happens(root, tmp):
+    """The old rail said where each step happens (data-where: page, terminal, agents). Now the page tells it in words:
+    every screen is a step in this page, the terminal is always one button away with its one command, and Start says
+    "run these" (the agents' commands are run in a terminal)."""
+    html = lib("setup.html")
+    assert re.search(r'<details class="ap term" id="terminal-alt"><summary>[\s\S]*?Continue in the terminal', html), \
+        "the line of nodes carries 'Continue in the terminal' with the one command"
+    assert 'id="terminal-command"' in section(html, "terminal-alt") and 'id="copy-terminal-command"' in html
+    start = screen_html(html, "start")
+    assert "Run one command per agent" in start and 'id="agents-list"' in start, "Start says to run commands (in a terminal)"
+    assert "data-where" not in html, "no leftover of the old marker"
+    es = catalog()
+    for text in ("Continue in the terminal", "Run one command per agent"):
+        assert text in es, "%r has a Spanish translation" % text
+
+
+def people_has_one_name_form(root, tmp):
+    html = lib("setup.html")
+    css = re.sub(r"/\*[\s\S]*?\*/", "", html)
+    assert re.search(r"#team-name-block \{ display: none !important; \}", css), "the second name card never shows"
+    people = screen_html(html, "people")
+    assert people.count('id="human-save"') == 1, "one Use this name button"
+    code = script(html)
+    assert 'box.classList.toggle("error", !unnamed && (shown.git || shown.gh))' in code, \
+        "a name that is simply empty is a notice, never an alarm"
 
 
 class Identity:
@@ -954,7 +1023,7 @@ def dashboard_survives_a_failed_name_read(root, tmp):
 
 TESTS = [journey_is_visible_from_welcome, flow_has_the_ten_screens, rail_names_match_the_terminal_steps,
          instruction_appears_once, no_screen_taller_than_two_viewports, mobile_content_starts_within_160px, targets_are_44px,
-         error_is_next_to_its_control, first_install_in_four_clicks, approval_field_says_what_to_type, gate_lines_are_translated,
+         error_is_next_to_its_control, first_install_in_four_clicks, where_each_step_happens, people_has_one_name_form, approval_field_says_what_to_type, gate_lines_are_translated,
          advanced_dashboard_is_translated, shared_identity_is_warned, github_login_is_checked_on_its_own,
          accents_do_not_break_the_match, spanish_journey_has_no_english, never_seen_human_is_named,
          identity_needs_the_whole_name, progress_line_survives_git_forms, one_word_labels_stay_scoped,

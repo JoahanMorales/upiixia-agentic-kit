@@ -96,7 +96,7 @@ def run(scenario, language="en"):
     html = tf.page()
     code = tf.script(html)
     sources = [shim(language), tf.lib("workspace.js"), tf.PRELUDE, EXTRA]
-    sources += [tf.page_function(code, name) for name in ("el", "isBusy", "error", "api", "journeyStep")]
+    sources += [tf.page_function(code, name) for name in ("el", "isBusy", "error", "api", "journeyStep", "shown")]
     sources += [tf.block(code), block(code)]
     with tempfile.TemporaryDirectory(prefix="uak-resume-js-") as folder:
         program = Path(folder) / "run.js"
@@ -605,7 +605,10 @@ def rules_screen_writes_only_what_was_confirmed(root, tmp):
         page = browser.new_context(viewport={"width": 1280, "height": 800}, locale="en-US").new_page()
         page.goto("http://127.0.0.1:%d/?step=rules#code=%s" % (srv.server_port, srv.new_code()))
         reach(page, "rules")
-        page.wait_for_selector("#rules-confirm:not([aria-disabled])")  # the readiness check the page starts on load is over
+        # From the first paint the button says it waits (the check the page starts on load is running), with the reason.
+        first = page.evaluate("[document.getElementById('rules-confirm').getAttribute('aria-disabled'), document.getElementById('rules-confirm-why').textContent]")
+        assert first[0] == "true" and first[1], "Confirm is blocked, with its reason, from the first paint: %r" % first
+        page.wait_for_selector("#rules-confirm:not([aria-disabled])")
         page.click("#rules-confirm")
         reach(page, "people")
         assert config.read_bytes() == original, "Confirm with every line as it was writes nothing"
@@ -764,8 +767,10 @@ def step_survives_reload_and_back(root, tmp):
 
         page.goto("http://127.0.0.1:%d/?step=rules#code=%s" % (srv.server_port, srv.new_code()))
         on("rules")
+        page.wait_for_selector("#rules-confirm:not([aria-disabled])")
         page.click("#rules-confirm")
         on("people")
+        assert page.evaluate("document.activeElement.id") == "h-people", "the heading of the next screen takes the focus"
         page.reload()
         on("people")
         page.go_back()
@@ -784,6 +789,19 @@ def last_screen_says_the_terminal_command(root, tmp):
         assert out["plain"] == "cd '/home/ana/my-app' && bash .uak/bin/uak start", out
         assert out["spaced"] == "cd '/tmp/my app/it'\\''s' && bash .uak/bin/uak start", "the path is quoted so the line can be pasted: %r" % out
         assert out["none"].startswith("bash ") and "install.sh --wizard" in out["none"], out
+    home = tmp / "home"
+    (home / "proyectos/tienda-api").mkdir(parents=True)
+    (home / "proyectos/con espacio").mkdir()
+    out = run("""
+        state = {home: %s};
+        return {plain: shown("cd '" + state.home + "/proyectos/tienda-api' && pwd"), spaced: shown("cd '" + state.home + "/proyectos/con espacio' && pwd")};
+    """ % json.dumps(str(home)))
+    if out is not None:
+        assert out["plain"] == "cd ~/proyectos/tienda-api && pwd", "the shown line is typed as it reads: %r" % out
+        env = dict(os.environ, HOME=str(home))
+        done = subprocess.run(["sh", "-c", out["plain"]], env=env, capture_output=True, text=True)
+        assert done.returncode == 0 and Path(done.stdout.strip()).resolve() == (home / "proyectos/tienda-api").resolve(), done
+        assert "~" not in out["spaced"] and out["spaced"].startswith("cd '"), "a path that needs quotes stays whole and quoted: %r" % out
     html = tf.page()
     assert 'id="closed-command"' in tg.section(html, "screen-closed") and 'id="terminal-command"' in html
     assert re.search(r'el\("note-dashboard"\)\.textContent = [^;]*terminalCommand|command', tf.page_function(code, "drawScreens")), \

@@ -800,6 +800,8 @@
     ["Saving…", "Guardando…"],
     // UAK-159: the ten screens
     ["Terminal", "Terminal"],
+    ["Setup adds the kit to {folder}: about {n} files, and none of your own files are replaced.", "El asistente agrega el kit a {folder}: unos {n} archivos, y no se reemplaza ninguno de los tuyos."],
+    ["Nothing is committed or pushed until you publish.", "No se hace commit ni se sube nada hasta que publiques."],
     ["Copy the command", "Copiar el comando"],
     ["Your code", "Tu código"],
     ["Run this in a terminal, then try again", "Ejecuta esto en una terminal y vuelve a intentarlo"],
