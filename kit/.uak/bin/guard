@@ -112,10 +112,9 @@ runs_code() {
 # endpoint rule fires only when one is live for this project (a project's own /api/session on localhost is its own
 # business); the token header and the start rules fire always.
 wizard_live() { # sets WZ_LIVE (1 or empty), WZ_PORT and WZ_INGIT (1 when the shell stands inside the git directory)
-  local gd f pid port
-  WZ_LIVE= WZ_PORT= WZ_INGIT=
-  gd=$(git rev-parse --git-common-dir 2>/dev/null) || return 0
-  f="$gd/uak-wizard.port"; [ -r "$f" ] || return 0
+  local f pid port
+  WZ_LIVE= WZ_PORT= WZ_INGIT=$WZ_CWDGIT
+  f=$WZ_PF; [ -n "$f" ] || return 0   # wizard_port_file found it with builtins, no git process
   pid= port=; read -r pid port < "$f" 2>/dev/null || true
   port=${port//$'\r'/}   # a file written on Windows ends its line with CR LF
   case "$pid$port" in ''|*[!0-9]*) return 0;; esac
@@ -125,33 +124,38 @@ wizard_live() { # sets WZ_LIVE (1 or empty), WZ_PORT and WZ_INGIT (1 when the sh
     case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) ;; *) return 0;; esac
   fi
   WZ_LIVE=1 WZ_PORT=$port
-  [ "$(git rev-parse --is-inside-git-dir 2>/dev/null)" = true ] && WZ_INGIT=1
   return 0
 }
-# Is there a uak-wizard.port for the project of the working directory? Builtins only (no git, no process), so a command
-# with no wizard costs what it cost before the file rules existed. A linked worktree reads its .git file and commondir.
+# Where is the uak-wizard.port of the project of the working directory? Builtins only (no git, no process): sets WZ_PF
+# (the file, or empty) and WZ_CWDGIT (1 when the working directory is inside the git directory that holds it). A
+# linked worktree reads its .git file and commondir; GIT_DIR is honoured. With no port file a command costs what it cost
+# before the file rules existed, and with one a command that has nothing to do with the wizard costs nothing more.
 wizard_port_file() {
   local d=$PWD g c
-  [ -z "${GIT_DIR:-}" ] || [ ! -r "$GIT_DIR/uak-wizard.port" ] || return 0
+  WZ_PF= WZ_CWDGIT=
+  if [ -n "${GIT_DIR:-}" ] && [ -r "$GIT_DIR/uak-wizard.port" ]; then WZ_PF=$GIT_DIR/uak-wizard.port; return 0; fi
   while [ -n "$d" ]; do
-    [ ! -r "$d/uak-wizard.port" ] || return 0
-    if [ -d "$d/.git" ]; then [ -r "$d/.git/uak-wizard.port" ]; return; fi
+    if [ -r "$d/uak-wizard.port" ]; then WZ_PF=$d/uak-wizard.port WZ_CWDGIT=1; return 0; fi
+    if [ -d "$d/.git" ]; then [ ! -r "$d/.git/uak-wizard.port" ] || WZ_PF=$d/.git/uak-wizard.port; return 0; fi
     if [ -f "$d/.git" ]; then
       g= c=; read -r g < "$d/.git" 2>/dev/null || true
       g=${g#gitdir: }; g=${g//$'\r'/}
       read -r c < "$g/commondir" 2>/dev/null || true
-      case "$c" in /*|[A-Za-z]:*) ;; *) c="$g/$c";; esac
-      [ -n "$c" ] && [ -r "$c/uak-wizard.port" ]; return
+      case "$c" in '') c=$g;; /*|[A-Za-z]:*) ;; *) c="$g/$c";; esac
+      [ ! -r "$c/uak-wizard.port" ] || WZ_PF=$c/uak-wizard.port
+      return 0
     fi
-    [ "$d" != / ] || return 1
+    case "$d" in */*) ;; *) return 0;; esac
+    [ "$d" != / ] || return 0
     d=${d%/*}; [ -n "$d" ] || d=/
   done
-  return 1
+  return 0
 }
 wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quoted prose removed → WZ reason or empty
   local flat1 flat2
   wizard_live
-  flat1=$(printf '%s' "$1" | tr '\n' ';'); flat2=$(printf '%s' "$2" | tr '\n' ';')
+  local nl=$'\n'
+  flat1=${1//"$nl"/;}; flat2=${2//"$nl"/;}
   # ENVIRON, not -v: awk would read \a or \x75 in a -v value as an escape (cat .git/uak-wiz\ard.key passed)
   WZ=$(WZ_RAW=$flat1 WZ_PRO=$flat2 awk -v live="${WZ_LIVE:-0}" -v wport="${WZ_PORT:-0}" -v ingit="${WZ_INGIT:-0}" '
     function clean(s) { gsub(/[\\\047"`]/, "", s); return s }
@@ -284,15 +288,15 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
       return cnt
     }
     function benignexec(c) { return c ~ /^(ls|stat|echo|printf|file|test|wc|du|chmod|chown|touch|true)$/ }
-    function files(n,    s, segs, ns, q, seg, tok, nt, i, j, k, fw, b, bn, cand, kh, rh, gh, hasx, hasclean, rem, cwdgit, ctx, kseen, fgit, fincl, fact, fpat, fexcl, nroots, endroots, w, ex, npat, pat_ok, nb) {
-      s = n; gsub(/[;&|()]/, " ; ", s); gsub(/>/, " ; > ", s); gsub(/</, " ; < ", s)
+    function files(n,    s, segs, ns, q, seg, tok, nt, i, j, k, fw, b, bn, cand, kh, rh, gh, hasx, hasclean, rem, cwdgit, ctx, kseen, fgit, fincl, fact, fpat, fexcl, nroots, endroots, w, ex, npat, pat_ok, nb, insub) {
+      s = n; gsub(/\$\(|[<>]\(/, " ; @sub@ ", s); gsub(/[;&|()]/, " ; ", s); gsub(/>/, " ; > ", s); gsub(/</, " ; < ", s)
       ns = split(s, segs, /;/); cwdgit = (ingit == 1); kseen = 0
       for (q = 1; q <= ns; q++) {
-        seg = segs[q]; nt = split(seg, tok, /[ \t]+/)
+        seg = segs[q]; nt = split(seg, tok, /[ \t]+/); insub = (tok[2] == "@sub@" || tok[1] == "@sub@")
         i = 1
-        while (i <= nt && (tok[i] == "" || iswrap(bname(tok[i])) || tok[i] ~ /^-/ || tok[i] ~ /^[a-z_][a-z0-9_]*=/ || tok[i] ~ /^[0-9]+$/)) i++
+        while (i <= nt && (tok[i] == "" || tok[i] == "@sub@" || iswrap(bname(tok[i])) || tok[i] ~ /^-/ || tok[i] ~ /^[a-z_][a-z0-9_]*=/ || tok[i] ~ /^[0-9]+$/)) i++
         if (i > nt) continue
-        fw = bname(tok[i]); rem = (fw ~ /^(rm|mv|unlink|truncate|shred)$/)
+        fw = bname(tok[i]); rem = (fw ~ /^(rm|mv|unlink|truncate|shred|del|erase|rd|rmdir|ri|remove-item|mi|move-item|move)$/)
         if (fw == "cd" || fw == "pushd") {   # the next segments run in the git directory, or no longer do
           cwdgit = 0
           for (j = i + 1; j <= nt; j++) if (tok[j] != "" && tok[j] !~ /^-/) {
@@ -344,10 +348,11 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
           if (tok[j] ~ /^-[a-z]*x[a-z]*$/) hasx = 1
         }
         if (kh) kseen = 1
-        if (rh && (rem || fw ~ /^(cp|ln|tee|dd|install|rsync|xargs|perl|ruby|node|nodejs|php|awk|gawk|mawk|:|>|true)$/ || fw ~ /^(python[0-9.]*|py|pypy[0-9]*|sh|bash|zsh|dash|ksh)$/ ||
+        if (rh && (rem || fw ~ /^(cp|ln|tee|dd|install|rsync|xargs|perl|ruby|node|nodejs|php|awk|gawk|mawk|:|>|true)$/ || fw ~ /^(python[0-9.]*|py|pypy[0-9]*|sh|bash|zsh|dash|ksh|powershell|pwsh|cmd)$/ ||
+                   fw ~ /^(del|erase|rd|rmdir|ri|remove-item|mi|move-item|move|ren|rename|rename-item|rni|copy|xcopy|robocopy|copy-item|set-content|sc|add-content|ac|out-file|clear-content|clc|new-item|ni)$/ ||
                    (fw == "sed" && seg ~ /[ \t](-[a-z]*i|--in-place)/) || (fw == "find" && seg ~ /[ \t]-(delete|exec|execdir|ok)/)))
           return "removes or rewrites the wizard record files (uak-wizard.port, .key, .children) in the git directory"
-        if (kh && !rem && !(fw ~ /^(ls|stat|test|\[|\[\[|echo|printf|file)$/))
+        if (kh && !rem && (insub || !(fw ~ /^(ls|stat|test|\[|\[\[|echo|printf|file)$/)))
           return "reads or copies the wizard reopen key (uak-wizard.key) in the git directory"
         if (kseen && fw ~ /^(xargs|parallel)$/)
           return "reads or copies the wizard reopen key (uak-wizard.key) in the git directory"
@@ -361,9 +366,83 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
     # Code that an interpreter runs inline holds its own ; and (: judged as a whole, by the path it shows. A bare
     # name in a printed string is no access; the git-directory path is.
     function inline(n) {
+      # code that changes into the git directory and then names one of the files (or a glob that matches one)
+      if (n ~ /(^|[^a-z0-9_])(python[0-9.]*|py|pypy[0-9]*|perl|ruby|node|nodejs|deno|bun|php|awk|gawk|mawk|powershell|pwsh)( |$)/ &&
+          n ~ /(chdir|cd|set-location|sl|pushd|push-location)[ (]*\.git/ && (n ~ /uak-wizard\.(key|port|children)/ || n ~ /uak-[w*?\[]/))
+        return "changes into the git directory and names a wizard record file (uak-wizard.key, .port, .children)"
       if (!(n ~ /(^|[^a-z0-9_])(python[0-9.]*|py|pypy[0-9]*|perl|ruby|node|nodejs|deno|bun|php|awk|gawk|mawk)( +-[a-z0-9]+)* +-[a-z]*[ecr] / || n ~ /(^|[^a-z0-9_])(awk|gawk|mawk)( |$)/)) return ""
       if (!(n ~ /(\.git|git-dir)\/+uak-(wizard|[*?\[w])/)) return ""
       return (n ~ /uak-wizard\.(key|k)|uak-[*?\[w]/) ? "reads or copies the wizard reopen key (uak-wizard.key) in the git directory" : "removes or rewrites the wizard record files (uak-wizard.port, .key, .children) in the git directory"
+    }
+    # The quoted argument of a command runner is a command line itself (bash -c "cd .git; cat uak-wizard.key", eval,
+    # ssh HOST "...", su -c, script -qc, watch, tmux, parallel, npx -c, powershell -c, cmd /c, also behind env, nohup,
+    # timeout, xargs, find -exec, docker): the raw text is cut into shell words with their quotes, and each such
+    # argument is judged by the same rules, as far as 3 levels of quoting. A message, a note or a pattern is no argument of a runner.
+    function words(s, W,    n, i, len, ch, c, cur, has, j, sep) {
+      sep = sprintf("%c", 1); n = 0; cur = ""; has = 0; len = length(s); i = 1
+      while (i <= len) {
+        ch = substr(s, i, 1)
+        if (ch == "\047") {
+          j = index(substr(s, i + 1), "\047")
+          if (j == 0) { cur = cur substr(s, i + 1); i = len + 1 } else { cur = cur substr(s, i + 1, j - 1); i += j + 1 }
+          has = 1; continue
+        }
+        if (ch == "\"") {
+          i++
+          while (i <= len) {
+            c = substr(s, i, 1)
+            if (c == "\\" && i < len && substr(s, i + 1, 1) ~ /["\\$`]/) { cur = cur substr(s, i + 1, 1); i += 2; continue }
+            if (c == "\"") break
+            cur = cur c; i++
+          }
+          i++; has = 1; continue
+        }
+        if (ch == "\\" && i < len && substr(s, i + 1, 1) ~ /["\047]/) { cur = cur substr(s, i, 2); i += 2; has = 1; continue }
+        if (ch == " " || ch == "\t") { if (has) { W[++n] = cur }; cur = ""; has = 0; i++; continue }
+        if (ch == ";" || ch == "|" || ch == "&" || ch == "(" || ch == ")") {
+          if (has) { W[++n] = cur }; cur = ""; has = 0; W[++n] = sep; i++; continue
+        }
+        cur = cur ch; has = 1; i++
+      }
+      if (has) W[++n] = cur
+      return n
+    }
+    function runner_payload(W, from, to,    k, k2, b, out, j) {
+      for (k = from; k <= to; k++) {
+        b = tolower(W[k]); sub(/.*[\/\\]/, "", b); sub(/\.exe$/, "", b)
+        if (b ~ /^(bash|sh|zsh|dash|ksh|su|script|npx|powershell|pwsh|cmd)$/) {
+          for (k2 = k + 1; k2 <= to; k2++) {
+            if (tolower(W[k2]) ~ /^(-[a-z]?c|-command|\/[ck])$/) return (k2 < to) ? W[k2 + 1] : ""
+            if (!(W[k2] ~ /^[-\/]/)) break
+          }
+        }
+        if (b ~ /^(eval|watch|tmux|parallel)$/ || b == "ssh") {
+          j = k + 1
+          if (b == "ssh") { while (j <= to && W[j] ~ /^-/) j += (W[j] ~ /^-[pilofjbcdemqrswx]$/ ? 2 : 1); j++ }
+          if (b == "tmux" && j <= to && !(W[j] ~ /^-/)) j++   # the subcommand (new-session, split-window)
+          out = ""
+          for (; j <= to; j++) if (!((W[j] ~ /^-/ || W[j] ~ /^[0-9.]+$/) && out == "")) out = out (out == "" ? "" : " ") W[j]
+          return out
+        }
+      }
+      return ""
+    }
+    function scan(s, depth,    W, nw, a, i, r, sep, pay) {
+      sep = sprintf("%c", 1); nw = words(s, W); a = 1
+      for (i = 1; i <= nw + 1; i++) {
+        if (i > nw || W[i] == sep) {
+          if (i > a) {
+            pay = runner_payload(W, a, i - 1)
+            if (pay != "") {
+              r = files(norm(pay)); if (r == "") r = inline(norm(pay))
+              if (r == "" && depth < 3) r = scan(pay, depth + 1)
+              if (r != "") return r
+            }
+          }
+          a = i + 1
+        }
+      }
+      return ""
     }
     # A request to the running wizard: its endpoints, from a client or to a loopback host, to its port or to a port the
     # command does not show. Only while a wizard is live for this project.
@@ -390,11 +469,11 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
       if (n ~ /(python[0-9.]*|py|pypy[0-9]*)( +-[a-z0-9]+)* +-m +setup([^a-z0-9_]|$)/) return "runs the wizard (-m setup)"
       if (n ~ /(python[0-9.]*|py|pypy[0-9]*)( +-[a-z0-9]+)* +-c / && n ~ /((import|from) +setup([^a-z0-9_]|$)|runpy|import_module *\( *setup|bin\/lib|exec *\(.*open.*(setup|tup\.py))/) return "runs the wizard from Python code"
       if (request(n)) return "sends a request to the running wizard"
-      if (live) { c = files(p); if (c == "") c = inline(n); if (c != "") return c }
+      if (live) { c = files(p); if (c == "") c = inline(n); if (c == "") c = scan(rawcmd, 1); if (c != "") return c }
       return ""
     }
     BEGIN {
-      n = norm(ENVIRON["WZ_RAW"]); p = norm(ENVIRON["WZ_PRO"]); r = decide(n, p)
+      rawcmd = ENVIRON["WZ_RAW"]; n = norm(rawcmd); p = norm(ENVIRON["WZ_PRO"]); r = decide(n, p)
       if (r == "") r = decide(p, p)
       print r
     }' </dev/null)
@@ -506,11 +585,15 @@ check_bash() {
   # envcmd: the .env checks read the command with its prose removed but its quotes kept.
   envcmd=$rcmd
   # The wizard: only commands that could mention it pay for the one awk (case-folded by the patterns).
+  wizard_port_file
   wzg=
   case "$cmd" in *[Ww][Ii][Zz]*|*[Tt][Uu][Pp]*|*[Uu][Pp].[Pp][Yy]*|*[Aa][Pp][Ii]*|*[Uu][Aa][Kk]-[Tt]*|*[Rr][Uu][Nn][Pp][Yy]*|*bin/lib*|*[Ss][Ee][Tt][Uu]*|*%[0-9A-Fa-f][0-9A-Fa-f]*) wzg=1;; esac
-  # While a wizard may be live (a port file, found with builtins only) every command is read for its files: they are
-  # addressed by paths and globs the words above do not show. With no port file this costs no process.
-  [ -n "$wzg" ] || ! wizard_port_file || wzg=1
+  # While a wizard is live a command is read for its files only when its text can address them: .git, a git-dir
+  # spelling, rev-parse, a uak- name, a find that acts, or when the working directory is inside the git directory (bare names). A command
+  # with none of these (ls, git status, pytest, uak status) costs no process: the decision is a case, a builtin.
+  if [ -z "$wzg" ] && [ -n "$WZ_PF" ]; then
+    case "$cmd" in *[.][Gg][Ii][Tt]*|*[Gg][Ii][Tt][-_][Dd][Ii][Rr]*|*rev-parse*|*[Uu][Aa][Kk]-*|*find*-delete*|*find*-exec*|*find*-ok*) wzg=1;; *) [ -z "$WZ_CWDGIT" ] || wzg=1;; esac
+  fi
   if [ -n "$wzg" ]; then
     wizard_mentioned "$cmd" "$envcmd"
     [ -z "$WZ" ] ||

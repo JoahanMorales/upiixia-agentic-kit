@@ -428,6 +428,204 @@ REVIEW_RESIDUAL = [
 ]
 
 
+# Second review (Q, Q2..Q5): quoted spellings, command runners, Windows paths and removers: refused live.
+REVIEW2_REFUSED = [
+    'bash -c "cat .git/uak-wizard.key"',
+    "sh -c 'cat .git/uak-wizard.key'",
+    "zsh -c 'cat .git/uak-wizard.key'",
+    "bash -lc 'cat .git/uak-wizard.key'",
+    'bash -c \'cat "$1"\' _ .git/uak-wizard.key',
+    'eval "cat .git/uak-wizard.key"',
+    "eval 'cat .git/uak-wizard.key'",
+    "xargs -I{} sh -c 'cat {}' <<< .git/uak-wizard.key",
+    "echo .git/uak-wizard.key | xargs -I{} sh -c 'cat {}'",
+    'echo .git/uak-wizard.key | xargs cat',
+    'ssh localhost "cat .git/uak-wizard.key"',
+    "ssh localhost 'cat /p/.git/uak-wizard.key'",
+    'git commit -m "$(cat .git/uak-wizard.key)"',
+    'git commit -m "x" -m "$(cat .git/uak-wizard.key)"',
+    'git commit -m "`cat .git/uak-wizard.key`"',
+    'echo "$(<.git/uak-wizard.key)"',
+    'echo "$(cat .git/uak-wizard.key)"',
+    'echo "x ${K:-$(cat .git/uak-wizard.key)}"',
+    'gh pr create --body "$(cat .git/uak-wizard.key)"',
+    'uak review --note "$(cat .git/uak-wizard.key)"',
+    'python3 -c "open(\'.git/uak-wizard.key\').read()"',
+    'python3 -c "print(open(\'.git/uak-wizard.key\').read())"',
+    'node -e "require(\'fs\').readFileSync(\'.git/uak-wizard.key\')"',
+    'perl -e \'open F,".git/uak-wizard.key";print <F>\'',
+    'awk \'BEGIN{while((getline l < ".git/uak-wizard.key")>0)print l}\'',
+    'ruby -e \'puts File.read(".git/uak-wizard.key")\'',
+    'sed -n p ".git/uak-wizard.key"',
+    "cat '.git/uak-wizard.key'",
+    'cat ".git/uak-wizard.key"',
+    'cat ".git/uak-wizard.key" "x"',
+    'echo "hi" && cat ".git/uak-wizard.key"',
+    'echo "it\'s" ; cat .git/uak-wizard.key',
+    'echo \'a"b\' ; cat ".git/uak-wizard.key"',
+    'cat .git/uak-wizard.key # "',
+    'cat .git/uak-wizard.key "x',
+    'echo "unterminated; cat .git/uak-wizard.key',
+    'echo "a"; echo "b"; cat .git/uak-wizard.key',
+    'echo "x" > /tmp/o; rm ".git/uak-wizard.port"',
+    'rm ".git/uak-wizard.port"',
+    'echo "x" > ".git/uak-wizard.port"',
+    'bash -c "rm .git/uak-wizard.port"',
+    'python3 -c "import os; os.remove(\'.git/uak-wizard.port\')"',
+    'curl -s -d \'{}\' "http://127.0.0.1:41234/api/reopen"',
+    'bash -c "curl -s http://127.0.0.1:41234/api/reopen"',
+    'curl -s "http://127.0.0.1:41234/api/reopen" -H "X-UAK-Reopen: $(cat .git/uak-wizard.key)"',
+    'curl -s http://127.0.0.1:41234/api/reopen -H "X-UAK-Reopen: k"',
+    'python3 -c "import urllib.request;urllib.request.urlopen(\'http://localhost:41234/api/reopen\')"',
+    'cat C:\\\\proj\\\\.git\\\\uak-wizard.key',
+    "cat 'C:\\proj\\.git\\uak-wizard.key'",
+    'cat "C:\\proj\\.git\\uak-wizard.key"',
+    'type C:\\proj\\.git\\uak-wizard.key',
+    'cat C:/proj/.git/uak-wizard.key',
+    'cat /c/proj/.git/uak-wizard.key',
+    'cat .git\\\\uak-wizard.key',
+    'cat ".git\\uak-wizard.key"',
+    'cat .git\\uak-wizard.key',
+    'del .git\\uak-wizard.port',
+    'del "C:\\proj\\.git\\uak-wizard.port"',
+    "rm 'C:\\proj\\.git\\uak-wizard.port'",
+    'powershell -c "Get-Content .git\\uak-wizard.key"',
+    'powershell Get-Content .git\\uak-wizard.key',
+    'pwsh -Command "gc \'.git\\uak-wizard.key\'"',
+    'cmd /c type .git\\uak-wizard.key',
+    'Remove-Item .git\\uak-wizard.port',
+    'copy .git\\uak-wizard.key x',
+    'more < .git\\uak-wizard.key',
+    'cat .git/uak-wizard.key',
+    'find .git -delete',
+    "find .git -name 'uak*' -delete",
+    'cat .git/uak*',
+    'ls .git/uak-wizard.key | xargs cat',
+    'cat .git/uak-wiz\\ard.key',
+    'cat .git/uak-wizard.{key,port}',
+    'rm .git/uak-wizard.{port,key}',
+    'cp .git/uak-wizard.key{,.bak}',
+    'watch "cat .git/uak-wizard.key"',
+    'su -c "cat .git/uak-wizard.key"',
+    'script -qc "cat .git/uak-wizard.key" /dev/null',
+    'timeout 5 bash -c "cat .git/uak-wizard.key"',
+    'env sh -c "cat .git/uak-wizard.key"',
+    "nohup sh -c 'cat .git/uak-wizard.key'",
+    "busybox sh -c 'cat .git/uak-wizard.key'",
+    "find . -exec sh -c 'cat .git/uak-wizard.key' \\;",
+    'find . -maxdepth 0 -exec cat .git/uak-wizard.key \\;',
+    'parallel "cat {}" ::: .git/uak-wizard.key',
+    'tmux new-session "cat .git/uak-wizard.key"',
+    'docker run -v $PWD:/w alpine sh -c "cat /w/.git/uak-wizard.key"',
+    'git commit -m "x" --exec "cat .git/uak-wizard.key"',
+    "git -c alias.x='!cat .git/uak-wizard.key' x",
+    'git -c core.pager="cat .git/uak-wizard.key" log',
+    'GIT_PAGER="cat .git/uak-wizard.key" git log',
+    'git filter-branch --tree-filter "cat .git/uak-wizard.key"',
+    'make -C . "CMD=cat .git/uak-wizard.key" x',
+    'npm run x -- "cat .git/uak-wizard.key"',
+    'npx -c "cat .git/uak-wizard.key"',
+    'bash -c "cat .git/uak-wiz\\ard.key"',
+    "bash -c 'cat .git/uak-wizard.{key,port}'",
+    "bash -c 'cat .git/uak-wiz''ard.key'",
+    'sh -c "cd .git && cat uak-w*"',
+    'sh -c "cat .git/uak*"',
+    "sh -c 'cat $(ls .git/uak*key)'",
+    'bash -c "$(echo cat .git/uak-wizard.key)"',
+    'cat "$(echo .git/uak-wizard.key)"',
+    'cat <(cat .git/uak-wizard.key)',
+    'diff <(cat .git/uak-wizard.key) /dev/null',
+    'echo "note" | tee .git/uak-wizard.key',
+    'echo "msg" >> ".git/uak-wizard.children"',
+    'git commit -m "msg" && cat .git/uak-wizard.key',
+    'git commit -m "uak-wizard.key" ; cat .git/uak-wizard.key',
+    'git commit -m "it\'s uak-wizard.key"; cat .git/uak-wizard.key',
+    'bash .uak/bin/uak review UAK-1 --note "it\'s"; cat .git/uak-wizard.key',
+    "bash .uak/bin/uak review UAK-1 --note 'a' --verdict x && cat .git/uak-wizard.key",
+    'bash .uak/bin/uak review UAK-1 --note "a uak-wizard.key" > .git/uak-wizard.key',
+    'bash .uak/bin/uak review UAK-1 --note "x" < .git/uak-wizard.key',
+    'python3 x.py ".git/uak-wizard.key"',
+    'python3 x.py .git/uak-wizard.key',
+    'bash x.sh .git/uak-wizard.key',
+    'bash x.sh ".git/uak-wizard.key"',
+    'bash .uak/bin/uak review UAK-1 --note "x" .git/uak-wizard.key',
+    'bash .uak/bin/uak review UAK-1 --note-file .git/uak-wizard.key',
+    'bash .uak/bin/uak review UAK-1 --note-file ".git/uak-wizard.key"',
+    'powershell -c "Remove-Item .git\\uak-wizard.port"',
+    'powershell -c "Get-Content C:\\p\\.git\\uak-wizard.key"',
+    'sh -c "cd .git && cat uak-wizard.key"',
+    'sh -c "cd .git && cat uak-w*"',
+    'bash -c "cd .git; cat uak-w*key"',
+    'bash -c "rm .git/uak-w*"',
+    "sh -c 'rm .git/uak-wizard.port'",
+    'powershell -c "Remove-Item .git\\uak-wizard.port"',
+    'powershell -c "Remove-Item -Force .git/uak-wizard.port"',
+    'pwsh -c "ri .git/uak-wizard.port"',
+    'cmd /c del .git\\uak-wizard.port',
+    'bash -c "echo x > .git/uak-wizard.port"',
+    'python3 -c "open(\'.git/uak-wizard.port\',\'w\')"',
+    'cd .git && cat uak-w*',
+    '(cd .git; cat uak-w*)',
+    'cd .git && cat uak-wizard.key',
+    "bash -c 'cd .git; cat uak-wizard.key'",
+    'eval "cd .git; cat uak-wizard.key"',
+    'ssh localhost "cd .git && cat uak-wizard.key"',
+    "sh -c 'cd .git && rm uak-wizard.port'",
+    'bash -c "cd .git && cat uak-wizard.key"',
+    'python3 -c "import os;os.chdir(\'.git\');print(open(\'uak-wizard.key\').read())"',
+    'perl -e \'chdir ".git"; print `cat uak-wizard.key`\'',
+    'cat .git/*key',
+    'cat .git/*.key',
+    'cat .git/uak*',
+    'cat .git/*zard.key',
+    'xargs cat < <(ls .git/uak-wizard.key)',
+    'ls .git/uak-wizard.key | xargs cat',
+    'find .git -name "uak-wizard.key" | xargs cat',
+    'ls .git/uak-wizard.key | xargs -I{} cat {}',
+]
+# Second review: text that names the file, a find that cannot reach it, a bare name from outside the git directory: pass live.
+REVIEW2_PASS = [
+    'echo "a" "b; cat .git/uak-wizard.key"',
+    'git commit -m "docs: uak-wizard.key notes"',
+    'bash .uak/bin/uak checkpoint UAK-1 --done "reads uak-wizard.key" --next "x"',
+    'find certs -name "*.key" -delete',
+    "find . -path ./.git -prune -o -name '*.key' -delete",
+    'find . -name "*.key" -print',
+    'python3 x.py "uak-wizard.key"',
+    'sh -c "cat uak-w*"',
+    'cat uak-wizard.key',
+    'python3 -c "print(open(\'uak-wizard.key\').read())"',
+    'cat .git/*',
+]
+# Second review (CN): commands with nothing to do with the wizard: pass live and not live.
+REVIEW2_UNRELATED = [
+    'ls -la',
+    'npm test',
+    'git status',
+    'python -m pytest',
+    'bash .uak/bin/uak status',
+    'bash .uak/bin/uak next',
+    'curl -s localhost:3000/health',
+    'cat tls.key',
+    'cat *.key',
+    'cat server.port',
+    'cat children.json',
+    'rm -rf node_modules',
+    'find . -name "*.key"',
+    'openssl rsa -in server.key -out s.pem',
+    'ssh-keygen -f id.key',
+    'cp config/app.key /tmp',
+    'git add secrets/*.key',
+    'echo wizard',
+    'curl localhost:3000/api/reopen',
+    'python3 manage.py migrate',
+    'bash scripts/deploy.sh',
+    'git commit -m "uak-wizard.key notes"',
+    'cat .git/config',
+    'ls .git',
+]
+
+
 def bash_bin():
     return shutil.which("bash") or "bash"
 
@@ -469,18 +667,79 @@ def go_dead(repo):
         (gd / name).unlink()
 
 
+_VERDICTS = {}
+
+
 def check(repo, command, cwd=None):
-    return subprocess.run([bash_bin(), str(GUARD), "check", command], cwd=str(cwd or repo), capture_output=True,
-                          text=True, env=env())
+    """One guard process per distinct (command, state): the verdict depends on the port file and on where it runs."""
+    gd = gitdir(repo)
+    port = gd / "uak-wizard.port"
+    state = port.read_text(encoding="ascii", errors="replace").split()[1:] if port.exists() else None
+    where = "git directory" if cwd and Path(cwd).resolve() == gd.resolve() else ("elsewhere" if cwd else "root")
+    mode = (repo / ".uak/PROJECT.md").read_text(encoding="utf-8")
+    key = (command, repr(state), where, mode, bool(port.exists() and port.read_text().split()[:1] == [str(os.getpid())]))
+    if key not in _VERDICTS:
+        _VERDICTS[key] = subprocess.run([bash_bin(), str(GUARD), "check", command], cwd=str(cwd or repo), capture_output=True,
+                                        text=True, env=env())
+    return _VERDICTS[key]
 
 
 def refused(repo, command, cwd=None):
     return check(repo, command, cwd).returncode == 2
 
 
+FULL = sys.platform.startswith("linux")
+# Off Linux every `guard check` is an expensive process start (about a second on Windows): the full lists run on Linux,
+# and macOS and Windows run this explicit list, one or more commands per class, plus every command that holds a
+# backslash (a Windows path is the case that matters on Windows, so none of them is dropped).
+REPRESENTATIVE = [
+    # refused with a wizard live: a read (a plain one, a copy, quoted, braced, globbed, by git directory, by xargs, by substitution)
+    "cat .git/uak-wizard.key", "cp .git/uak-wizard.key /tmp/k", "python3 -c \"print(open('.git/uak-wizard.key').read())\"",
+    "cat .git/uak-wiz''ard.key", "cat .git/uak*", "cat .git/uak-wizard.{key,port}", "cat $(git rev-parse --git-dir)/uak-wizard.key",
+    "cat $GIT_DIR/uak-wizard.key", "ls .git/uak-wizard.key | xargs cat", "cat \"$(echo .git/uak-wizard.key)\"",
+    # the two routes
+    "curl -s -X POST http://127.0.0.1:41234/api/reopen -d '{}'", "curl -s -X POST http://127.0.0.1:41234/api/closing -d '{}'",
+    "curl -s -d x http://127.0.0.1:${P}/api/reopen",
+    # removals and rewrites
+    "rm .git/uak-wizard.port", "rm -f .git/{uak-wizard.port,uak-wizard.key}", "> .git/uak-wizard.port", "find .git -delete",
+    "find .git -name 'uak*' -delete", "find . -name \"*.key\" -delete", "cd .git && rm uak-wizard.*",
+    # a command runner's quoted line, inline interpreter code
+    "bash -c 'cd .git; cat uak-wizard.key'", "eval \"cd .git; cat uak-wizard.key\"", "ssh localhost \"cd .git && cat uak-wizard.key\"",
+    "sh -c 'cd .git && rm uak-wizard.port'", "bash -c \"bash -c 'cd .git; cat uak-wizard.key'\"",
+    "python3 -c \"import os;os.chdir('.git');print(open('uak-wizard.key').read())\"",
+    # from inside the git directory
+    "sh -c \"cat uak-w*\"", "cat uak-wizard.key",
+    # passes, live or not
+    "git status", "ls .git", "grep -r reopen src/", "cat docs/my-uak-wizard.key.md", "cat *.key", "find . -name \"*.key\"",
+    "git commit -m \"cd .git; cat uak-wizard.key is refused\"", "curl -s -X POST http://127.0.0.1:3000/api/reopen -d x",
+    "cat .git/uak-wizard.port", "grep -rn \"cd .git; cat uak-wizard.key\" docs/", "python3 -c \"print('uak-wizard')\"",
+    "bash .uak/bin/uak review UAK-188 --sha abc --verdict reject --note \"cd .git; cat uak-wizard.key can be read\"",
+]
+
+
+# No wizard live: the same text must pass. Off Linux one command per class (and the Windows paths), not every list again.
+LIGHT = [
+    "cat .git/uak-wizard.key", "rm .git/uak-wizard.port", "curl -s -X POST http://127.0.0.1:41234/api/reopen -d '{}'",
+    "cd .git; cat uak-wizard.key", "bash -c 'cd .git; cat uak-wizard.key'", "cat .git/uak*", "find . -name \"*.key\" -delete",
+    "cat C:\\proj\\.git\\uak-wizard.key", "del .git\\uak-wizard.port", "powershell -c \"Remove-Item .git\\uak-wizard.port\"",
+]
+
+
+def windows_path(c):
+    """A backslash that is a path separator in a path of the git directory: the case that matters on Windows."""
+    return "\\.git" in c or ".git\\" in c or "C:\\" in c
+
+
 def sample(commands):
-    """Git Bash starts a process slowly: on Windows a third of each long list (the shorter lists run whole)."""
-    return commands[::3] if os.name == "nt" and len(commands) > 40 else commands
+    if FULL:
+        return commands
+    return [c for c in commands if c in REPRESENTATIVE or windows_path(c)]
+
+
+def when_dead(commands):
+    if FULL:
+        return commands
+    return [c for c in commands if c in LIGHT]
 
 
 def must_refuse(repo, commands, cwd=None):
@@ -544,6 +803,8 @@ UNSEEN = [
     "python3 -c \"print(open('.git/uak-' 'wizard.key').read())\"",
     "python3 -c \"print(open('.git/' + 'uak-' + 'wizard.key').read())\"",
     "python3 -c 'import pathlib; print(pathlib.Path(\".git\", \"uak-wizard.key\").read_text())'",
+    "make \"CMD=cd .git; cat uak-wizard.key\" x",
+    "npm run x -- \"cd .git; cat uak-wizard.key\"",
     "python3 read_it.py",
     "cat $KEYFILE",
     "cat .git/*",
@@ -696,7 +957,7 @@ def same_names_pass_without_a_wizard(tmp):
     repo = project(tmp)
     go_live(repo)
     go_dead(repo)  # a wizard that ended removes its files
-    must_pass(repo, NOT_LIVE + ALWAYS + LIVE_ALLOWED + REOPEN + REMOVALS[:0])
+    must_pass(repo, when_dead(NOT_LIVE + ALWAYS + LIVE_ALLOWED + REOPEN))
     # a stale port file (its PID is dead) is no wizard
     dead = subprocess.Popen([sys.executable, "-c", "pass"])
     dead.wait()
@@ -849,7 +1110,7 @@ def ordinary_work_passes_while_live(tmp):
     must_pass(repo, [c for c in REVIEW_REQUESTS if not ("reopen" in c or "closing" in c)])  # not a wizard route
     # the same names with a wizard that is gone
     go_dead(repo)
-    must_pass(repo, REVIEW_ORDINARY[::2] + KITS_OWN + ALWAYS + REVIEW_REQUESTS + REVIEW_ACTING_FINDS)
+    must_pass(repo, when_dead(REVIEW_ORDINARY[::2] + KITS_OWN + ALWAYS + REVIEW_REQUESTS + REVIEW_ACTING_FINDS))
     # a linked worktree reads the shared git directory
     go_live(repo)
     git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
@@ -863,7 +1124,7 @@ def ordinary_work_passes_while_live(tmp):
 def this_task_can_be_committed_reviewed_and_opened_while_live(tmp):
     repo = project(tmp)
     go_live(repo)
-    must_pass(repo, KITS_OWN[:9] + REVIEW_ORDINARY[-16:])
+    must_pass(repo, KITS_OWN[:9] + REVIEW_ORDINARY[-16:] + PROSE_PASSES)
 
 
 def plain_spellings_are_refused_while_live(tmp):
@@ -877,7 +1138,7 @@ def plain_spellings_are_refused_while_live(tmp):
     must_pass(repo, ["ls", "cat HEAD", "cat config", "git status"], cwd=gitdir(repo))
     # the same text with no wizard live
     go_dead(repo)
-    refused_anyway = [c for c in sample(PLAIN_REFUSED + REVIEW_REFUSED) if refused(repo, c)]
+    refused_anyway = [c for c in when_dead(PLAIN_REFUSED + REVIEW_REFUSED) if refused(repo, c)]
     older = ("rm -rf .git", "git clean -fdx", "sudo -u", "rm -r .git/uak-")  # refused by older rules in any case
     assert all(any(o in c for o in older) for c in refused_anyway), \
         "with no wizard live only older rules refuse: %r" % [c for c in refused_anyway if not any(o in c for o in older)]
@@ -944,21 +1205,202 @@ def no_port_file_costs_no_process(tmp):
 def security_doc_is_true_line_by_line(tmp):
     text = DOC.read_text(encoding="utf-8")
     flat = " ".join(text.split())
-    assert "with no port file every command costs what it cost before" in flat, "the no-process sentence is the true one"
+    assert "every command costs what it cost before these rules" in flat, "the no-process sentence is the true one"
     assert "no one-time code" not in flat, "a reopen page has a fresh one-time code (reopening calls make_launcher)"
     assert "fresh one-time code" in flat
     assert "ends the open page" not in flat, "/api/closing needs the session token and only starts the close grace"
     assert "session token" in flat and "close grace" in flat
     assert "see below" not in flat, "no pointer to a paragraph that sits above its own"
-    for needle in ("addresses", "git directory", "`find -delete`", "`cat *.key`", "bare name", "uak-wizard.key"):
+    for needle in ("addresses", "git directory", "`find -delete`", "`cat *.key`", "bare name", "uak-wizard.key", "PowerShell", "`Remove-Item`",
+                   "`cmd /c`", "command runner", "`bash -c`", "`eval`", "ssh HOST", "three levels"):
         assert needle in flat, "SECURITY.md says %r" % needle
+
+
+# UAK-188, second review (4723e316): a command runner's quoted argument is a command line; PowerShell and cmd removers.
+RUNNERS = [
+    "bash -c 'cd .git; cat uak-wizard.key'",
+    "bash -c \"cd .git && cat uak-wizard.key\"",
+    "sh -c 'cd .git && rm uak-wizard.port'",
+    "zsh -c 'cd .git; cat uak-wizard.key'",
+    "bash -lc 'cd .git; cat uak-wizard.key'",
+    "eval \"cd .git; cat uak-wizard.key\"",
+    "eval 'cd .git; cat uak*'",
+    "ssh localhost \"cd .git && cat uak-wizard.key\"",
+    "ssh -p 22 localhost 'cd .git; rm uak-wizard.port'",
+    "bash -c \"cd .git; cat uak-w*key\"",
+    "su -c \"cd .git; cat uak-wizard.key\"",
+    "script -qc \"cd .git; cat uak-wizard.key\" /dev/null",
+    "watch \"cd .git; cat uak-wizard.key\"",
+    "timeout 5 bash -c \"cd .git && cat uak*\"",
+    "env sh -c \"cd .git; cat uak-wizard.key\"",
+    "nohup sh -c 'cd .git; cat uak-wizard.key'",
+    "busybox sh -c 'cd .git; cat uak-wizard.key'",
+    "find . -exec sh -c 'cd .git; cat uak-wizard.key' \;",
+    "xargs -I{} sh -c 'cd .git; cat uak-wizard.key' <<< x",
+    "docker run -v $PWD:/w alpine sh -c \"cd /w/.git && cat uak-wizard.key\"",
+    "parallel \"cd .git; cat uak-wizard.key\" ::: x",
+    "tmux new-session \"cd .git; cat uak-wizard.key\"",
+    "npx -c \"cd .git; cat uak-wizard.key\"",
+    "bash -c \"bash -c 'cd .git; cat uak-wizard.key'\"",
+    "bash -c \"bash -c \\\"sh -c 'cd .git; cat uak-wizard.key'\\\"\"",
+    "python3 -c \"import os;os.chdir('.git');print(open('uak-wizard.key').read())\"",
+    "python3 -c \"import os; os.chdir('.git'); os.remove('uak-wizard.port')\"",
+    "perl -e 'chdir \".git\"; print `cat uak-wizard.key`'",
+    "ruby -e 'Dir.chdir(\".git\"); puts File.read(\"uak-wizard.key\")'",
+    "node -e \"process.chdir('.git'); console.log(require('fs').readFileSync('uak-wizard.key','utf8'))\"",
+    "bash -c 'cat \"$(echo .git/uak-wizard.key)\"'",
+    "bash -c \"$(echo cat .git/uak-wizard.key)\"",
+    "cat \"$(echo .git/uak-wizard.key)\"",
+    "sh -c 'cat $(ls .git/uak*key)'",
+    "xargs cat < <(ls .git/uak-wizard.key)",
+]
+# Run from inside the git directory a bare name or glob is the file, quoted or not.
+RUNNERS_INSIDE = [
+    "sh -c \"cat uak-w*\"", "sh -c 'cat uak-wizard.key'", "bash -c \"cat uak*\"", "bash -c 'rm uak-wizard.port'",
+    "eval \"cat uak-wizard.key\"", "ssh localhost \"cat uak-wizard.key\"",
+    "python3 -c \"print(open('uak-wizard.key').read())\"", "cat uak-wizard.key", "rm uak-wizard.port",
+]
+WINDOWS = [
+    "powershell -c \"Remove-Item .git\\uak-wizard.port\"",
+    "powershell -c \"Remove-Item -Force .git/uak-wizard.port\"",
+    "powershell -Command \"Remove-Item .git\\uak-wizard.children\"",
+    "powershell -NoProfile -Command \"ri .git\\uak-wizard.port\"",
+    "powershell -c \"Get-Content C:\\p\\.git\\uak-wizard.key\"",
+    "pwsh -c \"ri .git/uak-wizard.port\"",
+    "pwsh -Command \"gc '.git\\uak-wizard.key'\"",
+    "pwsh -c \"cd .git; Remove-Item uak-wizard.port\"",
+    "powershell -c \"Set-Location .git; Get-Content uak-wizard.key\"",
+    "cmd /c del .git\\uak-wizard.port",
+    "cmd /c \"cd .git && del uak-wizard.port\"",
+    "cmd /c type .git\\uak-wizard.key",
+    "del .git\\uak-wizard.port",
+    "del \"C:\\proj\\.git\\uak-wizard.port\"",
+    "erase .git\\uak-wizard.key",
+    "Remove-Item .git\\uak-wizard.port",
+    "Remove-Item -Force -Path .git\\uak-wizard.key",
+    "ri .git\\uak-wizard.children",
+    "rd .git\\uak-wizard.port",
+    "Move-Item .git\\uak-wizard.port x",
+    "Set-Content .git\\uak-wizard.port 1",
+    "Out-File .git\\uak-wizard.port",
+    "Clear-Content .git\\uak-wizard.children",
+    "echo 1 | Out-File .git\\uak-wizard.port",
+    "copy x .git\\uak-wizard.port",
+    "ren .git\\uak-wizard.port p",
+    "type C:\\proj\\.git\\uak-wizard.key",
+    "type .git\\uak-wizard.key",
+    "cat C:\\proj\\.git\\uak-wizard.key",
+    "cat 'C:\\proj\\.git\\uak-wizard.key'",
+    "cat \"C:\\proj\\.git\\uak-wizard.key\"",
+    "cat C:\\\\proj\\\\.git\\\\uak-wizard.key",
+    "cat .git\\uak-wizard.key",
+    "more < .git\\uak-wizard.key",
+]
+# Prose is not a runner's argument: a message, a note, a body, a search pattern or an echo that holds the commands.
+PROSE_PASSES = [
+    "git commit -m \"cd .git; cat uak-wizard.key is refused\"",
+    "git commit -m \"bash -c 'cd .git; cat uak-wizard.key' is refused\"",
+    "git commit -m \"x\" -m \"sh -c 'cd .git && rm uak-wizard.port'\"",
+    "bash .uak/bin/uak review UAK-188 --sha abc --verdict reject --note \"cd .git; cat uak-wizard.key can be read\"",
+    "bash .uak/bin/uak review UAK-188 --sha abc --verdict approve --note \"eval 'cd .git; cat uak-wizard.key' is refused\"",
+    "bash .uak/bin/uak checkpoint UAK-188 --done \"ssh host 'cd .git; cat uak-wizard.key' refused\" --next x",
+    "gh pr create --title \"UAK-188 guard\" --body \"refuses bash -c 'cd .git; cat uak-wizard.key' and Remove-Item .git/uak-wizard.port\"",
+    "grep -rn \"cd .git; cat uak-wizard.key\" docs/",
+    "rg -n 'bash -c .cd .git' kit/",
+    "echo \"cd .git; cat uak-wizard.key\"",
+    "echo 'powershell -c \"Remove-Item .git\\uak-wizard.port\"' >> docs/notes.txt",
+]
+
+
+def runner_arguments_are_command_lines(tmp):
+    repo = project(tmp)
+    go_live(repo)
+    must_refuse(repo, RUNNERS)
+    must_pass(repo, PROSE_PASSES)
+    # nothing here refuses text outside the git directory, even inside a runner
+    must_pass(repo, ["bash -c 'cat certs/*.key'", "sh -c \"cd certs && cat uak-wizard.key\"", "bash -c 'cd docs; cat uak*'",
+                     "eval \"cd src; rm uak-wizard.port\"", "ssh localhost 'cat /etc/hostname'", "bash -c 'git status'"])
+    must_refuse(repo, RUNNERS_INSIDE, cwd=gitdir(repo))
+    must_pass(repo, ["sh -c 'cat HEAD'", "bash -c 'ls'", "cat config", "git status"], cwd=gitdir(repo))
+    go_dead(repo)
+    must_pass(repo, when_dead(RUNNERS + RUNNERS_INSIDE + PROSE_PASSES))
+
+
+def windows_removers_and_readers_are_refused(tmp):
+    repo = project(tmp)
+    go_live(repo)
+    must_refuse(repo, WINDOWS)
+    must_refuse(repo, ["Remove-Item uak-wizard.port", "del uak-wizard.key", "cmd /c del uak-wizard.port", "type uak-wizard.key"], cwd=gitdir(repo))
+    must_pass(repo, ["Remove-Item build\\out.key", "del docs\\old.port", "type docs\\uak-wizard.key.md", "powershell -c \"Get-ChildItem *.key\"",
+                     "cmd /c dir .git", "Get-Content .git\\HEAD", "type .git\\config", "del build\\*.key"])
+    go_dead(repo)
+    must_pass(repo, when_dead(WINDOWS))
+
+
+def second_review_lists(tmp):
+    repo = project(tmp)
+    go_live(repo)
+    must_refuse(repo, REVIEW2_REFUSED)
+    must_pass(repo, REVIEW2_PASS + REVIEW2_UNRELATED)
+    go_dead(repo)
+    must_pass(repo, when_dead(REVIEW2_REFUSED + REVIEW2_PASS + REVIEW2_UNRELATED))
+    go_live(repo)
+    must_refuse(repo, ["cat uak-wizard.key", "sh -c \"cat uak-w*\"", "cat uak-w*"], cwd=gitdir(repo))
+
+
+def representatives_are_in_the_lists(tmp):
+    if not FULL:
+        return
+    every = set(PLAIN_REFUSED + KEY_READS + REMOVALS + REOPEN + REVIEW_REFUSED + REVIEW_ORDINARY + KITS_OWN + ALWAYS + LIVE_ALLOWED +
+                REVIEW_ACTING_FINDS + RUNNERS + WINDOWS + PROSE_PASSES + REVIEW2_REFUSED + REVIEW2_PASS + NOT_LIVE)
+    missing = [c for c in REPRESENTATIVE if c not in every]
+    assert not missing, "the representatives off Linux are in the lists: %r" % missing
+
+
+def live_costs_nothing_for_unrelated_commands(tmp):
+    """A wizard stays live for as long as a person keeps the setup page open: a command with nothing to do with it costs
+    the processes it costs with no wizard (the decision is a case on the text and a walk with builtins)."""
+    if os.name == "nt":
+        return  # a shim counts nothing in Git Bash; Linux and macOS cover it
+    repo = project(tmp)
+    shim = tmp / "shim"
+    shim.mkdir()
+    log = tmp / "calls"
+    for tool in ("git", "grep", "awk", "sed", "tr", "cut", "head", "tail", "cat", "sort", "wc", "basename", "dirname", "readlink",
+                 "uname", "date", "mktemp", "find", "python3", "xargs", "env", "ls", "mkdir"):
+        real = shutil.which(tool)
+        if real:
+            path = shim / tool
+            path.write_text("#!/bin/sh\necho %s >> '%s'\nexec '%s' \"$@\"\n" % (tool, log, real), encoding="utf-8")
+            path.chmod(0o755)
+
+    def count(command, cwd=None):
+        if log.exists():
+            log.unlink()
+        run_env = env()
+        run_env["PATH"] = str(shim) + os.pathsep + run_env["PATH"]
+        subprocess.run([bash_bin(), str(GUARD), "check", command], cwd=str(cwd or repo), env=run_env, capture_output=True,
+                       text=True, stdin=subprocess.DEVNULL)
+        return len(log.read_text().split()) if log.exists() else 0
+
+    unrelated = [c for c in REVIEW2_UNRELATED if "api" not in c.lower() and "setu" not in c.lower() and "wiz" not in c.lower()
+                 and "tup" not in c.lower() and "rm " not in c and ".git" not in c and "uak-" not in c]
+    assert len(unrelated) >= 15, unrelated
+    off = dict((c, count(c)) for c in unrelated)
+    go_live(repo)
+    for c in unrelated:
+        assert count(c) == off[c], "%r costs %d processes with a wizard live, %d with none" % (c, count(c), off[c])
+    # inside the git directory every command is read (a bare name is the file): that cost is accepted
+    assert count("ls", cwd=gitdir(repo)) >= off["ls -la"]
 
 
 TESTS = [key_read_is_refused_while_live, reopen_and_closing_are_refused_on_the_wizard_port,
          same_names_pass_without_a_wizard, other_port_passes, record_files_cannot_be_removed_while_live,
          security_doc_names_the_reopen_key, ordinary_work_passes_while_live,
          this_task_can_be_committed_reviewed_and_opened_while_live, plain_spellings_are_refused_while_live,
-         residuals_are_stated_and_still_pass, no_port_file_costs_no_process, security_doc_is_true_line_by_line]
+         residuals_are_stated_and_still_pass, no_port_file_costs_no_process, security_doc_is_true_line_by_line,
+         runner_arguments_are_command_lines, windows_removers_and_readers_are_refused, second_review_lists,
+         representatives_are_in_the_lists, live_costs_nothing_for_unrelated_commands]
 
 
 def main():
