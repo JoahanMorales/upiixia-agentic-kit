@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="uak-page" content="dev">
 <meta name="description" content="Live view of a uak team: progress, agents, conversation and black box.">
 <title>uak dash</title>
 <link rel="icon" id="favicon" href="data:,">
@@ -251,7 +252,11 @@ button.chip:hover { background: var(--hover); }
 .ge { stroke: var(--line-2); stroke-width: 1; }
 .ge.on { stroke: var(--accent-line); stroke-width: 2; }
 .gn { cursor: pointer; outline: none; }
-.gn.dim { opacity: .3; }
+.gn.dim { opacity: .25; }
+.gn.hit > :first-child { stroke: var(--orange); stroke-width: 3; }
+.ge.dim { stroke-opacity: .25; }
+.gv { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.gside { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
 .gn:focus-visible > :first-child, .gn.sel > :first-child { stroke: var(--ink); stroke-width: 3; }
 .n-lesson > :first-child { fill: var(--accent-line); }
 .n-decision > :first-child { fill: var(--surface); stroke: var(--accent-line); stroke-width: 2; }
@@ -275,6 +280,9 @@ button.chip:hover { background: var(--hover); }
 .dn2 .muted { grid-column: 1 / -1; }
 dialog#share { margin: auto; padding: 0; width: min(720px,calc(100vw - 32px)); border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
 dialog#share::backdrop { background: var(--scrim); }
+.scs { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.sc b { display: block; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+.share-cv.v { max-height: 520px; width: auto; max-width: 100%; margin: 0 auto; }
 .share-cv { display: block; width: 100%; height: auto; border-radius: var(--r-s); border: 1px solid var(--line); }
 .lb { position: relative; display: inline-block; }
 .lbb { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); color: var(--ink-2); font-size: 12px; font-weight: 500; }
@@ -543,6 +551,7 @@ dialog#story::backdrop { background: var(--scrim); }
   .head, .page, .wide { padding-left: 16px; padding-right: 16px; }
   .bd, .mini { grid-template-columns: minmax(0,1fr); }
   .need > li { grid-template-columns: 24px minmax(0,1fr); } .need > li > :last-child { grid-column: 1 / -1; } .need .cmd { width: 100%; } .need .cmd code { flex: 1; }
+  .scs, .gv { grid-template-columns: minmax(0, 1fr); } .gside { position: static; max-height: none; }
   .lbb, .lbp li { min-height: 44px; }
   .tid, .more, .expand, .filters .clear, .cmd button, .seg button, .lang, .find, .filters select, .chip { min-height: 44px; }
   .cmd button { width: 44px; } .find input { width: 100%; flex: 1; } .find { flex: 1 1 100%; }
@@ -597,6 +606,17 @@ dialog#story::backdrop { background: var(--scrim); }
   "use strict";
   function T(value) { return window.UAKWorkspace ? UAKWorkspace.t(value) : value; }
   var ES = {
+    'Entries': 'Entradas',
+    'Search the memory': 'Buscar en la memoria',
+    'Zoom in': 'Acercar',
+    'Zoom out': 'Alejar',
+    'Fit': 'Ajustar',
+    'Clear': 'Quitar',
+    'Links': 'Vínculos',
+    'entries link to nothing': 'entradas no enlazan con nada',
+    'Click a node to read it and see what it links to.': 'Pulsa un nodo para leerlo y ver con qué se vincula.',
+    'Story': 'Historia',
+    'The browser refused to copy: use Download PNG.': 'El navegador no permitió copiar: usa Descargar PNG.',
     'similar messages': 'mensajes parecidos',
     'Language': 'Idioma',
     'To do': 'Por hacer',
@@ -606,8 +626,6 @@ dialog#story::backdrop { background: var(--scrim); }
     'Download PNG': 'Descargar PNG',
     'Copy image': 'Copiar imagen',
     'Copied to the clipboard': 'Copiado al portapapeles',
-    'The browser refused to copy: use Download PNG.': 'El navegador no permitió copiar: usa Descargar PNG.',
-    'Share card': 'Tarjeta para compartir',
     'Close': 'Cerrar',
     'Not tied to a task': 'Sin tarea asociada',
     'and': 'y',
@@ -634,8 +652,6 @@ dialog#story::backdrop { background: var(--scrim); }
     'Decision': 'Decisión',
     'File': 'Archivo',
     'nodes': 'nodos',
-    'Click a node to read it.': 'Pulsa un nodo para leerlo.',
-    'entries link to nothing and are only in the list.': 'entradas no enlazan con nada y solo están en la lista.',
     'Input': 'Entrada',
     'Cache write': 'Escritura de caché',
     'Cache read': 'Lectura de caché',
@@ -780,19 +796,28 @@ dialog#story::backdrop { background: var(--scrim); }
     });
     return { nodes: Object.keys(nodes).map(function (k) { return nodes[k]; }), edges: edges, entries: entries, linked: linked, isolated: entries.length - linked };
   }
+  // A stable layout: positions seeded from each node's id, springs short between an entry and what it cites, repulsion, then a
+  // pass that pushes apart anything closer than its radii and keeps every node inside the frame with a padding.
+  function nodeR(x) { return x.type === "lesson" || x.type === "decision" ? 7 : 3.5 + Math.min(3, x.deg / 3); }
   function layout(nodes, edges, w, h) {
-    var pos = {}, n = nodes.length, k = Math.sqrt(w * h / n) * .8, it = 220, i, j, m;
-    nodes.forEach(function (x, q) { var a = 6.2832 * q / n * 5.1, r = (.25 + .2 * ((q * 7) % 5) / 5); pos[x.id] = { x: w / 2 + Math.cos(a) * w * r, y: h / 2 + Math.sin(a) * h * r, dx: 0, dy: 0 }; });
+    var pos = {}, n = nodes.length, pad = 44, k = Math.sqrt((w - 2 * pad) * (h - 2 * pad) / Math.max(1, n)) * .75, it = 320, i, j, m;
+    function seed(id, salt) { var x = 2166136261; for (var q = 0; q < id.length; q++) { x ^= id.charCodeAt(q) + salt; x = Math.imul(x, 16777619) >>> 0; } return (x % 10000) / 10000; }
+    nodes.forEach(function (x) { pos[x.id] = { x: pad + seed(x.id, 1) * (w - 2 * pad), y: pad + seed(x.id, 2) * (h - 2 * pad), dx: 0, dy: 0 }; });
     for (m = 0; m < it; m++) {
-      var t = w / 8 * (1 - m / it) + 1;
+      var t = (w / 10) * (1 - m / it) + .5;
       nodes.forEach(function (x) { pos[x.id].dx = 0; pos[x.id].dy = 0; });
       for (i = 0; i < n; i++) for (j = i + 1; j < n; j++) {
         var a2 = pos[nodes[i].id], b2 = pos[nodes[j].id], dx = a2.x - b2.x, dy = a2.y - b2.y, d = Math.sqrt(dx * dx + dy * dy) + .01, f = k * k / d / d;
         a2.dx += dx * f; a2.dy += dy * f; b2.dx -= dx * f; b2.dy -= dy * f;
       }
-      edges.forEach(function (e) { var a2 = pos[e[0]], b2 = pos[e[1]], dx = a2.x - b2.x, dy = a2.y - b2.y, d = Math.sqrt(dx * dx + dy * dy) + .01, f = d / k; a2.dx -= dx * f; a2.dy -= dy * f; b2.dx += dx * f; b2.dy += dy * f; });
-      nodes.forEach(function (x) { var p = pos[x.id], d = Math.sqrt(p.dx * p.dx + p.dy * p.dy) + .01, s2 = Math.min(d, t) / d; p.x = Math.min(w - 20, Math.max(20, p.x + p.dx * s2)); p.y = Math.min(h - 20, Math.max(20, p.y + p.dy * s2)); });
+      edges.forEach(function (e) { var a2 = pos[e[0]], b2 = pos[e[1]], dx = a2.x - b2.x, dy = a2.y - b2.y, d = Math.sqrt(dx * dx + dy * dy) + .01, f = d / k * 1.6; a2.dx -= dx * f; a2.dy -= dy * f; b2.dx += dx * f; b2.dy += dy * f; });
+      nodes.forEach(function (x) { var p = pos[x.id], d = Math.sqrt(p.dx * p.dx + p.dy * p.dy) + .01, s2 = Math.min(d, t) / d; p.x = Math.min(w - pad, Math.max(pad, p.x + p.dx * s2)); p.y = Math.min(h - pad, Math.max(pad, p.y + p.dy * s2)); });
     }
+    for (m = 0; m < 6; m++) for (i = 0; i < n; i++) for (j = i + 1; j < n; j++) {
+      var a3 = pos[nodes[i].id], b3 = pos[nodes[j].id], dx3 = b3.x - a3.x, dy3 = b3.y - a3.y, d3 = Math.sqrt(dx3 * dx3 + dy3 * dy3) + .01, min = nodeR(nodes[i]) + nodeR(nodes[j]) + 10;
+      if (d3 < min) { var push = (min - d3) / 2 / d3; a3.x -= dx3 * push; a3.y -= dy3 * push; b3.x += dx3 * push; b3.y += dy3 * push; }
+    }
+    nodes.forEach(function (x) { var p = pos[x.id]; p.x = Math.min(w - pad, Math.max(pad, p.x)); p.y = Math.min(h - pad, Math.max(pad, p.y)); });
     return pos;
   }
   function bbFilter(recs, f, now) {
@@ -1546,74 +1571,127 @@ dialog#story::backdrop { background: var(--scrim); }
     capped(dc, "dec", d.decisions.slice().reverse(), function (x) { return (h("li", { "class": "row", style: "grid-template-columns:24px minmax(0,1fr)" }, [avatar(x.who || "?", 24), h("div", { style: "min-width:0" }, [h("div", {}, [rich(x.text)]), h("div", { "class": "sub" }, [h("span", { "class": "tag", text: x.kind }), " " + x.who + " · " + ago(x.t, d.generated) + T(" ago")])])])); });
     g.appendChild(panel(T("Decisions"), "DECISIONS.md", d.decisions.length ? dc : none(T("No decisions yet"), L('Agreed contracts and calls land here.'))));
   }
-  var SEL_NODE = "";
+  var SEL_NODE = "", GCACHE = null, GZ = { z: 1, x: 0, y: 0 }, GHIDE = {}, GQ = "";
   function memGraphView(wrap, d) {
-    var mg = memGraph(d.lessons, d.decisions), W = 1100, H = 600, SV = "http://www.w3.org/2000/svg";
+    var W = 1100, H = 640, SV = "http://www.w3.org/2000/svg", mg = memGraph(d.lessons, d.decisions);
     if (mg.nodes.length < 4) { wrap.appendChild(h("div", { "class": "card empty" }, [h("b", { text: L('Too few links for a graph') }), mg.entries.length + " " + L('entries, of which') + " " + mg.linked + " " + L('share a task, a file or an agent with another one.')])); return; }
-    var pos = layout(mg.nodes, mg.edges, W, H), by = {}, near = {}; mg.nodes.forEach(function (x) { by[x.id] = x; });
-    var sel = SEL_NODE && by[SEL_NODE] ? SEL_NODE : "";
+    if (!GCACHE || GCACHE.g !== d.generated) GCACHE = { g: d.generated, pos: layout(mg.nodes, mg.edges, W, H) };
+    var pos = GCACHE.pos, by = {}, ent = {}, near = {}; mg.nodes.forEach(function (x) { by[x.id] = x; }); mg.entries.forEach(function (e) { ent[e.id] = e; });
+    var sel = SEL_NODE && by[SEL_NODE] ? SEL_NODE : "", ql = GQ.toLowerCase();
     mg.edges.forEach(function (e) { if (e[0] === sel) near[e[1]] = 1; if (e[1] === sel) near[e[0]] = 1; });
-    var svg = document.createElementNS(SV, "svg"); svg.setAttribute("viewBox", "0 0 " + W + " " + H); svg.setAttribute("class", "mg"); svg.setAttribute("role", "group"); svg.setAttribute("aria-label", L('Memory graph'));
+    function kindOfNode(x) { return x.type === "lesson" || x.type === "decision" ? "entry" : x.type; }
+    function text(x) { return ent[x.id] ? ent[x.id].text : x.label; }
+    function hit(x) { return !ql || (x.label + " " + text(x)).toLowerCase().indexOf(ql) >= 0; }
+    function lab(x) { var t = ent[x.id] ? text(x).replace(/\s+/g, " ") : x.label; return t.length > 30 ? t.slice(0, 28) + "…" : t; }
+    var tools = h("div", { "class": "filters" }, [[["entry", L('Entries')], ["task", T("Tasks")], ["file", L('File')], ["agent", T("Agents")]].map(function (k) { return h("button", { "class": "chip", type: "button", "aria-pressed": String(!GHIDE[k[0]]), style: GHIDE[k[0]] ? null : "background:var(--accent-wash)", text: k[1], on: function () { GHIDE[k[0]] = !GHIDE[k[0]]; render(); } }); }), null].reduce(function (a, x) { return a.concat(x); }, []).filter(Boolean));
+    var q = h("input", { type: "search", placeholder: L('Search the memory'), value: GQ, "aria-label": L('Search the memory') }), qt = 0;
+    q.addEventListener("input", function () { clearTimeout(qt); qt = setTimeout(function () { GQ = q.value; render(); }, 150); });
+    tools.appendChild(h("label", { "class": "find" }, [icon(I.find), q]));
+    [["+", 1.4], ["-", 1 / 1.4]].forEach(function (z) { tools.appendChild(h("button", { "class": "chip", type: "button", "aria-label": z[0] === "+" ? L('Zoom in') : L('Zoom out'), text: z[0], on: function () { GZ.z = Math.max(1, Math.min(6, GZ.z * z[1])); render(); } })); });
+    tools.appendChild(h("button", { "class": "chip", type: "button", text: L('Fit'), on: function () { GZ = { z: 1, x: 0, y: 0 }; render(); } }));
+    var vw = W / GZ.z, vh = H / GZ.z, vx = Math.max(0, Math.min(W - vw, GZ.x)), vy = Math.max(0, Math.min(H - vh, GZ.y));
+    var svg = document.createElementNS(SV, "svg"); svg.setAttribute("viewBox", vx + " " + vy + " " + vw + " " + vh); svg.setAttribute("class", "mg"); svg.setAttribute("role", "group"); svg.setAttribute("aria-label", L('Memory graph'));
     function el(tag, at, parent) { var e = document.createElementNS(SV, tag); for (var k in at) e.setAttribute(k, at[k]); (parent || svg).appendChild(e); return e; }
-    mg.edges.forEach(function (e) { var a = pos[e[0]], b = pos[e[1]]; el("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, "class": "ge" + (sel && (e[0] === sel || e[1] === sel) ? " on" : "") }); });
-    mg.nodes.forEach(function (x) {
-      var p = pos[x.id], r = x.type === "lesson" || x.type === "decision" ? 5 : 6 + Math.min(8, x.deg), on = sel === x.id, dim = sel && !on && !near[x.id];
-      var g = el("g", { "class": "gn n-" + x.type + (on ? " sel" : "") + (dim ? " dim" : ""), tabindex: "0", role: "button", "aria-label": x.type + " " + x.label + ", " + x.deg + " " + L('links') }), shape;
-      if (x.type === "task") shape = el("rect", { x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r, rx: 3 }, g);
-      else if (x.type === "file") shape = el("rect", { x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r, transform: "rotate(45 " + p.x + " " + p.y + ")" }, g);
-      else shape = el("circle", { cx: p.x, cy: p.y, r: r }, g);
-      if (x.type !== "lesson" && x.type !== "decision" && x.deg >= 3) { var tx = el("text", { x: p.x + r + 4, y: p.y + 4 }, g); tx.textContent = x.label.length > 22 ? "…" + x.label.slice(-21) : x.label; }
-      var t2 = el("title", {}, g); t2.textContent = x.type + " · " + x.label;
+    var shown = mg.nodes.filter(function (x) { return !GHIDE[kindOfNode(x)]; }), vis = {}; shown.forEach(function (x) { vis[x.id] = 1; });
+    mg.edges.forEach(function (e) { if (!vis[e[0]] || !vis[e[1]]) return; var a = pos[e[0]], b = pos[e[1]], on = sel && (e[0] === sel || e[1] === sel); el("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, "class": "ge" + (on ? " on" : sel ? " dim" : "") }); });
+    var placed = [];
+    function room(x, y, w) { for (var i = 0; i < placed.length; i++) { var p = placed[i]; if (Math.abs(p[0] - x) < (p[2] + w) / 2 && Math.abs(p[1] - y) < 14) return false; } return true; }
+    var order = shown.slice().sort(function (a, b) { return (b.id === sel ? 2 : near[b.id] ? 1 : 0) - (a.id === sel ? 2 : near[a.id] ? 1 : 0) || (kindOfNode(a) === "entry" ? 0 : 1) - (kindOfNode(b) === "entry" ? 0 : 1); });
+    var labels = {};
+    order.forEach(function (x) {
+      var p = pos[x.id], t = lab(x), w = t.length * 6.4, must = x.id === sel || near[x.id] || (ql && hit(x)), want = kindOfNode(x) === "entry" || must;
+      if (!want) return; var cx = p.x + nodeR(x) + 5 + w / 2;
+      if (cx + w / 2 > vx + vw - 6) cx = p.x - nodeR(x) - 5 - w / 2;
+      if (must || room(cx, p.y, w)) { placed.push([cx, p.y, w]); labels[x.id] = [cx - w / 2, p.y + 4, t, cx < p.x]; }
+    });
+    shown.forEach(function (x) {
+      var p = pos[x.id], r = nodeR(x), on = sel === x.id, dim = (sel && !on && !near[x.id]) || (ql && !hit(x));
+      var g = el("g", { "class": "gn n-" + x.type + (on ? " sel" : "") + (dim ? " dim" : "") + (ql && hit(x) ? " hit" : ""), tabindex: "0", role: "button", "aria-label": x.type + " " + lab(x) + ", " + x.deg + " " + L('links') });
+      if (x.type === "task") el("rect", { x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r, rx: 2 }, g);
+      else if (x.type === "file") el("rect", { x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r, transform: "rotate(45 " + p.x + " " + p.y + ")" }, g);
+      else el("circle", { cx: p.x, cy: p.y, r: r }, g);
+      if (labels[x.id]) { var tx = el("text", { x: labels[x.id][0], y: labels[x.id][1] }, g); tx.textContent = labels[x.id][2]; }
+      var t2 = el("title", {}, g); t2.textContent = x.type + " · " + lab(x);
       function choose() { SEL_NODE = SEL_NODE === x.id ? "" : x.id; render(); }
       g.addEventListener("click", choose); g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); } });
     });
+    var drag = null;
+    svg.addEventListener("pointerdown", function (e) { if (GZ.z > 1 && e.target === svg) drag = { x: e.clientX, y: e.clientY, gx: GZ.x, gy: GZ.y }; });
+    svg.addEventListener("pointermove", function (e) { if (!drag) return; var k = vw / svg.getBoundingClientRect().width; GZ.x = drag.gx - (e.clientX - drag.x) * k; GZ.y = drag.gy - (e.clientY - drag.y) * k; svg.setAttribute("viewBox", Math.max(0, Math.min(W - vw, GZ.x)) + " " + Math.max(0, Math.min(H - vh, GZ.y)) + " " + vw + " " + vh); });
+    svg.addEventListener("pointerup", function () { drag = null; });
     var leg = h("div", { "class": "legend" }, [["lesson", L('Lesson')], ["decision", L('Decision')], ["task", T("Tasks")], ["file", L('File')], ["agent", T("Agents")]].map(function (x) { return h("span", {}, [h("i", { "class": "sw g-" + x[0], "aria-hidden": "true" }), x[1]]); }));
-    var panel2 = h("div", { "class": "card pad", style: "margin-top:12px" });
-    if (!sel) panel2.appendChild(h("span", { "class": "muted", text: mg.nodes.length + " " + L('nodes') + " · " + mg.edges.length + " " + L('links') + " · " + L('Click a node to read it.') + " " + mg.isolated + " " + L('entries link to nothing and are only in the list.') }));
-    else {
-      var x = by[sel], es = mg.entries.filter(function (e) { return e.id === sel || e.refs[sel]; });
-      panel2.appendChild(h("div", { "class": "bh" }, [h("h2", { text: x.type + " · " + x.label }), h("span", { "class": "n", text: x.deg + " " + L('links') })]));
-      es.slice(0, 8).forEach(function (e) { panel2.appendChild(h("div", { style: "padding:8px 0;border-top:1px solid var(--line)" }, [h("div", { "class": "sub muted", text: e.kind + " · " + (e.who || "") + (e.t ? " · " + ago(e.t, d.generated) + T(" ago") : "") }), h("div", {}, [rich(e.text)]), h("button", { "class": "chip", type: "button", text: e.id, on: function () { SEL_NODE = e.id; render(); } })])); });
-      if (es.length > 8) panel2.appendChild(h("div", { "class": "muted", text: "+" + (es.length - 8) + " " + L('more') }));
+    var side = h("div", { "class": "card pad gside" }), orphans = mg.entries.filter(function (e) { return !by[e.id]; });
+    function chip(id, t) { return h("button", { "class": "chip", type: "button", text: t, title: t, on: function () { SEL_NODE = id; render(); } }); }
+    if (!sel) {
+      side.appendChild(h("div", { "class": "bh" }, [h("h2", { text: mg.nodes.length + " " + L('nodes') + " · " + mg.edges.length + " " + L('links') })]));
+      side.appendChild(h("p", { "class": "muted", style: "margin:0 0 12px", text: L('Click a node to read it and see what it links to.') }));
+      if (orphans.length) { side.appendChild(h("div", { "class": "gh", text: orphans.length + " " + L('entries link to nothing') })); side.appendChild(h("div", { "class": "chips" }, orphans.slice(0, 14).map(function (e) { var t = e.text.replace(/\s+/g, " "); return h("button", { "class": "chip ell", type: "button", style: "max-width:100%", text: t.slice(0, 40), title: t, on: function () { SEL_NODE = ""; GQ = t.slice(0, 20); render(); } }); }))); }
+    } else {
+      var x = by[sel], es = ent[sel] ? [ent[sel]] : mg.entries.filter(function (e) { return e.refs[sel]; });
+      side.appendChild(h("div", { "class": "bh" }, [h("h2", { text: x.type + " · " + lab(x) }), h("span", { "class": "n", text: x.deg + " " + L('links') }), h("button", { "class": "chip", style: "margin-left:auto", type: "button", text: L('Clear'), on: function () { SEL_NODE = ""; render(); } })]));
+      es.slice(0, 6).forEach(function (e) { side.appendChild(h("div", { style: "padding:8px 0;border-top:1px solid var(--line)" }, [h("div", { "class": "sub muted", text: e.kind + " · " + (e.who || "") + (e.t ? " · " + ago(e.t, d.generated) + T(" ago") : "") }), h("div", {}, [rich(e.text)]), ent[sel] ? null : chip(e.id, lab(by[e.id] || { id: e.id, type: e.kind, label: e.id }))])); });
+      if (es.length > 6) side.appendChild(h("div", { "class": "muted", text: "+" + (es.length - 6) + " " + L('more') }));
+      var nb = mg.edges.filter(function (e) { return e[0] === sel || e[1] === sel; }).map(function (e) { return e[0] === sel ? e[1] : e[0]; });
+      if (ent[sel] && nb.length) { side.appendChild(h("div", { "class": "gh", text: L('Links') })); side.appendChild(h("div", { "class": "chips" }, nb.map(function (id) { return chip(id, lab(by[id])); }))); }
     }
-    wrap.appendChild(h("div", { "class": "card" }, [svg, leg])); wrap.appendChild(panel2);
+    wrap.appendChild(tools);
+    wrap.appendChild(h("div", { "class": "gv" }, [h("div", { "class": "card" }, [svg, leg]), side]));
   }
   // Share: a 1200x630 card drawn on a canvas from the same numbers as the page (shareStats), with the kit's own identicons.
   function tok(n) { var e = document.createElement("i"); e.style.color = "var(--" + n + ")"; document.body.appendChild(e); var c = getComputedStyle(e).color; e.remove(); return c; }
   function shareFigs(S) {
     return [[S.tokens ? M(S.tokens) : null, T("Tokens spent")], [S.agents ? String(S.agents) : null, T("Agents")], [S.total ? S.integrated + " / " + S.total : null, T("Integrated")], [S.commits !== null ? String(S.commits) : null, L('Commits on main')]].filter(function (f) { return f[0] !== null; });
   }
-  function drawCard(cv, d) {
-    var S = shareStats(d), W = 1200, H = 630, c = cv.getContext("2d"), rs = getComputedStyle(document.documentElement), sans = rs.getPropertyValue("--sans"), mono = rs.getPropertyValue("--mono");
-    cv.width = W * 2; cv.height = H * 2; c.scale(2, 2);
-    function box(x, y, w, h, r, fill, line) { c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); if (fill) { c.fillStyle = fill; c.fill(); } if (line) { c.strokeStyle = line; c.lineWidth = 2; c.stroke(); } }
-    function text(t, x, y, size, w, col, font) { c.font = w + " " + size + "px " + (font || sans); c.fillStyle = col; c.textAlign = "left"; c.fillText(t, x, y); }
+  // Two compositions of the same numbers: "h" 1200x630 (drawn at 2x) and "v" 1080x1920 for a story, which keeps its top 250 px
+  // and bottom 340 px free of anything important (the story's own interface covers them).
+  var SAFE_TOP = 250, SAFE_BOTTOM = 340;
+  function drawCard(cv, d, fmt) {
+    var S = shareStats(d), v = fmt === "v", W = v ? 1080 : 1200, H = v ? 1920 : 630, k2 = v ? 1 : 2, c = cv.getContext("2d"), rs = getComputedStyle(document.documentElement), sans = rs.getPropertyValue("--sans"), mono = rs.getPropertyValue("--mono");
+    cv.width = W * k2; cv.height = H * k2; c.scale(k2, k2);
+    function box(x, y, w, h, r, fill) { c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); if (fill) { c.fillStyle = fill; c.fill(); } }
+    function text(t, x, y, size, w, col, font, align) { c.font = w + " " + size + "px " + (font || sans); c.fillStyle = col; c.textAlign = align || "left"; c.fillText(t, x, y); }
+    function fit(t, size, max) { c.font = "700 " + size + "px " + sans; while (size > 28 && c.measureText(t).width > max) { size -= 4; c.font = "700 " + size + "px " + sans; } return size; }
     function idc(n, human, x, y, z) {
-      var k = idcells(n, human), v = function (q) { return rs.getPropertyValue("--idc-" + q).trim(); }, u = z / 7;
-      box(x, y, z, z, z * .16, "hsl(" + k.hue + " " + v("bg-s") + " " + v("bg-l") + ")"); c.fillStyle = "hsl(" + k.hue + " " + v("px-s") + " " + v("px-l") + ")";
+      var k = idcells(n, human), q = function (r) { return rs.getPropertyValue("--idc-" + r).trim(); }, u = z / 7;
+      box(x, y, z, z, z * .16, "hsl(" + k.hue + " " + q("bg-s") + " " + q("bg-l") + ")"); c.fillStyle = "hsl(" + k.hue + " " + q("px-s") + " " + q("px-l") + ")";
       k.on.forEach(function (p) { c.fillRect(x + (p[0] + 1) * u, y + (p[1] + 1) * u, u + .3, u + .3); });
     }
-    box(0, 0, W, H, 0, tok("page")); box(40, 40, W - 80, H - 80, 16, tok("surface"), tok("line-2"));
-    idc(S.name, S.name, 88, 88, 88); text(S.name, 202, 142, 52, 700, tok("ink"));
-    if (S.since) text(L('since') + " " + new Date(S.since * 1000).toLocaleDateString(lang(), { year: "numeric", month: "short", day: "numeric" }), 202, 182, 24, 500, tok("muted"));
-    var f = shareFigs(S), px = 88; f.forEach(function (x) { text(x[0], px, 340, 64, 700, tok("ink")); text(x[1], px, 378, 22, 500, tok("muted")); c.font = "700 64px " + sans; var w1 = c.measureText(x[0]).width; c.font = "500 22px " + sans; px += Math.max(w1, c.measureText(x[1]).width) + 72; });
-    var ag = d.agents.filter(function (a) { return !a.is_human; }).sort(function (a, b) { return b.last_seen - a.last_seen; });
-    ag.slice(0, 15).forEach(function (a, i) { idc(a.name, a.human, 88 + i * 64, 440, 52); });
-    if (ag.length > 15) text("+" + (ag.length - 15), 88 + 15 * 64, 478, 26, 600, tok("muted"));
-    text("UPIIXIA Agentic Kit", 88, 566, 22, 600, tok("muted"), mono);
+    var f = shareFigs(S), ag = d.agents.filter(function (a) { return !a.is_human; }).sort(function (a, b) { return b.last_seen - a.last_seen; }), since = S.since ? L('since') + " " + new Date(S.since * 1000).toLocaleDateString(lang(), { year: "numeric", month: "short", day: "numeric" }) : "";
+    box(0, 0, W, H, 0, tok("surface"));
+    if (v) {
+      idc(S.name, S.name, 90, SAFE_TOP + 40, 150); var fs = fit(S.name, 84, 900); text(S.name, 90, SAFE_TOP + 330, fs, 700, tok("ink")); if (since) text(since, 90, SAFE_TOP + 390, 34, 500, tok("muted"));
+      ag.slice(0, 7).forEach(function (a, i) { idc(a.name, a.human, 90 + i * 130, SAFE_TOP + 470, 110); });
+      f.forEach(function (x, i) { var y = SAFE_TOP + 760 + i * 190; text(x[0], 90, y, 120, 700, tok("ink")); text(x[1], 90, y + 48, 32, 500, tok("muted")); });
+      if (S.total) text(Math.round(100 * S.integrated / S.total) + "%", W - 90, SAFE_TOP + 130, 96, 700, tok("accent-ink"), null, "right");
+    } else {
+      idc(S.name, S.name, 64, 64, 88); var fs2 = fit(S.name, 56, 640); text(S.name, 176, 118, fs2, 700, tok("ink")); if (since) text(since, 176, 158, 24, 500, tok("muted"));
+      if (S.total) { text(Math.round(100 * S.integrated / S.total) + "%", W - 64, 118, 84, 700, tok("accent-ink"), null, "right"); text(T("Integrated"), W - 64, 158, 24, 500, tok("muted"), null, "right"); box(W - 364, 178, 300, 8, 4, tok("hover")); box(W - 364, 178, 300 * S.integrated / S.total, 8, 4, tok("accent-line")); }
+      var px = 64; f.forEach(function (x) { text(x[0], px, 340, 64, 700, tok("ink")); text(x[1], px, 378, 22, 500, tok("muted")); c.font = "700 64px " + sans; var w1 = c.measureText(x[0]).width; c.font = "500 22px " + sans; px += Math.max(w1, c.measureText(x[1]).width) + 72; });
+      ag.slice(0, 16).forEach(function (a, i) { idc(a.name, a.human, 64 + i * 64, 470, 52); });
+      if (ag.length > 16) text("+" + (ag.length - 16), 64 + 16 * 64, 508, 26, 600, tok("muted"));
+    }
+    // The kit's credit: a very small mark and name in a corner, low contrast.
+    var cx = v ? 90 : W - 190, cy = v ? SAFE_TOP + 1010 : H - 44;
+    c.globalAlpha = .55; idc("UPIIXIA Agentic Kit", "UPIIXIA", cx, cy, 14); text("UPIIXIA Agentic Kit", cx + 22, cy + 12, 12, 500, tok("muted"), mono); c.globalAlpha = 1;
     return f;
   }
   var shareEl = document.getElementById("share");
   function openShare() {
-    var cv = h("canvas", { "class": "share-cv", role: "img", "aria-label": L('Share card') }), msg = h("p", { "class": "muted", role: "status", style: "margin:8px 0 0;min-height:20px" }), figs = h("dl", { "class": "kv", style: "margin-top:12px" });
-    function draw() { var f = drawCard(cv, D); figs.innerHTML = ""; f.forEach(function (x) { figs.appendChild(h("dt", { text: x[1] })); figs.appendChild(h("dd", { style: "margin:0" }, [h("b", { text: x[0] })])); }); }
+    var figs = h("dl", { "class": "kv", style: "margin-top:12px" }), msg = h("p", { "class": "muted", role: "status", style: "margin:8px 0 0;min-height:20px" }), cvs = [];
+    function name(fmt) { return D.repo.replace(/[^\w.-]+/g, "-") + (fmt === "v" ? "-story" : "") + ".png"; }
+    function block(fmt, title) {
+      var cv = h("canvas", { "class": "share-cv" + (fmt === "v" ? " v" : ""), role: "img", "aria-label": title }); cvs.push([cv, fmt]);
+      var dl = h("button", { "class": "chip", type: "button", text: L('Download PNG'), on: function () { var a = h("a", { href: cv.toDataURL("image/png"), download: name(fmt) }); document.body.appendChild(a); a.click(); a.remove(); } });
+      var cp = h("button", { "class": "chip", type: "button", text: L('Copy image'), on: function () {
+        cv.toBlob(function (b) { try { navigator.clipboard.write([new ClipboardItem({ "image/png": b })]).then(function () { msg.textContent = L('Copied to the clipboard'); }, function () { msg.textContent = L('The browser refused to copy: use Download PNG.'); }); } catch (e) { msg.textContent = L('The browser refused to copy: use Download PNG.'); } });
+      } });
+      return h("div", { "class": "sc" }, [h("b", { text: title }), cv, h("div", { "class": "chips", style: "margin-top:8px" }, [dl, cp])]);
+    }
+    function draw() { var f = []; cvs.forEach(function (x) { f = drawCard(x[0], D, x[1]); }); figs.innerHTML = ""; f.forEach(function (x) { figs.appendChild(h("dt", { text: x[1] })); figs.appendChild(h("dd", { style: "margin:0" }, [h("b", { text: x[0] })])); }); }
+    shareEl.innerHTML = "";
+    shareEl.appendChild(h("div", { "class": "pad" }, [h("div", { "class": "bh" }, [h("h2", { id: "share-t", text: L('Share') }), h("button", { "class": "st-x", type: "button", "aria-label": L('Close'), style: "margin:0 0 0 auto", on: function () { shareEl.close(); } }, [icon(I.x)])]),
+      h("div", { "class": "scs" }, [block("h", "1200 x 630"), block("v", L('Story') + " 1080 x 1920")]), figs, msg]));
     draw(); if (document.fonts && document.fonts.load) document.fonts.load("700 20px Inter").then(draw, function () {});
-    function name() { return D.repo.replace(/[^\w.-]+/g, "-") + ".png"; }
-    var dl = h("button", { "class": "chip", type: "button", text: L('Download PNG'), on: function () { var a = h("a", { href: cv.toDataURL("image/png"), download: name() }); document.body.appendChild(a); a.click(); a.remove(); } });
-    var cp = h("button", { "class": "chip", type: "button", text: L('Copy image'), on: function () {
-      cv.toBlob(function (b) { try { navigator.clipboard.write([new ClipboardItem({ "image/png": b })]).then(function () { msg.textContent = L('Copied to the clipboard'); }, function () { msg.textContent = L('The browser refused to copy: use Download PNG.'); }); } catch (e) { msg.textContent = L('The browser refused to copy: use Download PNG.'); } });
-    } });
-    shareEl.innerHTML = ""; shareEl.appendChild(h("div", { "class": "pad" }, [h("div", { "class": "bh" }, [h("h2", { id: "share-t", text: L('Share') }), h("button", { "class": "st-x", type: "button", "aria-label": L('Close'), style: "margin:0 0 0 auto", on: function () { shareEl.close(); } }, [icon(I.x)])]), cv, figs, h("div", { "class": "chips", style: "margin-top:12px" }, [dl, cp]), msg]));
     if (shareEl.showModal) shareEl.showModal(); else shareEl.setAttribute("open", "");
   }
   shareEl.addEventListener("click", function (e) { if (e.target === shareEl) shareEl.close(); });
@@ -1770,9 +1848,17 @@ dialog#story::backdrop { background: var(--scrim); }
   (function () { var tb = document.getElementById("theme-box"); function mt() { tb.innerHTML = ""; tb.appendChild(listbox([["", T("Auto")], ["light", T("Light")], ["dark", T("Dark")]], UAKLook.get().theme === "auto" ? "" : UAKLook.get().theme, function (v) { UAKLook.set({ theme: v }); }, T("Theme"))); } mt(); window.addEventListener("uak:language", mt); })();
   render();
   setInterval(fresh, 5000);
+  // A page that outlived a newer one (the file was rewritten, the tab kept the old copy) reloads itself once.
+  function newerPage() {
+    var m = document.querySelector('meta[name="uak-page"]'), mine = m ? m.content : "", theirs = window.UAK_DATA && window.UAK_DATA.page, tried = "";
+    try { tried = sessionStorage.getItem("uak-page-tried") || ""; } catch (e) {}
+    if (!pageIsNewer(mine, theirs, tried)) return false;
+    try { sessionStorage.setItem("uak-page-tried", theirs); } catch (e) {}
+    location.reload(); return true;
+  }
   function reload() {
     var s = document.createElement("script"); s.src = "data.js?t=" + Date.now();
-    s.onload = function () { if (window.UAK_DATA && window.UAK_DATA.generated !== lastGen) render(); else fresh(); s.remove(); };
+    s.onload = function () { if (newerPage()) return; if (window.UAK_DATA && window.UAK_DATA.generated !== lastGen) render(); else fresh(); s.remove(); };
     s.onerror = function () { s.remove(); };
     document.body.appendChild(s);
   }

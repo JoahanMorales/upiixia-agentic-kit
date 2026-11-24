@@ -189,6 +189,36 @@ def base_mode(root):
     return project_mode(git("show", "refs/uak/dash-base:.uak/PROJECT.md", cwd=root, check=False).decode("utf-8", "replace"))
 
 
+NAME_KEY = re.compile(r"^\s*(?:-\s*)?\**(?:Project|Project-Name|Name)\**\s*:\s*(.+?)\s*$", re.M | re.I)
+
+
+def project_name(root):
+    """The PROJECT's name, never a linked worktree's folder: what `.uak/PROJECT.md` declares (`Project: NAME`), else the
+    repository name of the base remote, else the main checkout's folder (the parent of the common git dir)."""
+    text = read(Path(root) / ".uak/PROJECT.md") if (Path(root) / ".uak/PROJECT.md").is_file() else ""
+    m = NAME_KEY.search(text or "")
+    if m and m.group(1).strip():
+        return m.group(1).strip().strip("`\"'")[:60]
+    remote = os.environ.get("UAK_REMOTE", "origin")
+    url = git("config", "--get", "remote.%s.url" % remote, cwd=root, check=False).decode("utf-8", "replace").strip()
+    tail = re.split(r"[/:\\]", url.rstrip("/\\"))[-1] if url else ""
+    tail = tail[:-4] if tail.endswith(".git") else tail
+    if tail:
+        return tail
+    common = git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=root, check=False).decode().strip()
+    if common:
+        c = Path(common)
+        name = (c.parent if c.name == ".git" else c).name
+        return name[:-4] if name.endswith(".git") else name
+    return Path(root).name
+
+
+def page_version(template):
+    """A short hash of the page's file: the page compares it with the one in data.js and reloads itself when a newer page was written."""
+    import hashlib
+    return hashlib.sha1(Path(template).read_bytes()).hexdigest()[:12]
+
+
 def base_commits(root):
     """Commits reachable from the base branch the page was read against (`git rev-list --count refs/uak/dash-base`); None when
     that ref is not there, so the share card leaves the figure out instead of showing a made-up zero."""
@@ -207,7 +237,7 @@ def workspace_data(root, keep=None):
     if configured:
         try:
             extracted, backlog = snapshot(root)
-            data = build(extracted, backlog, Path(root).name)
+            data = build(extracted, backlog, project_name(root))
             data.update(source="remote", connection="ok", warning="", refresh=20, live_url=base_live_url(root))
             commits = base_commits(root)
             if commits is not None:
@@ -224,7 +254,7 @@ def workspace_data(root, keep=None):
             if extracted:
                 shutil.rmtree(extracted, ignore_errors=True)
     with tempfile.TemporaryDirectory(prefix="uak-local-dashboard-") as folder:
-        data = build(Path(folder), read(Path(root) / ".uak/TASKS.md"), Path(root).name)
+        data = build(Path(folder), read(Path(root) / ".uak/TASKS.md"), project_name(root))
     data.update(source="local", connection="unreachable" if configured else "none", warning=warning, refresh=20,
                 live_url=project_live_url(read(Path(root) / ".uak/PROJECT.md")))
     return data
@@ -927,7 +957,7 @@ def look_default(out):
 
 def page_html(template, pal):
     """dash.html as served: the default palette written into the <html> tag."""
-    html = Path(template).read_text(encoding="utf-8")
+    html = Path(template).read_text(encoding="utf-8").replace('content="dev"', 'content="%s"' % page_version(template), 1)
     return html.replace(LOOK_TAG, LOOK_TAG.replace("clasico", pal), 1) if re.fullmatch(r"[a-z]+", pal) else html
 
 
@@ -959,7 +989,7 @@ def main():
         for name in FONT_FILES:
             if (fonts / name).is_file():
                 shutil.copyfile(fonts / name, out / "fonts" / name)
-    repo = Path(root).name
+    repo = project_name(root)
     refresh = a.watch or 20
     opened = False
     while True:
@@ -969,6 +999,9 @@ def main():
             tmp = None if a.claims else c
             data = build(Path(c), backlog, repo, root)
             data["refresh"] = refresh
+            data["page"] = page_version(tpl)
+            if (out / "index.html").read_text(encoding="utf-8") != page_html(tpl, pal):
+                (out / "index.html").write_text(page_html(tpl, pal), encoding="utf-8")
             data["live_url"] = (project_live_url(read(Path(root) / ".uak/PROJECT.md")) if a.claims
                                 else base_live_url(root))
             commits = None if a.claims else base_commits(root)

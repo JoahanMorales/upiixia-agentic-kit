@@ -443,7 +443,7 @@ def share_card_matches_the_page(root, tmp):
     """The Share card is drawn on a canvas in the page, from the same numbers the page shows; a value the data does not carry
     is left out, never shown as 0; the card holds no path, no e-mail and no task title; nothing leaves the page."""
     dash = dash_source(root)
-    for needle in ("function drawCard(", "function shareStats(", "getContext(\"2d\")", "W = 1200", "H = 630", "W * 2", "toBlob(", "ClipboardItem", "toDataURL(\"image/png\")", "download:",
+    for needle in ("function drawCard(", "function shareStats(", "getContext(\"2d\")", "1200", "630", "k2 = v ? 1 : 2", "toBlob(", "ClipboardItem", "toDataURL(\"image/png\")", "download:",
                    "showModal", 'id="share"', "idcells(", "L('Download PNG')", "L('Copy image')", "UPIIXIA Agentic Kit", "document.fonts"):
         assert needle in dash, "the share card lost %s" % needle
     card = dash[dash.index("function drawCard("):dash.index("var shareEl")]
@@ -463,10 +463,79 @@ def share_card_matches_the_page(root, tmp):
     assert out["bare"]["commits"] is None and out["bare"]["tokens"] is None, "a figure that is not recorded is left out, not shown as 0"
 
 
+def share_card_has_both_formats(root, tmp):
+    """The Share dialog offers the horizontal card (1200x630) and a vertical one for a story (1080x1920), each with its preview,
+    download and copy; the vertical is its own composition and keeps the story's top 250 px and bottom 340 px free; the kit's
+    credit is one very small mark with a low-contrast name."""
+    dash = dash_source(root)
+    for needle in ("W = v ? 1080 : 1200", "H = v ? 1920 : 630", "SAFE_TOP = 250", "SAFE_BOTTOM = 340", 'block("h"', 'block("v"', "drawCard(x[0], D, x[1])", "globalAlpha = .55", "UPIIXIA Agentic Kit"):
+        assert needle in dash, "the share card lost %s" % needle
+    vertical = dash[dash.index("if (v) {"):dash.index("} else {", dash.index("if (v) {"))]
+    ys = [int(n) for n in re.findall(r"SAFE_TOP \+ (\d+)", vertical)]
+    assert ys and min(ys) >= 40, ys
+    assert dash.count('text("UPIIXIA Agentic Kit"') == 1 and "12, 500, tok(\"muted\"), mono" in dash, "one small credit"
+
+
+def project_name_is_not_the_worktree(root, tmp):
+    """The project's name comes from the project: what PROJECT.md declares, else the base remote's repository name, else the main
+    checkout's folder; never a linked worktree's folder."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("uak_dash_name", root / ".uak/bin/lib/dash.py")
+    dash = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(dash)
+    main = tmp / "the-project"
+    main.mkdir()
+    git(main, "init", "-q", "-b", "main")
+    git(main, "config", "user.name", "T"); git(main, "config", "user.email", "t@example.invalid")
+    (main / "f.txt").write_text("x", encoding="utf-8")
+    git(main, "add", "-A"); git(main, "commit", "-q", "-m", "one")
+    wt = tmp / "wt-feature-x"
+    git(main, "worktree", "add", "-q", "-b", "feat/x", str(wt))
+    assert dash.project_name(wt) == "the-project", dash.project_name(wt)
+    git(main, "remote", "add", "origin", "https://github.com/someone/real-name.git")
+    assert dash.project_name(wt) == "real-name" and dash.project_name(main) == "real-name"
+    (wt / ".uak").mkdir()
+    (wt / ".uak/PROJECT.md").write_text("# Project\n\nProject: Declared Name\nMode: sprint\n", encoding="utf-8")
+    assert dash.project_name(wt) == "Declared Name", dash.project_name(wt)
+
+
+def page_reloads_when_a_newer_page_is_written(root, tmp):
+    """data.js carries the version of the page that was written beside it; a page that finds another one reloads itself once, and
+    never loops; nothing is read beyond the files it already reads."""
+    dash = dash_source(root)
+    for needle in ('<meta name="uak-page" content="dev">', "function newerPage(", "location.reload()", "uak-page-tried", "if (newerPage()) return;"):
+        assert needle in dash, "the page lost %s" % needle
+    py = (root / ".uak/bin/lib/dash.py").read_text(encoding="utf-8")
+    assert 'data["page"] = page_version(tpl)' in py and "def page_version(" in py and "content=\"%s\"" in py, "dash.py writes the page version"
+    out = under_node(root, """
+      return [pageIsNewer("aaa", "bbb", ""), pageIsNewer("aaa", "aaa", ""), pageIsNewer("aaa", "bbb", "bbb"), pageIsNewer("dev", "bbb", ""), pageIsNewer("aaa", undefined, "")];
+    """)
+    if out is not None:
+        assert out == [True, False, False, False, False], out
+
+
+def listbox_replaces_the_selects(root, tmp):
+    """No native select shows a list of its own: the one left is the shared Apariencia control's hidden state holder; the page's
+    listbox has a keyboard contract (arrows, Home, End, type-ahead, Escape, Enter) in pure functions."""
+    dash = dash_source(root)
+    assert re.findall(r"<select[^>]*>", dash) == ['<select id="workspace-theme" hidden aria-hidden="true" tabindex="-1">'], "only the hidden holder"
+    assert 'h("select"' not in dash and 'role: "listbox"' in dash and '"aria-expanded"' in dash and '"aria-activedescendant"' in dash
+    for key in ("Escape", "Enter", "Tab"):
+        assert 'e.key === "%s"' % key in dash, key
+    out = under_node(root, """
+      var L = ["Auto", "Light", "Dark"];
+      return [lbMove(3, 0, "ArrowDown"), lbMove(3, 2, "ArrowDown"), lbMove(3, 1, "ArrowUp"), lbMove(3, 0, "ArrowUp"), lbMove(3, 1, "Home"), lbMove(3, 0, "End"),
+              lbType(L, 0, "d"), lbType(L, 1, "l"), lbType(L, 0, "x"), lbMove(0, 0, "Home")];
+    """)
+    if out is not None:
+        assert out == [1, 2, 0, 0, 0, 2, 2, 1, 0, -1], out
+
+
 TESTS = [blocked_tasks_are_not_available, frozen_is_frozen, needs_human_comes_first, offline_uses_last_claims,
          dashboard_meets_contrast_and_targets, dashboard_keeps_every_field, empty_project_says_the_next_step, no_server_no_request,
          page_is_not_heavier, both_profiles_and_languages_are_complete, messages_are_one_conversation_per_task, every_task_is_visible, square_says_why_it_waits,
-         agents_show_model_and_harness, black_box_filter_finds_an_error, memory_graph_edges_come_from_data, tokens_break_down, share_card_matches_the_page]
+         agents_show_model_and_harness, black_box_filter_finds_an_error, memory_graph_edges_come_from_data, tokens_break_down, share_card_matches_the_page,
+         share_card_has_both_formats, project_name_is_not_the_worktree, page_reloads_when_a_newer_page_is_written, listbox_replaces_the_selects]
 
 
 def main():
