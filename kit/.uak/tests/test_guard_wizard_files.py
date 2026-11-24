@@ -937,7 +937,8 @@ def no_port_file_costs_no_process(tmp):
         if "uak-wizard" not in command and "api" not in command:
             assert count(command) == count(twin), "%r vs %r" % (command, twin)
     # a plain command costs at most what it cost on main (one process for `ls`, none for the pure builtins)
-    assert count("cat tls.key") == count("cat tls.dat") == 0, "cat tls.key costs no process on main and none here"
+    # (the absolute number depends on the system: none on Linux, some on macOS's Bash 3.2; the twin is what counts)
+    assert count("cat tls.key") == count("cat tls.dat"), "cat tls.key costs what its twin costs"
 
 
 def security_doc_is_true_line_by_line(tmp):
