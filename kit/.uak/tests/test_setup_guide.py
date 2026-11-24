@@ -523,7 +523,7 @@ def spanish_journey_has_no_english(root, tmp):
     left = [lit for lit in re.findall(r'"([A-Z][^"]*[a-z][^"]*)"', title) if lit not in es]
     assert not left, "heading literals with no Spanish: %r" % left
     assert re.search(r'el\("result-title"\)\.textContent = statusTitle\(data\)', code)
-    assert re.search(r'el\("status-icon"\)\.textContent = statusIcon\(data\)', code)
+    assert re.search(r'el\("status-icon"\)\.replaceChildren\(icon\(statusIcon\(data\)\)\)', code)
     # "No technical output yet." sits in a <pre>, which the body translation skips (r1).
     assert re.search(r'el\("output"\)\.textContent = data\.details \|\| UAKWorkspace\.t\("No technical output yet\."\)', code)
     # The schedule's weekday ("Fri 03:30") comes from the engine in English (r1).
@@ -541,7 +541,7 @@ def spanish_journey_has_no_english(root, tmp):
     if found is None:
         return
     icon, heading, ready_icon, fri, sun, shown, doctor, output = found
-    assert icon != "✓" and ready_icon == "✓", (icon, ready_icon)
+    assert icon != "ok" and ready_icon == "ok", (icon, ready_icon)
     assert heading == "revisión previa: doctor encontró 2 fallo(s)", heading
     assert fri == "vie 03:30" and sun == "dom 23:59", (fri, sun)
     assert "since the claim" not in shown and "ago" not in shown and shown.startswith("3 "), shown

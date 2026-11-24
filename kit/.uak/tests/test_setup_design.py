@@ -331,6 +331,8 @@ def every_pair_has_contrast(root, tmp):
                     c = contrast(token(env, text), token(env, ground))
                     if c < 4.5:
                         low.append("%s %s/%s --%s on --%s %.2f" % (name, pal, theme, text, ground, c))
+                if contrast(token(env, "btn"), token(env, "surface")) < 3 or contrast(token(env, "btn"), token(env, "page")) < 3:
+                    low.append("%s %s/%s the primary button does not stand out from the ground" % (name, pal, theme))
                 if pal in ("menta", "salvia"):
                     # the green of "integrated" is not the accent: a distance in CIELAB, measured, not eyed
                     d = delta_e(token(env, "integrated"), token(env, "accent-line"))
@@ -344,10 +346,13 @@ def disabled_label_is_readable(root, tmp):
     for name, html in pages(root).items():
         css = strip_comments(system(html) + own_css(html))
         rules = [(sel, body) for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css) if ":disabled" in sel or 'aria-disabled="true"' in sel]
+        if name == "dash.html":
+            assert ".primary" not in html and ".secondary-button" not in html, "the dashboard has no buttons of the wizard's family"
+            continue
         assert rules, "%s styles a disabled control" % name
         for sel, body in rules:
             assert "opacity" not in body, "%s: a disabled control keeps its colours, it is not faded: %s" % (name, sel.strip())
-    shared = strip_comments(system(pages(root)["setup.html"]))
+    shared = strip_comments(own_css(pages(root)["setup.html"]))
     body = [b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", shared) if ".primary:disabled" in s][0]
     assert "color: var(--ink-2)" in body and "background: var(--hover)" in body, "the disabled label is ink-2 on the hover ground"
     worst = min(contrast(token(environment(html, pal, theme), "ink-2"), token(environment(html, pal, theme), "hover"))
@@ -423,9 +428,9 @@ def the_wizard_serves_its_fonts_and_the_palette(root, tmp):
 def one_control_sets_theme_and_palette(root, tmp):
     for name, html in pages(root).items():
         assert html.count('id="look"') == 1 and ">Apariencia<" in html, "%s has the one Apariencia control" % name
-        assert html.count("data-pal-set=") == 9, "%s offers the nine palettes" % name
         for pal in PALETTES:
-            assert 'data-pal-set="%s"' % pal in html
+            assert '["%s", "' % pal in html, "%s offers %s" % (name, pal)
+        assert html.count('<div class="pals"') == 1 and "data-pal-set" in html, "%s builds the nine buttons" % name
         assert 'for="workspace-theme"' in html and 'id="workspace-theme"' in html, "%s sets the theme there" % name
         script = html[html.index("/* uak-look:begin"):html.index("/* uak-look:end")]
         assert "localStorage.setItem(\"uak-look\"" in script and "fetch(" not in script and "XMLHttpRequest" not in script, "the choice stays in this browser"
@@ -438,6 +443,10 @@ def one_control_sets_theme_and_palette(root, tmp):
 
 def status_marks_are_drawn(root, tmp):
     setup = pages(root)["setup.html"]
+    assert 'aria-describedby="target-hint target-error"' in setup and 'id="target-error" role="alert"' in setup, "the folder error is tied to its field and announced"
+    assert 'box.setAttribute("role", "alert")' in setup, "every field error is announced"
+    assert re.search(r'\[aria-invalid="true"\]:focus-visible \{ outline-color: var\(--blocked\)', setup), "an invalid field shows one signal: the error colour wins over the focus ring"
+    assert 'id="language"' in setup.split('id="look"')[1].split("</details>")[0], "language and view sit inside Apariencia"
     assert 'document.createElementNS(NS, "svg")' in setup and 'function icon(kind)' in setup, "marks are inline SVG"
     for glyph in "✓✗✕✔•":
         assert glyph not in setup and glyph not in pages(root)["dash.html"], "no %r glyph in either page" % glyph

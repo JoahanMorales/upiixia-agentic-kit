@@ -12,59 +12,52 @@
     <script nonce="__NONCE__">
 /* uak-look:begin (the same script in setup.html and dash.html): theme and palette are the viewer's, kept in this browser only */
 (function () {
-  var PALS = ["clasico", "lavanda", "cielo", "menta", "salvia", "durazno", "rosa", "arena", "grafito"];
-  var root = document.documentElement, state = { theme: "auto", pal: root.getAttribute("data-pal") || "clasico" };
-  var dark = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null, listeners = [];
+  var PALS = [["clasico", "Clásico", 213, 71], ["lavanda", "Lavanda", 250, 72], ["cielo", "Cielo", 212, 72], ["menta", "Menta", 164, 55], ["salvia", "Salvia", 128, 28],
+    ["durazno", "Durazno", 22, 80], ["rosa", "Rosa", 338, 70], ["arena", "Arena", 42, 45], ["grafito", "Grafito", 230, 0]];
+  var root = document.documentElement, state = { theme: "auto", pal: root.getAttribute("data-pal") || "clasico" }, listeners = [];
+  var dark = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  function known(p) { return PALS.some(function (x) { return x[0] === p; }); }
+  function get() { return { theme: state.theme, pal: state.pal }; }
   function paint() {
     root.setAttribute("data-theme", state.theme === "auto" ? (dark && dark.matches ? "dark" : "light") : state.theme);
     root.setAttribute("data-pal", state.pal);
   }
-  function read() {
-    try {
-      var saved = JSON.parse(localStorage.getItem("uak-look") || "null");
-      if (saved) return saved;
-      var old = localStorage.getItem("uak-dash-theme");
-      if (old === "light" || old === "dark") return { theme: old };
-    } catch (e) {}
-    return {};
-  }
-  var saved = read();
-  if (saved.theme === "light" || saved.theme === "dark") state.theme = saved.theme;
-  if (PALS.indexOf(saved.pal) >= 0) state.pal = saved.pal;
-  paint();
   function sync() {
     var box = document.getElementById("look");
     if (!box) return;
-    var select = box.querySelector("select");
-    if (select) select.value = state.theme === "auto" ? "" : state.theme;
-    Array.prototype.forEach.call(box.querySelectorAll("[data-pal-set]"), function (b) {
-      b.setAttribute("aria-pressed", String(b.getAttribute("data-pal-set") === state.pal));
-    });
+    box.querySelector("select").value = state.theme === "auto" ? "" : state.theme;
+    Array.prototype.forEach.call(box.querySelectorAll("[data-pal-set]"), function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-pal-set") === state.pal)); });
   }
+  function tell() { listeners.forEach(function (f) { f(get()); }); }
   function set(change, keep) {
     if (change.theme !== undefined) state.theme = change.theme === "light" || change.theme === "dark" ? change.theme : "auto";
-    if (change.pal !== undefined && PALS.indexOf(change.pal) >= 0) state.pal = change.pal;
-    paint();
-    sync();
-    if (keep !== false) {
-      try { localStorage.setItem("uak-look", JSON.stringify(state)); } catch (e) {}
-    }
-    listeners.forEach(function (f) { f(get()); });
+    if (known(change.pal)) state.pal = change.pal;
+    paint(); sync();
+    if (keep !== false) { try { localStorage.setItem("uak-look", JSON.stringify(state)); } catch (e) {} }
+    tell();
   }
-  function get() { return { theme: state.theme, pal: state.pal }; }
-  if (dark && dark.addEventListener) dark.addEventListener("change", function () { if (state.theme === "auto") { paint(); listeners.forEach(function (f) { f(get()); }); } });
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem("uak-look") || "null") || { theme: localStorage.getItem("uak-dash-theme") }; } catch (e) {}
+  if (saved.theme === "light" || saved.theme === "dark") state.theme = saved.theme;
+  if (known(saved.pal)) state.pal = saved.pal;
+  paint();
+  if (dark && dark.addEventListener) dark.addEventListener("change", function () { if (state.theme === "auto") { paint(); tell(); } });
   function mount() {
-    var box = document.getElementById("look");
-    if (!box) return;
-    box.querySelector("select").addEventListener("change", function () { set({ theme: this.value }); });
-    Array.prototype.forEach.call(box.querySelectorAll("[data-pal-set]"), function (b) {
-      b.addEventListener("click", function () { set({ pal: b.getAttribute("data-pal-set") }); });
+    var box = document.getElementById("look"), grid = box && box.querySelector(".pals");
+    if (!grid) return;
+    PALS.forEach(function (p) {
+      var b = document.createElement("button"), dot = document.createElement("i");
+      b.type = "button"; b.setAttribute("data-pal-set", p[0]);
+      dot.style.setProperty("--h", p[2]); dot.style.setProperty("--sa", p[3] + "%");
+      b.append(dot, p[1]); grid.append(b);
+      b.addEventListener("click", function () { set({ pal: p[0] }); });
     });
+    box.querySelector("select").addEventListener("change", function () { set({ theme: this.value }); });
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && box.open) { box.open = false; box.querySelector("summary").focus(); } });
     document.addEventListener("click", function (e) { if (box.open && !box.contains(e.target)) box.open = false; });
     sync();
   }
-  window.UAKLook = { get: get, set: set, mount: mount, onchange: function (f) { listeners.push(f); } };
+  window.UAKLook = { get: get, set: set, onchange: function (f) { listeners.push(f); } };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount); else mount();
 })();
 /* uak-look:end */
@@ -94,8 +87,6 @@
   --sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   --r: 8px; --r-s: 6px;
-  --sw-clasico: #2a78d6; --sw-lavanda: hsl(250 72% 78%); --sw-cielo: hsl(212 72% 78%); --sw-menta: hsl(164 55% 70%); --sw-salvia: hsl(128 28% 70%);
-  --sw-durazno: hsl(22 80% 76%); --sw-rosa: hsl(338 70% 80%); --sw-arena: hsl(42 45% 72%); --sw-grafito: hsl(230 0% 66%);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -125,7 +116,7 @@
   --page: hsl(var(--h) 22% 97%); --surface: hsl(0 0% 100%); --raised: hsl(var(--h) 24% 98.5%); --hover: hsl(var(--h) 14% 93.5%);
   --ink: hsl(var(--h) 18% 13%); --ink-2: hsl(var(--h) 9% 31%); --muted: hsl(var(--h) 7% 40%); --line: hsl(var(--h) 16% 90%); --line-2: hsl(var(--h) 13% 82%);
   --accent: hsl(var(--h) var(--sa) 86%); --accent-line: hsl(var(--h) var(--sa) 68%); --accent-ink: hsl(var(--h) calc(var(--sa) * .65) 34%); --accent-wash: hsl(var(--h) var(--sa) 96%);
-  --btn: hsl(var(--h) var(--sa) 86%); --on-btn: hsl(var(--h) 45% 20%);
+  --btn: hsl(var(--h) calc(var(--sa) * .8) 36%); --on-btn: hsl(0 0% 100%);
   --integrated: #a3dcbd; --integrated-ink: #2a7551; --integrated-wash: #e0f3e9;
   --claimed: #a9cdf3; --claimed-ink: #2c69ab; --claimed-wash: #e4eefa;
   --review: #ecd28c; --review-ink: #80600f; --review-wash: #faf0d4;
@@ -164,12 +155,6 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .p-rev { color: var(--review-ink); background: var(--review-wash); }
 .p-int { color: var(--integrated-ink); background: var(--integrated-wash); }
 .p-blk { color: var(--blocked-ink); background: var(--blocked-wash); }
-.btn, .primary, .ghost, .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 32px; padding: 4px 16px; border: 1px solid var(--line-2); border-radius: var(--r-s); font-weight: 600; line-height: 1.3; text-align: center; text-decoration: none; cursor: pointer; }
-.btn, .primary { background: var(--btn); border-color: var(--btn); color: var(--on-btn); }
-.btn:hover, .primary:hover { background: color-mix(in srgb, var(--btn) 86%, var(--ink)); }
-.ghost, .secondary-button { background: none; color: var(--ink-2); }
-.ghost:hover, .secondary-button:hover { background: var(--hover); color: var(--ink); }
-.btn:disabled, .primary:disabled, .ghost:disabled, .secondary-button:disabled, button[aria-disabled="true"] { background: var(--hover); border-color: var(--line-2); color: var(--ink-2); cursor: not-allowed; }
 .nodes { display: flex; align-items: center; list-style: none; margin: 0; padding: 0; }
 .nodes li { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; color: var(--muted); }
 .nodes li:last-child { flex: none; }
@@ -202,13 +187,19 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .pals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .pals button { display: grid; justify-items: center; gap: 4px; min-height: 52px; padding: 8px 0 4px; border: 1px solid var(--line); border-radius: var(--r-s); background: none; color: var(--ink-2); font-size: 11px; cursor: pointer; }
 .pals button[aria-pressed="true"] { border-color: var(--accent-line); background: var(--accent-wash); color: var(--ink); }
-.pals i { width: 24px; height: 24px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--line-2); }
+.pals i { width: 24px; height: 24px; border-radius: 50%; background: hsl(var(--h) var(--sa) 78%); box-shadow: inset 0 0 0 1px var(--line-2); }
 .ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 @media (max-width: 640px) {
-  .btn, .primary, .ghost, .secondary-button, .ap summary, .ap select, .pals button { min-height: 44px; }
+  .ap summary, .ap select, .pals button { min-height: 44px; }
   .ap .pop { position: fixed; left: 16px; right: 16px; top: auto; bottom: 16px; width: auto; }
 }
 /* uak-system:end */
+.btn, .primary, .ghost, .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 32px; padding: 4px 16px; border: 1px solid var(--line-2); border-radius: var(--r-s); font-weight: 600; line-height: 1.3; text-align: center; text-decoration: none; cursor: pointer; }
+.btn, .primary { background: var(--btn); border-color: var(--btn); color: var(--on-btn); }
+.btn:hover, .primary:hover { background: color-mix(in srgb, var(--btn) 86%, var(--ink)); }
+.ghost, .secondary-button { background: none; color: var(--ink-2); }
+.ghost:hover, .secondary-button:hover { background: var(--hover); color: var(--ink); }
+.btn:disabled, .primary:disabled, .ghost:disabled, .secondary-button:disabled, button[aria-disabled="true"] { background: var(--hover); border-color: var(--line-2); color: var(--ink-2); cursor: not-allowed; }
 /* The wizard: its own layout, drawn only with the tokens above. */
 html { scroll-padding-top: 16px; }
 body { min-height: 100vh; }
@@ -240,8 +231,6 @@ code, kbd, pre { font-family: var(--mono); }
 .workspace-nav { display: flex; gap: 4px; }
 .workspace-nav button { min-height: 32px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--r-s); background: none; color: var(--ink-2); font-weight: 500; }
 .workspace-nav button[aria-pressed="true"] { background: var(--surface); border-color: var(--line-2); color: var(--ink); }
-.profile { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 12px; color: var(--muted); }
-.profile select { height: 28px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); color: var(--ink-2); font-size: 12px; }
 .journey-bar { max-width: 1240px; margin: 0 auto; padding: 8px 32px 16px; }
 .journey-bar ol { display: flex; align-items: center; }
 .journey-bar li { align-items: flex-start; }
@@ -269,7 +258,7 @@ code, kbd, pre { font-family: var(--mono); }
 .steps li[aria-current="step"] { color: var(--ink); font-weight: 600; }
 .steps li[aria-current="step"] .step-number { box-shadow: 0 0 0 4px var(--accent-wash); }
 .local-note { padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); }
-.surface { min-width: 0; padding: 32px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); min-height: 480px; }
+.surface { min-width: 0; min-height: 480px; padding: 0 0 32px; }
 .surface:focus { outline: none; }
 .surface > section > * + * { margin-top: 16px; }
 .surface > section > h1 + p, .surface > section > h2 + p { margin-top: 8px; }
@@ -300,6 +289,7 @@ input[type="radio"], input[type="checkbox"] { flex: none; width: 16px; height: 1
 input::placeholder, textarea::placeholder { color: var(--muted); }
 input:disabled, select:disabled, textarea:disabled { background: var(--hover); color: var(--ink-2); cursor: not-allowed; }
 [aria-invalid="true"] { border-color: var(--blocked) !important; }
+[aria-invalid="true"]:focus-visible { outline-color: var(--blocked); }
 .field-error { margin-top: 8px; font-size: 12px; color: var(--blocked-ink); }
 .field-error:empty { display: none; }
 .field-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -438,18 +428,16 @@ body.installed #steps, body.installed .rail-heading { display: none; }
   .layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .sidebar { position: static; }
   .sidebar > p, .local-note, .steps { display: none; }
-  .surface { padding: 24px; min-height: 0; }
+  .surface { min-height: 0; }
 }
 @media (max-width: 640px) {
   .header { gap: 8px 12px; }
   .workspace-nav { order: 3; width: 100%; }
   .workspace-nav button { flex: 1; min-height: 44px; }
   .profile { margin-left: auto; }
-  .profile > label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .profile select { min-height: 44px; }
+  .btn, .primary, .ghost, .secondary-button { min-height: 44px; }
   .journey-bar small { display: none; }
   .journey-bar li:not([aria-current]) strong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .surface { padding: 16px; }
   .benefit { grid-template-columns: minmax(0, 1fr); }
   .benefit > div + div { border-left: 0; border-top: 1px solid var(--line); }
   .field-row { grid-template-columns: minmax(0, 1fr); }
@@ -503,33 +491,23 @@ body.installed #steps, body.installed .rail-heading { display: none; }
         </button>
       </nav>
       <div class="profile">
-        <label for="language" data-i18n-aria="Language">Language</label>
-        <select id="language" data-no-i18n>
-          <option value="es">Español</option>
-          <option value="en">English</option>
-        </select>
-        <label for="profile">View</label
-        ><select id="profile">
-          <option value="beginner">Beginner</option>
-          <option value="advanced">Advanced</option>
-        </select>
         <details class="ap" id="look">
           <summary data-no-i18n><i aria-hidden="true"></i>Apariencia</summary>
           <div class="pop">
+            <label for="language" data-i18n-aria="Language">Language</label>
+            <select id="language" data-no-i18n>
+              <option value="es">Español</option>
+              <option value="en">English</option>
+            </select>
+            <label for="profile">View</label>
+            <select id="profile">
+              <option value="beginner">Beginner</option>
+              <option value="advanced">Advanced</option>
+            </select>
             <label for="workspace-theme">Theme</label>
             <select id="workspace-theme"><option value="">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select>
             <span class="lbl" id="pal-label" data-no-i18n>Palette</span>
-            <div class="pals" data-no-i18n role="group" aria-labelledby="pal-label">
-              <button type="button" data-pal-set="clasico" aria-pressed="false"><i style="background: var(--sw-clasico)"></i>Clásico</button>
-              <button type="button" data-pal-set="lavanda" aria-pressed="false"><i style="background: var(--sw-lavanda)"></i>Lavanda</button>
-              <button type="button" data-pal-set="cielo" aria-pressed="false"><i style="background: var(--sw-cielo)"></i>Cielo</button>
-              <button type="button" data-pal-set="menta" aria-pressed="false"><i style="background: var(--sw-menta)"></i>Menta</button>
-              <button type="button" data-pal-set="salvia" aria-pressed="false"><i style="background: var(--sw-salvia)"></i>Salvia</button>
-              <button type="button" data-pal-set="durazno" aria-pressed="false"><i style="background: var(--sw-durazno)"></i>Durazno</button>
-              <button type="button" data-pal-set="rosa" aria-pressed="false"><i style="background: var(--sw-rosa)"></i>Rosa</button>
-              <button type="button" data-pal-set="arena" aria-pressed="false"><i style="background: var(--sw-arena)"></i>Arena</button>
-              <button type="button" data-pal-set="grafito" aria-pressed="false"><i style="background: var(--sw-grafito)"></i>Grafito</button>
-            </div>
+            <div class="pals" data-no-i18n role="group" aria-labelledby="pal-label"></div>
           </div>
         </details>
       </div>
@@ -2372,6 +2350,7 @@ body.installed #steps, body.installed .rail-heading { display: none; }
             box = document.createElement("p");
             box.id = id + "-error";
             box.className = "field-error";
+            box.setAttribute("role", "alert");
             // Under the row of a side-by-side group (name and Save, the three schedule fields): the row keeps its line.
             (input.closest(".prepare-row") || input).after(box);
           }
