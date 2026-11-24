@@ -269,7 +269,7 @@ def empty_project_says_the_next_step(root, tmp):
     """An empty project is not a grid of zeros: it says the one next step and its command; a finished one says it is finished."""
     dash = dash_source(root)
     assert "empty = !d.tasks.length" in dash and 'copyBox("bash .uak/bin/uak start")' in dash, "the empty project shows its command"
-    assert "L('Your project has no plan yet')" in dash and "L('Nothing is claimed, reviewed or integrated yet, so every figure here is zero.')" in dash
+    assert "L('Your project has no plan yet')" in dash and "L('Nothing is claimed or integrated yet, so every figure is zero.')" in dash
     assert "finished = p.total > 0 && p.done === 100" in dash and "L('Everything is integrated')" in dash, "the finished project says so"
     for zero in ("none in the last 30 min", "none waiting", "every task is moving", "nothing for you"):
         assert 'T("%s")' % zero in dash, "a zero says why in words: %s" % zero
@@ -437,10 +437,34 @@ def tokens_break_down(root, tmp):
     assert out == {"top": ["A-3", "A-2", "A-1"], "untied": 500, "done": 2, "avg": 20, "per": {"x": 110, "y": 30}}, out
 
 
+def share_card_matches_the_page(root, tmp):
+    """The Share card is drawn on a canvas in the page, from the same numbers the page shows; a value the data does not carry
+    is left out, never shown as 0; the card holds no path, no e-mail and no task title; nothing leaves the page."""
+    dash = dash_source(root)
+    for needle in ("function drawCard(", "function shareStats(", "getContext(\"2d\")", "W = 1200", "H = 630", "W * 2", "toBlob(", "ClipboardItem", "toDataURL(\"image/png\")", "download:",
+                   "showModal", 'id="share"', "idcells(", "L('Download PNG')", "L('Copy image')", "UPIIXIA Agentic Kit", "document.fonts"):
+        assert needle in dash, "the share card lost %s" % needle
+    card = dash[dash.index("function drawCard("):dash.index("var shareEl")]
+    for private in ("title", "paths", "email", "owner", "text(t.", ".reason"):
+        assert private not in card, "the card must not carry %s" % private
+    py = (root / ".uak/bin/lib/dash.py").read_text(encoding="utf-8")
+    assert "def base_commits(" in py and "rev-list" in py and 'data["commits"]' in py, "dash.py counts the commits of the base branch"
+    out = under_node(root, """
+      var d = { repo: "demo", progress: { total: 12, states: { INTEGRATED: 9, CLAIMED: 3 } }, tokens: { total: 4200000 }, commits: 87,
+                agents: [{ name: "a-1", is_human: false, started: 1700000100 }, { name: "a-2", is_human: false, started: 1700000000 }, { name: "ana", is_human: true, started: 1600000000 }] };
+      var full = shareStats(d); delete d.commits; d.tokens = { total: 0 };
+      return { full: full, bare: shareStats(d) };
+    """)
+    if out is None:
+        return
+    assert out["full"] == {"name": "demo", "integrated": 9, "total": 12, "agents": 2, "tokens": 4200000, "commits": 87, "since": 1700000000}, out["full"]
+    assert out["bare"]["commits"] is None and out["bare"]["tokens"] is None, "a figure that is not recorded is left out, not shown as 0"
+
+
 TESTS = [blocked_tasks_are_not_available, frozen_is_frozen, needs_human_comes_first, offline_uses_last_claims,
          dashboard_meets_contrast_and_targets, dashboard_keeps_every_field, empty_project_says_the_next_step, no_server_no_request,
          page_is_not_heavier, both_profiles_and_languages_are_complete, messages_are_one_conversation_per_task, every_task_is_visible, square_says_why_it_waits,
-         agents_show_model_and_harness, black_box_filter_finds_an_error, memory_graph_edges_come_from_data, tokens_break_down]
+         agents_show_model_and_harness, black_box_filter_finds_an_error, memory_graph_edges_come_from_data, tokens_break_down, share_card_matches_the_page]
 
 
 def main():

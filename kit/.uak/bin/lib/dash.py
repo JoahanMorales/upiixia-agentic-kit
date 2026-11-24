@@ -189,6 +189,13 @@ def base_mode(root):
     return project_mode(git("show", "refs/uak/dash-base:.uak/PROJECT.md", cwd=root, check=False).decode("utf-8", "replace"))
 
 
+def base_commits(root):
+    """Commits reachable from the base branch the page was read against (`git rev-list --count refs/uak/dash-base`); None when
+    that ref is not there, so the share card leaves the figure out instead of showing a made-up zero."""
+    out = git("rev-list", "--count", "refs/uak/dash-base", cwd=root, check=False).strip()
+    return int(out) if out.isdigit() else None
+
+
 def workspace_data(root, keep=None):
     """The same dashboard model, including a clearly labelled offline/local-plan state. `keep` (a dict, UAK-156): the
     claims copy and what was read beside it stay on disk and are put in it, for a caller that builds the model again
@@ -202,6 +209,9 @@ def workspace_data(root, keep=None):
             extracted, backlog = snapshot(root)
             data = build(extracted, backlog, Path(root).name)
             data.update(source="remote", connection="ok", warning="", refresh=20, live_url=base_live_url(root))
+            commits = base_commits(root)
+            if commits is not None:
+                data["commits"] = commits
             data["mode"] = data.get("mode") or base_mode(root)
             if keep is not None:
                 keep.update(dir=str(extracted), backlog=backlog, live_url=data["live_url"], base_mode=data["mode"])
@@ -961,6 +971,9 @@ def main():
             data["refresh"] = refresh
             data["live_url"] = (project_live_url(read(Path(root) / ".uak/PROJECT.md")) if a.claims
                                 else base_live_url(root))
+            commits = None if a.claims else base_commits(root)
+            if commits is not None:
+                data["commits"] = commits
             data["mode"] = data.get("mode") or (project_mode(read(Path(root) / ".uak/PROJECT.md")) if a.claims
                                                 else base_mode(root))
             body = "window.UAK_DATA = " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + ";\n"
