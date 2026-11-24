@@ -544,11 +544,35 @@ def listbox_replaces_the_selects(root, tmp):
         assert out == [1, 2, 0, 0, 0, 2, 2, 1, 0, -1], out
 
 
+def figures_agree_across_tabs(root, tmp):
+    """Two places never disagree: a count that appears in two places is computed once. Cancelled tasks are named where they are
+    counted; a human-queue entry that outlived a cancelled task is not "needs a human"; the oldest review waiting reads the same
+    clock in the figure and on its row; "online" is one stated window."""
+    dash = dash_source(root)
+    assert "d.queue.filter(" not in dash.replace("function openHumanQueue", ""), "the human queue is read only through openHumanQueue"
+    assert dash.count("planCounts(d.tasks)") >= 4 and "L('cancelled')" in dash, "the plan's count and its cancelled tasks read one function"
+    assert "reviewSince(o, d.tasks)" in dash and "L('online = seen in the last 30 min')" in dash
+    out = under_node(root, """
+      var tasks = [{ id: "A-1", state: "INTEGRATED" }, { id: "A-2", state: "CLAIMED" }, { id: "A-3", state: "CANCELLED" }, { id: "A-4", state: "REVIEW", sub: { kind: "waiting", since: 500 } }, { id: "A-5", state: "AVAILABLE" }];
+      var queue = [{ task: "A-3", state: "HUMAN" }, { task: "A-5", state: "HUMAN" }, { task: "A-1", state: "HUMAN" }, { task: "A-5", state: "PENDING" }, { task: "A-9", state: "HUMAN" }];
+      var tk = tokenBreak({ by_task: { "A-1": 10, "A-3": 5, "A-4": 7, main: 100 } }, tasks);
+      return { counts: planCounts(tasks), queue: openHumanQueue(queue, tasks).map(function (q) { return q.task; }),
+               since: reviewSince({ task: "A-4", since: 900 }, tasks), sinceOther: reviewSince({ task: "A-5", since: 900 }, tasks),
+               tokTasks: tk.top.length, tokCancelled: tk.top.filter(function (x) { return x.state === "CANCELLED"; }).length };
+    """)
+    if out is None:
+        return
+    assert out["counts"] == {"plan": 4, "cancelled": 1}, out
+    assert out["queue"] == ["A-5", "A-9"], "a cancelled or integrated task is not in the human queue: %r" % out["queue"]
+    assert out["since"] == 500 and out["sinceOther"] == 900, out
+    assert out["tokTasks"] == 3 and out["tokCancelled"] == 1 and out["counts"]["plan"] + out["counts"]["cancelled"] == 5, out
+
+
 TESTS = [blocked_tasks_are_not_available, frozen_is_frozen, needs_human_comes_first, offline_uses_last_claims,
          dashboard_meets_contrast_and_targets, dashboard_keeps_every_field, empty_project_says_the_next_step, no_server_no_request,
          page_is_not_heavier, both_profiles_and_languages_are_complete, messages_are_one_conversation_per_task, every_task_is_visible, square_says_why_it_waits,
          agents_show_model_and_harness, black_box_filter_finds_an_error, memory_graph_edges_come_from_data, tokens_break_down, share_card_matches_the_page,
-         share_card_has_both_formats, project_name_is_not_the_worktree, page_reloads_when_a_newer_page_is_written, listbox_replaces_the_selects, one_definition_of_stalled]
+         share_card_has_both_formats, project_name_is_not_the_worktree, page_reloads_when_a_newer_page_is_written, listbox_replaces_the_selects, one_definition_of_stalled, figures_agree_across_tabs]
 
 
 def main():
