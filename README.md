@@ -66,6 +66,8 @@ bash ~/.uak-kit/install.sh --mode sprint .          # hackathon / AI prototype
 bash .uak/bin/uak start                              # every step to the first claim, in order, then the command that starts
 ```
 
+At a terminal the install ends with one question: continue in the browser (`b`) or here in the terminal (`t` or Enter). `--wizard` or `--terminal` answer it beforehand; with no terminal (a pipe, CI, an agent) nothing is asked or opened and the two commands are printed. Both ways read the project's files: `bash .uak/bin/uak start --steps` lists the same steps the page shows.
+
 It never overwrites your files: a kit file you edited gets its new text beside it as `.uak-new`; an older kit file nobody touched is simply updated by `--update`. Your hook manager (husky, lefthook) keeps its `core.hooksPath`.
 
 **Or, in Claude Code:**
