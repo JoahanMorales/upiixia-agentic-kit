@@ -14,6 +14,7 @@
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
+# ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 1795476548	allow	-	0	-	7941	JoahanMorales	claude-code
 1795476552	plan	-	0	-	3596	JoahanMorales	claude-code
 1795476607	lint	-	0	-	892	kit-a1	claude-code
@@ -297,3 +298,5 @@
 1795519910	lint	-	0	-	2135	kit-a1	claude-code
 1795520395	lint	-	0	-	878	kit-a1	claude-code
 1795520536	lint	-	0	-	1009	kit-a4	claude-code
+1795522100	done	UAK-188	0	-	12967	kit-a4	claude-code
+1795522594	review	UAK-188	0	-	7672	kit-r1	claude-code
