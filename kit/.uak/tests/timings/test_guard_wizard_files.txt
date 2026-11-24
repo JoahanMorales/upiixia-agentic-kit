@@ -1,2 +1,2 @@
 ci 30
-windows 200
+windows 120
