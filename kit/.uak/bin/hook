@@ -123,15 +123,29 @@ bb_leftover() { # any: 0 when a dead owner left something; take: put it all back
   return 1
 }
 bb_work() { [ -n "$COMMON" ] && { [ -s "$COMMON/uak-blackbox.pending" ] || bb_leftover any; }; }
-bb_unclone() { rm -rf "$COMMON"/uak-bb-tmp.*."$$"; }  # a killed flush: its clone goes with it
+# A killed flush: its clone goes with it. Windows refuses to remove a directory a dying process still uses (its cwd, an
+# open file), so the removal is tried again for up to 10 s, in this background job; what stays is the next flush's.
+bb_unclone() {
+  local n=0
+  while :; do
+    rm -rf "$COMMON"/uak-bb-tmp.*."$$" 2>/dev/null
+    set -- "$COMMON"/uak-bb-tmp.*."$$"
+    [ -e "$1" ] || return 0
+    [ "$n" -lt 10 ] || return 0
+    sleep 1; n=$((n + 1))
+  done
+}
 bb_flush_job() {
-  local t= d= ts=
+  local t= d= ts= pid=
   common_dir
   bb_leftover take
   for d in "$COMMON"/uak-bb-tmp.*; do
     [ -d "$d" ] || continue
-    ts=${d##*/uak-bb-tmp.}; ts=${ts%%.*}
-    ! { epoch_age "$ts" && [ "$AGE" -gt 600 ]; } || rm -rf "$d"
+    ts=${d##*/uak-bb-tmp.}; pid=${ts#*.}; ts=${ts%%.*}
+    # Older than its limit (600 s) is never a live clone; a younger one is a dead flush's when its owner is gone.
+    if { epoch_age "$ts" && [ "$AGE" -gt 600 ]; } || { start_pid_ok "$pid" && ! kill -0 "$pid" 2>/dev/null && ! ps -p "$pid" >/dev/null 2>&1; }; then
+      rm -rf "$d" 2>/dev/null
+    fi
   done
   # The clone bb makes lives in a directory of this job, so a kill leaves one place to clean, never /tmp.
   t="$COMMON/uak-bb-tmp.$NOW.$$"
