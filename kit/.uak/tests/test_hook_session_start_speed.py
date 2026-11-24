@@ -1516,7 +1516,7 @@ def killed_flush_leaves_no_clone_on_windows(r):
     clone older than 600 s. The fix retries the removal for up to 10 s and lets the next flush remove a clone whose
     owner is gone (leftover_clone_is_removed_by_the_next_flush). The loop costs about 9 s a round on Windows, so the
     default is 3; UAK_KILL_ROUNDS=20 repeats it as in the measurement."""
-    rounds = int(os.environ.get("UAK_KILL_ROUNDS", "8"))
+    rounds = int(os.environ.get("UAK_KILL_ROUNDS", "3"))
     times, bad = [], []
     for n in range(rounds):
         # A fresh checkout each round: the first session start of a checkout also starts the refresh, the pace and
@@ -1782,8 +1782,42 @@ def clone_removal_stays_inside_the_clone_directories(r):
     return "link removed, target intact; file, garbage, bad owner and PID 1 left alone"
 
 
+def killed_flush_in_place_is_diagnosed(r):
+    """UAK-190 diagnostics: killed_bb_flush_is_recovered_and_published_once failed on Windows in runs 45326081765 and
+    45357519599 (a clone left, the held flush's snapshot there) and passed in others, and no loop of this scenario in
+    a fresh checkout ever failed. This runs the same case once more in its own checkout and, when an assertion fails,
+    lists what is left and every process (Bash's ps, ps -W and PowerShell) before the case's cleanup runs."""
+    g = globals()
+    real_expect, real_fixture = g["expect"], g["counted_fixture"]
+    state = {}
+
+    def fixture(rr, name):
+        f, w = real_fixture(rr, name + "-d")
+        state["w"], state["common"] = w, first_pending_dir(rr, w)
+        return f, w
+
+    def expect_with_diag(cond, msg):
+        if not cond:
+            c = state.get("common")
+            owners = []
+            if c:
+                for d in c.glob("uak-bb-tmp.*"):
+                    owners.append((d.name, (d / "owner").read_text().strip() if (d / "owner").exists() else None))
+                owners.append([x.name for x in c.glob("uak-blackbox.pending*")])
+            ps = r.run([r.bash, "-c", "ps -ef 2>&1 | grep -E 'git|bb|hook|sleep|sh' | head -40; echo ---; ps -W 2>&1 | grep -iE 'git|bash|sh' | head -40"],
+                       cwd=state.get("w") or r.scratch, allowed=None).stdout[-2500:] if state.get("w") else ""
+            msg = "%s | DIAG owners %r | processes %s | ps %s" % (msg, owners, process_listing(), ps.replace("\n", " ; "))
+        return real_expect(cond, msg)
+
+    g["counted_fixture"], g["expect"] = fixture, expect_with_diag
+    try:
+        return killed_bb_flush_is_recovered_and_published_once(r)
+    finally:
+        g["counted_fixture"], g["expect"] = real_fixture, real_expect
+
+
 TESTS += [killed_flush_leaves_no_clone_on_windows, leftover_clone_is_removed_by_the_next_flush,
-          second_start_leaves_a_live_flushs_clone, eight_starts_with_a_held_push_publish_once,
+          killed_flush_in_place_is_diagnosed, second_start_leaves_a_live_flushs_clone, eight_starts_with_a_held_push_publish_once,
           unremovable_clone_is_retried_then_left_to_the_next_flush, clone_removal_stays_inside_the_clone_directories]
 
 
