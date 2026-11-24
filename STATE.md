@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1795537983
+Updated: 1795537986
 AVAILABLE: UAK-160 UAK-162 UAK-163 UAK-164 UAK-165 UAK-166 UAK-167 UAK-191 
 CLAIMED: UAK-159 
 BLOCKED: -
@@ -15,11 +15,11 @@ UAK-190 | REVIEW | kit-a3 | until 1795611856
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1795502193 | allow | JoahanMorales | test change: UAK-159 | Why: el flujo pasa a diez pantallas; los tests de Dylan describen el flujo anterior
 - 1795502196 | allow | JoahanMorales | test change: UAK-160 | Why: el español se escribe desde códigos; los tests comparan frases traducidas
 - 1795502200 | allow | JoahanMorales | test change: UAK-162 | Why: el panel se rediseña según la maqueta; los tests leen la estructura anterior
 - 1795537979 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-159 Paths: kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/setup.py, docs/DASHBOARD.md, kit/.uak/tests/test_s
 - 1795537983 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-191 Paths: scripts/ci_select.py, kit/.uak/tests/test_ci_tiers.py, kit/.uak/tests/timings/test_done_without_
+- 1795537986 | allow | JoahanMorales | test change: UAK-191 | Why: dos casos de test_ci_tiers leen la tabla viva y tres casos fijan el tope en 19 trabajos
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.

@@ -16,3 +16,4 @@ Append-only. Format: - ID | epoch | human | reason. Why: a test is a spec; chang
 - UAK-159 | 1795502193 | JoahanMorales | el flujo pasa a diez pantallas; los tests de Dylan describen el flujo anterior
 - UAK-160 | 1795502196 | JoahanMorales | el español se escribe desde códigos; los tests comparan frases traducidas
 - UAK-162 | 1795502200 | JoahanMorales | el panel se rediseña según la maqueta; los tests leen la estructura anterior
+- UAK-191 | 1795537986 | JoahanMorales | dos casos de test_ci_tiers leen la tabla viva y tres casos fijan el tope en 19 trabajos
