@@ -358,6 +358,7 @@ dialog#share::backdrop { background: var(--scrim); }
 .seg-b.rev { background: var(--claimed); } .seg-b.late { background: var(--blocked); }
 .seg-b.int { width: 10px; min-width: 10px; height: 10px; top: 7px; padding: 0; border-radius: 50%; background: var(--integrated); }
 .laxis { display: flex; justify-content: space-between; margin-left: 96px; font: 500 11px var(--mono); color: var(--muted); }
+.legend span { white-space: nowrap; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0 12px 12px; font-size: 12px; color: var(--ink-2); }
 .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; background: var(--c); vertical-align: -1px; }
 /* Side column */
@@ -619,6 +620,8 @@ dialog#story::backdrop { background: var(--scrim); }
   "use strict";
   function T(value) { return window.UAKWorkspace ? UAKWorkspace.t(value) : value; }
   var ES = {
+    'with tokens': 'con tokens',
+    'cancelled among them': 'canceladas entre ellas',
     'online = seen in the last 30 min': 'en línea = visto en los últimos 30 min',
     'message': 'mensaje',
     'verdict': 'veredicto',
@@ -1169,7 +1172,7 @@ dialog#story::backdrop { background: var(--scrim); }
   }
   function taskRow(t) {
     var s = stateOf(t);
-    return storyable(h("li", { "class": late(t) ? "late" : "" }, [h("span", { "class": "pill " + (PILL[s] || ""), text: s === "WAITING" ? T("Waiting") : rowLabel(s) }), tid(t.id), h("span", { "class": "t", text: t.title || t.paths, title: t.title }), pipe(s), h("span", { "class": "w", text: when(t, s), title: when(t, s) })]), t.id);
+    return storyable(h("li", { "class": late(t) ? "late" : "" }, [h("span", { "class": "pill " + (PILL[s] || ""), text: s === "WAITING" ? T("Waiting") : rowLabel(s) }), tid(t.id), h("span", { "class": "t", text: t.title || t.paths, title: t.title }), pipe(s), h("span", { "class": "w", text: when(t, s).replace(/ (min|h|d|s)\b/g, "\u00a0$1"), title: when(t, s) })]), t.id);
   }
   function moving(d) {
     var rank = { BLOCKED: 0, REVIEW: 1, CLAIMED: 2 };
@@ -1796,7 +1799,7 @@ dialog#story::backdrop { background: var(--scrim); }
     var ul = h("ul", { "class": "list rows" }), max = tb.top.length ? tb.top[0].n : 1;
     tb.top.slice(0, 10).forEach(function (x) { var st = DG.task[x.id] ? stateOf(DG.task[x.id]) : ""; ul.appendChild(storyable(h("li", {}, [h("span", { "class": "pill " + (PILL[st] || ""), text: st ? rowLabel(st) : L('not in the plan') }), tid(x.id), h("span", { "class": "t", text: x.title || "", title: x.title }), h("span", { "class": "meter", style: "margin:0" }, [h("i", { style: "width:" + Math.max(2, 100 * x.n / max) + "%" })]), h("span", { "class": "w num", text: M(x.n) })]), x.id)); });
     var foot = h("div", { "class": "win-f" }, [figure("", tb.done, L('integrated tasks with tokens'), ""), figure("", tb.done ? M(tb.avg) : "–", L('average per integrated task'), ""), figure("", tb.done ? M(tb.median) : "–", L('median per integrated task'), "")]);
-    wrap.appendChild(h("div", { style: "margin-top:16px" }, [panel(L('The most expensive tasks'), tb.top.length + " " + T(" tasks") + (tb.top.filter(function (x) { return x.state === "CANCELLED"; }).length ? " · " + tb.top.filter(function (x) { return x.state === "CANCELLED"; }).length + " " + L('cancelled') : ""), h("div", {}, [ul, foot]))]));
+    wrap.appendChild(h("div", { style: "margin-top:16px" }, [panel(L('The most expensive tasks'), tb.top.length + " " + T(" tasks") + L('with tokens') + (tb.top.filter(function (x) { return x.state === "CANCELLED"; }).length ? " · " + tb.top.filter(function (x) { return x.state === "CANCELLED"; }).length + " " + L('cancelled among them') : ""), h("div", {}, [ul, foot]))]));
     if (tb.untied) wrap.appendChild(h("p", { "class": "muted", style: "margin-top:16px", text: L('Not tied to a task') + ": " + M(tb.untied) }));
     wrap.appendChild(h("p", { "class": "muted", style: "margin-top:16px", text: L('The tokens carry no dates or budget, so there is no chart over time.') }));
   }
