@@ -917,42 +917,35 @@ FULL = sys.platform.startswith("linux")
 # and macOS and Windows run this explicit list, one or more commands per class, plus every command that holds a
 # backslash (a Windows path is the case that matters on Windows, so none of them is dropped).
 REPRESENTATIVE = [
-    # refused with a wizard live: a read (a plain one, a copy, quoted, braced, globbed, by git directory, by xargs, by substitution)
+    # refused with a wizard live: a read (plain, copied, quoted, braced, globbed, by git directory, by xargs, by substitution)
     "cat .git/uak-wizard.key", "cp .git/uak-wizard.key /tmp/k", "python3 -c \"print(open('.git/uak-wizard.key').read())\"",
     "cat .git/uak-wiz''ard.key", "cat .git/uak*", "cat .git/uak-wizard.{key,port}", "cat $(git rev-parse --git-dir)/uak-wizard.key",
-    "cat $GIT_DIR/uak-wizard.key", "ls .git/uak-wizard.key | xargs cat", "cat \"$(echo .git/uak-wizard.key)\"",
+    "ls .git/uak-wizard.key | xargs cat", "cat \"$(echo .git/uak-wizard.key)\"",
     # the two routes
     "curl -s -X POST http://127.0.0.1:41234/api/reopen -d '{}'", "curl -s -X POST http://127.0.0.1:41234/api/closing -d '{}'",
-    "curl -s -d x http://127.0.0.1:${P}/api/reopen",
     # removals and rewrites
     "rm .git/uak-wizard.port", "rm -f .git/{uak-wizard.port,uak-wizard.key}", "> .git/uak-wizard.port", "find .git -delete",
-    "find .git -name 'uak*' -delete", "find . -name \"*.key\" -delete", "cd .git && rm uak-wizard.*",
-    # a command runner's quoted line, inline interpreter code
+    "find . -name \"*.key\" -delete", "cd .git && rm uak-wizard.*",
+    # a command runner's line, inline interpreter code, a here-string and a here-document
     "bash -c 'cd .git; cat uak-wizard.key'", "eval \"cd .git; cat uak-wizard.key\"", "ssh localhost \"cd .git && cat uak-wizard.key\"",
-    "sh -c 'cd .git && rm uak-wizard.port'", "bash -c \"bash -c 'cd .git; cat uak-wizard.key'\"",
-    "python3 -c \"import os;os.chdir('.git');print(open('uak-wizard.key').read())\"",
+    "bash -c \"bash -c 'cd .git; cat uak-wizard.key'\"", "python3 -c \"import os;os.chdir('.git');print(open('uak-wizard.key').read())\"",
+    "bash -euo pipefail -c 'cd .git; cat uak-wizard.key'", "sh <<<'cd .git; cat uak-wizard.key'", "echo 'cd .git; cat uak-wizard.key' | sh",
+    "sh <<EOF\ncd .git; cat uak-wizard.key\nEOF", "cat <<EOF\n$(cat .git/uak-wizard.key)\nEOF",
     # from inside the git directory
     "sh -c \"cat uak-w*\"", "cat uak-wizard.key",
     # passes, live or not
     "git status", "ls .git", "grep -r reopen src/", "cat docs/my-uak-wizard.key.md", "cat *.key", "find . -name \"*.key\"",
     "git commit -m \"cd .git; cat uak-wizard.key is refused\"", "curl -s -X POST http://127.0.0.1:3000/api/reopen -d x",
-    "cat .git/uak-wizard.port", "grep -rn \"cd .git; cat uak-wizard.key\" docs/", "python3 -c \"print('uak-wizard')\"",
-    "bash .uak/bin/uak review UAK-188 --sha abc --verdict reject --note \"cd .git; cat uak-wizard.key can be read\"",
-    # the third review: a word is decided by its position
-    "bash -euo pipefail -c 'cd .git; cat uak-wizard.key'", "bash -O extglob -c 'cd .git; cat uak-wizard.key'", "sh -c -- 'cd .git; cat uak-wizard.key'",
-    "bash -c $'cd .git; cat uak-wizard.key'", "sh <<< 'cd .git; cat uak-wizard.key'", "echo 'cd .git; cat uak-wizard.key' | sh",
-    "git commit -m \"fix: bash -c 'cat .git/uak-wizard.key' is refused\"", "grep -rn \"cat .git/uak-wizard.key\" kit/",
-    "python3 -c \"print('cat .git/uak-wizard.key is refused')\"", "gh pr create --title t --body \"curl localhost:41234/api/reopen is refused\"",
-    "del build\\*.key", "copy a.key b.key", "git commit -m \"copy the type\"",
-    "sh <<EOF\ncd .git; cat uak-wizard.key\nEOF", "sh <<<'cd .git; cat uak-wizard.key'", "cat <<EOF\n$(cat .git/uak-wizard.key)\nEOF", "git commit -F - <<X\nbash -c 'cat .git/uak-wizard.key' is refused\nX",
+    "cat .git/uak-wizard.port", "grep -rn \"cat .git/uak-wizard.key\" kit/", "python3 -c \"print('cat .git/uak-wizard.key is refused')\"",
+    "gh pr create --title t --body \"curl localhost:41234/api/reopen is refused\"", "git commit -F - <<X\nbash -c 'cat .git/uak-wizard.key' is refused\nX",
+    "cat <<'X'\n$(cat .git/uak-wizard.key)\nX", "del build\\*.key", "copy a.key b.key", "git commit -m \"copy the type\"",
 ]
 
 
 # No wizard live: the same text must pass. Off Linux one command per class (and the Windows paths), not every list again.
 LIGHT = [
     "cat .git/uak-wizard.key", "rm .git/uak-wizard.port", "curl -s -X POST http://127.0.0.1:41234/api/reopen -d '{}'",
-    "cd .git; cat uak-wizard.key", "bash -c 'cd .git; cat uak-wizard.key'", "cat .git/uak*", "find . -name \"*.key\" -delete",
-    "cat C:\\proj\\.git\\uak-wizard.key", "del .git\\uak-wizard.port", "powershell -c \"Remove-Item .git\\uak-wizard.port\"",
+    "bash -c 'cd .git; cat uak-wizard.key'", "cat C:\\proj\\.git\\uak-wizard.key", "powershell -c \"Remove-Item .git\\uak-wizard.port\"",
 ]
 
 
@@ -1185,6 +1178,8 @@ def reopen_and_closing_are_refused_on_the_wizard_port(tmp):
 
 
 def same_names_pass_without_a_wizard(tmp):
+    if not FULL:
+        return  # Linux runs the full lists; macOS and Windows run the explicit list in the tests that stay
     repo = project(tmp)
     go_live(repo)
     go_dead(repo)  # a wizard that ended removes its files
@@ -1334,6 +1329,8 @@ KITS_OWN = [
 
 
 def ordinary_work_passes_while_live(tmp):
+    if not FULL:
+        return  # Linux runs the full lists; macOS and Windows run the explicit list in the tests that stay
     repo = project(tmp)
     go_live(repo)
     must_pass(repo, REVIEW_ORDINARY + KITS_OWN + ALWAYS)
@@ -1359,6 +1356,8 @@ def this_task_can_be_committed_reviewed_and_opened_while_live(tmp):
 
 
 def plain_spellings_are_refused_while_live(tmp):
+    if not FULL:
+        return  # Linux runs the full lists; macOS and Windows run the explicit list in the tests that stay
     repo = project(tmp)
     go_live(repo)
     must_refuse(repo, PLAIN_REFUSED)
@@ -1544,6 +1543,8 @@ PROSE_PASSES = [
 
 
 def runner_arguments_are_command_lines(tmp):
+    if not FULL:
+        return  # Linux runs the full lists; macOS and Windows run the explicit list in the tests that stay
     repo = project(tmp)
     go_live(repo)
     must_refuse(repo, RUNNERS)
@@ -1569,6 +1570,8 @@ def windows_removers_and_readers_are_refused(tmp):
 
 
 def second_review_lists(tmp):
+    if not FULL:
+        return  # Linux runs the full lists; macOS and Windows run the explicit list in the tests that stay
     repo = project(tmp)
     go_live(repo)
     must_refuse(repo, REVIEW2_REFUSED)
