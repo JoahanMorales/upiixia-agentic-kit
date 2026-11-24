@@ -1515,8 +1515,8 @@ def killed_flush_leaves_no_clone_on_windows(r):
     cwd or an open file), and bb_unclone tried once, leaving the directory for the next flush, which removed only a
     clone older than 600 s. The fix retries the removal for up to 10 s and lets the next flush remove a clone whose
     owner is gone (leftover_clone_is_removed_by_the_next_flush). The loop costs about 9 s a round on Windows, so the
-    default is 3; UAK_KILL_ROUNDS=20 repeats it as in the measurement."""
-    rounds = int(os.environ.get("UAK_KILL_ROUNDS", "3"))
+    default is 2; UAK_KILL_ROUNDS=20 repeats it as in the measurement."""
+    rounds = int(os.environ.get("UAK_KILL_ROUNDS", "2"))
     times, bad = [], []
     for n in range(rounds):
         # A fresh checkout each round: the first session start of a checkout also starts the refresh, the pace and

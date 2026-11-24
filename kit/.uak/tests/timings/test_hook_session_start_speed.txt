@@ -1,4 +1,4 @@
 ci 170
-windows 420
+windows 400
 # measured 2026-11-24 45365777029
-# Windows 399 s in that run (676 s on a slower runner with a longer diagnostic loop); Linux 170 s
+# Windows 399 s in that run with 3 fresh rounds in the kill loop (676 s on a slower runner with 8); the file must stay at or under 400 s or the Windows matrix needs an 11th shard
