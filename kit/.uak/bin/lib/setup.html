@@ -525,6 +525,8 @@ h1[tabindex="-1"]:focus, h1[tabindex="-1"]:focus-visible { outline: none; }
 #your-app { margin-top: 24px; }
 #screen-dashboard h2.sec { margin-top: 24px; }
 #screen-unblock .next-command code { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+#planning .action-result:empty, #planning .hint:empty { display: none; }
+[data-stage="review"] #plan-create-why, [data-stage="review"] #plan-create-result, [data-stage="review"] #plan-progress:empty { display: none; }
 /* the notices that stay on top sit above the header in the flow, never over it */
 .server-gone { position: sticky; top: 0; left: auto; transform: none; z-index: 60; width: auto; max-width: 1032px; margin: 8px auto 0; }
 .reopened { top: 0; }
@@ -551,6 +553,9 @@ h1[tabindex="-1"]:focus, h1[tabindex="-1"]:focus-visible { outline: none; }
   summary, .link-button { display: inline-flex; align-items: center; }
   input[type="radio"], input[type="checkbox"] { min-height: 0; width: 20px; height: 20px; }
   .actions-list > li { grid-template-columns: minmax(0, 1fr); }
+  .foot .actions { display: contents; }
+  .foot .secondary-button, .foot .ghost { flex: 1 1 0; min-width: 0; padding-left: 8px; padding-right: 8px; order: 2; }
+  .foot .primary { flex: 1 0 100%; order: 6; }
   .foot-in { flex-wrap: wrap; }
   .foot-note { order: 5; flex-basis: 100%; text-align: left; }
 }
