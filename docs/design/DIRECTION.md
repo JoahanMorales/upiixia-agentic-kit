@@ -66,3 +66,9 @@ UAK-158 (one design system), UAK-159 (the wizard's flow), UAK-162 (the dashboard
   palette is Lavanda in a new install and Clásico where a dashboard of v6.8 or earlier was already in use.
 - The tabs Agents, Black box, Memory and Tokens, the empty project and the finished project are not in the
   mock; UAK-162 designs them in the same language and shows them to the human before they are built.
+- Settled by the human on 2026-11-24, on the screens of UAK-162 (they change rule 6 for the task squares): the summary
+  shows every task as a small square that explains itself, whatever the size of the plan, and a square says what it
+  waits for and what it unblocks; "Needs you" stays one grouped block; the Agents tab is a grid of compact cards as in
+  v6.8; the Board opens on its columns; the page has no native select; Memory has a list and a graph of task clusters;
+  the Share card comes horizontal and vertical with a very small credit to the kit; the page may weigh up to 200 KiB.
+  The human signed off those screens the same day.
