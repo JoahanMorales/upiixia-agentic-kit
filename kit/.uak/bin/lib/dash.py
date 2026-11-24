@@ -482,14 +482,16 @@ def build(c, backlog_text, repo, root=None):
                 lessons.append({"n": p[0], "t": num(p[1]), "agent": p[2], "task": p[3], "paths": p[4], "text": p[5]})
     lessons = [x for x in lessons if x["n"] not in gone]
 
-    tokens = {"total": 0, "by_task": {}, "by_harness": {}, "by_scope": {}}
+    tokens = {"total": 0, "by_task": {}, "by_harness": {}, "by_scope": {}, "by_model": {}, "by_kind": {"input": 0, "cache_write": 0, "cache_read": 0, "output": 0}}
     for f in (c / "tokens").glob("*.md"):
         for p in rows(read(f)):
             if len(p) >= 9 and p[5].isdigit():
                 t = sum(num(x) for x in p[5:9])
                 tokens["total"] += t
-                for key, val in (("by_task", p[0]), ("by_harness", p[1]), ("by_scope", p[3])):
+                for key, val in (("by_task", p[0]), ("by_harness", p[1]), ("by_scope", p[3]), ("by_model", p[2])):
                     tokens[key][val] = tokens[key].get(val, 0) + t
+                for key, val in zip(("input", "cache_write", "cache_read", "output"), p[5:9]):
+                    tokens["by_kind"][key] += num(val)
 
     states = {}
     for t in tasks.values():

@@ -255,8 +255,8 @@ def dashboard_keeps_every_field(root, tmp):
     # one registry: each block has a name, a title, a column, a maximum of rows and one render function
     blocks = re.search(r"var BLOCKS = \[(.*?)\n  \];", dash, re.S).group(1)
     entries = re.findall(r"\{ name: \"(\w+)\", title: function \(\) \{[^}]*\}, col: \"(main|side)\", max: ([\w]+), render: (\w+) \}", blocks)
-    assert [e[0] for e in entries] == ["needs", "tasks", "lanes", "progress", "agents", "pace", "tokens"], entries
-    assert [e[1] for e in entries] == ["main"] * 3 + ["side"] * 4, "the order of the summary: what needs you, tasks, activity; at the side progress, agents, pace, tokens"
+    assert [e[0] for e in entries] == ["needs", "map", "tasks", "lanes", "progress", "agents", "pace", "tokens"], entries
+    assert [e[1] for e in entries] == ["main"] * 4 + ["side"] * 4, "the order of the summary: what needs you, every task as a square, tasks, activity; at the side progress, agents, pace, tokens"
     assert len(re.findall(r"BLOCKS\.forEach", dash)) == 1, "the summary is drawn from the registry only"
     # the summary never grows with the plan: tasks 8 rows, agents 4, progress blocks up to 24
     maxima = {e[0]: e[2] for e in entries}
@@ -289,10 +289,12 @@ def no_server_no_request(root, tmp):
 
 def page_is_not_heavier(root, tmp):
     """UAK-162's weight clause. It said "not heavier than today (84 KB)": the page of 2026-11-23 was 84,057 bytes, and main's
-    page was 103,903 once UAK-158 added the shared block (11 KB) and the look script (4 KB). The human raised the bound on
-    2026-11-24 (docs/plans/visual-setup-amend-7.md): at most 128 KiB, measured on the file's bytes."""
+    page was 103,903 once UAK-158 added the shared block (11 KB) and the look script (4 KB). The human raised the bound twice:
+    to 128 KiB on 2026-11-24 (docs/plans/visual-setup-amend-7.md) and, for the views they asked for after seeing the screens
+    (every task as a square, what waits for what, the black box as a tool, the memory graph, the token breakdown), to
+    150 KiB the same day (docs/plans/visual-setup-amend-8.md). Measured on the file's bytes."""
     size = len((root / ".uak/bin/lib/dash.html").read_bytes())
-    assert size <= 128 * 1024, "dash.html is %d bytes; the bound is 128 KiB (%d)" % (size, 128 * 1024)
+    assert size <= 150 * 1024, "dash.html is %d bytes; the bound is 150 KiB (%d)" % (size, 150 * 1024)
 
 
 def both_profiles_and_languages_are_complete(root, tmp):
@@ -324,9 +326,121 @@ def messages_are_one_conversation_per_task(root, tmp):
     assert "L('Nothing moved in the last 14 days')" in dash, "lanes say the period covered"
 
 
+def logic_of(root):
+    """The page's pure functions (the section between logic:begin and logic:end), run under node on the given fixture."""
+    dash = dash_source(root)
+    return dash[dash.index("/* logic:begin"):dash.index("/* logic:end */")]
+
+
+def under_node(root, body):
+    import shutil
+    node = shutil.which("node")
+    if not node:
+        return None
+    program = "var window = {};\n" + logic_of(root) + "\nconsole.log(JSON.stringify((function () {" + body + "})()));"
+    done = subprocess.run([node, "-e", program], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr[:800]
+    return json.loads(done.stdout)
+
+
+def every_task_is_visible(root, tmp):
+    """The human's feedback on the gallery: every task is on screen at once as a small square that explains itself (state by
+    colour and by shape, the number inside, owner and title in its label), in the summary and in the board, never capped."""
+    dash = dash_source(root)
+    assert "function squares(" in dash and "mapBlock" in dash and 'ui.bv !== "cols"' in dash, "summary and board draw the map"
+    body = dash[dash.index("function squares("):dash.index("function mapBlock(")]
+    assert "slice(" not in body and "MAXTASKS" not in body, "the squares are never capped"
+    assert '"aria-label": tip' in body and "tip: tip" in body and "openStory(t.id)" in body, "each square explains itself and opens its detail"
+    for state in ("rev", "prog", "blk", "av", "wt"):
+        assert ".sq.s-%s" % state in dash, "a shape for %s" % state
+    assert "const" not in body
+
+
+def square_says_why_it_waits(root, tmp):
+    """The sentence names exactly the unmet dependencies; integrated ones are not blockers; a cycle, a missing id and a
+    cancelled task do not break the page; a square lights what it waits for and what it unblocks, by hover, focus and tap."""
+    dash = dash_source(root)
+    for needle in ("function pick(", "function depWords(", '"dim"', 'classList.toggle("w"', 'classList.toggle("u"', "ARMED", "L('cannot start: it waits for')",
+                   "L('is ready: nothing blocks it')", "function depSection(", "L('Waits for')", "L('Unblocks')", "L('further back')"):
+        assert needle in dash, "missing %s" % needle
+    assert '"focus"' in dash and "(hover: hover)" in dash, "keyboard and touch both work"
+    out = under_node(root, """
+      var T = function (id, state, depends) { return { id: id, state: state, depends: depends }; };
+      var g = depGraph([T("A-1", "INTEGRATED", "None"), T("A-2", "CLAIMED", "A-1"), T("A-3", "CANCELLED", "None"), T("A-4", "AVAILABLE", "A-1, A-2, A-3, A-9 (not A-7)"),
+                        T("A-5", "AVAILABLE", "A-6"), T("A-6", "AVAILABLE", "A-5"), T("A-7", "AVAILABLE", "A-4"), T("A-8", "AVAILABLE", "None")]);
+      return { four: unmet(g, "A-4"), ready: unmet(g, "A-8"), cycle: unmet(g, "A-5"), behind7: behind(g, "A-7"), behindCycle: behind(g, "A-5"), unb: g.unb["A-1"] };
+    """)
+    if out is None:
+        return
+    assert [(x["id"], x["state"]) for x in out["four"]] == [("A-2", "CLAIMED"), ("A-3", "CANCELLED"), ("A-9", "MISSING")], out["four"]
+    assert out["ready"] == [] and [x["id"] for x in out["cycle"]] == ["A-6"] and out["behindCycle"] == [], out
+    assert sorted(x["id"] for x in out["behind7"]) == ["A-2", "A-3", "A-9"] or sorted(x["id"] for x in out["behind7"]) == [], out["behind7"]
+    assert out["unb"] == ["A-2", "A-4"], out["unb"]
+
+
+def agents_show_model_and_harness(root, tmp):
+    """Every agent says its model and harness, or "not recorded", never a guess."""
+    dash = dash_source(root)
+    assert "function mh(" in dash and "L('not recorded')" in dash and "L('Model and harness not recorded')" in dash, "never a guess"
+    assert dash.count("mh(a.name)") >= 2 and "mh(s.a)" in dash, "agents tab, agents block and lanes show model and harness"
+    assert "d.tasks.forEach(function (t) { (t.harnesses" in dash and "d.timelines[id].agents.forEach" in dash, "the values come from what the engine recorded"
+
+
+def black_box_filter_finds_an_error(root, tmp):
+    dash = dash_source(root)
+    for needle in ("ui.bk", "ui.bh", "ui.bp", "ui.bq", 'h("details"', "L('Search the black box')", "bbFilter("):
+        assert needle in dash, "the black box tool lost %s" % needle
+    out = under_node(root, """
+      var r = [{ time: "2026-11-24T10:00Z", harness: "claude-code", source: "auto", kind: "exit3", command: "uak claim", what: "CONFLICT: UAK-162 overlaps", fix: "-" },
+               { time: "2026-11-10T10:00Z", harness: "codex", source: "auto", kind: "exit1", command: "uak done", what: "git failed", fix: "-" },
+               { time: "2026-11-24T09:00Z", harness: "claude-code", source: "agent", kind: "bug", command: "-", what: "flush leaves a clone", fix: "x" }];
+      var now = Date.parse("2026-11-24T12:00Z");
+      return { kind: bbFilter(r, { k: "conflict" }, now).length, harness: bbFilter(r, { h: "codex" }, now).length, day: bbFilter(r, { p: "d" }, now).length,
+               text: bbFilter(r, { q: "clone" }, now).length, none: bbFilter(r, { q: "zzz" }, now).length, all: bbFilter(r, {}, now).length, note: bbFilter(r, { k: "note: bug" }, now).length };
+    """)
+    if out is None:
+        return
+    assert out == {"kind": 1, "harness": 1, "day": 2, "text": 1, "none": 0, "all": 3, "note": 1}, out
+
+
+def memory_graph_edges_come_from_data(root, tmp):
+    """Every edge is a real reference in an entry: its task field or an ID in its text, a file in its text or paths, its author."""
+    dash = dash_source(root)
+    assert "function memGraphView(" in dash and "L('Graph')" in dash and "tabindex" in dash and "L('The graph needs a wider screen: showing the list.')" in dash
+    assert "http://www.w3.org/2000/svg" in dash and "d3." not in dash and "cytoscape" not in dash.lower() and "cdn" not in dash.lower(), "hand-written SVG, no library"
+    out = under_node(root, """
+      var les = [{ text: "UAK-006 cache_put in kit/x.sh", agent: "a", task: "-", paths: "kit/x.sh" }, { text: "again UAK-006", agent: "b", task: "UAK-006", paths: "" }, { text: "alone", agent: "c", task: "-", paths: "" }];
+      var dec = [{ text: "UAK-007 only here", who: "a", kind: "plan", t: 1 }];
+      var g = memGraph(les, dec);
+      var by = {}; g.nodes.forEach(function (n) { by[n.id] = n; });
+      return { edges: g.edges.map(function (e) { return e.join(">"); }), nodes: g.nodes.map(function (n) { return n.id; }).sort(), isolated: g.isolated, linked: g.linked };
+    """)
+    if out is None:
+        return
+    assert out["edges"] == ["l0>t:UAK-006", "l1>t:UAK-006", "l0>a:a", "d0>a:a"] or sorted(out["edges"]) == sorted(["l0>t:UAK-006", "l1>t:UAK-006", "l0>a:a", "d0>a:a"]), out
+    assert "l2" not in out["nodes"] and "t:UAK-007" not in out["nodes"] and out["isolated"] == 1, "an entry that links to nothing is not drawn and no link is invented: %r" % out
+
+
+def tokens_break_down(root, tmp):
+    dash = dash_source(root)
+    for needle in ("L('By model')", "L('By agent (owner of the task)')", "L('The most expensive tasks')", "L('average per integrated task')", "L('median per integrated task')", "tb.untied"):
+        assert needle in dash, "the tokens tab lost %s" % needle
+    py = (root / ".uak/bin/lib/dash.py").read_text(encoding="utf-8")
+    assert '"by_model"' in py and '"by_kind"' in py, "dash.py carries the model and the kinds of token"
+    out = under_node(root, """
+      var tasks = [{ id: "A-1", state: "INTEGRATED", owner: "x", title: "one" }, { id: "A-2", state: "INTEGRATED", owner: "y", title: "two" }, { id: "A-3", state: "CLAIMED", owner: "x", title: "three" }];
+      var b = tokenBreak({ by_task: { "A-1": 10, "A-2": 30, "A-3": 100, main: 500 } }, tasks);
+      return { top: b.top.map(function (t) { return t.id; }), untied: b.untied, done: b.done, avg: b.avg, per: b.perAgent };
+    """)
+    if out is None:
+        return
+    assert out == {"top": ["A-3", "A-2", "A-1"], "untied": 500, "done": 2, "avg": 20, "per": {"x": 110, "y": 30}}, out
+
+
 TESTS = [blocked_tasks_are_not_available, frozen_is_frozen, needs_human_comes_first, offline_uses_last_claims,
          dashboard_meets_contrast_and_targets, dashboard_keeps_every_field, empty_project_says_the_next_step, no_server_no_request,
-         page_is_not_heavier, both_profiles_and_languages_are_complete, messages_are_one_conversation_per_task]
+         page_is_not_heavier, both_profiles_and_languages_are_complete, messages_are_one_conversation_per_task, every_task_is_visible, square_says_why_it_waits,
+         agents_show_model_and_harness, black_box_filter_finds_an_error, memory_graph_edges_come_from_data, tokens_break_down]
 
 
 def main():

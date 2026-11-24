@@ -179,11 +179,23 @@ time elapsed, or is fixed at 1 h, 2 h, 4 h or a day, with the date at which the 
 The summary never grows with the plan: 60 tasks add less than 50 px. An empty project shows the one next step and its
 command (`bash .uak/bin/uak start`); a finished one says so and shows how to add work.
 
+**All tasks as squares.** Under *Needs you* every task of the plan is one small square (a number inside, the state by colour
+and by shape: filled, ringed for review, outlined for in progress, round for blocked, dashed for available, grey for waiting;
+a red ring when it is late). Hover, focus (Tab) or tap a square: it lights the tasks it waits for (orange ring) and the ones it
+unblocks (violet ring), dims the rest and says in one sentence why it cannot start ("UAK-165 cannot start: it waits for 1 task
+- UAK-162 (in progress)") or that it is ready. On a touch screen the first tap selects, the second opens the task. A dependency
+on a task that is not in the plan or is cancelled is named as such. The same squares, grouped by stage, are the board's
+default view (**Map**; **Cards** shows the columns). A waiting task in the list says what it waits for (two ids and "and N more").
+
 **Board.** Four stages: to do, in progress, in review, integrated. Blocked and late are conditions on the card (a red
 border, a tag, the lease used), not columns. Each header says the one thing that matters ("1 waits for your decision",
 "2 over their lease"); each column shows 8 cards and a "Show all". Review cards are grouped by what they wait for.
 A click on a task (or Enter) opens its detail: header, time in each state, who took part with model and harness, every
 move in order, totals. It closes with the button, Escape or a click outside.
+
+In the task's detail, **Waits for / Unblocks** draws the task in the middle, its direct dependencies at the left and what it
+unblocks at the right (each with its state and owner; a click opens it), and counts the blockers further back with a way to
+expand them.
 
 **Messages.** One conversation per task, told in the task's stages ("In progress", "In review · round 2", "Integrated").
 At the left, the conversations as a panel (waiting for you, moving, closed, without a task) with filters (all, my
@@ -191,7 +203,15 @@ agents, for me, unread) and a search; at the right, the task, three figures (mes
 is in the thread. Messages of your own agents sit at the right; what the engine did is a small centred line. "Unread"
 counts what arrived since you first opened the page (kept in this browser). The page has no field to write: it has no server.
 
-**Agents, Black box, Memory, Tokens** use the same lists and windows; long lists show 8 and "Show all".
+**Agents** show the model and harness the engine recorded for each (from the participants of each task and its story), and
+"not recorded" when it did not; the page never guesses one. **Black box** is a search tool: counts per kind of event (click to
+filter), the harness, the period (24 h, 7 days), a text search, and every entry opens to its command, time, harness and kit,
+message and fix (the records carry no agent or task, so a task ID is searched as text). **Memory** has a list and a graph
+(hand-written SVG, no library): the nodes are the entries and the tasks, files and agents that two or more of them
+mention, and every link is a real reference in the entry (its task field, an ID or a file in its text, its paths, its author);
+entries that link to nothing are only in the list. Under 640 px wide it shows the list and says why. **Tokens** break the
+spend down by kind of token, harness, model, scope, agent (the owner of the task) and task, with the most expensive tasks and
+the average and median per integrated task; the data carries no dates and no budget, and the page says so.
 
 ## Appearance: one design system, nine palettes
 

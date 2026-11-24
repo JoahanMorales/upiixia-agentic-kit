@@ -198,7 +198,6 @@ a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-off
 .skip:focus { left: 12px; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
-.ink2 { color: var(--ink-2); }
 button { cursor: pointer; }
 .app { display: grid; grid-template-columns: 72px minmax(0, 1fr); min-height: 100vh; }
 .tabs { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; flex-wrap: wrap; align-content: flex-start; gap: 4px; padding: 16px 8px; background: var(--surface); border-right: 1px solid var(--line); z-index: 20; }
@@ -234,6 +233,46 @@ button.chip:hover { background: var(--hover); }
 .find { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); color: var(--muted); }
 .find input { width: 168px; border: 0; background: none; outline: 0; font-size: 12px; color: var(--ink); }
 .find:focus-within { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.tmap { display: flex; flex-wrap: wrap; gap: 4px; }
+.sq { all: unset; box-sizing: border-box; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 4px; background: var(--c); color: var(--on-node); font: 600 11px var(--mono); cursor: pointer; }
+.sq:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.sq.s-rev { box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 4px var(--c); }
+.sq.s-prog { background: var(--surface); border: 3px solid var(--c); color: var(--ink); }
+.sq.s-blk { border-radius: 50%; }
+.sq.s-av { background: var(--surface); border: 1px dashed var(--ink-2); color: var(--ink-2); }
+.sq.s-wt { background: var(--hover); border: 1px solid var(--line-2); color: var(--ink-2); }
+.sq.late { box-shadow: 0 0 0 2px var(--blocked); }
+.sq.sm { width: 14px; height: 14px; font-size: 0; margin-right: 8px; vertical-align: -3px; }
+.sq.sm.s-prog { border-width: 2px; }
+.bbx summary { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 8px; align-items: baseline; cursor: pointer; min-height: 28px; }
+.bbx summary .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bbx details[open] summary .t { white-space: normal; }
+.mg { display: block; width: 100%; height: auto; }
+.ge { stroke: var(--line-2); stroke-width: 1; }
+.ge.on { stroke: var(--accent-line); stroke-width: 2; }
+.gn { cursor: pointer; outline: none; }
+.gn.dim { opacity: .3; }
+.gn:focus-visible > :first-child, .gn.sel > :first-child { stroke: var(--ink); stroke-width: 3; }
+.n-lesson > :first-child { fill: var(--accent-line); }
+.n-decision > :first-child { fill: var(--surface); stroke: var(--accent-line); stroke-width: 2; }
+.n-task > :first-child { fill: var(--claimed); }
+.n-file > :first-child { fill: var(--available); }
+.n-agent > :first-child { fill: var(--violet); }
+.gn text { font: 500 11px var(--mono); fill: var(--ink-2); }
+.sw.g-lesson { background: var(--accent-line); } .sw.g-decision { background: var(--surface); border: 2px solid var(--accent-line); }
+.sw.g-task { background: var(--claimed); } .sw.g-file { background: var(--available); transform: rotate(45deg) scale(.8); } .sw.g-agent { background: var(--violet); border-radius: 50%; }
+.sq.dim { opacity: .3; }
+.sq.w { box-shadow: 0 0 0 2px var(--orange); }
+.sq.u { box-shadow: 0 0 0 2px var(--violet); }
+.sq.sel { box-shadow: 0 0 0 2px var(--ink); }
+.depline { margin: 12px 0 0; min-height: 20px; color: var(--ink-2); }
+.dg { display: flex; align-items: stretch; gap: 0; }
+.dg > div { display: grid; gap: 8px; align-content: center; min-width: 0; flex: 1 1 0; }
+.dg .dl { flex: 0 0 24px; align-self: center; height: 2px; background: var(--line-2); }
+.dm { justify-items: center; padding: 12px; border: 2px solid var(--accent-line); border-radius: var(--r); text-align: center; background: var(--accent-wash); }
+.dn2 { display: grid; grid-template-columns: auto auto; gap: 4px 8px; justify-content: start; align-items: center; min-height: 44px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--raised); text-align: left; }
+.dn2:disabled { cursor: default; }
+.dn2 .muted { grid-column: 1 / -1; }
 .tid { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; min-height: 28px; cursor: pointer; font: 600 11px var(--mono); color: var(--ink-2); border-radius: 4px; }
 .tid:hover { color: var(--accent-ink); text-decoration: underline; }
 .tid:focus-visible, [data-story]:focus-visible, .chip:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
@@ -377,7 +416,6 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
 .tbl .n { text-align: right; font-variant-numeric: tabular-nums; }
 .bbx > li { display: grid; gap: 4px; }
 .bbx .top { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--muted); }
-.bbx .fix { color: var(--ink-2); font-size: 12px; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
 .filters .count { margin-left: auto; font-size: 12px; color: var(--muted); }
 .cv { display: grid; grid-template-columns: 280px minmax(0, 1fr) 264px; gap: 16px; align-items: start; }
@@ -487,6 +525,8 @@ dialog#story::backdrop { background: var(--scrim); }
   .st-h, .st-body { padding-left: 16px; padding-right: 16px; } .slegend, .crewrow { grid-template-columns: 1fr; }
   dialog#story { width: 100vw; border-left: 0; }
   .win-f > * { padding: 8px; }
+  .dg { flex-direction: column; } .dg .dl { width: 2px; height: 16px; flex: none; margin-left: 24px; }
+  .sq { width: 32px; height: 32px; } .sq.sm { width: 14px; height: 14px; }
   .tbl th, .tbl td { padding: 8px 4px; }
   .row { grid-template-columns: 32px minmax(0, 1fr); } .row .meta { grid-column: 2; white-space: normal; }
 }
@@ -525,8 +565,53 @@ dialog#story::backdrop { background: var(--scrim); }
 (function () {
   "use strict";
   function T(value) { return window.UAKWorkspace ? UAKWorkspace.t(value) : value; }
-  // Labels that workspace.js does not carry yet: the page holds their Spanish (single quotes: ES below is their catalog).
   var ES = {
+    'Not tied to a task': 'Sin tarea asociada',
+    'and': 'y',
+    'unblocks': 'desbloquea',
+    'is ready: nothing blocks it': 'está lista: nada la bloquea',
+    'cannot start: it waits for': 'no puede empezar: espera a',
+    'not in the plan': 'no está en el plan',
+    'cancelled': 'cancelada',
+    'Point at a task to see what it waits for': 'Apunta a una tarea para ver a qué espera',
+    'Waits for': 'Espera a',
+    'Unblocks': 'Desbloquea',
+    'Nothing: it starts on its own': 'Nada: empieza sola',
+    'Nothing waits for it': 'Nada espera por ella',
+    'further back': 'más atrás',
+    'Graph': 'Grafo',
+    'Show the memory as': 'Mostrar la memoria como',
+    'The graph needs a wider screen: showing the list.': 'El grafo necesita una pantalla más ancha: se muestra la lista.',
+    'Too few links for a graph': 'Muy pocos vínculos para un grafo',
+    'entries, of which': 'entradas, de las cuales',
+    'share a task, a file or an agent with another one.': 'comparten una tarea, un archivo o un agente con otra.',
+    'Memory graph': 'Grafo de la memoria',
+    'links': 'vínculos',
+    'Lesson': 'Lección',
+    'Decision': 'Decisión',
+    'File': 'Archivo',
+    'nodes': 'nodos',
+    'Click a node to read it.': 'Pulsa un nodo para leerlo.',
+    'entries link to nothing else and are only in the list.': 'entradas no se vinculan con nada y solo están en la lista.',
+    'Input': 'Entrada',
+    'Cache write': 'Escritura de caché',
+    'Cache read': 'Lectura de caché',
+    'Output': 'Salida',
+    'By model': 'Por modelo',
+    'By agent (owner of the task)': 'Por agente (dueño de la tarea)',
+    'integrated tasks with tokens': 'tareas integradas con tokens',
+    'average per integrated task': 'promedio por tarea integrada',
+    'median per integrated task': 'mediana por tarea integrada',
+    'The most expensive tasks': 'Las tareas más caras',
+    'Tokens carry no dates and no budget in the data this page reads, so there is no chart over time and no budget line.': 'Los tokens no traen fechas ni presupuesto en los datos que lee esta página, así que no hay gráfica en el tiempo ni línea de presupuesto.',
+    'All tasks': 'Todas las tareas',
+    'Map': 'Mapa',
+    'Cards': 'Tarjetas',
+    'Show the board as': 'Mostrar el tablero como',
+    'not recorded': 'sin registrar',
+    'Model and harness not recorded': 'Modelo y arnés sin registrar',
+    'Search the black box': 'Buscar en la caja negra',
+    'Try another kind or period, or clear the filters.': 'Prueba otro tipo o periodo, o borra los filtros.',
     'All': 'Todas',
     'My agents': 'Mis agentes',
     'For me': 'Para mí',
@@ -590,11 +675,11 @@ dialog#story::backdrop { background: var(--scrim); }
     ["talk", "Messages", "M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"], ["bb", "Black box", "M2.5 5 8 2.5 13.5 5v6L8 13.5 2.5 11zM2.5 5 8 7.5 13.5 5M8 7.5v6"], ["memory", "Memory", "M3 2.5h8a2 2 0 0 1 2 2v9H5a2 2 0 0 1-2-2zM5 11.5h8"], ["tokens", "Tokens", "M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11M8 5v6M6.2 9.5c.3.5 1 .8 1.8.8 1 0 1.8-.4 1.8-1.1S9 8 8 7.8 6.3 7.4 6.3 6.7 7 5.7 8 5.7c.7 0 1.3.3 1.6.8"]];
   var KC = { review: "review", approve: "integrated", integrated: "integrated", reject: "blocked", blocker: "blocked", request: "claimed", contract: "violet", human: "orange" };
   var LEASE = 14400, MAXTASKS = 8;
-  var ui = { tab: "sum", agent: "", task: "", kind: "", q: "", view: "list", period: 0, mf: "all", allDone: false, open: {}, more: {} };
+  var ui = { tab: "sum", agent: "", task: "", kind: "", q: "", view: "list", period: 0, mf: "all", bv: "map", mv: "list", bk: "", bh: "", bp: "", bq: "", allDone: false, open: {}, more: {} };
   var store = null; try { store = window.localStorage; } catch (e) {}
-  try { var saved = JSON.parse(store.getItem("uak-dash") || "{}"); ["tab", "agent", "task", "kind", "q", "view", "period", "mf"].forEach(function (k) { if (k in saved) ui[k] = saved[k]; }); } catch (e) {}
+  try { var saved = JSON.parse(store.getItem("uak-dash") || "{}"); ["tab", "agent", "task", "kind", "q", "view", "period", "mf", "bv", "mv", "bk", "bh", "bp", "bq"].forEach(function (k) { if (k in saved) ui[k] = saved[k]; }); } catch (e) {}
   function save() {
-    try { store.setItem("uak-dash", JSON.stringify({ tab: ui.tab, agent: ui.agent, task: ui.task, kind: ui.kind, q: ui.q, view: ui.view, period: ui.period, mf: ui.mf })); } catch (e) {}
+    try { store.setItem("uak-dash", JSON.stringify({ tab: ui.tab, agent: ui.agent, task: ui.task, kind: ui.kind, q: ui.q, view: ui.view, period: ui.period, mf: ui.mf, bv: ui.bv, mv: ui.mv, bk: ui.bk, bh: ui.bh, bp: ui.bp, bq: ui.bq })); } catch (e) {}
     try { history.replaceState(null, "", "#" + ui.tab); } catch (e) {}
   }
   function known(k) { return TABS.some(function (t) { return t[0] === k; }); }
@@ -602,6 +687,92 @@ dialog#story::backdrop { background: var(--scrim); }
   if (!known(ui.tab)) ui.tab = "sum";
   UAKLook.onchange(function () { reportSize(); });
 
+  /* logic:begin (pure functions, no DOM: test_dashboard_truth runs this section under node) */
+  var KIND = { exit1: "git error", exit2: "usage error", exit3: "conflict", exitguard: "guard block" };
+  function label(r) { return r.source === "agent" ? "note: " + r.kind : (KIND[r.kind] || r.kind); }
+  function depGraph(tasks) {
+    var g = { dep: {}, unb: {}, task: {} };
+    tasks.forEach(function (t) { g.task[t.id] = t; });
+    tasks.forEach(function (t) {
+      var seen = {};
+      g.dep[t.id] = ((t.depends || "").replace(/\([^)]*\)/g, "").match(/[A-Z][A-Z0-9]*-\d+/g) || []).filter(function (x) { if (x === t.id || seen[x]) return false; seen[x] = 1; return true; });
+    });
+    tasks.forEach(function (t) { g.dep[t.id].forEach(function (x) { (g.unb[x] = g.unb[x] || []).push(t.id); }); });
+    return g;
+  }
+  function kindOf(g, id) { var t = g.task[id]; return t ? t.state : "MISSING"; }
+  function unmet(g, id) { return (g.dep[id] || []).filter(function (x) { return kindOf(g, x) !== "INTEGRATED"; }).map(function (x) { return { id: x, state: kindOf(g, x) }; }); }
+  function behind(g, id) {
+    var seen = {}, out = [], todo = unmet(g, id).map(function (x) { return x.id; }), direct = {};
+    todo.forEach(function (x) { direct[x] = 1; });
+    while (todo.length) {
+      var x = todo.shift(); if (seen[x] || x === id) continue; seen[x] = 1;
+      unmet(g, x).forEach(function (y) { if (!seen[y.id] && y.id !== id) { if (!direct[y.id]) out.push(y); todo.push(y.id); } });
+    }
+    return out;
+  }
+  var TID = /\b[A-Z][A-Z0-9]*-\d+\b/g, FILE = /[\w.\/-]+\.(?:py|sh|js|html|md|txt|json|yml|tsv)\b/g;
+  function memGraph(lessons, decisions) {
+    var nodes = {}, edges = [], entries = [];
+    function node(id, type, lab) { return nodes[id] = nodes[id] || { id: id, type: type, label: lab, deg: 0 }; }
+    function entry(e, key, kind, who) {
+      var refs = {}, text = String(e.text || "");
+      (text.match(TID) || []).forEach(function (x) { refs["t:" + x] = ["task", x]; });
+      if (e.task && e.task !== "-") refs["t:" + e.task] = ["task", e.task];
+      (text.match(FILE) || []).forEach(function (x) { refs["f:" + x] = ["file", x]; });
+      String(e.paths || "").split(/,\s*/).forEach(function (x) { if (x) refs["f:" + x] = ["file", x]; });
+      if (who) refs["a:" + who] = ["agent", who];
+      entries.push({ id: key, kind: kind, text: text, who: who, t: e.t, refs: refs });
+    }
+    lessons.forEach(function (e, i) { entry(e, "l" + i, "lesson", e.agent); });
+    decisions.forEach(function (e, i) { entry(e, "d" + i, "decision", e.who); });
+    var count = {}; entries.forEach(function (e) { Object.keys(e.refs).forEach(function (k) { count[k] = (count[k] || 0) + 1; }); });
+    var linked = 0;
+    entries.forEach(function (e) {
+      var any = false;
+      Object.keys(e.refs).forEach(function (k) {
+        if (count[k] < 2) return;
+        any = true; var r = e.refs[k]; node(k, r[0], r[1]).deg++; edges.push([e.id, k]);
+      });
+      if (any) { node(e.id, e.kind, e.id).deg = 1; linked++; }
+    });
+    return { nodes: Object.keys(nodes).map(function (k) { return nodes[k]; }), edges: edges, entries: entries, linked: linked, isolated: entries.length - linked };
+  }
+  function layout(nodes, edges, w, h) {
+    var pos = {}, n = nodes.length, k = Math.sqrt(w * h / n) * .8, it = 220, i, j, m;
+    nodes.forEach(function (x, q) { var a = 6.2832 * q / n * 5.1, r = (.25 + .2 * ((q * 7) % 5) / 5); pos[x.id] = { x: w / 2 + Math.cos(a) * w * r, y: h / 2 + Math.sin(a) * h * r, dx: 0, dy: 0 }; });
+    for (m = 0; m < it; m++) {
+      var t = w / 8 * (1 - m / it) + 1;
+      nodes.forEach(function (x) { pos[x.id].dx = 0; pos[x.id].dy = 0; });
+      for (i = 0; i < n; i++) for (j = i + 1; j < n; j++) {
+        var a2 = pos[nodes[i].id], b2 = pos[nodes[j].id], dx = a2.x - b2.x, dy = a2.y - b2.y, d = Math.sqrt(dx * dx + dy * dy) + .01, f = k * k / d / d;
+        a2.dx += dx * f; a2.dy += dy * f; b2.dx -= dx * f; b2.dy -= dy * f;
+      }
+      edges.forEach(function (e) { var a2 = pos[e[0]], b2 = pos[e[1]], dx = a2.x - b2.x, dy = a2.y - b2.y, d = Math.sqrt(dx * dx + dy * dy) + .01, f = d / k; a2.dx -= dx * f; a2.dy -= dy * f; b2.dx += dx * f; b2.dy += dy * f; });
+      nodes.forEach(function (x) { var p = pos[x.id], d = Math.sqrt(p.dx * p.dx + p.dy * p.dy) + .01, s2 = Math.min(d, t) / d; p.x = Math.min(w - 20, Math.max(20, p.x + p.dx * s2)); p.y = Math.min(h - 20, Math.max(20, p.y + p.dy * s2)); });
+    }
+    return pos;
+  }
+  function bbFilter(recs, f, now) {
+    var PER = { d: 86400000, w: 7 * 86400000 }, ql = (f.q || "").toLowerCase();
+    return recs.filter(function (r) {
+      return (!f.k || label(r) === f.k) && (!f.h || r.harness === f.h) && (!f.p || now - Date.parse(r.time) <= PER[f.p]) && (!ql || (r.command + " " + r.what + " " + r.fix + " " + label(r)).toLowerCase().indexOf(ql) >= 0);
+    });
+  }
+  function tokenBreak(tk, tasks) {
+    var by = tk.by_task || {}, owner = {}, per = {}, top = [], done = [], untied = 0;
+    tasks.forEach(function (t) { owner[t.id] = t; });
+    Object.keys(by).forEach(function (id) {
+      var t = owner[id]; if (!t) { untied += by[id]; return; }
+      top.push({ id: id, n: by[id], state: t.state, owner: t.owner, title: t.title });
+      if (t && t.owner) per[t.owner] = (per[t.owner] || 0) + by[id];
+      if (t && t.state === "INTEGRATED") done.push(by[id]);
+    });
+    top.sort(function (a, b) { return b.n - a.n; }); done.sort(function (a, b) { return a - b; });
+    var sum = done.reduce(function (a, b) { return a + b; }, 0);
+    return { top: top, untied: untied, perAgent: per, done: done.length, avg: done.length ? Math.round(sum / done.length) : 0, median: done.length ? done[Math.floor(done.length / 2)] : 0 };
+  }
+  /* logic:end */
   function h(tag, attrs, kids) {
     var el = document.createElement(tag);
     if (attrs) for (var a in attrs) {
@@ -626,7 +797,6 @@ dialog#story::backdrop { background: var(--scrim); }
   function fnv(s) { var x = 2166136261; for (var i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619) >>> 0; } return x >>> 0; }
   function lang() { return window.UAKWorkspace ? UAKWorkspace.language() : undefined; }
 
-  // GitHub-style identicon: the mirrored pattern is the human's, the hue is the identity's; colours come from CSS.
   function identicon(name, human, size, isHuman) {
     var bits = fnv("p:" + (human || name)), hue = Math.round((fnv("c:" + name) * 137.508) % 360);
     var svg = document.createElementNS(NS, "svg");
@@ -660,8 +830,15 @@ dialog#story::backdrop { background: var(--scrim); }
   function tid(id) { return h("button", { "class": "tid", text: id, title: T("Conversation about ") + id, on: function (e) { e.stopPropagation(); openStory(id); } }); }
   function go(tab, extra) { ui.tab = tab; for (var k in (extra || {})) ui[k] = extra[k]; save(); render(); document.getElementById("view").scrollIntoView({ block: "start" }); }
 
+  var AGM = {}, DG = depGraph([]), SEL = "", ARMED = "", HOVER = !!(window.matchMedia && matchMedia("(hover: hover)").matches);
+  function models(d) {
+    AGM = {};
+    function note(a, m, hn) { var x = AGM[a] = AGM[a] || {}; if (m && m !== "unknown") x.model = m; if (hn && hn !== "unknown") x.harness = hn; }
+    d.tasks.forEach(function (t) { (t.harnesses || []).forEach(function (x) { note(x.agent, x.model, x.harness); }); });
+    Object.keys(d.timelines || {}).forEach(function (id) { d.timelines[id].agents.forEach(function (a) { note(a[0], a[1], a[2]); }); });
+  }
+  function mh(n) { var x = AGM[n] || {}; return x.model || x.harness ? [x.harness, x.model].filter(Boolean).join(" · ") : L('not recorded'); }
   var lastGen = -1, D = null, STATES = {}, focusTab = false;
-  // The setup server marks these (waiting_on, approved); `uak dash` on its own computes the same from claims.
   function waitingOn(t) {
     if (Object.prototype.toString.call(t.waiting_on) === "[object Array]") return t.waiting_on;
     if (t.state !== "AVAILABLE") return [];
@@ -678,7 +855,6 @@ dialog#story::backdrop { background: var(--scrim); }
     var last = d.reviews.filter(function (r) { return r.task === t.id; }).sort(function (a, b) { return (a.at || 0) - (b.at || 0); }).pop();
     return !!last && last.verdict === "approve";
   }
-  // Only the human queue is a person's job (a merge waiting for the queue is not), and reasons carry no disk path.
   function humanQueue(d) { return d.queue.filter(function (q) { return q.state === "HUMAN"; }); }
   function noPath(text) {
     return String(text || "").replace(/\s*\(log: [^)]*\)/g, "").replace(/(^|[\s"'=])(?:[A-Za-z]:[\\/]|\/)[^\s;,()]+/g, function (m, pre) {
@@ -699,7 +875,7 @@ dialog#story::backdrop { background: var(--scrim); }
   function render() {
     var d = window.UAK_DATA; if (!d) return;
     D = d; lastGen = d.generated;
-    AG = {}; d.agents.forEach(function (a) { AG[a.name] = a; });
+    AG = {}; d.agents.forEach(function (a) { AG[a.name] = a; }); models(d); DG = depGraph(d.tasks); SEL = "";
     var act = document.activeElement, caret = act && act.id === "q" ? act.selectionStart : -1;
     Object.keys(HEADING).forEach(function (key) { LABEL[key] = T(HEADING[key]); });
     STATES = {}; d.tasks.forEach(function (t) { STATES[t.id] = t.state; });
@@ -722,7 +898,6 @@ dialog#story::backdrop { background: var(--scrim); }
     if (d.freeze) { fz.hidden = false; fz.textContent = !frozenNow(d) ? T("Freeze in ") + ago(d.generated, d.freeze) : T("Frozen"); } else fz.hidden = true;
     fresh();
   }
-  // Freshness uses the real clock: a page whose data stopped moving says so instead of looking live.
   function fresh() {
     if (!D) return;
     var age = Math.max(0, Math.round(Date.now() / 1000 - D.generated)), stale = D.stale || age > Math.max(90, 3 * (D.refresh || 20));
@@ -734,7 +909,6 @@ dialog#story::backdrop { background: var(--scrim); }
   function tabs(d) {
     var counts = { sum: needs(d).length, board: null, agents: null, talk: null, bb: null, memory: null, tokens: null };
     var t = document.getElementById("tabs"); t.innerHTML = "";
-    // ARIA tabs: one tab stop, arrows/Home/End move and open; the count is its own word.
     TABS.forEach(function (x) {
       var on = ui.tab === x[0], n = counts[x[0]];
       t.appendChild(h("button", { "class": on ? "on" : "", role: "tab", id: "tab-" + x[0], "aria-selected": on ? "true" : "false", "aria-controls": "view", tabindex: on ? "0" : "-1", on: function () { ui.tab = x[0]; save(); render(); } },
@@ -753,7 +927,6 @@ dialog#story::backdrop { background: var(--scrim); }
     e.preventDefault(); ui.tab = keys[next]; focusTab = true; save(); render();
   });
 
-  // ---- What needs the person -------------------------------------------------------------------------------------
   function needs(d) {
     var out = [], g = d.generated;
     if (d.stale) out.push({ k: "warn", i: I.pause, t: [T("The remote did not answer: this is the last state this computer read.")], at: d.claims_at || 0 });
@@ -801,7 +974,6 @@ dialog#story::backdrop { background: var(--scrim); }
     return frame(b, list.length ? list.length + " " + L('things, the most urgent first') : "", null, h("div", { "class": "win" }, [ul, foot]));
   }
 
-  // ---- Tasks ---------------------------------------------------------------------------------------------------
   var STAGE = { AVAILABLE: 0, WAITING: 0, CLAIMED: 1, BLOCKED: 1, REVIEW: 2, INTEGRATED: 3 }, PILL = { CLAIMED: "p-prog", REVIEW: "p-rev", INTEGRATED: "p-int", BLOCKED: "p-blk" };
   function pipe(s) {
     var at = STAGE[s], ol = h("ol", { "class": "nodes pipe" + (s === "INTEGRATED" ? " int" : s === "BLOCKED" ? " blk" : ""), role: "img", "aria-label": rowLabel(s) });
@@ -813,7 +985,7 @@ dialog#story::backdrop { background: var(--scrim); }
     var g = D.generated, sub = t.sub;
     if (s === "REVIEW" && sub) return sub.text + " · " + span(g - sub.since);
     if (s === "AVAILABLE") return t.depends && t.depends !== "None" ? T("after ") + t.depends : T("free to claim");
-    if (s === "WAITING") return T("waits on ") + waitingOn(t).join(", ");
+    if (s === "WAITING") { var w = waitingOn(t); return T("waits on ") + w.slice(0, 2).join(", ") + (w.length > 2 ? " " + L('and') + " " + (w.length - 2) + " " + L('more') : ""); }
     if (t.stalled) return (t.owner || "") + " · " + T("stalled ") + t.stalled + " min";
     return (t.owner || "") + " · " + ago(t.progress_changed || t.updated || g, g);
   }
@@ -857,7 +1029,6 @@ dialog#story::backdrop { background: var(--scrim); }
     return frame(b, all.length + " " + T(" tasks"), x, h("div", {}, [todo ? h("p", { "class": "muted", style: "margin:0 0 8px", text: L('Nothing is moving: the next tasks to claim.') }) : null, body]));
   }
 
-  // ---- Who did what: the lanes of the agents, from the stories the page already carries ---------------------------------
   function lanesBlock(d, max, b) {
     var g = d.generated, segs = [], lastBy = {}, tls = d.timelines || {};
     Object.keys(tls).forEach(function (id) {
@@ -887,7 +1058,7 @@ dialog#story::backdrop { background: var(--scrim); }
         var tr = h("div", { "class": "track" });
         lanes[n].forEach(function (s) {
           var l = Math.max(0, (s.s - from) / (W * 3600)) * 100, w = (Math.min(g, s.e) - Math.max(from, s.s)) / (W * 3600) * 100;
-          tr.appendChild(h("span", { "class": "seg-b " + s.k + (s.late ? " late" : ""), style: "left:" + (s.k === "int" ? Math.min(98, l) : l) + "%;width:" + Math.max(w, 0.8) + "%", tip: s.id + " · " + (s.k === "int" ? T("Integrated") : s.k === "rev" ? T("In review") : T("In progress")) + (s.k === "int" ? "" : " · " + span(s.e - s.s)), text: s.k === "int" ? "" : w > 12 ? s.id.replace(/^[A-Z]+-/, "") : "" }));
+          tr.appendChild(h("span", { "class": "seg-b " + s.k + (s.late ? " late" : ""), style: "left:" + (s.k === "int" ? Math.min(98, l) : l) + "%;width:" + Math.max(w, 0.8) + "%", tip: s.a + " (" + mh(s.a) + ") · " + s.id + " · " + (s.k === "int" ? T("Integrated") : s.k === "rev" ? T("In review") : T("In progress")) + (s.k === "int" ? "" : " · " + span(s.e - s.s)), text: s.k === "int" ? "" : w > 12 ? s.id.replace(/^[A-Z]+-/, "") : "" }));
         });
         box.appendChild(h("div", { "class": "lane" }, [h("b", { text: n, title: n }), tr]));
       });
@@ -899,7 +1070,6 @@ dialog#story::backdrop { background: var(--scrim); }
     return frame(b, "", x, body);
   }
 
-  // ---- Side column -----------------------------------------------------------------------------------------------
   function progressBlock(d, max, b) {
     var p = d.progress, st = {}, waiting = d.tasks.filter(function (t) { return waitingOn(t).length; }).length;
     for (var k in p.states) st[k] = p.states[k];
@@ -935,7 +1105,7 @@ dialog#story::backdrop { background: var(--scrim); }
     var online = list.filter(function (a) { return a.status === "online"; }), ul = h("ul", { "class": "list ppl" });
     list.slice(0, max).forEach(function (a) {
       var t = a.tasks[0];
-      ul.appendChild(h("li", { "class": a.status === "online" || a.status === "recent" ? "" : "off" }, [avatar(a.name, 24), h("div", { style: "min-width:0" }, [h("b", { text: a.name }), h("small", { text: t ? rowLabel(t.state) + " " + t.id : T("No live task") })]), h("span", { "class": "muted num", text: a.last_seen ? ago(a.last_seen, d.generated) : T("never seen") })]));
+      ul.appendChild(h("li", { "class": a.status === "online" || a.status === "recent" ? "" : "off" }, [avatar(a.name, 24), h("div", { style: "min-width:0" }, [h("b", { text: a.name }), h("small", { text: (t ? rowLabel(t.state) + " " + t.id : T("No live task")) + " · " + mh(a.name) })]), h("span", { "class": "muted num", text: a.last_seen ? ago(a.last_seen, d.generated) : T("never seen") })]));
     });
     if (!list.length) ul.appendChild(h("li", { "class": "empty" }, [h("b", { text: T("No agents yet") }), T("An agent appears here after its first uak command.")]));
     if (list.length > max) ul.appendChild(h("li", { "class": "mre" }, [h("button", { "class": "more", text: "+" + (list.length - max) + " · " + T("Agents"), on: function () { go("agents"); } })]));
@@ -949,8 +1119,43 @@ dialog#story::backdrop { background: var(--scrim); }
     hs.forEach(function (k, i) { kv.appendChild(h("dt", { text: k })); kv.appendChild(h("dd", { style: "margin:0" }, [h("b", { text: M(t.by_harness[k]) })])); if (i < 2) meter.appendChild(h("i", { style: "width:" + 100 * t.by_harness[k] / t.total + "%" })); });
     return frame(b, "", null, h("div", { "class": "card pad" }, [h("div", { "class": "big" }, [h("b", { text: M(t.total) }), h("span", { text: T("Tokens spent") })]), meter, kv]));
   }
+  // Every task as one small square: state by colour and by shape, the number inside, the rest on hover or in the detail.
+  var SQ = { INTEGRATED: "int", REVIEW: "rev", CLAIMED: "prog", BLOCKED: "blk", AVAILABLE: "av", WAITING: "wt" };
+  function depWords(id) {
+    var t = DG.task[id]; if (!t) return id;
+    var u = unmet(DG, id), n = u.length, up = (DG.unb[id] || []).length;
+    if (t.state !== "AVAILABLE") return id + " · " + rowLabel(t.state) + (up ? " · " + L('unblocks') + " " + up : "");
+    if (!n) return id + " " + L('is ready: nothing blocks it') + (up ? " · " + L('unblocks') + " " + up : "");
+    return id + " " + L('cannot start: it waits for') + " " + n + " " + (n === 1 ? T(" task").trim() : T(" tasks").trim()) + " — " + u.slice(0, 3).map(function (x) { return x.id + " (" + depState(x.state) + ")"; }).join(", ") + (n > 3 ? ", " + L('and') + " " + (n - 3) + " " + L('more') : "");
+  }
+  function depState(s) { return s === "MISSING" ? L('not in the plan') : s === "CANCELLED" ? L('cancelled') : rowLabel(s); }
+  function pick(id) {
+    SEL = id; var w = {}, u = {};
+    if (id) { unmet(DG, id).forEach(function (x) { w[x.id] = 1; }); (DG.unb[id] || []).forEach(function (x) { u[x] = 1; }); }
+    Array.prototype.forEach.call(document.querySelectorAll(".sq[data-id]"), function (b) { var x = b.getAttribute("data-id"); b.classList.toggle("dim", !!id && x !== id && !w[x] && !u[x]); b.classList.toggle("w", !!w[x]); b.classList.toggle("u", !!u[x]); b.classList.toggle("sel", x === id); });
+    Array.prototype.forEach.call(document.querySelectorAll(".depline"), function (p) { p.textContent = id ? depWords(id) : L('Point at a task to see what it waits for'); });
+  }
+  function depline() { return h("p", { "class": "depline", role: "status", text: L('Point at a task to see what it waits for') }); }
+  function squares(list) {
+    var box = h("div", { "class": "tmap", role: "list" });
+    list.forEach(function (t) {
+      var s = stateOf(t), tip = t.id + " · " + (s === "WAITING" ? T("Waiting") : rowLabel(s)) + (t.owner ? " · " + t.owner : "") + " · " + (t.title || ""), b = h("button", { "class": "sq s-" + SQ[s] + (late(t) ? " late" : ""), type: "button", role: "listitem", "data-id": t.id, style: "--c:" + color(s), tip: tip, "aria-label": tip, text: t.id.replace(/^[A-Z]+-0*/, "") || t.id });
+      if (HOVER) { b.addEventListener("mouseenter", function () { pick(t.id); }); b.addEventListener("mouseleave", function () { pick(""); }); b.addEventListener("focus", function () { pick(t.id); }); b.addEventListener("blur", function () { pick(""); }); }
+      b.addEventListener("click", function () { if (HOVER || ARMED === t.id) { ARMED = ""; openStory(t.id); } else { ARMED = t.id; pick(t.id); } });
+      box.appendChild(b);
+    });
+    return box;
+  }
+  document.addEventListener("click", function (e) { if (!HOVER && !(e.target.closest && e.target.closest(".sq"))) { ARMED = ""; if (SEL) pick(""); } });
+  function mapBlock(d, max, b) {
+    var all = d.tasks.filter(function (t) { return t.state !== "CANCELLED"; }), list = all.filter(match).sort(function (a, c) { return a.id < c.id ? -1 : 1; }), st = {};
+    all.forEach(function (t) { var s = stateOf(t); st[s] = (st[s] || 0) + 1; });
+    var leg = h("div", { "class": "legend" }, BAR.filter(function (s) { return st[s]; }).map(function (s) { return h("span", {}, [h("i", { "class": "sq sm s-" + SQ[s], style: "--c:" + color(s), "aria-hidden": "true" }), (s === "WAITING" ? T("Waiting") : rowLabel(s)) + " " + st[s]]); }));
+    return frame(b, all.length + " " + T(" tasks"), null, h("div", { "class": "card pad" }, [list.length ? squares(list) : h("span", { "class": "muted", text: T("No messages match") }), depline(), leg]));
+  }
   var BLOCKS = [
     { name: "needs", title: function () { return L('Needs you'); }, col: "main", max: 6, render: needsBlock },
+    { name: "map", title: function () { return L('All tasks'); }, col: "main", max: 999, render: mapBlock },
     { name: "tasks", title: function () { return T("Tasks"); }, col: "main", max: MAXTASKS, render: tasksBlock },
     { name: "lanes", title: function () { return L('Who did what'); }, col: "main", max: 4, render: lanesBlock },
     { name: "progress", title: function () { return L('Progress'); }, col: "side", max: 24, render: progressBlock },
@@ -975,7 +1180,6 @@ dialog#story::backdrop { background: var(--scrim); }
     v.appendChild(h("div", { "class": "page", style: empty ? "grid-template-columns:minmax(0,1fr)" : null }, [cols.main, cols.side]));
   }
 
-  // ---- Board: four stages. Blocked and late are conditions on the card, not columns. ---------------------------------
   var GROUPS = [["cifail", "Approved, CI failed"], ["changes", "Changes requested"], ["human", "Waiting for a human merge"], ["waiting", "Waiting for a reviewer"], ["rereview", "Re-review"],
                 ["review", "In review"], ["owner", "Approved, owner to merge"]];
   // REVIEW: one group per sub-state (lib/dash.py review_substate; the words are the same as `uak status`): who has to act comes first.
@@ -1022,7 +1226,7 @@ dialog#story::backdrop { background: var(--scrim); }
   function board(v, d) {
     viewHeading(v, T("Board"));
     var wrap = h("div", { "class": "wide" }), g = d.generated;
-    wrap.appendChild(h("div", { "class": "bh" }, [h("h2", { text: T("Board") }), h("span", { "class": "n", text: d.tasks.filter(function (t) { return t.state !== "CANCELLED"; }).length + " " + T(" tasks") }), h("div", { "class": "x" }, [find(render)])]));
+    wrap.appendChild(h("div", { "class": "bh" }, [h("h2", { text: T("Board") }), h("span", { "class": "n", text: d.tasks.filter(function (t) { return t.state !== "CANCELLED"; }).length + " " + T(" tasks") }), h("div", { "class": "x" }, [find(render), seg([["map", L('Map')], ["cols", L('Cards')]], ui.bv, function (x) { ui.bv = x; save(); render(); }, L('Show the board as'))])]));
     var by = { todo: [], prog: [], rev: [], done: [] };
     d.tasks.forEach(function (t) { if (!match(t)) return; var s = stateOf(t); (s === "AVAILABLE" || s === "WAITING" ? by.todo : s === "CLAIMED" || s === "BLOCKED" ? by.prog : s === "REVIEW" ? by.rev : s === "INTEGRATED" ? by.done : []).push(t); });
     by.done.sort(function (a, b) { return (b.updated || 0) - (a.updated || 0) || (a.id < b.id ? 1 : -1); });
@@ -1033,6 +1237,14 @@ dialog#story::backdrop { background: var(--scrim); }
       ["prog", T("In progress"), "CLAIMED", by.prog.length ? (stuck ? T("Stalled") + " / " + T("Blocked") + " " + stuck : T("every task is moving")) : T("Nobody is on a task"), stuck > 0],
       ["rev", T("In review"), "REVIEW", by.rev.length ? (waiting ? T("Reviews waiting") + " " + waiting : T("Waiting for review")) + (revLate ? " · " + revLate + " " + T("over the review lease") : "") : T("Empty"), revLate > 0],
       ["done", T("Integrated"), "INTEGRATED", by.done.length ? L('last') + " " + ago(by.done[0].updated || g, g) + T(" ago") : T("Empty"), false]];
+    if (ui.bv !== "cols") {
+      wrap.appendChild(depline());
+      cols.forEach(function (c) {
+        var list = by[c[0]];
+        wrap.appendChild(h("section", { "class": "card pad", style: "margin-bottom:12px", "aria-label": c[1] }, [h("div", { "class": "bh" }, [h("h2", { text: c[1] }), h("span", { "class": "n", text: String(list.length) }), h("div", { "class": "x", text: c[3] })]), list.length ? squares(list) : h("span", { "class": "muted", text: T("Empty") })]));
+      });
+      v.appendChild(wrap); return;
+    }
     var bd = h("div", { "class": "bd" });
     cols.forEach(function (c) {
       var list = by[c[0]], cut = ui.more[c[0]] ? list.length : MAXTASKS, body = h("div", { "class": "bb" });
@@ -1060,8 +1272,7 @@ dialog#story::backdrop { background: var(--scrim); }
         ul.appendChild(h("li", { "class": "row" }, [avatar(a.name, 32), h("div", { style: "min-width:0" }, [
           h("div", { "class": "who" }, [h("b", { text: a.name }), a.is_human ? h("span", { "class": "tag info", text: T("human") }) : a.human && a.human !== a.name ? h("span", { "class": "muted", text: a.human }) : null,
             a.role === "reviewer" ? h("span", { "class": "tag", text: T("reviewer") }) : null]),
-          // last_seen 0: registered but never active (UI-012: "20770 d ago" was the time since 1970).
-          h("div", { "class": "sub" }, [pres(a.status), " " + T(a.status) + " · " + (a.last_seen ? ago(a.last_seen, d.generated) + T(" ago") : T("never seen"))]),
+          h("div", { "class": "sub" }, [pres(a.status), " " + T(a.status) + " · " + (a.last_seen ? ago(a.last_seen, d.generated) + T(" ago") : T("never seen")) + (a.is_human ? "" : " · " + mh(a.name))]),
           h("div", { "class": "chips" }, a.tasks.length ? a.tasks.map(function (t) { return h("button", { "class": "chip", on: function () { openStory(t.id); } }, [h("i", { "class": "sw", style: "--c:" + color(t.state), "aria-hidden": "true" }), h("span", { "class": "mono", text: t.id }), h("span", { "class": "muted", text: rowLabel(t.state) })]); }) : [h("span", { "class": "muted", text: T("No live task") })])]),
           h("span", { "class": "meta num", text: a.messages + " " + T("messages") + " · " + a.verdicts + " " + T("verdicts") + " · " + a.checkpoints + " " + T("checkpoints") })]));
       });
@@ -1174,8 +1385,6 @@ dialog#story::backdrop { background: var(--scrim); }
     requestAnimationFrame(function () { Array.prototype.forEach.call(chat.querySelectorAll(".bub.clamp"), function (el) { if (el.scrollHeight <= el.clientHeight + 2) { el.classList.remove("clamp"); if (el.nextSibling) el.nextSibling.remove(); } }); });
   }
 
-  var KIND = { exit1: "git error", exit2: "usage error", exit3: "conflict", exitguard: "guard block" };
-  function label(r) { return r.source === "agent" ? "note: " + r.kind : (KIND[r.kind] || r.kind); }
   function hbars(obj, fmt, limit) {
     var keys = Object.keys(obj).sort(function (a, b) { return obj[b] - obj[a]; }).slice(0, limit || 20), max = keys.length ? obj[keys[0]] : 1, g = h("div", { "class": "hb" });
     keys.forEach(function (k) {
@@ -1204,18 +1413,35 @@ dialog#story::backdrop { background: var(--scrim); }
       t2.appendChild(h("tr", {}, [hn, String(cl), r(u.map || 0, cl), r(u.lens || 0, cl), r(u.wait || 0, dn), r((u.status || 0) + (u.inbox || 0) + (u.board || 0) + (u.digest || 0), dn)].map(function (x, i) { return h("td", { "class": i ? "n" : null, text: x }); })));
     });
     g.appendChild(panel(T("Harness adoption"), T("agent calls per claim and per done"), Object.keys(d.usage).length ? t2 : none(T("No usage recorded yet."))));
+    var recs = d.blackbox.slice().reverse(), counts = {}, hs = {}; recs.forEach(function (r) { var k = label(r); counts[k] = (counts[k] || 0) + 1; hs[r.harness] = 1; });
+    var list = bbFilter(recs, { k: ui.bk, h: ui.bh, p: ui.bp, q: ui.bq }, d.generated * 1000);
+    var q = h("input", { type: "search", placeholder: L('Search the black box'), value: ui.bq, "aria-label": L('Search the black box') }), timer = 0;
+    q.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(function () { ui.bq = q.value; save(); render(); }, 150); });
+    var hsel = h("select", { "aria-label": T("Harness") }, [h("option", { value: "", text: T("Harness") })].concat(Object.keys(hs).sort().map(function (x) { var o = h("option", { value: x, text: x }); if (ui.bh === x) o.selected = true; return o; })));
+    hsel.addEventListener("change", function () { ui.bh = hsel.value; save(); render(); });
+    var f = h("div", { "class": "filters", role: "search" }, [h("label", { "class": "find" }, [icon(I.find), q]), hsel, seg([["", T("Auto")], ["d", "24 h"], ["w", "7 " + T("days")]], ui.bp, function (x) { ui.bp = x; save(); render(); }, L('Period'))]);
+    if (ui.bk || ui.bh || ui.bp || ui.bq) f.appendChild(h("button", { "class": "clear", text: T("Clear filters"), on: function () { ui.bk = ui.bh = ui.bp = ui.bq = ""; save(); render(); } }));
+    f.appendChild(h("span", { "class": "count", text: list.length + " / " + recs.length }));
+    var kinds = h("div", { "class": "chips", style: "margin:0 0 16px" }, Object.keys(counts).sort(function (a, c) { return counts[c] - counts[a]; }).map(function (k) {
+      return h("button", { "class": "chip", type: "button", "aria-pressed": String(ui.bk === k), style: ui.bk === k ? "background:var(--accent-wash)" : null, on: function () { ui.bk = ui.bk === k ? "" : k; save(); render(); } }, [k, h("b", { "class": "num", text: String(counts[k]) })]);
+    }));
     var ul = h("ul", { "class": "list bbx" });
-    capped(ul, "bb", d.blackbox.slice(-150).reverse(), function (r) {
-      var k = label(r), err = /error|conflict|guard/.test(k);
-      return (h("li", {}, [h("div", { "class": "top" }, [h("span", { "class": "mono num", text: r.time.replace(/^\d{4}-/, "").replace("T", " ").replace(/:\d\dZ?$|Z$/, "") }), h("span", { text: r.harness }), h("span", { "class": "tag" + (err ? " crit" : r.source === "agent" ? " info" : ""), text: k })]),
-        h("div", {}, [r.command !== "-" ? h("span", { "class": "mono ink2", text: r.command + "  " }) : null, r.what]), r.fix && r.fix !== "-" ? h("div", { "class": "fix", text: r.fix }) : null]));
+    capped(ul, "bb", list, function (r) {
+      var k = label(r), err = /error|conflict|guard/.test(k), when = r.time.replace(/^\d{4}-/, "").replace("T", " ").replace(/:\d\dZ?$|Z$/, "");
+      return h("li", {}, [h("details", {}, [h("summary", {}, [h("span", { "class": "mono num", text: when }), h("span", { "class": "tag" + (err ? " crit" : r.source === "agent" ? " info" : ""), text: k }), h("span", { "class": "t", text: (r.command !== "-" ? r.command + " " : "") + r.what })]),
+        h("dl", { "class": "kv", style: "margin-top:8px" }, [["command", r.command], [T("Time"), r.time], [T("Harness"), r.harness + " · kit " + r.kit], [T("What happened"), r.what], [T("Fix"), r.fix]].reduce(function (a, x) { return x[1] && x[1] !== "-" ? a.concat([h("dt", { text: x[0] }), h("dd", { style: "margin:0;text-align:left;overflow-wrap:anywhere", text: x[1] })]) : a; }, []))])]);
     });
-    var notes = panel(T("Agent notes and kit errors"), T("newest first"), d.blackbox.length ? ul : none(T("The black box is empty.")));
+    var notes = panel(T("Agent notes and kit errors"), T("newest first"), !d.blackbox.length ? none(T("The black box is empty.")) : list.length ? h("div", {}, [ul]) : none(T("No messages match"), L('Try another kind or period, or clear the filters.')));
+    wrap.insertBefore(f, g); wrap.insertBefore(kinds, g);
     notes.style.marginTop = "16px"; wrap.appendChild(notes);
   }
   function memory(v, d) {
     viewHeading(v, T("Memory"));
-    var wrap = h("div", { "class": "wide" }), g = h("div", { "class": "g2" }); v.appendChild(wrap); wrap.appendChild(g);
+    var wrap = h("div", { "class": "wide" }), g = h("div", { "class": "g2" }); v.appendChild(wrap);
+    var wide = window.innerWidth >= 640, graph = ui.mv === "graph" && wide;
+    wrap.appendChild(h("div", { "class": "filters" }, [seg([["list", L('List')], ["graph", L('Graph')]], ui.mv, function (x) { ui.mv = x; save(); render(); }, L('Show the memory as')), ui.mv === "graph" && !wide ? h("span", { "class": "muted", text: L('The graph needs a wider screen: showing the list.') }) : null]));
+    if (graph) { memGraphView(wrap, d); return; }
+    wrap.appendChild(g);
     var l = h("ul", { "class": "list" });
     capped(l, "les", d.lessons.slice().reverse(), function (x) { return (h("li", { "class": "row", style: "grid-template-columns:24px minmax(0,1fr)" }, [avatar(x.agent, 24), h("div", { style: "min-width:0" }, [h("div", {}, [rich(x.text)]), h("div", { "class": "sub" }, [x.agent, x.task !== "-" ? " · " : "", x.task !== "-" ? tid(x.task) : null, x.paths ? " · " + x.paths : ""])])])); });
     g.appendChild(panel(T("Lessons"), "uak learn", d.lessons.length ? l : none(T("No lessons yet"), L('What an agent learns the hard way shows up here.'))));
@@ -1223,18 +1449,63 @@ dialog#story::backdrop { background: var(--scrim); }
     capped(dc, "dec", d.decisions.slice().reverse(), function (x) { return (h("li", { "class": "row", style: "grid-template-columns:24px minmax(0,1fr)" }, [avatar(x.who || "?", 24), h("div", { style: "min-width:0" }, [h("div", {}, [rich(x.text)]), h("div", { "class": "sub" }, [h("span", { "class": "tag", text: x.kind }), " " + x.who + " · " + ago(x.t, d.generated) + T(" ago")])])])); });
     g.appendChild(panel(T("Decisions"), "DECISIONS.md", d.decisions.length ? dc : none(T("No decisions yet"), L('Agreed contracts and calls land here.'))));
   }
+  var SEL_NODE = "";
+  function memGraphView(wrap, d) {
+    var mg = memGraph(d.lessons, d.decisions), W = 1100, H = 600, SV = "http://www.w3.org/2000/svg";
+    if (mg.nodes.length < 4) { wrap.appendChild(h("div", { "class": "card empty" }, [h("b", { text: L('Too few links for a graph') }), mg.entries.length + " " + L('entries, of which') + " " + mg.linked + " " + L('share a task, a file or an agent with another one.')])); return; }
+    var pos = layout(mg.nodes, mg.edges, W, H), by = {}, near = {}; mg.nodes.forEach(function (x) { by[x.id] = x; });
+    var sel = SEL_NODE && by[SEL_NODE] ? SEL_NODE : "";
+    mg.edges.forEach(function (e) { if (e[0] === sel) near[e[1]] = 1; if (e[1] === sel) near[e[0]] = 1; });
+    var svg = document.createElementNS(SV, "svg"); svg.setAttribute("viewBox", "0 0 " + W + " " + H); svg.setAttribute("class", "mg"); svg.setAttribute("role", "group"); svg.setAttribute("aria-label", L('Memory graph'));
+    function el(tag, at, parent) { var e = document.createElementNS(SV, tag); for (var k in at) e.setAttribute(k, at[k]); (parent || svg).appendChild(e); return e; }
+    mg.edges.forEach(function (e) { var a = pos[e[0]], b = pos[e[1]]; el("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, "class": "ge" + (sel && (e[0] === sel || e[1] === sel) ? " on" : "") }); });
+    mg.nodes.forEach(function (x) {
+      var p = pos[x.id], r = x.type === "lesson" || x.type === "decision" ? 5 : 6 + Math.min(8, x.deg), on = sel === x.id, dim = sel && !on && !near[x.id];
+      var g = el("g", { "class": "gn n-" + x.type + (on ? " sel" : "") + (dim ? " dim" : ""), tabindex: "0", role: "button", "aria-label": x.type + " " + x.label + ", " + x.deg + " " + L('links') }), shape;
+      if (x.type === "task") shape = el("rect", { x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r, rx: 3 }, g);
+      else if (x.type === "file") shape = el("rect", { x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r, transform: "rotate(45 " + p.x + " " + p.y + ")" }, g);
+      else shape = el("circle", { cx: p.x, cy: p.y, r: r }, g);
+      if (x.type !== "lesson" && x.type !== "decision" && x.deg >= 3) { var tx = el("text", { x: p.x + r + 4, y: p.y + 4 }, g); tx.textContent = x.label.length > 22 ? "…" + x.label.slice(-21) : x.label; }
+      var t2 = el("title", {}, g); t2.textContent = x.type + " · " + x.label;
+      function choose() { SEL_NODE = SEL_NODE === x.id ? "" : x.id; render(); }
+      g.addEventListener("click", choose); g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); } });
+    });
+    var leg = h("div", { "class": "legend" }, [["lesson", L('Lesson')], ["decision", L('Decision')], ["task", T("Tasks")], ["file", L('File')], ["agent", T("Agents")]].map(function (x) { return h("span", {}, [h("i", { "class": "sw g-" + x[0], "aria-hidden": "true" }), x[1]]); }));
+    var panel2 = h("div", { "class": "card pad", style: "margin-top:12px" });
+    if (!sel) panel2.appendChild(h("span", { "class": "muted", text: mg.nodes.length + " " + L('nodes') + " · " + mg.edges.length + " " + L('links') + " · " + L('Click a node to read it.') + " " + mg.isolated + " " + L('entries link to nothing else and are only in the list.') }));
+    else {
+      var x = by[sel], es = mg.entries.filter(function (e) { return e.id === sel || e.refs[sel]; });
+      panel2.appendChild(h("div", { "class": "bh" }, [h("h2", { text: x.type + " · " + x.label }), h("span", { "class": "n", text: x.deg + " " + L('links') })]));
+      es.slice(0, 8).forEach(function (e) { panel2.appendChild(h("div", { style: "padding:8px 0;border-top:1px solid var(--line)" }, [h("div", { "class": "sub muted", text: e.kind + " · " + (e.who || "") + (e.t ? " · " + ago(e.t, d.generated) + T(" ago") : "") }), h("div", {}, [rich(e.text)]), h("button", { "class": "chip", type: "button", text: e.id, on: function () { SEL_NODE = e.id; render(); } })])); });
+      if (es.length > 8) panel2.appendChild(h("div", { "class": "muted", text: "+" + (es.length - 8) + " " + L('more') }));
+    }
+    wrap.appendChild(h("div", { "class": "card" }, [svg, leg])); wrap.appendChild(panel2);
+  }
   function tokens(v, d) {
     viewHeading(v, T("Tokens"));
     var t = d.tokens, wrap = h("div", { "class": "wide" }); v.appendChild(wrap);
-    wrap.appendChild(h("div", { "class": "card pad", style: "margin-bottom:16px" }, [h("h2", { "style": "margin:0;font-size:13px", text: T("Tokens spent") }), h("div", { "class": "total num", text: t.total ? M(t.total) : "–" }),
-      h("div", { "class": "muted", text: t.total ? T("published by every machine with uak tokens") : T("No machine has published its spend yet: uak tokens --publish") })]));
-    if (!t.total) return;
+    if (!t.total) { wrap.appendChild(h("div", { "class": "card empty" }, [h("b", { text: T("Tokens spent") + " · 0" }), T("No machine has published its spend yet: uak tokens --publish")])); return; }
+    var tb = tokenBreak(t, d.tasks), kinds = t.by_kind || {}, kt = ["input", "cache_write", "cache_read", "output"], KL = { input: L('Input'), cache_write: L('Cache write'), cache_read: L('Cache read'), output: L('Output') };
+    var head = h("div", { "class": "card pad", style: "margin-bottom:16px" }, [h("div", { "class": "big" }, [h("b", { text: M(t.total) }), h("span", { text: T("Tokens spent") + " · " + T("published by every machine with uak tokens") })])]);
+    var ksum = kt.reduce(function (a, k) { return a + (kinds[k] || 0); }, 0);
+    if (ksum) {
+      var bar = h("div", { "class": "stack", role: "img", "aria-label": kt.map(function (k) { return KL[k] + " " + M(kinds[k] || 0); }).join(", ") }), kv = h("dl", { "class": "kv" });
+      kt.forEach(function (k, i) { if (!kinds[k]) return; bar.appendChild(h("i", { style: "--c:var(--" + ["accent-line", "violet", "available", "integrated"][i] + ");flex:" + kinds[k] + " 1 0", tip: KL[k] + " · " + M(kinds[k]) })); kv.appendChild(h("dt", {}, [h("i", { "class": "sw", style: "--c:var(--" + ["accent-line", "violet", "available", "integrated"][i] + ")" }), KL[k]])); kv.appendChild(h("dd", { style: "margin:0" }, [h("b", { text: M(kinds[k]) + " · " + Math.round(100 * kinds[k] / ksum) + "%" })])); });
+      head.appendChild(bar); head.appendChild(kv);
+    }
+    wrap.appendChild(head);
+    var named = function (o) { var r = {}; Object.keys(o || {}).forEach(function (k) { r[k === "unknown" ? L('not recorded') : k] = o[k]; }); return r; };
     var g = h("div", { "class": "g2" }); wrap.appendChild(g);
-    [[T("By task"), t.by_task, 15], [T("By harness"), t.by_harness], [T("By scope"), t.by_scope]].forEach(function (x) { g.appendChild(panel(x[0], "", hbars(x[1], M, x[2]))); });
+    [[T("By harness"), named(t.by_harness)], [L('By model'), named(t.by_model)], [T("By scope"), named(t.by_scope)], [L('By agent (owner of the task)'), tb.perAgent]].forEach(function (x) { if (Object.keys(x[1]).length) g.appendChild(panel(x[0], "", hbars(x[1], M, 10))); });
+    var ul = h("ul", { "class": "list rows" }), max = tb.top.length ? tb.top[0].n : 1;
+    tb.top.slice(0, 10).forEach(function (x) { var st = DG.task[x.id] ? stateOf(DG.task[x.id]) : ""; ul.appendChild(storyable(h("li", {}, [h("span", { "class": "pill " + (PILL[st] || ""), text: st ? rowLabel(st) : L('not in the plan') }), tid(x.id), h("span", { "class": "t", text: x.title || "", title: x.title }), h("span", { "class": "meter", style: "margin:0" }, [h("i", { style: "width:" + Math.max(2, 100 * x.n / max) + "%" })]), h("span", { "class": "w num", text: M(x.n) })]), x.id)); });
+    var foot = h("div", { "class": "win-f" }, [figure("", tb.done, L('integrated tasks with tokens'), ""), figure("", tb.done ? M(tb.avg) : "–", L('average per integrated task'), ""), figure("", tb.done ? M(tb.median) : "–", L('median per integrated task'), "")]);
+    wrap.appendChild(h("div", { style: "margin-top:16px" }, [panel(L('The most expensive tasks'), String(Object.keys(t.by_task).length) + " " + T(" tasks"), h("div", {}, [ul, foot]))]));
+    if (tb.untied) wrap.appendChild(h("p", { "class": "muted", style: "margin-top:16px", text: L('Not tied to a task') + ": " + M(tb.untied) }));
+    wrap.appendChild(h("p", { "class": "muted", style: "margin-top:16px", text: L('Tokens carry no dates and no budget in the data this page reads, so there is no chart over time and no budget line.') }));
   }
 
   // A task's story (UAK-120): d.timelines[ID] is the compact copy of `uak timeline ID` (lib/dash.py compact_timeline), so
-  // the page needs nothing but data.js. Open tasks and the last closed ones are embedded; for the rest it names the command.
   var SK = { plan: ["var(--muted)", "M3 4h10M3 8h10M3 12h6", "planned"], amend: ["var(--violet)", "M3 13l1-3 7-7 2 2-7 7z", "amended"], decision: ["var(--muted)", "M8 2l6 6-6 6-6-6z", "decision"], claim: ["var(--claimed)", "M5 3l8 5-8 5z", "claimed"],
     takeover: ["var(--orange)", "M3 6h10M10 3l3 3-3 3M13 10H3M6 7l-3 3 3 3", "takeover"], checkpoint: ["var(--muted)", "", "checkpoint"], lease: ["var(--muted)", "", "lease"], red: ["var(--violet)", "M6 2h4M7 2v4L3 13h10L9 6V2", "red test"],
     done: ["var(--review)", "M8 13V3M4 7l4-4 4 4", "done"], tip: ["var(--review)", "M13 8a5 5 0 1 1-1.5-3.5M13 2v3h-3", "new tip"], approve: ["var(--integrated)", "M3 8.5l3 3 7-7", "approved"], reject: ["var(--blocked)", "M4 4l8 8M12 4l-8 8", "rejected"],
@@ -1246,7 +1517,6 @@ dialog#story::backdrop { background: var(--scrim); }
     if (x.indexOf("ci failed") > -1) return "var(--critical)"; if (x.indexOf("approved") === 0) return "var(--integrated)"; return "var(--review)"; };
   var PILL = { CLAIMED: "p-prog", REVIEW: "p-rev", INTEGRATED: "p-int", BLOCKED: "p-blk" };
   var LIFE = ["Claimed", "In progress", "In review", "Integrated"];
-  // The line of nodes: where the task is in its life. Blocked and waiting tasks stand before the first node.
   function lifeLine(state) {
     var at = { CLAIMED: 1, REVIEW: 2, INTEGRATED: 3 }[state], ol = h("ol", { "class": "nodes", "aria-label": T("Your journey") });
     LIFE.forEach(function (name, i) { ol.appendChild(h("li", { "class": at !== undefined && i <= at ? "on" : "", "aria-current": i === at ? "step" : null }, [h("i", {}), h("span", { text: T(name) })])); });
@@ -1278,13 +1548,23 @@ dialog#story::backdrop { background: var(--scrim); }
         long ? h("button", { "class": "more", text: open ? T("Show less") : T("Show all"), on: function () { ui.open["st" + storyId + i] = !open; fillStory(true); } }) : null])]);
     return li;
   }
+  function depSection(id) {
+    var dd = DG.dep[id] || [], un = DG.unb[id] || []; if (!dd.length && !un.length) return null;
+    function node(x) { var t = DG.task[x], st = t ? t.state : "MISSING"; return h("button", { "class": "dn2", type: "button", disabled: t ? null : "", on: function () { openStory(x); } }, [h("span", { "class": "pill " + (PILL[st] || ""), text: depState(st) }), h("b", { "class": "mono", text: x }), h("span", { "class": "muted", text: t ? t.owner || "" : "" })]); }
+    var far = behind(DG, id), open = ui.open["dep" + id], t0 = DG.task[id];
+    return h("section", { "class": "st-sec" }, [h("h3", { text: L('Waits for') + " / " + L('Unblocks') }), h("div", { "class": "dg" }, [
+      h("div", {}, dd.length ? dd.map(node) : [h("span", { "class": "muted", text: L('Nothing: it starts on its own') })]), h("i", { "class": "dl" }),
+      h("div", { "class": "dm" }, [h("b", { "class": "mono", text: id }), h("span", { text: t0 ? depState(t0.state) : "" })]), h("i", { "class": "dl" }),
+      h("div", {}, un.length ? un.map(node) : [h("span", { "class": "muted", text: L('Nothing waits for it') })])]),
+      far.length ? h("div", { style: "margin-top:8px" }, [h("button", { "class": "expand", type: "button", text: ["+" + far.length, L('further back'), open ? "· " + T("Show less") : ""].join(" "), on: function () { ui.open["dep" + id] = !open; fillStory(true); } }), open ? h("div", { "class": "chips" }, far.map(function (x) { return node(x.id); })) : null]) : null]);
+  }
   function fillStory(keep) {
     var tl = (D.timelines || {})[storyId], t = D.tasks.filter(function (x) { return x.id === storyId; })[0] || { id: storyId, title: "", state: "" };
     var old = storyEl.querySelector(".st-body"), top = old ? old.scrollTop : 0;
     var title = h("h2", { id: "story-title", text: t.title || t.paths || storyId });
     var close = h("button", { "class": "st-x", "aria-label": "Close the story", title: "Close (Escape)", on: function () { closeStory(); } }, [icon(I.x)]);
     var sum = h("div", { "class": "st-sum" }, []);
-    var body = h("div", { "class": "st-body" }, []);
+    var body = h("div", { "class": "st-body" }, []), dsec = depSection(storyId); if (dsec) body.appendChild(dsec);
     if (!tl) {
       body.appendChild(h("div", { "class": "st-note" }, ["The story of " + storyId + " is not embedded in this page: it keeps every open task and the last " + ((D.timeline_bound || {}).closed_kept || 15) + " closed ones, so data.js stays small. Run ", h("span", { "class": "mono", text: "bash .uak/bin/uak timeline " + storyId }), " for the whole story."]));
     } else if (!tl.lines.length) {
@@ -1306,7 +1586,7 @@ dialog#story::backdrop { background: var(--scrim); }
       }
       body.appendChild(h("section", { "class": "st-sec" }, [h("h3", { text: "Who took part" }), h("div", { "class": "crewrow" }, tl.agents.map(function (a) {
         return h("div", { "class": "pcard" }, [avatar(a[0], 26), h("div", { style: "min-width:0" }, [h("div", { "class": "nm", text: a[0].replace(/^(.+)\/\1$/, "$1") }),
-          h("div", { "class": "md" }, a[1] === "unknown" ? [h("i", { text: "model unknown" }), " · " + (a[2] === "unknown" ? "harness unknown" : a[2])] : [a[1] + " · " + (a[2] === "unknown" ? "harness unknown" : a[2])]),
+          h("div", { "class": "md" }, a[1] === "unknown" && a[2] === "unknown" ? [h("i", { text: L('Model and harness not recorded') })] : [(a[1] === "unknown" ? "model unknown" : a[1]) + " · " + (a[2] === "unknown" ? "harness unknown" : a[2])]),
           h("div", { "class": "rl", text: a[3] + " " + (a[3] === 1 ? T("move") : T("moves")) + ": " + a[4].join(", ") })])]);
       }))]));
       var ol = h("ol", { "class": "tl" }, []), prev = null, lastDay = "";
@@ -1335,7 +1615,6 @@ dialog#story::backdrop { background: var(--scrim); }
   storyEl.addEventListener("click", function (e) { if (e.target === storyEl) closeStory(); });   // a click on the backdrop
   storyEl.addEventListener("cancel", function (e) { e.preventDefault(); closeStory(); });         // Escape
   storyEl.addEventListener("close", function () { storyId = ""; });
-  // One tooltip for every [data-tip]: bar segments, columns, identicons.
   var tip = document.getElementById("tip");
   document.addEventListener("mouseover", function (e) {
     var el = e.target.closest ? e.target.closest("[data-tip]") : null;
@@ -1353,7 +1632,6 @@ dialog#story::backdrop { background: var(--scrim); }
 
   render();
   setInterval(fresh, 5000);
-  // Reload the data file on a timer: works from file:// (a script tag, not fetch); re-render only when it changed.
   function reload() {
     var s = document.createElement("script"); s.src = "data.js?t=" + Date.now();
     s.onload = function () { if (window.UAK_DATA && window.UAK_DATA.generated !== lastGen) render(); else fresh(); s.remove(); };
@@ -1364,10 +1642,7 @@ dialog#story::backdrop { background: var(--scrim); }
   document.addEventListener("uak:state", function () { if (window.UAK_DASH_LOOK) UAKLook.set(window.UAK_DASH_LOOK, false); if (window.UAKWorkspace && window.UAK_DASH_LANGUAGE) UAKWorkspace.setLanguage(window.UAK_DASH_LANGUAGE); else render(); });
   window.addEventListener("uak:language", function () { render(); if(window.UAKWorkspace){UAKWorkspace.apply(document.body);languageSelect.value=UAKWorkspace.language();} reportSize(); });
   function reportSize() { if(window.UAK_EMBEDDED)window.parent.postMessage({type:"uak:dashboard-size",height:document.documentElement.scrollHeight},"*"); }
-  // Every label the dashboard draws goes through the shared catalog, also the ones built without T(): the whole body
-  // is translated as it changes (UI-007: the Spanish Advanced view had English tiles and empty states left).
   if(window.UAKWorkspace)UAKWorkspace.start(document.body);
-  // Embedded, the top bar (and its h1) is hidden: the page keeps an h1 for screen readers (D-1.3, WCAG 1.3.1).
   if(window.UAK_EMBEDDED){document.querySelector(".head").hidden=true;document.getElementById("embedded-title").hidden=false;}
 
 })();
