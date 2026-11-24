@@ -80,7 +80,7 @@ window.console = { log: function () {}, warn: function () {}, error: function ()
 
 # The page's state the resume block reads, beside test_setup_feedback.PRELUDE (render is the page's; here a counter).
 EXTRA = """
-var token = "t", timer = null, dashboardTimer = null, rendered = 0;
+var token = "t", timer = null, dashboardTimer = null, rendered = 0, latestDashboard = null;
 function render(data) { rendered += 1; state = data; }
 async function flush() { for (var i = 0; i < 40; i++) await Promise.resolve(); }
 """
@@ -96,7 +96,7 @@ def run(scenario, language="en"):
     html = tf.page()
     code = tf.script(html)
     sources = [shim(language), tf.lib("workspace.js"), tf.PRELUDE, EXTRA]
-    sources += [tf.page_function(code, name) for name in ("el", "isBusy", "error", "api")]
+    sources += [tf.page_function(code, name) for name in ("el", "isBusy", "error", "api", "journeyStep")]
     sources += [tf.block(code), block(code)]
     with tempfile.TemporaryDirectory(prefix="uak-resume-js-") as folder:
         program = Path(folder) / "run.js"
@@ -228,11 +228,12 @@ def restart_lands_on_the_team_step(root, tmp):
     boot = code[code.rindex('api("status")'):]
     assert "landing(" in boot, "the first status lands the page through landing()"
     assert "resume" in tf.page_function(code, "journeyStep"), "the journey reads the restored step"
-    for name in ("landing", "stepsDone", "planningVisible", "shouldAutoCheck", "readSaved", "writeSaved"):
+    for name in ("landing", "screenFor", "allowed", "stepsDone", "planningVisible", "shouldAutoCheck", "readSaved", "writeSaved"):
         assert re.search(r"function %s\(" % name, resume_code), "the resume block defines %s()" % name
     out = run("""
-        return {team: landing({installed: true, phase: "setup", resume: {step: "team"}}, {}),
-                progress: landing({installed: true, phase: "setup", resume: {step: "progress"}}, {}),
+        var past = {kit_on_main: true, plan_approved: true};
+        return {team: landing({installed: true, human: "ana", phase: "setup", resume: Object.assign({step: "team"}, past)}, {}),
+                progress: landing({installed: true, human: "ana", phase: "setup", ready: true, resume: Object.assign({step: "progress"}, past, {claims: 1})}, {}),
                 prepare: landing({installed: true, phase: "setup", resume: {step: "prepare"}}, {}),
                 welcome: landing({phase: "welcome"}, {}), options: landing({phase: "options"}, {}),
                 planning: planningVisible({installed: true, phase: "setup", resume: {plan_approved: true}}),
@@ -240,9 +241,9 @@ def restart_lands_on_the_team_step(root, tmp):
     """)
     if out is None:
         return
-    assert out["team"] == {"section": "dashboard", "panel": 4} and out["progress"]["section"] == "dashboard", out
-    assert out["prepare"] == {"section": "setup", "panel": 4}, out
-    assert out["welcome"] == {"section": "setup", "panel": 0} and out["options"] == {"section": "setup", "panel": 2}, out
+    assert out["team"] == {"screen": "start"} and out["progress"] == {"screen": "dashboard"}, out
+    assert out["prepare"] == {"screen": "rules"}, out
+    assert out["welcome"] == {"screen": "project"} and out["options"] == {"screen": "project"}, out
     assert out["planning"] is False and out["open"] is True, "an approved plan is not offered again: %r" % out
 
 
@@ -257,7 +258,7 @@ def refresh_keeps_the_step_and_values(root, tmp):
         assert first["checked"] is True and first["resume"]["step"] == "team", first
     html = tf.page()
     code = tf.script(html)
-    assert "writeSaved(" in tf.page_function(code, "openSection"), "the active tab is remembered for the next reload"
+    assert "writeSaved(" in tf.page_function(code, "show"), "the active tab is remembered for the next reload"
     for ident in ("name-done", "schedule-done", "publish-done"):
         assert 'id="%s"' % ident in html, "a finished Prepare step has its done line #%s" % ident
     found = tf.rules(html)
@@ -293,9 +294,9 @@ def refresh_keeps_the_step_and_values(root, tmp):
         return
     assert out["a"] == {"section": "dashboard", "drafts": {"schedule-start": "2026-11-20T10:00"}}, out["a"]
     assert out["b"] == {}, "another project's values never apply: %r" % out["b"]
-    assert out["land"]["section"] == "dashboard", "the saved tab wins on reload: %r" % out["land"]
+    assert out["land"] == {"screen": "rules"}, "the step the project's Git shows decides, a saved tab does not override it: %r" % out["land"]
     assert out["bad"] == [{}] * 5, "anything unexpected in storage is ignored: %r" % out["bad"]
-    assert out["lost"]["section"] == "setup", "a project without the kit always lands in Configuration"
+    assert out["lost"] == {"screen": "update"}, "a project with a half-installed kit lands on Update"
     assert out["start"] == "2026-11-20T10:00" and out["name"] == "ana", out
     assert out["long"] == 20000, "a draft is capped: %r" % out["long"]
     assert out["done"] == {"name": True, "schedule": True, "publish": True, "plan": True}, out["done"]
@@ -500,8 +501,301 @@ def server_gone_banner(root, tmp):
     assert out["expired"] and out["again"], "an expired session shows the same banner"
 
 
+# --- UAK-159: the ten screens' server and resume behaviour -----------------------------------------------------------------
+# Why (2026-11-23): the wizard did not say what it found in a folder, offered one blind welcome, could not be closed
+# from its page (a person pressed Ctrl+C in a terminal they could not see), and its steps had no address.
+import test_setup_guide as tg
+
+
+def reach(page, name, timeout=15000):
+    """Wait for the screen NAME; say which one the page is on when it never comes."""
+    try:
+        page.wait_for_selector('.screen[data-on][data-screen="%s"]' % name, timeout=timeout)
+    except Exception:  # noqa: BLE001
+        raise AssertionError("the page never reached %s: it shows %s at %s (%s)" % (name, page.evaluate(
+            "(document.querySelector('.screen[data-on]') || {dataset: {}}).dataset.screen"), page.url, page.evaluate(
+            "[...document.querySelectorAll('#error, .action-result, .toast')].map(e => e.textContent.trim()).filter(Boolean).join(' | ')")))
+
+
+def kit_repo(tmp, name, mode="sprint", commits=2, version="6.8.0"):
+    return tg.kit_project(tmp, name, mode, commits, version)
+
+
+def inspect(srv, repo):
+    status, body = tp.post(srv, "/api/inspect", {"target": str(repo)})
+    assert status == 200, body
+    return body
+
+
+def existing_repository_is_detected(root, tmp):
+    old = kit_repo(tmp, "old-one", commits=4)
+    for folder in (".husky", ".github/workflows", "tests"):
+        (old / folder).mkdir(parents=True, exist_ok=True)
+    (old / ".github/workflows/ci.yml").write_text("name: ci\n")
+    (old / "package.json").write_text('{"scripts": {"test": "vitest"}, "dependencies": {"next": "14"}}')
+    (old / ".uak").rename(tmp / "kit-away")  # the folder has no kit: this is a repository the kit has not seen
+    fresh = tmp / "fresh-one"
+    fresh.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(fresh)], check=True)
+    (fresh / "lefthook.yml").write_text("pre-commit: {}\n")
+    with wizard.LiveServer("") as srv:
+        found = inspect(srv, old)["detected"]
+        assert found["repo"] == "existing" and found["commits"] == 4, found
+        assert found["hooks"] == "husky" and found["ci"] == "GitHub Actions" and found["tests"] == "npm test" and \
+            found["stack"] == "nextjs", found
+        assert found["kit_files"]["base"] > 50 and found["kit_files"][".claude"] > 0, "the install is counted: %r" % found["kit_files"]
+        again = inspect(srv, fresh)["detected"]
+        assert again["repo"] == "new" and again["commits"] == 0 and again["hooks"] == "lefthook" and again["ci"] == "" and \
+            again["tests"] == "", again
+        status, body, _ = wizard.request(srv, "GET", "/api/status")
+        assert json.loads(body)["detected"]["repo"] == "new", "the status carries what was found"
+    assert not (fresh / ".uak").exists() and not (old / ".uak").exists(), "looking writes nothing"
+
+
+def schedule_only_in_hackathon(root, tmp):
+    code = tf.script(tf.page())
+    assert re.search(r'mode === "sprint" && !\(resume\.freeze > 0\)', tf.page_function(code, "screenFor")) and \
+        'name === "schedule") return !!data.installed && modeOf(data) === "sprint"' in tf.page_function(code, "allowed"), \
+        "the page asks for a schedule only in Hackathon mode"
+    out = run("""
+        var base = {installed: true, human: "ana", phase: "setup", resume: {kit_on_main: null, freeze: 0, plan_approved: null}};
+        function at(mode, freeze) { return screenFor(Object.assign({}, base, {settings: {Mode: mode}, resume: Object.assign({}, base.resume, {freeze: freeze}), }), {rules: true}); }
+        return {marathon: at("marathon", 0), sprint: at("sprint", 0), scheduled: at("sprint", 4102444800),
+                allowedMarathon: allowed("schedule", {installed: true, settings: {Mode: "marathon"}}),
+                allowedSprint: allowed("schedule", {installed: true, settings: {Mode: "sprint"}})};
+    """)
+    if out is None:
+        return
+    assert out == {"marathon": "publish", "sprint": "schedule", "scheduled": "publish", "allowedMarathon": False,
+                   "allowedSprint": True}, out
+
+
+def rules_screen_writes_only_what_was_confirmed(root, tmp):
+    repo = kit_repo(tmp, "rules", "marathon")
+    config = repo / ".uak/PROJECT.md"
+    original = config.read_bytes()
+    with wizard.LiveServer(str(repo)) as srv:
+        srv.open_target()
+        for path in ("/api/status", "/api/dashboard"):
+            wizard.request(srv, "GET", path)
+        assert tp.post(srv, "/api/inspect", {"target": str(repo)})[0] == 200
+        assert config.read_bytes() == original, "opening the screen writes nothing"
+        shown = json.loads(wizard.request(srv, "GET", "/api/status")[1])["settings"]
+        assert shown["Test-First"] == "yes" and shown["Review-Mode"] == "claims", shown
+        for refused in ({"Review-Mode": "gh"}, {"Auto-Merge": "yes"}, {"Review-Independence": "human"}, {"Test-First": "maybe"}):
+            status, _ = tp.post(srv, "/api/settings", refused)
+            assert status in (400, 409), (status, refused)
+            assert config.read_bytes() == original, "a line that grants authority or a value off the list changes nothing"
+        status, answer = tp.post(srv, "/api/settings", {"Test-First": "no"})
+        assert status == 200, (status, answer)
+    changed = [(a, b) for a, b in zip(original.decode().splitlines(), config.read_text().splitlines()) if a != b]
+    assert changed == [("Test-First: yes", "Test-First: no")], changed
+    code = tf.script(tf.page())
+    handler = code[code.index('el("rules-confirm").onclick'):]
+    handler = handler[:handler.index("el(\"save\").onclick")]
+    assert "Object.keys(changes).length" in handler and handler.count('api("settings"') == 1, \
+        "Confirm sends only the lines that changed, and nothing when none did"
+    found = tg.chromium()
+    if not found:
+        return
+    sync_playwright, kwargs = found
+    config.write_bytes(original)
+    with wizard.LiveServer(str(repo)) as srv, sync_playwright() as p:
+        browser = p.chromium.launch(args=["--no-sandbox"], **kwargs)
+        page = browser.new_context(viewport={"width": 1280, "height": 800}, locale="en-US").new_page()
+        page.goto("http://127.0.0.1:%d/?step=rules#code=%s" % (srv.server_port, srv.new_code()))
+        reach(page, "rules")
+        page.wait_for_selector("#rules-confirm:not([aria-disabled])")  # the readiness check the page starts on load is over
+        page.click("#rules-confirm")
+        reach(page, "people")
+        assert config.read_bytes() == original, "Confirm with every line as it was writes nothing"
+        page.goto("http://127.0.0.1:%d/?step=rules#code=%s" % (srv.server_port, srv.new_code()))
+        reach(page, "rules")
+        page.wait_for_selector("#rules-confirm:not([aria-disabled])")
+        page.click("#rules-advanced summary")
+        page.select_option("#rule-test-first", "warn")
+        page.click("#rules-confirm")
+        reach(page, "people")
+        browser.close()
+    assert config.read_text() == original.decode().replace("Test-First: yes", "Test-First: warn"), "only the confirmed line changed"
+
+
+def diagnostics_are_not_prechecked(root, tmp):
+    html = tf.page()
+    for ident in ("blackbox", "diagnostics"):
+        tag = re.search(r'<input[^>]*id="%s"[^>]*>' % ident, html).group(0)
+        assert "checked" not in tag, "%s is not pre-checked: %s" % (ident, tag)
+    words = " ".join(" ".join(tg.texts(tg.section(html, "installation-options"))).split())
+    assert "public" in words and "Off unless you turn it on" in words and "coordination branch" in words, \
+        "the screen says what is published, where, and that a public repository makes it public: %r" % words
+    code = tf.script(html)
+    assert "blackbox: el(\"blackbox\").checked" in code, "the install carries the person's choice, never a default"
+    cmd = MODULE_FOR_CMD().install_command(Path("install.sh"), "/p", {"mode": "sprint", "harness": ["claude"], "blackbox": False})
+    assert "--no-blackbox" in cmd, "an unchecked box installs with diagnostics off: %r" % cmd
+    assert "--no-blackbox" not in MODULE_FOR_CMD().install_command(Path("install.sh"), "/p", {"mode": "sprint", "blackbox": True})
+
+
+def MODULE_FOR_CMD():
+    return wizard.MODULE
+
+
+def old_kit_opens_update(root, tmp):
+    old = kit_repo(tmp, "older", version="5.0.0")
+    new = kit_repo(tmp, "current", version=(root / ".uak/VERSION").read_text().strip())
+    odd = kit_repo(tmp, "odd", version="not a version")
+    with wizard.LiveServer("") as srv:
+        assert inspect(srv, old)["versions"]["older"] is True, "a kit older than this setup's is updated"
+        assert inspect(srv, new)["versions"]["older"] is False
+        assert inspect(srv, odd)["versions"]["older"] is False, "an unreadable version never raises an alarm"
+        assert inspect(srv, old)["versions"]["current"] == (root / ".uak/VERSION").read_text().strip()
+    code = tf.script(tf.page())
+    assert 'return "update"' in tf.page_function(code, "screenFor") and "updateSkipped" in tf.page_function(code, "screenFor")
+    out = run("""
+        var d = {installed: true, human: "ana", phase: "setup", versions: {older: true}, resume: {}, settings: {}};
+        return {older: screenFor(d, {rules: true}), current: screenFor(Object.assign({}, d, {versions: {older: false}}), {rules: true})};
+    """)
+    if out is not None:
+        assert out == {"older": "update", "current": "rules" if False else out["current"]}, out
+        assert out["current"] != "update", out
+
+
+def spawn_wizard(root, tmp, target):
+    """A real wizard process for TARGET (a pty as its terminal): (process, server-like, master fd)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("UAK_")}
+    master, slave = os.openpty() if os.name != "nt" else (None, subprocess.DEVNULL)
+    proc = subprocess.Popen([sys.executable, str(root / ".uak/bin/lib/setup.py"), "--no-open", str(target)],
+                            cwd=str(tmp), env=env, stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            encoding="utf-8", errors="replace")
+    if master is not None:
+        os.close(slave)
+    box = {}
+    reader = threading.Thread(target=lambda: box.update(lines=[proc.stdout.readline(), proc.stdout.readline()]), daemon=True)
+    reader.start()
+    reader.join(60)
+    match = re.search(r"UAK SETUP http://127\.0\.0\.1:(\d+)/", (box.get("lines") or [""])[0])
+    assert match, "setup prints its address: %r" % box
+    launcher = re.search(r"Launcher file: (.+\.html)\s*$", box["lines"][1])
+    code = re.search(r"#code=([A-Za-z0-9_-]+)", Path(launcher.group(1)).read_text(encoding="utf-8")).group(1)
+    server = types.SimpleNamespace(server_port=int(match.group(1)), token="")
+    status, body, _ = wizard.request(server, "POST", "/api/session", {"code": code}, token=False)
+    assert status == 200, body
+    server.token = json.loads(body)["token"]
+    return proc, server, master
+
+
+def close_ends_the_server(root, tmp):
+    repo = kit_repo(tmp, "closing")
+    git_dir = Path(tp.git(repo, "rev-parse", "--absolute-git-dir"))
+    # In process: an action that is running keeps its server; the page is told why, and nothing ends.
+    with wizard.LiveServer(str(repo)) as srv:
+        gate = threading.Event()
+        busy = threading.Thread(target=gate.wait, args=(30,), daemon=True)
+        busy.start()
+        srv.worker = busy
+        status, body = tp.post(srv, "/api/close", {})
+        assert status == 409 and "still running" in body["error"] and not srv.close_asked and srv.end_reason() == "", (status, body)
+        gate.set()
+        busy.join(5)
+        srv.worker = None
+        status, body = tp.post(srv, "/api/close", {})
+        assert status == 200 and body == {"closed": True} and srv.end_reason(), "an idle server ends at once"
+    if os.name == "nt":
+        return  # the real process below needs a pty
+    # A real process: Close ends it, frees its port and leaves no file or process behind.
+    proc, server, master = spawn_wizard(root, tmp, repo)
+    try:
+        records = sorted(p.name for p in git_dir.glob("uak-wizard.*"))
+        assert "uak-wizard.port" in records and "uak-wizard.key" in records, records
+        assert wizard.request(server, "GET", "/api/status")[0] == 200
+        status, body, _ = wizard.request(server, "POST", "/api/close", {})
+        assert status == 200, body
+        assert proc.wait(20) == 0, "the process ends by itself after Close"
+        refused = False
+        try:
+            wizard.request(server, "GET", "/api/status")
+        except OSError:
+            refused = True
+        assert refused, "the port is free after Close"
+        assert not sorted(git_dir.glob("uak-wizard.*")), "no record of the wizard is left: %r" % sorted(p.name for p in git_dir.glob("uak-wizard.*"))
+        assert "UAK SETUP ended" in proc.stdout.read(), "it says why it ended and how to open it again"
+        try:
+            os.kill(proc.pid, 0)
+            alive = True
+        except OSError:
+            alive = False
+        assert not alive, "no process of the wizard is left"
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(15)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        proc.stdout.close()
+        proc.stderr.close()
+        if master is not None:
+            os.close(master)
+
+
+def step_survives_reload_and_back(root, tmp):
+    repo = kit_repo(tmp, "steps", "sprint")
+    with wizard.LiveServer(str(repo)) as srv:
+        status, body, _ = wizard.request(srv, "GET", "/?step=rules", token=False)
+        assert status == 200 and b'data-screen="rules"' in body, "a step has its own address"
+        for bad in ("/?step=../../etc/passwd", "/?step=Rules", "/?step=", "/?step=rules&x=1", "/step/rules"):
+            assert wizard.request(srv, "GET", bad, token=False)[0] == 404, bad
+    code = tf.script(tf.page())
+    show = tf.page_function(code, "show")
+    assert 'history[!was || how === "replace" ? "replaceState" : "pushState"]' in show and '"/?step=" + name' in show, \
+        "every step is pushed to the history, the first one replaces the address"
+    assert 'addEventListener("popstate"' in code and 'new URLSearchParams(location.search).get("step")' in code, \
+        "Back and Forward show the step of the address, and a reload reads it"
+    found = tg.chromium()
+    if not found:
+        return
+    sync_playwright, kwargs = found
+    with wizard.LiveServer(str(repo)) as srv, sync_playwright() as p:
+        browser = p.chromium.launch(args=["--no-sandbox"], **kwargs)
+        page = browser.new_context(viewport={"width": 1280, "height": 800}, locale="en-US").new_page()
+
+        def on(name):
+            page.wait_for_selector('.screen[data-on][data-screen="%s"]' % name)
+            assert page.url.endswith("/?step=%s" % name), page.url
+
+        page.goto("http://127.0.0.1:%d/?step=rules#code=%s" % (srv.server_port, srv.new_code()))
+        on("rules")
+        page.click("#rules-confirm")
+        on("people")
+        page.reload()
+        on("people")
+        page.go_back()
+        on("rules")
+        page.go_forward()
+        on("people")
+        browser.close()
+
+
+def last_screen_says_the_terminal_command(root, tmp):
+    code = tf.script(tf.page())
+    out = run("""
+        return {plain: terminalCommand("/home/ana/my-app"), spaced: terminalCommand("/tmp/my app/it's"), none: terminalCommand("")};
+    """)
+    if out is not None:
+        assert out["plain"] == "cd '/home/ana/my-app' && bash .uak/bin/uak start", out
+        assert out["spaced"] == "cd '/tmp/my app/it'\\''s' && bash .uak/bin/uak start", "the path is quoted so the line can be pasted: %r" % out
+        assert out["none"].startswith("bash ") and "install.sh --wizard" in out["none"], out
+    html = tf.page()
+    assert 'id="closed-command"' in tg.section(html, "screen-closed") and 'id="terminal-command"' in html
+    assert re.search(r'el\("note-dashboard"\)\.textContent = [^;]*terminalCommand|command', tf.page_function(code, "drawScreens")), \
+        "the last screen's bar says the command"
+    for name in ("The wizard is closed", "Continue in the terminal"):
+        assert name in tf.catalog(), "%r has a Spanish translation" % name
+
+
 TESTS = [restart_lands_on_the_team_step, refresh_keeps_the_step_and_values, name_persists_per_project,
-         repick_keeps_state, server_gone_banner]
+         repick_keeps_state, server_gone_banner, existing_repository_is_detected, schedule_only_in_hackathon,
+         rules_screen_writes_only_what_was_confirmed, diagnostics_are_not_prechecked, old_kit_opens_update, close_ends_the_server,
+         step_survives_reload_and_back, last_screen_says_the_terminal_command]
 
 
 def main():

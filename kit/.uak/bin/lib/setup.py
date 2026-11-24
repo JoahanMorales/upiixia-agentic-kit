@@ -32,8 +32,14 @@ from pathlib import Path
 HARNESS = ("claude", "codex", "cursor", "gemini")
 STACKS = ("none", "fastapi-react", "nextjs", "django", "go", "expo", "python-data", "ai-agent", "spring-boot")
 SETTINGS = {"Blackbox": ("on", "off"), "Pace": ("auto", "off")}
+# UAK-159, the "How your team will work" screen: the one rule the person may change there (a closed list of the engine's own
+# values, docs/CLI.md). Review-Mode, Review-Independence, Auto-Merge and Merge-Engine grant authority: they are read from
+# PROJECT.md on main and shown, never written by the browser (docs/SECURITY.md).
+RULES = {"Test-First": ("yes", "warn", "no")}
+SETTINGS.update(RULES)
+SHOWN = ("Review-Mode", "Review-Independence", "Auto-Merge")  # read for the rules screen, never written by the browser
 # Keys the browser may also add when an older PROJECT.md lacks them; their values are validated, never free text.
-ADDABLE = ("Live-URL",)
+ADDABLE = ("Live-URL",) + tuple(RULES)
 LIMIT = 65536
 
 
@@ -574,7 +580,7 @@ def valid_setting(key, value):
 
 def save_settings(target, settings):
     if not isinstance(settings, dict) or not settings or set(settings) - set(SETTINGS) - set(ADDABLE):
-        raise ValueError("Only anonymous diagnostics, usage pacing and the deploy link can be changed here.")
+        raise ValueError("Only the diagnostics, usage pacing, the test rule and the deploy link can be changed here.")
     if any(not valid_setting(key, value) for key, value in settings.items()):
         raise ValueError("Invalid project preference.")
     path = Path(target) / ".uak/PROJECT.md"
@@ -624,7 +630,7 @@ def read_config(target, keys=None):
         return {}
     # Use the engine's reader, including its Markdown and first-match semantics.
     settings = keys is None
-    keys = ("Mode", "Blackbox", "Pace", "Live-URL") if settings else tuple(keys)
+    keys = ("Mode", "Blackbox", "Pace", "Live-URL") + tuple(RULES) + SHOWN if settings else tuple(keys)
     script = '. "$1"; file=$2; for key in %s; do uak_cfg "$file" "$key"; done' % " ".join(keys)
     result = run_command([bash_binary(), "-c", script, "uak-setup-config",
                           str(Path(__file__).with_name("config.sh")), str(path)], timeout=10)
@@ -1071,6 +1077,7 @@ class SetupServer(ThreadingHTTPServer):
         self.clock, self.notify, self.ended, self.launcher = time.monotonic, lambda text: print(text, flush=True), False, None
         self.code, self.code_at, self.code_used, self.last_active = "", 0.0, True, self.clock()
         self.last_request, self.closing_at, self.key = self.clock(), 0.0, secrets.token_urlsafe(24)
+        self.close_asked = False  # UAK-159: the person pressed "Close the wizard"
         self.pages, self.reopened = {}, []  # open pages: id -> (last seen, reopens when first seen); reopen times
         self.dash_tips = {}
         self.nonce = secrets.token_urlsafe(24)
@@ -1161,6 +1168,8 @@ class SetupServer(ThreadingHTTPServer):
         back, and no action running. The message says how to open it again."""
         if self.working():
             return ""
+        if self.close_asked:
+            return "the wizard was closed from its page"
         now = self.clock()
         with self.lock:
             for page in [p for p, seen in self.pages.items() if now - seen[0] > IDLE_EXIT_SECONDS]:
@@ -1171,6 +1180,14 @@ class SetupServer(ThreadingHTTPServer):
         if now - self.last_request > IDLE_EXIT_SECONDS:
             return "it had no request for %s" % duration(IDLE_EXIT_SECONDS)
         return ""
+
+    def close_now(self):
+        """"Close the wizard": the server ends at once (the watcher stops it within a second), unless an action is
+        still running (its process would be left behind): then nothing ends and the page says why."""
+        if self.working():
+            raise Busy("An action is still running. Close the wizard when it finishes.")
+        with self.lock:
+            self.close_asked = True
 
     def reopening(self):
         """A second start asked for a new page: say so here, write it in the register, and only then mint the code."""
@@ -1285,9 +1302,10 @@ class SetupServer(ThreadingHTTPServer):
                 self.target = str(root)
                 self.state["branch"] = branch
                 self.state.update(target=str(root), installed=resume["installed"], can_repair=(root / ".uak").exists(),
-                                  phase="setup", identity=identity, human=saved, human_source="project" if saved else "",
+                                  phase="setup", identity=identity, git_human=git_human(self.identity_run, root), human=saved, human_source="project" if saved else "",
                                   resume=resume, inspect=self.state.get("inspect", 0) + 1, checked=False, ready=False,
-                                  checks=[], next_command="", next_note="", freeze=0, needs_human=[], details="", error="")
+                                  checks=[], next_command="", next_note="", freeze=0, needs_human=[], details="", error="",
+                                  versions=kit_versions(self, root), detected=detect_project(self, root))
                 self.plan_known.setdefault(str(root), ([], bool(resume["kit_on_main"]), "", ""))
         except (OSError, ValueError, subprocess.SubprocessError):
             return
@@ -1746,7 +1764,7 @@ class SetupHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.authorized():
             return
-        if self.path == "/":
+        if self.path == "/" or re.fullmatch(r"/\?step=[a-z]{3,12}", self.path):  # UAK-159: a step has its own address (the query keeps fonts/ relative)
             html = Path(__file__).with_name("setup.html").read_text(encoding="utf-8")
             html = html.replace('data-pal="clasico">', 'data-pal="%s">' % look_palette(self.server.target or self.server.state.get("target", "")), 1)
             self.reply(200, html.replace("__NONCE__", self.server.nonce), html=True)
@@ -1933,7 +1951,7 @@ class SetupHandler(BaseHTTPRequestHandler):
             return dict(view, stale=True)
         target, name = key
         if not HUMAN_NAME.fullmatch(name):
-            raise Need("Tell setup your name first (Your name, in Prepare): registering the reviewer is a human act.", "human")
+            raise Need("Tell setup your name first (on the People screen): registering the reviewer is a human act.", "human")
         who = name + "-r"
         return {"task": "", "human": name, "reviewer": who, "phase": "", "stale": True, "checking": checking,
                 "remote": {"state": "", "detail": ""}, "commands": [], "review_note": "", "claimed": [], "tools": [],
@@ -2084,6 +2102,13 @@ class SetupHandler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(data, dict):
                 raise ValueError("Expected a settings object.")
+            if self.path == "/api/close":
+                try:
+                    self.server.close_now()
+                    self.reply(200, {"closed": True})
+                except Busy as exc:
+                    self.reply(409, {"error": str(exc)})
+                return
             if self.path == "/api/closing":
                 self.server.page_closed(self.page)  # a request within the grace says it was a reload
                 self.reply(200, {"closing": True})
@@ -2240,6 +2265,8 @@ class SetupHandler(BaseHTTPRequestHandler):
             # UI-019: where the project is, from local Git only, outside the lock.
             resume, saved = project_progress(s, root, session)
             branch = branch_state(s, root)  # UI-020: on the base branch? the remote's default branch?
+            detected = detect_project(s, root)  # UAK-159: what the first screen says it found
+            versions = kit_versions(s, root) if installed else {}
             git_name = git_human(s.identity_run, root)  # UAK-153: the person is the Git identity of this checkout
             with s.lock:
                 s.keep_check()  # the project being left keeps its last check
@@ -2256,7 +2283,8 @@ class SetupHandler(BaseHTTPRequestHandler):
                 saved = saved if saved == human else ""
                 s.state.update(git_human=git_name, target=str(root), installed=installed, can_repair=repair, phase="error" if previous else "setup" if repair else "options", ready=False, checks=[], next_command="", next_note="", freeze=0, needs_human=[], details=previous.get("details", ""), error=previous.get("error", ""),
                                human=human, human_source="project" if saved else "session" if human else "",
-                               resume=resume, inspect=s.state.get("inspect", 0) + 1, checked=False, branch=branch)
+                               resume=resume, inspect=s.state.get("inspect", 0) + 1, checked=False, branch=branch,
+                               detected=detected, versions=versions)
                 if kept:
                     s.state.update(ready=kept["ready"], checks=list(kept["checks"]), next_command=kept["next_command"],
                                    next_note=kept["next_note"], details=kept["details"], phase=kept["phase"],
@@ -2459,7 +2487,7 @@ def publish_checks(server):
     """Everything that must hold before the kit is published from the page; each failure says how to recover."""
     planning, run = server.planning, server.run
     if not server.state.get("human"):
-        raise ValueError("Tell setup your name first (Your name, in Prepare): publishing is a human act.")
+        raise ValueError("Tell setup your name first (on the People screen): publishing is a human act.")
     server.engine()
     root = project_root(server.target)
 
@@ -2899,6 +2927,121 @@ def remote_state(server, root, fresh=False):
 DASH_CLAIMS = "refs/uak/dash-claims"
 
 
+def detect_project(server, root):
+    """What the first screen says it found (UAK-159): the folder's own facts, from local files and Git only, never the
+    network and never a write. repo: "new" (no commit yet) or "existing"; hooks: the manager that owns the hooks (the
+    kit's checks are called from it, doctor's own list: .husky, lefthook, .pre-commit-config.yaml); ci; tests (the
+    command the project already runs); stack (one of STACKS, "" when unknown)."""
+    root = Path(root)
+
+    def text(name, limit=65536):
+        try:
+            path = root / name
+            if path.is_file() and not path.is_symlink():
+                return path.read_text(encoding="utf-8", errors="replace")[:limit]
+        except OSError:
+            pass
+        return ""
+
+    found = {"repo": "new", "commits": 0, "hooks": "", "ci": "", "tests": "", "stack": "", "kit_files": kit_file_counts(server)}
+    try:
+        counted = server.planning.git(server.identity_run, root, "rev-list", "--count", "HEAD", timeout=10)
+        found["commits"] = int((counted.stdout or "0").strip() or 0) if counted.returncode == 0 else 0
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    found["repo"] = "existing" if found["commits"] else "new"
+    found["harness"] = [h for h, folder in (("claude", ".claude"), ("codex", ".codex"), ("cursor", ".cursor"), ("gemini", ".gemini"))
+                        if (root / folder).is_dir() and not (root / folder).is_symlink()]
+    if (root / ".husky").is_dir():
+        found["hooks"] = "husky"
+    elif (root / "lefthook.yml").is_file() or (root / "lefthook.yaml").is_file():
+        found["hooks"] = "lefthook"
+    elif (root / ".pre-commit-config.yaml").is_file():
+        found["hooks"] = "pre-commit"
+    workflows = root / ".github/workflows"
+    if workflows.is_dir() and any(workflows.glob("*.y*ml")):
+        found["ci"] = "GitHub Actions"
+    else:
+        for name, label in ((".gitlab-ci.yml", "GitLab CI"), (".circleci/config.yml", "CircleCI"), ("Jenkinsfile", "Jenkins"),
+                            ("azure-pipelines.yml", "Azure Pipelines")):
+            if (root / name).is_file():
+                found["ci"] = label
+                break
+    package = text("package.json")
+    python = (text("pyproject.toml") + text("requirements.txt") + text("setup.cfg")).lower()
+    try:
+        scripts = json.loads(package).get("scripts") if package else None
+    except ValueError:
+        scripts = None
+    test = scripts.get("test") if isinstance(scripts, dict) else None
+    if isinstance(test, str) and test.strip() and "no test specified" not in test:
+        found["tests"] = "npm test"
+    elif "pytest" in python or (root / "pytest.ini").is_file() or (root / "tox.ini").is_file() or \
+            ((root / "tests").is_dir() and any((root / "tests").glob("test_*.py"))):
+        found["tests"] = "pytest"
+    elif (root / "go.mod").is_file():
+        found["tests"] = "go test ./..."
+    elif (root / "Cargo.toml").is_file():
+        found["tests"] = "cargo test"
+    elif (root / "pom.xml").is_file():
+        found["tests"] = "mvn test"
+    elif re.search(r"(?m)^test:", text("Makefile")):
+        found["tests"] = "make test"
+    lowered = package.lower()
+    if '"expo"' in lowered:
+        found["stack"] = "expo"
+    elif '"next"' in lowered:
+        found["stack"] = "nextjs"
+    elif (root / "go.mod").is_file():
+        found["stack"] = "go"
+    elif (root / "manage.py").is_file() or "django" in python:
+        found["stack"] = "django"
+    elif "spring" in (text("pom.xml") + text("build.gradle") + text("build.gradle.kts")).lower():
+        found["stack"] = "spring-boot"
+    elif "fastapi" in python:
+        found["stack"] = "fastapi-react"
+    return found
+
+
+def kit_file_counts(server):
+    """How many files the installer places, by harness folder (a count of the kit's own copy, without its tests and
+    skill library, which stay in the kit's repository). A missing copy counts nothing: the page then says no number."""
+    kit = Path(server.installer).resolve().parent / "kit"
+    counts = {"base": 0, ".claude": 0, ".codex": 0, ".cursor": 0, ".gemini": 0}
+    if not kit.is_dir():
+        return counts
+    for path in kit.rglob("*"):
+        try:
+            if not path.is_file():
+                continue
+            parts = path.relative_to(kit).parts
+        except (OSError, ValueError):
+            continue
+        if parts[:2] in ((".uak", "tests"), (".uak", "skills")) or "__pycache__" in parts:
+            continue
+        counts[parts[0] if parts[0] in counts else "base"] += 1
+    return counts
+
+
+def kit_versions(server, root):
+    """The kit this project has and the one this setup carries (UAK-159: an older kit opens "Update"). Numbers compare
+    as numbers (6.10.0 is newer than 6.9.0); an unreadable file says nothing, never "older"."""
+    def read(path):
+        try:
+            return path.read_text(encoding="utf-8").strip()[:32]
+        except OSError:
+            return ""
+
+    have = read(Path(root) / ".uak/VERSION")
+    current = read(Path(server.installer).resolve().parent / "kit/.uak/VERSION")
+
+    def parts(v):
+        m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", v)
+        return tuple(int(x) for x in m.groups()) if m else None
+    older = bool(parts(have) and parts(current) and parts(have) < parts(current))
+    return {"installed": have, "current": current, "older": older}
+
+
 def project_progress(server, root, session=""):
     """Where a project is (UI-019: a restart, a reload or re-picking it landed on Welcome or Prepare): (resume, the
     name saved for this clone). Local Git only (at most seven processes, 10 s each), never the network, the engine or a
@@ -3064,7 +3207,7 @@ def team_context(server):
         state = dict(server.state)
     name = state.get("human") or ""
     if not HUMAN_NAME.fullmatch(name):
-        raise Need("Tell setup your name first (Your name, in Prepare): registering the reviewer is a human act.", "human")
+        raise Need("Tell setup your name first (on the People screen): registering the reviewer is a human act.", "human")
     phase = team_phase(state)
     if not phase:
         raise Need("Press Check what's next first: the team starts after the readiness check says Ready.", "check")
