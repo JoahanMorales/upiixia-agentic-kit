@@ -1537,19 +1537,28 @@ def killed_flush_leaves_no_clone_on_windows(r):
     return summary
 
 
+def plant_clone(common, owner, age=0, name=None):
+    """A clone directory as bb_flush_job makes it: uak-bb-tmp.TIME.HOOKPID, with the PID of the process that lives as
+    long as the flush in its file `owner` (UAK-190 review: the PID in the name is the hook's, gone in seconds)."""
+    d = common / (name or "uak-bb-tmp.%d.%d" % (int(time.time()) - age, 4242))
+    (d / "uak-bb.AAAAAA" / ".git").mkdir(parents=True)
+    (d / "uak-bb.AAAAAA" / ".git" / "HEAD").write_text("ref: refs/heads/x\n")
+    if owner is not None:
+        (d / "owner").write_text("%s\n" % owner)
+    return d
+
+
 def leftover_clone_is_removed_by_the_next_flush(r):
     """UAK-190: a clone directory whose flush died stays when its removal failed (Windows refuses while a file is in
-    use). The next flush removes it at once when its owner is gone, however young it is; a live owner's clone stays."""
+    use). The next flush removes it at once when the owner recorded in it is gone, however young it is; a live
+    owner's clone stays, and so does a young one that records no owner yet."""
     f, w = counted_fixture(r, "ss-bb-leftover")
     common = first_pending_dir(r, w)
     dead = r.run([r.bash, "-c", "sleep 0 & echo $!; wait"], cwd=w).stdout.split()[0]
     mine = r.run([r.bash, "-c", "sleep 100 & echo $!; disown"], cwd=w).stdout.split()[0]
-    now = int(time.time())
-    gone = common / ("uak-bb-tmp.%d.%s" % (now, dead))
-    kept = common / ("uak-bb-tmp.%d.%s" % (now, mine))
-    for d in (gone, kept):
-        (d / "uak-bb.AAAAAA" / ".git").mkdir(parents=True)
-        (d / "uak-bb.AAAAAA" / ".git" / "HEAD").write_text("ref: refs/heads/x\n")
+    gone = plant_clone(common, dead)
+    kept = plant_clone(common, mine, name="uak-bb-tmp.%d.4243" % int(time.time()))
+    fresh = plant_clone(common, None, name="uak-bb-tmp.%d.4244" % int(time.time()))
     (common / "uak-blackbox.pending").write_text(
         "2026-11-10T10:01Z | agent | kit | error | uak claim | leftover-1 | - | - | - | v6.4\n", encoding="utf-8")
     try:
@@ -1561,12 +1570,218 @@ def leftover_clone_is_removed_by_the_next_flush(r):
         expect(not gone.exists(), "a young clone whose owner is gone is removed by the next flush: %r"
                % list(common.glob("uak-bb-tmp.*")))
         expect(kept.exists(), "a clone whose owner is alive stays")
+        expect(fresh.exists(), "a young clone that records no owner yet stays")
     finally:
         r.run([r.bash, "-c", 'kill -KILL "$1" 2>/dev/null; true', "_", mine], cwd=w, allowed=None)
     return "a dead owner's clone is removed, a live one's stays"
 
 
-TESTS += [killed_flush_leaves_no_clone_on_windows, leftover_clone_is_removed_by_the_next_flush]
+def held_push_fixture(r, name):
+    f, w = counted_fixture(r, name)
+    common = first_pending_dir(r, w)
+    gate = Path(r.scratch) / (name + "-gate")
+    gate.write_text("closed\n")
+    hook = Path(f.remote) / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\nwhile [ -f '%s' ]; do sleep 0.2; done\nexit 0\n" % gate.as_posix(), encoding="utf-8")
+    hook.chmod(0o755)
+    return f, w, common, gate
+
+
+def published(r, f):
+    names = [n for n in r.g(f.remote, "ls-tree", "-r", "--name-only", "claims").stdout.split() if n.startswith("blackbox/")]
+    return "".join(r.g(f.remote, "show", "claims:" + n).stdout for n in names)
+
+
+def pending_line(tag):
+    return "2026-11-10T10:01Z | agent | kit | error | uak claim | %s | - | - | - | v6.4\n" % tag
+
+
+def recover_and_count(r, f, w, common, tags):
+    """The gate is open: let every flush end, start once more to recover what a kill left, and count the lines."""
+    settle_once(r, w)
+    deadline = time.monotonic() + 60
+    found = ""
+    while time.monotonic() < deadline:
+        start(r, w, "agent-1", UAK_START_WAIT="1")
+        settle_once(r, w)
+        found = published(r, f)
+        if all(t in found for t in tags) and not list(common.glob("uak-blackbox.pending*")):
+            break
+        time.sleep(1)
+    return found
+
+
+def second_start_leaves_a_live_flushs_clone(r):
+    """UAK-190 review of 34480754: the clone carried the PID of the session-start hook, gone in seconds while the flush
+    lives up to 300 s, so a second start took the clone of a flush that was still pushing for a dead owner's."""
+    f, w, common, gate = held_push_fixture(r, "ss-bb-second")
+    (common / "uak-blackbox.pending").write_text(pending_line("second-1"), encoding="utf-8")
+    try:
+        start(r, w, "agent-1", UAK_START_WAIT="1")
+        deadline = time.monotonic() + 40
+        first = []
+        while time.monotonic() < deadline and not (first and list(common.glob("uak-blackbox.pending.*"))):
+            first = list(common.glob("uak-bb-tmp.*"))
+            time.sleep(0.3)
+        expect(first, "the held flush has its clone: %r" % list(common.glob("uak-*")))
+        (common / "uak-blackbox.pending").write_text(pending_line("second-2"), encoding="utf-8")
+        start(r, w, "agent-1", UAK_START_WAIT="1")
+        time.sleep(4)
+        expect(all(p.exists() for p in first), "a second start leaves the clone of a flush that still lives: %r"
+               % list(common.glob("uak-bb-tmp.*")))
+    finally:
+        gate.unlink()
+    found = recover_and_count(r, f, w, common, ("second-1", "second-2"))
+    expect(found.count("second-1") == 1 and found.count("second-2") == 1, "each line is published once: %r" % found[-500:])
+    expect(not list(common.glob("uak-bb-tmp.*")), "no clone is left: %r" % list(common.glob("uak-bb-tmp.*")))
+    return "a second start during a held push removes nothing; both lines published once"
+
+
+def eight_starts_with_a_held_push_publish_once(r):
+    """UAK-190 review: eight simultaneous starts while a push is held. Every line is published exactly once, no clone
+    goes while its flush lives, none is left at the end. UAK_STORM_ROUNDS sets the rounds (the review ran ten)."""
+    from concurrent.futures import ThreadPoolExecutor
+    rounds = int(os.environ.get("UAK_STORM_ROUNDS", "1"))
+    f, w, common, gate = held_push_fixture(r, "ss-bb-storm")
+    try:
+        for n in range(rounds):
+            tags = ["storm-%d-%d" % (n, i) for i in (1, 2, 3)]
+            gate.write_text("closed\n")
+            (common / "uak-blackbox.pending").write_text("".join(pending_line(t) for t in tags[:2]), encoding="utf-8")
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                list(pool.map(lambda _: start(r, w, "agent-1", UAK_START_WAIT="1"), range(8)))
+                # A line written while the first flush is held: the second wave's flush must not take the first's clone.
+                time.sleep(2)
+                (common / "uak-blackbox.pending").write_text(pending_line(tags[2]), encoding="utf-8")
+                list(pool.map(lambda _: start(r, w, "agent-1", UAK_START_WAIT="1"), range(8)))
+            # A flush that finds nothing pending ends at once and takes its own clone; a clone that went while its
+            # owner (the PID in its file) still runs was taken from a live flush.
+            seen = {}
+            end = time.monotonic() + 6
+            while time.monotonic() < end:
+                for d in common.glob("uak-bb-tmp.*"):
+                    if not seen.get(d):
+                        try:
+                            seen[d] = (d / "owner").read_text().strip()
+                        except OSError:
+                            seen[d] = ""
+                time.sleep(0.3)
+            lost = [str(d) for d, o in seen.items() if o and not d.exists() and alive(r, w, int(o))]
+            expect(not lost, "round %d: a clone went while its flush still ran: %r" % (n, lost))
+            # The flushes held at the remote each own a snapshot (uak-blackbox.pending.BBPID) and each needs its clone.
+            held = [x for x in common.glob("uak-blackbox.pending.*") if x.name.rsplit(".", 1)[1].isdigit()
+                    and alive(r, w, int(x.name.rsplit(".", 1)[1]))]
+            clones = list(common.glob("uak-bb-tmp.*"))
+            expect(len(clones) >= len(held) and held, "round %d: %d flushes are held and %d clones remain" % (n, len(held), len(clones)))
+            gate.unlink()
+            found = recover_and_count(r, f, w, common, tags)
+            for t in tags:
+                expect(found.count(t) == 1, "round %d: %s is published %d times (once)" % (n, t, found.count(t)))
+            expect(not list(common.glob("uak-bb-tmp.*")), "round %d: a clone is left: %r" % (n, list(common.glob("uak-bb-tmp.*"))))
+    finally:
+        if gate.exists():
+            gate.unlink()
+    return "%d rounds of eight starts: every line once, no clone lost or left" % rounds
+
+
+def sweep_harness(r, w, common, body):
+    script = Path(r.scratch) / "sweep.sh"
+    script.write_text('COMMON="$1"; NOW=$(date +%s)\n' + hook_functions(r, w, "epoch_age", "start_pid_ok", "bb_sweep", "bb_unclone")
+                      + "\n" + body + "\n", encoding="utf-8")
+    return [r.bash, script.as_posix(), common.as_posix()]
+
+
+def unremovable_clone_is_retried_then_left_to_the_next_flush(r):
+    """UAK-190, Windows imitated on POSIX (an imitation: a directory of mode 000 holding a file cannot be emptied, as
+    a directory in use cannot on Windows): the removal is retried and succeeds once the directory can be removed;
+    past 10 s it stops, leaves no process, and the next flush removes it; the hook's foreground is not delayed."""
+    if os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0):
+        return "mode 000 does not stop this user here: skipped"
+    import threading
+    f, w = counted_fixture(r, "ss-bb-unremovable")
+    common = first_pending_dir(r, w)
+    dead = r.run([r.bash, "-c", "sleep 0 & echo $!; wait"], cwd=w).stdout.split()[0]
+    clone = plant_clone(common, dead)
+    lock = clone / "uak-bb.AAAAAA" / "locked"
+    lock.mkdir()
+    (lock / "f").write_text("x")
+    lock.chmod(0)
+    cmd = sweep_harness(r, w, common, 'bb_unclone; echo "left=$(ls "$COMMON" | grep -c uak-bb-tmp)"')
+    try:
+        timer = threading.Timer(3, lambda: lock.chmod(0o755))
+        timer.start()
+        began = time.monotonic()
+        out = r.run(cmd, cwd=w, allowed=None)
+        took = time.monotonic() - began
+        timer.join()
+        first_took = took
+        expect("left=0" in out.stdout and not clone.exists(), "the retry removes it once it can be removed: %r %r" % (out.stdout, out.stderr))
+        expect(3 <= took < 9, "after about 3 s, not at once and not at the end of the retries: %.1f s" % took)
+        clone = plant_clone(common, dead)
+        lock = clone / "uak-bb.AAAAAA" / "locked"
+        lock.mkdir()
+        (lock / "f").write_text("x")
+        lock.chmod(0)
+        began = time.monotonic()
+        out = r.run(cmd, cwd=w, allowed=None)
+        took = time.monotonic() - began
+        expect("left=1" in out.stdout and clone.exists(), "a directory that stays unremovable is left: %r" % out.stdout)
+        expect(took < 16, "the retry is bounded: %.1f s" % took)
+        (common / "uak-blackbox.pending").write_text(pending_line("unremovable-1"), encoding="utf-8")
+        spent, _ = start(r, w, "agent-1", UAK_START_WAIT="1")
+        expect(spent < BUDGET, "the session start is not delayed by it: %.1f s" % spent)
+        settle_once(r, w)
+        expect(clone.exists(), "the flush that could not remove it left it")
+        lock.chmod(0o755)
+        (common / "uak-blackbox.pending").write_text(pending_line("unremovable-2"), encoding="utf-8")
+        start(r, w, "agent-1", UAK_START_WAIT="1")
+        deadline = time.monotonic() + 40
+        while time.monotonic() < deadline and clone.exists():
+            time.sleep(0.3)
+        expect(not clone.exists(), "the next flush removes it once it can be")
+    finally:
+        for d in common.glob("uak-bb-tmp.*"):
+            for p in d.rglob("locked"):
+                p.chmod(0o755)
+    settle_once(r, w)
+    return "retried until removable (%.1f s), bounded at %.1f s when not, removed by the next flush" % (first_took, took)
+
+
+def clone_removal_stays_inside_the_clone_directories(r):
+    """UAK-190: the sweep touches only directories named uak-bb-tmp.TIME.PID in the git directory: a link named like
+    one is removed without its target, a plain file, a name with garbage, an owner that is not a PID and PID 1 are
+    left alone."""
+    f, w = counted_fixture(r, "ss-bb-safe")
+    common = first_pending_dir(r, w)
+    outside = Path(r.scratch) / "ss-bb-outside"
+    outside.mkdir()
+    (outside / "keep").write_text("keep")
+    now = int(time.time())
+    link = common / ("uak-bb-tmp.%d.5001" % now)
+    try:
+        os.symlink(str(outside), str(link))
+        linked = True
+    except (OSError, NotImplementedError):
+        linked = False
+    plain = common / ("uak-bb-tmp.%d.5002" % now)
+    plain.write_text("a file")
+    garbage = plant_clone(common, "1", name="uak-bb-tmp.garbage.abc;rm")
+    badowner = plant_clone(common, "../../x", name="uak-bb-tmp.%d.5003" % now)
+    pid1 = plant_clone(common, "1", name="uak-bb-tmp.%d.5004" % now)
+    out = r.run(sweep_harness(r, w, common, "bb_sweep; echo swept"), cwd=w, allowed=None)
+    expect("swept" in out.stdout, "the sweep runs: %r %r" % (out.stdout, out.stderr))
+    expect((outside / "keep").read_text() == "keep", "the target of a link is intact")
+    if linked:
+        expect(not os.path.lexists(str(link)), "a link named like a clone is removed")
+    expect(plain.is_file(), "a plain file stays")
+    expect(garbage.is_dir() and badowner.is_dir(), "a name with garbage and an owner that is no PID stay")
+    expect(pid1.is_dir(), "PID 1 is an owner that lives: its clone stays")
+    return "link removed, target intact; file, garbage, bad owner and PID 1 left alone"
+
+
+TESTS += [killed_flush_leaves_no_clone_on_windows, leftover_clone_is_removed_by_the_next_flush,
+          second_start_leaves_a_live_flushs_clone, eight_starts_with_a_held_push_publish_once,
+          unremovable_clone_is_retried_then_left_to_the_next_flush, clone_removal_stays_inside_the_clone_directories]
 
 
 def main():

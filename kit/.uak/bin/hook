@@ -123,33 +123,49 @@ bb_leftover() { # any: 0 when a dead owner left something; take: put it all back
   return 1
 }
 bb_work() { [ -n "$COMMON" ] && { [ -s "$COMMON/uak-blackbox.pending" ] || bb_leftover any; }; }
+# A clone directory is uak-bb-tmp.TIME.HOOKPID, and its file `owner` holds the PID of the process that lives as long as
+# the flush (the job's own shell). The PID in the name is the session-start hook's, gone in seconds while the flush
+# lives up to 300 s, so it says nothing about the flush. Swept: a link named like a clone (the link only, never its
+# target), a directory older than the flush's limit (600 s), a directory whose owner is gone. A young one that records
+# no owner yet stays. BB_LEFT: how many of those could not be removed (Windows refuses while a file is in use).
+bb_sweep() {
+  local d= ts= o=
+  BB_LEFT=0
+  for d in "$COMMON"/uak-bb-tmp.*; do
+    if [ -L "$d" ]; then rm -f "$d" 2>/dev/null; continue; fi
+    [ -d "$d" ] || continue
+    ts=${d##*/uak-bb-tmp.}; ts=${ts%%.*}
+    o=; { IFS= read -r o < "$d/owner"; } 2>/dev/null; o=${o%$'\r'}
+    if { epoch_age "$ts" && [ "$AGE" -gt 600 ]; } || { start_pid_ok "$o" && ! kill -0 "$o" 2>/dev/null && ! ps -p "$o" >/dev/null 2>&1; }; then
+      rm -rf "$d" 2>/dev/null
+      # rm takes `owner` early: a clone it could not finish keeps the owner's record, so it is still known as a dead one's.
+      [ ! -e "$d" ] || { BB_LEFT=$((BB_LEFT + 1)); [ ! -d "$d" ] || [ -z "$o" ] || printf '%s\n' "$o" > "$d/owner" 2>/dev/null; }
+    fi
+  done
+}
 # A killed flush: its clone goes with it. Windows refuses to remove a directory a dying process still uses (its cwd, an
 # open file), so the removal is tried again for up to 10 s, in this background job; what stays is the next flush's.
 bb_unclone() {
   local n=0
   while :; do
-    rm -rf "$COMMON"/uak-bb-tmp.*."$$" 2>/dev/null
-    set -- "$COMMON"/uak-bb-tmp.*."$$"
-    [ -e "$1" ] || return 0
-    [ "$n" -lt 10 ] || return 0
+    bb_sweep
+    [ "$BB_LEFT" -gt 0 ] && [ "$n" -lt 10 ] || return 0
     sleep 1; n=$((n + 1))
   done
 }
 bb_flush_job() {
-  local t= d= ts= pid=
+  local t=
   common_dir
   bb_leftover take
-  for d in "$COMMON"/uak-bb-tmp.*; do
-    [ -d "$d" ] || continue
-    ts=${d##*/uak-bb-tmp.}; pid=${ts#*.}; ts=${ts%%.*}
-    # Older than its limit (600 s) is never a live clone; a younger one is a dead flush's when its owner is gone.
-    if { epoch_age "$ts" && [ "$AGE" -gt 600 ]; } || { start_pid_ok "$pid" && ! kill -0 "$pid" 2>/dev/null && ! ps -p "$pid" >/dev/null 2>&1; }; then
-      rm -rf "$d" 2>/dev/null
-    fi
-  done
+  bb_sweep
   # The clone bb makes lives in a directory of this job, so a kill leaves one place to clean, never /tmp.
   t="$COMMON/uak-bb-tmp.$NOW.$$"
   mkdir "$t" 2>/dev/null || t=
+  # The owner is this job's shell: $BASHPID where bash has it; Bash 3.2 has none (a subshell keeps $$), so a child
+  # sh asks for its parent, once, here in the background (Git Bash gives the same PID kill -0 and ps -p read).
+  if [ -n "$t" ]; then
+    if [ -n "${BASHPID:-}" ]; then printf '%s\n' "$BASHPID" > "$t/owner"; else sh -c 'echo $PPID' > "$t/owner"; fi
+  fi
   TMPDIR=${t:-${TMPDIR:-/tmp}} bash .uak/bin/bb flush --quiet
   [ -z "$t" ] || rm -rf "$t"
 }
