@@ -219,7 +219,7 @@ def flow_has_the_ten_screens(root, tmp):
         heading = " ".join(texts(re.search(r"<h1\b[^>]*>[\s\S]*?</h1>", screen_html(html, name)).group(0)))
         assert re.match(r"[A-Z][a-z]", heading) and len(heading.split()) >= 3 and not heading.endswith((".", "?")), \
             "a heading is a sentence that starts with a capital and says what to do: %r" % heading
-    assert [s for s in re.findall(r'data-screen="([a-z]+)"', html)] == SCREENS[:3] + ["update"] + SCREENS[3:] + ["closed"], \
+    assert [s for s in re.findall(r'<section class="screen"[^>]*data-screen="([a-z]+)"', html)] == SCREENS[:3] + ["update"] + SCREENS[3:] + ["closed"], \
         "the screens, in the order of the flow"
     assert 'class="benefit"' not in html and "Build together" not in html and 'class="eyeline"' not in html and \
         "eyebrow" not in html, "no slogan, no eyebrow, no benefit pairs"
@@ -283,8 +283,7 @@ def no_screen_taller_than_two_viewports(root, tmp):
 
 def mobile_content_starts_within_160px(root, tmp):
     css = re.sub(r"/\*[\s\S]*?\*/", "", lib("setup.html"))
-    assert re.search(r"@media \(max-width: 850px\)[\s\S]*?\.journey \{ order: 3; flex-basis: 100%", css), \
-        "at phone width the rail goes under the brand row"
+    assert re.search(r"\.journey \{ order: 3; flex: 1 0 100%", css), "the rail goes under the brand row at every width"
     found = measured(tmp)
     if not found:
         return

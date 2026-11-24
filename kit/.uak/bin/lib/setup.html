@@ -392,10 +392,9 @@ details.technical pre { max-height: 200px; overflow-wrap: anywhere; }
 .mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--r-s); background: var(--btn); color: var(--on-btn); flex: none; }
 .wz-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; max-width: 1080px; margin: 0 auto; padding: 12px 24px; }
 .brand { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.journey { flex: 1 1 420px; min-width: 0; }
+.journey { order: 3; flex: 1 0 100%; min-width: 0; }
 .journey .nodes { gap: 0; }
 .journey li { font-size: 12px; white-space: nowrap; }
-.journey li span { overflow: hidden; text-overflow: ellipsis; }
 .journey li[hidden] { display: none; }
 .journey li.done { color: var(--ink-2); }
 .journey li.done i, .journey li[aria-current] i { border-color: var(--accent-line); background: var(--accent-line); }
@@ -460,11 +459,14 @@ details.technical pre { max-height: 200px; overflow-wrap: anywhere; }
 .your-app { margin-top: 24px; padding-top: 16px; }
 #dashboard-frame { width: 100%; min-height: 560px; border: 1px solid var(--line); border-radius: var(--r); background: var(--page); }
 #prepare { display: none !important; }
+#finish .status-heading h2 { font-size: 16px; letter-spacing: 0; }
+.prepare-step > button, .step-body > button, .prepare-step form > button { justify-self: start; }
 #error { position: sticky; bottom: 80px; z-index: 40; max-width: 1032px; margin: 0 auto; width: calc(100% - 48px); }
 #planning { display: grid; gap: 16px; margin: 0; padding: 0; border: 0; }
 .prepare-step > h4 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .prepare-step { padding: 16px; }
 .screen #plan-done { margin-top: 0; }
+#planning > button { justify-self: start; }
 #planner-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 #planner-options .choice { margin-top: 0; padding: 8px 12px; }
 #planner-choice { margin-top: 0; }
@@ -475,7 +477,6 @@ details.technical pre { max-height: 200px; overflow-wrap: anywhere; }
   .wz-body { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px 16px 24px; }
   .wz-prev .win { position: static; }
   .wz-top { padding: 12px 16px 8px; gap: 8px 12px; }
-  .journey { order: 3; flex-basis: 100%; }
   .foot-in { padding: 12px 16px; }
 }
 @media (max-width: 640px) {
@@ -830,7 +831,7 @@ approve them.
 <p class="notice step-done" id="plan-done" role="status" data-no-i18n hidden></p>
 <div id="planning">
 
-<form id="idea-form" novalidate>
+<details id="idea-details"><summary id="idea-summary">Your idea</summary><form id="idea-form" novalidate>
 <label class="field-label" for="idea-text"
 >What are you building? One line.</label
 ><input type="text" id="idea-text" maxlength="300" autocomplete="off" required />
@@ -865,8 +866,8 @@ Save the idea
 <summary>Your saved idea (IDEA.md)</summary>
 <pre id="idea-saved-text"></pre>
 </details>
-</form>
-<fieldset id="planner-choice" tabindex="-1">
+</form></details>
+<details id="planner-details"><summary>Coding tool that drafts the plan</summary><fieldset id="planner-choice" tabindex="-1">
 <legend>Coding tool that drafts the plan</legend>
 <div id="planner-options"></div>
 </fieldset>
@@ -882,7 +883,7 @@ close it. Until then it ignores this project's permissions and the plan stops ea
 </div>
 <div class="trust-help" id="plan-trust-help" data-reload="plan" data-no-i18n hidden></div>
 </div>
-<button class="secondary-button" type="button" id="plan-create" aria-describedby="plan-create-why" data-p="3">
+</details><button class="secondary-button" type="button" id="plan-create" aria-describedby="plan-create-why" data-p="3">
 Create the plan
 </button>
 <p class="hint blocked-reason" id="plan-create-why" hidden></p>
@@ -1152,7 +1153,8 @@ Not deployed yet. When your app is online, add its link under More.
 <iframe id="dashboard-frame" title="Project dashboard" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" hidden></iframe>
 <div class="more" id="more"><h2>More</h2>
 <ul class="list">
-<li><strong>Deploy</strong><span>When your app is ready, run <code>bash .uak/bin/uak deploy</code> in the terminal. Add the link in "Your app".</span></li>
+<li><strong>Deploy</strong><span>When your app is ready, run <code>bash .uak/bin/uak deploy</code> in the terminal: it says how this project deploys. Add the link under "Your app".</span></li>
+<li><strong>Smoke test</strong><span>Run <code>bash .uak/bin/uak init-smoke</code> in the terminal: it boots your app and requests one route before every merge.</span></li>
 <li><strong>External skills</strong><span>Add one with <code>bash .uak/bin/uak skill add</code> in the terminal.</span></li>
 </ul>
 <div id="preferences" hidden><div class="field"><label class="field-label" for="live-url-input">Deployed app link (optional)</label>
@@ -1966,6 +1968,9 @@ Not deployed yet. When your app is online, add its link under More.
           drawScreens(state);
           syncRunningControls();
           if (name === "start" || name === "people") loadTeam();
+          if (startTimer) { clearInterval(startTimer); startTimer = null; }
+          // The first claim of an agent shows without a reload: the team view reads the claims again every 20 s.
+          if (name === "start") startTimer = setInterval(function () { if (!document.hidden && !gone) loadTeam().then(function () { drawStart(state); }); }, 20000);
           if (name === "dashboard" && !dashboardLoading) loadDashboard();
           if (focus !== false) {
             var heading = el("screen-" + name).querySelector("h1");
@@ -2187,8 +2192,15 @@ Not deployed yet. When your app is online, add its link under More.
             ["", UAKWorkspace.t("to"), "origin/main" + (r.base_sha ? " · " + r.base_sha : "")],
           ], [[done.publish ? "1" : "0", "commit pushed"], [k.total ? "~" + k.total : "–", "files"], ["0", "of your own files"]]);
         }
+        // The idea and the planner stay open until the plan exists; after that the plan is what the screen shows.
+        var planFolded = "";
         function drawPlanWin(data) {
-          var done = stepsDone(data), cards = (planView && planView.cards) || [];
+          var done = stepsDone(data), cards = (planView && planView.cards) || [], folded = planView ? (planView.idea ? "i" : "") + (planView.planned ? "p" : "") : "";
+          if (planView && folded !== planFolded) {
+            planFolded = folded;
+            el("idea-details").open = !planView.idea;
+            el("planner-details").open = !planView.planned;
+          }
           el("go-plan").hidden = !done.plan;
           drawWindow("plan", UAKWorkspace.t("what approval publishes"), [
             ["add", "IDEA.md", ""], ["add", ".uak/TASKS.md", cards.length ? cards.length + " " + UAKWorkspace.t("tasks") : ""], ["add", ".uak/OWNERS.md", ""],
@@ -2196,9 +2208,9 @@ Not deployed yet. When your app is online, add its link under More.
           ], [[String(cards.length || "–"), "tasks"], ["4", "files"], [done.plan ? "yes" : "no", "approved"]]);
         }
         function drawStart(data) {
-          var claimed = (data.resume || {}).claims || 0;
+          var claimed = teamView && teamView.claimed ? teamView.claimed.length : (data.resume || {}).claims || 0;
           el("note-start").textContent = claimed
-            ? UAKWorkspace.format("{n} tasks claimed: an agent has started.", { n: claimed })
+            ? (claimed === 1 ? UAKWorkspace.t("1 task claimed: an agent has started.") : UAKWorkspace.format("{n} tasks claimed: an agent has started.", { n: claimed }))
             : UAKWorkspace.t("No agent has claimed a task yet. This page tells you when one does.");
           drawWindow("start", UAKWorkspace.t("your agents"), [
             ["", UAKWorkspace.t("Implements"), (teamView && teamView.roles && teamView.roles.implement) || ""],
@@ -2361,7 +2373,6 @@ Not deployed yet. When your app is online, add its link under More.
             failure = e;
             tech = (e.body && e.body.technical) || "";
             atField = !!(e.body && e.body.field && fieldError(fieldInput(e.body.field, button), e.message));
-            if (!atField) error(e.message);
           } finally {
             requestBusy = false;
             button.disabled =
@@ -3149,7 +3160,7 @@ function landing(data, saved, wanted) {
           rules: "Confirm how your team will work", people: "Say who is on your team", schedule: "Set the event schedule", publish: "Publish the kit to main",
           plan: "Describe your idea and approve the plan", start: "Start your agents", dashboard: "Follow your project", closed: "The wizard is closed" };
         var currentScreen = "", formOpen = false, modePicked = false, stackPicked = false, rulesDirty = false, closedWizard = false,
-          busySince = 0, busyTimer = null, updateSkipped = false;
+          busySince = 0, busyTimer = null, startTimer = null, updateSkipped = false;
         function modeOf(data) {
           var chosen = null;
           try { chosen = document.querySelector("input[name=mode]:checked"); } catch (e) {}
@@ -3651,14 +3662,11 @@ function landing(data, saved, wanted) {
           event.preventDefault();
           if (!checkFields(this)) return;
           clearFieldError(el("target"));
+          // A refusal names its field: action() puts it under the field, above the buttons, and says so next to the button.
           action(el("check-folder"), async function () {
-            try {
-              await inspectFolder(el("target").value);
-              formOpen = false;
-              drawScreens(state);
-            } catch (e) {
-              fieldError("target", e.message);
-            }
+            await inspectFolder(el("target").value);
+            formOpen = false;
+            drawScreens(state);
           });
         };
         async function inspectFolder(target) {
