@@ -1433,6 +1433,135 @@ TESTS += [corrupt_time_file_does_not_end_the_hook, future_time_file_is_stale, st
 TESTS += [other_users_pending_file_is_left]
 
 
+def clone_listing(common):
+    """What is left of the clone directories: every path under them, with its size."""
+    out = []
+    for d in common.glob("uak-bb-tmp.*"):
+        for root, dirs, files in os.walk(str(d)):
+            for n in dirs + files:
+                p = os.path.join(root, n)
+                try:
+                    out.append("%s (%d)" % (os.path.relpath(p, str(common)), os.path.getsize(p)))
+                except OSError as exc:
+                    out.append("%s (%s)" % (os.path.relpath(p, str(common)), exc))
+    return out[:12]
+
+
+def process_listing():
+    """Windows only: the git, bash and sleep processes that run (tasklist), to see what still holds a directory."""
+    if os.name != "nt":
+        return "no tasklist here"
+    import subprocess
+    try:
+        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "tasklist failed: %s" % exc
+    return " ".join(l.split(",")[0] + ":" + l.split(",")[1] for l in out.splitlines()
+                    if re.search(r'"(git|bash|sh|sleep|git-[a-z-]+)\.exe"', l, re.I) and len(l.split(",")) > 1)[:600]
+
+
+def kill_round(r, f, w, common, gate, n):
+    """One scenario: a flush held at the remote's gate passes its 3 s limit and is killed. Returns (seconds from the
+    owner's death to the clone's removal or None, diagnostics) and leaves the checkout recovered for the next round."""
+    lines = "".join("2026-11-10T10:0%dZ | agent | kit | error | uak claim | kill-loop-%d-%d | - | - | - | v6.4\n" % (i, n, i)
+                    for i in (1, 2))
+    (common / "uak-blackbox.pending").write_text(lines, encoding="utf-8")
+    gate.write_text("closed\n")
+    start(r, w, "agent-1", UAK_START_WAIT="1", UAK_START_LIMIT="3")
+    deadline = time.monotonic() + 40
+    dead_at = gone_at = None
+    while time.monotonic() < deadline:
+        left = [p for p in common.glob("uak-blackbox.pending.*") if p.name.rsplit(".", 1)[1].isdigit()]
+        if left and dead_at is None and not alive(r, w, int(left[0].name.rsplit(".", 1)[1])):
+            dead_at = time.monotonic()
+        if dead_at is not None and not list(common.glob("uak-bb-tmp.*")):
+            gone_at = time.monotonic()
+            break
+        time.sleep(0.1)
+        if dead_at is not None and time.monotonic() - dead_at > 15:
+            break
+    diag = ""
+    if dead_at is not None and gone_at is None:
+        diag = "left: %s; processes: %s" % (clone_listing(common), process_listing())
+        for d in list(common.glob("uak-bb-tmp.*")):
+            try:
+                shutil.rmtree(str(d))
+                diag += "; rmtree after the wait worked"
+            except OSError as exc:
+                diag += "; rmtree after the wait: %s" % exc
+    gate.unlink()
+    settle_once(r, w)
+    start(r, w, "agent-1", UAK_START_WAIT="1")
+    again = time.monotonic() + 40
+    while time.monotonic() < again and (list(common.glob("uak-blackbox.pending.*")) or list(common.glob("uak-bb-tmp.*"))):
+        time.sleep(0.3)
+    settle_once(r, w)
+    if dead_at is None:
+        return None, "the flush never passed its limit and died (left: %r)" % list(common.glob("uak-*"))
+    return (None if gone_at is None else gone_at - dead_at), diag
+
+
+def killed_flush_leaves_no_clone_on_windows(r):
+    """UAK-190: on main at 967f794 (run 45326081765, windows (10)) the clone directory of a killed flush was still there
+    when the test looked. This case repeats the kill and measures how long after the owner's death the directory can
+    be removed. UAK_KILL_ROUNDS sets the rounds."""
+    rounds = int(os.environ.get("UAK_KILL_ROUNDS", "20"))
+    f, w = counted_fixture(r, "ss-bb-kill-loop")
+    common = first_pending_dir(r, w)
+    gate = Path(r.scratch) / "ss-bb-loop-gate"
+    hook = Path(f.remote) / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\nwhile [ -f '%s' ]; do sleep 0.2; done\nexit 0\n" % gate.as_posix(), encoding="utf-8")
+    hook.chmod(0o755)
+    times, bad = [], []
+    try:
+        for n in range(rounds):
+            took, diag = kill_round(r, f, w, common, gate, n)
+            if took is None:
+                bad.append("round %d: %s" % (n, diag))
+            else:
+                times.append(took)
+    finally:
+        if gate.exists():
+            gate.unlink()
+    summary = "%d rounds, clone removed after %s s (max %.1f)" % (
+        rounds, ",".join("%.1f" % t for t in times), max(times) if times else -1)
+    print("MEASURED killed_flush_leaves_no_clone: %s; failures %d: %s" % (summary, len(bad), bad), flush=True)
+    expect(not bad, "a killed flush left its clone directory in %d of %d rounds: %s" % (len(bad), rounds, bad[:3]))
+    return summary
+
+
+def leftover_clone_is_removed_by_the_next_flush(r):
+    """UAK-190: a clone directory whose flush died stays when its removal failed (Windows refuses while a file is in
+    use). The next flush removes it at once when its owner is gone, however young it is; a live owner's clone stays."""
+    f, w = counted_fixture(r, "ss-bb-leftover")
+    common = first_pending_dir(r, w)
+    dead = r.run([r.bash, "-c", "sleep 0 & echo $!; wait"], cwd=w).stdout.split()[0]
+    mine = r.run([r.bash, "-c", "sleep 100 & echo $!; disown"], cwd=w).stdout.split()[0]
+    now = int(time.time())
+    gone = common / ("uak-bb-tmp.%d.%s" % (now, dead))
+    kept = common / ("uak-bb-tmp.%d.%s" % (now, mine))
+    for d in (gone, kept):
+        (d / "uak-bb.AAAAAA" / ".git").mkdir(parents=True)
+        (d / "uak-bb.AAAAAA" / ".git" / "HEAD").write_text("ref: refs/heads/x\n")
+    (common / "uak-blackbox.pending").write_text(
+        "2026-11-10T10:01Z | agent | kit | error | uak claim | leftover-1 | - | - | - | v6.4\n", encoding="utf-8")
+    try:
+        start(r, w, "agent-1", UAK_START_WAIT="1")
+        deadline = time.monotonic() + 40
+        while time.monotonic() < deadline and gone.exists():
+            time.sleep(0.3)
+        settle_once(r, w)
+        expect(not gone.exists(), "a young clone whose owner is gone is removed by the next flush: %r"
+               % list(common.glob("uak-bb-tmp.*")))
+        expect(kept.exists(), "a clone whose owner is alive stays")
+    finally:
+        r.run([r.bash, "-c", 'kill -KILL "$1" 2>/dev/null; true', "_", mine], cwd=w, allowed=None)
+    return "a dead owner's clone is removed, a live one's stays"
+
+
+TESTS += [killed_flush_leaves_no_clone_on_windows, leftover_clone_is_removed_by_the_next_flush]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[2])
