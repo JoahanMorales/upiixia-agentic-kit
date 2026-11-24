@@ -477,6 +477,30 @@ def first_tier_matrix_reaches_the_jobs(r):
 TESTS = TESTS + [first_tier_keeps_its_bounds, first_tier_matrix_reaches_the_jobs]
 
 
+# UAK-169: the bound a job gives its tests sits under the job's own time limit, so the runner stops itself and names the
+# file before the platform cancels the job with no log (three Windows shards were cancelled that way on 2026-11-23).
+def job_bound_sits_under_the_time_limit(r):
+    if kit_lint() is None:
+        return "no kit source repository here"
+    ci = (REPO / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+    cs = ci_select()
+    seen = {}
+    for name, line_re in (("suite", r"--kind smoke .*--bound (\d+)"), ("windows", r"--kind windows .*--bound (\d+)")):
+        job = re.search(r"(?s)\n  %s:\n(.*?)(?=\n  [a-z][a-z-]*:\n|\Z)" % name, ci).group(1)
+        limit = int(re.search(r"timeout-minutes: (\d+)", job).group(1)) * 60
+        bound = int(re.search(line_re, job).group(1))
+        expect(limit - 600 <= bound < limit, "%s: the bound %d s sits under the job's limit of %d s by less than 10 minutes" % (name, bound, limit))
+        seen[name] = bound
+    lint = kit_lint()
+    longest = max(sum(lint.ci_windows_seconds(t) for t in s["tests"].split()) for s in lint.ci_windows_shards(lint.windows_shard_count()))
+    expect(longest < seen["windows"], "the longest Windows shard (%d s of tests) fits its bound of %d s" % (longest, seen["windows"]))
+    expect(cs.RETRY_MAX_S == 300, "a file over 300 s is not run again")
+    return "suite %d s, windows %d s, longest shard %d s" % (seen["suite"], seen["windows"], longest)
+
+
+TESTS = TESTS + [job_bound_sits_under_the_time_limit]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[2])

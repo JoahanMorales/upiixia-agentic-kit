@@ -38,6 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tier: ${{ steps.pick.outputs.tier }}
+      planned: ${{ steps.pick.outputs.planned }}
       shards: ${{ steps.pick.outputs.shards }}
       wshards: ${{ steps.pick.outputs.wshards }}
     steps:
@@ -46,6 +47,7 @@ jobs:
           fetch-depth: 0   # the base of the pull request, to diff against
       - id: list
         run: |
+          set -o pipefail   # a failing kit_lint must fail this step, not hide behind the sed after it
           python3 scripts/kit_lint.py --ci-windows | sed 's/^wshards=/full_w=/' >> "$GITHUB_OUTPUT"
           python3 scripts/kit_lint.py --ci-shards 4 | sed 's/^shards=/full_s=/' >> "$GITHUB_OUTPUT"
       - id: pick
@@ -61,7 +63,9 @@ jobs:
           pos=()
           if [ "$EVENT" = pull_request ] || [ "$EVENT" = workflow_dispatch ]; then pos=("$BASE" "$GITHUB_SHA"); fi
           args=(--event "$EVENT" --ref "$REF" --labels="$LABELS" --dispatch-tier="$TIER_INPUT" --full-shards "$FULL_S" --full-windows "$FULL_W")
-          python3 scripts/ci_select.py ${pos[@]+"${pos[@]}"} "${args[@]}" --github-output | tee "$RUNNER_TEMP/pick.txt" | cut -c1-200
+          # To a file first, then shown: a selector that fails fails this step (a pipe into tee and cut hid its exit code).
+          python3 scripts/ci_select.py ${pos[@]+"${pos[@]}"} "${args[@]}" --github-output > "$RUNNER_TEMP/pick.txt"
+          cut -c1-200 "$RUNNER_TEMP/pick.txt"
           cat "$RUNNER_TEMP/pick.txt" >> "$GITHUB_OUTPUT"
           python3 scripts/ci_select.py ${pos[@]+"${pos[@]}"} "${args[@]}" --summary >> "$GITHUB_STEP_SUMMARY"
   suite:
@@ -101,13 +105,15 @@ jobs:
           RETRY: ${{ matrix.shard.os != 'ubuntu-latest' && '--retry' || '' }}
           JOB: suite (${{ matrix.shard.os }}, ${{ matrix.shard.n }})
         # One smoke per file with stdin held open, as in a terminal (ci_select.py run): a failing file is named in the job
-        # summary and the rest of the shard still runs. On macOS a failed file runs once more: passing the second time
-        # passes the job and says "flaky" (summary, annotation, artifact); Linux never retries.
+        # summary and the rest of the shard still runs. On macOS a failed file runs once more, when the second run fits:
+        # passing the second time passes the job and says "flaky" (summary, annotation, artifact); Linux never retries.
+        # --bound is the job's seconds for tests (its 60 minute limit less 5): the runner prints each file's name and the
+        # clock before it, writes the partial result before each file, and stops itself at the bound saying which file.
         run: |
           [ -n "$(echo $SHARD_TESTS)" ] || { echo "FAILED: this shard has no test files (empty SHARD_TESTS)"; exit 1; }
           # Linux: temp paths with a space and an accent, like C:\Users\José Pérez
           if [ "$RUNNER_OS" = Linux ]; then export TMPDIR="$RUNNER_TEMP/José Pérez"; mkdir -p "$TMPDIR"; fi
-          python3 scripts/ci_select.py run --kind smoke $RETRY --job "$JOB" --out "$RUNNER_TEMP/result.json" $SHARD_TESTS
+          python3 scripts/ci_select.py run --kind smoke $RETRY --bound 3300 --job "$JOB" --out "$RUNNER_TEMP/result.json" $SHARD_TESTS
       - name: What each file did (the count per file is an artifact of the run)
         if: always()
         uses: actions/upload-artifact@v4
@@ -134,7 +140,7 @@ jobs:
       matrix:
         w: ${{ fromJSON(needs.discover.outputs.wshards) }}
     runs-on: windows-latest
-    timeout-minutes: 45   # the bound is 30 minutes of tests (kit_lint.py); a hang fails here
+    timeout-minutes: 45   # the bound is 30 minutes of tests (kit_lint.py); a hang fails here (the runner stops itself at 40, --bound)
     defaults:
       run:
         shell: bash
@@ -158,7 +164,7 @@ jobs:
           JOB: windows (${{ matrix.w.n }})
         run: |
           [ -n "$(echo $SHARD_TESTS)" ] || { echo "FAILED: this shard has no test files (empty SHARD_TESTS)"; exit 1; }
-          python scripts/ci_select.py run --kind windows --retry --job "$JOB" --out "$RUNNER_TEMP/result.json" $SHARD_TESTS
+          python scripts/ci_select.py run --kind windows --retry --bound 2400 --job "$JOB" --out "$RUNNER_TEMP/result.json" $SHARD_TESTS
       - name: What each file did (the count per file is an artifact of the run)
         if: always()
         uses: actions/upload-artifact@v4
@@ -168,20 +174,25 @@ jobs:
           if-no-files-found: ignore
   ci:
     # The one check to require, on a pull request and on main (and the only name Merge-Engine-Checks needs). It always
-    # runs and passes only when every job that ran passed; a skipped job did not run.
+    # runs and passes only when discover and every job the tier planned concluded success: skipped and cancelled fail it.
     name: ci
     needs: [discover, suite, windows]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Every job that ran passed
+      - name: Discover and every job the tier planned succeeded (skipped and cancelled fail)
         env:
           NEEDS: ${{ toJSON(needs) }}
+          PLANNED: ${{ needs.discover.outputs.planned }}
         run: python3 scripts/ci_select.py gate
   red-main:
     # The whole matrix of a commit on main failed (after each file that failed on macOS or Windows already ran a second
-    # time in its job): open one issue "main is red at SHA" or add to the open one; the first green run closes it.
+    # time in its job, when the second run fits): open one issue "main is red at SHA" or add to the open one. Only a run whose
+    # `ci` job succeeded closes it; a run cancelled by hand closes nothing. A failure outside a file that ran twice (Linux,
+    # a set-up failure, a slow runner, a time limit) is "not confirmed" until the failed jobs run again: GitHub refuses a
+    # re-run while the run is in progress (HTTP 403 "This workflow is already running"), so the issue says so and gives
+    # the command, and attempt 2 of this job (it is a dependent of the failed `ci`) confirms it or closes it.
     needs: [ci]
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -200,4 +211,6 @@ jobs:
       - name: Open, add to or close the issue of a red main
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci_select.py issue --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --results results --apply
+          CI_RESULT: ${{ needs.ci.result }}
+          ATTEMPT: ${{ github.run_attempt }}
+        run: python3 scripts/ci_select.py issue --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --results results --ci-result "$CI_RESULT" --attempt "$ATTEMPT" --apply
