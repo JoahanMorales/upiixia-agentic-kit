@@ -439,7 +439,7 @@ dialog#story::backdrop { background: var(--scrim); }
 .slegend .sw { align-self: center; margin: 0; }
 .slegend b { margin-left: auto; color: var(--ink); font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pcard { display: flex; gap: 8px; align-items: flex-start; padding: 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raised); min-width: 0; }
-.pcard .nm { font-weight: 600; overflow-wrap: anywhere; }
+.pcard .nm { font-weight: 600; overflow-wrap: break-word; }
 .pcard .md, .pcard .rl { font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
 .tl { position: relative; margin: 0; padding: 0; list-style: none; }
 .tl::before { content: ""; position: absolute; left: 105px; top: 8px; bottom: 8px; width: 2px; background: var(--line-2); }
@@ -606,7 +606,7 @@ dialog#story::backdrop { background: var(--scrim); }
     var el = document.createElement(tag);
     if (attrs) for (var a in attrs) {
       var v = attrs[a]; if (v === null || v === undefined || v === false) continue;
-      if (a === "text") el.textContent = v; else if (a === "on") el.addEventListener("click", v);
+      if (a === "text") el.textContent = typeof v === "string" ? v.replace(/`/g, "") : v; else if (a === "on") el.addEventListener("click", v);
       else if (a === "tip") el.setAttribute("data-tip", v); else el.setAttribute(a, v);
     }
     (kids || []).forEach(function (c) { if (c !== null && c !== undefined && c !== false) el.appendChild(typeof c === "string" || typeof c === "number" ? document.createTextNode(String(c)) : c); });
@@ -1072,7 +1072,10 @@ dialog#story::backdrop { background: var(--scrim); }
 
   // Message text: URLs become short links, 40-hex SHAs show as 7 characters (the full one on hover).
   function rich(text) {
-    text = String(text).replace(/`([^`]*)`/g, "$1");
+    text = String(text).replace(/`([^`]*)`/g, "$1").replace(/lease\/([A-Za-z0-9-]+)\/\d+/g, "lease of $1").replace(/(Paths: )([^|\n;]+)/g, function (m, k, list) {
+      var seen = {}, all = list.split(/,\s*/).filter(function (x) { return x && !seen[x] && (seen[x] = 1); });
+      return all.length > 3 ? k + all.slice(0, 2).join(", ") + " +" + (all.length - 2) : k + all.join(", ");
+    });
     var frag = document.createDocumentFragment(), re = /(https?:\/\/[^\s)]+)|\b([0-9a-f]{40})\b/g, at = 0, m;
     while ((m = re.exec(text))) {
       if (m.index > at) frag.appendChild(document.createTextNode(text.slice(at, m.index)));
@@ -1255,9 +1258,10 @@ dialog#story::backdrop { background: var(--scrim); }
   function dayLabel(t) { return new Date(t * 1000).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" }); }
   function gapEl(g, cls) { return g ? h("span", { "class": "gap" + (g > 3600 ? " long" : ""), text: "+" + span(g), title: "since the previous move" }) : null; }
   function whoModel(a, model, harness) {
-    return [a === "-" ? h("span", { "class": "muted", text: "no agent" }) : who(a, 16), h("span", { "class": "sep", text: "·" }),
-      model === "unknown" ? h("i", { text: "model unknown", title: "recorded before the model was kept, or by a harness that does not say" }) : h("span", { "class": "mono", text: model }),
-      h("span", { "class": "sep", text: "·" }), harness === "unknown" ? h("i", { text: "harness unknown" }) : h("span", { text: harness })];
+    var out = [a === "-" ? h("span", { "class": "muted", text: "no agent" }) : who(a, 16)];
+    if (model !== "unknown") out.push(h("span", { "class": "sep", text: "·" }), h("span", { "class": "mono", text: model }));
+    if (harness !== "unknown") out.push(h("span", { "class": "sep", text: "·" }), h("span", { text: harness }));
+    return out;
   }
   function lineEl(l, prev, i) {
     var k = l[1], sk = SK[k] || SK.note, quiet = k === "checkpoint" || k === "lease" || k === "note" && !l[6], gap = prev ? l[0] - prev[0] : 0;
@@ -1301,7 +1305,7 @@ dialog#story::backdrop { background: var(--scrim); }
         body.appendChild(h("section", { "class": "st-sec" }, [h("h3", { text: T("Time in each state") + (tl.open ? " (" + T("the open one counts to now") + ")" : "") }), bar, leg]));
       }
       body.appendChild(h("section", { "class": "st-sec" }, [h("h3", { text: "Who took part" }), h("div", { "class": "crewrow" }, tl.agents.map(function (a) {
-        return h("div", { "class": "pcard" }, [avatar(a[0], 26), h("div", { style: "min-width:0" }, [h("div", { "class": "nm", text: a[0] }),
+        return h("div", { "class": "pcard" }, [avatar(a[0], 26), h("div", { style: "min-width:0" }, [h("div", { "class": "nm", text: a[0].replace(/^(.+)\/\1$/, "$1") }),
           h("div", { "class": "md" }, a[1] === "unknown" ? [h("i", { text: "model unknown" }), " · " + (a[2] === "unknown" ? "harness unknown" : a[2])] : [a[1] + " · " + (a[2] === "unknown" ? "harness unknown" : a[2])]),
           h("div", { "class": "rl", text: a[3] + " " + (a[3] === 1 ? T("move") : T("moves")) + ": " + a[4].join(", ") })])]);
       }))]));
