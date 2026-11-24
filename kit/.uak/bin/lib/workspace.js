@@ -800,6 +800,7 @@
     ["Saving…", "Guardando…"],
     // UAK-159: the ten screens
     ["Terminal", "Terminal"],
+    ["Copy the command", "Copiar el comando"],
     ["Your code", "Tu código"],
     ["Run this in a terminal, then try again", "Ejecuta esto en una terminal y vuelve a intentarlo"],
     ["Idea", "Idea"],

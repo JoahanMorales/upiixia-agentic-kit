@@ -522,8 +522,9 @@ h1[tabindex="-1"]:focus, h1[tabindex="-1"]:focus-visible { outline: none; }
 #screen-people .wz-main > * + * { margin-top: 12px; }
 #team-two-people h3 { display: none; }
 #team-two-people p { font-size: 12px; color: var(--ink-2); }
-#your-app { margin-top: 20px; }
-#screen-dashboard h2.sec { margin-top: 20px; }
+#your-app { margin-top: 24px; }
+#screen-dashboard h2.sec { margin-top: 24px; }
+#screen-unblock .next-command code { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 /* the notices that stay on top sit above the header in the flow, never over it */
 .server-gone { position: sticky; top: 0; left: auto; transform: none; z-index: 60; width: auto; max-width: 1032px; margin: 8px auto 0; }
 .reopened { top: 0; }
@@ -535,6 +536,8 @@ h1[tabindex="-1"]:focus, h1[tabindex="-1"]:focus-visible { outline: none; }
 }
 @media (max-width: 640px) {
   .brand b, .ap.term .long { display: none; }
+  .stages li:not([aria-current]) span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .stages li[aria-current] span { padding-left: 4px; }
   .ap.term .short { display: inline; }
   .screen[data-screen="dashboard"] .foot { position: static; }
   .btn, .primary, .ghost, .secondary-button { min-height: 44px; }
@@ -1220,8 +1223,8 @@ Not deployed yet. When your app is online, add its link under More.
 <section class="screen" id="screen-closed" data-screen="closed" aria-labelledby="h-closed">
 <div class="wz-body closed"><div class="wz-main"><h1 id="h-closed" tabindex="-1">The wizard is closed</h1>
 <p>Nothing is running any more. To continue in the terminal, paste this line:</p>
-<div class="next-command"><code id="closed-command" data-no-i18n></code><button type="button" class="secondary-button" id="copy-closed">Copy</button></div>
-</div></div></section>
+<div class="next-command"><code id="closed-command" data-no-i18n></code></div>
+</div></div><footer class="foot"><div class="foot-in"><div class="foot-note" id="note-closed"></div><button type="button" class="primary" id="copy-closed" data-p="1">Copy the command</button></div></footer></section>
 <div id="prepare" hidden></div>
 <div id="error" class="notice error" role="alert" hidden></div>
     </main>
@@ -2247,6 +2250,7 @@ Not deployed yet. When your app is online, add its link under More.
           el("branch-warning").hidden = !wrong;
           el("setup-branch-warning").hidden = true; // the same warning as the one above, from the old Check step
           el("terminal-step").hidden = wrong || !g.terminal;
+          document.querySelectorAll("#screen-unblock .next-command code").forEach(function (c) { c.title = c.textContent; });
           setLabel(el("unblock-again"), UAKWorkspace.t(wrong ? "Check project folder again" : "Check again"));
         }
         function drawProjectWindow(data) {
@@ -2374,7 +2378,7 @@ Not deployed yet. When your app is online, add its link under More.
           if (have) {
             var text = (planView && planView.idea) || "", pick = function (re) { var m = re.exec(text); return m ? plainText(m[1].trim()) : ""; };
             listRows("idea-recap", [["Idea", el("idea-text").value || pick(/## 1\. One line\n(.+)/) || "–"], ["For", el("idea-audience").value || pick(/^For: (.+)$/m) || "–"],
-              ["Team", (el("idea-team").value ? el("idea-team").value + " · " + (el("idea-length").value || "") : (pick(/Team size: (.+)/) + " · " + pick(/Length: (.+)/)).replace(/^ · $/, "–"))]]);
+              ["Team", [pick(/Team size: (.+)/) || el("idea-team").value, pick(/Length: (.+)/) || el("idea-length").value].filter(Boolean).join(" · ") || "–"]]);
           }
           var design = data.design || {};
           el("design-block").hidden = !design.screens;
@@ -4210,7 +4214,7 @@ function landing(data, saved, wanted) {
           };
         });
         el("copy-terminal-command").onclick = function () { copyText(el("terminal-command").dataset.full, "copy-status"); };
-        el("copy-closed").onclick = function () { copyText(el("closed-command").dataset.full, "copy-status"); };
+        el("copy-closed").onclick = function () { var b = this; copyText(el("closed-command").dataset.full, "copy-status"); b.textContent = UAKWorkspace.t("Copied"); };
         window.addEventListener("popstate", function (event) {
           var name = (event.state || {}).screen || new URLSearchParams(location.search).get("step");
           if (name && allowed(name, state)) show(name, true, "pop");
