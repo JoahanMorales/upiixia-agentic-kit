@@ -41,6 +41,8 @@ class Case:
     def __init__(self, tmp):
         self.tmp = Path(tmp)
         self.count = 0
+        self.installs = 0  # real runs of install.sh
+        self.templates = {}
         self.opener = self.tmp / "opener.py"
         self.opened = self.tmp / "opened.txt"
         self.opener.write_text(
@@ -63,8 +65,29 @@ class Case:
         subprocess.run(["git", "-C", str(d), "config", "user.name", "T"], check=True)
         return d
 
+    def argv(self, d, args, mode="sprint"):
+        """install.sh's command line: only Claude's files unless a case says otherwise (the question does not depend on
+        them and each harness costs seconds on a CI runner)."""
+        self.installs += 1
+        extra = [] if "--harness" in args else ["--harness", "claude"]
+        return [bash(), str(INSTALL), "--mode", mode, *extra, *args, str(d)]
+
+    def fresh(self, mode="sprint"):
+        """A new installed project (--terminal): one real install per mode, then copies of it."""
+        if mode not in self.templates:
+            d = self.repo("template-" + mode)
+            out = subprocess.run(self.argv(d, ["--terminal"], mode), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT, universal_newlines=True, env=self.env(), cwd=str(self.tmp),
+                                 timeout=300)
+            expect(out.returncode == 0, "install: " + out.stdout[-400:])
+            self.templates[mode] = d
+        self.count += 1
+        d = self.tmp / ("f%d" % self.count)
+        shutil.copytree(str(self.templates[mode]), str(d), symlinks=True)
+        return d
+
     def piped(self, d, *args, env=None, stdin=subprocess.DEVNULL):
-        return subprocess.run([bash(), str(INSTALL), "--mode", "sprint", *args, str(d)], stdin=stdin,
+        return subprocess.run(self.argv(d, args), stdin=stdin,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True,
                               env=env or self.env(), timeout=300, cwd=str(self.tmp))
 
@@ -73,7 +96,7 @@ class Case:
         opened): the wizard, if the keys started one, is ended by its PID once the opener ran."""
         import pty
         master, slave = pty.openpty()
-        proc = subprocess.Popen([bash(), str(INSTALL), "--mode", "sprint", *args, str(d)], stdin=slave, stdout=slave,
+        proc = subprocess.Popen(self.argv(d, args), stdin=slave, stdout=slave,
                                 stderr=slave, env=env or self.env(), close_fds=True, cwd=str(self.tmp), start_new_session=True)
         os.close(slave)
         out = b""
@@ -266,10 +289,7 @@ def choice_is_remembered(c):
 
 
 def make_state(c, extra=""):
-    d = c.repo()
-    out = c.piped(d, "--terminal")
-    expect(out.returncode == 0, "install: " + out.stdout[-400:])
-    return d
+    return c.fresh("sprint")
 
 
 def uak(d, *args, env=None):
@@ -306,9 +326,7 @@ def start_names_the_same_steps(c):
     nxt = [l for l in out.stdout.splitlines() if l.startswith("NEXT STEP")]
     expect(len(nxt) == 1 and "·" in nxt[0], "exactly one next step with its command: " + out.stdout)
     # marathon has no schedule step
-    m = c.repo()
-    subprocess.run([bash(), str(INSTALL), "--mode", "marathon", "--terminal", str(m)], stdin=subprocess.DEVNULL,
-                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=c.env(), check=True)
+    m = c.fresh("marathon")
     out = uak(m, "start", "--steps", env=c.env())
     names = re.findall(r"(?m)^\[[ x~]\] \d+\. (.+?)(?:  .*)?$", out.stdout)
     expect(names == [s for s in STEPS if s != "Schedule"], "marathon: no schedule: %r" % names)
@@ -456,9 +474,7 @@ def steps_do_not_call_a_default_done(c):
     out = uak(d, "start", "--steps", env=c.env()).stdout
     expect(re.search(r"(?m)^\[~\] 2\. Rules .*not confirmed", out), "Rules on a fresh install is a default, not done: " + out)
     expect("NEXT STEP \u00b7 Rules" not in out, "a default is not the next step: " + out)
-    m = c.repo()
-    subprocess.run([bash(), str(INSTALL), "--mode", "marathon", "--terminal", str(m)], stdin=subprocess.DEVNULL,
-                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=c.env(), check=True)
+    m = c.fresh("marathon")
     out = uak(m, "start", "--steps", env=c.env()).stdout
     expect(re.search(r"(?m)^\[~\] 3\. People ", out), "People through GitHub accounts with nobody registered is not done: " + out)
     return "Rules and People read [~] with the reason, never [x] by default"
@@ -498,6 +514,7 @@ def main():
             except Exception as exc:  # noqa: BLE001
                 fails += 1
                 print("FAIL %s (%s)" % (test.__name__, str(exc)[:2500]))
+    print("INSTALL_CHOICE_INSTALLS %d" % c.installs)
     print("INSTALL_CHOICE_RESULT %s failed=%d" % ("PASS" if not fails else "FAIL", fails))
     return 1 if fails else 0
 
