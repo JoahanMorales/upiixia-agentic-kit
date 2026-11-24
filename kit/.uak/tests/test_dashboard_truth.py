@@ -312,9 +312,21 @@ def both_profiles_and_languages_are_complete(root, tmp):
         assert hook in dash, "the page lost %s" % hook
 
 
+def messages_are_one_conversation_per_task(root, tmp):
+    """Rule 12 of docs/design/DIRECTION.md: one conversation per task, told in the task's stages, with the panel, the three
+    figures and who is in the thread; the page has no field to write. A pill reads in the singular for one task."""
+    dash = dash_source(root)
+    for needle in ("function convos(", "function stagesOf(", '"class": "stg"', "L('Waiting for you')", "L('My agents')", "L('Unread')", "L('See the task')",
+                   "L('Changes requested')", "L('In the thread')", '"win-f"'):
+        assert needle in dash, "the messages tab lost %s" % needle
+    assert "<textarea" not in dash and 'type: "submit"' not in dash and "contenteditable" not in dash, "the page cannot send"
+    assert 'text: s === "WAITING" ? T("Waiting") : rowLabel(s)' in dash and "LABEL.BLOCKED" not in dash, "pills are singular"
+    assert "L('Nothing moved in the last 14 days')" in dash, "lanes say the period covered"
+
+
 TESTS = [blocked_tasks_are_not_available, frozen_is_frozen, needs_human_comes_first, offline_uses_last_claims,
          dashboard_meets_contrast_and_targets, dashboard_keeps_every_field, empty_project_says_the_next_step, no_server_no_request,
-         page_is_not_heavier, both_profiles_and_languages_are_complete]
+         page_is_not_heavier, both_profiles_and_languages_are_complete, messages_are_one_conversation_per_task]
 
 
 def main():

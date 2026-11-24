@@ -378,19 +378,39 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
 .bbx .top { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--muted); }
 .bbx .fix { color: var(--ink-2); font-size: 12px; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
-.filters select { min-height: 28px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); max-width: 100%; }
 .filters .count { margin-left: auto; font-size: 12px; color: var(--muted); }
-.thread { padding: 4px 16px 16px; display: grid; gap: 8px; }
-.day { display: flex; align-items: center; gap: 12px; margin: 16px 0 0; font: 600 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.day::before, .day::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-.topic { display: flex; align-items: center; gap: 8px; padding: 12px 0 0; color: var(--ink-2); }
-.msg { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; max-width: 80ch; }
+.cv { display: grid; grid-template-columns: 280px minmax(0, 1fr) 264px; gap: 16px; align-items: start; }
+.cl { overflow: hidden; position: sticky; top: 16px; }
+.cg { padding: 8px 12px 4px; border-top: 1px solid var(--line); font: 600 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.cg:first-child { border-top: 0; }
+.th { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; width: 100%; min-height: 44px; padding: 8px 12px; border: 0; background: none; text-align: left; position: relative; }
+.th:hover { background: var(--hover); }
+.th[aria-current="true"] { background: var(--accent-wash); }
+.th b { font: 600 11px var(--mono); color: var(--ink-2); }
+.win-h .chip { white-space: nowrap; }
+.th time { font-size: 11px; color: var(--muted); }
+.th .tt { grid-column: 1 / -1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.th p { grid-column: 1 / -1; margin: 0; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--muted); }
+.th p span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.th .u { position: absolute; right: 12px; top: 28px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-line); }
+.chat { padding: 8px 16px 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.stg { display: flex; align-items: center; gap: 12px; margin: 12px 0 0; }
+.stg::before, .stg::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.stg span { padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--raised); font: 600 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.sys { justify-self: center; display: flex; gap: 8px; max-width: 100%; font-size: 12px; color: var(--muted); }
+.sys span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; max-width: min(80ch, 90%); }
+.msg.me { justify-self: end; grid-template-columns: minmax(0, 1fr) 24px; }
+.msg.me > :first-child { order: 2; }
+.msg.me .head2 { justify-content: flex-end; }
 .msg .head2 { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; color: var(--muted); }
 .msg .head2 b { color: var(--ink); font-weight: 600; font-size: 13px; }
+.msg.me .bub { background: var(--accent-wash); border-color: transparent; }
 .bub { margin-top: 4px; padding: 8px 12px; border-radius: var(--r); background: var(--raised); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
 .bub.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-.k-review .bub { background: var(--review-wash); } .k-approve .bub, .k-integrated .bub { background: var(--integrated-wash); }
-.k-reject .bub, .k-blocker .bub { background: var(--blocked-wash); } .k-human .bub { background: var(--warn-wash); }
+.msg.k-review .bub { background: var(--review-wash); } .msg.k-approve .bub, .msg.k-integrated .bub { background: var(--integrated-wash); }
+.msg.k-reject .bub, .msg.k-blocker .bub { background: var(--blocked-wash); } .msg.k-human .bub { background: var(--warn-wash); }
+.cs .win-f > * { padding: 8px; }
 .kind { font-weight: 600; color: var(--ink-2); }
 .sha { font-family: var(--mono); font-size: 11px; padding: 0 4px; border-radius: 4px; background: var(--hover); }
 .total { font-size: 26px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; margin: 8px 0 4px; }
@@ -445,7 +465,7 @@ dialog#story::backdrop { background: var(--scrim); }
 .st-ft { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px 24px; color: var(--ink-2); }
 .st-ft b { display: block; color: var(--ink); font-weight: 600; }
 .st-note { padding: 16px; border: 1px dashed var(--line-2); border-radius: var(--r); color: var(--ink-2); overflow-wrap: anywhere; }
-@media (max-width: 1100px) { .page { grid-template-columns: minmax(0, 1fr); } .bd { grid-template-columns: repeat(2, minmax(0, 1fr)); } .win-f.f4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .win-f.f4 > :nth-child(3) { border-left: 0; } }
+@media (max-width: 1100px) { .cv { grid-template-columns: minmax(0, 1fr); } .cl { position: static; } .page { grid-template-columns: minmax(0, 1fr); } .bd { grid-template-columns: repeat(2, minmax(0, 1fr)); } .win-f.f4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .win-f.f4 > :nth-child(3) { border-left: 0; } }
 @media (max-width: 900px) {
   .app { grid-template-columns: minmax(0, 1fr); padding-bottom: 64px; }
   .tabs { position: fixed; inset: auto 0 0 0; height: auto; flex-direction: row; flex-wrap: nowrap; justify-content: space-around; gap: 0; padding: 4px; border-right: 0; border-top: 1px solid var(--line); }
@@ -506,6 +526,24 @@ dialog#story::backdrop { background: var(--scrim); }
   function T(value) { return window.UAKWorkspace ? UAKWorkspace.t(value) : value; }
   // Labels that workspace.js does not carry yet: the page holds their Spanish (single quotes: ES below is their catalog).
   var ES = {
+    'All': 'Todas',
+    'My agents': 'Mis agentes',
+    'For me': 'Para mí',
+    'Unread': 'Sin leer',
+    'Show': 'Mostrar',
+    'Waiting for you': 'Esperan por ti',
+    'Moving': 'En marcha',
+    'Closed': 'Cerradas',
+    'General': 'Sin tarea',
+    'Messages to everyone': 'Mensajes para todos',
+    'See the task': 'Ver la tarea',
+    'Show earlier messages': 'Ver mensajes anteriores',
+    'Rounds': 'Rondas',
+    'Changes requested': 'Cambios pedidos',
+    'In the thread': 'En la conversación',
+    'yours': 'tuyo',
+    'Nothing moved in the last 14 days': 'Nada se movió en los últimos 14 días',
+    'The last move was': 'El último movimiento fue',
     'Search a task or an agent': 'Buscar una tarea o un agente',
     'Things that need you': 'Cosas que te necesitan',
     'more': 'más',
@@ -551,11 +589,11 @@ dialog#story::backdrop { background: var(--scrim); }
     ["talk", "Messages", "M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"], ["bb", "Black box", "M2.5 5 8 2.5 13.5 5v6L8 13.5 2.5 11zM2.5 5 8 7.5 13.5 5M8 7.5v6"], ["memory", "Memory", "M3 2.5h8a2 2 0 0 1 2 2v9H5a2 2 0 0 1-2-2zM5 11.5h8"], ["tokens", "Tokens", "M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11M8 5v6M6.2 9.5c.3.5 1 .8 1.8.8 1 0 1.8-.4 1.8-1.1S9 8 8 7.8 6.3 7.4 6.3 6.7 7 5.7 8 5.7c.7 0 1.3.3 1.6.8"]];
   var KC = { review: "review", approve: "integrated", integrated: "integrated", reject: "blocked", blocker: "blocked", request: "claimed", contract: "violet", human: "orange" };
   var LEASE = 14400, MAXTASKS = 8;
-  var ui = { tab: "sum", agent: "", task: "", kind: "", q: "", view: "list", period: 0, allDone: false, open: {}, more: {} };
+  var ui = { tab: "sum", agent: "", task: "", kind: "", q: "", view: "list", period: 0, mf: "all", allDone: false, open: {}, more: {} };
   var store = null; try { store = window.localStorage; } catch (e) {}
-  try { var saved = JSON.parse(store.getItem("uak-dash") || "{}"); ["tab", "agent", "task", "kind", "q", "view", "period"].forEach(function (k) { if (k in saved) ui[k] = saved[k]; }); } catch (e) {}
+  try { var saved = JSON.parse(store.getItem("uak-dash") || "{}"); ["tab", "agent", "task", "kind", "q", "view", "period", "mf"].forEach(function (k) { if (k in saved) ui[k] = saved[k]; }); } catch (e) {}
   function save() {
-    try { store.setItem("uak-dash", JSON.stringify({ tab: ui.tab, agent: ui.agent, task: ui.task, kind: ui.kind, q: ui.q, view: ui.view, period: ui.period })); } catch (e) {}
+    try { store.setItem("uak-dash", JSON.stringify({ tab: ui.tab, agent: ui.agent, task: ui.task, kind: ui.kind, q: ui.q, view: ui.view, period: ui.period, mf: ui.mf })); } catch (e) {}
     try { history.replaceState(null, "", "#" + ui.tab); } catch (e) {}
   }
   function known(k) { return TABS.some(function (t) { return t[0] === k; }); }
@@ -786,7 +824,7 @@ dialog#story::backdrop { background: var(--scrim); }
   }
   function taskRow(t) {
     var s = stateOf(t);
-    return storyable(h("li", { "class": late(t) ? "late" : "" }, [h("span", { "class": "pill " + (PILL[s] || ""), text: s === "WAITING" ? T("Waiting") : LABEL[s] }), tid(t.id), h("span", { "class": "t", text: t.title || t.paths, title: t.title }), pipe(s), h("span", { "class": "w", text: when(t, s), title: when(t, s) })]), t.id);
+    return storyable(h("li", { "class": late(t) ? "late" : "" }, [h("span", { "class": "pill " + (PILL[s] || ""), text: s === "WAITING" ? T("Waiting") : rowLabel(s) }), tid(t.id), h("span", { "class": "t", text: t.title || t.paths, title: t.title }), pipe(s), h("span", { "class": "w", text: when(t, s), title: when(t, s) })]), t.id);
   }
   function moving(d) {
     var rank = { BLOCKED: 0, REVIEW: 1, CLAIMED: 2 };
@@ -804,7 +842,7 @@ dialog#story::backdrop { background: var(--scrim); }
         var l = all.filter(function (t) { return (c[0] === "AVAILABLE" ? (t.state === "AVAILABLE") : c[0] === "CLAIMED" ? (t.state === "CLAIMED" || t.state === "BLOCKED") : t.state === c[0]) && match(t); });
         if (c[0] === "INTEGRATED") l.sort(function (a, b) { return (b.updated || 0) - (a.updated || 0); });
         var col = h("div", {}, [h("h3", {}, [h("span", { text: c[1] }), h("span", { "class": "n mono muted", text: String(l.length) })])]);
-        l.slice(0, 3).forEach(function (t) { col.appendChild(storyable(h("div", { "class": "it" }, [h("span", {}, [tid(t.id), t.state === "BLOCKED" ? h("span", { "class": "tag crit", text: LABEL.BLOCKED }) : null]), h("p", { text: t.title || t.paths }), h("span", { "class": "muted", text: c[0] === "INTEGRATED" ? ago(t.updated || g, g) + T(" ago") : when(t, t.state) })]), t.id)); });
+        l.slice(0, 3).forEach(function (t) { col.appendChild(storyable(h("div", { "class": "it" }, [h("span", {}, [tid(t.id), t.state === "BLOCKED" ? h("span", { "class": "tag crit", text: rowLabel("BLOCKED") }) : null]), h("p", { text: t.title || t.paths }), h("span", { "class": "muted", text: c[0] === "INTEGRATED" ? ago(t.updated || g, g) + T(" ago") : when(t, t.state) })]), t.id)); });
         if (l.length > 3) col.appendChild(h("button", { "class": "more", text: "+" + (l.length - 3) + " " + L('more'), on: function () { go("board"); } }));
         return col;
       }));
@@ -835,7 +873,10 @@ dialog#story::backdrop { background: var(--scrim); }
     var wins = [6, 24, 72, 336], W = 0;
     for (var i = 0; i < wins.length && !W; i++) if (segs.some(function (s) { return s.e >= g - wins[i] * 3600; })) W = wins[i];
     var body, x = null;
-    if (!W) body = h("div", { "class": "card empty" }, [h("b", { text: L('No work recorded yet') }), L('The moves of each task appear here once an agent claims it.')]);
+    if (!W) {
+      var lastMove = 0, lastTask = ""; Object.keys(tls).forEach(function (id) { tls[id].lines.forEach(function (l) { if (l[0] > lastMove) { lastMove = l[0]; lastTask = id; } }); });
+      body = h("div", { "class": "card empty" }, [h("b", { text: lastMove ? L('Nothing moved in the last 14 days') : L('No work recorded yet') }), lastMove ? L('The last move was') + " " + ago(lastMove, g) + T(" ago") + " (" + lastTask + ")." : L('The moves of each task appear here once an agent claims it.')]);
+    }
     else {
       var from = g - W * 3600, lanes = {};
       segs.forEach(function (s) { if (s.e >= from) (lanes[s.a] = lanes[s.a] || []).push(s); });
@@ -965,7 +1006,7 @@ dialog#story::backdrop { background: var(--scrim); }
     var prog = t.progress ? t.progress.replace(/ · at \d+$/, "") : "", sub = s === "REVIEW" ? t.sub : null, gen = D.generated;
     return storyable(h("article", { "class": "tk" + (late(t) ? " late" : "") }, [
       h("div", { "class": "top" }, [tid(t.id), t.priority ? h("span", { "class": "tag" + (t.priority === "P0" ? " info" : ""), text: t.priority }) : null,
-        t.state === "BLOCKED" ? h("span", { "class": "tag crit", text: LABEL.BLOCKED }) : null,
+        t.state === "BLOCKED" ? h("span", { "class": "tag crit", text: rowLabel("BLOCKED") }) : null,
         s === "REVIEW" && approved(t, D) ? h("span", { "class": "tag info", text: T("approved") }) : null,
         t.stalled ? h("span", { "class": "tag crit", text: T("stalled ") + t.stalled + " min" }) : null, t.away ? h("span", { "class": "tag", text: T("owner away") }) : null,
         sub && sub.rounds ? h("span", { "class": "tag", title: sub.rounds + " review verdict(s) on this task", text: "round " + (sub.kind === "rereview" ? sub.rounds + 1 : sub.rounds) }) : null,
@@ -1046,87 +1087,86 @@ dialog#story::backdrop { background: var(--scrim); }
     if (at < text.length) frag.appendChild(document.createTextNode(text.slice(at)));
     return frag;
   }
-  function dayName(t, now) {
-    var a = new Date(t * 1000), b = new Date(now * 1000), key = function (x) { return x.getFullYear() + "-" + x.getMonth() + "-" + x.getDate(); };
-    if (key(a) === key(b)) return T("Today");
-    if (key(a) === key(new Date(b.getTime() - 86400000))) return T("Yesterday");
-    return a.toLocaleDateString(lang(), { weekday: "long", month: "short", day: "numeric" });
+  // Messages: one conversation per task (rule 12 of docs/design/DIRECTION.md), told in the task's stages. The page has no server: it cannot send.
+  function viewer() { var v = ""; D.agents.forEach(function (a) { if (a.is_human && (!v || a.last_seen > AG[v].last_seen)) v = a.name; }); return v; }
+  function mine(n, me) { var a = AG[n]; return !!a && (n === me || a.human === me); }
+  var SEEN = {}; try { SEEN = JSON.parse(store.getItem("uak-seen") || "{}"); } catch (e) {}
+  function seen(k, now) { if (!SEEN._0) SEEN._0 = now; if (k) SEEN[k] = now; try { store.setItem("uak-seen", JSON.stringify(SEEN)); } catch (e) {} }
+  function stagesOf(id) {
+    var out = [], r = 0;
+    ((D.timelines || {})[id] || { lines: [] }).lines.forEach(function (l) {
+      if (l[1] === "claim") out.push([l[0], T("In progress")]); else if (l[1] === "done") out.push([l[0], T("In review") + " · round " + (++r)]); else if (l[1] === "integrate") out.push([l[0], T("Integrated")]);
+    });
+    return out;
+  }
+  function convos(d, me) {
+    var by = {}, hq = {}; humanQueue(d).forEach(function (q) { hq[q.task] = 1; });
+    d.messages.forEach(function (m) {
+      var c = by[m.task || ""] = by[m.task || ""] || { id: m.task || "", msgs: [], who: {}, rej: 0, rev: 0, me: false };
+      c.msgs.push(m); c.who[m.from] = 1; m.to.forEach(function (x) { if (/^agent:/.test(x)) c.who[x.slice(6)] = 1; });
+      if (m.kind === "reject") c.rej++; if (m.kind === "review") c.rev++;
+      if (m.kind === "human" || m.to.indexOf("agent:" + me) >= 0) c.me = true;
+    });
+    return Object.keys(by).map(function (k) {
+      var c = by[k], t = d.tasks.filter(function (x) { return x.id === k; })[0]; c.task = t; c.last = c.msgs[c.msgs.length - 1];
+      c.you = !!hq[k];
+      c.group = !k ? "general" : c.you ? "you" : t && t.state !== "INTEGRATED" && t.state !== "CANCELLED" ? "moving" : "closed";
+      return c;
+    }).sort(function (a, b) { return b.last.t - a.last.t; });
   }
   function talk(v, d) {
     viewHeading(v, T("Conversation"));
     var wrap = h("div", { "class": "wide" }); v.appendChild(wrap);
-    var f = h("div", { "class": "filters", role: "search" });
-    function sel(key, label, values) {
-      var s = h("select", { "aria-label": label }, [h("option", { value: "", text: label })].concat(values.map(function (x) { var o = h("option", { value: x, text: x }); if (ui[key] === x) o.selected = true; return o; })));
-      s.addEventListener("change", function () { ui[key] = s.value; save(); render(); }); return s;
-    }
-    var names = {}, tasks = {}, kinds = {};
-    d.messages.forEach(function (m) { names[m.from] = 1; if (m.task) tasks[m.task] = 1; kinds[m.kind] = 1; });
-    if (ui.task) tasks[ui.task] = 1;
-    f.appendChild(sel("agent", T("Every agent"), Object.keys(names).sort()));
-    f.appendChild(sel("task", T("Every task"), Object.keys(tasks).sort()));
-    f.appendChild(sel("kind", T("Every kind"), Object.keys(kinds).sort()));
-    var q = h("input", { id: "q", type: "search", placeholder: T("Search messages"), value: ui.q, "aria-label": T("Search messages") });
-    f.appendChild(h("label", { "class": "find" }, [icon(I.find), q]));
-    if (ui.agent || ui.task || ui.kind || ui.q) f.appendChild(h("button", { "class": "clear", text: T("Clear filters"), on: function () { ui.agent = ui.task = ui.kind = ui.q = ""; save(); render(); } }));
-    var count = h("span", { "class": "count" }); f.appendChild(count);
+    var me = viewer(), all = convos(d, me), g = d.generated; if (!SEEN._0) seen("", g);
+    var f = h("div", { "class": "filters", role: "search" }, [find(render), seg([["all", L('All')], ["mine", L('My agents')], ["me", L('For me')], ["new", L('Unread')]], ui.mf, function (x) { ui.mf = x; save(); render(); }, L('Show'))]);
+    if (ui.q || ui.mf !== "all") f.appendChild(h("button", { "class": "clear", text: T("Clear filters"), on: function () { ui.q = ""; ui.mf = "all"; save(); render(); } }));
+    f.appendChild(h("span", { "class": "count", text: d.messages.length + T(" messages") }));
     wrap.appendChild(f);
-    var chart = h("div", { "class": "card pad", style: "margin-bottom:16px" }); wrap.appendChild(chart);
-    var thread = h("div", { "class": "card thread" }); wrap.appendChild(thread);
-    function draw() {
-      var ql = ui.q.toLowerCase();
-      var all = d.messages.filter(function (m) {
-        if (ui.agent && m.from !== ui.agent && m.to.indexOf("agent:" + ui.agent) < 0) return false;
-        if (ui.task && m.task !== ui.task && m.to.indexOf("task:" + ui.task) < 0) return false;
-        if (ui.kind && m.kind !== ui.kind) return false;
-        if (ql && (m.text + " " + m.from + " " + m.task).toLowerCase().indexOf(ql) < 0) return false;
-        return true;
+    if (!d.messages.length) { wrap.appendChild(h("div", { "class": "card empty" }, [h("b", { text: T("No messages yet") }), L('Reviews, contracts and replies between agents show up here as they happen.')])); return; }
+    var q = ui.q.toLowerCase(), list = all.filter(function (c) {
+      if (ui.mf === "mine" && !Object.keys(c.who).some(function (n) { return mine(n, me); })) return false;
+      if (ui.mf === "me" && !c.me && !c.you) return false;
+      if (ui.mf === "new" && c.last.t <= Math.max(SEEN[c.id] || 0, SEEN._0)) return false;
+      return !q || (c.id + " " + (c.task ? c.task.title + " " + c.task.owner : "") + " " + Object.keys(c.who).join(" ")).toLowerCase().indexOf(q) >= 0;
+    });
+    if (!list.length) { wrap.appendChild(h("div", { "class": "card empty" }, [h("b", { text: T("No messages match") }), L('Try another agent or task, or clear the search.')])); return; }
+    var order = ["you", "moving", "closed", "general"], cur = list.filter(function (c) { return c.id === ui.task; })[0] || list.slice().sort(function (a, b) { return order.indexOf(a.group) - order.indexOf(b.group); })[0];
+    var left = h("div", { "class": "card cl" });
+    [["you", L('Waiting for you')], ["moving", L('Moving')], ["closed", L('Closed')], ["general", L('General')]].forEach(function (gr) {
+      var items = list.filter(function (c) { return c.group === gr[0]; }); if (!items.length) return;
+      left.appendChild(h("div", { "class": "cg", text: gr[1] + " · " + items.length }));
+      items.slice(0, ui.more["c" + gr[0]] ? items.length : 5).forEach(function (c) {
+        var last = c.last, unread = last.t > Math.max(SEEN[c.id] || 0, SEEN._0);
+        left.appendChild(h("button", { "class": "th", type: "button", "aria-current": String(c === cur), on: function () { ui.task = c.id; seen(c.id, g); save(); render(); } }, [
+          h("b", { text: c.id || L('General') }), h("time", { text: ago(last.t, g) }), h("span", { "class": "tt", text: c.task ? c.task.title : L('Messages to everyone') }),
+          h("p", {}, [avatar(last.from, 16), h("span", { text: last.text.replace(/\s+/g, " ") })]), unread ? h("i", { "class": "u", "aria-label": L('Unread') }) : null]));
       });
-      count.textContent = all.length + (all.length === 1 ? T(" message") : T(" messages"));
-      activity(chart, all, d);
-      thread.innerHTML = "";
-      var t = ui.task && d.tasks.filter(function (x) { return x.id === ui.task; })[0];
-      if (t) thread.appendChild(h("div", { "class": "topic" }, [h("i", { "class": "sw", style: "--c:" + color(t.state) }), h("b", { text: t.id }), h("span", { text: (t.title || "") + " · " + rowLabel(stateOf(t)) + (t.owner ? " · " + t.owner : "") })]));
-      var list = all.slice(-300).reverse(), cap = ui.more.msgs ? list.length : 40, hidden = list.length - cap;
-      list = list.slice(0, cap);
-      if (!list.length) {
-        thread.appendChild(d.messages.length ? h("div", { "class": "empty" }, [h("b", { text: T("No messages match") }), L('Try another agent, task or kind, or clear the filters.')])
-          : h("div", { "class": "empty" }, [h("b", { text: T("No messages yet") }), L('Reviews, contracts and replies between agents show up here as they happen.')]));
-        return;
-      }
-      var lastDay = "";
-      list.forEach(function (m) {
-        var dn = dayName(m.t, d.generated); if (dn !== lastDay) { thread.appendChild(h("div", { "class": "day", text: dn })); lastDay = dn; }
-        var toTask = false, to = h("span", { "class": "who" }, ["→"].concat(m.to.map(function (x) {
-          if (/^agent:/.test(x)) return avatar(x.slice(6), 16);
-          if (x === "task:" + m.task) { toTask = true; return tid(m.task); }
-          return h("span", { "class": "tag", text: x.replace(/^task:/, "") });
-        })));
-        var long = m.text.length > 200, open = ui.open[m.n];
-        thread.appendChild(h("article", { "class": "msg k-" + m.kind }, [avatar(m.from, 24), h("div", { style: "min-width:0" }, [
-          h("div", { "class": "head2" }, [h("b", { text: m.from }), to, h("span", { "class": "kind", text: m.kind }), m.task && !toTask ? tid(m.task) : null,
-            h("span", { "class": "num", title: new Date(m.t * 1000).toLocaleString(), text: "#" + m.n + " · " + ago(m.t, d.generated) + T(" ago") })]),
-          h("div", { "class": "bub" + (long && !open ? " clamp" : "") }, [rich(m.text)]),
-          long ? h("button", { "class": "expand", text: open ? T("Show less") : T("Show more"), on: function () { ui.open[m.n] = !ui.open[m.n]; draw(); } }) : null])]));
-      });
-      if (hidden > 0) thread.appendChild(h("button", { "class": "more", text: T("Show all ") + (hidden + cap), on: function () { ui.more.msgs = true; draw(); } }));
-      requestAnimationFrame(function () { Array.prototype.forEach.call(thread.querySelectorAll(".bub.clamp"), function (el) { if (el.scrollHeight <= el.clientHeight + 2) { el.classList.remove("clamp"); if (el.nextSibling) el.nextSibling.remove(); } }); });
-    }
-    var timer = 0;
-    q.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(function () { ui.q = q.value; save(); draw(); }, 120); });
-    draw();
-  }
-  // Messages over time: one series, so the title names it and every column carries its own tooltip.
-  function activity(box, msgs, d) {
-    box.innerHTML = "";
-    if (!msgs.length) { box.hidden = true; return; } box.hidden = false;
-    var hourly = d.generated - msgs[0].t <= 3 * 86400, step = hourly ? 3600 : 86400, n = hourly ? 24 : 14, t0 = d.generated - n * step, bins = [], labels = [], tips = [];
-    for (var i = 0; i < n; i++) bins.push(0);
-    msgs.forEach(function (m) { var k = Math.floor((m.t - t0) / step); if (k >= 0 && k < n) bins[k]++; });
-    bins.forEach(function (c, k) { var x = new Date((t0 + k * step) * 1000); labels.push(k % 4 === 3 || k === n - 1 ? (k === n - 1 ? T("now") : hourly ? x.toLocaleTimeString(lang(), { hour: "numeric" }) : x.toLocaleDateString(lang(), { day: "numeric" })) : ""); tips.push((hourly ? x.toLocaleString(lang(), { weekday: "short", hour: "numeric" }) : x.toLocaleDateString(lang(), { month: "short", day: "numeric" })) + " · " + c + (c === 1 ? T(" message") : T(" messages"))); });
-    var total = bins.reduce(function (a, c) { return a + c; }, 0), title = hourly ? T("Messages per hour") : T("Messages per day");
-    box.appendChild(h("div", { "class": "bh" }, [h("h2", { text: title }), h("span", { "class": "n", text: total + T(" in range · peak ") + Math.max.apply(null, bins) })]));
-    box.appendChild(bars(bins, labels, tips));
+      if (items.length > 5) left.appendChild(h("button", { "class": "more", text: ui.more["c" + gr[0]] ? T("Show less") : T("Show all ") + items.length, on: function () { ui.more["c" + gr[0]] = !ui.more["c" + gr[0]]; render(); } }));
+    });
+    var t = cur.task, tl = (d.timelines || {})[cur.id], rounds = tl ? tl.rounds : cur.rev;
+    var head = h("div", { "class": "win-h" }, [h("i"), h("i"), h("i"), h("span", { text: (cur.id || L('General')) + (t ? " · " + (t.title || "") : "") }), cur.id ? h("button", { "class": "chip", style: "margin-left:auto", type: "button", text: L('See the task'), on: function () { openStory(cur.id); } }) : null]);
+    var chat = h("div", { "class": "chat" }), st = stagesOf(cur.id), si = 0, from = ui.more["t" + cur.id] ? 0 : Math.max(0, cur.msgs.length - 25);
+    if (from) chat.appendChild(h("button", { "class": "more", text: L('Show earlier messages') + " (" + from + ")", on: function () { ui.more["t" + cur.id] = true; render(); } }));
+    cur.msgs.slice(from).forEach(function (m, i) {
+      while (si < st.length && st[si][0] <= m.t) { chat.appendChild(h("div", { "class": "stg" }, [h("span", { text: st[si][1] })])); si++; }
+      if (m.from === "scheduler" || m.from === "github") { chat.appendChild(h("div", { "class": "sys" }, [h("time", { "class": "mono", text: ago(m.t, g) + T(" ago") }), h("span", { text: m.text.replace(/\s+/g, " ").slice(0, 140) })])); return; }
+      var toTask = false, to = h("span", { "class": "who" }, ["→"].concat(m.to.map(function (x) {
+        if (/^agent:/.test(x)) return avatar(x.slice(6), 16);
+        if (x === "task:" + m.task) { toTask = true; return null; }
+        return h("span", { "class": "tag", text: x.replace(/^task:/, "") });
+      })));
+      var long = m.text.length > 200, open = ui.open[m.n];
+      chat.appendChild(h("article", { "class": "msg k-" + m.kind + (mine(m.from, me) ? " me" : "") }, [avatar(m.from, 24), h("div", { style: "min-width:0" }, [
+        h("div", { "class": "head2" }, [h("b", { text: m.from }), to, h("span", { "class": "kind", text: m.kind }), h("span", { "class": "num", title: new Date(m.t * 1000).toLocaleString(), text: "#" + m.n + " · " + ago(m.t, g) + T(" ago") })]),
+        h("div", { "class": "bub" + (long && !open ? " clamp" : "") }, [rich(m.text)]),
+        long ? h("button", { "class": "expand", text: open ? T("Show less") : T("Show more"), on: function () { ui.open[m.n] = !ui.open[m.n]; render(); } }) : null])]));
+    });
+    while (si < st.length) { chat.appendChild(h("div", { "class": "stg" }, [h("span", { text: st[si][1] })])); si++; }
+    var side = h("div", { "class": "card cs" }, [h("div", { "class": "pad" }, [t ? h("span", { "class": "pill " + (PILL[t.state] || ""), text: rowLabel(t.state) }) : null, h("p", { style: "margin:8px 0 0;font-weight:600", text: t ? t.title : L('Messages to everyone') })]),
+      h("div", { "class": "win-f" }, [figure("", cur.msgs.length, T("Messages"), ""), figure("", rounds, L('Rounds'), ""), figure(cur.rej ? "warm" : "", cur.rej, L('Changes requested'), "")]),
+      h("div", { "class": "pad" }, [h("div", { "class": "gh", text: L('In the thread') })].concat(Object.keys(cur.who).map(function (n) { return h("div", { "class": "who", style: "display:flex;padding:4px 0" }, [avatar(n, 20), h("span", { text: n }), mine(n, me) ? h("span", { "class": "tag info", text: L('yours') }) : null]); })))]);
+    wrap.appendChild(h("div", { "class": "cv" }, [left, h("div", { "class": "win" }, [head, chat]), side]));
+    requestAnimationFrame(function () { Array.prototype.forEach.call(chat.querySelectorAll(".bub.clamp"), function (el) { if (el.scrollHeight <= el.clientHeight + 2) { el.classList.remove("clamp"); if (el.nextSibling) el.nextSibling.remove(); } }); });
   }
 
   var KIND = { exit1: "git error", exit2: "usage error", exit3: "conflict", exitguard: "guard block" };
@@ -1275,7 +1315,7 @@ dialog#story::backdrop { background: var(--scrim); }
         h("div", {}, [h("b", { text: "Reviews file history" }), tl.history])];
       body.appendChild(h("section", { "class": "st-sec" }, [h("h3", { text: "Totals" }), h("div", { "class": "st-ft" }, ft)]));
     }
-    var hd = h("div", { "class": "st-h" }, [h("div", { "class": "ids" }, [h("span", { "class": "mono", text: storyId }), t.state ? h("span", { "class": "pill " + (PILL[t.state] || ""), text: LABEL[t.state] || t.state }) : null,
+    var hd = h("div", { "class": "st-h" }, [h("div", { "class": "ids" }, [h("span", { "class": "mono", text: storyId }), t.state ? h("span", { "class": "pill " + (PILL[t.state] || ""), text: rowLabel(t.state) }) : null,
       t.priority ? h("span", { "class": "tag", text: t.priority }) : null]), close, title, sum, lifeLine(t.state)]);
     storyEl.innerHTML = ""; storyEl.appendChild(h("div", { "class": "st" }, [hd, body]));
     if (keep) body.scrollTop = top;
