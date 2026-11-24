@@ -483,7 +483,6 @@ details.technical pre { max-height: 200px; overflow-wrap: anywhere; }
 .agents > li { display: grid; gap: 8px; }
 .agents .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .agents .why, .actions-list .why, .rules .why { display: block; color: var(--ink-2); font-size: 12px; }
-.stages { margin: 0; }
 .stages li span { font-size: 12px; white-space: nowrap; }
 .stages li.done i, .stages li[aria-current] i { border-color: var(--accent-line); background: var(--accent-line); }
 .stages li.done::after { background: var(--accent-line); }
@@ -506,6 +505,18 @@ details.technical pre { max-height: 200px; overflow-wrap: anywhere; }
 #publish-fix h2 { margin-bottom: 8px; }
 #plan-review > h3 { margin: 0 0 8px; font-size: 13px; color: var(--ink-2); }
 #plan-lint { margin-bottom: 8px; }
+#schedule-form .prepare-row { display: block; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+#schedule-form .prepare-row > div { display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--line); }
+#schedule-form .prepare-row > div:first-child { border-top: 0; }
+#schedule-form .field-label { margin: 0; color: var(--muted); font-size: 11px; }
+#schedule-form .step-body > p.hint { margin: 0 0 8px; }
+@media (max-width: 640px) { #schedule-form .prepare-row > div { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
+.quiet details { margin: 0; padding: 0; border: 0; }
+.quiet > * { padding: 8px 12px; }
+.quiet .checklist { border: 0; margin: 8px 0 0; }
+#your-app { margin: 0; padding: 0; border: 0; }
+#your-app h3, #screen-dashboard h2.sec { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 0 0 4px; }
+#simple-next h3 { font-size: 16px; margin: 4px 0; }
 /* the notices that stay on top sit above the header in the flow, never over it */
 .server-gone { position: sticky; top: 0; left: auto; transform: none; z-index: 60; width: auto; max-width: 1032px; margin: 8px auto 0; }
 .reopened { top: 0; }
@@ -747,7 +758,7 @@ records them with this name.
 <label class="field-label" for="human-name">Your name (from your Git identity)</label>
 <input type="text" id="human-name" maxlength="32" autocomplete="off" spellcheck="false" readonly />
 </div>
-<button type="button" class="secondary-button" id="human-save" data-p="2">Use this name</button>
+
 </div>
 <p class="hint" id="human-status" role="status"></p>
 </div>
@@ -816,7 +827,7 @@ on this computer; teammates choose their own.
 <p class="hint blocked-reason" id="team-locked-why" hidden></p>
 </div>
 <aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-people-title">people and roles</span></div><div class="win-b" id="win-people-body"></div><div class="win-f" id="win-people-foot"></div></div></aside></div>
-<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-people"></div><button type="button" class="primary" id="go-people" data-p="1" data-next hidden>Continue</button></div></footer>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-people"></div><span class="grp" data-unless="name-done"><button type="button" class="secondary-button" id="human-save" data-p="2">Use this name</button></span><button type="button" class="primary" id="go-people" data-p="1" data-next hidden>Continue</button></div></footer>
 </section>
 <section class="screen" id="screen-schedule" data-screen="schedule" aria-labelledby="h-schedule">
 <div class="wz-body"><div class="wz-main">
@@ -848,13 +859,13 @@ last minutes go to the demo.
 <datalist id="schedule-zones"></datalist>
 </div>
 </div>
-<button type="submit" class="secondary-button" id="schedule-save" data-p="2">Save schedule</button>
+
 <p class="hint" id="schedule-status" role="status"></p>
 </div>
 </form>
 </div>
 <aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-schedule-title">the clock</span></div><div class="win-b" id="win-schedule-body"></div><div class="win-f" id="win-schedule-foot"></div></div></aside></div>
-<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-schedule"></div><button type="button" class="primary" id="go-schedule" data-p="1" data-next hidden>Continue</button></div></footer>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-schedule"></div><span class="grp" data-unless="schedule-done"><button form="schedule-form" type="submit" class="secondary-button" id="schedule-save" data-p="2">Save schedule</button></span><button type="button" class="primary" id="go-schedule" data-p="1" data-next hidden>Continue</button></div></footer>
 </section>
 <section class="screen" id="screen-publish" data-screen="publish" aria-labelledby="h-publish">
 <div class="wz-body"><div class="wz-main">
@@ -2353,8 +2364,9 @@ Not deployed yet. When your app is online, add its link under More.
           var recap = el("idea-recap"), have = !form && stage !== "idea" && stage !== "draft";
           recap.hidden = !have; el("idea-edit-line").hidden = !have;
           if (have) {
-            listRows("idea-recap", [["Idea", el("idea-text").value || plainText((planView && planView.idea || "").split("\n").filter(function (l) { return l && l[0] !== "#" && l[0] !== ">"; })[0])],
-              ["For", el("idea-audience").value || "–"], ["Team", (el("idea-team").value || "–") + " · " + (el("idea-length").value || "–")]]);
+            var text = (planView && planView.idea) || "", pick = function (re) { var m = re.exec(text); return m ? plainText(m[1].trim()) : ""; };
+            listRows("idea-recap", [["Idea", el("idea-text").value || pick(/## 1\. One line\n(.+)/) || "–"], ["For", el("idea-audience").value || pick(/^For: (.+)$/m) || "–"],
+              ["Team", (el("idea-team").value ? el("idea-team").value + " · " + (el("idea-length").value || "") : (pick(/Team size: (.+)/) + " · " + pick(/Length: (.+)/)).replace(/^ · $/, "–"))]]);
           }
           var design = data.design || {};
           el("design-block").hidden = !design.screens;
