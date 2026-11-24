@@ -15,3 +15,4 @@ Append-only. Format: - ID | epoch | human | reason. Why: a test is a spec; chang
 - UAK-158 | 1795494033 | JoahanMorales | el asistente usa los tokens del panel y marcas SVG; cuatro líneas de test leían la paleta vieja y el glifo ✓
 - UAK-159 | 1795502193 | JoahanMorales | el flujo pasa a diez pantallas; los tests de Dylan describen el flujo anterior
 - UAK-160 | 1795502196 | JoahanMorales | el español se escribe desde códigos; los tests comparan frases traducidas
+- UAK-162 | 1795502200 | JoahanMorales | el panel se rediseña según la maqueta; los tests leen la estructura anterior

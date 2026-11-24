@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1795502196
+Updated: 1795502200
 AVAILABLE: UAK-159 UAK-160 UAK-162 UAK-163 UAK-164 UAK-165 UAK-166 UAK-167 UAK-191 
 CLAIMED: UAK-190 
 BLOCKED: -
@@ -17,11 +17,11 @@ UAK-190 | CLAIMED | kit-a3 | until 1795514638
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1795494033 | allow | JoahanMorales | test change: UAK-158 | Why: el asistente usa los tokens del panel y marcas SVG; cuatro líneas de test leían la paleta vieja y el glifo ✓
 - 1795498652 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-159 UAK-160 Paths: kit/.uak/bin/lib/workspace.js, kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/setup.py, k
 - 1795498656 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-190 UAK-191 | Why: backlog without PR (Plan-Channel: claims)
 - 1795502193 | allow | JoahanMorales | test change: UAK-159 | Why: el flujo pasa a diez pantallas; los tests de Dylan describen el flujo anterior
 - 1795502196 | allow | JoahanMorales | test change: UAK-160 | Why: el español se escribe desde códigos; los tests comparan frases traducidas
+- 1795502200 | allow | JoahanMorales | test change: UAK-162 | Why: el panel se rediseña según la maqueta; los tests leen la estructura anterior
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.

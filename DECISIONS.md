@@ -138,3 +138,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1795498656 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-190 UAK-191 | Why: backlog without PR (Plan-Channel: claims)
 - 1795502193 | allow | JoahanMorales | test change: UAK-159 | Why: el flujo pasa a diez pantallas; los tests de Dylan describen el flujo anterior
 - 1795502196 | allow | JoahanMorales | test change: UAK-160 | Why: el español se escribe desde códigos; los tests comparan frases traducidas
+- 1795502200 | allow | JoahanMorales | test change: UAK-162 | Why: el panel se rediseña según la maqueta; los tests leen la estructura anterior
