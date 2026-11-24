@@ -387,6 +387,7 @@ done_no_pr_check() {
 }
 done_mutate() {
   require_owner; STATE=REVIEW
+  rm_auto_note_for "$PR_URL"
   task_branch=$(field "$RECORD" Branch)
   DONE_REF=$PR_URL
   if [ "$DONE_NO_PR" = yes ]; then done_no_pr_check; DONE_REF="branch $task_branch (no PR)"; fi
