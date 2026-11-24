@@ -6,6 +6,8 @@ that share a path, so they ran one at a time (2026-11-23, plan "visual setup"). 
 timing file and does not touch scripts/kit_lint.py. These cases call the lint's reader, the selector and a real install."""
 import argparse
 import importlib.util
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -133,22 +135,61 @@ def write(folder, name, text):
     (folder / name).write_text(text, encoding="utf-8", newline="\n")
 
 
+MEASURED = re.compile(r"(?m)^[ \t]*#[ \t]*measured[ \t]+[0-9]{4}-[0-9]{2}-[0-9]{2}[ \t]+[0-9]+[ \t]*$")
+
+
+def frozen_mismatches(lint, folder):
+    """Findings of the frozen comparison over a timing folder. Every frozen name needs a readable file with both numbers; its
+    numbers must be the frozen ones unless the file carries a `# measured YYYY-MM-DD RUN` line (measured again since)."""
+    ci, win, problems = lint.read_timings(folder)
+    out = list(problems)
+    for label, frozen, got in (("ci", FROZEN_CI, ci), ("windows", FROZEN_WINDOWS, win)):
+        for t in sorted(frozen):
+            f = Path(folder) / (t + ".txt")
+            if t not in got or not f.is_file():
+                out.append("%s has no readable `%s` line" % (t, label))
+            elif got[t] != frozen[t] and not MEASURED.search(f.read_text(encoding="utf-8")):
+                out.append("%s `%s` was %d, is %d and the file has no `# measured` line" % (t, label, frozen[t], got[t]))
+    return out
+
+
 def tables_equal_before_and_after(r):
     lint = lint_module()
-    for label, frozen, real in (("CI_SECONDS", FROZEN_CI, lint.CI_SECONDS), ("CI_WINDOWS_SECONDS", FROZEN_WINDOWS, lint.CI_WINDOWS_SECONDS)):
-        expect(len(frozen) == 152, "the frozen copy has the 152 entries of main: %d" % len(frozen))
-        for t in sorted(frozen):
-            expect(real.get(t) == frozen[t], "%s[%s] was %d, is %s" % (label, t, frozen[t], real.get(t)))
-        extra = set(real) - set(frozen)
-        expect(extra <= NEW_SINCE_FREEZE or all((REPO / "kit/.uak/tests" / (t + ".py")).is_file() or t == "mcp_tools" for t in extra),
+    expect(len(FROZEN_CI) == 152 and len(FROZEN_WINDOWS) == 152, "the frozen copy has the 152 entries of main")
+    got = frozen_mismatches(lint, TIMINGS)
+    expect(got == [], "the files keep the frozen values unless measured again: %s" % got[:5])
+    for label, real in (("CI_SECONDS", lint.CI_SECONDS), ("CI_WINDOWS_SECONDS", lint.CI_WINDOWS_SECONDS)):
+        extra = set(real) - set(FROZEN_CI)
+        expect(all((REPO / "kit/.uak/tests" / (t + ".py")).is_file() or t == "mcp_tools" for t in extra),
                "%s has entries that are not test files: %s" % (label, sorted(extra)))
         expect(NEW_SINCE_FREEZE <= set(real), "%s has this test's own entry" % label)
-    for t in sorted(FROZEN_CI):
+    unmeasured = [t for t in FROZEN_CI if not MEASURED.search((TIMINGS / (t + ".txt")).read_text(encoding="utf-8"))]
+    for t in unmeasured:
         expect(lint.ci_seconds(t) == FROZEN_CI[t] and lint.ci_windows_seconds(t) == FROZEN_WINDOWS[t], "ci_seconds / ci_windows_seconds of %s" % t)
     expect(lint.ci_seconds("test_never_measured") == 60 and lint.ci_windows_seconds("test_never_measured") == 300, "an unmeasured file keeps its defaults")
     files_ = sorted(p.stem for p in TIMINGS.glob("*.txt"))
     expect(files_ == sorted(lint.CI_SECONDS) == sorted(lint.CI_WINDOWS_SECONDS), "one file per entry, both tables from the same folder")
-    return "%d entries, both tables" % len(FROZEN_CI)
+    return "%d entries, %d compared" % (len(FROZEN_CI), len(unmeasured))
+
+
+def measured_again_may_differ_from_the_frozen_values(r):
+    lint = lint_module()
+    with tempfile.TemporaryDirectory(prefix="uak-timings-") as tmp:
+        d = Path(tmp) / "timings"
+        shutil.copytree(str(TIMINGS), str(d))
+        expect(frozen_mismatches(lint, d) == [], "the copy compares clean")
+        write(d, "test_gate_scope.txt", "ci %d\nwindows %d\n" % (FROZEN_CI["test_gate_scope"] + 7, FROZEN_WINDOWS["test_gate_scope"] + 9))
+        got = frozen_mismatches(lint, d)
+        expect(len(got) == 2 and all("test_gate_scope" in x and "no `# measured` line" in x for x in got), "other numbers and no line fail: %s" % got)
+        write(d, "test_gate_scope.txt", "# measured 2026-11-24 45298453993\nci %d\nwindows %d\n" % (FROZEN_CI["test_gate_scope"] + 7, FROZEN_WINDOWS["test_gate_scope"] + 9))
+        expect(frozen_mismatches(lint, d) == [], "other numbers with a `# measured` line do not fail: %s" % frozen_mismatches(lint, d))
+        expect(lint.read_timings(d)[2] == [], "and the lint reads the line like any comment")
+        write(d, "test_gate_scope.txt", "# measured soon\nci %d\nwindows %d\n" % (FROZEN_CI["test_gate_scope"] + 7, FROZEN_WINDOWS["test_gate_scope"]))
+        expect(len(frozen_mismatches(lint, d)) == 1, "a malformed `# measured` line does not count")
+        (d / "test_gate_scope.txt").unlink()
+        got = frozen_mismatches(lint, d)
+        expect(len(got) == 2 and all("no readable" in x for x in got), "a frozen name still needs its file: %s" % got)
+    return "measured line honoured"
 
 
 def test_without_timing_file_is_named(r):
@@ -219,7 +260,9 @@ def shards_are_unchanged(r):
     lint = lint_module()
 
     def old(frozen, now):
-        return lambda t: frozen[t] if t in frozen else now(t)
+        # the frozen value, except for a file measured again (its `# measured` line)
+        again = {t for t in frozen if MEASURED.search((TIMINGS / (t + ".txt")).read_text(encoding="utf-8"))}
+        return lambda t: frozen[t] if t in frozen and t not in again else now(t)
     mac, win = old(FROZEN_CI, lint.ci_seconds), old(FROZEN_WINDOWS, lint.ci_windows_seconds)
     tests = lint.ci_tests()
     for n in (3, 4, 5, 6, 8):
@@ -264,7 +307,7 @@ def timing_only_change_is_first_tier(r):
     return "first tier, test_v59 selected"
 
 
-TESTS = [tables_equal_before_and_after, test_without_timing_file_is_named, timing_file_without_test_is_refused,
+TESTS = [tables_equal_before_and_after, measured_again_may_differ_from_the_frozen_values, test_without_timing_file_is_named, timing_file_without_test_is_refused,
          unreadable_timing_line_is_refused, shards_are_unchanged, timings_are_not_installed, timing_only_change_is_first_tier]
 
 

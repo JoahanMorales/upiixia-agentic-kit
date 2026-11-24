@@ -121,6 +121,8 @@ def ci_tests():
 # test_flaky_guard 508 s and 1500 s. The lint refuses a test file with no timing file (timing_problems: UAK-141 had none for
 # test_flaky_guard, it counted the default 60 s and ran 25 min on Windows and 8 min on macOS), a timing file with no test,
 # a line it cannot read, a number that is not a whole number of seconds from 1 to 3600 and a second `ci` or `windows` line.
+# A file whose seconds were measured again carries a line `# measured YYYY-MM-DD RUN` (the day and the run id of the logs):
+# test_ci_timings compares the files with the frozen values of UAK-187 entry by entry, except the ones with that line.
 # To measure again, take each file's group time (from its ::group:: line to its ::endgroup:: line) in
 # `gh run view RUN --log --job JOB` of recent runs on main, and write the two numbers in its file.
 TIMINGS_DIR = ROOT / "kit/.uak/tests/timings"
