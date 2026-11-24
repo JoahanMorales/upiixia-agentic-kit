@@ -292,6 +292,8 @@ dialog#share::backdrop { background: var(--scrim); }
 .lbp li { min-height: 32px; display: flex; align-items: center; padding: 0 12px; border-radius: var(--r-s); color: var(--ink); cursor: pointer; white-space: nowrap; }
 .lbp li.act { background: var(--hover); }
 .lbp li[aria-selected="true"] { font-weight: 600; color: var(--accent-ink); }
+.agrid.sm { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 4px; }
+.agrid.sm .ac { padding: 8px; gap: 4px; }
 .agrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 .ac { display: grid; gap: 8px; align-content: start; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
 .ac-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -612,6 +614,9 @@ dialog#story::backdrop { background: var(--scrim); }
   "use strict";
   function T(value) { return window.UAKWorkspace ? UAKWorkspace.t(value) : value; }
   var ES = {
+    'message': 'mensaje',
+    'verdict': 'veredicto',
+    'checkpoint': 'punto de control',
     'People': 'Personas',
     'the humans of the project': 'las personas del proyecto',
     'Tasks with the most entries': 'Tareas con más entradas',
@@ -1414,6 +1419,8 @@ dialog#story::backdrop { background: var(--scrim); }
     wrap.appendChild(bd); v.appendChild(wrap);
   }
 
+  // 1 message, 2 messages: the singular and the plural both come from the language's labels.
+  function cnt(n, one, many) { return n + " " + (n === 1 ? one : many); }
   function agents(v, d) {
     viewHeading(v, T("Agents"));
     var wrap = h("div", { "class": "wide" }); v.appendChild(wrap);
@@ -1423,7 +1430,7 @@ dialog#story::backdrop { background: var(--scrim); }
     groups.forEach(function (gr) {
       var list = d.agents.filter(function (a) { return gr[0] === "people" ? a.is_human : a.status === gr[0] && !a.is_human; }).sort(function (a, b) { return b.last_seen - a.last_seen || a.name.localeCompare(b.name); });
       if (!list.length) return;
-      var grid = h("div", { "class": "agrid" });
+      var compact = gr[0] === "offline" || gr[0] === "retired" || gr[0] === "away", grid = h("div", { "class": "agrid" + (compact ? " sm" : "") });
       list.forEach(function (a) {
         var ts = a.tasks.slice(0, 2), mhs = a.is_human ? "" : mh(a.name);
         grid.appendChild(h("article", { "class": "ac" }, [
@@ -1431,9 +1438,9 @@ dialog#story::backdrop { background: var(--scrim); }
             a.role === "reviewer" ? h("span", { "class": "tag", text: T("reviewer") }) : null]),
           // last_seen 0: registered but never active (UI-012: "20770 d ago" was the time since 1970).
           h("div", { "class": "sub" }, [pres(a.status), " " + T(a.status) + " · " + (a.last_seen ? ago(a.last_seen, d.generated) + T(" ago") : T("never seen"))]),
-          h("div", { "class": "chips", style: "margin:0" }, ts.length ? ts.map(function (t) { return h("button", { "class": "chip", on: function () { openStory(t.id); } }, [h("i", { "class": "sw", style: "--c:" + color(t.state), "aria-hidden": "true" }), h("span", { "class": "mono", text: t.id }), h("span", { "class": "muted", text: rowLabel(t.state) })]); }).concat(a.tasks.length > 2 ? [h("span", { "class": "muted", text: "+" + (a.tasks.length - 2) })] : []) : [h("span", { "class": "muted", text: T("No live task") })]),
-          mhs ? h("div", { "class": "sub ell", title: mhs, text: mhs }) : null,
-          h("div", { "class": "sub num", title: a.messages + " " + T("messages") + " · " + a.verdicts + " " + T("verdicts") + " · " + a.checkpoints + " " + T("checkpoints"), text: a.messages + " " + T("messages") + " · " + a.verdicts + " " + T("verdicts") + " · " + a.checkpoints + " " + T("checkpoints") })]));
+          compact && !ts.length ? null : h("div", { "class": "chips", style: "margin:0" }, ts.length ? ts.map(function (t) { return h("button", { "class": "chip", on: function () { openStory(t.id); } }, [h("i", { "class": "sw", style: "--c:" + color(t.state), "aria-hidden": "true" }), h("span", { "class": "mono", text: t.id }), h("span", { "class": "muted", text: rowLabel(t.state) })]); }).concat(a.tasks.length > 2 ? [h("span", { "class": "muted", text: "+" + (a.tasks.length - 2) })] : []) : [h("span", { "class": "muted", text: T("No live task") })]),
+          mhs && !compact ? h("div", { "class": "sub ell", title: mhs, text: mhs }) : null,
+          compact ? null : h("div", { "class": "sub num", title: cnt(a.messages, L('message'), L('messages')) + " · " + cnt(a.verdicts, L('verdict'), L('verdicts')) + " · " + cnt(a.checkpoints, L('checkpoint'), L('checkpoints')), text: cnt(a.messages, L('message'), L('messages')) + " · " + cnt(a.verdicts, L('verdict'), L('verdicts')) + " · " + cnt(a.checkpoints, L('checkpoint'), L('checkpoints')) })]));
       });
       wrap.appendChild(h("section", { style: "margin-bottom:24px" }, [h("div", { "class": "bh" }, [h("h2", { text: gr[1] }), h("span", { "class": "n", text: String(list.length) }), h("div", { "class": "x", text: gr[2] })]), grid]));
     });
@@ -1495,7 +1502,7 @@ dialog#story::backdrop { background: var(--scrim); }
     var me = viewer(), all = convos(d, me), g = d.generated; if (!SEEN._0) seen("", g);
     var f = h("div", { "class": "filters", role: "search" }, [find(render), seg([["all", L('All')], ["mine", L('My agents')], ["me", L('For me')], ["new", L('Unread')]], ui.mf, function (x) { ui.mf = x; save(); render(); }, L('Show'))]);
     if (ui.q || ui.mf !== "all") f.appendChild(h("button", { "class": "clear", text: T("Clear filters"), on: function () { ui.q = ""; ui.mf = "all"; save(); render(); } }));
-    f.appendChild(h("span", { "class": "count", text: d.messages.length + T(" messages") }));
+    f.appendChild(h("span", { "class": "count", text: cnt(d.messages.length, L('message'), L('messages')) }));
     wrap.appendChild(f);
     if (!d.messages.length) { wrap.appendChild(h("div", { "class": "card empty" }, [h("b", { text: T("No messages yet") }), L('Reviews, contracts and replies between agents show up here as they happen.')])); return; }
     var q = ui.q.toLowerCase(), list = all.filter(function (c) {
@@ -1667,7 +1674,7 @@ dialog#story::backdrop { background: var(--scrim); }
     svg.addEventListener("pointerdown", function (e) { if (GZ.z > 1 && e.target === svg) drag = { x: e.clientX, y: e.clientY, gx: vx, gy: vy }; });
     svg.addEventListener("pointermove", function (e) { if (!drag) return; var k = vw / svg.getBoundingClientRect().width; GZ.x = drag.gx - (e.clientX - drag.x) * k; GZ.y = drag.gy - (e.clientY - drag.y) * k; svg.setAttribute("viewBox", Math.max(fx, Math.min(fx + fw - vw, GZ.x)) + " " + Math.max(fy, Math.min(fy + fh - vh, GZ.y)) + " " + vw + " " + vh); });
     svg.addEventListener("pointerup", function () { drag = null; });
-    var leg = h("div", { "class": "legend" }, [["task", T("Tasks")], ["lesson", L('Lesson')], ["decision", L('Decision')], ["file", L('File')], ["agent", T("Agents")]].map(function (x) { return h("span", {}, [h("i", { "class": "sw g-" + x[0], "aria-hidden": "true" }), x[1]]); }));
+    var leg = h("div", { "class": "legend" }, [["task", T("Tasks")], ["lesson", L('Lesson')], ["decision", L('Decision')], ["file", L('File')], ["agent", T("Agents")]].filter(function (x) { return !GHIDE[kindOfNode({ type: x[0] })]; }).map(function (x) { return h("span", {}, [h("i", { "class": "sw g-" + x[0], "aria-hidden": "true" }), x[1]]); }));
     var side = h("div", { "class": "card pad gside" }), orphans = mg.entries.filter(function (e) { return !vis[e.id]; });
     function chip(id, t) { return h("button", { "class": "chip", type: "button", text: t, title: t, on: function () { SEL_NODE = id; render(); } }); }
     if (!sel) {
@@ -1678,7 +1685,7 @@ dialog#story::backdrop { background: var(--scrim); }
       if (orphans.length) {
         side.appendChild(h("div", { "class": "gh", text: orphans.length + " " + L('entries with no link shown') }));
         var seen2 = {}, groups = []; orphans.forEach(function (e) { var t = lab({ id: e.id, type: e.kind }), k = t; if (seen2[k]) seen2[k].n++; else groups.push(seen2[k] = { t: t, full: e.text.replace(/\s+/g, " "), n: 1 }); });
-        side.appendChild(h("div", { "class": "chips" }, groups.slice(0, 12).map(function (g) { return h("button", { "class": "chip ell", type: "button", style: "max-width:100%", text: g.t + (g.n > 1 ? " ×" + g.n : ""), title: g.full, on: function () { SEL_NODE = ""; GQ = g.full.slice(0, 20); render(); } }); })));
+        side.appendChild(h("div", { "class": "chips" }, groups.slice(0, ui.more.orph ? groups.length : 12).map(function (g) { return h("button", { "class": "chip ell", type: "button", style: "max-width:100%", text: g.t + (g.n > 1 ? " ×" + g.n : ""), title: g.full, on: function () { SEL_NODE = ""; GQ = g.full.slice(0, 20); render(); } }); }).concat(groups.length > 12 ? [h("button", { "class": "chip", type: "button", text: ui.more.orph ? T("Show less") : "+" + (groups.length - 12) + " " + L('more'), on: function () { ui.more.orph = !ui.more.orph; render(); } })] : [])));
       }
     } else {
       var x = by[sel], es = ent[sel] ? [ent[sel]] : mg.entries.filter(function (e) { return e.refs[sel]; });
@@ -1716,7 +1723,7 @@ dialog#story::backdrop { background: var(--scrim); }
       idc(S.name, S.name, 90, SAFE_TOP + 40, 150); var fs = fit(S.name, 84, 900); text(S.name, 90, SAFE_TOP + 330, fs, 700, tok("ink")); if (since) text(since, 90, SAFE_TOP + 390, 34, 500, tok("muted"));
       ag.slice(0, 7).forEach(function (a, i) { idc(a.name, a.human, 90 + i * 130, SAFE_TOP + 470, 110); });
       if (S.total) { box(90, SAFE_TOP + 580, 900, 14, 7, tok("hover")); box(90, SAFE_TOP + 580, 900 * S.integrated / S.total, 14, 7, tok("accent-line")); }
-      if (ag.length > 7) text("+" + (ag.length - 7), 90 + 7 * 130, SAFE_TOP + 535, 40, 600, tok("muted"));
+      if (ag.length > 7) text("+" + (ag.length - 7), W - 90, SAFE_TOP + 535, 40, 600, tok("muted"), null, "right");
       f.forEach(function (x, i) { var y = SAFE_TOP + 760 + i * 170; text(x[0], 90, y, 104, 700, tok("ink")); text(x[1], 90, y + 44, 30, 500, tok("muted")); });
       if (S.total) text(Math.round(100 * S.integrated / S.total) + "%", W - 90, SAFE_TOP + 130, 96, 700, tok("accent-ink"), null, "right");
     } else {
