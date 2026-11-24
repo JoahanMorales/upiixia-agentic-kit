@@ -211,7 +211,7 @@ button { cursor: pointer; }
 .head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 12px 24px; border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 8px; min-width: 0; margin-right: auto; }
 .brand h1 { margin: 0; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
-.chip { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line-2); font: 500 11px var(--mono); color: var(--ink-2); }
+.chip { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line-2); font: 500 11px var(--mono); color: var(--ink-2); }
 button.chip { cursor: pointer; border-radius: var(--r-s); }
 button.chip:hover { background: var(--hover); }
 .fresh { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; font-size: 12px; color: var(--muted); }
@@ -558,9 +558,12 @@ dialog#story::backdrop { background: var(--scrim); }
   .scs, .gv { grid-template-columns: minmax(0, 1fr); } .gside { position: static; max-height: none; }
   .lbb, .lbp li { min-height: 44px; }
   .lbp { left: 8px !important; right: 8px; top: auto !important; bottom: 8px; width: auto; max-height: 50vh; }
-  .brand { flex: 1 1 100%; }
+  .brand { flex: 1 1 calc(100% - 104px); min-width: 0; }
+  #modechip { display: none; }
+  .brand h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brand { order: 1; } #dash-language { order: 2; } .fresh { order: 3; } #share-btn { order: 4; padding: 0 10px; } #look { order: 5; } .sbt { display: none; }
   .head { gap: 8px; }
-  .fresh { flex: 1 1 0; min-width: 0; } #freshtxt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fresh { flex: 0 0 auto; white-space: nowrap; }
   .sq { position: relative; } .sq::after { content: ""; position: absolute; inset: -6px; }
   .tid, .more, .expand, .filters .clear, .cmd button, .seg button, .lang, .find, .filters select, .chip { min-height: 44px; }
   .cmd button { width: 44px; } .find input { width: 100%; flex: 1; } .find { flex: 1 1 100%; }
@@ -1047,7 +1050,7 @@ dialog#story::backdrop { background: var(--scrim); }
     favicon(d.repo);
     document.getElementById("embedded-title").textContent = d.repo + " · " + T("Project dashboard");
     document.getElementById("repo").textContent = d.repo;
-    var sb = document.getElementById("share-btn"); sb.textContent = L('Share'); sb.onclick = openShare;
+    var sb = document.getElementById("share-btn"); sb.innerHTML = ""; sb.appendChild(icon("M8 10V2M5 5l3-3 3 3M3 9v4h10V9")); sb.appendChild(h("span", { "class": "sbt", text: L('Share') })); sb.setAttribute("aria-label", L('Share')); sb.onclick = openShare;
     var mc = document.getElementById("modechip"); mc.hidden = !d.mode; mc.textContent = d.mode || "";
     var fz = document.getElementById("freeze");
     if (d.freeze) { fz.hidden = false; fz.textContent = !frozenNow(d) ? T("Freeze in ") + ago(d.generated, d.freeze) : T("Frozen"); } else fz.hidden = true;
