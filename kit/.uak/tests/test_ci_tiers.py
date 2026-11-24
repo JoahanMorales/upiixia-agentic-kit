@@ -101,7 +101,7 @@ def main_runs_the_whole_matrix(r):
         names = sorted(t for s in shards for t in s["tests"].split())
         expect(names == every_test(), "%s runs the whole suite once" % os_name)
     jobs = cs.job_count(m)
-    expect(jobs <= 19, "the whole matrix is at most the 19 jobs of today (discover, 8 suite shards, Windows shards): %d" % jobs)
+    expect(jobs <= 22, "the whole matrix is at most 22 jobs (discover, 8 suite shards, Windows shards; the human raised it from 19 on 2026-11-24): %d" % jobs)
     ci = workflow()
     head = ci.split("\njobs:")[0]
     expect(re.search(r"(?s)push:.*branches:\s*\[\s*main\s*\]", head) is not None and re.search(r"(?s)push:.*tags:", head) is not None, "main and tags are triggers")
@@ -762,13 +762,23 @@ def _replay(cs, names, table, factor, bound, actual_override=None):
     return res, run.calls
 
 
+# The shard of the 2026-11-24 review, frozen: file -> the Windows seconds its entry said then. The replays below read this, not the
+# live timing files (UAK-191: remeasuring test_install_choice or test_guard_wizard_files moved files between shards and flipped a case).
+FROZEN_WINDOWS_SHARD = {"test_design_breed": 9, "test_design_prior": 2, "test_design_stage": 1, "test_direct_main": 143, "test_done_without_github": 68,
+                        "test_external_skills": 108, "test_freeze_claim": 9, "test_git_identity_msg": 25, "test_gitleaks_exception": 49,
+                        "test_guard_substitution": 27, "test_install_choice": 90, "test_merge_commit_field": 455, "test_plan_check": 56,
+                        "test_policy": 1, "test_tokens_window": 186, "test_v5": 210, "test_v57_tools": 76}
+# windows (4) of run 45232891834 as the table said it then
+FROZEN_SLOW_SHARD = {"test_design_breed_rules": 10, "test_design_brief_real": 1, "test_design_metrics": 7, "test_design_prior": 2, "test_design_shoot_full": 13,
+                     "test_done_without_github": 68, "test_guard_substitution": 27, "test_harvest_discovery": 1, "test_integrate_unreviewed": 420}
+
+
 def one_stale_entry_cannot_trip_the_slow_rule(r):
     cs = select_module()
-    lint = lint_module()
-    # the reviewer's scenario: the 13-file Windows shard that holds test_done_without_github (68 s in the table, 187 to 263 s
+    # the reviewer's scenario: the 17-file Windows shard that holds test_done_without_github (68 s in the table, 187 to 263 s
     # really), every other file 1.55 times its entry: the job still ends inside its bound
-    shard = next(s["tests"].split() for s in lint.ci_windows_shards(lint.windows_shard_count()) if "test_done_without_github" in s["tests"].split())
-    table = {t: lint.ci_windows_seconds(t) for t in shard}
+    shard = list(FROZEN_WINDOWS_SHARD)
+    table = dict(FROZEN_WINDOWS_SHARD)
     for real in (187, 225, 263):
         res, calls = _replay(cs, shard, table, 1.55, 2400, {"test_done_without_github": real})
         expect(not res["slow"] and len(calls) == len(shard), "1.55 times with test_done_without_github at %d s is not a slow runner: %s after %d of %d files" % (real, res["slow"], len(calls), len(shard)))
@@ -786,11 +796,9 @@ def one_stale_entry_cannot_trip_the_slow_rule(r):
 
 def truly_slow_job_trips_early(r):
     cs = select_module()
-    lint = lint_module()
     # windows (4) of run 45232891834: every file 9 to 10 times its entry
-    names = ["test_design_breed_rules", "test_design_brief_real", "test_design_metrics", "test_design_prior", "test_design_shoot_full",
-             "test_done_without_github", "test_guard_substitution", "test_harvest_discovery", "test_integrate_unreviewed"]
-    table = {t: lint.ci_windows_seconds(t) for t in names}
+    names = list(FROZEN_SLOW_SHARD)
+    table = dict(FROZEN_SLOW_SHARD)
     res, calls = _replay(cs, names, table, 9.5, 2400)
     expect(res["slow"].startswith("slow runner, re-run"), "9.5 times slower is a slow runner: %r" % res["slow"])
     expect(len(calls) == 5 and res["stopped"] == "test_done_without_github", "it stops after the fifth file, before the long one: %s, stopped %s" % (calls, res["stopped"]))
@@ -875,6 +883,187 @@ def bound_kill_reaches_the_grandchild(r):
     return "child and grandchild gone"
 
 
+def shard_replays_do_not_read_the_live_table(r):
+    """UAK-191: the two replays use the frozen lists above; a live table that changes or breaks cannot flip them."""
+    import inspect
+    for fn in (one_stale_entry_cannot_trip_the_slow_rule, truly_slow_job_trips_early):
+        src = inspect.getsource(fn)
+        expect("lint_module" not in src and "ci_windows" not in src and "windows_shard" not in src, "%s does not read the live timing table" % fn.__name__)
+    lint = lint_module()
+    names = ("ci_windows_seconds", "ci_windows_shards", "windows_shard_count", "ci_seconds")
+    saved = {n: getattr(lint, n) for n in names}
+
+    def boom(*a, **k):
+        raise AssertionError("the live table was read")
+    try:
+        for n in names:
+            setattr(lint, n, boom)
+        one_stale_entry_cannot_trip_the_slow_rule(None)
+        truly_slow_job_trips_early(None)
+    finally:
+        for n, v in saved.items():
+            setattr(lint, n, v)
+    return "frozen lists, live table untouched"
+
+
+# The fake test file starts a plain grandchild and a second grandchild that has a child of its own. `setsid` puts the second one in
+# its own session (bin/guard, tokens and uak-mcp do); without it the tree stays in the file's process group. `ignore` makes the
+# whole tree ignore TERM, INT and HUP (a disposition survives exec), so only KILL ends it. Its pids are written to `pids`:
+# the file, the plain grandchild, the second grandchild, its child.
+def fake_file(pids, setsid=True, ignore=False):
+    return ("import os, signal, subprocess, sys, time\n"
+            "if %r:\n"
+            "    for s in (signal.SIGTERM, signal.SIGINT, getattr(signal, 'SIGHUP', signal.SIGTERM)):\n"
+            "        signal.signal(s, signal.SIG_IGN)\n"
+            "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
+            "code = ('import subprocess, sys, time\\n'\n"
+            "        'c = subprocess.Popen([sys.executable, \"-c\", \"import time; time.sleep(300)\"])\\n'\n"
+            "        'print(c.pid, flush=True)\\n'\n"
+            "        'time.sleep(300)\\n')\n"
+            "s = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE, universal_newlines=True,\n"
+            "                     start_new_session=%r and os.name != 'nt')\n"
+            "gg = s.stdout.readline().strip()\n"
+            "open(%r, 'w').write('%%d %%d %%d %%s' %% (os.getpid(), g.pid, s.pid, gg))\n"
+            "time.sleep(300)\n" % (ignore, setsid, str(pids)))
+
+
+def _alive(pid):
+    if os.name == "nt":
+        out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid], stdout=subprocess.PIPE, universal_newlines=True).stdout
+        return str(pid) in out
+    try:
+        state = Path("/proc/%d/stat" % pid).read_text().rsplit(")", 1)[1].split()[0]
+        return state not in ("Z", "X")
+    except OSError:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
+
+def _wait_for(path, seconds=20):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end and not path.is_file():
+        time.sleep(0.1)
+    expect(path.is_file(), "the fake test file started and wrote its pids")
+    time.sleep(0.3)
+    return [int(x) for x in path.read_text().split()]
+
+
+def _gone(pids, seconds=15):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end and any(_alive(p) for p in pids):
+        time.sleep(0.2)
+    left = [p for p in pids if _alive(p)]
+    for p in left:   # only the PIDs this case created
+        try:
+            os.kill(p, 9)
+        except OSError:
+            pass
+    return left
+
+
+def cancelled_driver_leaves_no_test_running(r):
+    """UAK-191: a cancelled step sends SIGTERM (or SIGINT) to the driver; the file it runs and that file's children end with it."""
+    cs = select_module()
+    with tempfile.TemporaryDirectory(prefix="uak-ci-cancel-") as tmp:
+        # (a) every platform: an interrupt (Ctrl-C, what the runner sends a Windows step first) inside a file's run kills its tree
+        pids = Path(tmp) / "pids-a"
+        run = cs._real_runner("windows")
+        run._popen = lambda name: cs._start([sys.executable, "-c", fake_file(pids)])
+        run.timeout = 60   # a bounded wait polls, so a simulated interrupt is seen at once
+        import _thread
+        import threading
+        timer = threading.Timer(0.5, lambda: (_wait_for(pids), _thread.interrupt_main()))
+        timer.start()
+        try:
+            run("test_fake")
+            interrupted = False
+        except KeyboardInterrupt:
+            interrupted = True
+        timer.join()
+        expect(interrupted, "the interrupt reaches the caller of the runner")
+        left = _gone([int(x) for x in pids.read_text().split()])
+        expect(not left, "after an interrupt neither the file's process nor its descendants are alive: %s" % left)
+        if os.name == "nt":
+            return "interrupt kills the tree (SIGTERM is TerminateProcess on Windows: it cannot be handled, the job's own taskkill/step end covers it)"
+        # (b) POSIX: the real driver process, every shape of tree and every sequence of signals, all started together
+        import signal
+        scenarios = []   # (name, ignore, [(signal, seconds after the previous one)])
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            scenarios.append(("single %s" % sig.name, False, [(sig, 0)]))
+        scenarios.append(("burst of 6 SIGTERM 5 ms apart", False, [(signal.SIGTERM, 0)] + [(signal.SIGTERM, 0.005)] * 5))
+        scenarios.append(("TERM-ignoring tree, SIGTERM twice", True, [(signal.SIGTERM, 0), (signal.SIGTERM, 0.5)]))
+        scenarios.append(("TERM-ignoring tree, SIGINT then SIGHUP", True, [(signal.SIGINT, 0), (signal.SIGHUP, 0.5)]))
+        runs = []
+        try:
+            for setsid in (False, True):
+                for name, ignore, seq in scenarios:
+                    k = len(runs)
+                    pids = Path(tmp) / ("pids-%d" % k)
+                    result = Path(tmp) / ("result-%d.json" % k)
+                    drv = Path(tmp) / ("driver-%d.py" % k)
+                    drv.write_text("import sys\nimport importlib.util as u\nspec = u.spec_from_file_location('ci_select_x', %r)\nm = u.module_from_spec(spec)\n"
+                                   "spec.loader.exec_module(m)\nm._RealRunner.GRACE_S = 2\n"
+                                   "m._RealRunner._popen = lambda self, name: m._start([sys.executable, '-c', %r])\n"
+                                   "raise SystemExit(m.main(['run', '--kind', 'windows', '--out', %r, 'test_fake']))\n" % (str(SCRIPT), fake_file(pids, setsid, ignore), str(result)))
+                    d = subprocess.Popen([sys.executable, str(drv)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+                    runs.append(dict(d=d, pids=pids, result=result, label="%s tree, %s" % ("setsid" if setsid else "same-group", name), seq=seq))
+            for run_ in runs:
+                run_["family"] = _wait_for(run_["pids"], 30)
+                expect(len(run_["family"]) == 4, "the fake file started its grandchildren: %s" % run_["family"])
+            import threading
+
+            def send(run_):
+                for sig, delay in run_["seq"]:
+                    time.sleep(delay)
+                    try:
+                        os.kill(run_["d"].pid, sig)
+                    except OSError:
+                        pass
+            threads = [threading.Thread(target=send, args=(x,)) for x in runs]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            clean = 0
+            for run_ in runs:
+                try:
+                    code = run_["d"].wait(timeout=40)
+                except subprocess.TimeoutExpired:
+                    expect(False, "%s: the driver ends within 40 s" % run_["label"])
+                expect(code != 0, "%s: a cancelled driver does not report success: exit %s" % (run_["label"], code))
+                left = _gone(run_["family"])
+                expect(not left, "%s: the test file, its grandchild, the second grandchild and its child are gone (%s): left %s" % (run_["label"], run_["family"], left))
+                part = json.loads(run_["result"].read_text())
+                expect(part["running"] == "test_fake" and part["conclusion"] == "running", "%s: the partial result still names the running file: %s" % (run_["label"], part))
+                clean += 1
+        finally:
+            for run_ in runs:
+                if run_["d"].poll() is None:
+                    run_["d"].kill()
+                    run_["d"].wait()
+                _gone(run_.get("family", []), 1)
+    return "%d of %d runs clean (both tree shapes: single signals, burst, TERM-ignoring tree with a second signal), %s" % (clean, len(runs), "interrupt")
+
+
+def bound_timeout_takes_the_whole_tree(r):
+    """UAK-191: the --bound timeout kills the file's whole tree, a grandchild that called setsid and its child included."""
+    cs = select_module()
+    with tempfile.TemporaryDirectory(prefix="uak-ci-bound-") as tmp:
+        pids = Path(tmp) / "pids"
+        run = cs._real_runner("windows")
+        run._popen = lambda name: cs._start([sys.executable, "-c", fake_file(pids)])
+        run.timeout = 4
+        ok = run("test_fake")
+        expect(ok is False and run.timed_out, "a file past its timeout fails and says it timed out: %s %s" % (ok, run.timed_out))
+        family = [int(x) for x in pids.read_text().split()]
+        left = _gone(family)
+        expect(not left, "after the bound's kill the file, its grandchild, the setsid grandchild and its child are gone: %s of %s" % (left, family))
+    return "4 processes gone"
+
+
 def event_text_lint_reads_expressions(r):
     lint = lint_module()
     for why, expr in (("toJSON", "toJSON(github.event)"), ("format", "format('{0}', github.event.pull_request.title)"), ("join", "join(github.event.pull_request.labels.*.name, ',')"),
@@ -891,7 +1080,9 @@ def event_text_lint_reads_expressions(r):
 
 
 TESTS = TESTS + [one_stale_entry_cannot_trip_the_slow_rule, truly_slow_job_trips_early, retry_gets_the_time_left_to_the_bound,
-                 bound_kill_reaches_the_grandchild, event_text_lint_reads_expressions]
+                 bound_kill_reaches_the_grandchild, event_text_lint_reads_expressions,
+                 shard_replays_do_not_read_the_live_table, cancelled_driver_leaves_no_test_running,
+                 bound_timeout_takes_the_whole_tree]
 
 
 def main():

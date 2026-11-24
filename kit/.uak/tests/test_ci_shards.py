@@ -250,7 +250,7 @@ def flaky_guard_cases_are_all_kept(r):
     for t in ("test_flaky_guard", "test_flaky_guard_race"):
         expect(t in lint.CI_SECONDS and t in lint.CI_WINDOWS_SECONDS, "%s has a macOS and a Windows entry" % t)
     jobs = 1 + 2 * 4 + lint.windows_shard_count()
-    expect(jobs <= 19, "a commit starts %d jobs (discover, 4 shards x 2 OS, Windows shards), over 19" % jobs)
+    expect(jobs <= 22, "a commit starts %d jobs (discover, 4 shards x 2 OS, Windows shards), over 22" % jobs)
     return "5 cases in 2 files, %d jobs per commit" % jobs
 
 
@@ -457,7 +457,7 @@ def first_tier_keeps_its_bounds(r):
                 worst = max(worst, s["seconds"])
                 expect(s["seconds"] < 600, "%s: a %s job is predicted %d s, not under 10 minutes" % (changed, system, s["seconds"]))
     whole = cs.matrices("full", cs.select([]))
-    expect(cs.job_count(whole) <= 19, "the second tier is still at most the 19 jobs of today: %d" % cs.job_count(whole))
+    expect(cs.job_count(whole) <= 22, "the second tier is at most 22 jobs (the human raised it from 19 on 2026-11-24): %d" % cs.job_count(whole))
     return "at most 9 jobs, longest first-tier job %d s" % worst
 
 
