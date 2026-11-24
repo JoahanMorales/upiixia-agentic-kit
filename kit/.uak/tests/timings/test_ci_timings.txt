@@ -1,0 +1,3 @@
+# estimate before the first CI run: two light installs; the median of CI replaces it
+ci 15
+windows 70

@@ -154,6 +154,7 @@ prune_known() { # prune_known DIR
 }
 if [ "$with_tests" = yes ]; then rm -rf "$target/.uak/tests"; cp -R "$kit/.uak/tests" "$target/.uak/tests"
   find "$target/.uak/tests" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+  rm -rf "$target/.uak/tests/timings"   # the seconds of each test file: only the kit's CI reads them (UAK-187)
 else prune_known "$target/.uak/tests"; fi
 prune_known "$target/.uak/skills"
 for f in smoke-project .smoke-project.provenance; do [ ! -f "$keep/$f" ] || { cp -p "$keep/$f" "$target/.uak/bin/$f"; say "  = .uak/bin/$f kept (project adapter)"; }; done

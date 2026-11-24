@@ -30,6 +30,7 @@ FIRST_TIER_BOUND_S = 600      # a macOS or Windows job of the first tier is pred
 MAX_JOBS_PER_SYSTEM = 2
 MACOS_SETUP_S = 60            # checkout, Git identity and the runner start, before the first file
 FULL_LABEL = "ci-full"
+TIMINGS_PREFIX = "kit/.uak/tests/timings/"
 # A change to these runs the whole matrix on a pull request: the workflow decides what runs, and this is the selector.
 FORCE_PREFIXES = (".github/workflows/",)
 FORCE_FILES = ("scripts/ci_select.py", "kit/.uak/bin/lib/tests.sh")
@@ -159,6 +160,11 @@ def select(changed, kit=None):
                 else:
                     add(both, stem, "changed test file")
             to_ask.append(path)
+        elif path.startswith(TIMINGS_PREFIX) and name.endswith(".txt") and path.count("/") == 4:
+            # A timing file (UAK-187): not a test and not a reason to run everything; the test it times runs, so its seconds can be measured again.
+            stem = name[:-4]
+            if status != "D" and stem in on_disk:
+                add(both, stem, "changed timing file: its seconds are measured again")
         elif path.startswith("tests/") and path.endswith(".py"):
             add(("windows",), "mcp_tools", "changed tests/ (the MCP tools)")
         elif status != "D":
@@ -181,7 +187,7 @@ def select(changed, kit=None):
     # rest (a 900 s test that names README.md) runs on main. Without it a doc change selected 37 minutes of Windows.
     sel["budget"] = {}
     for system, seconds, setup in (("macos", lint.ci_seconds, MACOS_SETUP_S), ("windows", lint.ci_windows_seconds, lint.WINDOWS_SETUP_S)):
-        mandatory = [t for t, why in sel[system].items() if any(x.startswith(("changed test file", "new test file", "changed tests/", "portability")) for x in why)]
+        mandatory = [t for t, why in sel[system].items() if any(x.startswith(("changed test file", "new test file", "changed timing file", "changed tests/", "portability")) for x in why)]
         optional = sorted((t for t in sel[system] if t not in mandatory), key=lambda t: (seconds(t), t))
         keep = list(mandatory)
         sel["budget"][system] = []

@@ -111,91 +111,67 @@ def ci_tests():
     return sorted(t.stem for t in (ROOT / "kit/.uak/tests").glob("test_*.py")) + ["mcp_tools"]
 
 
-# Seconds each test file took on the CI runners, the median of its group in the job logs of the 12 latest runs on main and
-# pull requests (2026-11-22, newest 45037067147; the 6 latest for files that grew: test_review_substates, test_read_cache,
-# test_tokens_window, test_hooks_health, test_flaky_guard; UAK-144). Two tables because the platforms disagree by file: test_design_pick
-# takes 439 s on macOS and 22 s on Windows, test_flaky_guard 508 s and 1500 s. CI_SECONDS is the macOS time and
-# balances the Linux and macOS shards; CI_WINDOWS_SECONDS is the Windows time (mcp_tools is tests/test_mcp_tools.py).
-# The lint refuses a test file with no entry in both (timing_problems): UAK-141's table had none for test_flaky_guard, it
-# counted the default 60 s and ran 25 min on Windows and 8 min on macOS. To measure again, take each file's group time
-# (from its ::group:: line to its ::endgroup:: line) in `gh run view RUN --log --job JOB` of recent runs on main.
-CI_SECONDS = {
-    "test_flaky_guard_race": 441, "test_design_pick": 439, "test_merge_engine_policy": 186, "test_flaky_guard": 101,
-    "test_setup_prepare": 96, "test_review_merge": 93, "test_merge_commit_field": 91, "test_review_substates": 90,
-    "test_claims_perf": 84, "test_v51": 73, "test_design_taste_cli": 72, "test_hook_session_start_speed": 72,
-    "test_integrate_unreviewed": 72, "test_setup_team": 68, "test_design_perf": 67, "test_v54": 66,
-    "test_smoke_onboarding": 62, "test_hack": 61, "test_setup_planning": 59, "test_smoke_affected": 58, "test_v5": 58,
-    "test_command_ledger": 46, "test_v57": 46, "test_design_shoot_qa": 45, "test_v42": 45, "test_design_color": 43,
-    "test_design_metrics": 39, "test_pre_push": 39, "test_design_taste_team": 37, "test_v43": 37, "test_v55": 36,
-    "test_coordination": 35, "test_read_cache": 35, "test_hooks_health": 34, "test_merge_renewer_orphan": 30,
-    "test_setup_roles": 30, "test_tokens_coverage": 29, "test_v41": 29, "test_integrate_on_main": 28,
-    "test_tokens_window": 28, "test_v3": 28, "test_setup_guide": 27, "test_start_version_gate": 26,
-    "test_dashboard_profiles": 25, "test_demo": 25, "test_direct_main": 25, "test_setup_resume": 25,
-    "test_setup_wizard": 25, "test_merge_affected": 24, "test_v53": 23, "test_design_density": 22,
-    "test_engine_messages_qa14": 22, "test_install_claude_only": 22, "test_integrate_outside": 22, "test_v571": 22,
-    "test_skills_windows_clone": 21, "test_done_without_github": 20, "test_setup_branches": 20, "test_claims_read": 19,
-    "test_setup_first_run": 19, "test_dashboard_journey": 18, "test_install_light": 18, "test_v21_security": 18,
-    "mcp_tools": 17, "test_bb_flush_no_hooks": 16, "test_design_breed_notes": 16, "test_manual_notes": 16,
-    "test_review_unseen_approval": 16, "test_v510": 16, "test_external_skills": 15, "test_one_live_renew": 15,
-    "test_v52": 15, "test_dashboard_truth": 14, "test_plan_amend_overlap": 14, "test_wt_refused_identity": 14,
-    "test_next_reviewer": 13, "test_reviewer_next": 13, "test_tokens_elsewhere": 13, "test_v511": 13,
-    "test_v57_tools": 13, "test_cursor_skills_keep": 12, "test_gitleaks_exception": 12, "test_hook_claims": 12,
-    "test_v59": 12, "test_critic_stale_ui_only": 11, "test_doctor_skills_compare": 11, "test_plan_check": 11,
-    "test_design_shoot_full": 10, "test_next_prefilter": 10, "test_status_planned": 10, "test_ui_shot_names": 10,
-    "test_claims_cache": 9, "test_design_shoot_timeout": 9, "test_setup_trust": 80, "test_setup_processes": 130, "test_task_participants": 9,
-    "test_v58": 9, "test_design_breed": 8, "test_lint_paths_hint": 8, "test_plan_owners": 8, "test_wt_resume_claim": 8,
-    "test_cli_spelling_hints": 7, "test_design_aspect": 7, "test_plan_scale": 7, "test_setup_forms": 7,
-    "test_smoke_parallel": 7, "test_design_breed_rules": 6, "test_design_creativity": 6, "test_git_identity_msg": 6,
-    "test_harness_commands": 6, "test_review_identity": 6, "test_v57_install": 6, "test_ci_shards": 19, "test_ci_tiers": 8,
-    "test_guard_substitution": 5, "test_setup_language": 5, "test_tutorial_video": 5, "test_v591": 5, "test_v592": 5,
-    "test_autopsy": 4, "test_setup_tutorial": 4, "test_temp_and_timeouts": 4, "test_design_breed_twins": 3,
-    "test_design_creativity_inherit": 3, "test_design_fonts": 3, "test_design_ground": 3, "test_design_round": 3,
-    "test_freeze_claim": 3, "test_gate_scope": 3, "test_metrics": 3, "test_unified_workspace": 3,
-    "test_deploy_python_stdlib": 2, "test_design_lint_scale": 2, "test_design_prior": 2, "test_design_round_taste": 2,
-    "test_design_taste": 2, "test_setup_feedback": 2, "test_smoke_env": 2, "test_snapshot": 2, "test_task_timeline": 2,
-    "test_banner_version": 1, "test_ci_web_deps": 1, "test_design_brief_real": 1, "test_design_lint_html": 1,
-    "test_design_lock_round": 1, "test_design_stage": 1, "test_gallery_lint": 1, "test_harvest_discovery": 1,
-    "test_landing_skills": 1, "test_mcp_runs_commands": 1, "test_policy": 1, "test_q_string": 1
-}
-CI_WINDOWS_SECONDS = {
-    "test_flaky_guard_race": 1278, "test_merge_engine_policy": 905, "test_merge_commit_field": 455,
-    "test_integrate_unreviewed": 420, "test_claims_perf": 385, "test_review_merge": 380, "test_v51": 374,
-    "test_review_substates": 330, "test_hook_session_start_speed": 316, "test_v57": 300, "test_setup_prepare": 283,
-    "test_hack": 254, "test_smoke_affected": 244, "test_pre_push": 230, "test_v43": 216, "test_v42": 213,
-    "test_v5": 210, "test_flaky_guard": 208, "test_setup_team": 207, "test_v55": 198, "test_coordination": 196,
-    "test_v54": 196, "test_hooks_health": 194, "test_read_cache": 192, "test_tokens_window": 186, "test_v3": 182,
-    "test_smoke_onboarding": 155, "test_command_ledger": 154, "test_v41": 149, "test_integrate_outside": 147,
-    "test_integrate_on_main": 146, "test_direct_main": 143, "test_start_version_gate": 143, "test_setup_planning": 141,
-    "test_merge_affected": 129, "test_v53": 127, "test_install_light": 116, "test_skills_windows_clone": 116,
-    "test_demo": 108, "test_external_skills": 108, "mcp_tools": 104, "test_manual_notes": 104, "test_v571": 104,
-    "test_claims_read": 102, "test_v21_security": 100, "test_one_live_renew": 99, "test_setup_roles": 97,
-    "test_engine_messages_qa14": 92, "test_install_claude_only": 88, "test_wt_refused_identity": 86, "test_v511": 84,
-    "test_tokens_coverage": 83, "test_v510": 82, "test_v52": 79, "test_v57_tools": 76, "test_setup_guide": 74,
-    "test_review_unseen_approval": 72, "test_tokens_elsewhere": 71, "test_v59": 70, "test_done_without_github": 68,
-    "test_doctor_skills_compare": 67, "test_merge_renewer_orphan": 66, "test_critic_stale_ui_only": 64,
-    "test_cursor_skills_keep": 64, "test_hook_claims": 63, "test_plan_amend_overlap": 63, "test_claims_cache": 62,
-    "test_setup_resume": 60, "test_v58": 60, "test_next_prefilter": 59, "test_setup_first_run": 59,
-    "test_setup_branches": 57, "test_task_participants": 57, "test_plan_check": 56, "test_setup_wizard": 55,
-    "test_wt_resume_claim": 55, "test_plan_owners": 53, "test_status_planned": 51, "test_bb_flush_no_hooks": 49,
-    "test_gitleaks_exception": 49, "test_reviewer_next": 48, "test_cli_spelling_hints": 46, "test_ui_shot_names": 45,
-    "test_v591": 44, "test_next_reviewer": 42, "test_lint_paths_hint": 41, "test_v57_install": 36,
-    "test_dashboard_journey": 34, "test_harness_commands": 34, "test_design_perf": 33, "test_dashboard_truth": 32,
-    "test_review_identity": 32, "test_v592": 31, "test_guard_substitution": 27, "test_smoke_parallel": 27,
-    "test_git_identity_msg": 25, "test_design_density": 23, "test_dashboard_profiles": 22, "test_design_pick": 22,
-    "test_plan_scale": 22, "test_setup_trust": 330, "test_setup_processes": 140, "test_temp_and_timeouts": 21, "test_ci_shards": 33, "test_ci_tiers": 25,
-    "test_design_breed_notes": 17, "test_design_shoot_full": 13, "test_tutorial_video": 13,
-    "test_design_lint_scale": 12, "test_design_shoot_qa": 12, "test_gate_scope": 12, "test_snapshot": 12,
-    "test_setup_forms": 11, "test_design_breed_rules": 10, "test_setup_language": 10, "test_design_breed": 9,
-    "test_design_creativity": 9, "test_freeze_claim": 9, "test_design_color": 8, "test_design_shoot_timeout": 8,
-    "test_design_aspect": 7, "test_design_metrics": 7, "test_autopsy": 6, "test_design_lint_html": 5, "test_metrics": 5,
-    "test_design_breed_twins": 4, "test_design_creativity_inherit": 4, "test_design_round": 4,
-    "test_design_taste_cli": 4, "test_setup_feedback": 4, "test_deploy_python_stdlib": 3, "test_design_fonts": 3,
-    "test_design_taste_team": 3, "test_q_string": 3, "test_banner_version": 2, "test_design_ground": 2,
-    "test_design_prior": 2, "test_design_round_taste": 2, "test_setup_tutorial": 2, "test_smoke_env": 2,
-    "test_task_timeline": 2, "test_unified_workspace": 2, "test_ci_web_deps": 1, "test_design_brief_real": 1,
-    "test_design_lock_round": 1, "test_design_stage": 1, "test_design_taste": 1, "test_gallery_lint": 1,
-    "test_harvest_discovery": 1, "test_landing_skills": 1, "test_mcp_runs_commands": 1, "test_policy": 1
-}
+# Seconds each test file took on the CI runners, one small file per test: kit/.uak/tests/timings/NAME.txt with the lines
+# `ci N` (macOS: balances the Linux and macOS shards), `windows N` (the Windows time) and any number of `# why` lines;
+# NAME is the test file without .py (mcp_tools is tests/test_mcp_tools.py). Why files (UAK-187): thirteen tasks listed this
+# script only to add two numbers to two tables, and two live claims cannot share a path, so a task that adds a test adds
+# its own timing file and does not touch scripts/kit_lint.py. The values were the median of each file's group in the job logs
+# of the 12 latest runs on main and pull requests (2026-11-22, newest 45037067147; the 6 latest for files that grew; UAK-144).
+# Two numbers because the platforms disagree by file: test_design_pick takes 439 s on macOS and 22 s on Windows,
+# test_flaky_guard 508 s and 1500 s. The lint refuses a test file with no timing file (timing_problems: UAK-141 had none for
+# test_flaky_guard, it counted the default 60 s and ran 25 min on Windows and 8 min on macOS), a timing file with no test,
+# a line it cannot read, a number that is not a whole number of seconds from 1 to 3600 and a second `ci` or `windows` line.
+# To measure again, take each file's group time (from its ::group:: line to its ::endgroup:: line) in
+# `gh run view RUN --log --job JOB` of recent runs on main, and write the two numbers in its file.
+TIMINGS_DIR = ROOT / "kit/.uak/tests/timings"
+TIMINGS_REL = "kit/.uak/tests/timings"
+TIMING_LINE = re.compile(r"(ci|windows)[ \t]+([0-9]+)")
+
+
+def read_timings(folder):
+    """(ci, windows, problems) from the NAME.txt files of folder: {name: seconds} twice and a finding per file or line that
+    cannot be read. Nothing raises: the lint reports the problems and the tables hold what could be read."""
+    ci, windows, problems = {}, {}, []
+    folder = Path(folder)
+    if not folder.is_dir():
+        return ci, windows, problems
+    for p in sorted(folder.iterdir(), key=lambda x: x.name):
+        rel = "%s/%s" % (TIMINGS_REL, p.name)
+        if p.suffix != ".txt" or not p.is_file():
+            problems.append("%s · bad-timing · not a timing file: only NAME.txt files (NAME is a test file without .py) belong in %s" % (rel, TIMINGS_REL))
+            continue
+        try:
+            text = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            problems.append("%s · bad-timing · cannot read the file: %s" % (rel, exc))
+            continue
+        seen = {}
+        for n, raw in enumerate(text.splitlines(), 1):
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            m = TIMING_LINE.fullmatch(line)
+            if not m:
+                problems.append("%s:%d · bad-timing · cannot read `%s`: a line is `ci N`, `windows N` or `# why`" % (rel, n, line[:60]))
+            elif m.group(1) in seen:
+                problems.append("%s:%d · bad-timing · a second `%s` line (`%s`): one `ci` and one `windows`" % (rel, n, m.group(1), line))
+            elif not 1 <= int(m.group(2)) <= 3600:
+                problems.append("%s:%d · bad-timing · `%s`: seconds are a whole number from 1 to 3600" % (rel, n, line))
+            else:
+                seen[m.group(1)] = int(m.group(2))
+        if "ci" in seen:
+            ci[p.stem] = seen["ci"]
+        if "windows" in seen:
+            windows[p.stem] = seen["windows"]
+    return ci, windows, problems
+
+
+def timing_file_problems():
+    """The findings of reading kit/.uak/tests/timings (a line the reader could not use)."""
+    return list(TIMING_FILE_PROBLEMS)
+
+
+CI_SECONDS, CI_WINDOWS_SECONDS, TIMING_FILE_PROBLEMS = read_timings(TIMINGS_DIR)
 
 
 def ci_seconds(test):
@@ -292,7 +268,7 @@ def timing_problems(tests, seconds=None, windows=None, exceptions=None):
     for t in tests:
         missing = [name for name, table in (("CI_SECONDS", seconds), ("CI_WINDOWS_SECONDS", windows)) if t not in table]
         if missing:
-            out.append("scripts/kit_lint.py · no-timing · %s has no entry in %s: measure it (see the comment above CI_SECONDS)" % (t, " or ".join(missing)))
+            out.append("scripts/kit_lint.py · no-timing · %s has no entry in %s: measure it and create %s/%s.txt with the lines `ci N` and `windows N` (see the comment above TIMINGS_DIR)" % (t, " or ".join(missing), TIMINGS_REL, t))
         elif windows[t] > half and t not in exceptions:
             out.append("scripts/kit_lint.py · over-half-the-bound · %s takes %d s on Windows, over half of WINDOWS_BOUND_S (%d s): split it" % (t, windows[t], half))
     for t in sorted(exceptions):
@@ -301,7 +277,7 @@ def timing_problems(tests, seconds=None, windows=None, exceptions=None):
     for name, table in (("CI_SECONDS", seconds), ("CI_WINDOWS_SECONDS", windows)):
         for t in sorted(table):
             if t != "mcp_tools" and not (ROOT / "kit/.uak/tests" / (t + ".py")).is_file():
-                out.append("scripts/kit_lint.py · stale-timing · %s has an entry in %s but no test file: remove it" % (t, name))
+                out.append("scripts/kit_lint.py · stale-timing · %s has an entry in %s but no test file: remove %s/%s.txt" % (t, name, TIMINGS_REL, t))
     return out
 
 
@@ -403,6 +379,7 @@ def check_test_discovery(findings):
         findings.append(".github/workflows/test.yml · no-test-discovery · the Windows shards must come from the discover job (kit_lint.py --ci-windows)")
     findings.extend(".github/workflows/test.yml · double-run · " + x for x in push_trigger_problems(ci))
     findings.extend(timing_problems(ci_tests()))
+    findings.extend(timing_file_problems())
     # The macOS and Linux suites run in shards (UAK-018): their lists come from --ci-shards, and smoke must run only them.
     select_src = (ROOT / "scripts/ci_select.py").read_text(encoding="utf-8") if (ROOT / "scripts/ci_select.py").is_file() else ""
     findings.extend(portability_problems(ci_tests()))
