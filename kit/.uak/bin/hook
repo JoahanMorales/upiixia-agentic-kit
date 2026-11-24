@@ -134,6 +134,7 @@ bb_sweep() {
   for d in "$COMMON"/uak-bb-tmp.*; do
     if [ -L "$d" ]; then rm -f "$d" 2>/dev/null; continue; fi
     [ -d "$d" ] || continue
+    case "${d##*.}" in ''|*[!0-9]*) continue;; esac   # only uak-bb-tmp.TIME.PID
     ts=${d##*/uak-bb-tmp.}; ts=${ts%%.*}
     o=; { IFS= read -r o < "$d/owner"; } 2>/dev/null; o=${o%$'\r'}
     if { epoch_age "$ts" && [ "$AGE" -gt 600 ]; } || { start_pid_ok "$o" && ! kill -0 "$o" 2>/dev/null && ! ps -p "$o" >/dev/null 2>&1; }; then

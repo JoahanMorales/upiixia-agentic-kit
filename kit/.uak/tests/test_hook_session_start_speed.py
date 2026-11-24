@@ -1448,16 +1448,18 @@ def clone_listing(common):
 
 
 def process_listing():
-    """Windows only: the git, bash and sleep processes that run (tasklist), to see what still holds a directory."""
+    """Windows only: the git, bash and sleep processes that run with their parent and command line, to see what still
+    holds a directory."""
     if os.name != "nt":
-        return "no tasklist here"
+        return "no process listing here"
     import subprocess
+    cmd = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'git|bash|sh|sleep' } | ForEach-Object "
+           "{ '{0}<{1} {2} {3}' -f $_.ProcessId, $_.ParentProcessId, $_.Name, $_.CommandLine }")
     try:
-        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True, timeout=30).stdout
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True, timeout=60).stdout
     except (OSError, subprocess.SubprocessError) as exc:
-        return "tasklist failed: %s" % exc
-    return " ".join(l.split(",")[0] + ":" + l.split(",")[1] for l in out.splitlines()
-                    if re.search(r'"(git|bash|sh|sleep|git-[a-z-]+)\.exe"', l, re.I) and len(l.split(",")) > 1)[:600]
+        return "process listing failed: %s" % exc
+    return " | ".join(l.strip()[:160] for l in out.splitlines() if l.strip())[:2500]
 
 
 def kill_round(r, f, w, common, gate, n):
@@ -1482,7 +1484,9 @@ def kill_round(r, f, w, common, gate, n):
             break
     diag = ""
     if dead_at is not None and gone_at is None:
-        diag = "left: %s; processes: %s" % (clone_listing(common), process_listing())
+        diag = "left: %s; owner: %s; processes: %s" % (clone_listing(common), [
+            (d.name, (d / "owner").read_text().strip() if (d / "owner").exists() else None) for d in common.glob("uak-bb-tmp.*")],
+            process_listing())
         for d in list(common.glob("uak-bb-tmp.*")):
             try:
                 shutil.rmtree(str(d))
@@ -1512,24 +1516,21 @@ def killed_flush_leaves_no_clone_on_windows(r):
     clone older than 600 s. The fix retries the removal for up to 10 s and lets the next flush remove a clone whose
     owner is gone (leftover_clone_is_removed_by_the_next_flush). The loop costs about 9 s a round on Windows, so the
     default is 3; UAK_KILL_ROUNDS=20 repeats it as in the measurement."""
-    rounds = int(os.environ.get("UAK_KILL_ROUNDS", "3"))
-    f, w = counted_fixture(r, "ss-bb-kill-loop")
-    common = first_pending_dir(r, w)
-    gate = Path(r.scratch) / "ss-bb-loop-gate"
-    hook = Path(f.remote) / "hooks" / "pre-receive"
-    hook.write_text("#!/bin/sh\nwhile [ -f '%s' ]; do sleep 0.2; done\nexit 0\n" % gate.as_posix(), encoding="utf-8")
-    hook.chmod(0o755)
+    rounds = int(os.environ.get("UAK_KILL_ROUNDS", "8"))
     times, bad = [], []
-    try:
-        for n in range(rounds):
+    for n in range(rounds):
+        # A fresh checkout each round: the first session start of a checkout also starts the refresh, the pace and
+        # the map build, the load under which the failure was seen (run 45326081765 and 45357519599).
+        f, w, common, gate = held_push_fixture(r, "ss-bb-kill-loop-%d" % n)
+        try:
             took, diag = kill_round(r, f, w, common, gate, n)
-            if took is None:
-                bad.append("round %d: %s" % (n, diag))
-            else:
-                times.append(took)
-    finally:
-        if gate.exists():
-            gate.unlink()
+        finally:
+            if gate.exists():
+                gate.unlink()
+        if took is None:
+            bad.append("round %d: %s" % (n, diag))
+        else:
+            times.append(took)
     summary = "%d rounds, clone removed after %s s (max %.1f)" % (
         rounds, ",".join("%.1f" % t for t in times), max(times) if times else -1)
     print("MEASURED killed_flush_leaves_no_clone: %s; failures %d: %s" % (summary, len(bad), bad), flush=True)
@@ -1765,7 +1766,8 @@ def clone_removal_stays_inside_the_clone_directories(r):
         linked = False
     plain = common / ("uak-bb-tmp.%d.5002" % now)
     plain.write_text("a file")
-    garbage = plant_clone(common, "1", name="uak-bb-tmp.garbage.abc;rm")
+    dead = r.run([r.bash, "-c", "sleep 0 & echo $!; wait"], cwd=w).stdout.split()[0]
+    garbage = plant_clone(common, dead, name="uak-bb-tmp.garbage.abc;rm")
     badowner = plant_clone(common, "../../x", name="uak-bb-tmp.%d.5003" % now)
     pid1 = plant_clone(common, "1", name="uak-bb-tmp.%d.5004" % now)
     out = r.run(sweep_harness(r, w, common, "bb_sweep; echo swept"), cwd=w, allowed=None)
@@ -1775,7 +1777,8 @@ def clone_removal_stays_inside_the_clone_directories(r):
         expect(not os.path.lexists(str(link)), "a link named like a clone is removed")
     expect(plain.is_file(), "a plain file stays")
     expect(garbage.is_dir() and badowner.is_dir(), "a name with garbage and an owner that is no PID stay")
-    expect(pid1.is_dir(), "PID 1 is an owner that lives: its clone stays")
+    if os.name != "nt":   # Git Bash has no PID 1
+        expect(pid1.is_dir(), "PID 1 is an owner that lives: its clone stays")
     return "link removed, target intact; file, garbage, bad owner and PID 1 left alone"
 
 
