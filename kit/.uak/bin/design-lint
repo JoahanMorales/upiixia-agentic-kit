@@ -57,12 +57,12 @@ html_lint() {
   out=$(mktemp "${TMPDIR:-/tmp}/uak-dlint.XXXXXX") || exit 2
   for f in "$@"; do
     k=$((k + 1))
-    awk -v f="$f" -v q="'" '
+    LINT_FILE="$f" awk -v q="'" '
       function hexlit(l,   r, c, m) { r = l
         while (match(r, /(^|[^,&0-9A-Za-z_-])#[0-9a-fA-F]+([^0-9A-Za-z_-]|$)/)) { c = substr(r, RSTART, RLENGTH); r = substr(r, RSTART + RLENGTH - 1)
           m = c; sub(/^[^#]*#/, "", m); sub(/[^0-9a-fA-F].*$/, "", m); if (length(m) == 3 || length(m) == 6 || length(m) == 8) return "#" m }
         return "" }
-      BEGIN { tok = 0; depth = 0; nsz = 0 }
+      BEGIN { f = ENVIRON["LINT_FILE"]; tok = 0; depth = 0; nsz = 0 }
       { line = $0; n = FNR }
       line ~ /design-lint: ok/ { next }
       { if (!tok && line ~ /^[[:space:]]*(:root|\[data-pal|\[data-theme|@font-face)/) { tok = 1; depth = 0 }
@@ -90,8 +90,8 @@ html_lint() {
         printf '%s:%s · marketing filler: say what it does for whom, with a number\n' "$f" "${l%%:*}"
       done >> "$out"
     # more than one primary button visible in a view: a view is a <section>; a button inside an element marked hidden is not visible
-    awk -v f="$f" '
-      BEGIN { RS = "<"; top = 0; ln = 1 }
+    LINT_FILE="$f" awk '
+      BEGIN { f = ENVIRON["LINT_FILE"]; RS = "<"; top = 0; ln = 1 }
       function voidtag(t) { return t ~ /^(input|br|img|meta|link|hr|source|track|area|base|col|embed|wbr)$/ }
       { rec = $0; nl = gsub(/\n/, "\n", rec); cur = ln; ln += nl
         if (NR == 1) next
