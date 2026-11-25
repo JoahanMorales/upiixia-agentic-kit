@@ -900,6 +900,24 @@ dialog#story::backdrop { background: var(--scrim); }
   }
   // The time a review has waited is the task's own sub-state clock, for the figure and for the row alike.
   function reviewSince(o, tasks) { for (var i = 0; i < tasks.length; i++) if (tasks[i].id === o.task && tasks[i].sub && tasks[i].sub.since) return tasks[i].sub.since; return o.since; }
+  // Labels placed inside the view, flipped to the left of their node near the right edge, and hidden when they would overlap one
+  // already placed (the selected node's labels, marked "must", are always shown).
+  function fitLabels(items, view) {
+    var out = {}, placed = [];
+    items.forEach(function (it) {
+      var bx, by, anchor;
+      if (it.below) { bx = it.x - it.w / 2; by = it.y + it.r + 2; anchor = "middle"; }
+      else { bx = it.x + it.r + 4; by = it.y - it.h / 2; anchor = "start"; if (bx + it.w > view.x + view.w - 2) { bx = it.x - it.r - 4 - it.w; anchor = "end"; } }
+      bx = Math.max(view.x + 2, Math.min(view.x + view.w - it.w - 2, bx)); by = Math.max(view.y + 2, Math.min(view.y + view.h - it.h - 2, by));
+      var hit = placed.some(function (q) { return bx < q[0] + q[2] && q[0] < bx + it.w && by < q[1] + q[3] && q[1] < by + it.h; });
+      if (hit && !it.must) return;
+      placed.push([bx, by, it.w, it.h]);
+      out[it.id] = { x: anchor === "middle" ? bx + it.w / 2 : anchor === "start" ? bx : bx + it.w, y: by + it.h * .8, anchor: anchor, box: [bx, by, it.w, it.h] };
+    });
+    return out;
+  }
+  // Entries with no visible link, grouped by title with a count.
+  function groupOrphans(items) { var seen = {}, out = []; items.forEach(function (x) { if (seen[x.t]) seen[x.t].n++; else out.push(seen[x.t] = { t: x.t, full: x.full, n: 1 }); }); return out; }
   function lbMove(n, cur, key) {
     if (!n) return -1;
     if (key === 'Home') return 0; if (key === 'End') return n - 1;
@@ -1676,6 +1694,8 @@ dialog#story::backdrop { background: var(--scrim); }
     var svg = document.createElementNS(SV, "svg"); svg.setAttribute("viewBox", vx + " " + vy + " " + vw + " " + vh); svg.setAttribute("class", "mg"); svg.setAttribute("role", "group"); svg.setAttribute("aria-label", L('Memory graph'));
     function el(tag, at, parent) { var e = document.createElementNS(SV, tag); for (var k in at) e.setAttribute(k, at[k]); (parent || svg).appendChild(e); return e; }
     edges.forEach(function (e) { var a = pos[e[0]], b = pos[e[1]], on = sel && (e[0] === sel || e[1] === sel); el("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, "class": "ge" + (on ? " on" : sel ? " dim" : ""), "stroke-width": (on ? 2 : 1) * u }); });
+    var labelItems = shown.filter(function (x) { return x.type === "task" || x.id === sel || near[x.id] || (ql && hit(x)); }).sort(function (a, b) { return (b.id === sel ? 2 : near[b.id] ? 1 : 0) - (a.id === sel ? 2 : near[a.id] ? 1 : 0); }).map(function (x) { var t = lab(x); return { id: x.id, x: pos[x.id].x, y: pos[x.id].y, r: nodeR(x) * Math.max(1, u * .9), w: t.length * 6.8 * u, h: 13 * u, below: x.type === "task", must: x.id === sel || !!near[x.id] }; });
+    var labelAt = fitLabels(labelItems, { x: vx, y: vy, w: vw, h: vh });
     shown.forEach(function (x) {
       var p = pos[x.id], r = nodeR(x) * Math.max(1, u * .9), on = sel === x.id, dim = (sel && !on && !near[x.id]) || (ql && !hit(x));
       var g = el("g", { "class": "gn n-" + x.type + (on ? " sel" : "") + (dim ? " dim" : "") + (ql && hit(x) ? " hit" : ""), tabindex: "0", role: "button", "aria-label": x.type + " " + lab(x) + ", " + x.deg + " " + L('links') });
@@ -1683,10 +1703,8 @@ dialog#story::backdrop { background: var(--scrim); }
       else if (x.type === "file") el("rect", { x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r, transform: "rotate(45 " + p.x + " " + p.y + ")" }, g);
       else el("circle", { cx: p.x, cy: p.y, r: r, "stroke-width": 2 * u }, g);
       // labels: every task by its id; an entry only when selected, next to the selection, or found by the search
-      if (x.type === "task" || x.id === sel || near[x.id] || (ql && hit(x))) {
-        var lt = lab(x), wpx = lt.length * 6.8 * u, flip = x.type !== "task" && p.x + r + 4 * u + wpx > vx + vw - 6 * u;
-        var tx = el("text", x.type === "task" ? { x: p.x, y: p.y + r + 13 * u, "text-anchor": "middle", "font-size": 11 * u } : { x: flip ? p.x - r - 4 * u : p.x + r + 4 * u, y: p.y + 4 * u, "text-anchor": flip ? "end" : "start", "font-size": 11 * u }, g); tx.textContent = lt;
-      }
+      var pl = labelAt[x.id];
+      if (pl) { var tx = el("text", { x: pl.x, y: pl.y, "text-anchor": pl.anchor, "font-size": 11 * u }, g); tx.textContent = lab(x); }
       var t2 = el("title", {}, g); t2.textContent = x.type + " · " + lab(x);
       function choose() { SEL_NODE = SEL_NODE === x.id ? "" : x.id; render(); }
       g.addEventListener("click", choose); g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); } });
@@ -1704,7 +1722,7 @@ dialog#story::backdrop { background: var(--scrim); }
       side.appendChild(h("div", { "class": "gh", text: L('Tasks with the most entries') }));
       side.appendChild(h("div", { "class": "chips", style: "margin-bottom:12px" }, top.map(function (x) { return h("button", { "class": "chip", type: "button", on: function () { SEL_NODE = x.id; render(); } }, [x.label, h("b", { "class": "num", text: String(x.deg) })]); })));
       if (orphans.length) {
-        var seen2 = {}, groups = []; orphans.forEach(function (e) { var t = lab({ id: e.id, type: e.kind }), k = t; if (seen2[k]) seen2[k].n++; else groups.push(seen2[k] = { t: t, full: e.text.replace(/\s+/g, " "), n: 1 }); });
+        var groups = groupOrphans(orphans.map(function (e) { return { t: lab({ id: e.id, type: e.kind }), full: e.text.replace(/\s+/g, " ") }; }));
         side.appendChild(h("div", { "class": "gh", text: orphans.length + " " + L('entries with no link shown') + " · " + groups.length }));
         side.appendChild(h("div", { "class": "chips" }, groups.slice(0, ui.more.orph ? groups.length : 12).map(function (g) { return h("button", { "class": "chip ell", type: "button", style: "max-width:100%", text: g.t + (g.n > 1 ? " ×" + g.n : ""), title: g.full, on: function () { SEL_NODE = ""; GQ = g.full.slice(0, 20); render(); } }); }).concat(groups.length > 12 ? [h("button", { "class": "chip", type: "button", text: ui.more.orph ? T("Show less") : "+" + (groups.length - 12) + " " + L('more'), on: function () { ui.more.orph = !ui.more.orph; render(); } })] : [])));
       }

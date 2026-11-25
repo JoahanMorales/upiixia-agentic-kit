@@ -7,6 +7,7 @@ Evidence: notes/handoff:qa/rounds-2026-11-14 A-F9, B-06, B-07, B-08, B-12, B-13,
 1.3.1; D-4.3, 4.4, 8.3, 1.3)."""
 import argparse
 import importlib.util
+import contextlib
 import json
 import os
 import re
@@ -527,7 +528,7 @@ def one_definition_of_stalled(root, tmp):
     assert "a.status === gr[0] && !a.is_human" in dash and "L('People')" in dash, "the Agents tab counts agents the way the summary does: the humans have their own group"
 
 
-def listbox_replaces_the_selects(root, tmp):
+def no_native_select(root, tmp):
     """No native select shows a list of its own: the one left is the shared Apariencia control's hidden state holder; the page's
     listbox has a keyboard contract (arrows, Home, End, type-ahead, Escape, Enter) in pure functions."""
     dash = dash_source(root)
@@ -568,11 +569,116 @@ def figures_agree_across_tabs(root, tmp):
     assert out["tokTasks"] == 3 and out["tokCancelled"] == 1 and out["counts"]["plan"] + out["counts"]["cancelled"] == 5, out
 
 
+@contextlib.contextmanager
+def browser_page(root, tmp, data, tab, extra=""):
+    """The page opened in a real browser from file:// when Playwright is installed (yields None otherwise: the case then checks the code)."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        yield None
+        return
+    lib = root / ".uak/bin/lib"
+    shutil.copy(str(lib / "dash.html"), str(tmp / "index.html"))
+    shutil.copy(str(lib / "workspace.js"), str(tmp / "workspace.js"))
+    (tmp / "data.js").write_text("window.UAK_DATA = " + json.dumps(data) + ";", encoding="utf-8")
+    with sync_playwright() as p:
+        b = p.chromium.launch()
+        pg = b.new_page(viewport={"width": 1280, "height": 900})
+        pg.errors = []
+        pg.on("pageerror", lambda e: pg.errors.append(str(e)))
+        if tab:
+            pg.add_init_script("localStorage.setItem('uak-dash', JSON.stringify({tab:'%s'%s}))" % (tab, extra))
+        pg.goto("file://" + str(tmp / "index.html"))
+        pg.wait_for_timeout(500)
+        try:
+            yield pg
+        finally:
+            b.close()
+
+
+def fixture_data(agents=3, tasks=4):
+    now = 1795000000
+    ags = [{"name": "kit-%d" % i, "human": "ana", "is_human": False, "last_seen": now - 60 * i if i < 2 else now - 7 * 86400, "status": "online" if i < 2 else "offline",
+            "tasks": [{"id": "T-1", "state": "CLAIMED"}] if i == 0 else [], "sessions": 0, "events": 0, "checkpoints": 1, "messages": 2, "verdicts": 0, "started": now - 9000, "role": "reviewer" if i == 1 else ""} for i in range(agents)]
+    ts = [{"id": "T-%d" % (i + 1), "title": "task %d" % (i + 1), "priority": "P0", "depends": "None", "state": ["CLAIMED", "AVAILABLE", "REVIEW", "INTEGRATED"][i % 4], "owner": "kit-0", "pr": "-", "progress": "", "updated": now - 100,
+           "stalled": 0, "lease": now + 900, "paths": "", "next": "", "away": 0, "outside": False, "participants": "", "harnesses": [{"agent": "kit-0", "harness": "claude-code", "model": "opus"}]} for i in range(tasks)]
+    return {"repo": "demo", "generated": now, "mode": "", "freeze": 0, "progress": {"done": 25, "weighted": 30, "total": tasks, "states": {"CLAIMED": 1, "AVAILABLE": 1, "REVIEW": 1, "INTEGRATED": 1}, "outside": 0},
+            "tasks": ts, "agents": ags, "messages": [], "reviews": [], "locks": [], "queue": [], "offers": [], "blackbox": [], "usage": {}, "decisions": [], "lessons": [],
+            "tokens": {"total": 0, "by_task": {}, "by_harness": {}, "by_scope": {}}, "timelines": {}, "timeline_bound": {}, "refresh": 20, "live_url": None}
+
+
+def agents_are_compact_cards(root, tmp):
+    """Every agent is one small card in a grid, grouped by state, none behind "show all"; a card carries name, state, current task,
+    model and harness, and last seen; the offline ones are the compact kind so the working ones lead."""
+    dash = dash_source(root)
+    agents = dash[dash.index("  function agents(v, d) {"):dash.index("  // Message text:")]
+    for needle in ('"class": "agrid"', '"class": "ac"', "T(a.status)", "ago(a.last_seen, d.generated)", "mh(a.name)", "openStory(t.id)", "compact", "T(\"No live task\")"):
+        assert needle in agents, "the agent card lost %s" % needle
+    assert "ui.more[gr[0]]" not in agents and "slice(" not in agents.replace("a.tasks.slice(0, 2)", ""), "no agent is hidden behind show all"
+    with browser_page(root, tmp, fixture_data(agents=40), "agents") as pg:
+        if pg is None:
+            return
+        assert not pg.errors, pg.errors
+        n = pg.evaluate("document.querySelectorAll('.agrid .ac').length")
+        assert n == 40, "every agent is a card in the grid: %d" % n
+        assert pg.evaluate("document.querySelectorAll('.agrid.sm .ac').length") == 38 and pg.evaluate("document.querySelector('.agrid .ac .ac-h b').textContent") == "kit-0"
+        assert not pg.evaluate("Array.from(document.querySelectorAll('.more')).some(function (b) { return /Show all|Mostrar/.test(b.textContent); })"), "no show-all button"
+
+
+def board_opens_on_columns(root, tmp):
+    """The Board's default view is the columns; the squares are its second view; a saved preference still wins."""
+    dash = dash_source(root)
+    assert 'bv: "cols"' in dash and 'seg([["map", L(\'Map\')], ["cols", L(\'Cards\')]], ui.bv' in dash, "columns by default, the squares second"
+    assert '"bv"' in dash.split("var saved = JSON.parse")[1].split("forEach")[0], "a saved choice is restored"
+    with browser_page(root, tmp, fixture_data(), "board") as pg:
+        if pg is None:
+            return
+        assert pg.evaluate("document.querySelectorAll('.bd .bcol').length") == 4 and pg.evaluate("document.querySelectorAll('#view .tmap').length") == 0, "fresh page: the four columns"
+    with browser_page(root, tmp, fixture_data(), "board", ", bv:'map'") as pg:
+        assert pg.evaluate("document.querySelectorAll('#view .tmap').length") >= 1 and pg.evaluate("document.querySelectorAll('.bd').length") == 0, "a saved preference still wins"
+
+
+def memory_graph_is_readable(root, tmp):
+    """On a memory shaped like this repo's (entries citing tasks, files and agents, some citing nothing): no position is clamped to a
+    frame, labels never overlap each other or leave the view, entries with no visible link are grouped aside with counts, and the
+    default kinds are entries and tasks."""
+    dash = dash_source(root)
+    assert "GHIDE = { file: true, agent: true }" in dash, "files and agents are off until their chip is on"
+    assert "groupOrphans(" in dash and "fitLabels(" in dash and "clusterLayout(" in dash
+    layout_src = dash[dash.index("function clusterLayout("):dash.index("function bbFilter(")]
+    assert "Math.max(pad" not in layout_src and "Math.min(w - pad" not in layout_src, "the layout never clamps to a frame"
+    out = under_node(root, """
+      var les = [], dec = [], i;
+      for (i = 0; i < 40; i++) dec.push({ text: "tasks added: T-" + (100 + i % 14) + " T-" + (100 + (i + 3) % 14) + " | Why: backlog without PR", who: "ana/ana", kind: "plan", t: i });
+      for (i = 0; i < 14; i++) les.push({ text: "T-" + (100 + i % 9) + " cache keys on HEAD, see kit/x" + (i % 4) + ".sh", agent: "kit-" + (i % 3), task: "T-" + (100 + i % 9), paths: "kit/x" + (i % 4) + ".sh" });
+      for (i = 0; i < 12; i++) dec.push({ text: "Why: same Paths, no scope change", who: "solo" + i, kind: "amend", t: 100 + i });
+      var g = memGraph(les, dec);
+      var vis = {}; g.nodes.forEach(function (n) { if (n.type !== "file" && n.type !== "agent") vis[n.id] = 1; });
+      var edges = g.edges.filter(function (e) { return vis[e[0]] && vis[e[1]]; }), linked = {}; edges.forEach(function (e) { linked[e[0]] = linked[e[1]] = 1; });
+      var shown = g.nodes.filter(function (n) { return vis[n.id] && linked[n.id]; });
+      var lay = clusterLayout(shown, edges), P = lay.pos, bx = lay.box;
+      var edgeCount = 0; shown.forEach(function (n) { var p = P[n.id]; if (Math.abs(p.x - bx.x) < 1 || Math.abs(p.x - bx.x - bx.w) < 1 || Math.abs(p.y - bx.y) < 1 || Math.abs(p.y - bx.y - bx.h) < 1) edgeCount++; });
+      var view = { x: bx.x - 40, y: bx.y - 40, w: bx.w + 80, h: bx.h + 80 }, u = Math.max(1, view.w / 760);
+      var items = shown.filter(function (n) { return n.type === "task"; }).map(function (n) { return { id: n.id, x: P[n.id].x, y: P[n.id].y, r: 10, w: n.label.length * 6.8 * u, h: 13 * u, below: true }; });
+      var placed = fitLabels(items, view), boxes = Object.keys(placed).map(function (k) { return placed[k].box; }), overlap = 0, outside = 0;
+      boxes.forEach(function (a, i) { if (a[0] < view.x || a[1] < view.y || a[0] + a[2] > view.x + view.w || a[1] + a[3] > view.y + view.h) outside++; boxes.forEach(function (b, j) { if (j > i && a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]) overlap++; }); });
+      var orphans = g.entries.filter(function (e) { return !linked[e.id]; }), groups = groupOrphans(orphans.map(function (e) { return { t: "Decision: " + e.text.slice(0, 20), full: e.text }; }));
+      return { nodes: shown.length, edgeCount: edgeCount, labels: boxes.length, tasks: items.length, overlap: overlap, outside: outside, orphans: orphans.length, groupSum: groups.reduce(function (a, x) { return a + x.n; }, 0), groups: groups.length,
+               kinds: shown.map(function (n) { return n.type; }).filter(function (t, i, a) { return a.indexOf(t) === i; }).sort() };
+    """)
+    if out is None:
+        return
+    assert out["overlap"] == 0 and out["outside"] == 0 and out["labels"] > 0, "labels neither overlap nor leave the view: %r" % out
+    assert out["edgeCount"] <= max(4, out["nodes"] * 0.12), "positions are not piled on the frame's edges: %r" % out
+    assert out["orphans"] > 0 and out["groupSum"] == out["orphans"] and out["groups"] < out["orphans"], "the entries with no link are grouped with their counts: %r" % out
+    assert out["kinds"] == ["decision", "lesson", "task"] or out["kinds"] == ["decision", "task"], out["kinds"]
+
+
 TESTS = [blocked_tasks_are_not_available, frozen_is_frozen, needs_human_comes_first, offline_uses_last_claims,
          dashboard_meets_contrast_and_targets, dashboard_keeps_every_field, empty_project_says_the_next_step, no_server_no_request,
          page_is_not_heavier, both_profiles_and_languages_are_complete, messages_are_one_conversation_per_task, every_task_is_visible, square_says_why_it_waits,
          agents_show_model_and_harness, black_box_filter_finds_an_error, memory_graph_edges_come_from_data, tokens_break_down, share_card_matches_the_page,
-         share_card_has_both_formats, project_name_is_not_the_worktree, page_reloads_when_a_newer_page_is_written, listbox_replaces_the_selects, one_definition_of_stalled, figures_agree_across_tabs]
+         share_card_has_both_formats, project_name_is_not_the_worktree, page_reloads_when_a_newer_page_is_written, no_native_select, one_definition_of_stalled, figures_agree_across_tabs, agents_are_compact_cards, board_opens_on_columns, memory_graph_is_readable]
 
 
 def main():
