@@ -278,12 +278,18 @@ button.chip:hover { background: var(--hover); }
 .dn2 { display: grid; grid-template-columns: auto auto; gap: 4px 8px; justify-content: start; align-items: center; min-height: 44px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--raised); text-align: left; }
 .dn2:disabled { cursor: default; }
 .dn2 .muted { grid-column: 1 / -1; }
-dialog#share { margin: auto; padding: 0; width: min(720px,calc(100vw - 32px)); border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+dialog#share { margin: auto; padding: 0; width: min(560px,calc(100vw - 32px)); max-height: calc(100dvh - 24px); overflow: auto; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
 dialog#share::backdrop { background: var(--scrim); }
-.scs { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.scs { display: block; }
+.sc[hidden] { display: none; }
+.fsw { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+.fsw .chip { height: auto; min-height: 44px; white-space: nowrap; }
+.fsw .chip[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent-line); color: var(--accent-ink); }
+.acts:empty { display: none; }
+.hold { margin: 8px 0 0; font-size: 13px; }
 .sc b { display: block; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
-.share-cv.v { max-height: 520px; width: auto; max-width: 100%; margin: 0 auto; }
-.share-cv { display: block; width: 100%; height: auto; border-radius: var(--r-s); border: 1px solid var(--line); }
+.share-img { display: block; width: 100%; height: auto; border-radius: var(--r-s); border: 1px solid var(--line); -webkit-touch-callout: default; }
+.share-img.v { width: auto; max-width: 100%; max-height: min(560px, calc(100dvh - 330px)); min-height: 200px; margin: 0 auto; }
 .lb { position: relative; display: inline-block; }
 .lbb { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); color: var(--ink-2); font-size: 12px; font-weight: 500; }
 .lbb:hover { background: var(--hover); }
@@ -654,7 +660,14 @@ dialog#story::backdrop { background: var(--scrim); }
     'Links': 'Vínculos',
     'entries with no link shown': 'entradas sin vínculo visible',
     'Story': 'Historia',
-    'The browser refused to copy: use Download PNG.': 'El navegador no permitió copiar: usa Descargar PNG.',
+    'Could not copy the image. Press and hold it to save it.': 'No se pudo copiar la imagen. Mantén pulsada la imagen para guardarla.',
+    'Could not copy the image. Use Download PNG, or press and hold the image.': 'No se pudo copiar la imagen. Usa Descargar PNG o mantén pulsada la imagen.',
+    'Could not share the image. Press and hold it to save it.': 'No se pudo compartir la imagen. Mantén pulsada la imagen para guardarla.',
+    'Could not share the image. Use Download PNG, or press and hold the image.': 'No se pudo compartir la imagen. Usa Descargar PNG o mantén pulsada la imagen.',
+    'The browser did not save the file. Press and hold the image to save it.': 'El navegador no guardó el archivo. Mantén pulsada la imagen para guardarla.',
+    'Press and hold the image to save or share it (right-click on a computer).': 'Mantén pulsada la imagen para guardarla o compartirla (en un ordenador, clic derecho).',
+    'Format': 'Formato',
+    'The image could not be made on this device. Reload the page and try again, or take a screenshot of it.': 'No se pudo hacer la imagen en este dispositivo. Recarga la página e inténtalo de nuevo, o haz una captura de pantalla.',
     'similar messages': 'mensajes parecidos',
     'Language': 'Idioma',
     'To do': 'Por hacer',
@@ -954,6 +967,40 @@ dialog#story::backdrop { background: var(--scrim); }
     return !!mine && mine !== "dev" && !!theirs && mine !== theirs ? "notice" : "stay";
   }
   function pageIsNewer(mine, theirs, tried) { return !!mine && !!theirs && mine !== "dev" && mine !== theirs && tried !== theirs; }
+  // Share: what the page may offer, decided by testing a capability on an object that stands for navigator and window (never by the browser's name).
+  // share: the system sheet takes a PNG file; copy: the async clipboard takes an image (a secure context only); download: a link with
+  // "download" is honoured, which a phone does only from a secure context (a touch screen over plain http gets the image to press and hold).
+  function shareCaps(e) {
+    var n = e.nav || {}, can = false;
+    try { can = typeof n.share === "function" && typeof n.canShare === "function" && !!e.files && n.canShare({ files: e.files }) === true; } catch (x) { can = false; }
+    return { share: can, copy: !!(e.secure && n.clipboard && typeof n.clipboard.write === "function" && e.clipboardItem), download: !!(e.anchorDownload && (e.secure || !e.coarse)) };
+  }
+  // The id of the sentence for a refusal (null when the person only closed the system sheet): it says what to do instead.
+  function shareRefusal(action, caps, err) {
+    if (action === "share" && err && err.name === "AbortError") return null;
+    if (action === "download") return "download";
+    return action + (caps.download ? "-dl" : "");
+  }
+  // The bytes of a PNG data URL (null for anything else): the copy and the shared file are made from the same URL the image shows and the download links.
+  function pngBytes(url) {
+    var m = /^data:image\/png;base64,([A-Za-z0-9+\/=]+)$/.exec(url || "");
+    if (!m) return null;
+    var bin = atob(m[1]), b = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+    return b;
+  }
+  // The card as the PNG the dialog shows: a failure (toDataURL throws, or answers "data:," or a PNG that is not the card's size) is {error}, never a broken image.
+  function exportCard(cv, w, h) {
+    try {
+      var url = cv.toDataURL("image/png"), b = pngBytes(url);
+      if (!b || b.length < 24) return { error: "not-a-png:" + String(url).slice(0, 24) };
+      var pw = b[16] * 16777216 + b[17] * 65536 + b[18] * 256 + b[19], ph = b[20] * 16777216 + b[21] * 65536 + b[22] * 256 + b[23];
+      return pw === w && ph === h ? { url: url } : { error: "png-size:" + pw + "x" + ph };
+    } catch (e) { return { error: String(e && e.message || e) }; }
+  }
+  // What the copy and the share hand over, made from the bytes of the image shown (env stands for window: its Blob, File and ClipboardItem).
+  function copyImage(env, bytes) { return env.nav.clipboard.write([new env.ClipboardItem({ "image/png": new env.Blob([bytes], { type: "image/png" }) })]); }
+  function shareImage(env, bytes, name, title) { return env.nav.share({ files: [new env.File([bytes], name, { type: "image/png" })], title: title }); }
   /* logic:end */
   function h(tag, attrs, kids) {
     var el = document.createElement(tag);
@@ -1812,25 +1859,67 @@ dialog#story::backdrop { background: var(--scrim); }
     c.globalAlpha = .55; idc("UPIIXIA Agentic Kit", "UPIIXIA", cx, cy, 14); text("UPIIXIA Agentic Kit", cx + 22, cy + 12, 12, 500, tok("muted"), mono); c.globalAlpha = 1;
     return f;
   }
-  var shareEl = document.getElementById("share");
+  var shareEl = document.getElementById("share"), shareOpener = null;
+  function shareEnv() {
+    var f = null, a = document.createElement("a");
+    try { f = [new File([new Uint8Array(1)], "card.png", { type: "image/png" })]; } catch (e) {}
+    return { nav: window.navigator || {}, secure: window.isSecureContext === true, coarse: !!(window.matchMedia && matchMedia("(pointer: coarse)").matches), anchorDownload: "download" in a, clipboardItem: typeof window.ClipboardItem === "function", files: f, Blob: window.Blob, File: window.File, ClipboardItem: window.ClipboardItem };
+  }
+  function say(code) {
+    return { "copy": L('Could not copy the image. Press and hold it to save it.'), "copy-dl": L('Could not copy the image. Use Download PNG, or press and hold the image.'),
+      "share": L('Could not share the image. Press and hold it to save it.'), "share-dl": L('Could not share the image. Use Download PNG, or press and hold the image.'),
+      "download": L('The browser did not save the file. Press and hold the image to save it.') }[code];
+  }
   function openShare() {
-    var figs = h("dl", { "class": "kv", style: "margin-top:12px" }), msg = h("p", { "class": "muted", role: "status", style: "margin:8px 0 0;min-height:20px" }), cvs = [];
+    var figs = h("dl", { "class": "kv", style: "margin-top:12px" }), msg = h("p", { "class": "muted", role: "status", style: "margin:8px 0 0;min-height:20px" }), cvs = [], blocks = [], sw = h("div", { "class": "fsw", role: "group", "aria-label": L('Format') }), env = shareEnv(), caps = shareCaps(env), inner = h("div"), failed = false;
+    shareOpener = document.activeElement;
     function name(fmt) { return D.repo.replace(/[^\w.-]+/g, "-") + (fmt === "v" ? "-story" : "") + ".png"; }
+    function refuse(action, err) { var c = shareRefusal(action, caps, err); msg.textContent = c ? say(c) : ""; }
     function block(fmt, title) {
-      var cv = h("canvas", { "class": "share-cv" + (fmt === "v" ? " v" : ""), role: "img", "aria-label": title }); cvs.push([cv, fmt]);
-      var dl = h("button", { "class": "chip", type: "button", text: L('Download PNG'), on: function () { var a = h("a", { href: cv.toDataURL("image/png"), download: name(fmt) }); document.body.appendChild(a); a.click(); a.remove(); } });
-      var cp = h("button", { "class": "chip", type: "button", text: L('Copy image'), on: function () {
-        cv.toBlob(function (b) { try { navigator.clipboard.write([new ClipboardItem({ "image/png": b })]).then(function () { msg.textContent = L('Copied to the clipboard'); }, function () { msg.textContent = L('The browser refused to copy: use Download PNG.'); }); } catch (e) { msg.textContent = L('The browser refused to copy: use Download PNG.'); } });
+      var cv = h("canvas"), img = h("img", { "class": "share-img" + (fmt === "v" ? " v" : ""), alt: title, width: fmt === "v" ? 1080 : 1200, height: fmt === "v" ? 1920 : 630 }), acts = [];
+      cvs.push([cv, fmt, img]);
+      if (caps.share) acts.push(h("button", { "class": "chip", type: "button", text: L('Share'), on: function () {
+        try { shareImage(env, pngBytes(img.src), name(fmt), D.repo).then(function () { msg.textContent = ""; }, function (e) { refuse("share", e); }); } catch (e) { refuse("share", e); }
+      } }));
+      if (caps.copy) acts.push(h("button", { "class": "chip", type: "button", text: L('Copy image'), on: function () {
+        try { copyImage(env, pngBytes(img.src)).then(function () { msg.textContent = L('Copied to the clipboard'); }, function () { refuse("copy"); }); } catch (e) { refuse("copy"); }
+      } }));
+      if (caps.download) acts.push(h("button", { "class": "chip", type: "button", text: L('Download PNG'), on: function () {
+        try { var a = h("a", { href: img.src, download: name(fmt) }); document.body.appendChild(a); a.click(); a.remove(); msg.textContent = ""; } catch (e) { refuse("download"); }
+      } }));
+      var el = h("div", { "class": "sc", hidden: fmt === "v" ? "" : null }, [img, h("p", { "class": "muted hold", text: L('Press and hold the image to save or share it (right-click on a computer).') }), h("div", { "class": "chips acts", style: "margin-top:8px" }, acts)]);
+      blocks.push([fmt, el]);
+      var pick = h("button", { "class": "chip", type: "button", "aria-pressed": fmt === "h" ? "true" : "false", text: title, on: function () {
+        blocks.forEach(function (x) { x[1].hidden = x[0] !== fmt; }); Array.prototype.forEach.call(sw.children, function (c) { c.setAttribute("aria-pressed", c === pick ? "true" : "false"); }); msg.textContent = "";
       } });
-      return h("div", { "class": "sc" }, [h("b", { text: title }), cv, h("div", { "class": "chips", style: "margin-top:8px" }, [dl, cp])]);
+      sw.appendChild(pick);
+      return el;
     }
-    function draw() { var f = []; cvs.forEach(function (x) { f = drawCard(x[0], D, x[1]); }); figs.innerHTML = ""; f.forEach(function (x) { figs.appendChild(h("dt", { text: x[1] })); figs.appendChild(h("dd", { style: "margin:0" }, [h("b", { text: x[0] })])); }); }
+    // The canvas only draws, off the page; the PNG is exported once and is the image's source, the download's link and (decoded) the copy and the shared file.
+    function draw() {
+      if (failed) return;
+      var f = [], bad = null;
+      cvs.forEach(function (x) {
+        if (bad) return;
+        try { f = drawCard(x[0], D, x[1]); } catch (e) { bad = "draw:" + (e && e.message); return; }
+        var r = exportCard(x[0], x[1] === "v" ? 1080 : 1200, x[1] === "v" ? 1920 : 630); x[0].width = x[0].height = 0;
+        if (r.error) bad = r.error; else x[2].src = r.url;
+      });
+      if (bad) {
+        failed = true; ERRORS.push("share-export:" + bad); if (window.console) console.error("uak dash: share export", bad);
+        inner.innerHTML = ""; inner.appendChild(h("p", { role: "status", text: L('The image could not be made on this device. Reload the page and try again, or take a screenshot of it.') })); return;
+      }
+      figs.innerHTML = ""; f.forEach(function (x) { figs.appendChild(h("dt", { text: x[1] })); figs.appendChild(h("dd", { style: "margin:0" }, [h("b", { text: x[0] })])); });
+    }
     shareEl.innerHTML = "";
-    shareEl.appendChild(h("div", { "class": "pad" }, [h("div", { "class": "bh" }, [h("h2", { id: "share-t", text: L('Share') }), h("button", { "class": "st-x", type: "button", "aria-label": L('Close'), style: "margin:0 0 0 auto", on: function () { shareEl.close(); } }, [icon(I.x)])]),
-      h("div", { "class": "scs" }, [block("h", "1200 x 630"), block("v", L('Story') + " 1080 x 1920")]), figs, msg]));
-    draw(); if (document.fonts && document.fonts.load) document.fonts.load("700 20px Inter").then(draw, function () {});
+    var bh = block("h", "1200 x 630"), bv = block("v", L('Story') + " 1080 x 1920");
+    [sw, h("div", { "class": "scs" }, [bh, bv]), msg, figs].forEach(function (c) { inner.appendChild(c); });
+    shareEl.appendChild(h("div", { "class": "pad" }, [h("div", { "class": "bh" }, [h("h2", { id: "share-t", text: L('Share') }), h("button", { "class": "st-x", type: "button", "aria-label": L('Close'), style: "margin:0 0 0 auto", on: function () { shareEl.close(); } }, [icon(I.x)])]), inner]));
+    draw(); if (document.fonts && document.fonts.load) document.fonts.load("700 20px Inter").then(function () { if (shareEl.firstChild) draw(); }, function () {});
     if (shareEl.showModal) shareEl.showModal(); else shareEl.setAttribute("open", "");
   }
+  // Closing releases the two PNGs (about a megabyte of base64 each) held by the images.
+  shareEl.addEventListener("close", function () { shareEl.innerHTML = ""; try { if (shareOpener && shareOpener.focus) shareOpener.focus(); } catch (e) {} shareOpener = null; });
   shareEl.addEventListener("click", function (e) { if (e.target === shareEl) shareEl.close(); });
   // Tokens: what the data really holds (kind, harness, model, scope, task); it carries no dates and no budget, and the page says so.
   function tokens(v, d) {
