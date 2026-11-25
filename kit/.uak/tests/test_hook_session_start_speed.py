@@ -971,6 +971,7 @@ kill() {
          # line of every target is written down.
          if [ -n "${UAK_KILL_GUARD_WINPIDS:-}" ]; then
            line=$(ps -p "$t" 2>/dev/null); line=${line##*$'\n'}
+           case "$line" in *PID*PPID*) line=;; esac   # the header alone: no such process any more
            set -- $line
            case "${1:-}" in [0-9]*) ;; *) [ "$#" -eq 0 ] || shift;; esac
            seen="$seen [$t: ${line:-no such process}]"
@@ -1088,7 +1089,7 @@ def kill_guard_report(log):
     lines = log.read_text(encoding="utf-8", errors="replace").splitlines() if log.exists() else []
     refused = [l for l in lines if l.startswith("REFUSED")]
     sent = [l for l in lines if l.startswith("SENT")]
-    by = Counter(" ".join(l.split()[2:3] + l.split()[-2:]) for l in sent)
+    by = Counter(" ".join(l.split(" [")[0].split()[2:3] + l.split(" [")[0].split()[-2:]) for l in sent)
     return ("KILL_GUARD sent=%d refused=%d protected=%s; signals sent: %s" % (
         len(sent), len(refused), os.environ.get("UAK_KILL_GUARD_PIDS", ""), dict(by.most_common(8)))), refused
 
