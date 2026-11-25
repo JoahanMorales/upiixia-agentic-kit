@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1795624985
+Updated: 1795625097
 AVAILABLE: UAK-163 UAK-164 UAK-166 UAK-167 UAK-196 
 CLAIMED: UAK-160 UAK-165 
 BLOCKED: -
@@ -16,11 +16,11 @@ UAK-195 | REVIEW | kit-a4 | until 1795711385
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1795592322 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-164 Paths: kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/setup.py, kit/.uak/bin/lib/planning.py, kit/.uak/b
 - 1795592735 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-195 | Why: backlog without PR (Plan-Channel: claims)
 - 1795613358 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-196 | Why: backlog without PR (Plan-Channel: claims)
 - 1795613362 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-165 Paths: kit/.uak/bin/lib/dash.html, kit/.uak/bin/lib/dash.py, kit/.uak/bin/dash, kit/.uak/docs/CLI.md, d
 - 1795619911 | UAK-165 | unknown names dropped, rest kept; drag on a grip only | Why: acceptance amended 2026-11-25
+- 1795625097 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-197 | Why: backlog without PR (Plan-Channel: claims)
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.
