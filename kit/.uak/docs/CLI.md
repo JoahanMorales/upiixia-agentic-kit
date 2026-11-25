@@ -55,7 +55,7 @@ Every command, its usage, where its code lives and the MCP tool that runs it.
 | `secret-exception` | `secret-exception ID (--path PATH --rule RULE \| --fingerprint FP) --reason TEXT` | `lib/security.sh` | `uak_cli` |
 | `init-smoke` | `init-smoke --command COMMAND` | `lib/smoke-init.sh` | shell only (it runs a command you pass) |
 | `lint` | `lint [--secrets]` | `lib/lint.sh` | `uak_cli` |
-| `start` | `start [--fix]   install → first claim, in order: what is missing, then the one command that starts the work` | `start` | `uak_cli` |
+| `start` | `start [--fix \| --steps \| --wizard]   install → first claim, in order: what is missing, then the one command that starts the work` | `start` | `uak_cli` |
 | `doctor` | `doctor [--fix]   preflight: remote, gh permissions, hooks, freeze, ports` | `doctor` | `uak_cli` |
 | `deploy` | `deploy [--write] [--disk PATH]   how this project deploys (Render Blueprint + Dockerfile, Vercel for Next.js); --write creates the files` | `deploy` | shell only (it runs a command you pass) |
 | `design` | `design round [--screen landing] [--n N] [--seed S] [--human NAME] [--allow-repeat] [--no-prior] [--creativity 1-5] [--dry-run] [--yes] \| design palettes [--n 6] \| design round --from R<k> [--creativity 1-5] \| design shoot R<k> [v<i> ...] [--again] \| design pick R<k> \| design done R<k> v<i> --tokens N \| design report R<k> [--all] \| design taste [--human NAME] [--team] [--update \| --merge A B \| --forget PROJECT]   N design variants of the landing (9 genes each, an exact font pair; round 1 seeded by the human's taste and the project's brand and material), bred rounds, captures, and the human's picks` | `design` | `uak_cli` |
