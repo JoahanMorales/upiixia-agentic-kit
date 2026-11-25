@@ -345,6 +345,7 @@ def _time_left(runner, bound, start, clock):
 # started under each file (/proc), whatever the file prints: the evidence for files not yet converted.
 BROWSER_ENV = "UAK_CI_BROWSER"
 NODE_PLAYWRIGHT_ENV = "UAK_TEST_NODE_PLAYWRIGHT"
+BROWSER_CHECKED_ENV = "UAK_CI_BROWSER_CHECKED"   # set by a run that checked the browser, for the runs its files start
 _SKIP_RE = re.compile(r"^SKIP (\S+) \(no browser\)\s*$")
 _BROWSER_PASS_RE = re.compile(r"^PASS (\S+) \(browser\b")
 _RESULT_RE = re.compile(r"^[A-Z][A-Z0-9_]*_RESULT (?:PASS|FAIL|SKIP)\b(.*)$")
@@ -640,6 +641,9 @@ def flaky_report(job, res):
         skipped = ["%s: %s" % (f, " ".join(v["skipped"])) for f, v in sorted(res["browser"].items()) if v.get("skipped")]
         if skipped:
             summary.append("- skipped for lack of a browser: " + "; ".join(skipped))
+        launched = ["%s %d" % (f, v["launches"]) for f, v in sorted(res["browser"].items()) if v.get("launches")]
+        if launched:
+            summary.append("- Chromium launches per file: " + ", ".join(launched))
     if res["failed"]:
         summary.append("Failed test files (%s):%s" % (job, "".join(" " + f for f in res["failed"])))
         both = [f for f in res["failed"] if res["counts"].get(f, {}).get("runs", 1) > 1 and f != res.get("stopped")]
@@ -932,7 +936,10 @@ def _cmd_run(argv):
         print("FAILED: this shard has no test files (empty list)")
         return 1
     declared = browser_declared(os.environ)
-    if declared:
+    if declared and os.environ.get(BROWSER_CHECKED_ENV):
+        # a run inside a test file (test_ci_tiers drives this runner): the job's own run checked the browser already
+        print("browser: checked by the job's run (%s)" % os.environ[BROWSER_CHECKED_ENV], flush=True)
+    elif declared:
         # UAK-195: a job that declares a browser proves it before any file, or every browser case would pass without running
         ok, said = browser_check()
         if not ok:
@@ -948,6 +955,7 @@ def _cmd_run(argv):
                                             "browser": {}, "no_browser": {"(job)": text}, "conclusion": "failed"})
             return 1
         print("browser: %s (%s=%s: a SKIP for lack of a browser fails its file here)" % (said, BROWSER_ENV, os.environ.get(BROWSER_ENV)), flush=True)
+        os.environ[BROWSER_CHECKED_ENV] = said   # inherited by the files, so a run they start does not launch Chromium again
     retry = a.retry and os.environ.get("RUNNER_OS") != "Linux"   # Linux never retries, whatever the workflow passes
     seconds = lint.ci_windows_seconds if a.kind == "windows" else lint.ci_seconds
     runner = _RealRunner(a.kind, tests_dir=a.tests_dir) if a.tests_dir else _real_runner(a.kind)
@@ -959,6 +967,9 @@ def _cmd_run(argv):
     if summary:
         with open(summary, "a", encoding="utf-8") as fh:
             fh.write(rep["summary"])
+        for line in rep["summary"].splitlines():   # the browser counts in the log too: the evidence a reviewer reads
+            if line.startswith(("- browser cases:", "- skipped for lack of a browser:", "- Chromium launches per file:")):
+                print(line)
     else:
         print(rep["summary"])
     if a.out:

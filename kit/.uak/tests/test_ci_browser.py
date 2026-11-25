@@ -28,7 +28,7 @@ REPO = Path(__file__).resolve().parents[3]
 KIT = REPO / "kit"
 WORKFLOW = REPO / ".github" / "workflows" / "test.yml"
 SCRIPT = REPO / "scripts" / "ci_select.py"
-ENV_NAMES = ("UAK_CI_BROWSER", "UAK_TEST_NODE_PLAYWRIGHT", "GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "RUNNER_OS")
+ENV_NAMES = ("UAK_CI_BROWSER", "UAK_CI_BROWSER_CHECKED", "UAK_TEST_NODE_PLAYWRIGHT", "GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "RUNNER_OS")
 
 
 class Failure(Exception):
@@ -213,7 +213,7 @@ def browser_cases_run_on_the_linux_job(tmp):
 def skip_without_browser_is_not_a_pass(tmp):
     mod = cs()
     lines = ["PASS reads_the_page (0.01s)", "SKIP clicks_the_button (no browser)", "PASS drags_a_card (browser, 1.2s)",
-             "SKIP opens_the_dialog (no browser)", "PASS opens_the_dialog (0.00s)", "SKIP schedule_never_follows_links: no symlinks here",
+             "SKIP opens_the_dialog (no browser)", "PASS opens_the_dialog (browser, 0.3s)", "SKIP schedule_never_follows_links: no symlinks here",
              "SKIP review HACK-001 | already approved", "FX_RESULT PASS failed=0 skipped=2"]
     got = mod.read_browser_lines(lines)
     expect(got["skipped"] == ["clicks_the_button", "opens_the_dialog"], "two cases skipped for lack of a browser: %r" % got)
@@ -271,6 +271,10 @@ def skip_fails_where_a_browser_is_declared(tmp):
         out = cli_run(folder, ["fx_plain"], clean_env(UAK_CI_BROWSER="1", PYTHONPATH=str(pw)))
         expect(out.returncode == 1 and says in out.stdout and "FX_PLAIN_RESULT" not in out.stdout,
                "declared without a browser (%s): fails before the files: rc %d %s" % (pw.name, out.returncode, out.stdout[-900:]))
+    # a run started inside a file of a job whose run checked the browser (test_ci_tiers drives this runner) does not launch it again
+    out = cli_run(folder, ["fx_skip"], clean_env(UAK_CI_BROWSER="1", UAK_CI_BROWSER_CHECKED="Chromium 1", PYTHONPATH=str(missing_pw)))
+    expect(out.returncode == 1 and "checked by the job's run" in out.stdout and "clicks_the_button" in out.stdout,
+           "a nested run trusts the job's check and still fails the skip: rc %d %s" % (out.returncode, out.stdout[-600:]))
     out = cli_run(folder, ["fx_plain"], clean_env(UAK_CI_BROWSER="1", PYTHONPATH=str(ok_pw), UAK_TEST_NODE_PLAYWRIGHT=str(tmp / "no-node-modules")))
     expect(out.returncode == 1 and "UAK_TEST_NODE_PLAYWRIGHT" in out.stdout and "FX_PLAIN_RESULT" not in out.stdout,
            "a Node Playwright folder that is not there fails the check: rc %d %s" % (out.returncode, out.stdout[-900:]))
