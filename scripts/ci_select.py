@@ -6,6 +6,8 @@
     python3 scripts/ci_select.py run --kind smoke --retry --job NAME --out result.json test_a test_b
     python3 scripts/ci_select.py gate                 # reads NEEDS (toJSON(needs)) and PLANNED; fails unless discover and every planned job succeeded
     python3 scripts/ci_select.py issue --sha SHA --run-id ID --repo OWNER/REPO [--apply]
+    python3 scripts/ci_select.py browser-install --dir DIR --playwright X.Y.Z [--node-playwright X.Y.Z] [--github-env FILE]
+    python3 scripts/ci_select.py browser-check       # Chromium launches from Python's Playwright (and Node's, with UAK_TEST_NODE_PLAYWRIGHT)
 
 Why: every push of every pull request paid the whole matrix (19 jobs, macOS 15 to 19 minutes, Windows 17 to 26, plus the
 wait for a runner). Two tiers: a pull request runs the whole suite on Linux and, on macOS and Windows, the test files it
@@ -16,6 +18,8 @@ required check, `ci`, is never "Pending" behind a skipped workflow. Standard lib
 import argparse
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -301,6 +305,11 @@ def _stamp(secs):
     return "%d s" % secs
 
 
+def _this_system():
+    s = os.environ.get("RUNNER_OS") or {"darwin": "macOS", "win32": "Windows"}.get(sys.platform, "Linux")
+    return s if s in ("Linux", "macOS", "Windows") else "Linux"
+
+
 def write_result(path, job, res, running=""):
     """The result JSON, written before each file and at the end: a job cancelled by its time limit leaves it, so the artifact
     says which file the job was in (windows (1) at e4f2f83d was cancelled with no log left and nothing to say where)."""
@@ -309,7 +318,8 @@ def write_result(path, job, res, running=""):
     done = [f for f in res["ran"] if f in res["counts"]]
     body = {"job": job, "conclusion": "running" if running else res.get("conclusion", "passed"), "running": running, "done": done,
             "failed": res["failed"], "flaky": res["flaky"], "counts": res["counts"], "not_rerun": res["not_rerun"],
-            "slow": res["slow"], "stopped": res["stopped"]}
+            "slow": res["slow"], "stopped": res["stopped"], "browser": res.get("browser", {}), "no_browser": res.get("no_browser", {}),
+            "system": _this_system()}
     tmp = str(path) + ".part"
     Path(tmp).write_text(json.dumps(body), encoding="utf-8")
     os.replace(tmp, str(path))
@@ -323,7 +333,204 @@ def _time_left(runner, bound, start, clock):
         runner.timeout = max(bound - (clock() - start), 1)
 
 
-def run_files(files, runner, retry, log=_say, seconds=None, bound=None, clock=time.monotonic, out=None, job="job"):
+# ---- the browser (UAK-195) ----------------------------------------------------------------------------------------------
+# On 2026-11-24 and 25 four reviews found defects only a browser shows while every Playwright case passed in CI without
+# running (no browser: the case returned early and printed PASS). The convention a test file follows, read here:
+#   PASS <case> (browser, <detail>)          the case ran in a real Chromium
+#   SKIP <case> (no browser)                 the case needs a browser and found none: never a pass
+#   <FILE>_RESULT PASS failed=<n> skipped=<k>   the result line counts the skips
+# A job that has a browser declares it (UAK_CI_BROWSER=1, set by the workflow on the Linux suite jobs): there Chromium must
+# launch before any file runs, and a skip for lack of a browser fails its file. Elsewhere a skip stays a skip. A file that
+# prints a SKIP its result line does not count fails everywhere. On Linux the runner also counts the Chromium processes
+# started under each file (/proc), whatever the file prints: the evidence for files not yet converted.
+BROWSER_ENV = "UAK_CI_BROWSER"
+NODE_PLAYWRIGHT_ENV = "UAK_TEST_NODE_PLAYWRIGHT"
+_SKIP_RE = re.compile(r"^SKIP (\S+) \(no browser\)\s*$")
+_BROWSER_PASS_RE = re.compile(r"^PASS (\S+) \(browser\b")
+_RESULT_RE = re.compile(r"^[A-Z][A-Z0-9_]*_RESULT (?:PASS|FAIL|SKIP)\b(.*)$")
+_SKIPPED_RE = re.compile(r"\bskipped=(\d+)\b")
+
+
+def browser_declared(env):
+    """True when the job says it has a browser: UAK_CI_BROWSER set to anything but empty or 0."""
+    return (env.get(BROWSER_ENV) or "0").strip() not in ("", "0")
+
+
+def read_browser_lines(lines):
+    """What a file's output says about browser cases: {ran, skipped, result_skipped, problems, converted}. A case that
+    printed SKIP (no browser) is a skip even if a PASS of the same name follows; `problems` = the result line does not count
+    the skips it printed."""
+    ran, skipped, result_skipped = [], [], None
+    for raw in lines:
+        line = raw.rstrip("\r\n")
+        m = _SKIP_RE.match(line)
+        if m:
+            if m.group(1) not in skipped:
+                skipped.append(m.group(1))
+            continue
+        m = _BROWSER_PASS_RE.match(line)
+        if m:
+            if m.group(1) not in ran:
+                ran.append(m.group(1))
+            continue
+        m = _RESULT_RE.match(line)
+        if m:
+            k = _SKIPPED_RE.search(m.group(1))
+            result_skipped = int(k.group(1)) if k else (result_skipped if result_skipped is not None else -1)
+    ran = [c for c in ran if c not in skipped]
+    problems = []
+    if skipped and (result_skipped is None or result_skipped < 0):
+        problems.append("printed %d SKIP (no browser) line(s) (%s) and its result line has no skipped= count" % (len(skipped), " ".join(skipped)))
+    elif skipped and result_skipped < len(skipped):
+        problems.append("printed %d SKIP (no browser) lines (%s) and its result line counts skipped=%d" % (len(skipped), " ".join(skipped), result_skipped))
+    converted = result_skipped is not None and result_skipped >= 0
+    return {"ran": ran, "skipped": skipped, "result_skipped": None if result_skipped is None or result_skipped < 0 else result_skipped,
+            "problems": problems, "converted": converted}
+
+
+def browser_verdict(name, seen, declared):
+    """'' when the file's browser lines are fine, else why the file fails."""
+    if seen["problems"]:
+        return "%s %s: a skip must be counted" % (name, seen["problems"][0])
+    if declared and seen["skipped"]:
+        return ("%s: %s skipped for lack of a browser on a job that declares one (%s=1): the case must run here"
+                % (name, " ".join(seen["skipped"]), BROWSER_ENV))
+    return ""
+
+
+_PY_PROBE = r"""
+import sys, time
+t = time.monotonic()
+try:
+    from playwright.sync_api import sync_playwright
+except Exception as e:
+    print("NO_PLAYWRIGHT %s: %s" % (type(e).__name__, str(e).splitlines()[0] if str(e) else ""))
+    sys.exit(3)
+try:
+    import importlib.metadata as md
+    version = md.version("playwright")
+except Exception:
+    version = "?"
+try:
+    with sync_playwright() as p:
+        b = p.chromium.launch(args=["--no-sandbox"])
+        v = b.version
+        page = b.new_page()
+        page.set_content("<p id=x>ok</p>")
+        said = page.text_content("#x")
+        b.close()
+except Exception as e:
+    lines = [l for l in str(e).splitlines() if l.strip()]
+    print("NO_CHROMIUM Playwright %s: %s" % (version, (lines[0] if lines else type(e).__name__)[:300]))
+    sys.exit(4)
+if said != "ok":
+    print("NO_CHROMIUM Playwright %s: the page read %r, not 'ok'" % (version, said))
+    sys.exit(4)
+print("CHROMIUM %s Playwright %s %.1f" % (v, version, time.monotonic() - t))
+"""
+_NODE_PROBE = r"""
+const t = Date.now();
+const { chromium } = require(require('path').join(process.argv[1], 'playwright'));
+(async () => {
+  const b = await chromium.launch(); const p = await b.newPage(); await p.setContent('<p id=x>ok</p>');
+  const said = await p.textContent('#x'); const v = b.version(); await b.close();
+  if (said !== 'ok') { console.log('NO_CHROMIUM the page read ' + said); process.exit(4); }
+  console.log('CHROMIUM ' + v + ' ' + ((Date.now() - t) / 1000).toFixed(1));
+})().catch(e => { console.log('NO_CHROMIUM ' + String(e.message || e).split('\n').filter(Boolean)[0]); process.exit(4); });
+"""
+
+
+def browser_check(env=None, python=None):
+    """(ok, what was found): Python Playwright imports, Chromium launches and reads a page; when UAK_TEST_NODE_PLAYWRIGHT
+    names a folder, Node's Playwright from there does the same."""
+    env = dict(os.environ if env is None else env)
+    python = python or sys.executable
+    try:
+        r = subprocess.run([python, "-c", _PY_PROBE], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           universal_newlines=True, errors="replace", timeout=180)
+        out = (r.stdout.strip().splitlines() or [""])[-1]
+    except subprocess.TimeoutExpired:
+        return False, "Chromium does not launch: the probe did not end in 180 s"
+    if r.returncode == 3 or out.startswith("NO_PLAYWRIGHT"):
+        return False, "Python (%s) cannot import Playwright (%s)" % (python, out[len("NO_PLAYWRIGHT "):] or "exit %d" % r.returncode)
+    if r.returncode != 0 or not out.startswith("CHROMIUM "):
+        return False, ("Chromium does not launch: %s. Playwright is here; the browser is missing or broken (if it came from the cache, "
+                       "delete the cache entry whose key starts with uak-browser- and re-run)" % (out[len("NO_CHROMIUM "):] if out.startswith("NO_CHROMIUM") else (r.stdout.strip()[-300:] or "exit %d" % r.returncode)))
+    f = out.split()
+    said = "Chromium %s launched by Python Playwright %s in %s s" % (f[1], f[3], f[4])
+    folder = env.get(NODE_PLAYWRIGHT_ENV)
+    if folder:
+        node = shutil.which("node", path=env.get("PATH"))
+        if not (Path(folder) / "playwright").is_dir():
+            return False, "%s names %s: no playwright there (Node's Playwright cases would not run)" % (NODE_PLAYWRIGHT_ENV, folder)
+        if not node:
+            return False, "%s is set and there is no node on PATH" % NODE_PLAYWRIGHT_ENV
+        try:
+            r = subprocess.run([node, "-e", _NODE_PROBE, folder], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               universal_newlines=True, errors="replace", timeout=180)
+            nout = (r.stdout.strip().splitlines() or [""])[-1]
+        except subprocess.TimeoutExpired:
+            return False, "Chromium does not launch from Node's Playwright (%s): no answer in 180 s" % folder
+        if r.returncode != 0 or not nout.startswith("CHROMIUM "):
+            return False, "Chromium does not launch from Node's Playwright (%s): %s" % (folder, nout or r.stdout.strip()[-300:])
+        said += "; by Node's Playwright in %s s" % nout.split()[2]
+    return True, said
+
+
+def _system_of(result):
+    s = result.get("system") or ""
+    if s in ("Linux", "macOS", "Windows"):
+        return s
+    job = result.get("job", "")
+    return "macOS" if "macos" in job else ("Windows" if job.startswith("windows") or "windows-" in job else "Linux")
+
+
+def _browser_totals(browser):
+    ran = sum(len(v.get("ran") or []) for v in browser.values())
+    skipped = sum(len(v.get("skipped") or []) for v in browser.values())
+    counted = [v.get("launches") for v in browser.values() if v.get("launches") is not None]
+    launches = sum(counted)
+    files = len([x for x in counted if x])
+    return ran, skipped, (launches, files) if counted else None
+
+
+def _browser_line(prefix, browser):
+    ran, skipped, seen = _browser_totals(browser)
+    tail = ("Chromium launches seen: %d in %d files" % seen) if seen is not None else "Chromium launches not counted on this system"
+    return "%s%d ran in a browser, %d skipped (no browser); %s" % (prefix, ran, skipped, tail)
+
+
+def browser_summary(results):
+    """Markdown lines, per system, from the jobs' result JSON: cases run in a browser, skipped, Chromium launches seen."""
+    by = {}
+    for r in results:
+        by.setdefault(_system_of(r), {}).update({"%s/%s" % (r.get("job", ""), f): v for f, v in (r.get("browser") or {}).items()})
+    lines = ["### browser cases (UAK-195: `PASS case (browser, ...)` ran in Chromium, `SKIP case (no browser)` did not run)"]
+    for system in ("Linux", "macOS", "Windows"):
+        if system not in by:
+            lines.append("- %s: no result files" % system)
+        else:
+            lines.append(_browser_line("- %s: " % system, by[system]))
+    return "\n".join(lines) + "\n"
+
+
+def _judged(runner, f, ok, declared, res):
+    """The file's own verdict, then its browser lines (when the runner read its output): a skip that is not counted, or a skip
+    for lack of a browser on a job that declares one, fails a file that exited 0."""
+    lines = getattr(runner, "output", None)
+    if lines is None or getattr(runner, "timed_out", False):
+        return ok
+    seen = read_browser_lines(lines)
+    res["browser"][f] = {"ran": seen["ran"], "skipped": seen["skipped"], "launches": getattr(runner, "launches", None)}
+    why = browser_verdict(f, seen, declared)
+    if why:
+        res["no_browser"][f] = why
+        return False
+    res["no_browser"].pop(f, None)
+    return ok
+
+
+def run_files(files, runner, retry, log=_say, seconds=None, bound=None, clock=time.monotonic, out=None, job="job", browser_declared=False):
     """Run each file; with retry a failed file runs once more, but only when the second run fits (its timing entry is at most
     RETRY_MAX_S and the job's elapsed time plus that entry stays under `bound`, the job's seconds for tests). {ran, failed,
     flaky, counts, not_rerun, slow, stopped}: failed = failed every time, flaky = failed then passed (the job passes, and
@@ -333,7 +540,7 @@ def run_files(files, runner, retry, log=_say, seconds=None, bound=None, clock=ti
     SLOW_MIN_FILES files and SLOW_MIN_TABLE_S table seconds: one stale entry cannot decide it. Before each file the name and
     the clock are printed (flushed) and the partial result is written; a run that passes the bound is killed (the runner's
     `timeout`, the time left) and the job stops there."""
-    res = {"ran": list(files), "failed": [], "flaky": [], "counts": {}, "not_rerun": {}, "slow": "", "stopped": ""}
+    res = {"ran": list(files), "failed": [], "flaky": [], "counts": {}, "not_rerun": {}, "slow": "", "stopped": "", "browser": {}, "no_browser": {}}
     start = clock()
     ratios, seen_table = [], 0.0
     for i, f in enumerate(files):
@@ -348,7 +555,7 @@ def run_files(files, runner, retry, log=_say, seconds=None, bound=None, clock=ti
         write_result(out, job, res, running=f)
         _time_left(runner, bound, start, clock)
         began = clock()
-        ok = runner(f)
+        ok = _judged(runner, f, runner(f), browser_declared, res)
         took = clock() - began
         runs, failures = 1, 0 if ok else 1
         if not ok and getattr(runner, "timed_out", False):
@@ -367,7 +574,7 @@ def run_files(files, runner, retry, log=_say, seconds=None, bound=None, clock=ti
                 log("::endgroup::")
                 log("::group::%s (second run)" % f)
                 _time_left(runner, bound, start, clock)
-                ok = runner(f)
+                ok = _judged(runner, f, runner(f), browser_declared, res)
                 runs, failures = 2, failures + (0 if ok else 1)
                 if not ok and getattr(runner, "timed_out", False):
                     res["failed"].append(f)
@@ -412,6 +619,9 @@ def flaky_report(job, res):
         else:
             ann.append("::error title=test failed::%s failed%s (%s)" % (f, " both times" if n > 1 else "", job))
     extra = []
+    for f, why in res.get("no_browser", {}).items():
+        ann.append("::error title=no browser::%s (%s)" % (why, job))
+        extra.append(why)
     for f, why in res.get("not_rerun", {}).items():
         ann.append("::error title=not run again::%s (%s)" % (why, job))
         extra.append(why)
@@ -425,6 +635,11 @@ def flaky_report(job, res):
     conclusion = "failed" if (res["failed"] or res.get("slow") or res.get("stopped")) else ("flaky" if res["flaky"] else "passed")
     head = {"passed": "### %s: passed" % job, "flaky": "### %s: passed, with flaky files" % job, "failed": "### %s: failed" % job}[conclusion]
     summary = [head] + md + ["- " + x for x in extra]
+    if res.get("browser"):
+        summary.append(_browser_line("- browser cases: ", res["browser"]))
+        skipped = ["%s: %s" % (f, " ".join(v["skipped"])) for f, v in sorted(res["browser"].items()) if v.get("skipped")]
+        if skipped:
+            summary.append("- skipped for lack of a browser: " + "; ".join(skipped))
     if res["failed"]:
         summary.append("Failed test files (%s):%s" % (job, "".join(" " + f for f in res["failed"])))
         both = [f for f in res["failed"] if res["counts"].get(f, {}).get("runs", 1) > 1 and f != res.get("stopped")]
@@ -432,7 +647,7 @@ def flaky_report(job, res):
             summary.append("Failed both times: " + " ".join(both))
     return {"job": job, "conclusion": conclusion, "annotations": ann, "summary": "\n".join(summary) + "\n",
             "failed": res["failed"], "flaky": res["flaky"], "counts": res["counts"], "not_rerun": res.get("not_rerun", {}),
-            "slow": res.get("slow", ""), "stopped": res.get("stopped", "")}
+            "slow": res.get("slow", ""), "stopped": res.get("stopped", ""), "browser": res.get("browser", {}), "no_browser": res.get("no_browser", {})}
 
 
 def _start(argv, **kw):
@@ -446,10 +661,13 @@ def _start(argv, **kw):
 class _RealRunner:
     """Runs one file; `timeout` (seconds, set by run_files to the time left to the job's bound) stops a file that would end
     the job by the platform's cancel: the whole group (POSIX) or tree (Windows) is killed and `timed_out` is set."""
-    def __init__(self, kind):
+    def __init__(self, kind, tests_dir=None):
         self.kind = kind
+        self.tests_dir = tests_dir   # another folder of test files (this runner's own tests); default kit/.uak/tests
         self.timeout = None
         self.timed_out = False
+        self.output = None      # the lines the file printed that the browser convention reads (UAK-195)
+        self.launches = None    # Chromium browser processes seen under the file (Linux, /proc); None where not counted
 
     def _kill(self, p):
         if os.name == "nt":
@@ -568,18 +786,89 @@ class _RealRunner:
             return False
 
     def _popen(self, name):
-        if self.kind == "smoke":
+        # stdout is read line by line (copied to ours as it comes, flushed) for the browser lines of UAK-195; stderr is the job's.
+        out = subprocess.PIPE
+        if self.kind == "smoke" and self.tests_dir is None:
             # stdin held open, as in a terminal: a command that reads it (BSD awk -W version did) hangs here, not on a laptop.
-            return _start(["bash", ".uak/bin/smoke", "--package-only"], cwd=str(KIT), env=dict(os.environ, UAK_SMOKE_TESTS=name), stdin=subprocess.PIPE)
+            return _start(["bash", ".uak/bin/smoke", "--package-only"], cwd=str(KIT), env=dict(os.environ, UAK_SMOKE_TESTS=name), stdin=subprocess.PIPE, stdout=out)
         if name == "mcp_tools":
-            return _start([sys.executable, "tests/test_mcp_tools.py"], cwd=str(ROOT), stdin=subprocess.DEVNULL)
-        return _start([sys.executable, ".uak/tests/%s.py" % name, "--package", str(KIT)], cwd=str(KIT), stdin=subprocess.DEVNULL)
+            return _start([sys.executable, "tests/test_mcp_tools.py"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=out)
+        if self.tests_dir is not None:
+            return _start([sys.executable, str(Path(self.tests_dir) / ("%s.py" % name)), "--package", str(KIT)], cwd=str(KIT), stdin=subprocess.DEVNULL, stdout=out)
+        return _start([sys.executable, ".uak/tests/%s.py" % name, "--package", str(KIT)], cwd=str(KIT), stdin=subprocess.DEVNULL, stdout=out)
+
+    KEEP = re.compile(r"^(PASS |SKIP |[A-Z][A-Z0-9_]*_RESULT )")
+
+    def _copy(self, p, kept):
+        """Copy the file's stdout to ours line by line (flushed), keeping the lines the browser convention reads."""
+        sink = getattr(sys.stdout, "buffer", None)
+        for raw in iter(p.stdout.readline, b""):
+            try:
+                if sink is not None:
+                    sink.write(raw)
+                    sink.flush()
+                else:
+                    sys.stdout.write(raw.decode("utf-8", "replace"))
+                    sys.stdout.flush()
+            except (OSError, ValueError):
+                pass
+            text = raw.decode("utf-8", "replace").rstrip("\r\n")
+            if self.KEEP.match(text):
+                kept.append(text)
+
+    @staticmethod
+    def _browser_pids(root, family, kids):
+        """Chromium's browser processes (Playwright starts each with --remote-debugging-pipe; its helpers carry --type=) under root."""
+        seen, todo = [], [root]
+        while todo:
+            for c in kids.get(todo.pop(), []):
+                if c not in seen:
+                    seen.append(c)
+                    todo.append(c)
+        found = set()
+        for pid in seen:
+            if pid in family:
+                found.add(pid)
+                continue
+            try:
+                raw = Path("/proc/%d/cmdline" % pid).read_bytes()
+            except OSError:
+                continue
+            if b"--remote-debugging-pipe" in raw and b"--type=" not in raw:
+                found.add(pid)
+        return found
+
+    def _watch(self, p, stop, found):
+        """Every 0.1 s, the Chromium browser processes under the file (Linux only: /proc)."""
+        while not stop.is_set():
+            try:
+                found |= self._browser_pids(p.pid, found, self._children_map())
+            except Exception:  # noqa: BLE001 (a process that ended while it was read)
+                pass
+            stop.wait(0.1)
 
     def __call__(self, name):
+        import threading
         sys.stdout.flush()
+        self.output, self.launches = None, None
         p = self._popen(name)
+        kept, found, stop = [], set(), threading.Event()
+        reader = None
+        if p.stdout is not None:   # a stand-in _popen (the runner's tests) may leave stdout to the job
+            reader = threading.Thread(target=self._copy, args=(p, kept), daemon=True)
+            reader.start()
+        watcher = None
+        if os.path.isdir("/proc/self") and sys.platform.startswith("linux"):
+            watcher = threading.Thread(target=self._watch, args=(p, stop, found), daemon=True)
+            watcher.start()
         try:
-            return self._wait(p)
+            ok = self._wait(p)
+            # a grandchild that outlived the file can hold the pipe open: wait for the copy a little, never for ever
+            if reader is not None:
+                reader.join(timeout=10)
+                self.output = list(kept)
+            self.launches = len(found) if watcher is not None else None
+            return ok
         except BaseException:
             # the driver was cancelled (SIGINT, or SIGTERM and SIGHUP turned into SystemExit by cmd_run): the file runs in its own
             # session, so it would outlive us; end its whole tree (POSIX: walked by parent links, so a child that called setsid
@@ -587,6 +876,7 @@ class _RealRunner:
             self._kill(p)
             raise
         finally:
+            stop.set()
             if p.stdin:
                 p.stdin.close()
 
@@ -635,14 +925,33 @@ def _cmd_run(argv):
     ap.add_argument("--retry", action="store_true", help="run a failed file once more (macOS and Windows; Linux never retries)")
     ap.add_argument("--out", help="write the result JSON here (the artifact of the run), before each file and at the end")
     ap.add_argument("--bound", type=int, help="the job's seconds for tests: a retry must fit under it, the job stops itself at it and says which file it was in")
+    ap.add_argument("--tests-dir", help="run NAME.py of this folder (with python) instead of kit/.uak/tests (the tests of this runner)")
     ap.add_argument("files", nargs="*")
     a = ap.parse_args(argv)
     if not a.files:
         print("FAILED: this shard has no test files (empty list)")
         return 1
+    declared = browser_declared(os.environ)
+    if declared:
+        # UAK-195: a job that declares a browser proves it before any file, or every browser case would pass without running
+        ok, said = browser_check()
+        if not ok:
+            text = "FAILED: this job declares a browser (%s=%s) and has none: %s. No file ran." % (BROWSER_ENV, os.environ.get(BROWSER_ENV), said)
+            print("::error title=no browser::" + text)
+            print(text)
+            summary = os.environ.get("GITHUB_STEP_SUMMARY")
+            if summary:
+                with open(summary, "a", encoding="utf-8") as fh:
+                    fh.write("### %s: failed\n- %s\n" % (a.job, text))
+            if a.out:
+                write_result(a.out, a.job, {"ran": [], "failed": [], "flaky": [], "counts": {}, "not_rerun": {}, "slow": "", "stopped": "",
+                                            "browser": {}, "no_browser": {"(job)": text}, "conclusion": "failed"})
+            return 1
+        print("browser: %s (%s=%s: a SKIP for lack of a browser fails its file here)" % (said, BROWSER_ENV, os.environ.get(BROWSER_ENV)), flush=True)
     retry = a.retry and os.environ.get("RUNNER_OS") != "Linux"   # Linux never retries, whatever the workflow passes
     seconds = lint.ci_windows_seconds if a.kind == "windows" else lint.ci_seconds
-    res = run_files(a.files, _real_runner(a.kind), retry, seconds=seconds, bound=a.bound, out=a.out, job=a.job)
+    runner = _RealRunner(a.kind, tests_dir=a.tests_dir) if a.tests_dir else _real_runner(a.kind)
+    res = run_files(a.files, runner, retry, seconds=seconds, bound=a.bound, out=a.out, job=a.job, browser_declared=declared)
     rep = flaky_report(a.job, res)
     for line in rep["annotations"]:
         print(line)
@@ -674,13 +983,28 @@ def gate(needs, planned=None):
     return out
 
 
+def read_results(folder):
+    out = []
+    for p in sorted(Path(folder).rglob("*.json")) if folder else []:
+        try:
+            out.append(json.loads(p.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
 def cmd_gate(argv):
+    ap = argparse.ArgumentParser(prog="ci_select.py gate", description="fail unless discover and every planned job succeeded")
+    ap.add_argument("--results", help="the folder of the jobs' result JSON files: the summary counts the browser cases per system")
+    a = ap.parse_args(argv)
     raw = os.environ.get("NEEDS") or "{}"
     needs = json.loads(raw)
     # An empty PLANNED (discover failed before it could say) plans everything: fail closed.
     planned = [x for x in (os.environ.get("PLANNED") or "").split(",") if x] or list(needs)
     problems = gate(needs, planned)
     text = "### ci: %s\n" % ("failed" if problems else "discover and every planned job succeeded") + "".join("- %s\n" % p for p in problems)
+    if a.results is not None:
+        text += browser_summary(read_results(a.results))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as fh:
@@ -809,11 +1133,122 @@ def cmd_issue(argv):
     return 0
 
 
+# ---- the browser of the kit's CI (UAK-195) ---------------------------------------------------------------------------
+def cmd_browser_check(argv):
+    ok, said = browser_check()
+    print(("browser: " + said) if ok else ("::error title=no browser::" + said))
+    return 0 if ok else 1
+
+
+def _headless_revision(browsers_json):
+    try:
+        data = json.loads(Path(browsers_json).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return next((b.get("revision") for b in data.get("browsers", []) if b.get("name") == "chromium-headless-shell"), None)
+
+
+def cmd_browser_install(argv):
+    """Install the pinned Python and Node Playwright and Chromium's headless shell into DIR (the folder the workflow caches),
+    check that Chromium launches from both, and export where they are. The kit's CI only: install.sh never does this."""
+    import sysconfig
+    ap = argparse.ArgumentParser(prog="ci_select.py browser-install", description="the kit's CI: pinned Playwright and Chromium, cached in DIR")
+    ap.add_argument("--dir", required=True, help="the cached folder (wheels, node, browsers)")
+    ap.add_argument("--playwright", required=True, help="the exact version of Python's Playwright")
+    ap.add_argument("--node-playwright", help="the exact version of Node's Playwright (its browser must be the same build)")
+    ap.add_argument("--github-env", help="append PLAYWRIGHT_BROWSERS_PATH and UAK_TEST_NODE_PLAYWRIGHT to this file")
+    a = ap.parse_args(argv)
+    start = time.monotonic()
+    root = Path(a.dir).expanduser()
+    wheels, browsers, node_dir = root / "wheels", root / "browsers", root / "node"
+    wheels.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ, PLAYWRIGHT_BROWSERS_PATH=str(browsers))
+    phases = []
+
+    def fail(text):
+        text = "browser install failed: %s (after %.1f s; done before it: %s)" % (text, time.monotonic() - start, ", ".join("%s %.1f s" % x for x in phases) or "nothing")
+        print("::error title=browser install::" + text)
+        print(text)
+        return 1
+
+    def step(label, cmd):
+        t = time.monotonic()
+        try:
+            r = subprocess.run(cmd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               universal_newlines=True, errors="replace", timeout=600)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return "%s could not run: %s" % (label, exc)
+        phases.append((label, time.monotonic() - t))
+        if r.returncode != 0:
+            return "%s exited %d: %s" % (label, r.returncode, " | ".join(l.strip() for l in r.stdout.strip().splitlines()[-4:] if l.strip())[-600:])
+        return ""
+
+    py = sys.executable
+    if not list(wheels.glob("playwright-%s-*.whl" % a.playwright)):
+        why = step("pip download playwright==%s" % a.playwright, [py, "-m", "pip", "download", "--disable-pip-version-check", "-q", "-d", str(wheels), "playwright==%s" % a.playwright])
+        if why:
+            return fail(why + " (no network, or the index refused it)")
+        cached_wheels = "downloaded"
+    else:
+        cached_wheels = "from the cache"
+    managed = (Path(sysconfig.get_path("stdlib")) / "EXTERNALLY-MANAGED").is_file()
+    why = step("pip install playwright==%s" % a.playwright, [py, "-m", "pip", "install", "--disable-pip-version-check", "-q", "--user", "--no-index", "--find-links", str(wheels)]
+               + (["--break-system-packages"] if managed else []) + ["playwright==%s" % a.playwright])
+    if why:
+        return fail(why + " (the cached wheels may be incomplete: delete the cache entry whose key starts with uak-browser-)")
+    found = subprocess.run([py, "-c", "import os, playwright; print(os.path.dirname(playwright.__file__))"], env=env, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, universal_newlines=True, errors="replace")
+    if found.returncode != 0:
+        return fail("Playwright was installed and Python cannot import it: %s" % found.stdout.strip()[-300:])
+    py_rev = _headless_revision(Path(found.stdout.strip()) / "driver" / "package" / "browsers.json")
+    node_folder = ""
+    if a.node_playwright:
+        npm = shutil.which("npm")
+        if not npm or not shutil.which("node"):
+            return fail("--node-playwright %s and no node or npm on PATH" % a.node_playwright)
+        pkg = node_dir / "node_modules" / "playwright" / "package.json"
+        try:
+            have = json.loads(pkg.read_text(encoding="utf-8")).get("version")
+        except (OSError, ValueError):
+            have = None
+        if have != a.node_playwright:
+            node_dir.mkdir(parents=True, exist_ok=True)
+            why = step("npm install playwright@%s" % a.node_playwright, [npm, "install", "--prefix", str(node_dir), "--no-save", "--no-audit", "--no-fund",
+                                                                       "--ignore-scripts", "--loglevel=error", "playwright@%s" % a.node_playwright])
+            if why:
+                return fail(why + " (no network, or the registry refused it)")
+        node_rev = _headless_revision(node_dir / "node_modules" / "playwright-core" / "browsers.json")
+        if node_rev != py_rev:
+            return fail("Node's Playwright %s wants Chromium build %s and Python's Playwright %s has %s: pin two versions that share the build"
+                        % (a.node_playwright, node_rev, a.playwright, py_rev))
+        node_folder = str(node_dir / "node_modules")
+        env[NODE_PLAYWRIGHT_ENV] = node_folder
+    had = (browsers / ("chromium_headless_shell-%s" % py_rev)).is_dir() if py_rev else False
+    why = step("playwright install --only-shell chromium", [py, "-m", "playwright", "install", "--only-shell", "chromium"])
+    if why:
+        return fail(why + " (no network, or the download was refused)")
+    t = time.monotonic()
+    ok, said = browser_check(env=env)
+    phases.append(("check", time.monotonic() - t))
+    if not ok:
+        return fail(said)
+    print("browser: %s" % said)
+    print("browser install: %.1f s in all (%s); wheels %s; Chromium build %s %s"
+          % (time.monotonic() - start, ", ".join("%s %.1f s" % x for x in phases), cached_wheels, py_rev, "from the cache" if had else "downloaded"))
+    if a.github_env:
+        with open(a.github_env, "a", encoding="utf-8") as fh:
+            fh.write("PLAYWRIGHT_BROWSERS_PATH=%s\n" % browsers)
+            if node_folder:
+                fh.write("%s=%s\n" % (NODE_PLAYWRIGHT_ENV, node_folder))
+    return 0
+
+
 # ---- the command line ------------------------------------------------------------------------------------------------
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] in ("run", "gate", "issue"):
-        return {"run": cmd_run, "gate": cmd_gate, "issue": cmd_issue}[argv[0]](argv[1:])
+    commands = {"run": cmd_run, "gate": cmd_gate, "issue": cmd_issue, "browser-check": cmd_browser_check, "browser-install": cmd_browser_install}
+    if argv and argv[0] in commands:
+        return commands[argv[0]](argv[1:])
     ap = argparse.ArgumentParser(description="the files a pull request runs on macOS and Windows, and the predicted seconds")
     ap.add_argument("base", nargs="?")
     ap.add_argument("head", nargs="?")

@@ -1,0 +1,3 @@
+# provisional (local Linux run 7 s); measured again from CI before hand-in
+ci 15
+windows 40
