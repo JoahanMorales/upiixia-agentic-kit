@@ -984,6 +984,8 @@ def layout_parse(words):
             return None, "layout: %r is not main=, side= or hide=" % word
         if out[col]:
             return None, "layout: %s= is given twice" % col
+        if not [x for x in names.split(",") if x]:
+            return None, "layout: %s= names no component: leave the column out instead" % col
         for name in [x for x in names.split(",") if x]:
             if name not in known:
                 return None, "layout: %r is not a component of the summary (known: %s)" % (name, ", ".join(known))
@@ -1031,13 +1033,45 @@ def layout_main(argv):
     if why:
         print(why, file=sys.stderr)
         return 2
-    path = root / LAYOUT_FILE
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(dict(lay, v=1), indent=2) + "\n", encoding="utf-8")
-    os.replace(str(tmp), str(path))
+    why = layout_write(root, json.dumps(dict(lay, v=1), indent=2) + "\n")
+    if why:
+        print(why, file=sys.stderr)
+        return 2
     print("LAYOUT_SAVED %s · commit it: a viewer with no arrangement of their own starts from it" % LAYOUT_FILE)
     return 0
+
+
+def layout_write(root, body):
+    """Write .uak/dash/layout.json of ROOT and nothing else, or return the sentence that refuses. .uak and .uak/dash must be real
+    directories inside the repository (a symlink there could send the write anywhere); the content goes to a new temporary
+    file of a random name created in .uak/dash (O_EXCL: a name planted as a symlink is never followed) and is renamed onto
+    layout.json, which replaces a symlink at that name instead of writing through it. Why: the review of UAK-165 planted
+    layout.json.tmp -> a file outside the repository and the fixed temporary name wrote there."""
+    top = Path(root).resolve()
+    folder = top
+    for part in (".uak", "dash"):
+        folder = folder / part
+        if folder.is_symlink():
+            return "layout: %s is a symlink; the team default is written only inside this repository" % folder.relative_to(top).as_posix()
+        if folder.exists() and not folder.is_dir():
+            return "layout: %s is not a directory" % folder.relative_to(top).as_posix()
+        if not folder.exists():
+            folder.mkdir()
+    if top not in folder.resolve().parents:
+        return "layout: .uak/dash resolves outside this repository"
+    fd, tmp = tempfile.mkstemp(dir=str(folder), prefix=".layout.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        os.chmod(tmp, 0o644)   # mkstemp makes it 0600; the file is the team's, committed like any other
+        os.replace(tmp, str(folder / "layout.json"))
+    except OSError as exc:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        return "layout: could not write %s (%s)" % (LAYOUT_FILE, exc.strerror or exc)
+    return None
 
 
 def main():

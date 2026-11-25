@@ -611,7 +611,7 @@ dialog#story::backdrop { background: var(--scrim); }
   .win-f > * { padding: 8px; }
   .dg { flex-direction: column; } .dg .dl { width: 2px; height: 16px; flex: none; margin-left: 24px; }
   .sq { width: 32px; height: 32px; } .sq.sm { width: 14px; height: 14px; }
-  .hnd { width: 44px; height: 44px; } .ab { min-height: 44px; } .addb { max-width: none; flex: 1 1 100%; } .grip { width: 32px; height: 44px; }
+  .hnd { width: 44px; height: 44px; } .ab { min-height: 44px; } .addb { max-width: none; flex: 1 1 100%; } .grip { width: 44px; height: 44px; }
   .tbl th, .tbl td { padding: 8px 4px; }
   .row { grid-template-columns: 32px minmax(0,1fr); } .row .meta { grid-column: 2; white-space: normal; }
 }
@@ -810,6 +810,8 @@ dialog#story::backdrop { background: var(--scrim); }
     'To the other column': 'A la otra columna',
     'Drag to move': 'Arrastra para mover',
     'Palette': 'Paleta',
+    'The default is back': 'Vuelve la disposición predeterminada',
+    'The team\'s default is back': 'Vuelve la disposición del equipo',
     'Main column': 'Columna principal',
     'Side column': 'Columna lateral',
     'Move a component here': 'Mueve un componente aquí',
@@ -1568,7 +1570,8 @@ dialog#story::backdrop { background: var(--scrim); }
     if (LAYKEY !== "uak-layout:" + d.repo) {
       LAYKEY = "uak-layout:" + d.repo; LAY = null; LAYNOTE = "";
       var raw = null; try { raw = store.getItem(LAYKEY); } catch (e) {}
-      if (typeof raw === "string") { var r = arrRead(arrDef(), raw); LAYNOTE = r.note; if (r.note) keepLay(r.note === "corrupt" ? null : r.lay); else LAY = r.lay; }
+      // a stored null is no arrangement: the team's default applies
+      if (typeof raw === "string" && raw !== "null") { var r = arrRead(arrDef(), raw); LAYNOTE = r.note; if (r.note) keepLay(r.note === "corrupt" ? null : r.lay); else LAY = r.lay; }
     }
     return LAY || arrRead(arrDef(), d.layout).lay;
   }
@@ -1628,7 +1631,8 @@ dialog#story::backdrop { background: var(--scrim); }
     var d = DRAG, t = d.to, l; DRAG = null;
     if (d.line) d.line.remove();
     d.box.classList.remove("drag"); d.box.style.transform = "";
-    if (e.type === "pointerup" && t) { l = arrPlace(arrangement(D), d.name, t.col, t.at); arrGo(l, d.name, "up", blockOf(d.name).title() + " · " + where(l, d.name)); }
+    // released outside the window (a mouse let go beyond its edge): a cancel, never a drop at the nearest column
+    if (e.type === "pointerup" && t && e.clientX >= 0 && e.clientY >= 0 && e.clientX <= innerWidth && e.clientY <= innerHeight) { l = arrPlace(arrangement(D), d.name, t.col, t.at); arrGo(l, d.name, "up", blockOf(d.name).title() + " · " + where(l, d.name)); }
   }
   ["pointerup", "pointercancel", "lostpointercapture"].forEach(function (k) { document.addEventListener(k, endDrag); });
   function blockOf(n) { return BLOCKS.filter(function (b) { return b.name === n; })[0]; }
@@ -1637,7 +1641,7 @@ dialog#story::backdrop { background: var(--scrim); }
       h("button", { "class": "ab", type: "button", "data-f": "arr:edit", on: function () { ui.arr = true; LAYNOTE = ""; FOCUS = "arr:done"; render(); } }, [icon("M3 13h3l7-7-3-3-7 7zM9 4l3 3"), L('Edit')])]);
     var add = lay.hide.map(function (n) { return h("button", { type: "button", "class": "addb", "data-f": "add:" + n, on: function (e) { var l = arrAdd(def, lay, n); arrGo(l, n, "up", blockOf(n).title() + " · " + where(l, n), this, e); } }, [h("b", {}, [icon("M8 3v10M3 8h10"), blockOf(n).title()]), h("span", { text: about(n) })]); });
     return h("div", { "class": "arrbar on" }, [h("p", { "class": "tip", text: L('Move, hide or add components. Done when you finish.') }),
-      h("button", { "class": "ab", type: "button", "data-f": "arr:restore", disabled: LAY ? null : "", on: function () { keepLay(null); FOCUS = "arr:done"; ANN = L('Restore the default'); render(); } }, [d.layout ? L('Restore the team\'s default') : L('Restore the default')]),
+      h("button", { "class": "ab", type: "button", "data-f": "arr:restore", disabled: LAY ? null : "", on: function () { keepLay(null); FOCUS = "arr:done"; ANN = d.layout ? L('The team\'s default is back') : L('The default is back'); render(); } }, [d.layout ? L('Restore the team\'s default') : L('Restore the default')]),
       h("button", { "class": "ab done", type: "button", "data-f": "arr:done", on: function () { ui.arr = false; FOCUS = "arr:edit"; render(); } }, [L('Done')]),
       h("div", { "class": "adds", role: "group", "aria-label": L('Add') }, [h("span", { "class": "muted", text: L('Add') })].concat(add.length ? add : [h("span", { text: L('Every component is shown.') })])),
       h("div", { "class": "team" }, [h("span", { "class": "muted", text: L('For the whole team: run this and commit the file it writes') }), copyBox("bash .uak/bin/uak dash layout --save" + ["main", "side", "hide"].map(function (c) { return lay[c].length ? " " + c + "=" + lay[c].join(",") : ""; }).join(""))]),

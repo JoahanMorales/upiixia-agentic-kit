@@ -200,7 +200,11 @@ writes `.uak/dash/layout.json` (that file only; a task or the human commits it).
 starts from it. A saved arrangement from an older page keeps what it can: names of blocks that no longer exist are dropped,
 blocks added since take their default place (after the blocks that precede them by default), and one line says so once;
 one that cannot be read (not JSON, the wrong shape, over 4 KiB) gives the default and says so once. A browser that keeps
-nothing (storage blocked or full) keeps the arrangement until the page closes and says so.
+nothing (storage blocked or full) keeps the arrangement until the page closes and says so in the arrange bar (the only
+place a change is made, so the only place that sentence is shown). A stored `null` counts as no arrangement. A drag let go
+outside the window is a cancel. The team file is written only inside the repository: a symlinked `.uak` or `.uak/dash` is
+refused, the content goes to a new temporary file of a random name and is renamed onto `layout.json` (a symlink at that
+name is replaced, never written through).
 
 **All tasks as squares.** Under *Needs you* every task of the plan is one small square (a number inside, the state by colour
 and by shape: filled, ringed for review, outlined for in progress, round for blocked, dashed for available, grey for waiting;

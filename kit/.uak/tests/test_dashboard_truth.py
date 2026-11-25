@@ -605,7 +605,7 @@ def browser_page(root, tmp, data, tab, extra="", phone=False):
     with sync_playwright() as p:
         b = p.chromium.launch()
         ctx = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, is_mobile=True, has_touch=True, accept_downloads=True) if phone else b.new_context(viewport={"width": 1280, "height": 900})
-        pg = ctx.new_page()   # a context of its own, so use_language can open a second document of the same origin
+        pg = ctx.new_page()
         pg.errors = []
         pg.on("pageerror", lambda e: pg.errors.append(str(e)))
         if tab:
@@ -619,17 +619,17 @@ def browser_page(root, tmp, data, tab, extra="", phone=False):
 
 
 def use_language(pg, lang):
-    """Reload the page in LANG, waiting on conditions, never a fixed time. Chromium commits a localStorage write to the browser
-    asynchronously: a reload right after the write can read the old value (measured on 2026-11-25: 10 of 200 write-then-reload
-    cycles read a stale or missing uak-language, and the page then showed the language its storage held; 0 of 200 once another
-    document of the origin read the new value first). That was the English dialog of run 45606588040 (UAK-165)."""
-    pg.evaluate("localStorage.setItem('uak-language', '%s')" % lang)
-    peer = pg.context.new_page()
-    try:
-        peer.goto(pg.url.split("?")[0].split("#")[0].replace("index.html", "data.js"))
-        peer.wait_for_function("(v) => localStorage.getItem('uak-language') === v", arg=lang)
-    finally:
-        peer.close()
+    """Reload the page with LANG as the stored choice, waiting on conditions, never a fixed time. The choice is carried to the
+    next load through window.name (kept by the tab and written at once) and stored by that load before its first script, so
+    the case tests what a person relies on, the page honouring a stored choice, without racing Chromium's commit of
+    localStorage: a write followed at once by a reload can read the old value or none (measured on 2026-11-25: 10 of 200
+    write-then-reload cycles here, and in review about 4 % even after another document had read the new value; that was the
+    English dialog of run 45606588040). A person who picks a language and reloads within that commit could see the previous
+    one; that is the browser's flush, not the page: the page reads what storage gives it at load (UAK-165)."""
+    if not getattr(pg, "carries_language", False):
+        pg.add_init_script("(function () { var m = /^uak-test-language:(es|en)$/.exec(window.name); if (m) try { localStorage.setItem('uak-language', m[1]); } catch (e) {} })();")
+        pg.carries_language = True
+    pg.evaluate("(v) => { localStorage.setItem('uak-language', v); window.name = 'uak-test-language:' + v; }", lang)
     pg.reload()
     pg.wait_for_function("(v) => window.UAKWorkspace && UAKWorkspace.language() === v && document.documentElement.lang === v && document.getElementById('view').childElementCount > 0", arg=lang)
 

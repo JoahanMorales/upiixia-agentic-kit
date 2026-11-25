@@ -113,9 +113,12 @@ def notice(r):
 # ---------------------------------------------------------------- the real page in Chromium
 @contextlib.contextmanager
 def browser(root, tmp, data, phone=False, reduced=False, lang="en", seed=None):
-    """The page from file:// in Chromium. seed: {key: value} written once into localStorage before the page's first script
-    (an init script that runs in the page itself, so no reload races a write; window.name, not storage, marks it done, since a
-    storage write itself can be read stale by the next load). Raises NoBrowser without Playwright."""
+    """The page from file:// in Chromium. seed: {key: value} written into localStorage before the page's first script, by an
+    init script in the page itself. A test never relies on a storage write surviving a reload: Chromium commits localStorage
+    to disk asynchronously, and a reload right after a write can read the old value or none (measured: 10 of 200 reloads here,
+    and in review the value was gone even after another document had read it). What a reload must carry is passed to the next
+    load through window.name (kept by the tab, written at once) and written by that load before its scripts run: see carry().
+    Raises NoBrowser without Playwright."""
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -132,10 +135,12 @@ def browser(root, tmp, data, phone=False, reduced=False, lang="en", seed=None):
         try:
             opts = dict(viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=True, has_touch=True) if phone else dict(viewport={"width": 1280, "height": 900})
             ctx = b.new_context(reduced_motion="reduce" if reduced else "no-preference", **opts)
+            first = dict({"uak-dash": json.dumps({"tab": "sum"}), "uak-language": lang}, **(seed or {}))
             ctx.add_init_script("""(function () { try {
-              if (/index\\.html$/.test(location.pathname) && window.name !== 'uak-test-seeded') { window.name = 'uak-test-seeded'; var s = %s;
-                localStorage.setItem('uak-dash', JSON.stringify({ tab: 'sum' })); localStorage.setItem('uak-language', %s);
-                Object.keys(s).forEach(function (k) { localStorage.setItem(k, s[k]); }); } } catch (e) {} })();""" % (json.dumps(seed or {}), json.dumps(lang)))
+              if (!/index\\.html$/.test(location.pathname)) return;
+              var m = /^uak-test-carry:([\\s\\S]*)$/.exec(window.name), s = m ? JSON.parse(m[1]) : window.name === 'uak-test-seeded' ? null : %s;
+              window.name = 'uak-test-seeded';
+              if (s) Object.keys(s).forEach(function (k) { if (s[k] === null) localStorage.removeItem(k); else localStorage.setItem(k, s[k]); }); } catch (e) {} })();""" % json.dumps(first))
             pg = ctx.new_page()
             pg.errors = []
             pg.on("pageerror", lambda e: pg.errors.append(str(e)))
@@ -147,14 +152,20 @@ def browser(root, tmp, data, phone=False, reduced=False, lang="en", seed=None):
             b.close()
 
 
-def settled(pg, key, value):
-    """Wait until another document of the page's origin reads KEY as VALUE (None: absent): a reload after that reads it too.
-    Chromium commits localStorage writes to the browser asynchronously; a reload right after a write can read the old value."""
-    peer = getattr(pg, "peer", None)
-    if peer is None:
-        peer = pg.peer = pg.context.new_page()
-        peer.goto(pg.url0.replace("index.html", "data.js"))
-    peer.wait_for_function("([k, v]) => localStorage.getItem(k) === v", arg=[key, value])
+def carry(pg, keys, url=None):
+    """Reload (or go to URL) with what this document holds under KEYS: read here, where the page wrote it, then written by the
+    next load before its scripts run. This tests what a person relies on (the page keeps its choice and honours it on the next
+    load) without racing the browser's commit of localStorage to disk. A person who changes something and reloads within that
+    commit could see the previous state: that is the browser's flush, not the page (the page writes on every change and reads
+    whatever storage gives it at load). Returns the values carried."""
+    held = pg.evaluate("(ks) => { const o = {}; ks.forEach(k => { o[k] = localStorage.getItem(k); }); return o; }", keys)
+    pg.evaluate("(v) => { window.name = 'uak-test-carry:' + v; }", json.dumps(held))
+    if url:
+        pg.goto(url)
+    else:
+        pg.reload()
+    pg.wait_for_function("document.querySelector('#view .page .col')")
+    return held
 
 
 def compact(v):
@@ -337,12 +348,10 @@ def move_hide_and_add_persist_per_viewer(root, tmp):
         want = {"main": ["needs", "tasks", "map"], "side": ["progress", "agents", "pace", "lanes"]}   # to the other column at the same position (3), here its end
         assert layout_in(pg) == want, layout_in(pg)
         saved = {"main": want["main"], "side": want["side"], "hide": ["tokens"]}
-        settled(pg, KEY, compact(saved))
-        pg.reload()
-        pg.wait_for_function("document.querySelector('#view .page .col')")
+        held = carry(pg, [KEY])
+        assert held[KEY] == compact(saved), "the page keeps every change: %r" % held
         assert layout_in(pg) == want, "a reload keeps it: %r" % layout_in(pg)
-        pg.goto(pg.url0 + "?uak=a-newer-page")   # what the page's own reload does
-        pg.wait_for_function("document.querySelector('#view .page .col')")
+        carry(pg, [KEY], pg.url0 + "?uak=a-newer-page")   # what the page's own reload does
         assert layout_in(pg) == want, "the page's own reload keeps it: %r" % layout_in(pg)
         edit(pg)
         press(pg, '[data-f="add:tokens"]')
@@ -417,19 +426,67 @@ def run_dash(root, fx, env, *args):
     return subprocess.run([sys.executable, str(root / ".uak/bin/lib/dash.py")] + list(args), cwd=str(fx), env=env, capture_output=True, text=True, timeout=120)
 
 
+def symlink_cases(root, tmp, env):
+    """--save writes .uak/dash/layout.json of this repository and nothing else, whatever symlinks were planted (UAK-165 review)."""
+    out = tmp / "outside"
+    out.mkdir()
+    def snapshot():
+        return sorted(p.relative_to(out).as_posix() for p in out.rglob("*"))
+    def link(src, dst, is_dir=False):
+        try:
+            os.symlink(str(dst), str(src), target_is_directory=is_dir)
+            return True
+        except (OSError, NotImplementedError):   # Windows without the right to create symlinks: nothing to plant
+            return False
+    save = ["layout", "--save", "main=needs,tasks", "side=progress"]
+    # a symlinked .uak, and a symlinked .uak/dash: refused with one sentence, nothing written outside
+    for case in ("uak", "dash"):
+        fx = tmp / ("sym-" + case)
+        fx.mkdir()
+        subprocess.run([resolve_binary("git"), "-C", str(fx), "init", "-q"], check=True, capture_output=True, env=env)
+        target = out / ("d-" + case)
+        target.mkdir()
+        if case == "uak":
+            planted = link(fx / ".uak", target, True)
+        else:
+            (fx / ".uak").mkdir()
+            planted = link(fx / ".uak" / "dash", target, True)
+        if not planted:
+            continue
+        r = run_dash(root, fx, env, *save)
+        assert r.returncode == 2 and "symlink" in (r.stdout + r.stderr) and not list(target.iterdir()), "a symlinked %s is refused: %r %r" % (case, r.returncode, r.stdout + r.stderr)
+    # a symlink planted where a temporary file could be, and one at layout.json itself
+    fx = tmp / "sym-files"
+    (fx / ".uak/dash").mkdir(parents=True)
+    subprocess.run([resolve_binary("git"), "-C", str(fx), "init", "-q"], check=True, capture_output=True, env=env)
+    planted = link(fx / ".uak/dash/layout.json.tmp", out / "via-tmp") and link(fx / ".uak/dash/layout.json", out / "via-target")
+    before = snapshot()
+    r = run_dash(root, fx, env, *save)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert snapshot() == before, "nothing is written outside the repository: %r" % snapshot()
+    lay = fx / ".uak/dash/layout.json"
+    assert not lay.is_symlink() and json.loads(lay.read_text(encoding="utf-8"))["main"] == ["needs", "tasks"], "layout.json is a file of the repository"
+    if planted:
+        assert (fx / ".uak/dash/layout.json.tmp").is_symlink(), "the planted name is left alone, not used"
+    assert sorted(p.name for p in (fx / ".uak/dash").iterdir()) == sorted(["layout.json"] + (["layout.json.tmp"] if planted else [])), "no temporary file is left"
+
+
 def team_default_is_used_when_the_viewer_has_none(root, tmp):
     """`uak dash layout --save main=… side=… hide=…` writes .uak/dash/layout.json and nothing else; unknown names, a component
     named twice, needs hidden or a word it does not know are refused with a sentence and write nothing; `uak dash` carries the
-    file in data.js; a viewer with no arrangement of their own draws it, their own wins, and Restore goes back to the team's."""
+    file in data.js; a viewer with no arrangement of their own draws it, their own wins, and Restore goes back to the team's.
+    The write stays inside the repository: a symlinked .uak or .uak/dash is refused, a symlink planted at a temporary name is
+    never followed, and a symlink at layout.json is replaced, not written through."""
     fx, env = fixture_repo(tmp)
     files = lambda: sorted(p.relative_to(fx).as_posix() for p in fx.rglob("*") if ".git" not in p.parts)
     start = files()
     for bad, word in ((["main=needs,bogus"], "bogus"), (["main=needs,map", "side=map"], "twice"), (["main=map", "hide=needs"], "cannot be hidden"),
-                      (["main=needs", "middle=map"], "middle"), ([], "main="), (["main=needs/../x"], "needs/../x")):
+                      (["main=needs", "middle=map"], "middle"), ([], "main="), (["main=needs/../x"], "needs/../x"), (["main=", "side=needs"], "names no component")):
         r = run_dash(root, fx, env, "layout", "--save", *bad)
         assert r.returncode == 2 and word in (r.stdout + r.stderr) and files() == start, "refused with a sentence, nothing written: %r -> %r %r" % (bad, r.returncode, r.stdout + r.stderr)
     r = run_dash(root, fx, env, "layout")
     assert r.returncode == 0 and "no team default" in r.stdout, r.stdout + r.stderr
+    symlink_cases(root, tmp, env)
     team = {"main": ["tasks", "needs"], "side": ["progress", "map", "agents", "pace"], "hide": ["tokens", "lanes"]}
     r = run_dash(root, fx, env, "layout", "--save", "main=tasks,needs", "side=progress,map,agents,pace", "hide=tokens,lanes")
     assert r.returncode == 0 and ".uak/dash/layout.json" in r.stdout, r.stdout + r.stderr
@@ -457,6 +514,8 @@ def team_default_is_used_when_the_viewer_has_none(root, tmp):
         assert cmd == ["bash .uak/bin/uak dash layout --save main=tasks,needs side=progress,map,agents,pace hide=tokens,lanes"], "the command for the team is the arrangement shown: %r" % cmd
         res = page_load(root, tmp, [{"name": "mine", "tab": "sum"}], base=base, storage={KEY: json.dumps(DEFAULT)})
         assert columns(res[0]["tree"]) == {"main": DEFAULT["main"], "side": DEFAULT["side"]}, "my own arrangement wins"
+        res = page_load(root, tmp, [{"name": "stored null", "tab": "sum"}], base=base, storage={KEY: "null"})
+        assert columns(res[0]["tree"]) == {"main": team["main"], "side": team["side"]}, "a stored null is no arrangement: the team's applies: %r" % columns(res[0]["tree"])
     data = truth.rich_data()
     data["layout"] = team
     with browser(root, tmp, data) as pg:
@@ -533,6 +592,7 @@ def arranging_works_with_the_keyboard(root, tmp):
         pg.focus('[data-f="arr:restore"]')
         pg.keyboard.press("Enter")
         pg.wait_for_function("document.querySelector('#view .col[data-col=main]').children[0].getAttribute('data-blk') === 'needs'")
+        assert pg.evaluate("document.getElementById('arr-live').textContent") == "The default is back", "Restore says it was done: %r" % pg.evaluate("document.getElementById('arr-live').textContent")
         pg.focus('[data-f="arr:done"]')
         pg.keyboard.press("Enter")
         pg.wait_for_function("document.activeElement && document.activeElement.getAttribute('data-f') === 'arr:edit'")
@@ -550,10 +610,21 @@ def arranging_works_with_the_keyboard(root, tmp):
         pg.wait_for_function("document.querySelector('#view .col[data-col=main] .arr[data-blk=pace]')")
         main = layout_in(pg)["main"]
         assert main.index("pace") == main.index("tasks") - 1, "the drop lands where the line showed, before tasks: %r" % main
+        # a drag released outside the window is a cancel, never a drop at the nearest column
+        before = layout_in(pg)
+        g = pg.locator('[data-grip="agents"]').bounding_box()
+        pg.mouse.move(g["x"] + g["width"] / 2, g["y"] + g["height"] / 2)
+        pg.mouse.down()
+        pg.mouse.move(300, 300, steps=4)
+        pg.wait_for_function("document.querySelector('.dropline')")
+        pg.evaluate("document.dispatchEvent(new PointerEvent('pointerup', { clientX: -40, clientY: innerHeight + 40, bubbles: true }))")
+        pg.mouse.up()
+        pg.wait_for_function("!document.querySelector('.dropline') && !document.querySelector('.arr.drag')")
+        assert layout_in(pg) == before, "a release outside the window moves nothing: %r" % layout_in(pg)
         assert not pg.errors, pg.errors
     with browser(root, tmp, truth.rich_data(), phone=True) as pg:
         edit(pg)
-        sizes = pg.evaluate("() => Array.from(document.querySelectorAll('#view .hbar button, .arrbar button')).filter(b => b.offsetParent).map(b => { const r = b.getBoundingClientRect(); return [r.width, r.height]; })")
+        sizes = pg.evaluate("() => Array.from(document.querySelectorAll('#view .hbar button, #view .hbar .grip, .arrbar button')).filter(b => b.offsetParent).map(b => { const r = b.getBoundingClientRect(); return [r.width, r.height]; })")
         assert sizes and all(w >= 44 and hh >= 44 for w, hh in sizes), "44 px targets at phone width: %r" % [s for s in sizes if s[0] < 44 or s[1] < 44]
         assert pg.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth"), "no sideways scroll at 390 px"
         press(pg, '[data-f="agents:down"]', tap=True)
@@ -587,6 +658,9 @@ def corrupt_arrangement_gives_the_default(root, tmp):
     """A stored value that cannot be read (not JSON, the wrong shape, over 4 KiB) gives the default and says so once; storage
     that throws on read or write leaves a working page; a component that throws while being moved says it could not be drawn
     and can still be moved and hidden; no case leaves an exception or an empty summary."""
+    names = truth.under_node(root, DEF_JS + """return arrRead(DEF, JSON.stringify({ main: ["toString", "__proto__", "constructor", "needs"], side: ["hasOwnProperty", "valueOf"], hide: ["isPrototypeOf"] }));""")
+    if names is not None:
+        assert names == {"lay": DEFAULT, "note": "unknown"}, "names of Object's own properties are not components: %r" % names
     bad = ["{", "x" * 5000, json.dumps({"main": ["needs"] * 900, "side": [], "hide": []}), "[]", "5", "null", json.dumps({"main": "needs", "side": []}), json.dumps({"side": ["map"]})]
     # the two long values are built in node: a program passed with -e has to fit Windows' command line (32,767 characters)
     out = truth.under_node(root, DEF_JS + """var bad = %s; bad[1] = new Array(5001).join("x"); bad[2] = JSON.stringify({ main: new Array(901).join("n,").split(",").slice(0, 900).map(function () { return "needs"; }), side: [], hide: [] });
@@ -665,13 +739,9 @@ def language_is_applied_before_first_paint(root, tmp):
         assert any("ya no existen" in w for w in notice(res[0])) and any("no guarda la disposición" in w for w in notice(res[1])), (notice(res[0]), notice(res[1]))
         assert any("Editar" in w for w in res[0]["texts"]), "Edit reads in Spanish"
     with browser(root, tmp, truth.rich_data(), lang="es") as pg:
-        settled(pg, "uak-language", "es")
         pg.context.add_init_script(PAINT_PROBE)
         for how in ("load", "reload", "load"):
-            if how == "reload":
-                pg.reload()
-            else:
-                pg.goto(pg.url0)
+            carry(pg, ["uak-language", "uak-dash"], None if how == "reload" else pg.url0)
             pg.wait_for_function("window.__frames && window.__frames.length >= 6")
             frames = pg.evaluate("window.__frames")
             english = [(i, [t for t in f["text"] if ENGLISH.search(t)]) for i, f in enumerate(frames)]
