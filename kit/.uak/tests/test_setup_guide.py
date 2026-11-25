@@ -93,44 +93,328 @@ def script(html):
 
 
 def journey_is_visible_from_welcome(root, tmp):
+    """UAK-159: the journey is the line of nodes on top of every screen (it was five coarse steps above a welcome)."""
     html = lib("setup.html")
     journey = section(html, "journey")
     shell = html.index('id="setup-shell"')
-    assert html.index('id="journey"') < shell, "the journey sits above setup and the dashboard, so it stays visible"
+    assert html.index('id="journey"') < shell, "the journey sits above the screens, so it stays visible"
     steps = re.findall(r'<li[^>]*data-step="([a-z]+)"[^>]*>([\s\S]*?)</li>', journey)
-    assert [s for s, _ in steps] == ["install", "prepare", "plan", "team", "progress"], steps
-    where = {s: re.search(r'data-where="([a-z]+)"', body) for s, body in steps}
-    assert all(where.values()), "each step says where it happens: %r" % steps
-    assert {s: m.group(1) for s, m in where.items()} == {"install": "page", "prepare": "page", "plan": "page",
-                                                       "team": "terminal", "progress": "agents"}
+    assert [s for s, _ in steps] == ["project", "rules", "people", "schedule", "publish", "plan", "start"], steps
     words = " ".join(texts(journey))
-    for needle in ("Install", "Prepare", "Plan", "Start the team", "Follow progress", "in this page", "in a terminal",
-                   "your agents do it"):
+    for needle in ("Project detected", "Rules", "People", "Schedule", "Publish the kit", "Idea and plan", "Start the agents"):
         assert needle in words, "%r is in the journey: %r" % (needle, words)
-    welcome = " ".join(texts(section(html, "welcome")))
-    assert "installs the kit into this project" in welcome and "downloaded only once" in welcome, welcome
     code = script(html)
     m = re.search(r"function journeyStep\(data\) \{([\s\S]*?)\n        \}", code)
-    assert m, "journeyStep(data) picks the current step from the server's state"
+    assert m, "journeyStep(data) still reads the server's state"
     for step in ("install", "prepare", "plan", "team", "progress"):
         assert '"%s"' % step in m.group(1), "journeyStep can return %s" % step
-    assert re.search(r'setAttribute\("aria-current", "step"\)[\s\S]{0,400}journey|journey[\s\S]{0,600}aria-current', code), \
-        "the current journey step is marked with aria-current"
+    assert "journeyStep(data)" in re.search(r"function screenFor\([\s\S]*?\n        \}", code).group(0), \
+        "the screen after the plan is chosen from the journey's step"
+    assert re.search(r'setAttribute\("aria-current", "step"\)', re.search(r"function drawJourney\(\) \{[\s\S]*?\n        \}", code).group(0)), \
+        "the current node is marked with aria-current"
     es = catalog()
-    for needle in ("Start the team", "Follow progress", "in this page", "in a terminal", "your agents do it"):
+    for needle in ("Step {n} of {total}",):
         assert needle in es, "%r has a Spanish translation" % needle
-    # Amendment 8: a finished step moves the person to the heading of the next one.
-    focus = re.search(r"var NEXT_FOCUS = (\{[^}]*\});", code)
-    assert focus, "var NEXT_FOCUS maps a finished operation to the next step's heading"
-    targets = json.loads(focus.group(1))
-    assert targets.get("installing") and targets.get("publishing") and targets.get("approving"), targets
-    assert targets["publishing"] == "planning-heading", "after publishing the kit: Plan your project"
-    for phase, ident in targets.items():
-        tag = re.search(r'<(h[1-4])[^>]*id="%s"' % re.escape(ident), html)
-        assert tag and 'tabindex="-1"' in html[tag.start():html.index(">", tag.start())], \
-            "%s → #%s is a focusable heading" % (phase, ident)
-    assert re.search(r"NEXT_FOCUS\[previous\][\s\S]{0,300}\.focus\(", code), "render focuses it when the phase ends"
-    assert "Plan your project" in section(html, "planning-heading"), "the planning heading says Plan your project"
+
+
+# ---- UAK-159: the flow of the wizard, on the design system of UAK-158 -------------------------------------------------
+# Why (2026-11-23): "Get ready" was 4518 px at 1280 and 6457 px at 390, a welcome screen sold the kit before saying what
+# would happen, the error of a step landed under another one and a person had no URL for where they were. The human
+# approved ten screens, one per job, each with one primary button (docs/design/DIRECTION.md rule 11).
+# The page is read as text always; with Playwright and a Chromium here it is also driven for real (the measures below).
+SCREENS = ["project", "install", "unblock", "rules", "people", "schedule", "publish", "plan", "start", "dashboard"]
+RAIL = ["Project detected", "Rules", "People", "Schedule", "Publish the kit", "Idea and plan", "Start the agents"]
+KIT = "# Project\n\n```text\nMode: %s\nBlackbox: on\nBacklog-Approved: no\nTest-First: yes\nReview-Mode: claims\nFreeze-Epoch: 0\n```\n"
+
+
+def screen_html(html, name):
+    return section(html, "screen-%s" % name)
+
+
+def kit_project(tmp, name, mode="sprint", commits=2, version="6.8.0"):
+    """A repository that has the kit (the three files the wizard looks for), with COMMITS commits."""
+    root = tmp / name
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True)
+    for i in range(commits):
+        (root / ("f%d.txt" % i)).write_text(str(i))
+        tp.git(root, "add", "-A")
+        tp.git(root, "-c", "user.name=ana", "-c", "user.email=ana@example.com", "commit", "-q", "-m", "c%d" % i)
+    (root / ".uak/bin").mkdir(parents=True)
+    (root / ".uak/PROJECT.md").write_text(KIT % mode)
+    (root / ".uak/bin/uak").write_text("#!/bin/sh\n")
+    (root / ".uak/VERSION").write_text(version + "\n")
+    return root
+
+
+def chromium():
+    """(playwright module, launch options) when a real browser is here, else None (then the page is read only)."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None
+    for path in (None, shutil.which("chromium"), shutil.which("chromium-browser"), "/snap/bin/chromium"):
+        if path is not None and not (path and Path(path).exists()):
+            continue
+        try:
+            with sync_playwright() as p:
+                kwargs = {"executable_path": path} if path else {}
+                p.chromium.launch(args=["--no-sandbox"], **kwargs).close()
+            return sync_playwright, ({"executable_path": path} if path else {})
+        except Exception:  # noqa: BLE001 (no browser at this path)
+            continue
+    return None
+
+
+MEASURE = """() => {
+  const s = document.querySelector('.screen[data-on]'), h = s.querySelector('h1'), small = [];
+  s.querySelectorAll('button, a, input:not([type=hidden]), select, summary, textarea, label.choice, .tools label').forEach(e => {
+    const r = e.getBoundingClientRect(), st = getComputedStyle(e);
+    if (!r.width || st.visibility === 'hidden' || e.closest('[hidden]')) return;
+    if (e.tagName === 'INPUT' && (e.type === 'radio' || e.type === 'checkbox') && e.closest('label')) return;
+    if (r.height < 43.5 || r.width < 43.5) small.push((e.id || e.className || e.tagName) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+  });
+  const primary = [...s.querySelectorAll('.primary')].filter(e => e.getClientRects().length).map(e => e.id);
+  const code = [...s.querySelectorAll('code')].filter(e => e.getClientRects().length).map(e => e.textContent.trim());
+  return {screen: s.dataset.screen, height: document.documentElement.scrollHeight, width: document.documentElement.scrollWidth,
+          vw: innerWidth, h1: Math.round(h.getBoundingClientRect().top), small: small, primary: primary, code: code,
+          says: (document.getElementById('project-says') || {}).textContent || '', focus: document.activeElement ? document.activeElement.id : ''};
+}"""
+_MEASURED = {}
+
+
+def measured(tmp):
+    """Every screen of the flow at 1280x800 and 390x844, in a real Chromium: {(width, screen): MEASURE}, or None."""
+    if "all" in _MEASURED:
+        return _MEASURED["all"]
+    found = chromium()
+    _MEASURED["all"] = None
+    if not found:
+        print("  note: no Playwright with a Chromium here, so the layout is checked by reading the page only")
+        return None
+    sync_playwright, kwargs = found
+    project = kit_project(tmp, "measured", "sprint")
+    fresh = tmp / "measured-fresh"
+    fresh.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(fresh)], check=True)
+    for i in range(3):
+        (fresh / ("f%d.txt" % i)).write_text(str(i))
+        tp.git(fresh, "add", "-A")
+        tp.git(fresh, "-c", "user.name=ana", "-c", "user.email=ana@example.com", "commit", "-q", "-m", "c%d" % i)
+    out = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(args=["--no-sandbox"], **kwargs)
+        for width, height in ((1280, 800), (390, 844)):
+            with wizard.LiveServer(str(fresh)) as srv:  # a repository without the kit: project and install
+                context = browser.new_context(viewport={"width": width, "height": height}, reduced_motion="reduce", locale="en-US")
+                page = context.new_page()
+                for name in ("project", "install"):
+                    page.goto("http://127.0.0.1:%d/?step=%s#code=%s" % (srv.server_port, name, srv.new_code()))
+                    page.wait_for_selector("#content:not([data-loading])")
+                    page.wait_for_selector("#found li" if name == "project" else "#install-facts li")
+                    out[(width, name)] = page.evaluate(MEASURE)
+                context.close()
+            with wizard.LiveServer(str(project)) as srv:
+                context = browser.new_context(viewport={"width": width, "height": height}, reduced_motion="reduce", locale="en-US")
+                page = context.new_page()
+                for name in SCREENS[2:] + ["update"]:  # unblock and the screens of an installed project
+                    page.goto("http://127.0.0.1:%d/?step=%s#code=%s" % (srv.server_port, name, srv.new_code()))
+                    page.wait_for_selector("#content:not([data-loading])")
+                    page.wait_for_timeout(900)
+                    out[(width, name)] = page.evaluate(MEASURE)
+                # closed: press Close the wizard once the check the page starts on load is over
+                page.goto("http://127.0.0.1:%d/?step=dashboard#code=%s" % (srv.server_port, srv.new_code()))
+                page.wait_for_selector("#content:not([data-loading])")
+                for _ in range(40):
+                    page.wait_for_timeout(500)
+                    page.click("#close-wizard")
+                    page.wait_for_timeout(400)
+                    if page.evaluate("document.querySelector('.screen[data-on]').dataset.screen") == "closed":
+                        break
+                out[(width, "closed")] = page.evaluate(MEASURE)
+                context.close()
+        browser.close()
+    _MEASURED["all"] = out
+    return out
+
+
+def flow_has_the_ten_screens(root, tmp):
+    html = lib("setup.html")
+    for name in SCREENS + ["update", "closed"]:
+        body = screen_html(html, name)
+        assert len(re.findall(r"<h1\b", body)) == 1, "%s has one heading" % name
+    for name in SCREENS + ["update"]:
+        heading = " ".join(texts(re.search(r"<h1\b[^>]*>[\s\S]*?</h1>", screen_html(html, name)).group(0)))
+        assert re.match(r"[A-Z][a-z]", heading) and len(heading.split()) >= 3 and not heading.endswith((".", "?")), \
+            "a heading is a sentence that starts with a capital and says what to do: %r" % heading
+    assert [s for s in re.findall(r'<section class="screen"[^>]*data-screen="([a-z]+)"', html)] == SCREENS[:3] + ["update"] + SCREENS[3:] + ["closed"], \
+        "the screens, in the order of the flow"
+    assert 'class="benefit"' not in html and "Build together" not in html and 'class="eyeline"' not in html and \
+        "eyebrow" not in html, "no slogan, no eyebrow, no benefit pairs"
+    assert 'id="begin"' not in re.sub(r'<div hidden>[\s\S]*?</div>', "", html.split("<script")[0]), "no welcome screen"
+    demo = section(html, "demo")
+    assert "<details>" in demo and "<video" in demo.split("</summary>")[1], "the video is a link that opens only when asked"
+    # one primary button per view, in the markup: each screen's candidates are ordered (data-p), the page keeps one
+    for name in SCREENS + ["update"]:
+        body = screen_html(html, name)
+        candidates = re.findall(r'<button\b[^>]*\bdata-p="(\d)"', body)
+        statics = re.findall(r'<button\b[^>]*class="primary"[^>]*>', body)
+        assert all("data-p=" in tag or 'id="project-continue"' in tag for tag in statics), "%s: %r" % (name, statics)
+        assert candidates or name == "project", "%s has a primary" % name
+    code = script(html)
+    assert "function arbitrate()" in code and re.search(r"Number\(b\.dataset\.p\) < Number\(best\.dataset\.p\)", code), \
+        "the page keeps the lowest-numbered visible candidate as the one primary"
+    for name in SCREENS + ["update", "closed"]:  # a step moves the focus to the heading of the next screen
+        assert re.search(r'<h1 id="[^"]+" tabindex="-1">', screen_html(html, name)), "%s: its heading takes the focus" % name
+    show = re.search(r"function show\(name, focus, how\) \{[\s\S]*?\n        \}", code).group(0)
+    assert 'querySelector("h1")' in show and "heading.focus(" in show, "show() focuses the heading of the screen it shows"
+    assert re.search(r'if \(previous === "installing"[^\n]*show\(screenFor\(data\), true\)', code), \
+        "a finished install moves to the next screen and its heading"
+    assert "NEXT_FOCUS" not in code, "the old map of headings is gone: show() does it"
+    assert 'id="project-says"' in screen_html(html, "project"), "the first screen says what will happen in this project"
+    found = measured(tmp)
+    if found:
+        for (width, name), m in found.items():
+            assert len(m["primary"]) == 1, "%s at %d: one primary button in view, found %r" % (name, width, m["primary"])
+        for width in (1280, 390):
+            says = found[(width, "project")]["says"]
+            assert len(re.findall(r"[.!?](?:\s|$)", says)) == 2 and "files" in says and "Nothing is committed" in says, \
+                "the first screen says what will happen in two sentences: %r" % says
+
+
+def rail_names_match_the_terminal_steps(root, tmp):
+    start = (root / ".uak/bin/start").read_text(encoding="utf-8")
+    names = []
+    for name in re.findall(r'step\s+(?:"[^"]*"|\w+)\s+"([A-Z][A-Za-z ]+)"', start):
+        if name not in names:
+            names.append(name)
+    assert [n for n in names if n in RAIL] == RAIL, "the names `uak start --steps` prints: %r" % names
+    html = lib("setup.html")
+    rail = re.findall(r'<li data-step="([a-z]+)"[^>]*><i></i><span>([^<]+)</span></li>', section(html, "journey"))
+    assert [n for _, n in rail] == RAIL, "the rail uses the terminal's step names: %r" % rail
+    assert section(html, "journey").count("<ol") == 1 and 'id="steps"' not in re.sub(r'<div hidden>[\s\S]*?</div>', "", html.split("<script")[0]), \
+        "the journey bar and the step rail are one component"
+    es = catalog()
+    for name in RAIL:
+        assert name in es, "%r has a Spanish name" % name
+
+
+def instruction_appears_once(root, tmp):
+    html = lib("setup.html")
+    markup = re.sub(r"<script[\s\S]*?</script>", "", html)
+    assert markup.count('id="terminal-command"') == 1 and markup.count('id="closed-command"') == 1
+    assert "uak start" not in re.sub(r'<code id="[a-z-]*command"[^>]*></code>', "", markup.split("<footer")[0]).replace(
+        "Continue in the terminal", ""), "no screen repeats the command in its own words"
+    found = measured(tmp)
+    if found:
+        for (width, name), m in found.items():
+            assert len(m["code"]) == len(set(m["code"])), "%s at %d shows one command twice: %r" % (name, width, m["code"])
+
+
+def no_screen_taller_than_two_viewports(root, tmp):
+    found = measured(tmp)
+    if not found:
+        return
+    for (width, name), m in found.items():
+        limit = (2 * 800) if width > 600 else (3 * 844)
+        assert m["height"] <= limit, "%s at %d is %d px tall (limit %d)" % (name, width, m["height"], limit)
+        assert m["width"] <= m["vw"], "%s at %d scrolls sideways (%d > %d)" % (name, width, m["width"], m["vw"])
+
+
+def mobile_content_starts_within_160px(root, tmp):
+    css = re.sub(r"/\*[\s\S]*?\*/", "", lib("setup.html"))
+    assert re.search(r"\.journey \{ order: 3; flex: 1 0 100%", css), "the rail goes under the brand row at every width"
+    found = measured(tmp)
+    if not found:
+        return
+    for (width, name), m in found.items():
+        if width < 600:
+            assert m["h1"] <= 160, "%s: the heading starts %d px from the top (limit 160)" % (name, m["h1"])
+
+
+def targets_are_44px(root, tmp):
+    # The clause: "every target is at least 44x44 px" sits in the sentence about 390 px, so it is read as the phone's
+    # rule (a mouse at 1280 keeps the direction's 28-36 px controls). The measure below is at 390 only.
+    css = re.sub(r"/\*[\s\S]*?\*/", "", lib("setup.html"))
+    phone = css[css.index("@media (max-width: 640px)"):]
+    assert re.search(r"\.btn, \.primary, \.ghost, \.secondary-button \{ min-height: 44px", phone), "buttons are 44 px tall on a phone"
+    assert re.search(r"input, select, textarea, \.tools label, \.choice, summary, \.link-button \{ min-height: 44px", phone), \
+        "fields, choices, summaries and links are 44 px tall on a phone"
+    found = measured(tmp)
+    if not found:
+        return
+    for (width, name), m in found.items():
+        if width < 600:
+            assert not m["small"], "%s at 390 has targets under 44x44: %r" % (name, m["small"])
+
+
+def error_is_next_to_its_control(root, tmp):
+    html = lib("setup.html")
+    field = re.search(r'<div class="field">\s*<label[^>]*for="target"[\s\S]*?</div>', screen_html(html, "project")).group(0)
+    assert field.index('id="target"') < field.index('id="target-error"') and 'role="alert"' in field, \
+        "the folder's error sits under its field, inside the same block"
+    found = chromium()
+    if not found:
+        return
+    sync_playwright, kwargs = found
+    repo = tmp / "plain"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    with wizard.LiveServer(str(repo)) as srv, sync_playwright() as p:
+        browser = p.chromium.launch(args=["--no-sandbox"], **kwargs)
+        for width, height in ((1280, 800), (390, 844)):
+            page = browser.new_context(viewport={"width": width, "height": height}, reduced_motion="reduce", locale="en-US").new_page()
+            page.goto("http://127.0.0.1:%d/#code=%s" % (srv.server_port, srv.new_code()))
+            page.wait_for_selector("#content:not([data-loading])")
+            page.wait_for_selector("#found li")
+            page.click("#change-folder")
+            page.fill("#target", "not/a/full/path")
+            page.click("#check-folder")
+            page.wait_for_selector("#target-error:not(:empty)")
+            box = page.evaluate("""() => { const i = document.getElementById('target').getBoundingClientRect(),
+              e = document.getElementById('target-error').getBoundingClientRect(), f = document.querySelector('.screen[data-on] .foot').getBoundingClientRect();
+              return {input: i.bottom, errTop: e.top, errBottom: e.bottom, foot: f.top, vh: innerHeight, text: document.getElementById('target-error').textContent,
+                      focus: document.activeElement.id, invalid: document.getElementById('target').getAttribute('aria-invalid')} }""")
+            assert box["errTop"] >= box["input"] - 1 and box["errBottom"] <= box["vh"] and box["focus"] == "target" and box["invalid"] == "true", \
+                "the error is under its field, in view, with the focus on the field at %d: %r" % (width, box)
+            assert re.search(r"full path|folder", box["text"], re.I), "it says what to do: %r" % box["text"]
+        browser.close()
+
+
+def first_install_in_four_clicks(root, tmp):
+    html = lib("setup.html")
+    code = script(html)
+    assert 'id="blackbox"' in html and not re.search(r'<input[^>]*id="blackbox"[^>]*checked', html), "diagnostics start unchecked"
+    assert re.search(r"if \(!modePicked && !document\.querySelector\(\"input\[name=mode\]:checked\"\)", code), \
+        "the proposed mode is already chosen: a first install is Continue and Install"
+    found = chromium()
+    if not found:
+        return
+    sync_playwright, kwargs = found
+    repo = tmp / "fresh"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    fake = tmp / "install.sh"
+    fake.write_text("#!/bin/sh\nset -e\nT=$(eval echo \\${$#})\nmkdir -p \"$T/.uak/bin\"\nprintf '# P\\n\\n```text\\nMode: sprint\\nBlackbox: off\\n```\\n' > \"$T/.uak/PROJECT.md\"\n"
+                    "printf '#!/bin/sh\\n' > \"$T/.uak/bin/uak\"\nprintf '6.8.0\\n' > \"$T/.uak/VERSION\"\n")
+    clicks = 0
+    with wizard.LiveServer(str(repo), installer=fake) as srv, sync_playwright() as p:
+        browser = p.chromium.launch(args=["--no-sandbox"], **kwargs)
+        page = browser.new_context(viewport={"width": 1280, "height": 800}, reduced_motion="reduce", locale="en-US").new_page()
+        page.goto("http://127.0.0.1:%d/#code=%s" % (srv.server_port, srv.new_code()))
+        page.wait_for_selector("#content:not([data-loading])")
+        page.wait_for_selector("#found li")
+        for button in ("#project-continue", "#install"):
+            page.click(button)
+            clicks += 1
+        try:
+            page.wait_for_selector('.screen[data-on][data-screen="rules"]', timeout=30000)
+        except Exception:  # noqa: BLE001
+            raise AssertionError("after Install the page shows %s (%s)" % (page.evaluate(
+                "document.querySelector('.screen[data-on]').dataset.screen"), page.evaluate(
+                "[...document.querySelectorAll('#error, .action-result, .toast')].map(e => e.textContent.trim()).filter(Boolean).join(' | ')")))
+        assert clicks <= 4 and page.evaluate("document.getElementById('blackbox').checked") is False, clicks
+        browser.close()
 
 
 def approval_field_says_what_to_type(root, tmp):
@@ -267,10 +551,37 @@ def advanced_dashboard_is_translated(root, tmp):
     team = section(setup, "team-step") + section(setup, "advanced-next")
     left = [t for t in texts(team) if t not in es and not re.fullmatch(r"[0-9. ]+", t)]
     assert not left, "the team step and the Advanced box have no English left: %r" % left
-    heading = re.search(r'<h1>([^<]+)</h1>\s*<p class="secondary" id="dashboard-project"', setup).group(1).strip()
+    heading = re.search(r'<h1[^>]*>([^<]+)</h1>\s*<p class="secondary[^"]*" id="dashboard-project"', setup).group(1).strip()
     status = section(setup, "dashboard-status")
     assert heading not in status and not re.search(r'dashboard-status"\)\.textContent = [^;]*"%s"' % re.escape(heading), script(setup)), \
         "the notice under the title never repeats the heading %r" % heading
+
+
+def where_each_step_happens(root, tmp):
+    """The old rail said where each step happens (data-where: page, terminal, agents). Now the page tells it in words:
+    every screen is a step in this page, the terminal is always one button away with its one command, and Start says
+    "run these" (the agents' commands are run in a terminal)."""
+    html = lib("setup.html")
+    assert re.search(r'<details class="ap term" id="terminal-alt"><summary>[\s\S]*?Continue in the terminal', html), \
+        "the line of nodes carries 'Continue in the terminal' with the one command"
+    assert 'id="terminal-command"' in section(html, "terminal-alt") and 'id="copy-terminal-command"' in html
+    start = screen_html(html, "start")
+    assert "Run one command per agent" in start and 'id="agents-list"' in start, "Start says to run commands (in a terminal)"
+    assert "data-where" not in html, "no leftover of the old marker"
+    es = catalog()
+    for text in ("Continue in the terminal", "Run one command per agent"):
+        assert text in es, "%r has a Spanish translation" % text
+
+
+def people_has_one_name_form(root, tmp):
+    html = lib("setup.html")
+    css = re.sub(r"/\*[\s\S]*?\*/", "", html)
+    assert re.search(r"#team-name-block \{ display: none !important; \}", css), "the second name card never shows"
+    people = screen_html(html, "people")
+    assert people.count('id="human-save"') == 1, "one Use this name button"
+    code = script(html)
+    assert 'box.classList.toggle("error", !unnamed && (shown.git || shown.gh))' in code, \
+        "a name that is simply empty is a notice, never an alarm"
 
 
 class Identity:
@@ -710,7 +1021,9 @@ def dashboard_survives_a_failed_name_read(root, tmp):
     assert status == 200 and data.get("agents"), "the dashboard still answers: %r" % data
 
 
-TESTS = [journey_is_visible_from_welcome, approval_field_says_what_to_type, gate_lines_are_translated,
+TESTS = [journey_is_visible_from_welcome, flow_has_the_ten_screens, rail_names_match_the_terminal_steps,
+         instruction_appears_once, no_screen_taller_than_two_viewports, mobile_content_starts_within_160px, targets_are_44px,
+         error_is_next_to_its_control, first_install_in_four_clicks, where_each_step_happens, people_has_one_name_form, approval_field_says_what_to_type, gate_lines_are_translated,
          advanced_dashboard_is_translated, shared_identity_is_warned, github_login_is_checked_on_its_own,
          accents_do_not_break_the_match, spanish_journey_has_no_english, never_seen_human_is_named,
          identity_needs_the_whole_name, progress_line_survives_git_forms, one_word_labels_stay_scoped,
