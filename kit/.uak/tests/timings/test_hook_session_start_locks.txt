@@ -1,0 +1,4 @@
+# provisional (UAK-197): the cases moved from test_hook_session_start_speed, about 250 s of its 508 s on Windows and
+# 160 of its 288 s on macOS; replaced by the measurement of this task's pull request run (scripts/ci_timings.py)
+ci 200
+windows 313

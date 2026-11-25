@@ -9,10 +9,13 @@ import argparse
 import importlib.util
 import os
 import re
+import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
+import test_dashboard_journey as journey
 import test_setup_planning as tp
 import test_setup_prepare as prep
 import test_setup_team as tt
@@ -315,6 +318,22 @@ def quote_in_path_gets_a_command(root, tmp):
     assert not wizard.MODULE.printable("a\nb") and wizard.MODULE.printable("d'Ana é")
 
 
+def remove_when_released(folder, seconds=60):
+    """Remove a case's temporary folder; on Windows a process that still works in it (the server's last request) makes
+    the removal fail until it ends, so try again for a bounded time. Returns "" or the last error."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            shutil.rmtree(folder)
+            return ""
+        except FileNotFoundError:
+            return ""
+        except OSError as exc:
+            if time.monotonic() >= deadline:
+                return str(exc)[:300]
+            time.sleep(0.5)
+
+
 TESTS = [install_refuses_a_non_base_branch, warns_when_remote_default_is_claims, way_out_includes_the_push,
          no_promise_without_a_command, quote_in_path_gets_a_command]
 
@@ -334,17 +353,36 @@ def main():
     spec = importlib.util.spec_from_file_location("branches_planning", root / ".uak/bin/lib/planning.py")
     tp.PLANNING = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(tp.PLANNING)
+    # UAK-197: install_refuses_a_non_base_branch timed out twice in one Windows job (main at aaa61b01, run 45335549258,
+    # windows (9)): "TimeoutError: timed out" 11 s into the case, then the temporary folder could not be removed (WinError
+    # 32: the server was still working in "teammate app") and that traceback ended the file, so its other four cases never
+    # ran. The 10 s client of test_setup_wizard.request is the bound that ran out (see test_dashboard_journey.py,
+    # REQUEST_BOUND_S, for why a request of the setup server can take longer on a Windows runner); every request of this
+    # file now goes through journey.bounded_request, which names the request, and each case prints its slowest. A folder
+    # still in use is waited for (bounded), and a folder that stays in use is a FAIL line, never the end of the file.
+    journey.patient_requests()
+    # UAK_BRANCHES_ROUNDS=N runs install_refuses_a_non_base_branch N times (the 20 runs in a row on Windows the fix is judged
+    # by). Off by default.
+    rounds = int(os.environ.get("UAK_BRANCHES_ROUNDS", "1"))
     failed = 0
     for test in TESTS:
         if args.case and test.__name__ not in args.case:
             continue
-        with tempfile.TemporaryDirectory(prefix="uak-branches-") as folder:
+        for k in range(rounds if test is install_refuses_a_non_base_branch else 1):
+            label = test.__name__ + (" round %d" % (k + 1) if rounds > 1 and test is install_refuses_a_non_base_branch else "")
+            folder = tempfile.mkdtemp(prefix="uak-branches-")
+            began = time.monotonic()
             try:
                 test(root, Path(folder))
-                print("PASS " + test.__name__)
+                print("PASS " + label, flush=True)
             except Exception as exc:
                 failed += 1
-                print("FAIL %s: %s: %s" % (test.__name__, type(exc).__name__, exc))
+                print("FAIL %s: %s: %s" % (label, type(exc).__name__, exc), flush=True)
+            print("MEASURED %s: %.1f s; slowest requests: %s" % (label, time.monotonic() - began, journey.slowest()), flush=True)
+            left = remove_when_released(folder)
+            if left:
+                failed += 1
+                print("FAIL %s: its temporary folder is still in use after 60 s: %s" % (label, left), flush=True)
     print("SETUP_BRANCHES_RESULT failed=%d" % failed)
     return 1 if failed else 0
 
