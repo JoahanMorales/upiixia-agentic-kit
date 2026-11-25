@@ -1,2 +1,4 @@
-ci 18
-windows 116
+# measured 2026-11-25 45543919868
+# each entry is ceil(MAXIMUM over the runs read) + 1 s: run 45543919868, `ci` over Linux and macOS, `windows` over Windows: Linux max 18.4, macOS max 30.3, Windows max 173.5
+ci 32
+windows 175
