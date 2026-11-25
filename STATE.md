@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1795613322
+Updated: 1795613358
 AVAILABLE: UAK-163 UAK-164 UAK-165 UAK-166 UAK-167 
 CLAIMED: UAK-160 
 BLOCKED: -
@@ -15,11 +15,11 @@ UAK-195 | REVIEW | kit-a4 | until 1795699722
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1795560663 | deadline lease/UAK-162/1795552429 | REQUIRES_RECOVERY | Claim kept; read the summary and use release --expired --read-summary. No work is deleted.
 - 1795578320 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-193 | Why: backlog without PR (Plan-Channel: claims)
 - 1795586935 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-194 | Why: backlog without PR (Plan-Channel: claims)
 - 1795592322 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-164 Paths: kit/.uak/bin/lib/setup.html, kit/.uak/bin/lib/setup.py, kit/.uak/bin/lib/planning.py, kit/.uak/b
 - 1795592735 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-195 | Why: backlog without PR (Plan-Channel: claims)
+- 1795613358 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-196 | Why: backlog without PR (Plan-Channel: claims)
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.
