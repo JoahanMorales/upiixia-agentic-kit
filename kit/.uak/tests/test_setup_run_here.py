@@ -192,8 +192,9 @@ def start_opens_a_terminal_or_says_why(root, tmp):
         assert MODULE.terminal_argv("Windows", bad, "C:/p", {}, which=which, bash="b") == (None, "path"), bad
 
     # The text the terminal runs: the project's path is quoted for Bash, whatever is in it.
-    hostile = tmp / "sp ace $(touch PWNED) `touch PWNED2` \"q\" ;x"
-    names = [hostile.name] if WINDOWS else [hostile.name, "it's\nnew line"]
+    # Windows forbids a quote mark and a newline in a file name; every other word of the list is still in it.
+    hostile = "sp ace $(touch PWNED) `touch PWNED2` ;x" + ("" if WINDOWS else ' "q"')
+    names = [hostile] if WINDOWS else [hostile, "it's\nnew line"]
     for name in names:
         folder = tmp / name
         folder.mkdir()
