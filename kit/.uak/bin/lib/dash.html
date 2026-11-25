@@ -1112,6 +1112,8 @@ dialog#story::backdrop { background: var(--scrim); }
     return b;
   }
   function arrAdd(def, a, name) { return arrRead(def, { main: a.main, side: a.side, hide: a.hide.filter(function (n) { return n !== name; }) }).lay; }
+  function sumCols(w, main, side) { return { flow: 1, side: 1, w: 296 }; }
+  function graphBox(cw, vh, bw, bh) { return { W: 760, H: 560 }; }
   /* logic:end */
   function h(tag, attrs, kids) {
     var el = document.createElement(tag);

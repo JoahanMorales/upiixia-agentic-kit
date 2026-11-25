@@ -752,9 +752,466 @@ def language_is_applied_before_first_paint(root, tmp):
     return "browser"
 
 
+# ---------------------------------------------------------------- UAK-198: the whole screen on a wide monitor
+# On 2026-11-25 the human opened the dashboard on a desktop monitor and found "a giant empty space at the right": .page and .wide
+# stopped at 1360 px, aligned left, so at 1920 px 488 px were blank. Every shot of UAK-162 and UAK-165 was 1280 or 390 px wide.
+# These cases load the page with the kit's own fonts (copied beside it), a frozen clock, UTC and en-US, so the boxes they measure
+# are the same on any Linux with Chromium; every view of every tab is drawn by clicking, as a person does.
+WIDE_VIEWS = ["sum", "arr", "board-map", "board-cards", "agents", "talk", "bb", "mem-list", "mem-graph", "tokens"]
+WIDE_WORDS = ("the summary keeps every task in view while agents claim review and integrate work across a plan whose tests fail "
+              "first then pass on the branch before a reviewer reads the diff and the human merges it on main").split()
+
+
+def prose(n, seed):
+    out = " ".join(WIDE_WORDS[(seed * 7 + i * 5) % len(WIDE_WORDS)] for i in range(n))
+    return out[0].upper() + out[1:]
+
+
+def wide_data(tasks=60, agents=14, humans=2):
+    """A project in full swing, deterministic: integrated, in review (waiting, changes requested), in progress (one stalled with a
+    long note), blocked, available with dependencies; online, recent, away and offline agents and two people; conversations
+    with long messages; lessons and decisions citing tasks and files; a black box; tokens by harness, model, scope and task."""
+    d = truth.fixture_data(agents=0, tasks=0)
+    g = d["generated"]
+    ts = []
+    for i in range(tasks):
+        k = i / float(max(1, tasks))
+        state = "INTEGRATED" if k < .55 else "REVIEW" if k < .62 else "CLAIMED" if k < .72 else "BLOCKED" if k < .74 else "AVAILABLE"
+        t = {"id": "T-%d" % (i + 1), "title": prose(5 + (i * 7) % 17, i), "priority": "P%d" % (i % 3), "depends": "None", "state": state,
+             "owner": "kit-%d" % (i % max(1, agents)) if agents else "", "pr": "-", "progress": "", "updated": g - 3600 * (tasks - i) // 3, "stalled": 0,
+             "lease": g + 900, "paths": "kit/x%d.sh" % (i % 5), "next": "", "away": 0, "outside": False, "participants": "",
+             "harnesses": [{"agent": "kit-%d" % (i % max(1, agents)), "harness": "claude-code", "model": "opus"}]}
+        if state == "REVIEW":
+            t["sub"] = {"kind": ["waiting", "changes", "rereview"][i % 3], "text": ["waiting for a reviewer", "changes requested (round 2)", "re-review"][i % 3],
+                        "since": g - 900 - 60 * i, "late": i % 4 == 0, "rounds": i % 3, "rejects": i % 2}
+        if state == "AVAILABLE" and i % 2:
+            t["depends"] = "T-%d, T-%d" % (i - 3, i - 1)
+        ts.append(t)
+    claimed = [t for t in ts if t["state"] == "CLAIMED"]
+    if claimed:
+        claimed[0].update(stalled=200, progress=prose(40, 3) + " · at 1795000000")
+    ags = []
+    for i in range(agents):
+        st = "online" if i < 4 else "recent" if i < 6 else "away" if i < 8 else "offline"
+        live = [{"id": t["id"], "state": t["state"]} for t in ts if t["owner"] == "kit-%d" % i and t["state"] in ("CLAIMED", "REVIEW", "BLOCKED")][:3]
+        ags.append({"name": "kit-%d" % i, "human": "ana", "is_human": False, "last_seen": g - [60, 4000, 20000, 900000][["online", "recent", "away", "offline"].index(st)] - i,
+                    "status": st, "tasks": live, "sessions": 1, "events": 3, "checkpoints": i % 4, "messages": i % 7, "verdicts": i % 3, "started": g - 90000, "role": "reviewer" if i % 5 == 1 else ""})
+    for i in range(humans):
+        ags.append({"name": ["ana", "luis"][i % 2] + ("" if i < 2 else str(i)), "human": "", "is_human": True, "last_seen": g - 300 * (i + 1), "status": "online", "tasks": [],
+                    "sessions": 0, "events": 0, "checkpoints": 0, "messages": 1, "verdicts": 0, "started": g - 90000, "role": ""})
+    d.update(tasks=ts, agents=ags, repo="demo")
+    states = {}
+    for t in ts:
+        states[t["state"]] = states.get(t["state"], 0) + 1
+    done = states.get("INTEGRATED", 0)
+    d["progress"] = {"done": 100 * done // max(1, tasks), "weighted": min(100, 100 * done // max(1, tasks) + 6), "total": tasks, "states": states, "outside": 0}
+    rev = [t for t in ts if t["state"] == "REVIEW"]
+    d["offers"] = [{"task": t["id"], "to": ["all"], "since": t["sub"]["since"], "owner": t["owner"]} for t in rev if t["sub"]["kind"] == "waiting"]
+    d["queue"] = [{"task": rev[0]["id"], "state": "HUMAN", "reason": prose(24, 9), "at": g - 500}] if rev else []
+    kinds = ["review", "reject", "contract", "approve", "human", "reply"]
+    d["messages"] = [{"n": n + 1, "t": g - 4000 + 120 * n, "from": "kit-%d" % (n % 3) if agents else "ana", "to": ["agent:kit-%d" % ((n + 1) % 3)], "kind": kinds[n % 6],
+                      "task": rev[n % len(rev)]["id"] if rev else "", "text": prose(8 + (n * 13) % 70, n)} for n in range(30 if tasks else 0)]
+    d["lessons"] = [{"n": str(n + 1), "t": g - 3000 + n, "agent": "kit-%d" % (n % 3), "task": ts[(n * 5) % len(ts)]["id"] if ts else "-", "paths": "kit/x%d.sh" % (n % 4),
+                     "text": "%s %s" % (ts[(n * 5) % len(ts)]["id"] if ts else "", prose(12 + (n * 11) % 40, n + 20))} for n in range(16 if tasks else 0)]
+    d["decisions"] = [{"t": g - 2000 + n, "kind": ["plan", "amend", "contract"][n % 3], "who": "ana/ana",
+                       "text": "tasks added: %s %s | Why: %s" % (ts[n % len(ts)]["id"], ts[(n + 3) % len(ts)]["id"], prose(10 + (n * 9) % 30, n + 40))} for n in range(10 if tasks else 0)]
+    d["blackbox"] = [{"time": "2026-11-%02dT%02d:00Z" % (10 + n % 8, n % 24), "kit": "v6.9", "harness": ["claude-code", "codex", "cursor"][n % 3], "source": "agent" if n % 3 else "auto",
+                      "kind": ["exit3", "friction", "need", "idea"][n % 4], "command": "uak claim" if n % 2 else "-", "what": prose(10 + (n * 7) % 50, n + 60), "fix": prose(8, n)} for n in range(24)]
+    d["usage"] = {"claude-code": {"claim": 9, "done": 7, "map": 12, "lens": 3, "wait": 4, "status": 9}, "codex": {"claim": 3, "done": 2, "map": 1}, "cursor": {"claim": 1, "done": 1}}
+    by_task = {t["id"]: 1000000 * (1 + (i * 37) % 90) for i, t in enumerate(ts[:40])}
+    total = sum(by_task.values()) + 5000000
+    d["tokens"] = {"total": total, "by_task": dict(by_task, main=5000000), "by_harness": {"claude-code": total * 7 // 10, "codex": total * 2 // 10, "cursor": total - total * 9 // 10},
+                   "by_scope": {"lead": total * 6 // 10, "subagent": total - total * 6 // 10}, "by_model": {"opus": total // 2, "sonnet": total // 4, "haiku": total // 8, "fable": total - total // 2 - total // 4 - total // 8},
+                   "by_kind": {"input": total // 50, "cache_write": total // 20, "cache_read": total - total // 50 - total // 20 - total // 100, "output": total // 100}} if tasks else {"total": 0, "by_task": {}, "by_harness": {}, "by_scope": {}}
+    def story(t, moves):   # the compact copy of `uak timeline` (lib/dash.py compact_timeline)
+        lines = [[at, kind, who, "opus", "claude-code", "%s %s" % (kind, prose(6, at % 97)), "", "", ""] for at, kind, who in moves]
+        return {"state": t["state"], "open": t["state"] != "INTEGRATED", "now": g, "lines": lines, "states": [["CLAIMED", "", 3600], ["REVIEW", "waiting for a reviewer", 1200]],
+                "agents": [[t["owner"], "opus", "claude-code", len(lines), ["claim", "done"]]], "rounds": 1, "rejects": 0, "tokens": 0, "commands": [], "errors": 0, "history": "read"}
+    tl = {}
+    for i, t in enumerate(ts):
+        a = t["owner"]
+        if t["state"] == "INTEGRATED" and i >= len(ts) * .45:
+            tl[t["id"]] = story(t, [[g - 20000 + 300 * i, "claim", a], [g - 15000 + 300 * i, "done", a], [g - 14000 + 300 * i, "approve", "kit-1"], [g - 13000 + 300 * i, "integrate", a]])
+        elif t["state"] in ("CLAIMED", "REVIEW", "BLOCKED"):
+            tl[t["id"]] = story(t, [[g - 9000 + 200 * i, "claim", a]] + ([[g - 3000, "done", a]] if t["state"] == "REVIEW" else []))
+    d["timelines"] = tl
+    return d
+
+
+def wide_data_named(name):
+    """The forced edges: no task, one task, 300 tasks, 40 agents."""
+    return {"empty": lambda: wide_data(tasks=0, agents=0, humans=1), "one": lambda: wide_data(tasks=1, agents=1), "300": lambda: wide_data(tasks=300, agents=20),
+            "40 agents": lambda: wide_data(tasks=60, agents=40)}[name]()
+
+
+@contextlib.contextmanager
+def screen(root, tmp, data, width, height=None, phone=False, lang="en", seed=None, scale=1):
+    """The page in Chromium at WIDTH, with the kit's fonts beside it (loaded before anything is measured), Date.now frozen at the
+    data's moment, UTC and en-US, reduced motion (the arrange mode does not shake: its boxes are measurable). Raises NoBrowser."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise NoBrowser()
+    lib = root / ".uak/bin/lib"
+    shutil.copy(str(lib / "dash.html"), str(tmp / "index.html"))
+    shutil.copy(str(lib / "workspace.js"), str(tmp / "workspace.js"))
+    if not (tmp / "fonts").exists():
+        shutil.copytree(str(lib / "fonts"), str(tmp / "fonts"))
+    (tmp / "data.js").write_text("window.UAK_DATA = " + json.dumps(data) + ";", encoding="utf-8")
+    with sync_playwright() as p:
+        try:
+            b = p.chromium.launch()
+        except Exception as exc:  # noqa: BLE001  (Playwright without its Chromium)
+            raise NoBrowser() from exc
+        try:
+            h = height or (844 if phone else 1440 if width >= 2560 else 1080 if width >= 1600 else 900)
+            opts = dict(viewport={"width": width, "height": h}, device_scale_factor=2, is_mobile=True, has_touch=True) if phone else dict(viewport={"width": width, "height": h}, device_scale_factor=scale)
+            ctx = b.new_context(reduced_motion="reduce", timezone_id="UTC", locale="en-US", **opts)
+            first = dict({"uak-dash": json.dumps({"tab": "sum"}), "uak-language": lang}, **(seed or {}))
+            ctx.add_init_script("""(function () { try { var now = %d; Date.now = function () { return now; };
+              if (!/index\\.html$/.test(location.pathname)) return;
+              var m = /^uak-test-carry:([\\s\\S]*)$/.exec(window.name), s = m ? JSON.parse(m[1]) : window.name === 'uak-test-seeded' ? null : %s;
+              window.name = 'uak-test-seeded';
+              if (s) Object.keys(s).forEach(function (k) { if (s[k] === null) localStorage.removeItem(k); else localStorage.setItem(k, s[k]); }); } catch (e) {} })();""" % ((data["generated"] + 5) * 1000, json.dumps(first)))
+            pg = ctx.new_page()
+            pg.errors = []
+            pg.on("pageerror", lambda e: pg.errors.append(str(e)))
+            pg.url0 = "file://" + str(tmp / "index.html")
+            pg.goto(pg.url0)
+            pg.wait_for_function("document.getElementById('view').childElementCount > 0")
+            assert pg.evaluate("document.fonts.ready.then(() => document.fonts.check('13px Inter') && document.fonts.check('11px \"JetBrains Mono\"'))"), "the kit's fonts load"
+            yield pg
+        finally:
+            b.close()
+
+
+def show(pg, view):
+    """Draw VIEW by clicking the page's own controls (a tab, the board's Map or Cards, the memory's List or Graph, Edit), then wait
+    two frames (the conversation unclamps its short bubbles in one)."""
+    tab = {"sum": "sum", "arr": "sum", "board-map": "board", "board-cards": "board", "agents": "agents", "talk": "talk", "bb": "bb",
+           "mem-list": "memory", "mem-graph": "memory", "tokens": "tokens"}[view]
+    pg.evaluate("""([tab, view]) => { const on = document.querySelector('.arrbar.on'); if (on) document.querySelector('[data-f="arr:done"]').click();
+      document.getElementById('tab-' + tab).click();
+      const pick = (sel, i) => { const b = document.querySelectorAll(sel)[i]; if (b && b.getAttribute('aria-pressed') !== 'true') b.click(); };
+      if (view === 'board-map') pick('#view .wide > .bh .seg button', 0); if (view === 'board-cards') pick('#view .wide > .bh .seg button', 1);
+      if (view === 'mem-list') pick('#view .wide > .filters .seg button', 0); if (view === 'mem-graph') pick('#view .wide > .filters .seg button', 1);
+      const ed = view === 'arr' && document.querySelector('[data-f="arr:edit"]'); if (ed) ed.click();
+      scrollTo({ top: 0, left: 0, behavior: 'instant' }); }""", [tab, view])
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+
+
+# The layout's boxes: the header, the rail, the view, and every block of every tab (columns, sections, cards, grids), in document
+# order, as [x, y, width, height] rounded to the pixel. Text inside a box is not measured on its own: its lines are the box's height.
+BOXES_JS = """() => {
+  const S = '.head, #tabs, #view, #view .page, #view .page > *, #view .col > *, #view .wide, #view .wide > *, #view .bd > *, #view .g2 > *, #view .cv > *, #view .gv > *, #view .gv svg, #view .agrid > *, #view .tmap, #view .mini > *, #view .hb, #view .win-f';
+  return Array.from(document.querySelectorAll(S)).filter(e => e.getClientRects().length).map(e => { const r = e.getBoundingClientRect();
+    return [Math.round(r.left + scrollX), Math.round(r.top + scrollY), Math.round(r.width), Math.round(r.height)]; }); }"""
+
+
+def layout_boxes(root, tmp, width):
+    """{view: [[x, y, w, h], …]} for every view at WIDTH (a phone at 390)."""
+    out = {}
+    with screen(root, tmp, wide_data(), width, phone=width < 640) as pg:
+        for view in WIDE_VIEWS:
+            show(pg, view)
+            out[view] = pg.evaluate(BOXES_JS)
+        assert not pg.errors, pg.errors
+    return out
+
+
+# Measured with layout_boxes() on main at 425a1d81 (the dash.html of UAK-165, before UAK-198), twice, with the same numbers: the
+# screens the human approved, per width and view, "x,y,w,h" per box in document order.
+APPROVED_BOXES = {
+    "1280": {
+        "sum": "0,0,72,900 72,0,1208,53 72,53,1208,1455 72,53,1208,1455 96,69,1160,28 96,113,848,1355 96,113,848,369 97,413,846,68 96,498,848,234 109,551,822,92 96,748,848,450 96,1214,848,254 960,113,296,1074 960,113,296,309 960,438,296,285 960,739,296,245 960,999,296,188",
+        "arr": "0,0,72,900 72,0,1208,53 72,53,1208,1543 72,53,1208,1543 96,69,1160,116 96,201,848,1355 96,201,848,369 97,501,846,68 96,586,848,234 109,639,822,92 96,836,848,450 96,1302,848,254 960,201,296,1074 960,201,296,309 960,526,296,285 960,827,296,245 960,1087,296,188",
+        "board-map": "0,0,72,900 72,0,1208,53 72,53,1208,544 72,53,1208,544 96,69,1160,32 96,113,1160,20 96,133,1160,94 109,186,1134,28 96,239,1160,94 109,292,1134,28 96,345,1160,94 109,398,1134,28 96,451,1160,94 109,504,1134,28",
+        "board-cards": "0,0,72,900 72,0,1208,53 72,53,1208,1274 72,53,1208,1274 96,69,1160,32 96,109,1160,1178 96,109,281,1156 389,109,281,1103 682,109,281,1178 975,109,281,724",
+        "agents": "0,0,72,900 72,0,1208,53 72,53,1208,1103 72,53,1208,1103 96,69,1160,228 96,109,226,188 330,109,226,188 563,109,226,188 797,109,226,188 96,321,1160,228 96,361,226,188 330,361,226,188 96,573,1160,138 96,613,190,98 290,613,190,98 96,735,1160,138 96,775,190,98 290,775,190,98 484,775,190,98 678,775,190,98 872,775,190,98 1066,775,190,98 96,896,1160,196 96,936,226,156 330,936,226,156",
+        "talk": "0,0,72,900 72,0,1208,53 72,53,1208,1100 72,53,1208,1100 96,69,1160,30 96,115,1160,998 96,115,280,445 392,115,584,998 992,115,264,311 993,227,262,70",
+        "bb": "0,0,72,900 72,0,1208,53 72,53,1208,875 72,53,1208,875 96,69,1160,30 96,115,1160,24 96,155,1160,278 96,155,572,278 97,196,570,236 684,155,572,204 96,449,1160,439",
+        "mem-list": "0,0,72,900 72,0,1208,53 72,53,1208,931 72,53,1208,931 96,69,1160,30 96,115,1160,829 96,115,572,829 684,115,572,785",
+        "mem-graph": "0,0,72,900 72,0,1208,53 72,53,1208,738 72,53,1208,738 96,69,1160,30 96,115,1160,28 96,159,1160,592 96,159,763,592 97,160,761,560 875,159,381,399",
+        "tokens": "0,0,72,900 72,0,1208,53 72,53,1208,1412 72,53,1208,1412 96,69,1160,174 96,259,1160,517 96,259,376,141 97,300,374,99 488,259,376,168 489,300,374,126 880,259,376,113 881,300,374,71 96,443,1160,333 97,484,1158,291 96,792,1160,549 97,1284,1158,56 96,1357,1160,20 96,1392,1160,20",
+    },
+    "1100": {
+        "sum": "0,0,72,900 72,0,1028,53 72,53,1028,2553 72,53,1028,2553 96,69,980,28 96,113,980,1402 96,113,980,417 97,394,978,135 96,546,980,234 109,599,954,92 96,796,980,450 96,1261,980,254 96,1531,980,1035 96,1531,980,289 96,1836,980,285 96,2137,980,225 96,2378,980,188",
+        "arr": "0,0,72,900 72,0,1028,53 72,53,1028,2667 72,53,1028,2667 96,69,980,142 96,227,980,1402 96,227,980,417 97,508,978,135 96,660,980,234 109,713,954,92 96,910,980,450 96,1375,980,254 96,1645,980,1035 96,1645,980,289 96,1950,980,285 96,2251,980,225 96,2492,980,188",
+        "board-map": "0,0,72,900 72,0,1028,53 72,53,1028,576 72,53,1028,576 96,69,980,32 96,113,980,20 96,133,980,94 109,186,954,28 96,239,980,94 109,292,954,28 96,345,980,94 109,398,954,28 96,451,980,126 109,504,954,60",
+        "board-cards": "0,0,72,900 72,0,1028,53 72,53,1028,2213 72,53,1028,2213 96,69,980,32 96,109,980,2117 96,109,484,1059 592,109,484,1005 96,1180,484,1046 592,1180,484,707",
+        "agents": "0,0,72,900 72,0,1028,53 72,53,1028,1205 72,53,1028,1205 96,69,980,228 96,109,239,188 343,109,239,188 590,109,239,188 837,109,239,188 96,321,980,228 96,361,239,188 343,361,239,188 96,573,980,138 96,613,193,98 293,613,193,98 96,735,980,239 96,775,193,98 293,775,193,98 490,775,193,98 686,775,193,98 883,775,193,98 96,876,193,98 96,998,980,196 96,1038,239,156 343,1038,239,156",
+        "talk": "0,0,72,900 72,0,1028,53 72,53,1028,1719 72,53,1028,1719 96,69,980,30 96,115,980,1617 96,115,980,445 96,576,980,882 96,1474,980,258 97,1546,978,56",
+        "bb": "0,0,72,900 72,0,1028,53 72,53,1028,875 72,53,1028,875 96,69,980,30 96,115,980,24 96,155,980,278 96,155,482,278 97,196,480,236 594,155,482,204 96,449,980,439",
+        "mem-list": "0,0,72,900 72,0,1028,53 72,53,1028,990 72,53,1028,990 96,69,980,30 96,115,980,888 96,115,482,888 594,115,482,843",
+        "mem-graph": "0,0,72,900 72,0,1028,53 72,53,1028,650 72,53,1028,650 96,69,980,30 96,115,980,28 96,159,980,504 96,159,643,504 97,160,641,472 755,159,321,399",
+        "tokens": "0,0,72,900 72,0,1028,53 72,53,1028,1541 72,53,1028,1541 96,69,980,174 96,259,980,646 96,259,482,141 97,300,480,99 594,259,482,168 595,300,480,126 96,443,482,113 97,484,480,71 96,572,980,333 97,613,978,291 96,921,980,549 97,1413,978,56 96,1486,980,20 96,1521,980,20",
+    },
+    "900": {
+        "sum": "0,839,900,61 0,0,900,53 0,53,900,3021 0,53,900,3021 24,69,852,28 24,113,852,1870 24,113,852,417 25,394,850,135 24,546,852,234 37,599,826,92 24,796,852,918 24,1729,852,254 24,1999,852,1035 24,1999,852,289 24,2304,852,285 24,2605,852,225 24,2846,852,188",
+        "arr": "0,839,900,61 0,0,900,53 0,53,900,3135 0,53,900,3135 24,69,852,142 24,227,852,1870 24,227,852,417 25,508,850,135 24,660,852,234 37,713,826,92 24,910,852,918 24,1843,852,254 24,2113,852,1035 24,2113,852,289 24,2418,852,285 24,2719,852,225 24,2960,852,188",
+        "board-map": "0,839,900,61 0,0,900,53 0,53,900,576 0,53,900,576 24,69,852,32 24,113,852,20 24,133,852,94 37,186,826,28 24,239,852,94 37,292,826,28 24,345,852,94 37,398,826,28 24,451,852,126 37,504,826,60",
+        "board-cards": "0,839,900,61 0,0,900,53 0,53,900,2252 0,53,900,2252 24,69,852,32 24,109,852,2156 24,109,420,1078 456,109,420,1005 24,1199,420,1066 456,1199,420,712",
+        "agents": "0,839,900,61 0,0,900,53 0,53,900,1318 0,53,900,1318 24,69,852,381 24,109,279,169 311,109,279,169 597,109,279,169 24,286,279,164 24,474,852,209 24,514,279,169 311,514,279,169 24,706,852,138 24,746,210,98 238,746,210,98 24,868,852,239 24,908,210,98 238,908,210,98 452,908,210,98 666,908,210,98 24,1009,210,98 238,1009,210,98 24,1131,852,177 24,1171,279,137 311,1171,279,137",
+        "talk": "0,839,900,61 0,0,900,53 0,53,900,1719 0,53,900,1719 24,69,852,30 24,115,852,1617 24,115,852,445 24,576,852,882 24,1474,852,258 25,1546,850,56",
+        "bb": "0,839,900,61 0,0,900,53 0,53,900,903 0,53,900,903 24,69,852,30 24,115,852,52 24,183,852,278 24,183,418,278 25,224,416,236 458,183,418,223 24,477,852,439",
+        "mem-list": "0,839,900,61 0,0,900,53 0,53,900,1087 0,53,900,1087 24,69,852,30 24,115,852,985 24,115,418,985 458,115,418,921",
+        "mem-graph": "0,839,900,61 0,0,900,53 0,53,900,587 0,53,900,587 24,69,852,30 24,115,852,28 24,159,852,441 24,159,557,441 25,160,555,409 597,159,279,399",
+        "tokens": "0,839,900,61 0,0,900,53 0,53,900,2092 0,53,900,2092 24,69,852,174 24,259,852,646 24,259,418,141 25,300,416,99 458,259,418,168 459,300,416,126 24,443,418,113 25,484,416,71 24,572,852,333 25,613,850,291 24,921,852,1100 25,1963,850,56 24,2037,852,20 24,2072,852,20",
+    },
+    "640": {
+        "sum": "0,839,640,61 0,0,640,121 0,121,640,3658 0,121,640,3658 16,137,608,44 16,197,608,2468 16,197,608,732 17,793,606,135 16,945,608,282 29,998,582,140 16,1243,608,1140 16,2399,608,266 16,2681,608,1058 16,2681,608,289 16,2986,608,294 16,3296,608,239 16,3551,608,188",
+        "arr": "0,839,640,61 0,0,640,121 0,121,640,3794 0,121,640,3794 16,137,608,176 16,329,608,2438 16,329,608,744 17,937,606,135 16,1089,608,294 29,1154,582,140 16,1399,608,1086 16,2501,608,266 16,2783,608,1092 16,2783,608,301 16,3100,608,306 16,3422,608,237 16,3675,608,200",
+        "board-map": "0,839,640,61 0,0,640,121 0,121,640,698 0,121,640,698 16,137,608,98 16,247,608,20 16,267,608,98 29,320,582,32 16,377,608,98 29,430,582,32 16,487,608,98 29,540,582,32 16,597,608,170 29,650,582,104",
+        "board-cards": "0,839,640,61 0,0,640,121 0,121,640,4339 0,121,640,4339 16,137,608,98 16,243,608,4177 16,243,608,1156 16,1411,608,1059 16,2481,608,1107 16,3600,608,821",
+        "agents": "0,839,640,61 0,0,640,121 0,121,640,1443 0,121,640,1443 16,137,608,425 16,177,300,189 324,177,300,189 16,374,300,189 324,374,300,189 16,586,608,229 16,626,300,189 324,626,300,189 16,839,608,158 16,879,200,118 220,879,200,118 16,1020,608,279 16,1060,200,118 220,1060,200,118 424,1060,200,118 16,1182,200,118 220,1182,200,118 424,1182,200,118 16,1323,608,177 16,1363,300,137 324,1363,300,137",
+        "talk": "0,839,640,61 0,0,640,121 0,121,640,1955 0,121,640,1955 16,137,608,98 16,251,608,1785 16,251,608,445 16,712,608,1050 16,1778,608,258 17,1850,606,56",
+        "bb": "0,839,640,61 0,0,640,121 0,121,640,1222 0,121,640,1222 16,137,608,98 16,251,608,92 16,359,608,480 16,359,608,278 17,400,606,236 16,653,608,186 16,855,608,448",
+        "mem-list": "0,839,640,61 0,0,640,121 0,121,640,1855 0,121,640,1855 16,137,608,46 16,199,608,1737 16,199,608,947 16,1162,608,774",
+        "mem-graph": "0,839,640,61 0,0,640,121 0,121,640,1136 0,121,640,1136 16,137,608,46 16,199,608,148 16,363,608,854 16,363,608,479 17,364,606,447 16,858,608,359",
+        "tokens": "0,839,640,61 0,0,640,121 0,121,640,2564 0,121,640,2564 16,137,608,174 16,327,608,803 16,327,608,141 17,368,606,99 16,483,608,168 17,524,606,126 16,667,608,113 17,708,606,71 16,796,608,333 17,837,606,291 16,1145,608,1416 17,2504,606,56 16,2577,608,20 16,2613,608,20",
+    },
+    "390": {
+        "sum": "0,783,390,61 0,0,390,121 0,121,390,4042 0,121,390,4042 16,137,358,44 16,197,358,2853 16,197,358,849 17,910,356,135 16,1062,358,426 29,1115,332,248 16,1504,358,1242 16,2762,358,288 16,3066,358,1058 16,3066,358,289 16,3371,358,294 16,3681,358,239 16,3936,358,188",
+        "arr": "0,783,390,61 0,0,390,121 0,121,390,4191 0,121,390,4191 16,137,358,212 16,365,358,2799 16,365,358,861 17,1090,356,135 16,1242,358,438 29,1307,332,248 16,1696,358,1164 16,2876,358,288 16,3180,358,1092 16,3180,358,301 16,3497,358,306 16,3819,358,237 16,4072,358,200",
+        "board-map": "0,783,390,61 0,0,390,121 0,121,390,794 0,121,390,794 16,137,358,122 16,271,358,20 16,291,358,134 29,344,332,68 16,437,358,98 29,490,332,32 16,547,358,98 29,600,332,32 16,657,358,206 29,710,332,140",
+        "board-cards": "0,783,390,61 0,0,390,121 0,121,390,4634 0,121,390,4634 16,137,358,122 16,267,358,4449 16,267,358,1253 16,1532,358,1156 16,2700,358,1183 16,3895,358,821",
+        "agents": "0,783,390,61 0,0,390,121 0,121,390,2249 0,121,390,2249 16,137,358,794 16,177,358,189 16,374,358,189 16,570,358,189 16,767,358,164 16,955,358,401 16,995,358,164 16,1167,358,189 16,1379,358,158 16,1419,177,118 197,1419,177,118 16,1561,358,401 16,1601,177,118 197,1601,177,118 16,1722,177,118 197,1722,177,118 16,1844,177,118 197,1844,177,118 16,1985,358,321 16,2025,358,137 16,2170,358,137",
+        "talk": "0,783,390,61 0,0,390,121 0,121,390,2064 0,121,390,2064 16,137,358,98 16,251,358,1894 16,251,358,445 16,712,358,1125 16,1853,358,292 17,1945,356,70",
+        "bb": "0,783,390,61 0,0,390,121 0,121,390,1307 0,121,390,1307 16,137,358,98 16,251,358,140 16,407,358,517 16,407,358,278 17,448,356,236 16,701,358,223 16,940,358,448",
+        "mem-list": "0,783,390,61 0,0,390,121 0,121,390,2401 0,121,390,2401 16,137,358,46 16,199,358,2283 16,199,358,1220 16,1435,358,1047",
+        "mem-graph": "0,783,390,61 0,0,390,121 0,121,390,2428 0,121,390,2428 16,137,358,74 16,227,358,2283 16,227,358,1220 16,1462,358,1047",
+        "tokens": "0,783,390,61 0,0,390,121 0,121,390,2715 0,121,390,2715 16,137,358,193 16,346,358,803 16,346,358,141 17,387,356,99 16,503,358,168 17,544,356,126 16,687,358,113 17,728,356,71 16,816,358,333 17,857,356,291 16,1165,358,1528 17,2621,356,70 16,2708,358,20 16,2744,358,39",
+    },
+}
+
+
+def layout_is_unchanged_at_1280_and_below(root, tmp):
+    """At 1280, 1100, 900, 640 and 390 px every box of every tab (the header, the rail, the columns, every block, card and grid) is
+    where it was and as big as it was on the screens the human approved: the same numbers as main before UAK-198, within a pixel."""
+    for width in (1280, 1100, 900, 640, 390):
+        got = layout_boxes(root, tmp, width)
+        for view in WIDE_VIEWS:
+            want = [[int(n) for n in b.split(",")] for b in APPROVED_BOXES[str(width)][view].split()]
+            have = got[view]
+            assert len(have) == len(want), "%d px, %s: %d boxes, the approved screen has %d: %r" % (width, view, len(have), len(want), have)
+            bad = [(i, a, b) for i, (a, b) in enumerate(zip(have, want)) if any(abs(x - y) > 1 for x, y in zip(a, b))]
+            assert not bad, "%d px, %s: boxes moved (index, now, approved): %r" % (width, view, bad[:6])
+    return "browser"
+
+
+RIGHT_JS = """() => { const v = document.getElementById('view'), W = document.documentElement.clientWidth;
+  const els = Array.from(v.querySelectorAll('.card, .list, .win, .bh, .ac, .filters, .page > .col > *, .page > .arrbar')).filter(e => e.getClientRects().length);
+  const right = Math.max(...els.map(e => e.getBoundingClientRect().right));
+  const ctl = Array.from(document.querySelectorAll('.head > *')).filter(e => e.getClientRects().length).map(e => e.getBoundingClientRect().right);
+  return { W: W, right: Math.round(right), head: Math.round(Math.max(...ctl)), scroll: document.documentElement.scrollWidth }; }"""
+
+
+def content_reaches_the_right_edge_on_wide_screens(root, tmp):
+    """At 1440, 1920 and 2560 px every view of every tab reaches within 32 px of the window's right edge and never past it, the
+    header's controls end at the right edge, the summary's side column is at the right, and a task's detail opens against the
+    right edge (at most 760 px wide) while Share opens centred inside the window."""
+    for width in (1440, 1920, 2560):
+        with screen(root, tmp, wide_data(), width) as pg:
+            for view in WIDE_VIEWS:
+                show(pg, view)
+                m = pg.evaluate(RIGHT_JS)
+                assert width - 32 <= m["right"] <= width and m["scroll"] <= width, "%d px, %s: the content ends at %d px (an empty band of %d px), or past the window: %r" % (width, view, m["right"], width - m["right"], m)
+                assert width - 32 <= m["head"] <= width, "%d px, %s: the header's controls end at %d px" % (width, view, m["head"])
+            show(pg, "sum")
+            side = pg.evaluate("Math.round(document.querySelector('#view .col[data-col=side]').getBoundingClientRect().right)")
+            assert side >= width - 32, "%d px: the side column ends at %d" % (width, side)
+            pg.evaluate("document.querySelector('#view .rows [data-story]').click()")
+            pg.wait_for_function("document.getElementById('story').open")
+            st = pg.evaluate("(() => { const r = document.getElementById('story').getBoundingClientRect(); return [r.left, r.right, r.width]; })()")
+            assert abs(st[1] - width) <= 1 and st[2] <= 760, "%d px: the task's detail sits against the right edge: %r" % (width, st)
+            pg.keyboard.press("Escape")
+            pg.wait_for_function("!document.getElementById('story').open")
+            pg.evaluate("document.getElementById('share-btn').click()")
+            pg.wait_for_function("document.getElementById('share').open")
+            sh = pg.evaluate("(() => { const r = document.getElementById('share').getBoundingClientRect(); return [r.left, r.right, r.top, r.bottom, innerHeight]; })()")
+            assert sh[0] >= 0 and sh[1] <= width and abs(sh[0] - (width - sh[1])) <= 2 and sh[2] >= 0 and sh[3] <= sh[4], "%d px: Share is centred in the window: %r" % (width, sh)
+            pg.keyboard.press("Escape")
+            assert not pg.errors, pg.errors
+    return "browser"
+
+
+LINES_JS = """() => { const out = [], w = document.createTreeWalker(document.getElementById('view'), NodeFilter.SHOW_TEXT); let n;
+  while ((n = w.nextNode())) { const t = n.nodeValue; if (t.trim().length < 90) continue; const p = n.parentElement;
+    if (!p.getClientRects().length || /nowrap|pre$/.test(getComputedStyle(p).whiteSpace)) continue;
+    const r = document.createRange(), lines = {}; let at = null;
+    for (let i = 0; i < t.length; i++) { if (/\\s/.test(t[i])) { if (at !== null) lines[at]++; continue; }
+      r.setStart(n, i); r.setEnd(n, i + 1); const b = r.getClientRects()[0]; if (!b || !b.width) continue; at = Math.round(b.top); lines[at] = (lines[at] || 0) + 1; }
+    const tops = Object.keys(lines); if (!tops.length) continue;
+    out.push([Math.max(...tops.map(k => lines[k])), t.trim().slice(0, 50)]); }
+  return out.filter(x => x[0] > 95); }"""
+
+
+def wide_screens_add_columns_not_stretch(root, tmp):
+    """The extra width is used, not stretched. The rule (pure, under node): up to 1480 px of content the summary is the approved
+    one (a side of 296 px); from 1480 px the side shows its components in two columns, from 2900 px in three, each 296 to 440 px;
+    a list alone flows into those columns; the memory graph's canvas is the card's width and fits the window. In Chromium at 1920
+    and 2560 px: the side's blocks sit in two columns, none wider than 460 px; the squares fill the row; the board's four columns
+    share the width; the Agents grid has more cards per row, none stretched; the tokens' panels sit three or more to a row and
+    the long breakdown in two groups; lessons and decisions in two columns; the black box's panels beside its notes; the graph
+    on a larger canvas with labels at their size; no line of running text over about 90 characters (95, spaces counted).
+    The viewer's arrangement means the same at every width: arrange mode moves, crosses and drags at 2560 px, the side's columns
+    are never stored, and an arrangement saved before UAK-198 is drawn as it was saved."""
+    out = truth.under_node(root, """return [sumCols(1160, 4, 4), sumCols(1320, 4, 4), sumCols(1479, 4, 4), sumCols(1480, 4, 4), sumCols(1800, 4, 4), sumCols(2440, 4, 4),
+      sumCols(3720, 4, 4), sumCols(1800, 4, 1), sumCols(3720, 2, 2), sumCols(1800, 8, 0), sumCols(1160, 8, 0), sumCols(1800, 0, 8), sumCols(3720, 1, 0), sumCols(NaN, 4, 4),
+      graphBox(763, 900, 500, 400), graphBox(NaN, 900, 500, 400), graphBox(1316, 1080, 900, 600), graphBox(1904, 1440, 900, 700), graphBox(1316, 1080, 300, 60)];""")
+    if out is not None:
+        narrow = {"flow": 1, "side": 1, "w": 296}
+        assert out[0] == narrow and out[1] == narrow and out[2] == narrow and out[13] == narrow, "up to 1480 px the approved summary: %r" % out[:3]
+        assert out[3] == {"flow": 1, "side": 2, "w": 608}, "from 1480 px two side columns of 296: %r" % out[3]
+        assert out[4] == {"flow": 1, "side": 2, "w": 648} and out[5] == {"flow": 1, "side": 2, "w": 878}, "the side grows with the width: %r %r" % (out[4], out[5])
+        assert out[6] == {"flow": 1, "side": 3, "w": 1340}, "three columns from 2900 px: %r" % out[6]
+        assert out[7] == {"flow": 1, "side": 1, "w": 316} and out[8] == {"flow": 1, "side": 2, "w": 888}, "never more columns than components: %r %r" % (out[7], out[8])
+        assert out[9] == {"flow": 2, "side": 0, "w": 0} and out[10] == {"flow": 1, "side": 0, "w": 0} and out[11] == {"flow": 2, "side": 0, "w": 0} and out[12] == {"flow": 1, "side": 0, "w": 0}, \
+            "a list alone flows into the columns of its width: %r" % out[9:13]
+        assert out[14] == {"W": 760, "H": 560} and out[15] == {"W": 760, "H": 560}, "the approved graph up to 800 px: %r" % out[14:16]
+        assert out[16]["W"] == 1316 and 560 <= out[16]["H"] <= 1080 - 240 and out[17]["W"] == 1904 and out[17]["H"] <= 1440 - 240, "a larger canvas that fits the window: %r" % out[16:18]
+        assert out[18]["W"] == 1316 and out[18]["H"] < 560, "a flat graph gets a flat canvas, not a tall empty one: %r" % out[18]
+    with screen(root, tmp, wide_data(), 1280) as pg:
+        show(pg, "sum")
+        rows1280 = pg.evaluate("new Set(Array.from(document.querySelectorAll('#view .b-map .sq')).map(e => Math.round(e.getBoundingClientRect().top))).size")
+        show(pg, "agents")
+        per1280 = pg.evaluate("Array.from(document.querySelector('#view .agrid').children).filter((e, i, a) => Math.round(e.getBoundingClientRect().top) === Math.round(a[0].getBoundingClientRect().top)).length")
+        show(pg, "talk")
+        thread1280 = pg.evaluate("document.querySelector('#view .cv > .win').getBoundingClientRect().width")
+    for width in (1920, 2560):
+        with screen(root, tmp, wide_data(), width) as pg:
+            show(pg, "sum")
+            s = pg.evaluate("""() => { const q = (x) => Array.from(document.querySelectorAll(x)), r = (e) => e.getBoundingClientRect();
+              const side = q('#view .col[data-col=side] > *'), main = r(document.querySelector('#view .col[data-col=main]')), map = document.querySelector('#view .b-map .tmap'), sq = q('#view .b-map .sq');
+              const top0 = Math.round(r(sq[0]).top), first = sq.filter(e => Math.round(r(e).top) === top0);
+              return { lefts: new Set(side.map(e => Math.round(r(e).left))).size, widths: side.map(e => Math.round(r(e).width)), main: Math.round(main.width),
+                       rows: new Set(sq.map(e => Math.round(r(e).top))).size, gap: Math.round(r(map).right - r(first[first.length - 1]).right) }; }""")
+            assert s["lefts"] >= 2 and all(296 <= w <= 460 for w in s["widths"]) and s["main"] >= 848, "%d px: the side's blocks in two columns of 296 to 460 px: %r" % (width, s)
+            assert s["rows"] < rows1280 and s["gap"] < 40, "%d px: the squares fill the row (%d rows here, %d at 1280): %r" % (width, s["rows"], rows1280, s)
+            show(pg, "board-cards")
+            b = pg.evaluate("""() => { const c = Array.from(document.querySelectorAll('#view .bd > *')).map(e => e.getBoundingClientRect()), bd = document.querySelector('#view .bd').getBoundingClientRect();
+              return { n: c.length, tops: new Set(c.map(x => Math.round(x.top))).size, w: c.map(x => Math.round(x.width)), bd: Math.round(bd.width) }; }""")
+            assert b["n"] == 4 and b["tops"] == 1 and max(b["w"]) - min(b["w"]) <= 2 and sum(b["w"]) >= b["bd"] - 40, "%d px: the board's four columns share the width: %r" % (width, b)
+            show(pg, "board-map")
+            m = pg.evaluate("""() => { const c = Array.from(document.querySelectorAll('#view .wide > section')).map(e => e.getBoundingClientRect()), W = document.querySelector('#view .wide').clientWidth;
+              return { tops: c.map(x => Math.round(x.top)), w: c.map(x => Math.round(x.width)), W: W }; }""")
+            assert len(set(m["tops"])) < len(m["tops"]) and m["w"][0] < m["W"] / 2, "%d px: the stages with few tasks sit side by side, none a wide empty box: %r" % (width, m)
+            show(pg, "agents")
+            a = pg.evaluate("""() => { const c = Array.from(document.querySelector('#view .agrid').children).map(e => e.getBoundingClientRect()), t = Math.round(c[0].top);
+              return { per: c.filter(x => Math.round(x.top) === t).length, w: Math.round(Math.max(...c.map(x => x.width))) }; }""")
+            assert a["per"] > per1280 and a["per"] >= 4 and a["w"] <= 300, "%d px: more agent cards per row, none stretched (%d at 1280): %r" % (width, per1280, a)
+            show(pg, "tokens")
+            k = pg.evaluate("""() => { const p = Array.from(document.querySelectorAll('#view .g2 > *')).map(e => e.getBoundingClientRect()), t = Math.round(p[0].top);
+              const full = document.querySelector('#view .g2 > .full .hb'), dts = Array.from(document.querySelectorAll('#view .tkh .kv dt')).map(e => Math.round(e.getBoundingClientRect().top));
+              return { row: p.filter(x => Math.round(x.top) === t).length, groups: full ? new Set(Array.from(full.querySelectorAll('.l')).map(e => Math.round(e.getBoundingClientRect().left))).size : 0, kv: new Set(dts).size }; }""")
+            assert k["row"] >= 3 and k["groups"] >= 2 and k["kv"] == 1, "%d px: the tokens' panels flow into columns: %r" % (width, k)
+            show(pg, "mem-list")
+            ml = pg.evaluate("new Set(Array.from(document.querySelectorAll('#view .g2 > section:first-child .list > li')).map(e => Math.round(e.getBoundingClientRect().left))).size")
+            assert ml >= 2, "%d px: the lessons sit in two columns: %r" % (width, ml)
+            show(pg, "mem-graph")
+            g = pg.evaluate("""() => { const s = document.querySelector('#view svg.mg').getBoundingClientRect(), t = document.querySelector('#view svg.mg text');
+              return { w: Math.round(s.width), h: Math.round(s.height), top: Math.round(s.top), vh: innerHeight, label: t ? Math.round(t.getBoundingClientRect().height) : 0 }; }""")
+            assert g["w"] > 1000 and g["top"] + g["h"] <= g["vh"] + 40 and 8 <= g["label"] <= 16, "%d px: the graph on a larger canvas that fits the window, labels at their size: %r" % (width, g)
+            show(pg, "bb")
+            bb = pg.evaluate("""() => { const g = document.querySelector('#view .g2').getBoundingClientRect(), n = document.querySelector('#view .wide > section:last-child').getBoundingClientRect();
+              return { g: Math.round(g.left), n: Math.round(n.right), top: Math.round(g.top), ntop: Math.round(n.top) }; }""")
+            assert bb["g"] > bb["n"] and bb["top"] < bb["ntop"] + 200, "%d px: the black box's panels sit beside its notes: %r" % (width, bb)
+            show(pg, "talk")
+            t = pg.evaluate("Math.round(document.querySelector('#view .cv > .win').getBoundingClientRect().width)")
+            assert t > thread1280 + 200, "%d px: the conversation is wider (%d at 1280): %r" % (width, thread1280, t)
+            for view in WIDE_VIEWS:
+                show(pg, view)
+                long = pg.evaluate(LINES_JS)
+                assert not long, "%d px, %s: lines of running text over about 90 characters: %r" % (width, view, long[:4])
+            assert not pg.errors, pg.errors
+    # the arrangement at 2560: arrange mode works, the columns are not stored, an older arrangement is drawn as saved
+    with screen(root, tmp, wide_data(), 2560) as pg:
+        show(pg, "arr")
+        assert pg.evaluate("new Set(Array.from(document.querySelectorAll('#view .col[data-col=side] > .arr')).map(e => Math.round(e.getBoundingClientRect().left))).size") >= 2, "arranging keeps the side's columns"
+        press(pg, '[data-f="agents:down"]')
+        pg.wait_for_function("document.querySelector('#view .col[data-col=side]').children[2].getAttribute('data-blk') === 'agents'")
+        press(pg, '[data-f="pace:col"]')
+        pg.wait_for_function("document.querySelector('#view .col[data-col=main] .arr[data-blk=pace]')")
+        pg.evaluate("scrollTo({ top: 0, behavior: 'instant' })")
+        src = pg.locator('[data-grip="tokens"]').bounding_box()
+        dst = pg.locator('#view .arr[data-blk="tasks"]').bounding_box()
+        pg.mouse.move(src["x"] + src["width"] / 2, src["y"] + src["height"] / 2)
+        pg.mouse.down()
+        for k in range(1, 9):
+            pg.mouse.move(src["x"] + (dst["x"] + 40 - src["x"]) * k / 8, src["y"] + (dst["y"] + 4 - src["y"]) * k / 8)
+        pg.mouse.up()
+        pg.wait_for_function("document.querySelector('#view .col[data-col=main] .arr[data-blk=tokens]')")
+        lay = layout_in(pg)
+        assert lay["main"].index("tokens") == lay["main"].index("tasks") - 1 and "pace" in lay["main"] and lay["side"] == ["progress", "agents"], "moves, crossing and a drag at 2560 px: %r" % lay
+        # a drag inside the side, from its second column to its first
+        g2 = pg.locator('[data-grip="agents"]').bounding_box()
+        d2 = pg.locator('#view .arr[data-blk="progress"]').bounding_box()
+        assert g2["x"] > d2["x"] + 100, "agents is in the side's second column: %r %r" % (g2, d2)
+        pg.mouse.move(g2["x"] + g2["width"] / 2, g2["y"] + g2["height"] / 2)
+        pg.mouse.down()
+        for k in range(1, 9):
+            pg.mouse.move(g2["x"] + (d2["x"] + 40 - g2["x"]) * k / 8, g2["y"] + (d2["y"] + 4 - g2["y"]) * k / 8)
+        pg.mouse.up()
+        pg.wait_for_function("document.querySelector('#view .col[data-col=side]').children[0].getAttribute('data-blk') === 'agents'")
+        kept = json.loads(pg.evaluate("(k) => localStorage.getItem(k)", KEY))
+        assert sorted(kept) == ["hide", "main", "side"] and kept["side"] == ["agents", "progress"], "what is kept is the two lists and the hidden ones, never a column count: %r" % kept
+        assert not pg.errors, pg.errors
+    old = {"main": ["needs", "lanes", "tasks"], "side": ["tokens", "progress", "map", "agents"], "hide": ["pace"]}
+    with screen(root, tmp, wide_data(), 1920, seed={KEY: json.dumps(old)}) as pg:
+        assert layout_in(pg) == {"main": old["main"], "side": old["side"]}, "an arrangement saved before UAK-198 is drawn as saved: %r" % layout_in(pg)
+        assert pg.evaluate("new Set(Array.from(document.querySelectorAll('#view .col[data-col=side] > *')).map(e => Math.round(e.getBoundingClientRect().left))).size") >= 2
+        assert pg.evaluate("(k) => localStorage.getItem(k)", KEY) == json.dumps(old), "and kept as it was: nothing about the width is added"
+        assert not pg.errors, pg.errors
+    return "browser"
+
+
+SCROLL_JS = """() => { const d = document.documentElement, ctl = Array.from(document.querySelectorAll('.head > *')).filter(e => e.getClientRects().length).map(e => e.getBoundingClientRect().right);
+  return { sw: d.scrollWidth, cw: d.clientWidth, head: Math.round(Math.max(...ctl)) }; }"""
+
+
+def no_sideways_scroll_from_320_to_3840(root, tmp):
+    """From 320 to 3840 px no view of any tab scrolls sideways and the header's controls end at the window's right edge; the same
+    with no task, one task, 300 tasks and 40 agents, with every side block hidden, with every block in the main column, and at
+    1920 px zoomed to 200 % (960 px of CSS), where the page is the 960 px page."""
+    for width in (320, 360, 390, 414, 640, 768, 900, 1024, 1100, 1280, 1366, 1440, 1600, 1920, 2560, 3840):
+        with screen(root, tmp, wide_data(), width, phone=width < 640) as pg:
+            for view in WIDE_VIEWS:
+                show(pg, view)
+                m = pg.evaluate(SCROLL_JS)
+                assert m["sw"] <= m["cw"], "%d px, %s: the page scrolls sideways (%d > %d)" % (width, view, m["sw"], m["cw"])
+                assert width - 32 <= m["head"] <= width, "%d px, %s: the header's controls end at %d" % (width, view, m["head"])
+            assert not pg.errors, pg.errors
+    names = [n for n, _ in ORDER]
+    edges = [("empty", None), ("one", None), ("300", None), ("40 agents", None),
+             ("60", {"main": names[:4], "side": [], "hide": names[4:]}), ("60", {"main": names, "side": [], "hide": []}), ("60", {"main": [], "side": names, "hide": []})]
+    for name, arr in edges:
+        data = wide_data() if name == "60" else wide_data_named(name)
+        for width in (320, 1920, 3840):
+            with screen(root, tmp, data, width, phone=width < 640, seed={KEY: json.dumps(arr)} if arr else None) as pg:
+                for view in WIDE_VIEWS:
+                    show(pg, view)
+                    m = pg.evaluate(SCROLL_JS)
+                    assert m["sw"] <= m["cw"] and width - 32 <= m["head"] <= width, "%s %s, %d px, %s: %r" % (name, arr and "arranged" or "", width, view, m)
+                if width > 640 and name != "empty":
+                    show(pg, "sum")
+                    r = pg.evaluate(RIGHT_JS)
+                    assert width - 32 <= r["right"] <= width, "%s %s, %d px: the summary reaches the right edge: %r" % (name, arr and "arranged" or "", width, r)
+                assert not pg.errors, pg.errors
+    with screen(root, tmp, wide_data(), 960, height=540, scale=2) as zoomed:
+        show(zoomed, "sum")
+        z = zoomed.evaluate(BOXES_JS)
+        assert zoomed.evaluate(SCROLL_JS)["sw"] <= 960
+    with screen(root, tmp, wide_data(), 960, height=540) as plain:
+        show(plain, "sum")
+        assert plain.evaluate(BOXES_JS) == z, "1920 px at 200 % is the 960 px page"
+    return "browser"
+
+
 TESTS = [summary_is_a_list_of_components, arrange_mode_shakes_and_respects_reduced_motion, move_hide_and_add_persist_per_viewer,
          needs_you_cannot_be_hidden, team_default_is_used_when_the_viewer_has_none, unknown_component_falls_back,
          arranging_works_with_the_keyboard, corrupt_arrangement_gives_the_default, language_is_applied_before_first_paint]
+TESTS += [content_reaches_the_right_edge_on_wide_screens, wide_screens_add_columns_not_stretch, layout_is_unchanged_at_1280_and_below,
+          no_sideways_scroll_from_320_to_3840]
 
 
 def main():
