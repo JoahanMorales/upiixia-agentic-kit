@@ -152,6 +152,9 @@ NOT_MEASUREMENTS = [
     r"\b[A-Z][A-Z0-9]*-\d+\b",                                     # a task ID
     r"^\s*\d+\.\s",                                                # the number of a numbered list item
     r"\b\d{4}-\d\d-\d\d\b",                                         # a date
+    r"\b20\d\d\b",                                                 # a year, as in an event's name
+    r"\b[A-Za-z]+-\d+\.\d+\b",                                      # a license: Apache-2.0, AGPL-3.0
+    r"Stuff\+ 2240",                                               # an entry's name
 ]
 SOURCES = [
     r"\]\(docs/EVIDENCE\.md(#[^)]*)?\)",
@@ -450,7 +453,7 @@ def wins_name_their_event_and_source():
             low = changelog.lower()
             expect(key in low and plain(r[col["place"]]).strip().lower() in low,
                    "%s: CHANGELOG.md says the event and the place" % event)
-        elif target.group(2) == "docs/EVIDENCE.md":
+        else:   # docs/EVIDENCE.md or a page: the dated record of the statement is in docs/EVIDENCE.md
             stated = [l for l in evidence.split("\n") if key in l.lower() and "statement" in l.lower()]
             expect(stated and re.search(r"\d{4}-\d\d-\d\d", stated[0]),
                    "%s: docs/EVIDENCE.md records the dated statement" % event)

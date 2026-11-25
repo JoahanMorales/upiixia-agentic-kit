@@ -76,6 +76,21 @@ Limits written there: one scenario, one model, a small repository; Codex and Cur
 `python3 scripts/adoption_eval.py --label NAME --out docs/evals/adoption-NAME.json` (it runs real Claude Code sessions,
 so it needs a signed-in `claude` and costs tokens).
 
+## The wins
+
+The README lists four first places won by teams that used the kit. For each: where the place is stated, the proof the
+kit ran in the entry, and where the date comes from. Read on 2026-11-25.
+
+| Event | Place, and who says it | The kit in the entry | Date from |
+|---|---|---|---|
+| OpenAI × Kavak hackathon | first place: CHANGELOG v6.1.0 ("OpenAI x Kavak, first place"), and the maintainer's statement of 2026-11-25 | the entry's repository is not public; the CHANGELOG v6.1.0 entry and [the autopsy](blackbox/devday-deus-2026-11.md) were read from its claims branch, on kit v6.0.0 | the autopsy (2026-11-09) |
+| HackADA | first place: CHANGELOG v5.9.0 ("We won HackADA (first place) on a repository copied from the previous hackathon") | `.uak/VERSION` is 5.3.0 in [rvvictor/HackADA-Upiixia](https://github.com/rvvictor/HackADA-Upiixia) | the repository's first commits and the CHANGELOG (2026-10-29) |
+| Chilangatón | first place: CHANGELOG v5.4.0 ("Chilangatón (first place)") | `.uak/VERSION` is 5.3.0 in [rvvictor/Chilangaton-Upiixia](https://github.com/rvvictor/Chilangaton-Upiixia) | the repository's history and [the black box](blackbox/chilangaton-2026-10.md) (2026-10-25) |
+| ISAC × Diablos Rojos (ISAC Sports Analytics Hackathon 2026) | first place: the maintainer's statement, 2026-11-25, as written in his public profile ([github.com/JoahanMorales](https://github.com/JoahanMorales), "1.º lugar · ISAC × Diablos Rojos · Stuff+ 2240") | `.uak/VERSION` is 5.0.0 in [JoahanMorales/stuffplus2240](https://github.com/JoahanMorales/stuffplus2240); the event started on v4.2.1 ([first autopsy](blackbox/mlb-2026-10.md)) and moved to v5.0.0 ([the v5 week](blackbox/mlb-2026-10-week2.md)) | the autopsies' window (kickoff 2026-10-12, deadline 2026-10-22) |
+
+To check again: `gh api repos/OWNER/NAME/contents/.uak/VERSION --jq .content | base64 -d` for each public entry, and
+the CHANGELOG headings named above.
+
 ## Team events
 
 Each event's claims branch was read after it and turned into a report; each report's findings became a release. The
@@ -94,7 +109,7 @@ branch checked out in DIR.
 | Hacktoberfest, 2026-10-27 to 28 | about 16 h, 5 humans, 13 identities on Claude Code and Codex, 33 of 35 tasks integrated | [black box](blackbox/hacktoberfest-2026-10.md) | v5.5 |
 | HackADA, 2026-10-29, first place | about 4 h, 9 Claude Code identities on 4 laptops, 25 of 27 tasks integrated, on a repository copied with kit v5.3.0 | [black box](blackbox/hackada-2026-10.md) | v5.9 |
 | HackADA on a Windows laptop, 2026-10-30 | the kit's suite and the product on Git Bash; 19 findings | [audit](blackbox/windows-audit-2026-10.md) | v5.9.1 |
-| DevDay-Exchange and deus-ex-machina (first place), 2026-11-07 to 09 | DevDay: 37 of 41 tasks integrated; deus: 6 of 23 tasks integrated and 120 of 155 commits outside tasks | [autopsy](blackbox/devday-deus-2026-11.md) | v6.1 |
+| DevDay-Exchange and the OpenAI × Kavak hackathon (first place), 2026-11-07 to 09 | DevDay: 37 of 41 tasks integrated; OpenAI × Kavak: 6 of 23 tasks integrated and 120 of 155 commits outside tasks | [autopsy](blackbox/devday-deus-2026-11.md) | v6.1 |
 | Black box harvest, 2026-11-11 to 19 | 1,409 events from the 14 repositories that have the kit | [harvest](blackbox/harvest-2026-11.md) | v6.5 |
 
 ### Hack-Nation 2026 in detail

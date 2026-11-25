@@ -2,18 +2,25 @@
 
 > A set of Bash scripts and written rules that lets several AI coding agents work in one Git repository at the same time, each on its own task, with every change tested and reviewed before it reaches the main branch.
 
-Who it is for: people who run more than one coding agent (Claude Code, Codex, Cursor or Gemini CLI) on the same repository, alone or as a team, at a hackathon or on a product.
-What you have after ten minutes: the kit installed, a list of tasks you approved, and the command that puts the first agent on the first task.
+The aim: several people and their coding agents working on one repository at the same time, without stepping on each other.
+Who it is for: anyone who runs more than one coding agent (Claude Code, Codex, Cursor or Gemini CLI) on the same repository, alone or as a team, at a hackathon or on a product.
+What you have after ten minutes: the kit installed, a plan of tasks you approved, and the command that puts the first agent on its first task.
 Start, in the root of a Git repository (a person, in a browser): `git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit && bash ~/.uak-kit/install.sh --wizard .`
+
+## Why it exists
+- Several agents on one repository collide: two edit the same file, one stops holding a task, a force-push wipes work, nobody runs the merged code. The kit's rules come from those incidents ([WHY.md](kit/.uak/docs/WHY.md)).
+
+## Get started
+- An agent or CI installs with `bash ~/.uak-kit/install.sh --mode sprint .` (or `--mode marathon`), then runs `bash .uak/bin/uak start` until it gives the command that starts the first task.
 
 ## How it works
 - The plan is `.uak/TASKS.md`, the rules `.uak/PROJECT.md`, the live state commits on the `claims` branch of the Git remote. No server.
-- A task names its `Paths`, `Tests` and `Verify`. A task whose `Paths` overlap a claimed task's cannot be claimed.
+- A task names its `Paths`, `Tests` and `Verify`; a claim whose files overlap a live claim is refused.
 - The agent writes the tests first (`uak red`), then the code; `uak done` asks a reviewer who is not the author; `uak merge` checks again and pushes `main` and `claims` together.
 - `uak next` says what to do now; `uak dash` and `uak board` show the team.
 
-## Start from a terminal
-- An agent or CI installs with `bash ~/.uak-kit/install.sh --mode sprint .` (or `--mode marathon`), then runs `bash .uak/bin/uak start` until it gives the command that starts the first task.
+## What it has won
+- First place at the OpenAI × Kavak hackathon, HackADA, Chilangatón and ISAC × Diablos Rojos, each with the kit in the entry; the proof of each is in [Evidence](docs/EVIDENCE.md).
 
 ## What it does not do
 - It does not start or host agents, and it is not a sandbox.
@@ -23,7 +30,7 @@ Start, in the root of a Git repository (a person, in a browser): `git clone --de
 ## Where to read more
 - [Guide](docs/GUIDE.md): walkthroughs
 - [Reference](docs/REFERENCE.md): install options, modes, stacks, coding tools, commands
-- [Evidence](docs/EVIDENCE.md): measurements and team events
+- [Evidence](docs/EVIDENCE.md): measurements, team events, the wins with their proof
 
 ## For an agent reading this
 - [Setup skill](skills/setup/SKILL.md): install the kit in a repository
