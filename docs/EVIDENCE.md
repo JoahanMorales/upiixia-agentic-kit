@@ -2,7 +2,8 @@
 
 What was measured, when, how, and where the raw data is. A number that could not be traced to a file or a run was
 left out. Everything else in the kit's rules points back here or to [WHY.md](../kit/.uak/docs/WHY.md), which gives the
-incident or measurement behind each rule.
+incident or measurement behind each rule. Each section ends with how to measure it again; a snapshot keeps its
+date, because the numbers of a living repository move.
 
 ## This repository, built with the kit
 
@@ -25,6 +26,9 @@ The last two rows are the weak points: most merges of this repository still need
 the kit's engine or CI, which the gate never merges alone; and more than half of the commits on `main` (plans,
 releases, hash updates) reach it outside a task.
 
+To measure again: `bash .uak/bin/uak metrics` in a checkout of this repository (`--since DAYS` for a window, `--json`
+for the raw values). The counts grow with every task, so a new run gives the current values, not these.
+
 ## Speed of the commands
 
 Every `uak` command is at least one round trip to the Git remote. From the same snapshot (GitHub over SSH, from the
@@ -40,14 +44,18 @@ machines that worked on this repository):
 | `uak review` | 109 | 5.5 s | 14.4 s |
 | `uak merge` | 54 | 19.0 s | 1383 s (the gate runs the test suite and may wait for the queue) |
 
-`uak demo` took 27.5 s of wall-clock time on 2026-11-25 on a Linux arm64 board (an ARM single-board computer),
-measured with `time` for UAK-202.
+`uak demo` took 27.5 s of wall-clock time on 2026-11-25 on an ARM Linux single-board computer, for UAK-202. To
+measure again: `time bash kit/.uak/bin/uak demo` from a checkout of this repository; the time depends on the machine.
+
+To measure the command times again: the same `uak metrics` run as above (its "per command" lines).
 
 On a Windows laptop with Git Bash, the hooks that run around every shell command an agent sends took 5.1 s before
 v5.9.2 and 0.52 s after it ([perf-windows.md](perf-windows.md), with the method and each hook's processes).
 
 The read-only audit of v6.5.0 measured the hooks at 3 to 7 ms per call on a 6-core ARM Linux machine and the context the kit loads in every
-session at about 3,500 tokens ([audit-2026-11.md](audit-2026-11.md)).
+session at about 3,500 tokens ([audit-2026-11.md](audit-2026-11.md)). To measure again: `bash scripts/perf_hooks.sh
+WORKTREE RUNS` in a task worktree of a project made with `install.sh`, as perf-windows.md describes; the audit
+describes how it counted the tokens.
 
 ## Do agents use the tools when they should
 
@@ -64,12 +72,16 @@ imports, with a prompt that names no command, and reads the transcript.
 | v5.9.2 (control) | 0 of 2 runs | `adoption-v592-control-*.json` |
 | v5.10 (`uak red`, named tests) | 2 of 2 runs | `adoption-v510-*.json` |
 
-Limits written there: one scenario, one model, a small repository; Codex and Cursor were not run.
+Limits written there: one scenario, one model, a small repository; Codex and Cursor were not run. To measure again:
+`python3 scripts/adoption_eval.py --label NAME --out docs/evals/adoption-NAME.json` (it runs real Claude Code sessions,
+so it needs a signed-in `claude` and costs tokens).
 
 ## Team events
 
 Each event's claims branch was read after it and turned into a report; each report's findings became a release. The
-numbers are the reports' own, recounted from the raw files.
+numbers are the reports' own, recounted from the raw files. To check one again: each report names the branch and
+files it was counted from; `bash .uak/bin/uak autopsy --claims DIR` writes the same kind of report from a claims
+branch checked out in DIR.
 
 | Event | Team | Report | Release |
 |---|---|---|---|
@@ -103,4 +115,5 @@ From the [retro](RETRO-hacknation-2026.md), the incidents that shaped the first 
 
 The kit's tests run against real Git processes and local bare remotes. On 2026-11-25 there were 159 test files in
 `kit/.uak/tests/`. Pull requests run all of them on Linux and a selected part on macOS and Windows; `main` runs all
-of them on the three systems (the rules are in the repository's [AGENTS.md](../AGENTS.md), rule 8).
+of them on the three systems (the rules are in the repository's [AGENTS.md](../AGENTS.md), rule 8). To count again:
+`ls kit/.uak/tests/test_*.py | wc -l`.

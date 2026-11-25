@@ -19,7 +19,7 @@ You need Git, Bash 3.2 or newer (Git Bash on Windows) and Python 3.8 or newer fo
 Everything lives in your repository. The plan is `.uak/TASKS.md`, the project's rules are `.uak/PROJECT.md`, and the live state (who works on what, reviews, messages) is a series of commits on a branch named `claims` on your Git remote. There is no server: each command reads and writes that branch.
 
 1. **Plan.** Each task has an ID, the files it may change (`Paths`), the tests that show it works (`Tests`), the command that checks it (`Verify`) and the tasks it waits for. An agent drafts the plan with `/uak-plan`; a person approves it.
-2. **Claim.** `wt new HACK-001` gives the task its own branch and folder (a Git worktree) and records the claim on `claims`. A task whose `Paths` overlap those of a claimed task cannot be claimed, so two agents never edit the same file at the same time. A claim has a lease that the agent's hooks renew; when it runs out, another agent can take the task over from the summary the first one left.
+2. **Claim.** `wt new HACK-001` gives the task its own branch and folder (a Git worktree) and records the claim on `claims`. A task whose `Paths` overlap those of a claimed task cannot be claimed, so no file belongs to two live tasks, and the merge refuses a change to a file outside the task's `Paths`. A claim has a lease that the agent's hooks renew; when it runs out, another agent can take the task over from the summary the first one left.
 3. **Test first.** The agent writes the task's tests, `uak red` records that they fail, and then it writes the code. `uak done` refuses a change that edits or deletes an existing test.
 4. **Review.** `uak done` asks one reviewer, picked by rotation and never the author, who runs `Verify` on the exact commit and approves or rejects that commit.
 5. **Merge.** `uak merge` merges the approved commit, runs the checks again on the result and pushes `main` and `claims` together. A change to shared files (CI, lock files, the kit's own engine) goes to a person instead.
@@ -37,7 +37,7 @@ Hooks in Claude Code, Codex, Cursor and Gemini CLI block force-pushes, `sudo` an
 git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit && bash upiixia-agentic-kit/kit/.uak/bin/uak demo
 ```
 
-Three scripted agents work in a temporary repository with a local remote, with no AI and no key: two claims, a third refused because its files overlap, a test that fails before the code, a bounded fix loop, a review by an agent that is not the author, a merge, and a dependent task that opens after it. The run took 27.5 s on a Linux arm64 board (UAK-202). There is also a [simulated video walkthrough](kit/.uak/media/tutorial.mp4), from an empty project to a deployed app, with [English](kit/.uak/media/tutorial-en.vtt) and [Spanish](kit/.uak/media/tutorial-es.vtt) captions.
+Three scripted agents work in a temporary repository with a local remote, with no AI and no key: two claims, a third refused because its files overlap, a test that fails before the code, a bounded fix loop, a review by an agent that is not the author, a merge, and a dependent task that opens after it. There is also a [simulated video walkthrough](kit/.uak/media/tutorial.mp4), from an empty project to a deployed app, with [English](kit/.uak/media/tutorial-en.vtt) and [Spanish](kit/.uak/media/tutorial-es.vtt) captions.
 
 <img src="docs/media/demo.svg" alt="A terminal recording of uak demo: three agents claim tasks, one overlap is refused, a fix loop passes, another agent approves and the task merges" width="860">
 
@@ -76,7 +76,7 @@ bash .uak/bin/uak dash --watch --open
 - It does not decide for you: a person approves the plan, and in `marathon` a person merges.
 - It needs one Git remote that everyone pushes to. If the repository is public, its `claims` branch is public too, black box included: one-line notes about the kit's own failures, with no names, paths or code, on by default and turned off with `Blackbox: off` in `.uak/PROJECT.md`.
 - On Windows it runs in Git Bash, never in WSL's bash.
-- Each command is a round trip to the Git remote. In this repository `uak status` took a median of 2 s, and the merge gate handed 77 of the 101 tasks that reached its queue to a person, mostly because they touched shared files (`uak metrics`, 2026-11-25).
+- Each command is a round trip to the Git remote, so it takes seconds, not milliseconds. In this repository most tasks that reached the merge queue still went to a person, because they touched shared files. The measured times and counts, with how to measure them again, are in `docs/EVIDENCE.md`.
 
 ## Where to read more
 
