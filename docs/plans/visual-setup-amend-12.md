@@ -1,0 +1,19 @@
+## UAK-165 · The summary is made of components the viewer arranges: move, hide, add
+
+- **Type:** feature
+- **Priority:** P1
+- **Estimate:** 8 h
+- **Depends on:** UAK-162
+- **Paths:** kit/.uak/bin/lib/dash.html, kit/.uak/bin/lib/dash.py, kit/.uak/bin/dash, kit/.uak/docs/CLI.md, docs/DASHBOARD.md, docs/design/DIRECTION.md, kit/.uak/tests/test_dashboard_layout.py, kit/.uak/tests/test_dashboard_truth.py, kit/.uak/tests/timings/test_dashboard_layout.txt
+- **Acceptance:**
+  - every block of the summary (needs you, tasks, activity, progress, agents, integrations per period, tokens) is a component with a name, a title, a size (main column or side column), its maximum of rows and one render function over the dashboard's data; the summary is a list of component names per column, and the default list is today's order
+  - "Edit" in the summary's header turns on an arrange mode: each component shows handles to move it up or down, to send it to the other column, and to hide it; "Add" lists the components not shown, each with one line saying what it shows. Everything works with the keyboard (no drag is required) and at phone width; "Done" leaves the mode, "Restore" returns to the default
+  - the arrange mode is unmistakable the moment it starts: every component that can be moved shakes slightly (a small, slow rotation of about one degree, each out of step with its neighbours, as app icons do on a phone when they can be rearranged), gets a dashed outline and shows its handles, and one line at the top says what can be done ("Move, hide or add components. Done when you finish."). Under `prefers-reduced-motion` nothing moves: the outline, the handles and the line carry the meaning. The shake stops for the component under the pointer or with keyboard focus, so its controls hold still, and it never runs outside the arrange mode
+  - the arrangement is the viewer's: kept in the browser per project, it changes no tracked file and nobody else's panel. A team may ship a default: `uak dash layout --save` writes the current arrangement to `.uak/dash/layout.json` (a file a task or the human commits), and a viewer with no arrangement of their own starts from it
+  - "needs you" can be moved but not hidden: a panel that does not say what waits for the person is not the kit's panel. The rule that the summary never grows with the plan holds for every component in every position
+  - a saved arrangement that names a component that no longer exists keeps the rest: the unknown names are dropped, components added since appear in their default place, and one notice says so once; a corrupt or oversized one gives the default and says so once; neither leaves an empty page or an exception
+  - the page weighs at most 256 KiB (262,144 bytes with LF line ends; the human raised the bound on 2026-11-25 for this task and the two that follow it, UAK-166 and UAK-167: it was 200 KiB, the page is at 196,171 bytes and the arrange mode measured 13,512 more in a draft without drag). `page_is_not_heavier` in `test_dashboard_truth.py` says the new number; no code is compacted and no comment removed to fit
+  - the page stays one file opened from `file://`, with no server, no request and no build step
+- **Tests:** summary_is_a_list_of_components, arrange_mode_shakes_and_respects_reduced_motion, move_hide_and_add_persist_per_viewer, needs_you_cannot_be_hidden, team_default_is_used_when_the_viewer_has_none, unknown_component_falls_back, arranging_works_with_the_keyboard, corrupt_arrangement_gives_the_default
+- **Verify:** `python3 kit/.uak/tests/test_dashboard_layout.py`
+- **Next step:** the summary's sections in kit/.uak/bin/lib/dash.html after UAK-162; the data every component reads is what `dash.py` already writes to `data.js`; a new test file needs its own timing file under kit/.uak/tests/timings (UAK-187)
