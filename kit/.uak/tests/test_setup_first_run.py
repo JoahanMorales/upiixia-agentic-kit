@@ -249,8 +249,7 @@ def commands_wait_for_the_reviewer(root, tmp):
     es = catalog()
     missing = [t for t in trust.visible(block) if t not in es]
     assert not missing, "the two-person note has Spanish: %r" % missing
-    team_step = trust.section(page, "team-step")
-    assert team_step.index('id="team-two-people"') < team_step.index('id="team-reviewer"'), "first in the team step"
+    assert page.index('id="team-two-people"') < page.index('id="team-reviewer"'), "the note comes before the reviewer, on the People screen"
     out = tf.run_page("""
         function shown(registered) {
           checksKey = "";
@@ -367,15 +366,14 @@ def check_does_not_jump(root, tmp):
             "a notice repeats %r" % reason
     assert not re.search(r'<span class="step-number">[1-5]<', page), "the wizard rail has no second 1-5 numbering"
     found = tf.rules(page)
-    assert any(re.search(r"body\.installed #steps", s) and re.search(r"display:\s*none", b) for s, b in found), \
-        "after install the rail is hidden"
+    assert not [s for s, b in found if re.search(r"body\.installed", s) and re.search(r"display:\s*none", b)], \
+        "the one rail stays after install: no rule hides it"
     assert not [s for s, b in found if re.search(r"body\.installed[^,]*(\.sidebar|#glossary|\.local-note)\s*$", s.split(",")[-1])
                 or (re.search(r"body\.installed", s) and re.search(r"\.sidebar|#glossary", s) and "display" in b)], \
         "the glossary (Words you will see) stays visible after install"
-    welcome = trust.section(page, "welcome")
-    intros = [m.start() for m in re.finditer(r'class="intro"', welcome)]
-    assert len(intros) >= 2 and welcome.index('id="begin"') < min(welcome.index('class="benefit"'), intros[1]), \
-        "Set up my project comes right after the first intro"
+    first = trust.section(page, "screen-project")
+    assert 'id="project-continue"' in first and 'id="begin"' not in first and 'class="benefit"' not in page, \
+        "the first screen has Continue, no welcome button and no benefit pairs"
 
     out = tf.run_page("""
         var data = {checks: [{state: "ok", text: "1. kit"}, {state: "ok", text: "2. plan"}]}, list = el("checks");

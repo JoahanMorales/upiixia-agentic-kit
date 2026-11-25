@@ -458,10 +458,10 @@ task, so the walking skeleton is online at T0+2h, not 30 min before the deadline
 
 ## See everything: `uak dash`
 
-<img src="docs/media/dash.png" alt="uak dash after the 30-second demo: progress, agents online, board by state" width="860">
+<img src="docs/media/dash.png" alt="uak dash: what needs you, every task as a small square, who did what, progress, agents, integrations and tokens" width="860">
 
-`bash .uak/bin/uak dash --watch --open` writes one local page and keeps it current: project progress, a board of tasks
-by state, every agent with an identicon (one pattern per human, one color per identity), who is online, the
+`bash .uak/bin/uak dash --watch --open` writes one local page and keeps it current: what needs you first, every task as a
+small square (hover one to see what it waits for), project progress, a board of four stages, every agent as a card with an identicon (one pattern per human, one color per identity), who is online, the
 conversation between agents with filters, reviews waiting, stalled tasks, the human queue, the black box with
 adoption per harness, lessons, decisions and token spend, plus the pace (integrated per day) and the conversation
 volume. Light and dark, works on a phone. No server, no CDN, nothing leaves the machine; it reads the
@@ -469,8 +469,13 @@ claims branch read-only. Humans stop asking agents "where are we".
 
 <img src="docs/media/dash-task.png" alt="uak dash with a task opened: time in each state, who took part with model and harness, every move in order" width="860">
 
-A click on a task opens its story: the time in each state, who took part (agent, model, harness) and every move in
-order, the same record `bash .uak/bin/uak timeline ID` prints.
+A click on a task opens its story: what it waits for and what it unblocks, the time in each state, who took part (agent,
+model, harness) and every move in order, the same record `bash .uak/bin/uak timeline ID` prints.
+
+The **Share** button draws a card of the project's numbers (tokens, agents, integrated tasks, commits) on a canvas, in the
+page's own palette, as a 1200x630 image and as a 1080x1920 story, to download or copy:
+
+<img src="docs/media/share-card.png" alt="The Share card: project name, the figures and the agents' identicons" width="860">
 
 ## Speed
 
