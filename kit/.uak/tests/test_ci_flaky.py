@@ -29,8 +29,34 @@ KNOWN_INTERMITTENT = [
     {"file": "test_hook_session_start_locks", "case": "killed_bb_flush_is_recovered_and_published_once", "system": "windows",
      "run": "45633439357", "seen": "the clone directory of the killed flush was not removed (also run 45357519599, "
      "windows (5), with the retry of UAK-190 in place); cause not found", "owner": "issue #83"},
+    {"file": "test_hook_session_start_speed", "case": "(the job's step ended with exit code 3840)", "system": "windows",
+     "run": "45645537660", "job": "139315504846", "seen": "no FAIL line; 3840 = 15 << 8, the step's Bash ended by SIGTERM "
+     "while this file ran (then one file with test_hook_session_start_locks). Cause not found: UAK-197 removed the TERMs its "
+     "harness sent to jobs just started and made every Bash of both files refuse and name a signal to an ancestor of the test",
+     "owner": "unowned"},
     {"file": "test_dashboard_truth", "case": "share_dialog_shows_a_real_image", "system": "linux", "run": "45645537660",
      "job": "139315504755", "seen": "the dialog showed its text but no image", "owner": "UAK-165 (PR #95)"},
+    # "TimeoutError: timed out": the 10 s client of test_setup_wizard.request ran out on a Windows runner (see
+    # test_dashboard_journey.py, REQUEST_BOUND_S: patient_requests() is the fix this task used for its own two files).
+    {"file": "test_setup_language", "case": "git_failures_are_plain", "system": "windows", "run": "45350167384",
+     "job": "138294385161", "seen": "TimeoutError: timed out; passed on the second run", "owner": "UAK-160"},
+    {"file": "test_dashboard_truth", "case": "blocked_tasks_are_not_available", "system": "windows", "run": "45464597204",
+     "job": "138696092141", "seen": "TimeoutError: timed out (also run 45181138947); passed on the second run", "owner": "UAK-165"},
+    {"file": "test_dashboard_truth", "case": "frozen_is_frozen", "system": "windows", "run": "45181138947", "job": "137715036159",
+     "seen": "TimeoutError: timed out; passed on the second run", "owner": "UAK-165"},
+    {"file": "test_dashboard_profiles", "case": "live_url_link_is_shown_when_set", "system": "windows", "run": "45537069022",
+     "job": "138946214964", "seen": "TimeoutError: timed out (also runs 45239383773 and 45557730844); passed on the second run",
+     "owner": "unowned"},
+    {"file": "test_setup_wizard", "case": "duplicate_install_is_rejected", "system": "windows", "run": "45406802135",
+     "job": "139032256634", "seen": "TimeoutError: timed out; passed on the second run", "owner": "unowned"},
+    {"file": "test_setup_wizard", "case": "invalid_requests_cannot_mutate", "system": "macos", "run": "45314029684",
+     "job": "138176447808", "seen": "ConnectionResetError: [Errno 54] Connection reset by peer; passed on the second run",
+     "owner": "unowned"},
+    {"file": "test_setup_forms", "case": "field_errors_sit_next_to_the_field", "system": "windows", "run": "45453936428",
+     "job": "138658263752", "seen": "TimeoutError: timed out (also runs 45492326908 and 45551275069); passed on the second run",
+     "owner": "unowned"},
+    {"file": "test_v57_tools", "case": "subagent_cap_holds_under_parallel_launches", "system": "macos", "run": "45456950612",
+     "job": "138669071615", "seen": "5 launches allowed with 4 active under a cap of 4; passed on the second run", "owner": "unowned"},
 ]
 
 # Cases this task fixed (each with its cause in the test's own comment): they must not stay on the list.
@@ -39,6 +65,7 @@ FIXED_BY_UAK_197 = [
     ("test_setup_branches", "install_refuses_a_non_base_branch"),
     ("test_hook_claims", "fresh_reads_a_crlf_epoch"),
     ("test_hook_session_start_locks", "stale_lock_reclaim_runs_once"),
+    ("test_dashboard_journey", "new_project_visual_setup_journey"),
 ]
 
 OWNER = re.compile(r"^(UAK-[0-9]+( \(PR #[0-9]+\))?|issue #[0-9]+|PR #[0-9]+|unowned)$")
