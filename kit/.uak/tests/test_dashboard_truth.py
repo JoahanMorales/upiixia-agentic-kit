@@ -263,6 +263,10 @@ def dashboard_keeps_every_field(root, tmp):
     maxima = {e[0]: e[2] for e in entries}
     assert maxima["agents"] == "4" and maxima["tasks"] == "MAXTASKS" and "MAXTASKS = 8" in dash and maxima["progress"] == "24", maxima
     assert "total <= 24" in dash, "progress is one block per task up to 24 and one bar beyond"
+    docs = (root.parents[1] / "docs/DASHBOARD.md") if (root.parents[1] / "docs/DASHBOARD.md").is_file() else None
+    if docs:
+        words = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten"}
+        assert "Built from %s blocks" % words[len(entries)] in docs.read_text(encoding="utf-8"), "DASHBOARD.md names the number of blocks the registry has (%d)" % len(entries)
     assert "document.title = (n ?" in dash, "the tab's title says how many things need the person"
 
 
@@ -315,6 +319,13 @@ def both_profiles_and_languages_are_complete(root, tmp):
     assert not sorted(k for k in own if k not in used), "Spanish lines for labels the page does not draw: %r" % sorted(k for k in own if k not in used)
     for hook in ("UAK_EMBEDDED", "UAK_DASH_LOOK", "uak:state", "uak:language", "UAKLook", "UAKWorkspace.start(document.body)", "prefers-reduced-motion"):
         assert hook in dash, "the page lost %s" % hook
+    # Rendered, not only scanned: every tab drawn in Spanish from rich data shows none of the English the page is known to carry.
+    out = stub_run(root, tmp, rich_data(), [{"name": "es", "tab": tab} for tab in TABS], lang="es")
+    if out is not None:
+        english = re.compile(r"(Waiting for|Approved|Changes requested|Re-review|Who touched|ran on|most urgent|most expensive|Search a task|Show all|No messages|Nothing is|Everything|cannot start|Needs you|Could not|Not tied|average per|median per|Integrated every|Who did what|All tasks|Tasks with|waiting for|thing, |things, |in progress|in review|changes requested|round \d)")
+        leaks = sorted(set(s for r in out["results"] for s in r["texts"] + r["header"] if english.search(s)))
+        assert not leaks, "English left on the Spanish page: %r" % leaks[:12]
+        assert any("1 cosa, la más urgente primero" in s for r in out["results"] if r["tab"] == "sum" for s in r["texts"]) or any("cosas, la más urgente" in s for r in out["results"] if r["tab"] == "sum" for s in r["texts"]), "the count reads in Spanish"
 
 
 def messages_are_one_conversation_per_task(root, tmp):
@@ -444,7 +455,7 @@ def share_card_matches_the_page(root, tmp):
     """The Share card is drawn on a canvas in the page, from the same numbers the page shows; a value the data does not carry
     is left out, never shown as 0; the card holds no path, no e-mail and no task title; nothing leaves the page."""
     dash = dash_source(root)
-    for needle in ("function drawCard(", "function shareStats(", "getContext(\"2d\")", "1200", "630", "k2 = v ? 1 : 2", "toBlob(", "ClipboardItem", "toDataURL(\"image/png\")", "download:",
+    for needle in ("function drawCard(", "function shareStats(", "getContext(\"2d\")", "1200", "630", "k2 = 1,", "toBlob(", "ClipboardItem", "toDataURL(\"image/png\")", "download:",
                    "showModal", 'id="share"', "idcells(", "L('Download PNG')", "L('Copy image')", "UPIIXIA Agentic Kit", "document.fonts"):
         assert needle in dash, "the share card lost %s" % needle
     card = dash[dash.index("function drawCard("):dash.index("var shareEl")]
@@ -504,7 +515,7 @@ def page_reloads_when_a_newer_page_is_written(root, tmp):
     """data.js carries the version of the page that was written beside it; a page that finds another one reloads itself once, and
     never loops; nothing is read beyond the files it already reads."""
     dash = dash_source(root)
-    for needle in ('<meta name="uak-page" content="dev">', "function newerPage(", "location.reload()", "uak-page-tried", "if (newerPage()) return;"):
+    for needle in ('<meta name="uak-page" content="dev">', "function newerPage(", "location.href = location.pathname", "uak-page-tried", "[?&]uak=", "if (newerPage()) return;"):
         assert needle in dash, "the page lost %s" % needle
     py = (root / ".uak/bin/lib/dash.py").read_text(encoding="utf-8")
     assert 'data["page"] = page_version(tpl)' in py and "def page_version(" in py and "content=\"%s\"" in py, "dash.py writes the page version"
@@ -513,6 +524,12 @@ def page_reloads_when_a_newer_page_is_written(root, tmp):
     """)
     if out is not None:
         assert out == [True, False, False, False, False], out
+    plan = under_node(root, """
+      return [reloadPlan("aaa", "bbb", "", ""), reloadPlan("aaa", "bbb", "bbb", ""), reloadPlan("aaa", "bbb", "", "?uak=bbb"), reloadPlan("aaa", "aaa", "", ""), reloadPlan("dev", "bbb", "", ""), reloadPlan("aaa", "ccc", "", "?uak=bbb")];
+    """)
+    if plan is not None:
+        assert plan == ["reload", "notice", "notice", "stay", "stay", "reload"], "the address is a second guard when storage is blocked: %r" % plan
+    assert "A newer page exists: reload this tab" in dash and "NEWER" in dash, "a page that cannot reload says so"
 
 
 def one_definition_of_stalled(root, tmp):
@@ -534,6 +551,8 @@ def no_native_select(root, tmp):
     dash = dash_source(root)
     assert re.findall(r"<select[^>]*>", dash) == ['<select id="workspace-theme" hidden aria-hidden="true" tabindex="-1">'], "the only native select is the hidden state holder of the shared Appearance control: hidden, aria-hidden and out of the tab order, so never visible or focusable"
     assert 'h("select"' not in dash and 'role: "listbox"' in dash and '"aria-expanded"' in dash and '"aria-activedescendant"' in dash
+    assert "e.stopPropagation()" in dash[dash.index('if (e.key === "Escape") { e.preventDefault();'):][:200], "Escape closes the list, not the popover around it"
+    assert "!pop.contains(e.target)" in dash, "the list does not close on its own scroll"
     for key in ("Escape", "Enter", "Tab"):
         assert 'e.key === "%s"' % key in dash, key
     out = under_node(root, """
@@ -594,6 +613,71 @@ def browser_page(root, tmp, data, tab, extra=""):
             yield pg
         finally:
             b.close()
+
+
+
+STUB_JS = r"""
+var fs = require("fs"), vm = require("vm");
+var cfg = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+var html = fs.readFileSync(cfg.html, "utf8");
+var scripts = []; html.replace(/<script>([\s\S]*?)<\/script>/g, function (m, a) { scripts.push(a); return m; });
+var mainSrc = scripts[scripts.length - 1];
+var RELOADS = 0, HREF = "";
+function mk(tag) {
+  var el = { tag: tag, children: [], attrs: {}, style: { setProperty: function () {}, getPropertyValue: function () { return ""; } }, _text: "", nodeType: 1, hidden: false, value: "", className: "", offsetWidth: 100, scrollHeight: 0, clientHeight: 0, nextSibling: null,
+    appendChild: function (c) { this.children.push(c); return c; }, append: function () { for (var i = 0; i < arguments.length; i++) this.children.push(arguments[i]); }, insertBefore: function (c) { this.children.push(c); return c; },
+    remove: function () {}, setAttribute: function (k, v) { this.attrs[k] = String(v); }, getAttribute: function (k) { return this.attrs[k] === undefined ? null : this.attrs[k]; }, removeAttribute: function (k) { delete this.attrs[k]; },
+    addEventListener: function () {}, removeEventListener: function () {}, contains: function () { return false; }, closest: function () { return null; }, scrollIntoView: function () {}, focus: function () {}, click: function () {}, select: function () {},
+    setSelectionRange: function () {}, showModal: function () {}, close: function () {}, getBoundingClientRect: function () { return { left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20 }; },
+    querySelector: function () { return mk("x"); }, querySelectorAll: function () { return []; }, classList: { add: function () {}, remove: function () {}, toggle: function () {}, contains: function () { return false; } } };
+  Object.defineProperty(el, "firstChild", { get: function () { return this.children[0]; } });
+  Object.defineProperty(el, "innerHTML", { get: function () { return ""; }, set: function () { this.children = []; this._text = ""; } });
+  Object.defineProperty(el, "textContent", { get: function () { return this._text + this.children.map(function (c) { return c.textContent; }).join(""); }, set: function (v) { this.children = []; this._text = String(v); } });
+  return el;
+}
+var ids = {};
+var document = { createElement: mk, createElementNS: function (ns, t) { return mk(t); }, createTextNode: function (t) { return { nodeType: 3, textContent: String(t) }; }, createDocumentFragment: function () { return mk("frag"); },
+  createRange: function () { return { selectNodeContents: function () {} }; }, getElementById: function (id) { return ids[id] = ids[id] || mk(id); },
+  querySelector: function (sel) { return /uak-page/.test(sel) ? { content: cfg.mine || "dev" } : mk("x"); }, querySelectorAll: function () { return []; }, addEventListener: function () {}, body: mk("body"), documentElement: mk("html"), title: "", readyState: "complete", activeElement: null };
+function store(throws) { return { getItem: function () { if (throws) throw new Error("blocked"); return null; }, setItem: function () { if (throws) throw new Error("blocked"); } }; }
+var sandbox = { document: document, localStorage: store(false), sessionStorage: store(!!cfg.blocked), history: { replaceState: function () {} },
+  location: { hash: "", search: cfg.search || "", pathname: "/x", reload: function () { RELOADS++; }, set href(v) { RELOADS++; HREF = v; }, get href() { return HREF; } },
+  matchMedia: function () { return { matches: false, addEventListener: function () {} }; }, innerWidth: 1280, innerHeight: 800, requestAnimationFrame: function () {}, setInterval: function () {}, setTimeout: function () { return 0; }, clearTimeout: function () {},
+  getComputedStyle: function () { return { getPropertyValue: function () { return ""; }, color: "" }; }, navigator: {}, console: { error: function () {}, log: function () {} }, XMLSerializer: function () { this.serializeToString = function () { return ""; }; },
+  UAKLook: { get: function () { return { theme: "auto", pal: "lavanda" }; }, set: function () {}, onchange: function () {} },
+  UAKWorkspace: { t: function (x) { return cfg.lang === "es" && cfg.catalog[x] !== undefined ? cfg.catalog[x] : x; }, language: function () { return cfg.lang; }, setLanguage: function () {}, start: function () {}, apply: function () {} },
+  Date: Date, JSON: JSON, Math: Math, Object: Object, Array: Array, String: String, Number: Number, parseInt: parseInt, parseFloat: parseFloat, isNaN: isNaN, RegExp: RegExp, Error: Error, Promise: Promise, encodeURIComponent: encodeURIComponent };
+sandbox.addEventListener = function () {}; sandbox.window = sandbox; sandbox.UAK_DATA = cfg.base; sandbox.UAK_ERRORS = undefined;
+var ctx = vm.createContext(sandbox);
+vm.runInContext(mainSrc, ctx);
+function texts(el, out) { if (!el) return out; if (el.nodeType === 3) { out.push(el.textContent); return out; } if (el._text) out.push(el._text); if (el.attrs) { ["placeholder", "title", "aria-label"].forEach(function (k) { if (el.attrs[k]) out.push(el.attrs[k]); }); } (el.children || []).forEach(function (c) { texts(c, out); }); return out; }
+var results = [];
+(cfg.runs || []).forEach(function (run) {
+  var data = JSON.parse(JSON.stringify(cfg.base)); (new Function("d", run.mutate || ""))(data);
+  var r = { name: run.name, tab: run.tab, thrown: null, errors: [], texts: [] };
+  sandbox.UAK_ERRORS.length = 0;
+  try { var view = sandbox.UAK_TEST_RENDER(run.tab, data); r.texts = texts(view, []); r.header = texts(document.getElementById("tabs"), []); } catch (e) { r.thrown = String(e && e.stack || e); }
+  r.errors = sandbox.UAK_ERRORS.slice(); results.push(r);
+});
+console.log(JSON.stringify({ results: results, reloads: RELOADS, href: HREF }));
+"""
+
+
+def stub_run(root, tmp, base, runs, lang="en", **extra):
+    """Run the page's own script under node against a stub document and draw tabs from data; None when node is missing."""
+    import shutil as _sh
+    node = _sh.which("node")
+    if not node:
+        return None
+    text = (root / ".uak/bin/lib/workspace.js").read_text(encoding="utf-8")
+    catalog = {json.loads(a): json.loads(b) for a, b in re.findall(r'\[\s*("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*")\s*,?\s*\]', text)}
+    cfg = dict({"html": str(root / ".uak/bin/lib/dash.html"), "base": base, "runs": runs, "lang": lang, "catalog": catalog}, **extra)
+    (tmp / "stub.json").write_text(json.dumps(cfg), encoding="utf-8")
+    (tmp / "stub.js").write_text(STUB_JS, encoding="utf-8")
+    done = subprocess.run([node, str(tmp / "stub.js"), str(tmp / "stub.json")], capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, done.stderr[:1200]
+    return json.loads(done.stdout)
+
 
 
 def fixture_data(agents=3, tasks=4):
@@ -674,11 +758,82 @@ def memory_graph_is_readable(root, tmp):
     assert out["kinds"] == ["decision", "lesson", "task"] or out["kinds"] == ["decision", "task"], out["kinds"]
 
 
+TABS = ["sum", "board", "agents", "talk", "bb", "memory", "tokens"]
+
+
+def rich_data():
+    d = fixture_data(agents=5, tasks=6)
+    g = d["generated"]
+    d["tasks"][2].update(state="REVIEW", sub={"kind": "changes", "text": "changes requested (round 2)", "since": g - 600, "late": True, "rounds": 2, "rejects": 1})
+    d["tasks"][4].update(state="REVIEW", sub={"kind": "waiting", "text": "waiting for a reviewer", "since": g - 900, "late": False, "rounds": 0, "rejects": 0})
+    d["tasks"][5].update(state="BLOCKED")
+    d["offers"] = [{"task": "T-5", "to": ["all"], "since": g - 900, "owner": "kit-0"}]
+    d["queue"] = [{"task": "T-6", "state": "HUMAN", "reason": "needs a person", "at": g - 50}]
+    d["messages"] = [{"n": 1, "t": g - 100, "from": "kit-0", "to": ["agent:kit-1"], "kind": "review", "task": "T-3", "text": "please look at this"}]
+    d["lessons"] = [{"n": "1", "t": g - 90, "agent": "kit-0", "task": "T-1", "paths": "kit/x.sh", "text": "T-1 a lesson about kit/x.sh"}, {"n": "2", "t": g - 80, "agent": "kit-1", "task": "T-1", "paths": "", "text": "T-1 and T-2 again"}]
+    d["decisions"] = [{"t": g - 70, "kind": "plan", "who": "ana/ana", "text": "tasks added: T-1 T-2 | Why: backlog"}, {"t": g - 60, "kind": "plan", "who": "ana/ana", "text": "tasks added: T-1 T-3 | Why: backlog"}]
+    d["blackbox"] = [{"time": "2026-11-24T10:00Z", "kit": "v1", "harness": "claude-code", "source": "auto", "kind": "exit3", "command": "uak claim", "what": "CONFLICT", "fix": "-"}]
+    d["usage"] = {"claude-code": {"claim": 2, "done": 1}}
+    d["tokens"] = {"total": 100, "by_task": {"T-1": 40, "T-2": 30, "main": 30}, "by_harness": {"claude-code": 100}, "by_scope": {"lead": 100}, "by_model": {"opus": 100}, "by_kind": {"input": 1, "cache_write": 9, "cache_read": 80, "output": 10}}
+    return d
+
+
+def every_tab_renders_with_partial_data(root, tmp):
+    """Each tab is drawn from empty and partial data (no agents, no tasks, one task, no tokens, a token breakdown empty, no memory, no
+    black box, no messages) without an exception; one block that throws says so and the others still draw."""
+    muts = {
+        "empty": "d.tasks=[];d.agents=[];d.messages=[];d.offers=[];d.queue=[];d.blackbox=[];d.lessons=[];d.decisions=[];d.timelines={};d.usage={};d.tokens={total:0,by_task:{},by_harness:{},by_scope:{}};d.progress={done:0,weighted:0,total:0,states:{},outside:0};",
+        "one task": "d.tasks=d.tasks.slice(0,1);d.progress.total=1;d.offers=[];d.queue=[];",
+        "zero agents": "d.agents=[];",
+        "no tokens": "d.tokens=null;",
+        "tokens before any task": "d.tokens={total:9,by_task:{main:9},by_harness:{},by_scope:{},by_model:{}};",
+        "tokens one breakdown": "d.tokens={total:9,by_task:{'T-1':9},by_harness:{x:9},by_scope:{},by_model:{}};",
+        "no memory": "d.lessons=[];d.decisions=[];",
+        "no black box": "d.blackbox=[];d.usage={};",
+        "no messages": "d.messages=[];",
+        "full": "",
+    }
+    runs = [{"name": n, "tab": tab, "mutate": m} for n, m in muts.items() for tab in TABS]
+    out = stub_run(root, tmp, rich_data(), runs)
+    if out is None:
+        return
+    bad = ["%s/%s: %s" % (r["name"], r["tab"], (r["thrown"] or "; ".join(r["errors"]))[:200]) for r in out["results"] if r["thrown"] or r["errors"]]
+    assert not bad, "a tab threw or drew a block as failed: %s" % bad[:6]
+    tok = [r for r in out["results"] if r["name"] == "tokens before any task" and r["tab"] == "tokens"][0]
+    assert any("not tied" in s.lower() or "Not tied" in s for s in tok["texts"]), "tokens before any task still say where the spend is: %r" % tok["texts"][:12]
+    full = [r for r in out["results"] if r["name"] == "full" and r["tab"] == "tokens"][0]
+    assert any("average per integrated task" in s for s in full["texts"]), "the most-expensive list and averages are drawn"
+    # the page-level guard: a block that throws does not blank the others
+    broken = stub_run(root, tmp, rich_data(), [{"name": "broken", "tab": "sum", "mutate": "d.agents[0].tasks=null;"}])
+    r = broken["results"][0]
+    assert r["thrown"] is None and any(e.startswith("agents:") for e in r["errors"]), r["errors"]
+    joined = " ".join(r["texts"])
+    assert "Could not draw this block (agents)" in joined and "Needs you" in joined and "Progress" in joined, "the other blocks still render: %r" % joined[:300]
+
+
+def titles_never_overflow(root, tmp):
+    """A 3000-character unbroken title wraps or truncates everywhere a title is shown: no row, card or column grows past its box."""
+    dash = dash_source(root)
+    assert re.search(r"\.dn, \.tk p, \.mini \.it p, \.th \.tt \{[^}]*overflow-wrap: anywhere", dash), "titles in the board and lists break anywhere"
+    assert ".find input { width: 220px" in dash, "the search placeholder is not clipped in Spanish"
+    data = fixture_data(tasks=6)
+    for t in data["tasks"]:
+        t["title"] = "X" * 3000
+    data["tasks"][3]["state"] = "INTEGRATED"
+    with browser_page(root, tmp, data, "board") as pg:
+        if pg is None:
+            return
+        wide = pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth")
+        assert not wide, "the board scrolls sideways with a 3000-character title"
+    with browser_page(root, tmp, data, "sum") as pg:
+        assert not pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth"), "the summary scrolls sideways with a 3000-character title"
+
+
 TESTS = [blocked_tasks_are_not_available, frozen_is_frozen, needs_human_comes_first, offline_uses_last_claims,
          dashboard_meets_contrast_and_targets, dashboard_keeps_every_field, empty_project_says_the_next_step, no_server_no_request,
          page_is_not_heavier, both_profiles_and_languages_are_complete, messages_are_one_conversation_per_task, every_task_is_visible, square_says_why_it_waits,
          agents_show_model_and_harness, black_box_filter_finds_an_error, memory_graph_edges_come_from_data, tokens_break_down, share_card_matches_the_page,
-         share_card_has_both_formats, project_name_is_not_the_worktree, page_reloads_when_a_newer_page_is_written, no_native_select, one_definition_of_stalled, figures_agree_across_tabs, agents_are_compact_cards, board_opens_on_columns, memory_graph_is_readable]
+         share_card_has_both_formats, project_name_is_not_the_worktree, page_reloads_when_a_newer_page_is_written, no_native_select, one_definition_of_stalled, figures_agree_across_tabs, agents_are_compact_cards, board_opens_on_columns, memory_graph_is_readable, every_tab_renders_with_partial_data, titles_never_overflow]
 
 
 def main():

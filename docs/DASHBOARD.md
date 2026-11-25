@@ -166,7 +166,7 @@ and the page reloads it by itself. It makes no request and starts no process. A 
 phone) has seven tabs: Overview, Board, Agents, Messages, Black box, Memory and Tokens. The tab's title says how many
 things need you (`(2) project`) and nothing when none.
 
-**Overview.** Built from seven blocks kept in one registry (`BLOCKS` in `dash.html`: a name, a title, a column, a maximum
+**Overview.** Built from eight blocks kept in one registry (`BLOCKS` in `dash.html`: a name, a title, a column, a maximum
 of rows and one render function over the data), so a block can later be moved or hidden without a rewrite. Main column:
 *Needs you* (a stale remote, a freeze, a merge in the human queue, a review waiting, a stalled task, each with the command to
 look at it and its age, then the four figures: agents online, reviews waiting, stalled, needs a human); *Tasks* as a list
