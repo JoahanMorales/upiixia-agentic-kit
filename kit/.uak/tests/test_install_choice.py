@@ -597,10 +597,12 @@ def install_tokens_do_not_change(c):
     theirs = [l for l in spanish.stdout.splitlines() if l.startswith("Contin\u00faa en")]
     expect(len(theirs) == 2, "the Spanish lines: %r" % theirs)
     cmd = lambda line: line.split(": ", 1)[1].strip()
-    expect(cmd(theirs[0]).replace(str(d2), "P") == cmd(mine[0]).replace(str(d1), "P"), "the terminal command is the same: %r %r" % (theirs, mine))
-    expect(cmd(theirs[1]).replace(str(d2), "P") == cmd(mine[1]).replace(str(d1), "P"), "the browser command is the same: %r %r" % (theirs, mine))
+    # the project folder is told apart by its own name (Git Bash writes /tmp/... where Windows Python says D:\\...)
+    same = lambda line, d: re.sub(r"'?[^' ]*%s'?" % re.escape(d.name), "P", cmd(line))
+    expect(same(theirs[0], d2) == same(mine[0], d1), "the terminal command is the same: %r %r" % (theirs, mine))
+    expect(same(theirs[1], d2) == same(mine[1], d1), "the browser command is the same: %r %r" % (theirs, mine))
     # Every other line of the install is the same words in both languages (only the continuation is written twice)
-    strip = lambda text, d: [l.replace(str(d), "P") for l in text.splitlines()
+    strip = lambda text, d: [re.sub(r"'?[^' ]*%s'?" % re.escape(d.name), "P", l) for l in text.splitlines()
                              if not l.startswith(("Continue in", "Contin\u00faa en"))]
     expect(strip(english.stdout, d1) == strip(spanish.stdout, d2), "the rest of the install does not change with the language")
     if not pty_only():
