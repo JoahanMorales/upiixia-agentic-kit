@@ -827,13 +827,13 @@ def wide_data(tasks=60, agents=14, humans=2):
         lines = [[at, kind, who, "opus", "claude-code", "%s %s" % (kind, prose(6, at % 97)), "", "", ""] for at, kind, who in moves]
         return {"state": t["state"], "open": t["state"] != "INTEGRATED", "now": g, "lines": lines, "states": [["CLAIMED", "", 3600], ["REVIEW", "waiting for a reviewer", 1200]],
                 "agents": [[t["owner"], "opus", "claude-code", len(lines), ["claim", "done"]]], "rounds": 1, "rejects": 0, "tokens": 0, "commands": [], "errors": 0, "history": "read"}
-    tl = {}
+    tl, s1, s2 = {}, 300 if len(ts) <= 60 else 12000 // len(ts), 200 if len(ts) <= 60 else 8000 // len(ts)   # every move in the past
     for i, t in enumerate(ts):
         a = t["owner"]
         if t["state"] == "INTEGRATED" and i >= len(ts) * .45:
-            tl[t["id"]] = story(t, [[g - 20000 + 300 * i, "claim", a], [g - 15000 + 300 * i, "done", a], [g - 14000 + 300 * i, "approve", "kit-1"], [g - 13000 + 300 * i, "integrate", a]])
+            tl[t["id"]] = story(t, [[g - 20000 + s1 * i, "claim", a], [g - 15000 + s1 * i, "done", a], [g - 14000 + s1 * i, "approve", "kit-1"], [g - 13000 + s1 * i, "integrate", a]])
         elif t["state"] in ("CLAIMED", "REVIEW", "BLOCKED"):
-            tl[t["id"]] = story(t, [[g - 9000 + 200 * i, "claim", a]] + ([[g - 3000, "done", a]] if t["state"] == "REVIEW" else []))
+            tl[t["id"]] = story(t, [[g - 9000 + s2 * i, "claim", a]] + ([[g - 3000, "done", a]] if t["state"] == "REVIEW" else []))
     d["timelines"] = tl
     return d
 
@@ -1035,9 +1035,11 @@ def content_reaches_the_right_edge_on_wide_screens(root, tmp):
     return "browser"
 
 
-LINES_JS = """() => { const out = [], w = document.createTreeWalker(document.getElementById('view'), NodeFilter.SHOW_TEXT); let n;
+LINES_JS = """() => { document.querySelectorAll('#view details').forEach(d => { d.open = true; });   // what a person can open, open
+  const out = [], w = document.createTreeWalker(document.getElementById('view'), NodeFilter.SHOW_TEXT); let n;
   while ((n = w.nextNode())) { const t = n.nodeValue; if (t.trim().length < 90) continue; const p = n.parentElement;
-    if (!p.getClientRects().length || /nowrap|pre$/.test(getComputedStyle(p).whiteSpace)) continue;
+    if (!p.getClientRects().length || p.closest('code, .cmd') || /nowrap|pre$/.test(getComputedStyle(p).whiteSpace)) continue;   // a command is not prose
+    if (p.checkVisibility && !p.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true })) continue;
     const r = document.createRange(), lines = {}; let at = null;
     for (let i = 0; i < t.length; i++) { if (/\\s/.test(t[i])) { if (at !== null) lines[at]++; continue; }
       r.setStart(n, i); r.setEnd(n, i + 1); const b = r.getClientRects()[0]; if (!b || !b.width) continue; at = Math.round(b.top); lines[at] = (lines[at] || 0) + 1; }
@@ -1051,7 +1053,7 @@ def wide_screens_add_columns_not_stretch(root, tmp):
     one (a side of 296 px); from 1480 px the side shows its components in two columns, from 2900 px in three, each 296 to 440 px;
     a list alone flows into those columns; the memory graph's canvas is the card's width and fits the window. In Chromium at 1920
     and 2560 px: the side's blocks sit in two columns, none wider than 460 px; the squares fill the row; the board's four columns
-    share the width; the Agents grid has more cards per row, none stretched; the tokens' panels sit three or more to a row and
+    share the width; the Agents grid has more cards per row, none stretched (360 px at most, a group alone in its heading's width); the tokens' panels sit three or more to a row and
     the long breakdown in two groups; lessons and decisions in two columns; the black box's panels beside its notes; the graph
     on a larger canvas with labels at their size; no line of running text over about 90 characters (95, spaces counted).
     The viewer's arrangement means the same at every width: arrange mode moves, crosses and drags at 2560 px, the side's columns
@@ -1075,10 +1077,17 @@ def wide_screens_add_columns_not_stretch(root, tmp):
         show(pg, "sum")
         rows1280 = pg.evaluate("new Set(Array.from(document.querySelectorAll('#view .b-map .sq')).map(e => Math.round(e.getBoundingClientRect().top))).size")
         show(pg, "agents")
-        per1280 = pg.evaluate("Array.from(document.querySelector('#view .agrid').children).filter((e, i, a) => Math.round(e.getBoundingClientRect().top) === Math.round(a[0].getBoundingClientRect().top)).length")
         show(pg, "talk")
         thread1280 = pg.evaluate("document.querySelector('#view .cv > .win').getBoundingClientRect().width")
+    PER_ROW = """() => { const g = Array.from(document.querySelectorAll('#view .agrid')).sort((a, b) => b.children.length - a.children.length)[0], c = Array.from(g.children).map(e => e.getBoundingClientRect());
+      return { per: c.filter(x => Math.round(x.top) === Math.round(c[0].top)).length, w: Math.round(Math.max(...Array.from(document.querySelectorAll('#view .agrid > *')).map(e => e.getBoundingClientRect().width))) }; }"""
+    per = {}
+    for width in (1280, 1920, 2560):
+        with screen(root, tmp, wide_data_named("40 agents"), width) as pg:
+            show(pg, "agents")
+            per[width] = pg.evaluate(PER_ROW)
     for width in (1920, 2560):
+        assert per[width]["per"] > per[1280]["per"] and per[width]["w"] <= 360, "%d px: more agent cards per row, none stretched: %r" % (width, per)
         with screen(root, tmp, wide_data(), width) as pg:
             show(pg, "sum")
             s = pg.evaluate("""() => { const q = (x) => Array.from(document.querySelectorAll(x)), r = (e) => e.getBoundingClientRect();
@@ -1097,9 +1106,8 @@ def wide_screens_add_columns_not_stretch(root, tmp):
               return { tops: c.map(x => Math.round(x.top)), w: c.map(x => Math.round(x.width)), W: W }; }""")
             assert len(set(m["tops"])) < len(m["tops"]) and m["w"][0] < m["W"] / 2, "%d px: the stages with few tasks sit side by side, none a wide empty box: %r" % (width, m)
             show(pg, "agents")
-            a = pg.evaluate("""() => { const c = Array.from(document.querySelector('#view .agrid').children).map(e => e.getBoundingClientRect()), t = Math.round(c[0].top);
-              return { per: c.filter(x => Math.round(x.top) === t).length, w: Math.round(Math.max(...c.map(x => x.width))) }; }""")
-            assert a["per"] > per1280 and a["per"] >= 4 and a["w"] <= 300, "%d px: more agent cards per row, none stretched (%d at 1280): %r" % (width, per1280, a)
+            a = pg.evaluate(PER_ROW)
+            assert a["w"] <= 360, "%d px: no agent card is stretched: %r" % (width, a)
             show(pg, "tokens")
             k = pg.evaluate("""() => { const p = Array.from(document.querySelectorAll('#view .g2 > *')).map(e => e.getBoundingClientRect()), t = Math.round(p[0].top);
               const full = document.querySelector('#view .g2 > .full .hb'), dts = Array.from(document.querySelectorAll('#view .tkh .kv dt')).map(e => Math.round(e.getBoundingClientRect().top));
@@ -1128,33 +1136,29 @@ def wide_screens_add_columns_not_stretch(root, tmp):
     with screen(root, tmp, wide_data(), 2560) as pg:
         show(pg, "arr")
         assert pg.evaluate("new Set(Array.from(document.querySelectorAll('#view .col[data-col=side] > .arr')).map(e => Math.round(e.getBoundingClientRect().left))).size") >= 2, "arranging keeps the side's columns"
+        def drag(grip, onto):
+            pg.evaluate("scrollTo({ top: 0, behavior: 'instant' })")
+            src, dst = pg.locator('[data-grip="%s"]' % grip).bounding_box(), pg.locator('#view .arr[data-blk="%s"]' % onto).bounding_box()
+            pg.mouse.move(src["x"] + src["width"] / 2, src["y"] + src["height"] / 2)
+            pg.mouse.down()
+            for k in range(1, 9):
+                pg.mouse.move(src["x"] + (dst["x"] + 40 - src["x"]) * k / 8, src["y"] + (dst["y"] + 4 - src["y"]) * k / 8)
+            pg.mouse.up()
+            return src, dst
+        # a drag inside the side, onto the top of its second column: it lands there, after the first column's components
+        src, dst = drag("tokens", "pace")
+        assert dst["x"] > pg.locator('#view .arr[data-blk="progress"]').bounding_box()["x"] + 100, "pace heads the side's second column: %r" % dst
+        pg.wait_for_function("Array.from(document.querySelectorAll('#view .col[data-col=side] > .arr')).map(e => e.getAttribute('data-blk')).join() === 'progress,agents,tokens,pace'")
         press(pg, '[data-f="agents:down"]')
         pg.wait_for_function("document.querySelector('#view .col[data-col=side]').children[2].getAttribute('data-blk') === 'agents'")
         press(pg, '[data-f="pace:col"]')
         pg.wait_for_function("document.querySelector('#view .col[data-col=main] .arr[data-blk=pace]')")
-        pg.evaluate("scrollTo({ top: 0, behavior: 'instant' })")
-        src = pg.locator('[data-grip="tokens"]').bounding_box()
-        dst = pg.locator('#view .arr[data-blk="tasks"]').bounding_box()
-        pg.mouse.move(src["x"] + src["width"] / 2, src["y"] + src["height"] / 2)
-        pg.mouse.down()
-        for k in range(1, 9):
-            pg.mouse.move(src["x"] + (dst["x"] + 40 - src["x"]) * k / 8, src["y"] + (dst["y"] + 4 - src["y"]) * k / 8)
-        pg.mouse.up()
+        drag("tokens", "tasks")
         pg.wait_for_function("document.querySelector('#view .col[data-col=main] .arr[data-blk=tokens]')")
         lay = layout_in(pg)
-        assert lay["main"].index("tokens") == lay["main"].index("tasks") - 1 and "pace" in lay["main"] and lay["side"] == ["progress", "agents"], "moves, crossing and a drag at 2560 px: %r" % lay
-        # a drag inside the side, from its second column to its first
-        g2 = pg.locator('[data-grip="agents"]').bounding_box()
-        d2 = pg.locator('#view .arr[data-blk="progress"]').bounding_box()
-        assert g2["x"] > d2["x"] + 100, "agents is in the side's second column: %r %r" % (g2, d2)
-        pg.mouse.move(g2["x"] + g2["width"] / 2, g2["y"] + g2["height"] / 2)
-        pg.mouse.down()
-        for k in range(1, 9):
-            pg.mouse.move(g2["x"] + (d2["x"] + 40 - g2["x"]) * k / 8, g2["y"] + (d2["y"] + 4 - g2["y"]) * k / 8)
-        pg.mouse.up()
-        pg.wait_for_function("document.querySelector('#view .col[data-col=side]').children[0].getAttribute('data-blk') === 'agents'")
+        assert lay == {"main": ["needs", "map", "tokens", "tasks", "pace", "lanes"], "side": ["progress", "agents"]}, "moves, crossing and drags at 2560 px: %r" % lay
         kept = json.loads(pg.evaluate("(k) => localStorage.getItem(k)", KEY))
-        assert sorted(kept) == ["hide", "main", "side"] and kept["side"] == ["agents", "progress"], "what is kept is the two lists and the hidden ones, never a column count: %r" % kept
+        assert sorted(kept) == ["hide", "main", "side"] and kept["side"] == ["progress", "agents"], "what is kept is the two lists and the hidden ones, never a column count: %r" % kept
         assert not pg.errors, pg.errors
     old = {"main": ["needs", "lanes", "tasks"], "side": ["tokens", "progress", "map", "agents"], "hide": ["pace"]}
     with screen(root, tmp, wide_data(), 1920, seed={KEY: json.dumps(old)}) as pg:
@@ -1165,13 +1169,17 @@ def wide_screens_add_columns_not_stretch(root, tmp):
     return "browser"
 
 
+# What sticks out of its column on the summary (a column 296 px wide holding a block made for the main one).
+SPILL_JS = """() => Array.from(document.querySelectorAll('#view .col[data-col]')).flatMap(c => { const R = c.getBoundingClientRect().right;
+  return Array.from(c.querySelectorAll('*')).filter(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > R + 6; }).map(e => c.getAttribute('data-col') + ': ' + e.tagName + '.' + e.className + ' ' + (e.textContent || '').slice(0, 30)); })"""
 SCROLL_JS = """() => { const d = document.documentElement, ctl = Array.from(document.querySelectorAll('.head > *')).filter(e => e.getClientRects().length).map(e => e.getBoundingClientRect().right);
   return { sw: d.scrollWidth, cw: d.clientWidth, head: Math.round(Math.max(...ctl)) }; }"""
 
 
 def no_sideways_scroll_from_320_to_3840(root, tmp):
     """From 320 to 3840 px no view of any tab scrolls sideways and the header's controls end at the window's right edge; the same
-    with no task, one task, 300 tasks and 40 agents, with every side block hidden, with every block in the main column, and at
+    with no task, one task, 300 tasks and 40 agents, with every side block hidden, with every block in the main column or in the
+    side, with what needs you in the side (arranging too: on main it pushed a 296 px side past the window at 1280 px), and at
     1920 px zoomed to 200 % (960 px of CSS), where the page is the 960 px page."""
     for width in (320, 360, 390, 414, 640, 768, 900, 1024, 1100, 1280, 1366, 1440, 1600, 1920, 2560, 3840):
         with screen(root, tmp, wide_data(), width, phone=width < 640) as pg:
@@ -1183,19 +1191,23 @@ def no_sideways_scroll_from_320_to_3840(root, tmp):
             assert not pg.errors, pg.errors
     names = [n for n, _ in ORDER]
     edges = [("empty", None), ("one", None), ("300", None), ("40 agents", None),
-             ("60", {"main": names[:4], "side": [], "hide": names[4:]}), ("60", {"main": names, "side": [], "hide": []}), ("60", {"main": [], "side": names, "hide": []})]
+             ("every side block hidden", {"main": names[:4], "side": [], "hide": names[4:]}), ("all in main", {"main": names, "side": [], "hide": []}), ("all in the side", {"main": [], "side": names, "hide": []}),
+             ("what needs you in the side", {"main": ["map", "tasks", "lanes"], "side": ["needs", "progress", "agents", "pace", "tokens"], "hide": []})]
     for name, arr in edges:
-        data = wide_data() if name == "60" else wide_data_named(name)
+        data = wide_data() if arr else wide_data_named(name)
         for width in (320, 1920, 3840):
             with screen(root, tmp, data, width, phone=width < 640, seed={KEY: json.dumps(arr)} if arr else None) as pg:
                 for view in WIDE_VIEWS:
                     show(pg, view)
                     m = pg.evaluate(SCROLL_JS)
-                    assert m["sw"] <= m["cw"] and width - 32 <= m["head"] <= width, "%s %s, %d px, %s: %r" % (name, arr and "arranged" or "", width, view, m)
+                    assert m["sw"] <= m["cw"] and width - 32 <= m["head"] <= width, "%s, %d px, %s: %r" % (name, width, view, m)
+                    if view in ("sum", "arr"):
+                        spill = pg.evaluate(SPILL_JS)
+                        assert not spill, "%s, %d px, %s: sticks out of its column: %r" % (name, width, view, spill[:4])
                 if width > 640 and name != "empty":
                     show(pg, "sum")
                     r = pg.evaluate(RIGHT_JS)
-                    assert width - 32 <= r["right"] <= width, "%s %s, %d px: the summary reaches the right edge: %r" % (name, arr and "arranged" or "", width, r)
+                    assert width - 32 <= r["right"] <= width, "%s, %d px: the summary reaches the right edge: %r" % (name, width, r)
                 assert not pg.errors, pg.errors
     with screen(root, tmp, wide_data(), 960, height=540, scale=2) as zoomed:
         show(zoomed, "sum")

@@ -60,6 +60,17 @@ UAK-158 (one design system), UAK-159 (the wizard's flow), UAK-162 (the dashboard
     write or answer: it has no server and does not pretend to send. The page scrolls as a whole.
 13. **Words.** No subtitle that restates the title, no slogan, no filler line under a heading: a title and a count.
     A notice is one line: what, and the limit it passed.
+14. **A wide window is used, not stretched** (UAK-198). Up to 1432 px the screens are the ones approved at 1280 and
+    390 px, box for box. Wider, every tab reaches the window's right edge and the extra width becomes columns: the
+    summary's side shows its components in two columns from about 1600 px (three from about 3000 px), each 296 to 440
+    px, and the main column takes the rest; the board's stages with few tasks share a row; agent groups share rows and a
+    card stays 220 to 300 px; tokens' breakdowns sit three to a row and the long one splits in two or three groups;
+    lessons and decisions sit in two columns; the black box's panels move beside its notes; the memory graph's canvas is
+    its card's width and fits the window. A line of running text stays under about 90 characters; a block with little
+    content keeps its size and its neighbours take the room. How many columns a width gets is decided by the page at each
+    draw, never saved with the viewer's arrangement.
+15. **Every screen is shot at 390, 1280 and 1920 px**, light and dark, before it is shown or reviewed (UAK-198: the
+    blank band at 1920 px went unseen because every shot was 1280 or 390 px).
 
 ## Open
 
@@ -74,3 +85,5 @@ UAK-158 (one design system), UAK-159 (the wizard's flow), UAK-162 (the dashboard
   v6.8; the Board opens on its columns; the page has no native select; Memory has a list and a graph of task clusters;
   the Share card comes horizontal and vertical with a very small credit to the kit; the page may weigh up to 200 KiB.
   The human signed off those screens the same day.
+- Found by the human on 2026-11-25 on a desktop monitor ("a giant empty space at the right"; UAK-198): the dashboard uses
+  the whole width (rule 14), and from now on every screen is shot at 390, 1280 and 1920 px (rule 15).

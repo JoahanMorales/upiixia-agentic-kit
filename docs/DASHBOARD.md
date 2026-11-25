@@ -240,6 +240,16 @@ entries that link to nothing are only in the list. Under 640 px wide it shows th
 spend down by kind of token, harness, model, scope, agent (the owner of the task) and task, with the most expensive tasks and
 the average and median per integrated task; the data carries no dates and no budget, and the page says so.
 
+**On a wide monitor** (UAK-198) every tab uses the whole window, in columns rather than longer boxes; up to 1432 px the
+page is exactly the one at 1280 px. The summary's side grows and, from a window of about 1600 px, shows its blocks in two
+columns (three from about 3000 px), read down the first and then the next; the main column takes the rest, and a column
+alone on the page flows into the same columns. That count comes from the width at each draw and is never saved: your
+arrangement is still the two lists, and Edit, the handles and a drag work across the side's columns. The board's stages
+with few tasks share a row, agent groups share rows (a card stays 220 to 300 px), the tokens' breakdowns sit three to a
+row, lessons and decisions sit in two columns, the black box's panels move beside its notes, and the memory graph gets a
+canvas as wide as its card that fits the window. A line of running text stays under about 90 characters. Nothing scrolls
+sideways from 320 to 3840 px; a block moved to the side column (what needs you, the tasks) stacks its rows as on a phone.
+
 ### Sharing the card from a phone
 
 The Share dialog shows each card (1200 x 630 and the 1080 x 1920 story) as a real image: press and hold it to get "Save to Photos", "Copy" or "Share" from the system. The buttons under it appear only where they can work, decided by testing what the browser offers and never by its name:

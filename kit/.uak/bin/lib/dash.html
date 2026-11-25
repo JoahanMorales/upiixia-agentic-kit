@@ -462,13 +462,20 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
 .arr:hover, .arr:focus-within { animation: none; }
 @keyframes jig { from { transform: rotate(-.5deg); } to { transform: rotate(.5deg); } }
 .arr > .blk > .bh { display: none; }
-.hbar { display: flex; align-items: center; gap: 4px; min-height: 32px; margin: 0 0 8px; }
+.hbar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-height: 32px; margin: 0 0 8px; }
 .hbar b { margin-right: auto; }
 .hnd { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); color: var(--ink-2); }
 .hnd[disabled] { opacity: .4; cursor: default; }
 .grip { display: grid; place-items: center; width: 24px; height: 32px; margin-left: -4px; color: var(--muted); cursor: grab; touch-action: none; }
 .arr.drag { z-index: 30; animation: none; box-shadow: var(--shadow); background: var(--page); }
 .dropline { position: fixed; z-index: 40; height: 3px; border-radius: 999px; background: var(--accent-line); pointer-events: none; }
+/* What needs you or the tasks, moved to the side column: their rows stack as on a phone, so a narrow column never overflows. */
+.page:not(.one) .col[data-col=side] .rows > li { grid-template-columns: auto minmax(0,1fr); gap: 4px 12px; }
+.page:not(.one) .col[data-col=side] .rows .t { grid-column: 1 / -1; white-space: normal; }
+.page:not(.one) .col[data-col=side] .rows .pipe, .page:not(.one) .col[data-col=side] .rows .w { grid-column: 1 / -1; text-align: left; }
+.page:not(.one) .col[data-col=side] .need > li { grid-template-columns: 24px minmax(0,1fr); }
+.page:not(.one) .col[data-col=side] .need > li > :last-child { grid-column: 1 / -1; }
+.page:not(.one) .col[data-col=side] .need .cmd { width: 100%; } .page:not(.one) .col[data-col=side] .need .cmd code { flex: 1; }
 .arr-empty { margin: 0; padding: 24px 16px; border: 1px dashed var(--line-2); border-radius: var(--r); color: var(--muted); text-align: center; }
 .g2 { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,360px),1fr)); gap: 16px; align-items: start; }
 .hb { display: grid; grid-template-columns: minmax(64px,160px) minmax(0,1fr) auto; gap: 8px 12px; align-items: center; padding: 12px; }
@@ -614,6 +621,45 @@ dialog#story::backdrop { background: var(--scrim); }
   .hnd { width: 44px; height: 44px; } .ab { min-height: 44px; } .addb { max-width: none; flex: 1 1 100%; } .grip { width: 44px; height: 44px; }
   .tbl th, .tbl td { padding: 8px 4px; }
   .row { grid-template-columns: 32px minmax(0,1fr); } .row .meta { grid-column: 2; white-space: normal; }
+}
+/* A wide window (UAK-198): the page takes the whole width and uses it, in columns rather than longer boxes; running text stays
+   under about 90 characters a line. Nothing here applies up to 1432 px: the screens approved at 1280 and 390 px are unchanged. */
+@media (min-width:1433px) {
+  .page, .wide { max-width: none; }
+  .col.flow { display: block; column-gap: 16px; }
+  .col.flow > * { break-inside: avoid; margin-bottom: 16px; }
+  .need > li > div, .tk p { max-width: 64ch; }
+  .msg { max-width: min(72ch,90%); }
+  .card.next { max-width: 720px; }
+  .wide.bmap { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 12px; }
+  .bmap > .bh, .bmap > .depline { flex: 1 1 100%; }
+  .bmap > section { flex: 1 1 auto; min-width: 0; }
+  .cv { grid-template-columns: clamp(280px, 17vw, 380px) minmax(0,1fr) clamp(264px, 15vw, 340px); }
+  .wide.bbw { display: grid; grid-template-columns: minmax(0,1fr) clamp(360px, 32%, 640px); grid-template-rows: auto auto 1fr; column-gap: 16px; align-items: start; }
+  .bbw > :not(.g2) { grid-column: 1; }
+  .bbw > .g2 { grid-column: 2; grid-row: 1 / span 3; grid-template-columns: minmax(0,1fr); }
+  .bbx dd, .bbx details[open] summary .t { max-width: 60ch; }
+  .g2.mem .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); gap: 1px; background: var(--line); }
+  .g2.mem .list > * { border-top: 0; background: var(--surface); }
+  .g2.mem .list > .mre { grid-column: 1 / -1; }
+  .gv { grid-template-columns: minmax(0,1fr) clamp(360px, 26%, 520px); }
+  .tkh { display: grid; grid-template-columns: auto minmax(0,1fr); column-gap: 32px; align-items: center; }
+  .tkh > .big { grid-row: 1 / span 2; }
+  .tkh > .stack { margin: 0 0 8px; }
+  .tkh > .kv { grid-template-columns: repeat(4, max-content max-content); column-gap: 8px; }
+  .tkh > .kv dt:not(:first-child) { margin-left: 24px; }
+  .g2.tkg { display: flex; flex-wrap: wrap; }
+  .tkg > * { flex: 1 1 360px; min-width: 0; }
+  .tkg > .full { flex-basis: 100%; }
+  .g2 > .full .hb { grid-template-columns: repeat(2, minmax(64px,160px) minmax(0,1fr) auto); }
+  /* Agents: a group takes the room its cards need (six to a row to start with), small groups share a row and the row is filled;
+     a group is never narrower than its heading, a card never wider than 300 px (a compact one 240). */
+  .wide.agw { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 24px; }
+  .agw > section { flex: var(--n, 1) 1 calc(min(var(--n, 1), 6) * (var(--cw, 220px) + 8px) - 8px); min-width: min(100%, 360px); }
+  .agw .agrid > * { max-width: var(--cx, 300px); }
+}
+@media (min-width:2400px) {
+  .g2 > .full .hb { grid-template-columns: repeat(3, minmax(64px,160px) minmax(0,1fr) auto); }
 }
 @media (prefers-reduced-motion:reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
@@ -1112,8 +1158,25 @@ dialog#story::backdrop { background: var(--scrim); }
     return b;
   }
   function arrAdd(def, a, name) { return arrRead(def, { main: a.main, side: a.side, hide: a.hide.filter(function (n) { return n !== name; }) }).lay; }
-  function sumCols(w, main, side) { return { flow: 1, side: 1, w: 296 }; }
-  function graphBox(cw, vh, bw, bh) { return { W: 760, H: 560 }; }
+  // How the summary uses its width (UAK-198). W: the width of its content; MAIN, SIDE: how many components each list shows. Up to
+  // 1480 px it is the summary approved at 1280 px: the main column and a side of 296 px. From 1480 px (a window about 1600 px wide)
+  // the side shows its components in two columns, from 2900 px in three, each 296 to 440 px (36 % of the width shared out), never
+  // more columns than components; the main column takes the rest. A list alone on the page flows into the columns of its width.
+  // Derived from the width at every draw, never stored: the viewer's arrangement stays the two lists.
+  function sumCols(w, main, side) {
+    var n = w >= 2900 ? 3 : w >= 1480 ? 2 : 1;
+    if (!main || !side) return { flow: Math.max(1, Math.min(n, main + side)), side: 0, w: 0 };
+    var k = Math.min(n, side), cw = n === 1 ? 296 : Math.max(296, Math.min(440, Math.round((w * 0.36 - 16 * (n - 1)) / n)));
+    return { flow: 1, side: k, w: k * cw + 16 * (k - 1) };
+  }
+  // The memory graph's canvas: 760 x 560 in a card up to 800 px wide (the approved one); wider, the card's own width (labels keep
+  // their size) and a height that fits the window, no taller than the graph needs at its largest scale (1.4).
+  function graphBox(cw, vh, bw, bh) {
+    if (!(cw > 800)) return { W: 760, H: 560 };
+    var W = Math.round(cw), H = Math.min(Math.round(W * 0.74), Math.max(560, (vh || 0) - 240));
+    if (bw > 0 && bh > 0) H = Math.min(H, Math.max(320, Math.round(bh * Math.min(1.4, (W - 80) / bw)) + 80));
+    return { W: W, H: H };
+  }
   /* logic:end */
   function h(tag, attrs, kids) {
     var el = document.createElement(tag);
@@ -1609,9 +1672,17 @@ dialog#story::backdrop { background: var(--scrim); }
       if (d < bd) { bd = d; best = c; }
     });
     if (!best) return null;
-    var boxes = Array.prototype.filter.call(best.children, function (a) { return a.classList.contains("arr") && a !== DRAG.box; }), at = 0, r0 = best.getBoundingClientRect();
-    boxes.forEach(function (a) { var r = a.getBoundingClientRect(); if (y > r.top + r.height / 2) at++; });
-    return { col: best.getAttribute("data-col"), at: at, x: r0.left, w: r0.width, y: !boxes.length ? r0.top : at < boxes.length ? boxes[at].getBoundingClientRect().top - 10 : boxes[boxes.length - 1].getBoundingClientRect().bottom + 8 };
+    var boxes = Array.prototype.filter.call(best.children, function (a) { return a.classList.contains("arr") && a !== DRAG.box; }), r0 = best.getBoundingClientRect();
+    if (!boxes.length) return { col: best.getAttribute("data-col"), at: 0, x: r0.left, w: r0.width, y: r0.top };
+    // A column may show its components in several columns of its own (sumCols), read down the first, then the next: the pointer
+    // is in the one nearest to it; the components of the ones before it and those above the pointer in it come first. Boxes
+    // whose left edges are within 40 px share a column (a shaking box is turned by half a degree; columns are 296 px apart or more).
+    var rs = boxes.map(function (a) { return a.getBoundingClientRect(); }), lane = 0, ld = Infinity, at = 0, last = 0;
+    rs.forEach(function (r) { var d = Math.max(r.left - x, 0, x - r.right); if (d < ld) { ld = d; lane = r.left; } });
+    function same(r) { return Math.abs(r.left - lane) < 40; }
+    rs.forEach(function (r, i) { if ((r.left < lane && !same(r)) || (same(r) && y > r.top + r.height / 2)) at++; if (same(r)) last = i; });
+    var next = at < rs.length && same(rs[at]) ? rs[at] : null, r1 = next || rs[last];
+    return { col: best.getAttribute("data-col"), at: at, x: r1.left, w: r1.width, y: next ? next.top - 10 : r1.bottom + 8 };
   }
   document.addEventListener("pointerdown", function (e) {
     var g = ui.arr && e.target.closest && e.target.closest("[data-grip]");
@@ -1664,8 +1735,26 @@ dialog#story::backdrop { background: var(--scrim); }
     if (empty) cols.main.appendChild(h("div", { "class": "card next" }, [h("h2", { text: L('Your project has no plan yet') }), h("p", { text: L('Start the guide: it asks what you build and writes the plan.') }), copyBox("bash .uak/bin/uak start"),
       h("p", { "class": "muted", text: L('Nothing is claimed or integrated yet, so every figure is zero.') })]));
     var shown = ["main", "side"].filter(function (c) { return cols[c].children.length; }).map(function (c) { return cols[c]; });
-    v.appendChild(h("div", { "class": "page" + (arr ? " arranging" : ""), style: shown.length < 2 ? "grid-template-columns:minmax(0,1fr)" : null }, [empty ? null : guard("arrange", function () { return arrBar(d, lay, def); })].concat(shown)));
+    fitSummary(v.appendChild(h("div", { "class": "page" + (arr ? " arranging" : "") + (shown.length < 2 ? " one" : ""), style: shown.length < 2 ? "grid-template-columns:minmax(0,1fr)" : null }, [empty ? null : guard("arrange", function () { return arrBar(d, lay, def); })].concat(shown))));
   }
+  // The summary at this width (sumCols): the side's width and how many columns each list shows. Nothing is set up to 1480 px.
+  function fitSummary(p) {
+    if (!p || !p.querySelector) return;
+    var col = {}, n = {}, cs = window.getComputedStyle ? window.getComputedStyle(p) : null;
+    ["main", "side"].forEach(function (c) { col[c] = p.querySelector('.col[data-col="' + c + '"]'); n[c] = col[c] ? Array.prototype.filter.call(col[c].children || [], function (e) { return !e.classList.contains("arr-empty"); }).length : 0; });
+    var r = sumCols(p.clientWidth - (cs ? parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) : 0), n.main, n.side);
+    if (col.main && col.side && n.main && n.side) p.style.gridTemplateColumns = r.w !== 296 ? "minmax(0,1fr) " + r.w + "px" : "";
+    // a list alone flows only where it has the page's width: the main column, or the side when the main column is not drawn
+    ["main", "side"].forEach(function (c) { if (!col[c]) return; var k = r.side ? (c === "side" ? r.side : 1) : n[c] && (c === "main" || !col.main) ? r.flow : 1; col[c].classList.toggle("flow", k > 1); col[c].style.columnCount = k > 1 ? String(k) : ""; });
+  }
+  var fitW = window.innerWidth, fitting = 0;
+  window.addEventListener("resize", function () {
+    if (fitting) return;
+    fitting = requestAnimationFrame(function () {
+      fitting = 0; if (window.innerWidth === fitW || DRAG) return; fitW = window.innerWidth;
+      if (ui.tab === "sum") fitSummary(document.querySelector("#view .page")); else if (ui.tab === "memory" && ui.mv === "graph") render();
+    });
+  });
 
   var GROUPS = [["cifail", "Approved, CI failed"], ["changes", "Changes requested"], ["human", "Waiting for a human merge"], ["waiting", "Waiting for a reviewer"], ["rereview", "Re-review"],
                 ["review", "In review"], ["owner", "Approved, owner to merge"]];
@@ -1717,7 +1806,7 @@ dialog#story::backdrop { background: var(--scrim); }
   }
   function board(v, d) {
     viewHeading(v, T("Board"));
-    var wrap = h("div", { "class": "wide" }), g = d.generated;
+    var wrap = h("div", { "class": "wide" + (ui.bv !== "cols" ? " bmap" : "") }), g = d.generated;
     wrap.appendChild(h("div", { "class": "bh" }, [h("h2", { text: T("Board") }), h("span", { "class": "n", text: planCounts(d.tasks).plan + T(" tasks") + (planCounts(d.tasks).cancelled ? " · " + planCounts(d.tasks).cancelled + " " + L('cancelled') : "") }), h("div", { "class": "x" }, [find(render), seg([["map", L('Map')], ["cols", L('Cards')]], ui.bv, function (x) { ui.bv = x; save(); render(); }, L('Show the board as'))])]));
     var by = { todo: [], prog: [], rev: [], done: [] };
     d.tasks.forEach(function (t) { if (!match(t)) return; var s = stateOf(t); (s === "AVAILABLE" || s === "WAITING" ? by.todo : s === "CLAIMED" || s === "BLOCKED" ? by.prog : s === "REVIEW" ? by.rev : s === "INTEGRATED" ? by.done : []).push(t); });
@@ -1755,7 +1844,7 @@ dialog#story::backdrop { background: var(--scrim); }
   function cnt(n, one, many) { return n + " " + (n === 1 ? one : many); }
   function agents(v, d) {
     viewHeading(v, T("Agents"));
-    var wrap = h("div", { "class": "wide" }); v.appendChild(wrap);
+    var wrap = h("div", { "class": "wide agw" }); v.appendChild(wrap);
     var groups = [["online", T("Online"), T("active in the last 30 min")], ["recent", T("Recently active"), T("seen in the last 3 h")], ["away", T("Away"), T("session ended")], ["offline", T("Offline"), T("not seen for 3 h or more")], ["retired", T("Retired"), T("identity retired")]];
     if (!d.agents.length) { wrap.appendChild(h("div", { "class": "card empty" }, [h("b", { text: T("No agents yet") }), T("An agent appears here after its first uak command.")])); return; }
     groups.push(["people", L('People'), L('the humans of the project')]);
@@ -1774,7 +1863,7 @@ dialog#story::backdrop { background: var(--scrim); }
           mhs && !compact ? h("div", { "class": "sub ell", title: mhs, text: mhs }) : null,
           compact ? null : h("div", { "class": "sub num", title: cnt(a.messages, L('message'), L('messages')) + " · " + cnt(a.verdicts, L('verdict'), L('verdicts')) + " · " + cnt(a.checkpoints, L('checkpoint'), L('checkpoints')), text: cnt(a.messages, L('message'), L('messages')) + " · " + cnt(a.verdicts, L('verdict'), L('verdicts')) + " · " + cnt(a.checkpoints, L('checkpoint'), L('checkpoints')) })]));
       });
-      return (h("section", { style: "margin-bottom:24px" }, [h("div", { "class": "bh" }, [h("h2", { text: gr[1] }), h("span", { "class": "n", text: String(list.length) }), h("div", { "class": "x", text: gr[2] })]), grid]));
+      return (h("section", { style: "margin-bottom:24px;--n:" + list.length + (compact ? ";--cw:170px;--cx:240px" : "") }, [h("div", { "class": "bh" }, [h("h2", { text: gr[1] }), h("span", { "class": "n", text: String(list.length) }), h("div", { "class": "x", text: gr[2] })]), grid]));
     })); });
   }
 
@@ -1907,7 +1996,7 @@ dialog#story::backdrop { background: var(--scrim); }
   function none(a, b) { return h("div", { "class": "empty" }, [h("b", { text: a }), b || ""]); }
   function blackbox(v, d) {
     viewHeading(v, T("Black box"));
-    var wrap = h("div", { "class": "wide" }), g = h("div", { "class": "g2" }); v.appendChild(wrap); wrap.appendChild(g);
+    var wrap = h("div", { "class": "wide bbw" }), g = h("div", { "class": "g2" }); v.appendChild(wrap); wrap.appendChild(g);
     var kinds = {}; d.blackbox.forEach(function (r) { var k = label(r); kinds[k] = (kinds[k] || 0) + 1; });
     g.appendChild(guard("panel", function () { return panel(T("Events by kind"), d.blackbox.length + T(" recorded"), Object.keys(kinds).length ? hbars(kinds) : none(T("No events yet"), L('Kit errors and agent notes land here.'))); }));
     var t2 = h("table", { "class": "tbl" }, [h("tr", {}, [T("Harness"), T("Claims"), T("Map / task"), T("Lens / task"), T("Wait / done"), T("Polls / done")].map(function (x, i) { return h("th", { "class": i ? "n" : null, text: x }); }))]);
@@ -1940,7 +2029,7 @@ dialog#story::backdrop { background: var(--scrim); }
   }
   function memory(v, d) {
     viewHeading(v, T("Memory"));
-    var wrap = h("div", { "class": "wide" }), g = h("div", { "class": "g2" }); v.appendChild(wrap);
+    var wrap = h("div", { "class": "wide" }), g = h("div", { "class": "g2 mem" }); v.appendChild(wrap);
     var wide = window.innerWidth >= 640, graph = ui.mv === "graph" && wide;
     wrap.appendChild(h("div", { "class": "filters" }, [seg([["list", L('List')], ["graph", L('Graph')]], ui.mv, function (x) { ui.mv = x; save(); render(); }, L('Show the memory as')), ui.mv === "graph" && !wide ? h("span", { "class": "muted", text: L('The graph needs a wider screen: showing the list.') }) : null]));
     if (graph) { memGraphView(wrap, d); return; }
@@ -1982,6 +2071,9 @@ dialog#story::backdrop { background: var(--scrim); }
     tools.appendChild(h("label", { "class": "find" }, [icon(I.find), q]));
     [["+", 1.4], ["-", 1 / 1.4]].forEach(function (z) { tools.appendChild(h("button", { "class": "chip", type: "button", "aria-label": z[0] === "+" ? L('Zoom in') : L('Zoom out'), text: z[0], on: function () { GZ.z = Math.max(1, Math.min(6, GZ.z * z[1])); render(); } })); });
     tools.appendChild(h("button", { "class": "chip", type: "button", text: L('Fit'), on: function () { GZ = { z: 1, x: 0, y: 0 }; render(); } }));
+    // The canvas: the width the graph's card has here (graphBox), measured on an empty copy of the two columns.
+    var probe = wrap.appendChild(h("div", { "class": "gv" }, [h("div", { "class": "card" }), h("div", { "class": "card pad gside" })])), gb = graphBox(probe.firstChild.clientWidth, window.innerHeight, lay.box.w, lay.box.h);
+    probe.remove(); W = gb.W; H = gb.H;
     // Scale to fit, with a padding, over the unbounded layout: nothing is clamped to the frame.
     var pad = 40, sc = Math.min(1.4, (W - 2 * pad) / lay.box.w, (H - 2 * pad) / lay.box.h), fw = W / sc, fh = H / sc, fx = lay.box.x - (fw - lay.box.w) / 2, fy = lay.box.y - (fh - lay.box.h) / 2;
     var vw = fw / GZ.z, vh = fh / GZ.z, vx = Math.max(fx, Math.min(fx + fw - vw, GZ.x || fx)), vy = Math.max(fy, Math.min(fy + fh - vh, GZ.y || fy));
@@ -2143,7 +2235,7 @@ dialog#story::backdrop { background: var(--scrim); }
     var t = d.tokens || { total: 0 }, wrap = h("div", { "class": "wide" }); v.appendChild(wrap);
     if (!t.total) { wrap.appendChild(h("div", { "class": "card empty" }, [h("b", { text: T("Tokens spent") + " · 0" }), T("No machine has published its spend yet: uak tokens --publish")])); return; }
     var tb = tokenBreak(t, d.tasks), kinds = t.by_kind || {}, kt = ["input", "cache_write", "cache_read", "output"], KL = { input: L('Input'), cache_write: L('Cache write'), cache_read: L('Cache read'), output: L('Output') };
-    var head = h("div", { "class": "card pad", style: "margin-bottom:16px" }, [h("div", { "class": "big" }, [h("b", { text: M(t.total) }), h("span", { text: T("Tokens spent") + " · " + T("published by every machine with uak tokens") })])]);
+    var head = h("div", { "class": "card pad tkh", style: "margin-bottom:16px" }, [h("div", { "class": "big" }, [h("b", { text: M(t.total) }), h("span", { text: T("Tokens spent") + " · " + T("published by every machine with uak tokens") })])]);
     var ksum = kt.reduce(function (a, k) { return a + (kinds[k] || 0); }, 0);
     if (ksum) {
       var bar = h("div", { "class": "stack", role: "img", "aria-label": kt.map(function (k) { return KL[k] + " " + M(kinds[k] || 0); }).join(", ") }), kv = h("dl", { "class": "kv" });
@@ -2152,10 +2244,10 @@ dialog#story::backdrop { background: var(--scrim); }
     }
     wrap.appendChild(head);
     var named = function (o) { var r = {}; Object.keys(o || {}).forEach(function (k) { r[k === "unknown" ? L('not recorded') : k] = o[k]; }); return r; };
-    var g = h("div", { "class": "g2" }); wrap.appendChild(guard("tokens breakdowns", function () { return g; }));
+    var g = h("div", { "class": "g2 tkg" }); wrap.appendChild(guard("tokens breakdowns", function () { return g; }));
     [[T("By harness"), named(t.by_harness)], [L('By model'), named(t.by_model)], [T("By scope"), named(t.by_scope)], [L('By agent (owner of the task)'), tb.perAgent, true]].forEach(function (x) {
       if (!Object.keys(x[1] || {}).length) return;   // an empty breakdown draws nothing; the others still draw
-      g.appendChild(guard("tokens " + x[0], function () { var pn = panel(x[0], "", hbars(x[1], M, 10)); if (x[2]) pn.style.gridColumn = "1 / -1"; return pn; }));
+      g.appendChild(guard("tokens " + x[0], function () { var pn = panel(x[0], "", hbars(x[1], M, 10)); if (x[2]) { pn.style.gridColumn = "1 / -1"; pn.classList.add("full"); } return pn; }));
     });
     if (tb.top.length) wrap.appendChild(guard("tokens most expensive", function () {
     var ul = h("ul", { "class": "list rows" }), max = tb.top.length ? tb.top[0].n : 1;
