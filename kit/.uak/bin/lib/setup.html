@@ -478,6 +478,16 @@ details.technical pre { max-height: 200px; overflow-wrap: anywhere; }
 .foot .blocked-reason, .foot .hint { order: -1; flex: 1 0 100%; margin: 0; text-align: right; }
 .copyrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .copyrow code { flex: 1; min-width: 0; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--raised); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.runctl { display: grid; gap: 8px; min-width: 0; }
+.run-bar button { min-height: 44px; }
+.run-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.run-bar input { flex: 1 1 160px; min-width: 0; }
+.run-time { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.run-status { margin: 0; font-size: 12px; color: var(--ink-2); }
+.run-status:empty { display: none; }
+.run-status.error { color: var(--blocked-ink); }
+.run-tech { font-size: 12px; }
+.run-tech pre { margin: 8px 0 0; max-height: 180px; overflow: auto; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--raised); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
 #closed-command, #terminal-command { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 .sec { font-size: 13px; font-weight: 600; margin: 8px 0 0; color: var(--ink-2); }
 .agents > li { display: grid; gap: 8px; }
@@ -1075,6 +1085,7 @@ Approve and publish
 
 <ul class="agents list" id="agents-list"></ul>
 <p class="hint" id="start-hint"></p>
+<p class="hint" id="start-own-note">Press Start, or copy the command and run it in a terminal of your own. A terminal window opened here is yours: closing the wizard leaves it open.</p>
 <div hidden><div class="team-step" id="team-step">
 <div class="team-block" id="team-implement" hidden>
 <h3 id="team-implement-heading" tabindex="-1" data-no-i18n>2. Claude Code implements</h3>
@@ -1218,10 +1229,10 @@ Not deployed yet. When your app is online, add its link under More.
 <iframe id="dashboard-frame" title="Project dashboard" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" hidden></iframe>
 <h2 class="sec">More</h2>
 <ul class="list actions-list" id="more">
-<li><span><strong>Deploy</strong><span class="why">Prints how this project deploys; add the link when it is online.</span></span><div class="cmd" data-cmd="bash .uak/bin/uak deploy"></div></li>
-<li><span><strong>Smoke test</strong><span class="why">Boots your app and requests one route before every merge.</span></span><div class="cmd" data-cmd="bash .uak/bin/uak init-smoke"></div></li>
-<li><span><strong>External skills</strong><span class="why">Add one to your agents.</span></span><div class="cmd" data-cmd="bash .uak/bin/uak skill add"></div></li>
-<li><span><strong>Continue in the terminal</strong><span class="why">What this page does, from the project folder.</span></span><div class="cmd" data-cmd="bash .uak/bin/uak start"></div></li>
+<li><span><strong>Deploy</strong><span class="why">Prints how this project deploys; add the link when it is online.</span></span><div class="cmd" data-cmd="bash .uak/bin/uak deploy" data-action="deploy-help"></div></li>
+<li><span><strong>Smoke test</strong><span class="why">Boots your app and requests one route before every merge.</span></span><div class="cmd" data-cmd="bash .uak/bin/uak init-smoke" data-action="smoke"></div></li>
+<li><span><strong>External skills</strong><span class="why">Add one to your agents.</span></span><div class="cmd" data-cmd="bash .uak/bin/uak skill add" data-action="skill-add"></div></li>
+<li><span><strong>Continue in the terminal</strong><span class="why">What this page does, from the project folder.</span></span><div class="cmd" data-cmd="bash .uak/bin/uak start" data-action="readiness"></div></li>
 <li id="preferences" hidden><span><strong>Deployed app link</strong><span class="why" id="live-url-hint">Only an https:// address. The dashboard shows it as a link to your app.</span></span><span class="live"><input type="url" id="live-url-input" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://" aria-describedby="live-url-hint" /><button type="button" class="secondary-button" id="save">Save preferences</button></span><p class="hint" id="save-status" role="status"></p></li>
 </ul>
 </div>
@@ -2228,7 +2239,7 @@ Not deployed yet. When your app is online, add its link under More.
           var cmd = el("rules-cmd");
           cmd.replaceChildren();
           var lead = document.createElement("p"); lead.className = "hint"; lead.textContent = UAKWorkspace.t("The rules marked in PROJECT.md grant authority, so the browser never writes them. Change them there with a reviewed pull request:");
-          cmd.append(lead, copyRow(inProject("${EDITOR:-nano} .uak/PROJECT.md")));
+          cmd.append(lead, copyRow("open-rules", inProject("${EDITOR:-nano} .uak/PROJECT.md")));
           var rows = [["", ".uak/PROJECT.md", ""]], changed = 0;
           function line(key, now, before) {
             var differs = now !== before;
@@ -2291,7 +2302,22 @@ Not deployed yet. When your app is online, add its link under More.
           return text.replace(new RegExp("'" + escaped + "(/[A-Za-z0-9_./-]*)'", "g"), "~$1");
         }
         // One command in one line: the text is cut visually, the whole line is what Copy puts on the clipboard.
-        function copyRow(full) {
+        // UAK-192: every copy box names its action. When the server's table says the action has a button (it runs here,
+        // or opens a terminal window), the button comes beside the copy box; the page sends the NAME, never the command.
+        var RUN_UI = {
+          "start-agent": { label: "Start this agent", what: "Starting the agent" },
+          "deploy-help": { label: "Show how to deploy", what: "Deploy help", details: true },
+          "smoke": { label: "Run the smoke test", what: "Smoke test", details: true },
+          "skill-add": { label: "Add the skill", what: "Adding the skill", input: "Skill name", details: true },
+          "readiness": { label: "Check now", what: "Readiness check", details: true },
+          "open-rules": { label: "Open PROJECT.md", what: "Opening PROJECT.md" },
+        };
+        var runLocal = {}, runInput = {};
+        function runKind(name) { var a = (state.run_actions || {})[name]; return a ? a.kind : ""; }
+        function runsActive(data) {
+          return Object.keys((data || {}).runs || {}).some(function (n) { return data.runs[n].state === "running"; });
+        }
+        function plainRow(full) {
           var row = document.createElement("div"), code = document.createElement("code"), button = document.createElement("button");
           row.className = "copyrow";
           code.textContent = shown(full); code.title = full; code.dataset.noI18n = ""; code.dataset.full = full;
@@ -2303,12 +2329,92 @@ Not deployed yet. When your app is online, add its link under More.
           row.append(code, button);
           return row;
         }
+        function copyRow(name, full, fields) {
+          var row = plainRow(full), kind = runKind(name);
+          return kind === "run" || kind === "terminal" ? runControl(name, fields || {}, row) : row;
+        }
+        function runWords(name, key, fields) {
+          // [text, isError, tail, open] of the line under the button, from what the server says and what the click got.
+          var ui = RUN_UI[name], local = runLocal[key] || {}, job = (state.runs || {})[name], agent = (state.agents || {})[fields.role];
+          var what = UAKWorkspace.t(ui.what), t = job ? String(job.seconds) : "";
+          if (local.error) return [UAKWorkspace.t(local.sentence), true, [], false];
+          if (name === "start-agent")
+            return agent ? [UAKWorkspace.format("Opened a terminal window for {tool} at {time}. It is yours: it stays open if you close the wizard.", { tool: agent.tool, time: clock(new Date(agent.at * 1000)) }), false, [], false] : ["", false, [], false];
+          if (!job) return ["", false, [], false];
+          if (job.state === "running") return ["", false, job.tail, false];
+          if (job.state === "done") return [UAKWorkspace.format("{what}: done in {time} s.", { what: what, time: t }), false, job.tail, !!ui.details];
+          if (job.state === "stopped") return [UAKWorkspace.format("{what} was stopped after {time} s.", { what: what, time: t }) + " " + UAKWorkspace.t("Stopped. Nothing is left running."), false, job.tail, false];
+          return [UAKWorkspace.format("{what} failed after {time} s.", { what: what, time: t }) + (job.advice ? " " + UAKWorkspace.t(job.advice) : ""), true, job.tail, true];
+        }
+        function runControl(name, fields, row) {
+          var ui = RUN_UI[name], key = name + (fields.role ? ":" + fields.role : ""), box = document.createElement("div"), bar = document.createElement("div");
+          var job = (state.runs || {})[name], running = !!(job && job.state === "running"), local = runLocal[key] || {};
+          var go = document.createElement("button"), words = runWords(name, key, fields), input = null;
+          box.className = "runctl"; box.dataset.action = name; bar.className = "run-bar";
+          if (ui.input) {
+            input = document.createElement("input"); input.type = "text"; input.autocomplete = "off"; input.spellcheck = false;
+            input.placeholder = "frontend-design"; input.setAttribute("aria-label", UAKWorkspace.t(ui.input)); input.value = runInput[key] || "";
+            input.oninput = function () { runInput[key] = input.value; };
+            bar.append(input);
+          }
+          go.type = "button"; go.className = "secondary-button run-go";
+          go.textContent = UAKWorkspace.t(running ? "Running…" : local.busy ? "Working…" : ui.label);
+          go.disabled = running || !!local.busy;
+          if (go.disabled) go.setAttribute("aria-busy", "true");
+          go.onclick = function () {
+            if (runLocal[key] && runLocal[key].busy) return;
+            runAction(key, name, input ? { name: input.value.trim() } : fields);
+          };
+          bar.append(go);
+          if (running) {
+            var stop = document.createElement("button"), time = document.createElement("span");
+            stop.type = "button"; stop.className = "secondary-button run-stop"; stop.textContent = UAKWorkspace.t("Stop");
+            stop.onclick = function () { stopRun(); };
+            time.className = "run-time"; time.textContent = UAKWorkspace.format("Running: {what}, {time} s", { what: UAKWorkspace.t(ui.what), time: job.seconds });
+            bar.append(stop, time);
+          }
+          var status = document.createElement("p");
+          status.className = "run-status" + (words[1] ? " error" : ""); status.setAttribute("role", "status"); status.dataset.noI18n = "";
+          status.textContent = words[0];
+          box.append(bar, row, status);
+          if (words[2].length) {
+            var tech = document.createElement("details"), sum = document.createElement("summary"), pre = document.createElement("pre");
+            tech.className = "run-tech"; tech.open = words[3] || running; sum.textContent = UAKWorkspace.t("Technical details"); pre.textContent = words[2].join("\n"); pre.dataset.noI18n = "";
+            tech.append(sum, pre); box.append(tech);
+          }
+          return box;
+        }
+        async function runAction(key, name, fields) {
+          if (runLocal[key] && runLocal[key].busy) return;
+          runLocal[key] = { busy: true };
+          drawScreens(state);
+          try {
+            var answer = await api("run", Object.assign({ action: name }, fields));
+            runLocal[key] = name === "start-agent" && !answer.opened ? { error: true, sentence: answer.sentence } : {};
+          } catch (e) {
+            if (e.gone) return;
+            runLocal[key] = { error: true, sentence: e.message };
+          }
+          await refresh();
+          drawScreens(state);
+        }
+        async function stopRun() {
+          try { await api("run/stop", {}); } catch (e) { if (e.gone) return; }
+          await refresh();
+        }
+        // A box is drawn again only when what it shows changed: a poll must not take the focus out of a field.
+        function redraw(box, sig, build) {
+          var text = JSON.stringify(sig);
+          if (box.dataset.sig === text) return;
+          box.dataset.sig = text;
+          build();
+        }
         // A refusal that names the git command to run puts it in a copy box, next to the step's list.
         function showFix(text) {
           var box = el("publish-fix"), found = /\((git [^)]+)\)/.exec(String(text || ""));
           box.replaceChildren();
           box.hidden = !found;
-          if (found) { var h = document.createElement("h2"); h.className = "sec"; h.textContent = UAKWorkspace.t("Run this in a terminal, then try again"); box.append(h, copyRow(inProject(found[1]))); }
+          if (found) { var h = document.createElement("h2"); h.className = "sec"; h.textContent = UAKWorkspace.t("Run this in a terminal, then try again"); box.append(h, copyRow("publish-way-out", inProject(found[1]))); }
         }
         function inProject(command) { return state.target ? "cd '" + String(state.target).replace(/'/g, "'\\''") + "' && " + command : command; }
         function pill(text, kind) {
@@ -2409,20 +2515,20 @@ Not deployed yet. When your app is online, add its link under More.
               ["Creativity index", String(design.creativity) + " / 5"], ["Rounds made", String(design.rounds)]]);
             var box = el("design-cmds");
             box.replaceChildren();
-            if (!design.locked) box.append(copyRow(inProject("bash .uak/bin/uak design round")), copyRow(inProject("bash .uak/bin/uak design-gallery")));
+            if (!design.locked) box.append(copyRow("design-round", inProject("bash .uak/bin/uak design round")), copyRow("design-gallery", inProject("bash .uak/bin/uak design-gallery")));
           }
           var rows = [["add", "IDEA.md", ""], ["add", ".uak/TASKS.md", cards.length ? cards.length + " " + UAKWorkspace.t("tasks") : ""], ["add", ".uak/OWNERS.md", ""], ["mod", ".uak/PROJECT.md", "Backlog-Approved: yes"]];
           if (design.screens) rows.push([design.locked ? "keep" : "mod", "web/DESIGN.md", design.locked ? UAKWorkspace.t("locked") : UAKWorkspace.t("not locked yet")]);
           drawWindow("plan", UAKWorkspace.t("what approval publishes"), rows, [[String(cards.length || "–"), "tasks"], [String(design.screens ? 5 : 4), "files"], [done.plan ? "yes" : "no", "approved"]]);
           followFooters();
         }
-        function agentRow(role, tool, state, pillKind, command, note) {
+        function agentRow(role, tool, state, pillKind, command, note, key) {
           var li = document.createElement("li"), head = document.createElement("div"), title = document.createElement("strong");
           head.className = "head"; title.textContent = UAKWorkspace.t(role) + " · " + tool; title.dataset.noI18n = "";
           head.append(title, pill(state, pillKind));
           li.append(head);
           if (note) { var n = document.createElement("span"); n.className = "why"; n.textContent = UAKWorkspace.t(note); li.append(n); }
-          if (command) li.append(copyRow(command));
+          if (command) li.append(copyRow("start-agent", command, { role: key }));
           return li;
         }
         function drawStart(data) {
@@ -2430,12 +2536,14 @@ Not deployed yet. When your app is online, add its link under More.
           (view.commands || []).forEach(function (c) { byId[c.id] = c; });
           var count = teamView && teamView.claimed ? claimed.length : (data.resume || {}).claims || 0, roles = view.roles || {};
           var impl = byId.implement, rev = byId.review, locked = view.locked;
-          list.replaceChildren();
           var registered = view.registered && view.registered.registered === true;
-          if (view.reviewer || impl) {
-            list.append(agentRow("Implements", (impl && impl.tool) || names[roles.implement] || "–", count ? UAKWorkspace.format("claimed {id}", { id: (claimed[0] && (claimed[0].id || claimed[0])) || "" }) : "waiting", count ? "prog" : "", impl ? impl.command : "", locked ? locked.reason : ""));
-            list.append(agentRow("Reviews", (rev && rev.tool) || names[roles.review] || "–", registered ? "waiting" : "needs a reviewer", registered ? "" : "blk", rev ? rev.command : "", registered ? "" : "Register the reviewer on the People screen first."));
-          }
+          redraw(list, [view, count, state.runs, state.agents, runLocal, state.run_actions], function () {
+            list.replaceChildren();
+            if (view.reviewer || impl) {
+              list.append(agentRow("Implements", (impl && impl.tool) || names[roles.implement] || "–", count ? UAKWorkspace.format("claimed {id}", { id: (claimed[0] && (claimed[0].id || claimed[0])) || "" }) : "waiting", count ? "prog" : "", impl ? impl.command : "", locked ? locked.reason : "", "implement"));
+              list.append(agentRow("Reviews", (rev && rev.tool) || names[roles.review] || "–", registered ? "waiting" : "needs a reviewer", registered ? "" : "blk", rev ? rev.command : "", registered ? "" : "Register the reviewer on the People screen first.", "review"));
+            }
+          });
           el("start-hint").textContent = /Win/.test(navigator.platform || "") ? UAKWorkspace.t("On Windows, paste these in Git Bash, not PowerShell.") : "";
           el("note-start").textContent = count
             ? (count === 1 ? UAKWorkspace.t("1 task claimed: an agent has started.") : UAKWorkspace.format("{n} tasks claimed: an agent has started.", { n: count }))
@@ -2458,7 +2566,10 @@ Not deployed yet. When your app is online, add its link under More.
           var p = (latestDashboard || {}).progress, s = (p && p.states) || {}, tasks = (latestDashboard || {}).tasks || [];
           var rows = [["", UAKWorkspace.t("Mode"), modeOf(data) === "sprint" ? UAKWorkspace.t("Hackathon") : UAKWorkspace.t("Product")], ["", UAKWorkspace.t("Tasks"), p ? String(p.total) : "–"]];
           drawWindow("dashboard", folderName(data.target) + " · " + UAKWorkspace.t("progress"), rows, [[String(s.INTEGRATED || 0) + (p ? " / " + p.total : ""), "completed"], [String(s.CLAIMED || 0), "working"], [String(s.REVIEW || 0), "in review"]]);
-          document.querySelectorAll("#more .cmd[data-cmd]").forEach(function (box) { box.replaceChildren(copyRow(inProject(box.dataset.cmd))); });
+          document.querySelectorAll("#more .cmd[data-cmd]").forEach(function (box) {
+            var name = box.dataset.action;
+            redraw(box, [box.dataset.cmd, state.target, state.runs && state.runs[name], runLocal[name], state.run_actions], function () { box.replaceChildren(copyRow(name, inProject(box.dataset.cmd))); });
+          });
         }
         function drawScreens(data) {
           data = data || {};
@@ -4379,7 +4490,7 @@ function landing(data, saved, wanted) {
             var data = await api("status");
             render(data);
             // Progress of a running action: every 1.2 s while it runs and the page is shown, never while it is hidden.
-            if (isBusy(data.phase) && !document.hidden)
+            if ((isBusy(data.phase) || runsActive(data)) && !document.hidden)
               timer = setTimeout(refresh, 1200);
           } catch (e) {
             if (e.gone) return; // the banner says it once (UI-019)
@@ -4393,7 +4504,7 @@ function landing(data, saved, wanted) {
 function landOn(data, where, focus) {
           landedFor = data.target || "";
           if (data.installed || data.can_repair) render(data);
-          if (isBusy(data.phase)) refresh();
+          if (isBusy(data.phase) || runsActive(data)) refresh();
           show(where.screen, focus === true, "replace");
         }
         session
