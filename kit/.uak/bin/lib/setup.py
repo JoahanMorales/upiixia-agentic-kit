@@ -820,12 +820,62 @@ def kit_present(target):
         all((Path(target) / path).is_file() for path in (".uak/PROJECT.md", ".uak/bin/uak", ".uak/VERSION"))
 
 
+# UAK-160: `uak start` says what each check is as a code with its values on a line of its own ("CODE {json}", only when
+# UAK_START_CODES=1). The page writes its own sentence for the code; the engine's prose stays in `text` for the technical
+# details. What comes from the engine is bounded and typed here, never trusted: a code is a short lowercase name, a value
+# is a short string, and anything else is dropped (the page then says the check has no description).
+CODE_NAME = re.compile(r"[a-z][a-z0-9_]{0,47}\Z")
+CODE_VALUE_MAX, CODE_VALUES_MAX, CODE_HINTS_MAX = 600, 12, 24
+
+
+def coded(item):
+    """{"code", "values"} from one engine item, or None when it is not a well-formed code."""
+    if not isinstance(item, dict):
+        return None
+    name, values = item.get("code"), item.get("values")
+    if not isinstance(name, str) or not CODE_NAME.match(name) or not isinstance(values, dict):
+        return None
+    clean = {}
+    for key, value in list(values.items())[:CODE_VALUES_MAX]:
+        if isinstance(key, str) and CODE_NAME.match(key) and isinstance(value, str):
+            clean[key] = value[:CODE_VALUE_MAX]
+    return {"code": name, "values": clean}
+
+
+def code_line(line):
+    if not line.startswith("CODE {"):
+        return None
+    try:
+        data = json.loads(line[5:])
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def attach_code(check, data):
+    """Put one CODE line on the check it follows: its own code and values, then the codes of the lines under it."""
+    head = coded(data.get("check")) if isinstance(data.get("check"), dict) else None
+    if data.get("state") in ("ok", "todo", "note") and head:
+        check.update(head)
+    hints = [coded(h) for h in (data.get("hints") or [])[:CODE_HINTS_MAX]]
+    if hints:
+        texts = check.get("text", "").split("\n")[1:]
+        check["hints"] = [dict(h or {}, text=texts[i] if len(texts) == len(hints) else "") for i, h in enumerate(hints)]
+
+
 def readiness(output, code):
     lines = redact(output).splitlines()
     checks = []
+    ready_code = None
     for line in lines:
         match = re.match(r"^(OK|TODO|NOTE)\s+(.*)$", line)
-        if match:
+        data = code_line(line)
+        if data is not None:
+            if data.get("state") == "ready":
+                ready_code = coded(data.get("check"))
+            elif checks:
+                attach_code(checks[-1], data)
+        elif match:
             checks.append({"state": match.group(1).lower(), "text": match.group(2)})
         elif line.startswith("         ") and checks:
             checks[-1]["text"] += "\n" + line.strip()
@@ -834,8 +884,10 @@ def readiness(output, code):
     # Only the exact claim command is ever offered to copy; anything else on the READY line (the engine's note,
     # "cd <worktree> and open your agent there…") is prose shown as text.
     claim = CLAIM_COMMAND.match(ready_lines[-1]) if ready else None
-    return {"ready": ready, "checks": checks, "next_command": claim.group(0) if claim else "",
-            "next_note": ready_lines[-1] if ready and not claim else ""}
+    result = {"ready": ready, "checks": checks, "next_command": claim.group(0) if claim else "",
+              "next_note": ready_lines[-1] if ready and not claim else ""}
+    result["next_code"] = ready_code if ready and ready_code else None
+    return result
 
 
 BUSY = ("installing", "checking", "planning", "approving", "publishing", "registering")
@@ -977,14 +1029,21 @@ class WayOut(ValueError):
         self.way_out = way_out
 
 
+# UAK-160: the page's own sentences ride beside the engine's by code. A check the engine coded says what it is, so the
+# decisions below read the code; a check with no code (an older kit's `uak start`) keeps its text patterns.
+COMMAND_ENV = {"UAK_START_CODES": "1"}
+
+
 def team_phase(state):
     """"ready" after a READY check; "waiting" when the check's only TODO is that no task is free (the team is working);
     "" otherwise. Derived from the last check, never stored."""
     if state.get("ready"):
         return "ready"
     todos = [c for c in state.get("checks") or [] if c.get("state") == "todo"]
-    if state.get("installed") and len(todos) == 1 and \
-            re.sub(r"^\d+\.\s*", "", todos[0].get("text", "").split("\n")[0]).strip() == WAITING_TODO:
+    if state.get("installed") and len(todos) == 1 and (
+            todos[0].get("code") == "no_claimable_task" or
+            (not todos[0].get("code") and
+             re.sub(r"^\d+\.\s*", "", todos[0].get("text", "").split("\n")[0]).strip() == WAITING_TODO)):
         return "waiting"
     return ""
 
@@ -995,6 +1054,18 @@ def completed_steps(state):
             for c in state.get("checks") or [] if c.get("state") == "ok"]
 
 
+def completed_items(state):
+    """The same list by code: [{"code", "values", "text"}] (UAK-160), so the page writes each line itself."""
+    return [{"code": c.get("code", ""), "values": c.get("values", {}),
+             "text": re.sub(r"^\d+\.\s*", "", c.get("text", "").split("\n")[0])}
+            for c in state.get("checks") or [] if c.get("state") == "ok"]
+
+
+# The screen that does what a coded check asks for (UAK-160): by the code, never by the engine's wording.
+ACTION_BY_CODE = {"push_kit": "publish", "push_changes": "publish", "plan_none": "plan", "plan_none_main": "plan",
+                  "approve_plan": "plan", "plan_lint": "plan"}
+
+
 def guidance(state, dashboard=None, now=None):
     """The one next action. Readiness comes only from `uak start` (the same gate Configuration shows), so the
     dashboard never offers to start work that the gate still blocks; an active freeze overrides everything.
@@ -1003,8 +1074,13 @@ def guidance(state, dashboard=None, now=None):
     now = time.time() if now is None else now
     dashboard = dashboard or {}
 
-    def step(kind, title, detail, commands=(), steps=()):
-        return {"kind": kind, "title": title, "detail": detail, "commands": list(commands), "steps": list(steps)}
+    def step(kind, title, detail, commands=(), steps=(), check=None):
+        found = {"kind": kind, "title": title, "detail": detail, "commands": list(commands), "steps": list(steps)}
+        if check and check.get("code"):  # the page writes the title and the lines under it from their codes
+            found.update(code=check["code"], values=check.get("values", {}),
+                         items=[{"code": h.get("code", ""), "values": h.get("values", {}), "text": h.get("text", "")}
+                                for h in check.get("hints") or []])
+        return found
 
     if state.get("phase") in BUSY:
         return step("busy", "Working in the background", "Keep this window and the terminal open.")
@@ -1022,8 +1098,10 @@ def guidance(state, dashboard=None, now=None):
         return step("install", "Install the kit in this project", "Choose your workflow and coding tools in Configuration.")
     if team_phase(state) == "waiting":
         todo = next(c for c in state.get("checks") or [] if c.get("state") == "todo")
-        return step("waiting", "Your team is working", "No task is free to start right now.",
-                    steps=[l for l in todo.get("text", "").split("\n")[1:] if l])
+        found = step("waiting", "Your team is working", "No task is free to start right now.",
+                     steps=[l for l in todo.get("text", "").split("\n")[1:] if l], check=todo)
+        found.pop("code", None)  # the screen's own title and detail: only the lines under it come from the engine
+        return found
     if state.get("ready"):
         claim = CLAIM_COMMAND.match(state.get("next_command") or "")
         tasks = {t.get("id"): "WAITING" if t.get("waiting_on") else t.get("state") for t in dashboard.get("tasks") or []}
@@ -1041,7 +1119,7 @@ def guidance(state, dashboard=None, now=None):
             lines = check.get("text", "").split("\n")
             title = re.sub(r"^\d+\.\s*", "", lines[0])
             g = step("todo", title, "This is the first thing the readiness check needs.",
-                     steps=[l for l in lines[1:] if l])
+                     steps=[l for l in lines[1:] if l], check=check)
             # The page does what it can itself; anything else becomes a terminal box with the exact cd (UI-005).
             # Why (simulation, Nov 2026): the next action lived only in Technical details and looked like loading.
             # A preflight groups several doctor failures: each goes where it is fixed, the page or a terminal.
@@ -1054,12 +1132,17 @@ def guidance(state, dashboard=None, now=None):
                 elif not kind:
                     rest.append(line)
             if "action" not in g:
-                if re.search(r"push the kit to |push your changes to", title):
+                if check.get("code") in ACTION_BY_CODE:
+                    g["action"], rest = ACTION_BY_CODE[check["code"]], []
+                elif not check.get("code") and re.search(r"push the kit to |push your changes to", title):
                     g["action"], rest = "publish", []
-                elif re.search(r"^(a plan|approve the plan|fix the plan)", title):
+                elif not check.get("code") and re.search(r"^(a plan|approve the plan|fix the plan)", title):
                     g["action"], rest = "plan", []
             if rest:
                 g["terminal"] = {"cd": "cd '%s'" % str(state.get("target", "")).replace("'", "'\\''"), "steps": rest}
+                # The same lines by code, in the same order (UAK-160): the page writes each from its code.
+                by_text = {i["text"]: i for i in g.get("items") or [] if i.get("text")}
+                g["terminal"]["items"] = [by_text.get(line, {}) for line in rest]
             return g
     return step("check", "Check what your project needs",
                 "The readiness check lists what is missing before agents can start, in order.")
@@ -1895,7 +1978,7 @@ class SetupServer(ThreadingHTTPServer):
                     raise ValueError("Your approval is committed here (%s) but %s refused the push: %s Fix the cause, then run: "
                                      "git push %s %s" % (commit[:7], remote, (result.stderr or result.stdout).strip()[-300:], remote, target_ref))
                 pushed = True
-                check = self.run([bash_binary(), str(uak), "start"], cwd=str(root), timeout=120)
+                check = self.run([bash_binary(), str(uak), "start"], cwd=str(root), timeout=120, env=dict(COMMAND_ENV))
                 with self.lock:
                     self.plan = None
                     self.apply_readiness(check)
@@ -1979,7 +2062,7 @@ class SetupServer(ThreadingHTTPServer):
                                      "staged here. Fix the cause (for example a pre-push hook or a protected branch), "
                                      "then publish again." % (remote, reason(result)))
                 pushed = True
-                check = self.run([bash_binary(), str(uak), "start"], cwd=str(root), timeout=120)
+                check = self.run([bash_binary(), str(uak), "start"], cwd=str(root), timeout=120, env=dict(COMMAND_ENV))
                 with self.lock:
                     self.apply_readiness(check)
             except Exception as exc:
@@ -2040,7 +2123,8 @@ class SetupServer(ThreadingHTTPServer):
         def work():
             try:
                 if checking:
-                    result = self.run(command, cwd=self.target, timeout=CHECK_TIMEOUT, group=True, env=dict(CHECK_ENV))
+                    result = self.run(command, cwd=self.target, timeout=CHECK_TIMEOUT, group=True,
+                                      env=dict(CHECK_ENV, **COMMAND_ENV))
                 else:
                     result = self.run(command, cwd=self.target, timeout=120)
                 output = redact(result.stdout + "\n" + result.stderr)
@@ -2270,7 +2354,8 @@ class SetupHandler(BaseHTTPRequestHandler):
                                      runs=runs, agents=agents,
                                      run_actions={n: {"kind": a["kind"], "what": a.get("what", "")} for n, a in RUN_ACTIONS.items()},
                                      branch=remote_default(s, target, state.get("branch") or {}),
-                                     guidance=guidance(state), completed=completed_steps(state), team=team_phase(state),
+                                     guidance=guidance(state), completed=completed_steps(state),
+                                     completed_items=completed_items(state), team=team_phase(state),
                                      demo=media_available(),
                                      reviewer=reviewer_status(s, target, state.get("human") or "")))
             except (ValueError, OSError, subprocess.SubprocessError) as exc:
