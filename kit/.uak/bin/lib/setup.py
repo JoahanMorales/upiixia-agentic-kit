@@ -310,7 +310,80 @@ def forget_child(pid):
     write_children()
 
 
-def kill_group(pid):
+def pid_alive(pid):
+    """A process that is there and not a zombie."""
+    try:
+        os.kill(pid, 0)
+    except (OSError, OverflowError):
+        return False
+    try:
+        with open("/proc/%d/stat" % pid, encoding="utf-8") as handle:
+            return handle.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except (OSError, IndexError):
+        return True
+
+
+def descendants(pid):
+    """Every process below PID by parent links (UAK-192: a child that calls setsid leaves the group, not the tree):
+    /proc on Linux, else `ps -A -o pid=,ppid=`. Collected before anything is killed."""
+    parents = {}
+    if os.path.isdir("/proc/self"):
+        for name in os.listdir("/proc"):
+            if name.isdigit():
+                try:
+                    with open("/proc/%s/stat" % name, encoding="utf-8") as handle:
+                        parents[int(name)] = int(handle.read().rsplit(")", 1)[1].split()[1])
+                except (OSError, IndexError, ValueError):
+                    pass
+    else:
+        try:
+            out = subprocess.run(["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            out = ""
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                parents[int(parts[0])] = int(parts[1])
+    found, queue = [], [pid]
+    while queue:
+        head = queue.pop()
+        for child, parent in parents.items():
+            if parent == head and child not in found and child != os.getpid():
+                found.append(child)
+                queue.append(child)
+    return found
+
+
+def kill_pids(pids, wait=1.0):
+    """TERM every PID, wait a bounded time, KILL what is left. Never this process."""
+    pids = [p for p in pids if p > 1 and p != os.getpid()]
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (OSError, OverflowError):
+            pass
+    end = time.monotonic() + wait
+    while time.monotonic() < end and any(pid_alive(p) for p in pids):
+        time.sleep(0.05)
+    for pid in pids:
+        if pid_alive(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (OSError, OverflowError):
+                pass
+
+
+def kill_group(pid, tree=False):
+    """End PID's process group (Windows: its tree). With TREE (UAK-192) also every descendant by parent links, leaving the
+    group or not: TERM, a bounded wait, then KILL."""
+    if os.name != "nt" and tree:
+        below = descendants(pid)
+        kill_pids([pid] + below)
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except OSError:
+            pass
+        return
     if os.name == "nt":
         try:
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True, timeout=30)
@@ -328,8 +401,62 @@ def stop_children():
     with CHILD_LOCK:
         pids = list(CHILDREN)
     for pid in pids:
-        kill_group(pid)
+        kill_group(pid, tree=True)
         forget_child(pid)
+
+
+class TreeWatch:
+    """UAK-192: what a button's process starts, remembered while it runs (every descendant, with its start time), so a
+    grandchild that calls setsid and outlives its parent is still ended, and is in the child record meanwhile."""
+
+    def __init__(self, pid, pipes=()):
+        self.pid, self.seen, self.done = pid, {}, threading.Event()
+        self.every = 0.25 if os.path.isdir("/proc/self") else 1.0
+        self.started = time.monotonic()
+        self.pipes = set()
+        for handle in pipes:  # Linux: what holds the pipe of the run is part of the run, whoever started it
+            try:
+                self.pipes.add(os.readlink("/proc/self/fd/%d" % handle.fileno()))
+            except (OSError, ValueError, AttributeError):
+                pass
+        self.thread = threading.Thread(target=self.poll, daemon=True)
+        self.thread.start()
+
+    def look(self):
+        for pid in descendants(self.pid):
+            if pid not in self.seen:
+                self.seen[pid] = process_stamp(pid)
+                track_child(pid)
+
+    def holders(self):
+        found = []
+        if self.pipes:
+            for name in os.listdir("/proc"):
+                if name.isdigit() and int(name) != os.getpid():
+                    try:
+                        for fd in os.listdir("/proc/%s/fd" % name):
+                            if os.readlink("/proc/%s/fd/%s" % (name, fd)) in self.pipes:
+                                found.append(int(name))
+                                break
+                    except OSError:
+                        pass
+        return found
+
+    def poll(self):
+        while not self.done.wait(0.02 if self.pipes and time.monotonic() - self.started < 1.0 else self.every):
+            self.look()
+
+    def kill(self):
+        """End the tree that is left, and forget it."""
+        self.done.set()
+        if threading.current_thread() is not self.thread:
+            self.thread.join(3)
+        self.look()
+        left = [p for p, stamp in list(self.seen.items()) if pid_alive(p) and process_stamp(p) == stamp]
+        left += [p for p in descendants(self.pid) + self.holders() if p not in left]
+        kill_pids(left)
+        for pid in list(self.seen):
+            forget_child(pid)
 
 
 PAGE_ID = re.compile(r"[a-z0-9]{8,32}")  # the shape the page generates
@@ -448,6 +575,7 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
         except Exception:
             pass
     job = windows_job(proc)
+    watch = TreeWatch(proc.pid, (proc.stdout, proc.stderr)) if on_start and os.name != "nt" else None
     holder = [job]  # the job is closed once, by whichever of stop_group or the final cleanup gets there first
     readers, lines, errors = [], [], []
     if on_line:  # both pipes are drained by threads, so a chatty stderr never blocks the tool
@@ -470,6 +598,9 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
                 holder[0] = None
             else:
                 kill_group(proc.pid)
+        elif watch:
+            kill_group(proc.pid, tree=proc.poll() is None)
+            watch.kill()
         else:
             kill_group(proc.pid)
 
@@ -478,7 +609,7 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
             return proc.communicate(input, timeout=wait)
         proc.wait(timeout=wait)
         # One grace period for both readers, not 10 s each (UI-015: Windows QA measured 20 s).
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + (2 if watch else 10)
         for thread in readers:
             thread.join(max(0, deadline - time.monotonic()))
         if any(thread.is_alive() for thread in readers):
@@ -502,6 +633,9 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
         if os.name == "nt":
             if holder[0]:  # the job holds a descendant that outlived its tool; closing it ends it
                 windows_job_end(holder[0], True)
+        elif watch:
+            kill_group(proc.pid)
+            watch.kill()
         else:
             kill_group(proc.pid)  # a descendant that outlived its tool does not outlive the call
         forget_child(proc.pid)
@@ -511,6 +645,8 @@ def redact(text):
     text = re.sub(r"(https?://)[^\s/@]+:[^\s/@]+@", r"\1[redacted]@", str(text))
     text = re.sub(r"\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]{12,})", "[redacted]", text)
     text = re.sub(r"(?i)((?:token|password|secret|api[_-]?key)\s*[=:]\s*)\S+", r"\1[redacted]", text)
+    text = re.sub(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", "[redacted]", text)
+    text = re.sub(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}", r"\1[redacted]", text)
     return text[-18000:]
 
 
@@ -1098,8 +1234,10 @@ COPY_BOXES = {
     "copy-team-resume": "start-agent", "copy-team-review": "start-agent", "copy-next-command": "claim-task",
     "copy-advanced-next": "claim-task",
 }
-COMMAND_SHAPE = re.compile(r"[\s;&|$<>()`\\\"'/]|\.\.")  # a field value shaped like a command line or a path
 SKILL_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
+REFUSED_LOG = "uak-wizard.refused"
+LAUNCH_RECORD = "uak-wizard.launchers"
+LAUNCHERS = [None]
 ACTION_NAME = re.compile(r"[a-z][a-z0-9-]{0,39}\Z")
 RUN_ROLES = ("implement", "review")
 RUN_TIMEOUT = 120
@@ -1146,10 +1284,45 @@ def launcher_text(command):
 
 def write_launcher(command):
     folder = Path(tempfile.mkdtemp(prefix="uak-agent-"))
+    remember_launcher(folder)
     path = folder / "start.sh"
     path.write_text(launcher_text(command), encoding="utf-8", newline="\n")
     os.chmod(str(path), 0o700)
     return path
+
+
+def remember_launcher(folder):
+    """The folders this wizard made are recorded by path (in the git directory), so a launcher that no terminal ever ran
+    is removed when the wizard closes or the next one starts."""
+    record = LAUNCHERS[0]
+    if record:
+        try:
+            with open(str(record), "a", encoding="utf-8") as handle:
+                handle.write(str(folder) + "\n")
+        except OSError:
+            pass
+
+
+def sweep_launchers(record):
+    """Remove the launcher folders RECORD names (only ours: a uak-agent-* folder of the temp directory holding at most
+    start.sh), then the record."""
+    try:
+        lines = Path(record).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        lines = []
+    base = Path(tempfile.gettempdir()).resolve()
+    for line in lines:
+        folder = Path(line)
+        try:
+            if (folder.name.startswith("uak-agent-") and folder.resolve().parent == base and not folder.is_symlink()
+                    and folder.is_dir() and set(os.listdir(str(folder))) <= {"start.sh"}):
+                shutil.rmtree(str(folder), ignore_errors=True)
+        except OSError:
+            pass
+    try:
+        Path(record).unlink()
+    except OSError:
+        pass
 
 
 def terminal_argv(system, script, cwd, env=None, which=shutil.which, bash="bash"):
@@ -1357,19 +1530,25 @@ class SetupServer(ThreadingHTTPServer):
             job["stop"] = True
             pid = job["pid"]
         if pid:
-            kill_group(pid)
+            kill_group(pid, tree=True)
         return True
 
     def refuse_run(self, token):
-        """A request for something outside the table: written in the register (uak-direct-main.log), never its text."""
+        """A request the page can never send (an action outside the table, an extra field, a value that is not text, a
+        copy-only action): one line in uak-wizard.refused of the git directory, never its text. It is not in
+        uak-direct-main.log: the hook reads the last line of that file and takes any recent line whose third field is
+        not `push` for a direct commit to main."""
         try:
             with self.lock:
                 target = self.target
             if target:
-                log_human_act(self, project_root(target), "refused-run", "human", "-",
-                              token if isinstance(token, str) and ACTION_NAME.fullmatch(token) else "command-line")
+                _, common = self.git_dirs(project_root(target))
+                if common:
+                    detail = token if isinstance(token, str) and ACTION_NAME.fullmatch(token) else "command-line"
+                    with open(str(common / REFUSED_LOG), "a", encoding="utf-8") as handle:
+                        handle.write("%d refused-run %s\n" % (int(time.time()), detail))
         except (OSError, ValueError, subprocess.SubprocessError):
-            pass  # the refusal stands even when the register cannot be written
+            pass  # the refusal stands even when the record cannot be written
 
     def remember_page(self, page, born=None):
         """Keep PAGE (caller holds the lock): at most MAX_PAGES, the one silent the longest goes first."""
@@ -2514,8 +2693,11 @@ class SetupHandler(BaseHTTPRequestHandler):
         action = data.get("action")
         entry = RUN_ACTIONS.get(action) if isinstance(action, str) else None
         fields = {k: v for k, v in data.items() if k != "action"}
-        shaped = any(not isinstance(v, str) or COMMAND_SHAPE.search(v) for v in fields.values())
-        if entry is None or entry["kind"] not in ("run", "terminal") or set(fields) - set(entry["fields"]) or shaped:
+        # What the page can never send is refused and recorded; a value it can send (a typo in a field) is the field's
+        # own message, next to the field, and records nothing.
+        if (entry is None or entry["kind"] not in ("run", "terminal") or set(fields) - set(entry["fields"])
+                or any(not isinstance(v, str) for v in fields.values())
+                or (action == "start-agent" and fields.get("role") not in RUN_ROLES)):
             s.refuse_run(action)
             raise ValueError(RUN_REFUSAL)
         with s.lock:
@@ -2526,6 +2708,8 @@ class SetupHandler(BaseHTTPRequestHandler):
         if action == "start-agent":
             self.start_agent(root, fields.get("role"))
             return
+        if action == "skill-add" and not SKILL_NAME.fullmatch(fields.get("name", "")):
+            raise FieldError("Write the skill's name with lowercase letters, digits and - only (for example: frontend-design).", "name")
         env, timeout = None, RUN_TIMEOUT
         if action == "open-rules":
             path = s.planning.regular_file(root, ".uak/PROJECT.md")
@@ -2551,9 +2735,6 @@ class SetupHandler(BaseHTTPRequestHandler):
     def start_agent(self, root, role):
         """Open a terminal window with the agent's command, built from the team view (never from the request)."""
         s = self.server
-        if role not in RUN_ROLES:
-            s.refuse_run("start-agent")
-            raise ValueError(RUN_REFUSAL)
         with s.lock:
             prior = s.agents.get(role)
         if prior and time.time() - prior["at"] < AGENT_AGAIN_SECONDS:
@@ -4110,6 +4291,7 @@ def main():
             seen = None
         if seen is not None:
             reap_children(announced.parent / CHILD_RECORD)
+            sweep_launchers(announced.parent / LAUNCH_RECORD)
             try:
                 unchanged = announced.read_bytes() == seen  # another start may have replaced it meanwhile
             except OSError:
@@ -4120,6 +4302,7 @@ def main():
                 except OSError:
                     pass
         CHILD_FILE[0] = announced.parent / CHILD_RECORD
+        LAUNCHERS[0] = announced.parent / LAUNCH_RECORD
     server = make_server(args.target)
     why = ["it was stopped"]
 
@@ -4212,6 +4395,7 @@ def main():
         stop_children()
         server.forget_launcher()
         if announced:
+            sweep_launchers(announced.parent / LAUNCH_RECORD)
             for name in (announced.name, KEY_FILE, CHILD_RECORD):
                 try:
                     (announced.parent / name).unlink()

