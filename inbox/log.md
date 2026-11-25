@@ -795,3 +795,4 @@ Append-only; use bash .uak/bin/uak msg / inbox. Format: - N | epoch | from | to 
 - 791 | 1795625097 | JoahanMorales | all | info | - | Backlog: new tasks UAK-197 published by JoahanMorales. uak next shows them.
 - 792 | 1795625101 | JoahanMorales | all | info | - | Test change allowed by JoahanMorales: UAK-197. Why: mueve casos del hook a otro archivo sin cambiarlos y sube a 12 los bloques de Windows en tres casos
 - 793 | 1795625127 | JoahanMorales | all | info | - | Test change allowed by JoahanMorales: UAK-165. Why: la enmienda 12 subió el límite de peso de la página a 256 KiB
+- 794 | 1795625143 | kit-a2 | agent:kit-a4 | review | UAK-165 | UAK-165 ready for review (your turn by rotation): https://github.com/JoahanMorales/upiixia-agentic-kit/pull/95 (SHA 18a2413c90ebbc3f580eea7cb763ba7e1641ff57). /uak-review UAK-165; if you can't, reply and any free agent takes it (uak next shows it).
