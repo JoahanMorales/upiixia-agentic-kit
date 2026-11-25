@@ -1640,7 +1640,7 @@ dialog#story::backdrop { background: var(--scrim); }
       h("button", { "class": "ab", type: "button", "data-f": "arr:restore", disabled: LAY ? null : "", on: function () { keepLay(null); FOCUS = "arr:done"; ANN = L('Restore the default'); render(); } }, [d.layout ? L('Restore the team\'s default') : L('Restore the default')]),
       h("button", { "class": "ab done", type: "button", "data-f": "arr:done", on: function () { ui.arr = false; FOCUS = "arr:edit"; render(); } }, [L('Done')]),
       h("div", { "class": "adds", role: "group", "aria-label": L('Add') }, [h("span", { "class": "muted", text: L('Add') })].concat(add.length ? add : [h("span", { text: L('Every component is shown.') })])),
-      h("div", { "class": "team" }, [h("span", { "class": "muted", text: L('For the whole team: run this and commit the file it writes') }), copyBox("bash .uak/bin/uak dash layout --save main=" + lay.main.join(",") + " side=" + lay.side.join(",") + (lay.hide.length ? " hide=" + lay.hide.join(",") : ""))]),
+      h("div", { "class": "team" }, [h("span", { "class": "muted", text: L('For the whole team: run this and commit the file it writes') }), copyBox("bash .uak/bin/uak dash layout --save" + ["main", "side", "hide"].map(function (c) { return lay[c].length ? " " + c + "=" + lay[c].join(",") : ""; }).join(""))]),
       KEEPFAIL ? h("p", { role: "status", text: L('This browser does not keep the arrangement: it lasts until the page is closed.') }) : null]);
   }
   function summary(v, d) {
