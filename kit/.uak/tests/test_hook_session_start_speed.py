@@ -932,24 +932,36 @@ TESTS += [every_background_job_has_a_limit, cached_copy_always_says_its_age, lim
 # naming it, and every other signal is written down and sent. A mitigation and a detector, not a fix of a found cause.
 KILL_GUARD = r"""# BASH_ENV of test_hook_session_start_speed/_locks (UAK-197): every signal goes through here; see KILL_GUARD there.
 kill() {
-  local first=${1:-} opt= targets= refused= t= rc=0
+  local first=${1:-} opt= targets= refused= t= rc=0 line= seen=
   case "$first" in -0|-s0|-l|-L) builtin kill "$@"; return;; esac
   if [ "$first" = -s ] && [ "${2:-}" = 0 ]; then builtin kill "$@"; return; fi
   case "$first" in -s|-n) opt="$1 ${2:-}"; shift; shift;; -[A-Za-z0-9]*) opt=$1; shift;; esac
   if [ "${1:-}" = "--" ]; then shift; fi
-  for t in "$@"; do
+  local all="$*"
+  for t in $all; do
     case "$t" in
       0|-*) refused="$refused $t";;
       *[!0-9]*|'') targets="$targets $t";;
-      *) case " ${UAK_KILL_GUARD_PIDS:-} " in *" $t "*) refused="$refused $t";; *) targets="$targets $t";; esac;;
+      *) case " ${UAK_KILL_GUARD_PIDS:-} " in *" $t "*) refused="$refused $t"; continue;; esac
+         # Git Bash: the Windows process an MSYS PID stands for (`ps -p`: [flag] PID PPID PGID WINPID ...). A signal whose
+         # target is one of the test's ancestors under another MSYS PID (a stale or reused entry) is refused too; the ps
+         # line of every target is written down.
+         if [ -n "${UAK_KILL_GUARD_WINPIDS:-}" ]; then
+           line=$(ps -p "$t" 2>/dev/null); line=${line##*$'\n'}
+           set -- $line
+           case "${1:-}" in [0-9]*) ;; *) [ "$#" -eq 0 ] || shift;; esac
+           seen="$seen [$t: ${line:-no such process}]"
+           case " $UAK_KILL_GUARD_WINPIDS " in *" ${4:-x} "*) refused="$refused $t(winpid ${4})"; continue;; esac
+         fi
+         targets="$targets $t";;
     esac
   done
   if [ -n "$refused" ]; then
-    printf 'REFUSED kill %s%s from %s %s (pid %s)\n' "${opt:--TERM}" "$refused" "${0##*/}" "${FUNCNAME[1]:-main}" "$$" >> "${UAK_KILL_GUARD_LOG:-/dev/null}"
+    printf 'REFUSED kill %s%s from %s %s (pid %s)%s\n' "${opt:--TERM}" "$refused" "${0##*/}" "${FUNCNAME[1]:-main}" "$$" "$seen" >> "${UAK_KILL_GUARD_LOG:-/dev/null}"
     rc=1
   fi
   if [ -z "$targets" ]; then return "$rc"; fi
-  printf 'SENT kill %s%s from %s %s\n' "${opt:--TERM}" "$targets" "${0##*/}" "${FUNCNAME[1]:-main}" >> "${UAK_KILL_GUARD_LOG:-/dev/null}"
+  printf 'SENT kill %s%s from %s %s%s\n' "${opt:--TERM}" "$targets" "${0##*/}" "${FUNCNAME[1]:-main}" "$seen" >> "${UAK_KILL_GUARD_LOG:-/dev/null}"
   if [ -n "${UAK_KILL_GUARD_DRY:-}" ]; then return "$rc"; fi   # the guard's own test: written down, never sent
   builtin kill $opt $targets || return
   return "$rc"
@@ -989,6 +1001,7 @@ def ancestors():
     while pid and pid not in chain and len(chain) < 64:
         chain.append(pid)
         pid = parent.get(pid, 0)
+    ancestors.winpids = list(chain)
     msys = []
     bash = resolve_binary("bash")
     listing = subprocess.run([bash, "-c", "ps -e"], capture_output=True, text=True).stdout
@@ -1008,9 +1021,37 @@ def kill_guard(r):
     log.write_text("", encoding="utf-8")
     env = {"BASH_ENV": guard.as_posix(), "UAK_KILL_GUARD_LOG": log.as_posix(),
            "UAK_KILL_GUARD_PIDS": " ".join(str(p) for p in sorted(set(ancestors())))}
+    if os.name == "nt":
+        env["UAK_KILL_GUARD_WINPIDS"] = " ".join(str(p) for p in getattr(ancestors, "winpids", []))
+    print("KILL_GUARD protects %s (Windows PIDs of the chain: %s)" % (env["UAK_KILL_GUARD_PIDS"], env.get("UAK_KILL_GUARD_WINPIDS", "-")),
+          flush=True)
     os.environ.update(env)
     r.env.update(env)
     return log
+
+
+def stream_kill_log(log, stop):
+    """Print each line the guard writes as it comes (flushed): a run whose step dies still shows the last signals."""
+    import threading
+
+    def follow():
+        done = 0
+        while True:
+            try:
+                text = log.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                text = ""
+            lines = text.splitlines()
+            if len(lines) < done:      # the guard's own case puts the log back as it was
+                done = len(lines)
+            for line in lines[done:]:
+                print("KILL_GUARD " + line[:600], flush=True)
+            done = len(lines)
+            if stop.wait(0.2):
+                return
+    t = threading.Thread(target=follow, daemon=True)
+    t.start()
+    return t
 
 
 def kill_guard_report(log):
@@ -1037,6 +1078,11 @@ def kill_guard_refuses_an_ancestor(r):
     try:
         dry = r.run([r.bash, "-c", 'kill -TERM "$1"; echo "a=$?"; kill -TERM 0; echo "b=$?"; kill -TERM -- -"$1"; echo "c=$?"', "_",
                      victim], env={"UAK_KILL_GUARD_PIDS": victim, "UAK_KILL_GUARD_DRY": "1"}, allowed=None)
+        # Git Bash's view, forced with a ps that answers as MSYS does: the target's WINPID is a protected Windows PID.
+        msys = r.run([r.bash, "-c", 'ps() { printf "      PID    PPID    PGID     WINPID   TTY         UID    STIME COMMAND\\n'
+                      'I    %s       1    %s       4242  cons0     197108 10:00:00 /usr/bin/sleep\\n" "$2" "$2"; }; '
+                      'kill -TERM "$1"; echo "f=$?"', "_", other],
+                     env={"UAK_KILL_GUARD_PIDS": "", "UAK_KILL_GUARD_WINPIDS": "4242", "UAK_KILL_GUARD_DRY": "1"}, allowed=None)
         real = r.run([r.bash, "-c", 'kill -0 "$1"; echo "d=$?"; kill -KILL "$2"; echo "e=$?"', "_", victim, other],
                      env={"UAK_KILL_GUARD_PIDS": victim}, allowed=None)
         procs[1].wait(timeout=20)
@@ -1052,12 +1098,14 @@ def kill_guard_refuses_an_ancestor(r):
     expect(all(x in dry.stdout for x in ("a=1", "b=1", "c=1")), "refused kills fail: %r" % dry.stdout)
     expect("d=0" in real.stdout and "e=0" in real.stdout, "kill -0 and a kill of another process work: %r" % real.stdout)
     refused = [l for l in new if l.startswith("REFUSED")]
-    expect(len(refused) == 3 and " %s " % victim in refused[0] + " " and " 0 " in refused[1] + " " and "-" + victim in refused[2],
-           "three refusals written down, with the target: %r" % new)
+    expect(len(refused) == 4 and " %s " % victim in refused[0] + " " and " 0 " in refused[1] + " " and "-" + victim in refused[2],
+           "four refusals written down, with the target: %r" % new)
+    expect("f=1" in msys.stdout and "%s(winpid 4242)" % other in refused[3] and "/usr/bin/sleep" in refused[3],
+           "a target whose Windows PID is protected is refused, its ps line written down: %r %r" % (msys.stdout, refused[3:]))
     expect(not [l for l in new if l.startswith("SENT") and victim in l], "nothing was sent to the protected process: %r" % new)
     expect(any(l.startswith("SENT kill -KILL %s" % other) for l in new), "the allowed kill is written down: %r" % new)
     expect(victim_alive and procs[1].returncode is not None, "the protected process lives, the other got its signal")
-    return "a protected PID, PID 0 and a group refused; another process killed"
+    return "a protected PID, PID 0, a group and a protected Windows PID refused; another process killed"
 
 
 def run_cases(tests, label, prefix):
@@ -1069,6 +1117,9 @@ def run_cases(tests, label, prefix):
     with tempfile.TemporaryDirectory(prefix=prefix) as tmp:
         r = Runner(args.package.resolve(), Path(tmp), resolve_binary("bash"), resolve_binary("git"))
         log = kill_guard(r)
+        import threading
+        stop = threading.Event()
+        follower = stream_kill_log(log, stop)
         # UAK_SS_REPEAT=CASE:N[,CASE:N] runs those cases N times in a row, each round in a scratch folder of its own
         # (UAK-197: the 20 runs in a row a fix is judged by, opt-in; off by default).
         repeat = dict(x.partition(":")[::2] for x in os.environ.get("UAK_SS_REPEAT", "").split(",") if ":" in x)
@@ -1087,6 +1138,8 @@ def run_cases(tests, label, prefix):
                 except Exception as exc:  # noqa: BLE001
                     failed += 1
                     print("FAIL %s (%s)" % (shown, str(exc)[:1500]), flush=True)
+        stop.set()
+        follower.join(5)
         line, refused = kill_guard_report(log)
         print(line)
         if refused:
