@@ -1,4 +1,4 @@
-# measured 2026-11-25 45543919868
-# each entry is ceil(MAXIMUM over the runs read) + 1 s: run 45543919868, `ci` over Linux and macOS, `windows` over Windows: Linux max 18.4, macOS max 30.3, Windows max 173.5
-ci 32
-windows 175
+# measured 2026-11-25 45549003588
+# each entry is ceil(MAXIMUM over the runs read) + 1 s: runs 45543919868 and 45549003588 (the tip), `ci` over Linux and macOS, `windows` over Windows: Linux max 18.4, macOS max 47.1, Windows max 182.7
+ci 49
+windows 184
