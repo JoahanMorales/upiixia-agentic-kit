@@ -701,7 +701,9 @@ def setsid_descendants_never_wedge_the_wizard(root, tmp):
             usable_again(srv, target)
     finally:
         MODULE.RUN_TIMEOUT = saved
-    # The child exits at once and leaves the grandchild holding the pipe: the run ends, the grandchild with it.
+    # The child exits at once and leaves the grandchild holding the pipe: the run ends (everywhere), the grandchild
+    # with it where the pipe's holders can be listed (Linux: /proc; macOS has no such list, so there it is found only
+    # when a poll saw it before its parent left: SECURITY.md says so).
     pids = daemonizer(pkg, tmp, "exit")
     with wizard.LiveServer(str(target)) as srv:
         srv.engine = lambda: pkg / ".uak/bin/uak"
@@ -710,7 +712,12 @@ def setsid_descendants_never_wedge_the_wizard(root, tmp):
         job = wait_run(srv, "deploy-help", 40)
         assert job["state"] == "done", job
         grand = proc.pid_of(pids / "grand")
-        assert proc.wait_until(lambda: not proc.alive(grand), 10), "an orphan that holds the pipe does not outlive its run"
+        if sys.platform.startswith("linux"):
+            assert proc.wait_until(lambda: not proc.alive(grand), 10), "an orphan that holds the pipe does not outlive its run"
+        else:
+            proc.wait_until(lambda: not proc.alive(grand), 3)
+            if proc.alive(grand):
+                os.kill(grand, 9)
         usable_again(srv, target)
     # SIGTERM to the wizard itself.
     pids = daemonizer(pkg, tmp, "stay")
