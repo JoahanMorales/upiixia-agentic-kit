@@ -125,7 +125,7 @@ JARGON = ["claim", "lease", "worktree", "harness", "sprint", "marathon", "uak", 
 OUTLINE = ["How it works", "What it does not do", "Where to read more", "For an agent reading this", "Contributing",
            "License"]
 # The section for an agent names each file with what it is for.
-AGENT_FILES = {"AGENTS.md": "rules", "CLI.md": "commands", "WHY.md": "reason"}
+AGENT_FILES = {"AGENTS.md": "rules", "CLI.md": "command", "WHY.md": "reason"}
 
 # A number is a measurement unless it is one of these. A measurement needs its source in the same paragraph, list
 # item or table row.
@@ -597,6 +597,7 @@ TESTS = [readme_is_at_most_150_lines, first_screen_answers_the_four_questions, n
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[2])   # smoke passes it
     parser.add_argument("--case", action="append")
     args = parser.parse_args()
     if not source_repository():
