@@ -225,50 +225,9 @@ code, kbd, pre { font-family: var(--mono); }
 #content[data-loading] > section { display: none; }
 
 /* top bar */
-.header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; max-width: 1240px; margin: 0 auto; padding: 12px 32px; }
-.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-right: auto; }
-.mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r); background: var(--btn); color: var(--on-btn); font: 700 16px/1 var(--mono); }
-.workspace-nav { display: flex; gap: 4px; }
-.workspace-nav button { min-height: 32px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--r-s); background: none; color: var(--ink-2); font-weight: 500; }
-.workspace-nav button[aria-pressed="true"] { background: var(--surface); border-color: var(--line-2); color: var(--ink); }
-.journey-bar { max-width: 1240px; margin: 0 auto; padding: 8px 32px 16px; }
-.journey-bar ol { display: flex; align-items: center; }
-.journey-bar li { align-items: flex-start; }
-.journey-bar li > span { display: grid; gap: 4px; min-width: 0; padding-top: 0; }
-.journey-bar li i { margin-top: 4px; }
-.journey-bar strong { font-size: 12px; font-weight: inherit; white-space: nowrap; }
-.journey-bar small { display: block; font-size: 11px; font-weight: 400; color: var(--muted); white-space: nowrap; }
-.journey-bar li::after { margin-top: 8px; align-self: flex-start; }
-.journey-bar li.done strong { color: var(--ink-2); }
 
 /* layout */
-.shell { max-width: 1240px; margin: 0 auto; padding: 0 32px 32px; }
-.layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 32px; align-items: start; }
-.sidebar { position: sticky; top: 16px; display: grid; gap: 24px; font-size: 12px; color: var(--ink-2); }
-.sidebar > p strong { color: var(--ink); font-size: 13px; }
-.rail-heading { font-size: 11px; color: var(--muted); font-family: var(--mono); }
-.steps { display: grid; }
-.steps li { position: relative; display: flex; align-items: center; gap: 12px; padding: 8px 0; color: var(--muted); }
-.steps li::before { content: ""; position: absolute; left: 5px; top: -50%; height: 100%; width: 2px; background: var(--line-2); }
-.steps li:first-child::before { display: none; }
-.step-number { position: relative; z-index: 1; flex: none; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line-2); background: var(--page); }
-.steps .done { color: var(--ink-2); }
-.steps .done .step-number, .steps li[aria-current="step"] .step-number { border-color: var(--accent-line); background: var(--accent-line); }
-.steps .done::before, .steps li[aria-current="step"]::before { background: var(--accent-line); }
-.steps li[aria-current="step"] { color: var(--ink); font-weight: 600; }
-.steps li[aria-current="step"] .step-number { box-shadow: 0 0 0 4px var(--accent-wash); }
-.local-note { padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); }
-.surface { min-width: 0; min-height: 480px; padding: 0 0 32px; }
-.surface:focus { outline: none; }
-.surface > section > * + * { margin-top: 16px; }
-.surface > section > h1 + p, .surface > section > h2 + p { margin-top: 8px; }
 .intro { max-width: 62ch; color: var(--ink-2); font-size: 13px; }
-.eyeline { display: inline-flex; align-items: center; gap: 8px; font: 500 11px var(--mono); color: var(--muted); }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-line); }
-.benefit { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--r); background: var(--raised); }
-.benefit > div { padding: 12px 16px; color: var(--ink-2); }
-.benefit > div + div { border-left: 1px solid var(--line); }
-.benefit strong { display: block; color: var(--ink); margin-bottom: 4px; }
 .demo { max-width: 640px; }
 .demo .win-h h2 { font-size: 12px; letter-spacing: 0; margin-left: 4px; }
 .demo .win-b { display: grid; gap: 8px; padding: 12px; }
@@ -390,12 +349,8 @@ details.technical pre { max-height: 200px; overflow-wrap: anywhere; }
 #glossary dl { margin-top: 8px; }
 #glossary dt { margin-top: 8px; font-weight: 600; color: var(--ink); }
 #glossary dd { margin-top: 4px; color: var(--ink-2); }
-body.installed #steps, body.installed .rail-heading { display: none; }
 
 /* dashboard */
-.dashboard-shell { max-width: 1240px; margin: 0 auto; padding: 0 32px 24px; }
-.dashboard-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 0; }
-.dashboard-bar h1 { font-size: 24px; }
 #dashboard-frame { width: 100%; min-height: 560px; border: 1px solid var(--line); border-radius: var(--r); background: var(--page); }
 #beginner-dashboard { padding: 24px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
 .dashboard-metrics { margin: 0 0 24px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raised); overflow: hidden; }
@@ -420,42 +375,7 @@ body.installed #steps, body.installed .rail-heading { display: none; }
 .toast-close { min-width: 44px; min-height: 44px; border: 0; background: none; font-size: 16px; line-height: 1; }
 .server-gone { position: fixed; top: 12px; left: 50%; z-index: 60; transform: translateX(-50%); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; width: min(720px, calc(100% - 32px)); margin: 0; box-shadow: var(--shadow); }
 .reopened { top: 68px; }
-.footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; max-width: 1240px; margin: 0 auto; padding: 16px 32px 32px; font-size: 12px; color: var(--muted); }
-.footer span { max-width: 580px; }
 
-@media (max-width: 850px) {
-  .header, .journey-bar, .shell, .dashboard-shell, .footer { padding-left: 16px; padding-right: 16px; }
-  .layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .sidebar { position: static; }
-  .sidebar > p, .local-note, .steps { display: none; }
-  .surface { min-height: 0; }
-}
-@media (max-width: 640px) {
-  .header { gap: 8px 12px; }
-  .workspace-nav { order: 3; width: 100%; }
-  .workspace-nav button { flex: 1; min-height: 44px; }
-  .profile { margin-left: auto; }
-  .btn, .primary, .ghost, .secondary-button { min-height: 44px; }
-  .journey-bar small { display: none; }
-  .journey-bar li:not([aria-current]) strong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .benefit { grid-template-columns: minmax(0, 1fr); }
-  .benefit > div + div { border-left: 0; border-top: 1px solid var(--line); }
-  .field-row { grid-template-columns: minmax(0, 1fr); }
-  .review > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
-  .actions .primary, .actions .secondary-button { flex: 1 1 auto; }
-  .footer { flex-direction: column; }
-  input, select, textarea, .tools label { min-height: 44px; }
-  input[type="radio"], input[type="checkbox"] { min-height: 0; width: 20px; height: 20px; }
-  .dashboard-bar { align-items: stretch; }
-}
-@media (max-width: 600px) {
-  .toast {
-    left: 16px;
-    right: 16px;
-    bottom: 16px;
-    width: auto;
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   .toast,
   .spotlight {
@@ -465,7 +385,187 @@ body.installed #steps, body.installed .rail-heading { display: none; }
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after { animation: none !important; scroll-behavior: auto !important; transition: none !important; }
 }
-    </style>
+    
+/* the wizard (docs/design/DIRECTION.md rule 11): the line of nodes on top, the choices at the left, what they write at the right, one primary at the bottom */
+.surface { min-width: 0; }
+.surface:focus { outline: none; }
+.mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--r-s); background: var(--btn); color: var(--on-btn); flex: none; }
+.wz-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; max-width: 1080px; margin: 0 auto; padding: 12px 24px; }
+.brand { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.journey { order: 3; flex: 1 0 100%; min-width: 0; }
+.journey .nodes { gap: 0; }
+.journey li { font-size: 12px; white-space: nowrap; }
+.journey li[hidden] { display: none; }
+.journey li.done { color: var(--ink-2); }
+.journey li.done i, .journey li[aria-current] i { border-color: var(--accent-line); background: var(--accent-line); }
+.journey li.done::after { background: var(--accent-line); }
+.ap.term { margin-left: auto; }
+.ap.term .pop { width: min(360px, calc(100vw - 32px)); }
+.ap.term summary span { font-weight: 500; }
+.ap.term .short { display: none; }
+.wz-top .ap + .ap { margin-left: 0; }
+.wz-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 400px); gap: 32px; align-items: start; max-width: 1080px; margin: 0 auto; padding: 24px 24px 32px; }
+.wz-body.closed { grid-template-columns: minmax(0, 1fr); }
+.wz-main > * + * { margin-top: 16px; }
+.wz-main > h1 { margin-top: 0; max-width: 28ch; }
+.wz-main p { max-width: 62ch; }
+.wz-prev .win { position: sticky; top: 16px; }
+.win-b { padding: 12px; font: 500 12px/1.7 var(--mono); overflow-x: auto; }
+.win-b .row { display: flex; justify-content: space-between; gap: 12px; white-space: pre; }
+.win-b .add { color: var(--integrated-ink); }
+.win-b .mod { color: var(--review-ink); }
+.win-b .keep, .win-b .dim { color: var(--muted); }
+.win-b .row span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.win-b p { margin: 0; white-space: normal; font-family: var(--sans); font-weight: 400; color: var(--ink-2); }
+.win-f > span { padding: 8px 12px; border-left: 1px solid var(--line); font-size: 11px; color: var(--muted); line-height: 1.3; }
+.win-f > span:first-child { border-left: 0; }
+.win-f > span b { display: block; font-size: 16px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.where { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--ink-2); overflow-wrap: anywhere; }
+.found { margin-top: 8px; }
+.found li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.found .k { color: var(--muted); font-size: 11px; }
+.found .v { overflow-wrap: anywhere; }
+.found .v code { font: 500 12px var(--mono); }
+.q { border: 0; padding: 0; margin: 24px 0 0; }
+.q legend { font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.opts .choice { margin-top: 0; }
+.tag { font: 600 11px/1 var(--mono); letter-spacing: .05em; text-transform: uppercase; font-style: normal; color: var(--accent-ink); border: 1px solid currentColor; border-radius: 3px; padding: 4px; margin-left: 8px; vertical-align: 1px; }
+.plain > li, .rules > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; }
+.rules .why { display: block; color: var(--ink-2); font-size: 12px; }
+.rules .val { font: 600 11px var(--mono); color: var(--accent-ink); white-space: nowrap; }
+.foot { position: sticky; bottom: 0; z-index: 20; border-top: 1px solid var(--line); background: var(--page); }
+.foot-in { display: flex; align-items: center; gap: 12px; max-width: 1032px; margin: 0 auto; padding: 12px 24px; }
+.foot-note { flex: 1; min-width: 0; margin-left: 4px; font-size: 12px; color: var(--muted); text-align: right; overflow-wrap: anywhere; }
+.foot-note .error, .foot-note [role=alert] { color: var(--blocked-ink); }
+.foot .action-result { margin: 0; }
+.screen:not([data-on]) { display: none; }
+.screen[data-on] { display: flex; flex-direction: column; min-height: calc(100vh - 56px); min-height: calc(100dvh - 56px); }
+.screen .wz-body { flex: 1; width: 100%; align-content: start; }
+.demo summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; min-height: 28px; color: var(--accent-ink); }
+.demo summary::-webkit-details-marker { display: none; }
+.demo summary h2 { font-size: 13px; font-weight: 600; letter-spacing: 0; }
+.demo summary::before { content: ""; width: 0; height: 0; border-style: solid; border-width: 4px 0 4px 6px; border-color: transparent transparent transparent currentColor; }
+.demo details[open] summary::before { border-width: 6px 4px 0 4px; border-color: currentColor transparent transparent transparent; }
+.demo video { width: 100%; max-width: 560px; margin-top: 8px; aspect-ratio: 16 / 9; border-radius: var(--r-s); background: var(--ink); }
+.foot .action-result { order: -1; flex: 1 0 100%; text-align: right; }
+.foot-in { flex-wrap: wrap; }
+.screen .actions { margin-top: 16px; padding-top: 0; border-top: 0; justify-content: flex-start; }
+.screen .actions .primary { margin-left: 0; }
+.more { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--line); }
+.more h2 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.more .list > li { display: grid; gap: 4px; }
+.team-step { margin: 0; padding: 0; border: 0; }
+.your-app { margin-top: 24px; padding-top: 16px; }
+#dashboard-frame { width: 100%; min-height: 560px; border: 1px solid var(--line); border-radius: var(--r); background: var(--page); }
+#prepare { display: none !important; }
+#finish .status-heading h2 { font-size: 16px; letter-spacing: 0; }
+.prepare-step > button, .step-body > button, .prepare-step form > button { justify-self: start; }
+#error { position: sticky; bottom: 80px; z-index: 40; max-width: 1032px; margin: 0 auto; width: calc(100% - 48px); }
+#planning { display: grid; gap: 16px; margin: 0; padding: 0; border: 0; }
+.prepare-step > h4 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.prepare-step { padding: 16px; }
+.screen #plan-done { margin-top: 0; }
+#planning > button { justify-self: start; }
+#planner-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+#planner-options .choice { margin-top: 0; padding: 8px 12px; }
+#planner-choice { margin-top: 0; }
+/* the late screens */
+.screen .prepare-step, .screen .prepare-step.current { border: 0; background: none; padding: 0; }
+.proxied { display: none !important; }
+.grp { display: contents; }
+.grp[hidden] { display: none; }
+.foot .blocked-reason, .foot .hint { order: -1; flex: 1 0 100%; margin: 0; text-align: right; }
+.copyrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.copyrow code { flex: 1; min-width: 0; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--raised); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#closed-command, #terminal-command { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.sec { font-size: 13px; font-weight: 600; margin: 8px 0 0; color: var(--ink-2); }
+.agents > li { display: grid; gap: 8px; }
+.agents .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.agents .why, .actions-list .why, .rules .why { display: block; color: var(--ink-2); font-size: 12px; }
+.stages li span { font-size: 12px; white-space: nowrap; }
+.stages li.done i, .stages li[aria-current] i { border-color: var(--accent-line); background: var(--accent-line); }
+.stages li.done::after { background: var(--accent-line); }
+.stages li[aria-current] { color: var(--ink); font-weight: 600; }
+[data-stage="review"] #idea-form, [data-stage="review"] #planner-choice, [data-stage="review"] #plan-trust, [data-stage="review"] #plan-remote-note { display: none; }
+.plan-cards { gap: 0; margin: 0; padding: 0; }
+.plan-cards li { border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 12px; }
+.plan-cards li:first-child { border-top: 0; }
+.pills { display: flex !important; flex-wrap: wrap; gap: 8px; margin: 4px 0; }
+.actions-list > li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 12px; align-items: center; }
+.actions-list .live { display: flex; gap: 8px; }
+.actions-list .live input { flex: 1; min-width: 0; }
+#beginner-dashboard { border: 0; padding: 0; background: none; }
+#beginner-dashboard .dashboard-metrics { display: none; }
+#simple-next { border: 0; padding: 0; }
+.found .v .pill { margin-left: 8px; }
+#screen-people .team-block h3, #screen-people h3 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+#screen-people .team-block { margin-top: 0; }
+#publish-fix { margin: 0; }
+#publish-fix h2 { margin-bottom: 8px; }
+#plan-review > h3 { margin: 0 0 8px; font-size: 13px; color: var(--ink-2); }
+#plan-lint { margin-bottom: 8px; }
+#schedule-form .prepare-row { display: block; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+#schedule-form .prepare-row > div { display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--line); }
+#schedule-form .prepare-row > div:first-child { border-top: 0; }
+#schedule-form .field-label { margin: 0; color: var(--muted); font-size: 11px; }
+#schedule-form .step-body > p.hint { margin: 0 0 8px; }
+@media (max-width: 640px) { #schedule-form .prepare-row > div { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
+.quiet details { margin: 0; padding: 0; border: 0; }
+.quiet > * { padding: 8px 12px; }
+.quiet .checklist { border: 0; margin: 8px 0 0; }
+#your-app { margin: 0; padding: 0; border: 0; }
+#your-app h3, #screen-dashboard h2.sec { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 0 0 4px; }
+#simple-next h3 { font-size: 16px; margin: 4px 0; }
+h1[tabindex="-1"]:focus, h1[tabindex="-1"]:focus-visible { outline: none; }
+#screen-people .team-block, #screen-people .prepare-step { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); padding: 12px 16px; margin-top: 0; }
+#screen-people .wz-main > * + * { margin-top: 12px; }
+#team-two-people h3 { display: none; }
+#team-two-people p { font-size: 12px; color: var(--ink-2); }
+#your-app { margin-top: 24px; }
+#screen-dashboard h2.sec { margin-top: 24px; }
+#screen-unblock .next-command code { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+#planning .action-result:empty, #planning .hint:empty { display: none; }
+[data-stage="review"] #plan-create-why, [data-stage="review"] #plan-create-result, [data-stage="review"] #plan-progress:empty { display: none; }
+#team-name-block { display: none !important; }
+.says { max-width: 62ch; color: var(--ink-2); }
+/* the notices that stay on top sit above the header in the flow, never over it */
+.server-gone { position: sticky; top: 0; left: auto; transform: none; z-index: 60; width: auto; max-width: 1032px; margin: 8px auto 0; }
+.reopened { top: 0; }
+@media (max-width: 850px) {
+  .wz-body { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px 16px 24px; }
+  .wz-prev .win { position: static; }
+  .wz-top { padding: 12px 16px 8px; gap: 8px 12px; }
+  .foot-in { padding: 12px 16px; }
+}
+@media (max-width: 640px) {
+  .brand b, .ap.term .long { display: none; }
+  .demo summary { min-height: 44px; }
+  .stages li:not([aria-current]) span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .stages li[aria-current] span { padding-left: 4px; }
+  .ap.term .short { display: inline; }
+  .screen[data-screen="dashboard"] .foot { position: static; }
+  .btn, .primary, .ghost, .secondary-button { min-height: 44px; }
+  .journey li:not([aria-current]) span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .journey li[aria-current] span { padding-left: 4px; }
+  .opts { grid-template-columns: minmax(0, 1fr); }
+  .field-row { grid-template-columns: minmax(0, 1fr); }
+  .review > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .found li { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  input, select, textarea, .tools label, .choice, summary, .link-button { min-height: 44px; }
+  summary, .link-button { display: inline-flex; align-items: center; }
+  input[type="radio"], input[type="checkbox"] { min-height: 0; width: 20px; height: 20px; }
+  .actions-list > li { grid-template-columns: minmax(0, 1fr); }
+  .foot .actions { display: contents; }
+  .foot .secondary-button, .foot .ghost { flex: 1 1 0; min-width: 0; padding-left: 8px; padding-right: 8px; order: 2; }
+  .foot .primary { flex: 1 0 100%; order: 6; }
+  .foot-in { flex-wrap: wrap; }
+  .foot-note { order: 5; flex-basis: 100%; text-align: left; }
+}
+@media (max-width: 600px) {
+  .toast { left: 16px; right: 16px; bottom: 16px; width: auto; }
+}
+</style>
   </head>
   <body data-profile="beginner">
     <div class="notice error server-gone" id="server-gone" role="alert" hidden>
@@ -477,968 +577,680 @@ body.installed #steps, body.installed .rail-heading { display: none; }
       <button type="button" class="secondary-button" id="reopened-dismiss" data-i18n="Dismiss">Dismiss</button>
     </div>
     <a class="skip" href="#content">Skip to setup</a>
-    <header class="header">
-      <div class="brand">
-        <span class="mark" aria-hidden="true">u</span> UPIIXIA
-        <span class="muted">/ setup</span>
-      </div>
-      <nav class="workspace-nav" aria-label="Workspace">
-        <button type="button" id="open-setup" aria-pressed="true">
-          Configuration
-        </button>
-        <button type="button" id="open-dashboard" aria-pressed="false">
-          Dashboard
-        </button>
-      </nav>
-      <div class="profile">
-        <details class="ap" id="look">
-          <summary data-no-i18n><i aria-hidden="true"></i>Apariencia</summary>
-          <div class="pop">
-            <label for="language" data-i18n-aria="Language">Language</label>
-            <select id="language" data-no-i18n>
-              <option value="es">Español</option>
-              <option value="en">English</option>
-            </select>
-            <label for="profile">View</label>
-            <select id="profile">
-              <option value="beginner">Beginner</option>
-              <option value="advanced">Advanced</option>
-            </select>
-            <label for="workspace-theme">Theme</label>
-            <select id="workspace-theme"><option value="">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select>
-            <span class="lbl" id="pal-label" data-no-i18n>Palette</span>
-            <div class="pals" data-no-i18n role="group" aria-labelledby="pal-label"></div>
-          </div>
-        </details>
-      </div>
+    <header class="wz-top">
+      <div class="brand"><span class="mark" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 5 5" shape-rendering="crispEdges"><path fill="currentColor" d="M0 0h1v4H0zM4 0h1v5H4zM1 4h3v1H1zM2 1h1v1H2z"/></svg></span><b>UPIIXIA</b></div>
+      <nav class="journey" id="journey" aria-label="Your journey"><ol class="nodes">
+          <li data-step="project"><i></i><span>Project detected</span></li>
+          <li data-step="rules"><i></i><span>Rules</span></li>
+          <li data-step="people"><i></i><span>People</span></li>
+          <li data-step="schedule"><i></i><span>Schedule</span></li>
+          <li data-step="publish"><i></i><span>Publish the kit</span></li>
+          <li data-step="plan"><i></i><span>Idea and plan</span></li>
+          <li data-step="start"><i></i><span>Start the agents</span></li>
+      </ol></nav>
+      <details class="ap term" id="terminal-alt"><summary><span class="long">Continue in the terminal</span><span class="short">Terminal</span></summary>
+        <div class="pop"><p class="lbl">One command, in the project's folder</p>
+          <div class="next-command"><code id="terminal-command" data-no-i18n></code><button type="button" class="secondary-button" id="copy-terminal-command">Copy</button></div></div></details>
+      <div class="profile"><details class="ap" id="look">
+        <summary data-no-i18n><i aria-hidden="true"></i>Apariencia</summary>
+        <div class="pop">
+          <label for="language" data-i18n-aria="Language">Language</label>
+          <select id="language" data-no-i18n><option value="es">Español</option><option value="en">English</option></select>
+          <label for="profile">View</label>
+          <select id="profile"><option value="beginner">Beginner</option><option value="advanced">Advanced</option></select>
+          <label for="workspace-theme">Theme</label>
+          <select id="workspace-theme"><option value="">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select>
+          <span class="lbl" id="pal-label" data-no-i18n>Palette</span>
+          <div class="pals" data-no-i18n role="group" aria-labelledby="pal-label"></div>
+        </div>
+      </details></div>
     </header>
-    <nav class="journey-bar" id="journey" aria-label="Your journey">
-      <ol class="nodes">
-        <li data-step="install"><i></i><span><strong>1. Install</strong><small data-where="page">in this page</small></span></li>
-        <li data-step="prepare"><i></i><span><strong>2. Prepare</strong><small data-where="page">in this page</small></span></li>
-        <li data-step="plan"><i></i><span><strong>3. Plan</strong><small data-where="page">in this page</small></span></li>
-        <li data-step="team"><i></i><span><strong>4. Start the team</strong><small data-where="terminal">in a terminal</small></span></li>
-        <li data-step="progress"><i></i><span><strong>5. Follow progress</strong><small data-where="agents">your agents do it</small></span></li>
-      </ol>
-    </nav>
+    <div hidden><button type="button" id="open-setup" aria-pressed="true">Configuration</button><button type="button" id="open-dashboard" aria-pressed="false">Dashboard</button><div id="steps"></div><div id="running-review"><button type="button" id="back-to-progress">Return to progress</button></div><button type="button" id="begin">Set up</button></div>
     <div class="shell" id="setup-shell">
-      <div class="layout">
-        <aside class="sidebar" aria-label="Setup progress">
-          <p>
-            <strong>Your team starts here.</strong><br /><span class="secondary"
-              >A few decisions. A clear next step.</span
-            >
-          </p>
-          <p class="rail-heading"><strong>1. Install</strong></p>
-          <ol class="steps" id="steps">
-            <li aria-current="step">
-              <span class="step-number" aria-hidden="true"></span><span class="step-label">Welcome</span>
-            </li>
-            <li>
-              <span class="step-number" aria-hidden="true"></span><span class="step-label">Your project</span>
-            </li>
-            <li>
-              <span class="step-number" aria-hidden="true"></span><span class="step-label">Your workflow</span>
-            </li>
-            <li>
-              <span class="step-number" aria-hidden="true"></span><span class="step-label">Review &amp; install</span>
-            </li>
-            <li>
-              <span class="step-number" aria-hidden="true"></span><span class="step-label">Get ready</span>
-            </li>
-          </ol>
-          <div class="local-note">
-            Runs on your computer.<br />No account or API key is needed for this
-            setup. Your coding tools keep their own sign-in.
-          </div>
-          <details class="beginner-only" id="glossary">
-            <summary>Words you will see</summary>
-            <dl>
-              <dt><dfn>claim</dfn></dt>
-              <dd>An agent takes a task so nobody else works on it at the same time.</dd>
-              <dt><dfn>freeze</dfn></dt>
-              <dd>The time before the deadline when new work stops, so the last minutes go to the demo.</dd>
-              <dt><dfn>lint</dfn></dt>
-              <dd>An automatic check of the plan: it finds tasks that are incomplete or depend on each other in a loop.</dd>
-              <dt><dfn>wave</dfn></dt>
-              <dd>A group of tasks that can be done at the same time; wave 2 starts when wave 1 is done.</dd>
-              <dt><dfn>worktree</dfn></dt>
-              <dd>A separate folder for one task, so two agents never edit the same files at once.</dd>
-              <dt><dfn>PR</dfn></dt>
-              <dd>A pull request: the proposed change of one task, which another agent reviews before it joins main.</dd>
-              <dt><dfn>origin</dfn></dt>
-              <dd>The name Git gives your project's copy on GitHub.</dd>
-              <dt><dfn>MCP</dfn></dt>
-              <dd>The way a coding tool talks to the kit's own commands; the tool asks you to approve it once.</dd>
-            </dl>
-          </details>
-        </aside>
-        <main class="surface" id="content" tabindex="-1" data-loading>
-          <div
-            class="notice running-review"
-            id="running-review"
-            hidden
-            role="status"
-          >
-            <p>
-              An operation is running. You can review earlier steps; editing is
-              available when it finishes.
-            </p>
-            <button
-              type="button"
-              class="secondary-button"
-              id="back-to-progress"
-            >
-              Return to progress
-            </button>
-          </div>
-          <section id="welcome">
-            <div class="eyeline">
-              <span class="dot" aria-hidden="true"></span> A workspace for your
-              AI coding team
-            </div>
-            <h1>Build together.<br />Keep a clear path.</h1>
-            <p class="intro">
-              Give your coding agents a shared plan, clear responsibilities, and
-              a review before changes ship. We’ll help you set it up.
-            </p>
-            <button class="primary" id="begin">Set up my project</button>
-            <p class="hint">
-              Already using the kit? Choose your project to continue
-              configuration.
-            </p>
-            <p class="intro">
-              This page installs the kit into this project and guides you to the moment your agents start. The kit
-              itself is downloaded only once; each project gets its own copy.
-            </p>
-            <div class="benefit">
-              <div>
-                <strong>One step at a time</strong
-                ><span class="secondary"
-                  >Choose your project and tools. We explain the decisions as
-                  you go.</span
-                >
-              </div>
-              <div>
-                <strong>You stay in control</strong
-                ><span class="secondary"
-                  >Review what will change before anything is installed.</span
-                >
-              </div>
-            </div>
-            <section id="demo" class="demo win" aria-labelledby="demo-heading" hidden>
-              <div class="win-h"><i></i><i></i><i></i><h2 id="demo-heading">Watch the 75-second demo</h2></div>
-              <div class="win-b">
-              <p class="secondary">
-                A simulated walkthrough: from an empty project to a deployed
-                app. Captions in English and Spanish.
-              </p>
-              <video
-                id="demo-video"
-                data-src="/media/tutorial.mp4"
-                data-poster="/media/tutorial-poster.jpg"
-                controls
-                preload="none"
-                playsinline
-                width="1280"
-                height="720"
-                aria-labelledby="demo-heading"
-              >
-                <track
-                  kind="captions"
-                  srclang="en"
-                  label="English"
-                  data-src="/media/tutorial-en.vtt"
-                /><track
-                  kind="captions"
-                  srclang="es"
-                  label="Español"
-                  data-src="/media/tutorial-es.vtt"
-                />
-              </video>
-              </div>
-            </section>
-            <!-- The video is served from the kit's own checkout; a project that has no copy of it gets this link. -->
-            <p id="demo-link" class="secondary" hidden>
-              <a
-                href="https://github.com/JoahanMorales/upiixia-agentic-kit/blob/main/kit/.uak/media/tutorial.mp4"
-                target="_blank"
-                rel="noopener noreferrer"
-                >Watch the 75-second demo on GitHub</a
-              >
-            </p>
-          </section>
-          <section id="project" hidden>
-            <h2>Where are you building?</h2>
-            <p class="intro">
-              Choose the folder that contains your Git repository. The kit will
-              live alongside your project.
-            </p>
-            <form id="project-form" novalidate>
-              <div class="field">
-                <label class="field-label" for="target">Project folder</label
-                ><input
-                  type="text"
-                  id="target"
-                  required
-                  autocomplete="off"
-                  spellcheck="false"
-                  aria-describedby="target-hint target-error"
-                />
-                <p class="hint" id="target-hint">
-                  Use the full folder path, for example C:\Projects\my-app or
-                  /Users/you/my-app.
-                </p>
-                <p class="field-error" id="target-error" role="alert"></p>
-              </div>
-              <p class="hint">
-                The folder needs to be a Git repository. Nothing is installed
-                when you check it.
-              </p>
-              <div class="notice error" id="branch-warning" role="alert" tabindex="-1" hidden>
-                <strong>This folder is not on the main branch</strong>
-                <p id="branch-warning-text" data-no-i18n></p>
-                <div id="branch-warning-run" hidden>
-                  <p class="hint">Run this in a terminal, then press Check project folder again:</p>
-                  <div class="next-command">
-                    <code id="branch-warning-command" data-no-i18n></code>
-                    <button type="button" class="secondary-button" id="copy-branch-warning">Copy</button>
-                  </div>
-                </div>
-                <p id="branch-warning-remote" data-no-i18n hidden></p>
-                <p class="hint" id="branch-warning-status" role="status"></p>
-              </div>
-              <div class="actions">
-                <button type="button" class="secondary-button" data-back="0">
-                  Back</button
-                ><button class="primary" type="submit">
-                  Check project folder
-                </button>
-              </div>
-            </form>
-          </section>
-          <section id="workflow" hidden>
-            <h2>How will your team work?</h2>
-            <p class="secondary" id="selected-project" data-no-i18n></p>
-            <form id="workflow-form" novalidate>
-              <fieldset>
-                <legend>Choose your goal</legend>
-                <label class="choice"
-                  ><input
-                    type="radio"
-                    name="mode"
-                    value="sprint"
-                    required
-                  /><span
-                    ><strong>Hackathon or prototype</strong
-                    ><small
-                      >Build toward a deadline. Reviewed changes can merge
-                      automatically after the checks pass.</small
-                    ></span
-                  ></label
-                ><label class="choice"
-                  ><input
-                    type="radio"
-                    name="mode"
-                    value="marathon"
-                    required
-                  /><span
-                    ><strong>Product with real users</strong
-                    ><small
-                      >Plan for security and maintainability. A human makes the
-                      final merge decision.</small
-                    ></span
-                  ></label
-                >
-              </fieldset>
-              <fieldset>
-                <legend>Which coding tools do you use?</legend>
-                <div class="tools">
-                  <label
-                    ><input
-                      type="checkbox"
-                      name="harness"
-                      value="claude"
-                      checked
-                    />Claude Code</label
-                  ><label
-                    ><input
-                      type="checkbox"
-                      name="harness"
-                      value="codex"
-                      checked
-                    />Codex</label
-                  ><label
-                    ><input
-                      type="checkbox"
-                      name="harness"
-                      value="cursor"
-                    />Cursor</label
-                  ><label
-                    ><input
-                      type="checkbox"
-                      name="harness"
-                      value="gemini"
-                    />Gemini CLI</label
-                  >
-                </div>
-                <p class="hint">
-                  Select the tools you already use. Setup adds their project
-                  instructions; it does not install or sign in to them.
-                </p>
-                <p class="hint" id="tool-roles">
-                  One tool implements, the other reviews its work as a second
-                  identity, so no change merges unchecked. We recommend Claude Code + Codex: Claude Code
-                  writes the code and Codex reviews it.
-                </p>
-                <p class="hint">With only one tool, it does both jobs under two names.</p>
-              </fieldset>
-              <label class="choice"
-                ><input id="solo" type="checkbox" /><span
-                  ><strong>I’m the only human on this repository</strong
-                  ><small
-                    >Nobody else reviews here, so your agents review each other
-                    under a second name you register (for example ana-r). Product
-                    mode still leaves the final merge to you.</small
-                  ></span
-                ></label
-              >
-              <details id="installation-options">
-                <summary>More installation options</summary>
-                <div class="field">
-                  <label for="stack" class="field-label"
-                    >Project technology preset</label
-                  ><select id="stack">
-                    <option value="none">No preset / decide later</option>
-                    <option value="fastapi-react">FastAPI + React</option>
-                    <option value="nextjs">Next.js</option>
-                    <option value="django">Django</option>
-                    <option value="go">Go</option>
-                    <option value="expo">Expo</option>
-                    <option value="python-data">Python data</option>
-                    <option value="ai-agent">AI agent</option>
-                    <option value="spring-boot">Spring Boot</option>
-                  </select>
-                </div>
-                <label class="choice"
-                  ><input type="checkbox" id="blackbox" checked /><span
-                    ><strong>Keep anonymous kit diagnostics</strong
-                    ><small
-                      >Records filtered kit events on your repository’s
-                      coordination branch. Those events are public if your
-                      repository is public. You can turn this off here or
-                      later.</small
-                    ></span
-                  ></label
-                >
-              </details>
-              <div class="actions">
-                <button type="button" class="secondary-button" data-back="1">
-                  Back</button
-                ><button class="primary" type="submit">
-                  Review installation
-                </button>
-              </div>
-            </form>
-          </section>
-          <section id="review" hidden>
-            <h2>A quick check before we install.</h2>
-            <p class="intro">
-              These choices control the files added to your project. You can go
-              back to change them.
-            </p>
-            <dl class="review list" id="summary"></dl>
-            <div class="notice">
-              Adds the kit’s coordination tools, project instructions, hooks and
-              review workflow. Existing files are preserved; conflicting
-              versions are saved beside them as .uak-new.
-            </div>
-            <p class="hint">
-              Installation does not commit or push your code. Signing in to a
-              coding tool and approving your project plan remain separate steps.
-            </p>
-            <div class="actions">
-              <button class="secondary-button" data-back="2">
-                Edit choices</button
-              ><button class="primary" id="install">
-                Install into this project
-              </button>
-            </div>
-          </section>
-          <section id="finish" hidden>
-            <div class="status-heading" id="status-heading">
-              <span class="status-icon" id="status-icon" aria-hidden="true"></span>
-              <h2 id="result-title">Installing your workspace</h2>
-            </div>
-            <p class="intro" id="result-description">
-              Keep this window open while the kit adds the files. We’ll show you
-              what to do next.
-            </p>
-            <p
-              class="notice"
-              id="operation-status"
-              role="status"
-              aria-live="polite"
-            ></p>
-            <div class="notice error" id="setup-branch-warning" role="alert" hidden>
-              <strong>This folder is not on the main branch</strong>
-              <p id="setup-branch-warning-text" data-no-i18n></p>
-              <div id="setup-branch-warning-run" hidden>
-                <p class="hint">Run this in a terminal, then press Check what’s next:</p>
-                <div class="next-command">
-                  <code id="setup-branch-warning-command" data-no-i18n></code>
-                  <button type="button" class="secondary-button" id="copy-setup-branch-warning">Copy</button>
-                </div>
-              </div>
-              <p class="hint" id="setup-branch-warning-status" role="status"></p>
-            </div>
-            <div class="notice" id="remote-default-warning" role="status" hidden>
-              <strong>GitHub opens this project on the wrong branch</strong>
-              <p id="remote-default-text" data-no-i18n></p>
-            </div>
-            <ul class="checklist list" id="checks"></ul>
-            <div class="notice" id="terminal-step" hidden>
-              <h3>Do this in a terminal</h3>
-              <p>
-                Open a terminal (any window; no coding agent is needed for
-                this). First go to your project:
-              </p>
-              <div class="next-command">
-                <code id="terminal-cd" data-no-i18n></code>
-                <button type="button" class="secondary-button" id="copy-terminal-cd">Copy</button>
-              </div>
-              <p>Then do this:</p>
-              <ul id="terminal-steps" data-no-i18n></ul>
-              <p>When it is done, come back and press Check again.</p>
-            </div>
-            <p class="notice step-done" id="plan-done" role="status" data-no-i18n hidden></p>
-            <div id="prepare" hidden>
-              <h3 id="prepare-heading" tabindex="-1">Prepare your project</h3>
-              <p class="notice" id="identity-warning" role="status" data-no-i18n hidden></p>
-              <p class="hint">
-                These steps used to need a terminal. Do them here, in order;
-                the check below confirms each one.
-              </p>
-              <div class="prepare-step" id="name-step">
-                <h4>1. Your name</h4>
-                <p class="step-done" id="name-done" hidden>
-                  <strong><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Done</strong>
-                  <span id="name-done-text" data-no-i18n></span>
-                  <button type="button" class="link-button" id="name-reopen">Change</button>
-                </p>
-                <div class="step-body">
-                <p class="hint">
-                  Some steps only a person may do (publishing, approving). Setup
-                  records them with this name.
-                </p>
-                <div class="prepare-row">
-                  <div>
-                    <label class="field-label" for="human-name">Your name (from your Git identity)</label>
-                    <input type="text" id="human-name" maxlength="32" autocomplete="off" spellcheck="false" readonly />
-                  </div>
-                  <button type="button" class="secondary-button" id="human-save">Use this name</button>
-                </div>
-                <p class="hint" id="human-status" role="status"></p>
-                </div>
-              </div>
-              <form class="prepare-step" id="schedule-form" novalidate>
-                <h4>2. Event schedule</h4>
-                <p class="step-done" id="schedule-done" hidden>
-                  <strong><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Done</strong>
-                  <span id="schedule-done-text" data-no-i18n></span>
-                  <button type="button" class="link-button" id="schedule-reopen">Change</button>
-                </p>
-                <div class="step-body">
-                <p class="hint">
-                  The kit stops new work before the deadline (the freeze), so the
-                  last minutes go to the demo.
-                </p>
-                <div class="prepare-row">
-                  <div>
-                    <label class="field-label" for="schedule-start">Start</label>
-                    <input type="datetime-local" id="schedule-start" required />
-                  </div>
-                  <div>
-                    <label class="field-label" for="schedule-end">End</label>
-                    <input type="datetime-local" id="schedule-end" required />
-                  </div>
-                  <div>
-                    <label class="field-label" for="schedule-zone">Time zone</label>
-                    <input type="text" id="schedule-zone" list="schedule-zones" autocomplete="off" spellcheck="false" />
-                    <datalist id="schedule-zones"></datalist>
-                  </div>
-                </div>
-                <button type="submit" class="secondary-button" id="schedule-save">Save schedule</button>
-                <p class="hint" id="schedule-status" role="status"></p>
-                </div>
-              </form>
-              <div class="prepare-step" id="publish-step">
-                <h4>3. Publish the kit to main</h4>
-                <p class="step-done" id="publish-done" hidden>
-                  <strong><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Done</strong>
-                  <span id="publish-done-text" data-no-i18n></span>
-                  <button type="button" class="link-button" id="publish-reopen">Change</button>
-                </p>
-                <div class="step-body">
-                <p class="hint">
-                  Your agents read the kit from the main branch on GitHub. This
-                  uploads only the kit's files; your idea and plan wait until you
-                  approve them.
-                </p>
-                <button type="button" class="secondary-button" id="publish-preview" aria-describedby="publish-preview-why">Review the files</button>
-                <p class="hint blocked-reason" id="publish-preview-why" hidden></p>
-                <div id="publish-confirm" hidden>
-                  <p id="publish-count"></p>
-                  <details open>
-                    <summary>Files to publish</summary>
-                    <pre id="publish-files"></pre>
-                  </details>
-                  <div class="actions">
-                    <button type="button" class="secondary-button" id="publish-cancel">Cancel</button>
-                    <button type="button" class="primary" id="publish-kit">Publish the kit to main</button>
-                  </div>
-                </div>
-                <div class="notice error" id="publish-way-out" role="status" hidden>
-                  <strong>The remote already has its own history</strong>
-                  <p id="publish-way-out-error"></p>
-                  <div id="publish-way-out-run" hidden>
-                    <p class="hint">Run this in a terminal, then press Review the files again:</p>
-                    <div class="next-command">
-                      <code id="publish-way-out-command" data-no-i18n></code>
-                      <button type="button" class="secondary-button" id="copy-publish-way-out">Copy</button>
-                    </div>
-                  </div>
-                  <div id="publish-way-out-push-run" hidden>
-                    <p class="hint">Then run this second command to send your own commits:</p>
-                    <div class="next-command">
-                      <code id="publish-way-out-push" data-no-i18n></code>
-                      <button type="button" class="secondary-button" id="copy-publish-way-out-push">Copy</button>
-                    </div>
-                  </div>
-                  <ul id="publish-way-out-steps"></ul>
-                  <p class="hint" id="publish-way-out-status" role="status"></p>
-                </div>
-                </div>
-              </div>
-            </div>
-            <div id="planning" hidden>
-              <h3 id="planning-heading" tabindex="-1">Plan your project</h3>
-              <p class="hint">
-                Describe what you are building. Your coding tool drafts the plan
-                in the background; you review it here, and nothing is published
-                until you approve it.
-              </p>
-              <form id="idea-form" novalidate>
-                <label class="field-label" for="idea-text"
-                  >What are you building? One line.</label
-                ><input type="text" id="idea-text" maxlength="300" autocomplete="off" required />
-                <label class="field-label" for="idea-audience">Who is it for?</label
-                ><input type="text" id="idea-audience" maxlength="300" autocomplete="off" required />
-                <label class="field-label" for="idea-goal" id="idea-goal-label"
-                  >Judging rubric</label
-                ><textarea id="idea-goal" maxlength="1000" rows="3" required></textarea>
-                <div class="field-row">
-                  <div>
-                    <label class="field-label" for="idea-length">Event length</label
-                    ><input type="text" id="idea-length" maxlength="60" placeholder="24 h" required />
-                  </div>
-                  <div>
-                    <label class="field-label" for="idea-team">Team size</label
-                    ><input type="number" id="idea-team" min="1" max="50" value="3" required />
-                  </div>
-                </div>
-                <label class="choice" id="idea-overwrite-row" hidden
-                  ><input type="checkbox" id="idea-overwrite" /><span
-                    ><strong>Replace the existing IDEA.md</strong
-                    ><small
-                      >Your project already has an idea file. Setup replaces it
-                      only with this confirmation.</small
-                    ></span
-                  ></label
-                ><button class="secondary-button" type="submit" id="idea-save">
-                  Save the idea
-                </button>
-                <p class="hint" id="idea-status" role="status"></p>
-                <details id="idea-saved" hidden>
-                  <summary>Your saved idea (IDEA.md)</summary>
-                  <pre id="idea-saved-text"></pre>
-                </details>
-              </form>
-              <fieldset id="planner-choice" tabindex="-1">
-                <legend>Coding tool that drafts the plan</legend>
-                <div id="planner-options"></div>
-              </fieldset>
-              <p class="notice error" id="plan-remote-note" role="status" hidden></p>
-              <div class="notice" id="plan-trust">
-                <p>
-                  Claude Code only: open it once in this folder and answer its trust question as shown below, then
-                  close it. Until then it ignores this project's permissions and the plan stops early.
-                </p>
-                <div class="next-command">
-                  <code id="plan-trust-command" data-no-i18n></code>
-                  <button type="button" class="secondary-button" id="copy-plan-trust">Copy</button>
-                </div>
-                <div class="trust-help" id="plan-trust-help" data-reload="plan" data-no-i18n hidden></div>
-              </div>
-              <button class="primary" type="button" id="plan-create" aria-describedby="plan-create-why">
-                Create the plan
-              </button>
-              <p class="hint blocked-reason" id="plan-create-why" hidden></p>
-              <p class="action-result" id="plan-create-result" role="status" aria-live="polite" data-no-i18n></p>
-              <p class="hint" id="plan-progress" role="status" data-no-i18n hidden></p>
-              <section id="plan-review" hidden aria-labelledby="plan-review-heading">
-                <h3 id="plan-review-heading">Proposed plan</h3>
-                <div class="notice error" id="plan-violations" role="alert" tabindex="-1" hidden>
-                  <strong>The planner broke a rule</strong>
-                  <ul class="plan-problems" id="plan-violation-list" data-no-i18n></ul>
-                  <p id="plan-undo-text"></p>
-                  <div class="next-command" id="plan-undo-run" hidden>
-                    <code id="plan-undo-command" data-no-i18n></code>
-                    <button type="button" class="secondary-button" id="copy-plan-undo">Copy</button>
-                  </div>
-                  <p class="hint" id="plan-undo-status" role="status"></p>
-                </div>
-                <div class="notice" id="plan-lint" role="status">
-                  <p id="plan-lint-summary"></p>
-                  <ul class="plan-problems" id="plan-lint-lines" data-no-i18n></ul>
-                </div>
-                <ul class="plan-cards list" id="plan-cards"></ul>
-                <details>
-                  <summary>Plan files as written</summary>
-                  <pre id="plan-files"></pre>
-                </details>
-                <div id="plan-ask">
-                <label class="field-label" for="plan-note">Ask for changes</label
-                ><textarea id="plan-note" maxlength="4000" rows="3"></textarea>
-                <div class="actions">
-                  <button class="secondary-button" type="button" id="plan-recheck">
-                    Check the plan again
-                  </button>
-                  <button class="secondary-button" type="button" id="plan-change">
-                    Ask for changes
-                  </button>
-                  <button class="primary" type="button" id="plan-approve" aria-describedby="plan-approve-why">
-                    Approve and publish
-                  </button>
-                </div>
-                <p class="hint blocked-reason" id="plan-approve-why" hidden></p>
-                </div>
-                <div id="approve-confirm" hidden>
-                  <p>
-                    Publishing sets Backlog-Approved: yes, commits only IDEA.md,
-                    .uak/TASKS.md, .uak/OWNERS.md and .uak/PROJECT.md as your Git
-                    identity, and pushes them to the main branch. Agents can then
-                    claim tasks.
-                  </p>
-                  <label class="field-label" for="approve-name"
-                    >Type the project folder name to confirm:</label
-                  >
-                  <p><strong id="approve-project" data-no-i18n></strong></p>
-                  <input type="text" id="approve-name" autocomplete="off" spellcheck="false" />
-                  <div class="actions">
-                    <button class="secondary-button" type="button" id="approve-cancel">
-                      Cancel
-                    </button>
-                    <button class="primary" type="button" id="approve-publish" disabled>
-                      Publish the plan
-                    </button>
-                  </div>
-                  <p class="hint" id="approve-hint" data-no-i18n></p>
-                </div>
-              </section>
-            </div>
-            <div id="preferences" hidden>
-              <h3>Project preferences</h3>
-              <p class="hint">
-                Changes stay local until you commit and push your project
-                configuration.
-              </p>
-              <label class="choice"
-                ><input type="checkbox" id="diagnostics" /><span
-                  ><strong>Anonymous kit diagnostics</strong
-                  ><small
-                    >Store filtered kit events on the coordination branch. A
-                    public repository makes these events public.</small
-                  ></span
-                ></label
-              ><label class="choice"
-                ><input type="checkbox" id="pacing" /><span
-                  ><strong>Automatic usage pacing</strong
-                  ><small
-                    >Adjust agent activity to your available usage
-                    allowance.</small
-                  ></span
-                ></label
-              ><label class="field-label" for="live-url-input"
-                >Deployed app link (optional)</label
-              ><input
-                type="url"
-                id="live-url-input"
-                inputmode="url"
-                autocomplete="off"
-                spellcheck="false"
-                placeholder="https://"
-                aria-describedby="live-url-hint"
-              /><small class="hint" id="live-url-hint"
-                >Only an https:// address. The dashboard shows it as a link to
-                your app.</small
-              ><button class="secondary-button" id="save">
-                Save preferences
-              </button>
-              <p class="hint" id="save-status" role="status"></p>
-            </div>
-            <details id="technical-details">
-              <summary>Technical details</summary>
-              <pre id="output"></pre>
-            </details>
-            <div class="actions">
-              <button
-                class="secondary-button"
-                type="button"
-                id="back-from-finish"
-              >
-                Back
-              </button>
-              <button class="secondary-button" id="repair" hidden>
-                Repair or update kit</button
-              ><button class="secondary-button" id="change-project">
-                Choose another project</button
-              ><button class="primary" id="check">Check what’s next</button>
-            </div>
-            <p class="action-result" id="check-result" role="status" aria-live="polite" data-no-i18n></p>
-          </section>
-          <div id="error" class="notice error" role="alert" hidden></div>
-        </main>
-      </div>
-    </div>
-    <main
-      class="dashboard-shell"
-      id="dashboard-shell"
-      hidden
-      aria-label="Dashboard"
-      tabindex="-1"
-    >
-      <div class="dashboard-bar">
-        <div>
-          <h1>Your project at a glance</h1>
-          <p class="secondary" id="dashboard-project" data-no-i18n></p>
-        </div>
-        <button class="secondary-button" id="refresh-dashboard">
-          Refresh dashboard
-        </button>
-      </div>
-      <p class="notice" id="dashboard-status" role="status">
-        Loading your project dashboard…
-      </p>
-      <p class="notice error" id="dashboard-freeze" role="status" hidden></p>
-      <p class="notice" id="dashboard-remote-default" role="status" data-no-i18n hidden></p>
-      <button class="primary" id="dashboard-choose-project" hidden>
-        Choose another project
-      </button>
-      <section id="team-step" class="team-step" hidden aria-labelledby="team-heading" tabindex="-1">
-        <h2 id="team-heading" tabindex="-1">Start your team</h2>
-        <p class="hint">
-          Setup steps (install, publish, plan) need no agent; agents start only here.
-        </p>
-        <div class="team-block" id="team-two-people" hidden>
-          <h3>Two or more people?</h3>
-          <p>
-            Each person uses their own computer: they clone the project, open this page there, save their own name and
-            register their own reviewer (name-r).
-          </p>
-          <p>
-            You run the commands shown on your page; your teammate runs the ones on theirs. Never paste a teammate's
-            commands: they carry their name.
-          </p>
-        </div>
-        <div class="team-block" id="team-name-block" hidden>
-          <h3>Your name</h3>
-          <p class="hint">
-            Registering the reviewer is a human act: setup records it with your name, and remembers it for this project.
-          </p>
-          <div class="prepare-row">
-            <div>
-              <label class="field-label" for="team-name">Your name (from your Git identity)</label>
-              <input type="text" id="team-name" maxlength="32" autocomplete="off" spellcheck="false" readonly />
-            </div>
-            <button type="button" class="primary" id="team-name-save">Use this name</button>
-          </div>
-          <p class="hint" id="team-name-status" role="status"></p>
-        </div>
-        <div class="team-block" id="team-reviewer">
-          <h3>1. Register the reviewer</h3>
-          <p>
-            <strong id="team-reviewer-name" data-no-i18n></strong>
-            <span>reviews your agents' work. In Hackathon mode an approved change can merge automatically after the checks pass.</span>
-          </p>
-          <button type="button" class="primary" id="team-register">Register the reviewer</button>
-          <p class="hint" id="team-reviewer-status" role="status" aria-live="polite"></p>
-        </div>
-        <p class="notice" id="team-note" role="status" hidden></p>
-        <p class="notice" id="team-review-note" role="status" hidden></p>
-        <div class="actions" id="team-note-actions" hidden>
-          <button type="button" class="secondary-button" id="team-retry" hidden>Retry</button>
-          <button type="button" class="secondary-button" id="team-check" hidden>Check what's next</button>
-        </div>
-        <div class="team-block" id="team-roles" hidden>
-          <h3>Your tools</h3>
-          <p class="hint">
-            Choose which of your coding tools writes the code and which one reviews it. This choice is yours and stays
-            on this computer; teammates choose their own.
-          </p>
-          <fieldset>
-            <legend>Who implements?</legend>
-            <div class="tools" id="team-implement-options"></div>
-          </fieldset>
-          <fieldset>
-            <legend>Who reviews?</legend>
-            <div class="tools" id="team-review-options"></div>
-          </fieldset>
-          <p class="hint" id="team-same-tool" hidden>
-            <span id="team-same-tool-text" data-no-i18n></span>
-            <span>The reviewer never reviews its own identity's work.</span>
-          </p>
-          <p class="hint" id="team-roles-note" role="status" hidden></p>
-          <div id="team-unavailable" hidden>
-            <p class="hint">Not available here:</p>
-            <ul class="hint" id="team-unavailable-list"></ul>
-          </div>
-        </div>
-        <p class="hint blocked-reason" id="team-locked-why" hidden></p>
-        <div class="team-block" id="team-implement" hidden>
-          <h3 id="team-implement-heading" tabindex="-1" data-no-i18n>2. Claude Code implements</h3>
-          <p class="hint" id="team-implement-terminal"></p>
-          <div class="next-command">
-            <code id="team-implement-command" data-no-i18n></code>
-            <button type="button" class="secondary-button" id="copy-team-implement">Copy</button>
-          </div>
-          <p class="hint" data-tool="claude">
-            It claims the task, creates its own folder (a worktree) and opens Claude Code there with its first prompt.
-            The first time, Claude Code asks whether you trust the task folder.
-          </p>
-          <div class="trust-help" id="team-implement-trust" data-no-i18n hidden></div>
-          <p class="hint" data-tool="codex" hidden>
-            It claims the task, creates its own folder (a worktree) and opens Codex there with its first prompt. Codex
-            runs in its workspace sandbox with write access to the project's .git folder and the network on, so it can
-            claim, commit and push.
-          </p>
-          <p class="hint resume-only">If you closed that terminal, reopen the agent with:</p>
-          <div class="next-command resume-only">
-            <code id="team-implement-resume" data-no-i18n></code>
-            <button type="button" class="secondary-button" id="copy-team-resume">Copy</button>
-          </div>
-        </div>
-        <div class="team-block" id="team-review" hidden>
-          <h3 id="team-review-heading" data-no-i18n>3. Codex reviews</h3>
-          <p class="hint" id="team-review-terminal"></p>
-          <div class="next-command">
-            <code id="team-review-command" data-no-i18n></code>
-            <button type="button" class="secondary-button" id="copy-team-review">Copy</button>
-          </div>
-          <p class="hint" data-tool="codex">
-            UAK_AGENT gives Codex the reviewer's name, so it acts as a second identity: it never reviews as the
-            agent that wrote the code. It waits for work with uak next and reviews with $uak-review.
-            The first time, Codex asks to approve this project's uak server (MCP): approve it.
-          </p>
-          <p class="hint" data-tool="claude" hidden>
-            UAK_AGENT gives Claude Code the reviewer's name, so it acts as a second identity: it never reviews as the
-            agent that wrote the code. It waits for work with uak next and reviews with /uak-review. The first time,
-            Claude Code asks whether you trust this folder.
-          </p>
-          <div class="trust-help" id="team-review-trust" data-no-i18n hidden></div>
-        </div>
-        <div class="team-block" id="team-claimed-block" hidden>
-          <h3>Tasks already claimed</h3>
-          <ul id="team-claimed"></ul>
-        </div>
-        <p class="hint" id="team-windows" hidden>
-          On Windows, paste these in Git Bash, not PowerShell.
-        </p>
-        <p class="hint" id="team-copy-status" role="status"></p>
-      </section>
-      <section id="beginner-dashboard" hidden>
-        <div class="dashboard-metrics win-f">
-          <div>
-            <strong id="simple-completed">0</strong><span>Completed</span>
-          </div>
-          <div><strong id="simple-working">0</strong><span>Working</span></div>
-          <div>
-            <strong id="simple-review">0</strong><span>Waiting for review</span>
-          </div>
-        </div>
-        <div id="simple-next">
-          <div id="beginner-step">
-          <p class="secondary">Your next step</p>
-          <h3 id="next-heading"></h3>
-          <p id="next-description"></p>
-          <p class="hint" id="beginner-why"></p>
-          <ul class="next-steps" id="next-steps" data-no-i18n hidden></ul>
-          <div class="next-command" id="next-command-box" hidden>
-            <code id="next-command" data-no-i18n></code>
-            <button type="button" class="secondary-button" id="copy-next-command">
-              Copy
-            </button>
-          </div>
-          <button type="button" class="primary" id="next-check" hidden>
-            Check what’s next
-          </button>
-          <p class="hint" id="copy-status" role="status"></p>
-          <p class="secondary" id="beginner-done-label" hidden>Already done</p>
-          <ul class="beginner-checklist" id="beginner-checklist" data-no-i18n hidden></ul>
-          </div>
-        </div>
-        <ul class="list" id="simple-tasks"></ul>
-      </section>
-      <section class="your-app" id="your-app" aria-labelledby="your-app-heading">
-        <h3 id="your-app-heading">Your app</h3>
-        <a
-          id="live-url-link"
-          data-no-i18n
-          target="_blank"
-          rel="noopener noreferrer"
-          hidden
-        ></a>
-        <p class="hint" id="live-url-empty">
-          Not deployed yet. When your app is online, add its link in
-          Configuration, under Project preferences.
-        </p>
-      </section>
-      <section id="advanced-next" class="advanced-next" hidden aria-labelledby="advanced-next-heading">
-        <p class="secondary">Your next step</p>
-        <h3 id="advanced-next-heading"></h3>
-        <p id="advanced-next-description"></p>
-        <div class="next-command" id="advanced-next-box" hidden>
-          <code id="advanced-next-command" data-no-i18n></code>
-          <button type="button" class="secondary-button" id="copy-advanced-next">Copy</button>
-        </div>
-      </section>
-      <iframe
-        id="dashboard-frame"
-        title="Project dashboard"
-        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
-        hidden
-      ></iframe>
+    <main class="surface" id="content" tabindex="-1" data-loading>
+<section class="screen" id="screen-project" data-screen="project" aria-labelledby="h-project">
+<div class="wz-body"><div class="wz-main" id="welcome">
+<h1 id="h-project" tabindex="-1">Check what we found in this project</h1>
+
+<p class="says" id="project-says"></p>
+<p class="where" id="project-where"><span class="mono" id="selected-project" data-no-i18n></span> <button type="button" class="link-button" id="change-folder">Change</button></p>
+<form id="project-form" novalidate hidden>
+  <div class="field"><label class="field-label" for="target">Project folder</label>
+  <input type="text" id="target" required autocomplete="off" spellcheck="false" aria-describedby="target-hint target-error" />
+  <p class="hint" id="target-hint">Use the full folder path, for example C:\Projects\my-app or /Users/you/my-app.</p>
+  <p class="field-error" id="target-error" role="alert"></p></div>
+  <div class="actions"><button class="secondary-button" type="submit" id="check-folder">Check this folder</button></div>
+</form>
+<ul class="found list" id="found"></ul>
+<form id="workflow-form" novalidate>
+<fieldset class="q"><legend>Work mode</legend>
+<div class="opts" id="mode-options">
+<label class="choice"><input type="radio" name="mode" value="marathon" required /><span><strong>Product with real users <em class="tag" id="tag-marathon" hidden>Proposed</em></strong><small>No deadline. A human makes the final merge decision.</small></span></label>
+<label class="choice"><input type="radio" name="mode" value="sprint" required /><span><strong>Hackathon or prototype <em class="tag" id="tag-sprint" hidden>Proposed</em></strong><small>A deadline and a freeze before the demo. Reviewed changes merge by themselves after the checks pass.</small></span></label>
+</div><p class="hint" id="mode-reason"></p></fieldset>
+<fieldset class="q"><legend>Which coding tools do you use?</legend>
+<div class="tools">
+<label><input type="checkbox" name="harness" value="claude" checked />Claude Code</label>
+<label><input type="checkbox" name="harness" value="codex" checked />Codex</label>
+<label><input type="checkbox" name="harness" value="cursor" />Cursor</label>
+<label><input type="checkbox" name="harness" value="gemini" />Gemini CLI</label>
+</div>
+<p class="hint" id="tool-roles">One tool implements, the other reviews its work as a second identity, so no change merges unchecked. We recommend Claude Code + Codex: Claude Code writes the code and Codex reviews it.</p>
+<p class="hint">With only one tool, it does both jobs under two names.</p></fieldset>
+<label class="choice"><input id="solo" type="checkbox" /><span><strong>I’m the only human on this repository</strong><small>Nobody else reviews here, so your agents review each other under a second name you register (for example ana-r). Product mode still leaves the final merge to you.</small></span></label>
+<details id="installation-options"><summary>Advanced</summary>
+<div class="field"><label for="stack" class="field-label">Project technology preset</label>
+<select id="stack"><option value="none">No preset / decide later</option><option value="fastapi-react">FastAPI + React</option><option value="nextjs">Next.js</option><option value="django">Django</option><option value="go">Go</option><option value="expo">Expo</option><option value="python-data">Python data</option><option value="ai-agent">AI agent</option><option value="spring-boot">Spring Boot</option></select></div>
+<label class="choice"><input type="checkbox" id="blackbox" /><span><strong>Keep anonymous kit diagnostics</strong><small>Writes filtered kit events (no names, paths or secrets) to the coordination branch of this repository. In a public repository those events are public. Off unless you turn it on.</small></span></label>
+</details>
+<p class="field-error" id="workflow-error" role="alert"></p>
+</form>
+<section id="demo" class="demo" aria-labelledby="demo-heading" hidden><details><summary><h2 id="demo-heading">Watch the 75-second demo</h2></summary>
+<p class="secondary">A simulated walkthrough: from an empty project to a deployed app. Captions in English and Spanish.</p>
+<video id="demo-video" data-src="/media/tutorial.mp4" data-poster="/media/tutorial-poster.jpg" controls preload="none" playsinline width="1280" height="720" aria-labelledby="demo-heading"><track kind="captions" srclang="en" label="English" data-src="/media/tutorial-en.vtt" /><track kind="captions" srclang="es" label="Español" data-src="/media/tutorial-es.vtt" /></video></details></section>
+<p id="demo-link" class="secondary" hidden><a href="https://github.com/JoahanMorales/upiixia-agentic-kit/blob/main/kit/.uak/media/tutorial.mp4" target="_blank" rel="noopener noreferrer">Watch the 75-second demo on GitHub</a></p>
+</div>
+<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-project-title">what will be written</span></div><div class="win-b" id="win-project-body"></div><div class="win-f" id="win-project-foot"></div></div></aside></div>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-project"></div><button class="primary" type="submit" form="workflow-form" id="project-continue">Continue</button></div></footer>
+</section>
+<section class="screen" id="screen-install" data-screen="install" aria-labelledby="h-install">
+<div class="wz-body"><div class="wz-main">
+<h1 id="h-install" tabindex="-1">Install the kit into this project</h1>
+
+<p id="install-says"></p>
+<p id="result-description" hidden></p>
+<ul class="found list" id="install-facts"></ul>
+<dl class="review list" id="summary"></dl>
+<p class="hint">Installing does not commit or push your code. Signing in to a coding tool and approving your plan stay separate steps.</p>
+<div id="finish">
+<div class="status-heading" id="status-heading" hidden><span class="status-icon" id="status-icon" aria-hidden="true"></span><h2 id="result-title">Installing the kit</h2></div>
+<p class="notice" id="operation-status" role="status" aria-live="polite" hidden></p>
+<details id="technical-details">
+<summary>Technical details</summary>
+<pre id="output"></pre>
+</details>
+<p class="action-result" id="check-result" role="status" aria-live="polite" data-no-i18n></p>
+</div>
+<p class="field-error" id="install-error" role="alert"></p>
+</div>
+<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-install-title">what will be written</span></div><div class="win-b" id="win-install-body"></div><div class="win-f" id="win-install-foot"></div></div></aside></div>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-install"></div><button type="button" class="ghost" id="back-from-install" data-go="project">Back</button><button class="primary" id="install" data-p="1" type="button">Install the kit</button><p class="hint blocked-reason" id="install-why" hidden></p><button class="secondary-button" id="repair" type="button" hidden>Update the kit</button><p class="hint blocked-reason" id="update-run-why" hidden></p><button class="secondary-button" id="change-project" type="button" hidden>Choose another project</button><button class="secondary-button" id="check" type="button" hidden>Check what is next</button><button class="secondary-button" id="back-from-finish" type="button" hidden>Back</button></div></footer>
+</section>
+<section class="screen" id="screen-unblock" data-screen="unblock" aria-labelledby="h-unblock">
+<div class="wz-body"><div class="wz-main">
+<h1 id="h-unblock" tabindex="-1">Fix this before you continue</h1>
+
+<div class="notice error" id="branch-warning" role="alert" tabindex="-1" hidden>
+<strong>This folder is not on the main branch</strong>
+<p id="branch-warning-text" data-no-i18n></p>
+<div id="branch-warning-run" hidden>
+<p class="hint">Run this in a terminal, then press Check project folder again:</p>
+<div class="next-command">
+<code id="branch-warning-command" data-no-i18n></code>
+<button type="button" class="secondary-button" id="copy-branch-warning">Copy</button>
+</div>
+</div>
+<p id="branch-warning-remote" data-no-i18n hidden></p>
+<p class="hint" id="branch-warning-status" role="status"></p>
+</div>
+<div class="notice error" id="setup-branch-warning" role="alert" hidden>
+<strong>This folder is not on the main branch</strong>
+<p id="setup-branch-warning-text" data-no-i18n></p>
+<div id="setup-branch-warning-run" hidden>
+<p class="hint">Run this in a terminal, then press Check what’s next:</p>
+<div class="next-command">
+<code id="setup-branch-warning-command" data-no-i18n></code>
+<button type="button" class="secondary-button" id="copy-setup-branch-warning">Copy</button>
+</div>
+</div>
+<p class="hint" id="setup-branch-warning-status" role="status"></p>
+</div>
+<div class="notice" id="remote-default-warning" role="status" hidden>
+<strong>GitHub opens this project on the wrong branch</strong>
+<p id="remote-default-text" data-no-i18n></p>
+</div>
+<div class="notice" id="terminal-step" hidden>
+<h3>Do this in a terminal</h3>
+<p>
+Open a terminal (any window; no coding agent is needed for
+this). First go to your project:
+</p>
+<div class="next-command">
+<code id="terminal-cd" data-no-i18n></code>
+<button type="button" class="secondary-button" id="copy-terminal-cd">Copy</button>
+</div>
+<p>Then do this:</p>
+<ul id="terminal-steps" data-no-i18n></ul>
+<p>When it is done, come back and press Check again.</p>
+</div>
+<p class="notice error" id="unblock-error" role="alert" hidden></p>
+</div>
+<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-unblock-title">what is blocked</span></div><div class="win-b" id="win-unblock-body"></div><div class="win-f" id="win-unblock-foot"></div></div></aside></div>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-unblock"></div><button class="primary" type="button" id="unblock-again" data-p="1" data-p="1">Check again</button></div></footer>
+</section>
+<section class="screen" id="screen-update" data-screen="update" aria-labelledby="h-update">
+<div class="wz-body"><div class="wz-main">
+<h1 id="h-update" tabindex="-1">Update the kit in this project</h1>
+<ul class="found list" id="update-list"></ul>
+<p class="hint" id="update-says" hidden></p><p class="field-error" id="update-error" role="alert"></p>
+</div>
+<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-update-title">what the update changes</span></div><div class="win-b" id="win-update-body"></div><div class="win-f" id="win-update-foot"></div></div></aside></div>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-update"></div><button type="button" class="ghost" id="update-skip">Not now</button><button class="primary" type="button" id="update-run" data-p="1">Update the kit</button><p class="hint blocked-reason" id="update-run-why" hidden></p></div></footer>
+</section>
+<section class="screen" id="screen-rules" data-screen="rules" aria-labelledby="h-rules">
+<div class="wz-body"><div class="wz-main">
+<h1 id="h-rules" tabindex="-1">Confirm how your team will work</h1>
+
+<p class="hint" id="rules-mode"></p>
+<ul class="list rules" id="rules-list"></ul>
+<div id="rules-cmd"></div>
+<details id="rules-advanced"><summary>Advanced</summary>
+<div class="field"><label class="field-label" for="rule-test-first">Tests before code</label><select id="rule-test-first"><option value="yes">Required</option><option value="warn">Warn only</option><option value="no">Off</option></select></div>
+<p class="hint">Who may review and how changes merge give authority: change them in .uak/PROJECT.md with a reviewed pull request, not here.</p>
+<label class="choice"><input type="checkbox" id="diagnostics" /><span><strong>Anonymous kit diagnostics</strong><small>Store filtered kit events on the coordination branch. A public repository makes these events public.</small></span></label>
+<label class="choice"><input type="checkbox" id="pacing" /><span><strong>Automatic usage pacing</strong><small>Adjust agent activity to your available usage allowance.</small></span></label>
+</details>
+<p class="field-error" id="rules-error" role="alert"></p>
+</div>
+<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-rules-title">.uak/PROJECT.md · lines that change</span></div><div class="win-b" id="win-rules-body"></div><div class="win-f" id="win-rules-foot"></div></div></aside></div>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-rules"></div><button class="primary" id="rules-confirm" type="button" data-p="1">Confirm these rules</button><p class="hint blocked-reason" id="rules-confirm-why" hidden></p></div></footer>
+</section>
+<section class="screen" id="screen-people" data-screen="people" aria-labelledby="h-people">
+<div class="wz-body"><div class="wz-main">
+<h1 id="h-people" tabindex="-1">Say who is on your team</h1>
+
+<p class="notice" id="identity-warning" role="status" data-no-i18n hidden></p>
+<div class="prepare-step" id="name-step">
+
+<p class="step-done" id="name-done" hidden>
+<strong><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Done</strong>
+<span id="name-done-text" data-no-i18n></span>
+<button type="button" class="link-button" id="name-reopen">Change</button>
+</p>
+<div class="step-body">
+<p class="hint">
+Some steps only a person may do (publishing, approving). Setup
+records them with this name.
+</p>
+<div class="prepare-row">
+<div>
+<label class="field-label" for="human-name">Your name (from your Git identity)</label>
+<input type="text" id="human-name" maxlength="32" autocomplete="off" spellcheck="false" readonly />
+</div>
+
+</div>
+<p class="hint" id="human-status" role="status"></p>
+</div>
+</div>
+<div class="team-block" id="team-two-people" hidden>
+<h3>Two or more people?</h3>
+<p>
+Each person uses their own computer: they clone the project, open this page there, save their own name and
+register their own reviewer (name-r).
+</p>
+<p>
+You run the commands shown on your page; your teammate runs the ones on theirs. Never paste a teammate's
+commands: they carry their name.
+</p>
+</div>
+<div class="team-block" id="team-name-block" hidden>
+<h3>Your name</h3>
+<p class="hint">
+Registering the reviewer is a human act: setup records it with your name, and remembers it for this project.
+</p>
+<div class="prepare-row">
+<div>
+<label class="field-label" for="team-name">Your name (from your Git identity)</label>
+<input type="text" id="team-name" maxlength="32" autocomplete="off" spellcheck="false" readonly />
+</div>
+<button type="button" class="secondary-button" id="team-name-save">Use this name</button>
+</div>
+<p class="hint" id="team-name-status" role="status"></p>
+</div>
+<div class="team-block" id="team-reviewer">
+<h3>1. Register the reviewer</h3>
+<p>
+<strong id="team-reviewer-name" data-no-i18n></strong>
+<span>reviews your agents' work. In Hackathon mode an approved change can merge automatically after the checks pass.</span>
+</p>
+<button type="button" class="secondary-button" id="team-register" data-p="2">Register the reviewer</button>
+<p class="hint" id="team-reviewer-status" role="status" aria-live="polite"></p>
+</div>
+<p class="notice" id="team-note" role="status" hidden></p>
+<p class="notice" id="team-review-note" role="status" hidden></p>
+<div class="actions" id="team-note-actions" hidden><button type="button" class="secondary-button" id="team-retry" hidden>Retry</button><button type="button" class="secondary-button" id="team-check" hidden>Check what's next</button></div>
+<div class="team-block" id="team-roles" hidden>
+<h3>Your tools</h3>
+<p class="hint">
+Choose which of your coding tools writes the code and which one reviews it. This choice is yours and stays
+on this computer; teammates choose their own.
+</p>
+<fieldset>
+<legend>Who implements?</legend>
+<div class="tools" id="team-implement-options"></div>
+</fieldset>
+<fieldset>
+<legend>Who reviews?</legend>
+<div class="tools" id="team-review-options"></div>
+</fieldset>
+<p class="hint" id="team-same-tool" hidden>
+<span id="team-same-tool-text" data-no-i18n></span>
+<span>The reviewer never reviews its own identity's work.</span>
+</p>
+<p class="hint" id="team-roles-note" role="status" hidden></p>
+<div id="team-unavailable" hidden>
+<p class="hint">Not available here:</p>
+<ul class="hint" id="team-unavailable-list"></ul>
+</div>
+</div>
+<p class="hint blocked-reason" id="team-locked-why" hidden></p>
+</div>
+<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-people-title">people and roles</span></div><div class="win-b" id="win-people-body"></div><div class="win-f" id="win-people-foot"></div></div></aside></div>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-people"></div><span class="grp" data-unless="name-done"><button type="button" class="secondary-button" id="human-save" data-p="2">Use this name</button></span><button type="button" class="primary" id="go-people" data-p="1" data-next hidden>Continue</button></div></footer>
+</section>
+<section class="screen" id="screen-schedule" data-screen="schedule" aria-labelledby="h-schedule">
+<div class="wz-body"><div class="wz-main">
+<h1 id="h-schedule" tabindex="-1">Set the event schedule</h1>
+<form class="prepare-step" id="schedule-form" novalidate>
+
+<p class="step-done" id="schedule-done" hidden>
+<strong><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Done</strong>
+<span id="schedule-done-text" data-no-i18n></span>
+<button type="button" class="link-button" id="schedule-reopen">Change</button>
+</p>
+<div class="step-body">
+<p class="hint">
+The kit stops new work before the deadline (the freeze), so the
+last minutes go to the demo.
+</p>
+<div class="prepare-row">
+<div>
+<label class="field-label" for="schedule-start">Start</label>
+<input type="datetime-local" id="schedule-start" required />
+</div>
+<div>
+<label class="field-label" for="schedule-end">End</label>
+<input type="datetime-local" id="schedule-end" required />
+</div>
+<div>
+<label class="field-label" for="schedule-zone">Time zone</label>
+<input type="text" id="schedule-zone" list="schedule-zones" autocomplete="off" spellcheck="false" />
+<datalist id="schedule-zones"></datalist>
+</div>
+</div>
+
+<p class="hint" id="schedule-status" role="status"></p>
+</div>
+</form>
+</div>
+<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-schedule-title">the clock</span></div><div class="win-b" id="win-schedule-body"></div><div class="win-f" id="win-schedule-foot"></div></div></aside></div>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-schedule"></div><span class="grp" data-unless="schedule-done"><button form="schedule-form" type="submit" class="secondary-button" id="schedule-save" data-p="2">Save schedule</button></span><button type="button" class="primary" id="go-schedule" data-p="1" data-next hidden>Continue</button></div></footer>
+</section>
+<section class="screen" id="screen-publish" data-screen="publish" aria-labelledby="h-publish">
+<div class="wz-body"><div class="wz-main">
+<h1 id="h-publish" tabindex="-1">Publish the kit to main</h1>
+<ul class="found list" id="publish-list"></ul>
+<div id="publish-fix" hidden></div>
+<div class="prepare-step" id="publish-step">
+
+<p class="step-done" id="publish-done" hidden>
+<strong><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Done</strong>
+<span id="publish-done-text" data-no-i18n></span>
+<button type="button" class="link-button" id="publish-reopen">Change</button>
+</p>
+<div class="step-body">
+
+
+<div id="publish-confirm" hidden>
+<p id="publish-count"></p>
+<details open>
+<summary>Files to publish</summary>
+<pre id="publish-files"></pre>
+</details>
+
+</div>
+<div class="notice error" id="publish-way-out" role="status" hidden>
+<strong>The remote already has its own history</strong>
+<p id="publish-way-out-error"></p>
+<div id="publish-way-out-run" hidden>
+<p class="hint">Run this in a terminal, then press Review the files again:</p>
+<div class="next-command">
+<code id="publish-way-out-command" data-no-i18n></code>
+<button type="button" class="secondary-button" id="copy-publish-way-out">Copy</button>
+</div>
+</div>
+<div id="publish-way-out-push-run" hidden>
+<p class="hint">Then run this second command to send your own commits:</p>
+<div class="next-command">
+<code id="publish-way-out-push" data-no-i18n></code>
+<button type="button" class="secondary-button" id="copy-publish-way-out-push">Copy</button>
+</div>
+</div>
+<ul id="publish-way-out-steps"></ul>
+<p class="hint" id="publish-way-out-status" role="status"></p>
+</div>
+</div>
+</div>
+</div>
+<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-publish-title">what goes to main</span></div><div class="win-b" id="win-publish-body"></div><div class="win-f" id="win-publish-foot"></div></div></aside></div>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-publish"></div><span class="grp" data-unless="publish-confirm"><button type="button" class="secondary-button" id="publish-preview" data-p="3" aria-describedby="publish-preview-why">Review the files</button>
+<p class="hint blocked-reason" id="publish-preview-why" hidden></p></span><span class="grp" data-needs="publish-confirm"><button type="button" class="secondary-button" id="publish-cancel">Cancel</button><button type="button" class="primary" data-p="1" id="publish-kit">Publish the kit to main</button></span><button type="button" class="primary" id="go-publish" data-p="1" data-next hidden>Continue</button></div></footer>
+</section>
+<section class="screen" id="screen-plan" data-screen="plan" aria-labelledby="planning-heading">
+<div class="wz-body"><div class="wz-main">
+<h1 id="planning-heading" tabindex="-1">Write the idea, then approve the plan</h1>
+<ol class="nodes stages" id="plan-stages" aria-label="Where the plan is"><li data-stage="idea"><i></i><span>Write the idea</span></li><li data-stage="draft"><i></i><span>The plan is drafted</span></li><li data-stage="review"><i></i><span>Review</span></li><li data-stage="done"><i></i><span>Approve</span></li></ol>
+<p class="notice step-done" id="plan-done" role="status" data-no-i18n hidden></p>
+<ul class="found list" id="idea-recap" hidden></ul><p class="hint" id="idea-edit-line" hidden><button type="button" class="link-button" id="idea-edit">Edit the idea</button></p>
+<div id="planning">
+
+<form id="idea-form" novalidate>
+<label class="field-label" for="idea-text"
+>What are you building? One line.</label
+><input type="text" id="idea-text" maxlength="300" autocomplete="off" required />
+<label class="field-label" for="idea-audience">Who is it for?</label
+><input type="text" id="idea-audience" maxlength="300" autocomplete="off" required />
+<label class="field-label" for="idea-goal" id="idea-goal-label"
+>Judging rubric</label
+><textarea id="idea-goal" maxlength="1000" rows="3" required></textarea>
+<div class="field-row">
+<div>
+<label class="field-label" for="idea-length">Event length</label
+><input type="text" id="idea-length" maxlength="60" placeholder="24 h" required />
+</div>
+<div>
+<label class="field-label" for="idea-team">Team size</label
+><input type="number" id="idea-team" min="1" max="50" value="3" required />
+</div>
+</div>
+<label class="choice" id="idea-overwrite-row" hidden
+><input type="checkbox" id="idea-overwrite" /><span
+><strong>Replace the existing IDEA.md</strong
+><small
+>Your project already has an idea file. Setup replaces it
+only with this confirmation.</small
+></span
+></label
+><button class="secondary-button" type="submit" id="idea-save">
+Save the idea
+</button>
+<p class="hint" id="idea-status" role="status"></p>
+<details id="idea-saved" hidden>
+<summary>Your saved idea (IDEA.md)</summary>
+<pre id="idea-saved-text"></pre>
+</details>
+</form>
+<fieldset id="planner-choice" tabindex="-1">
+<legend>Coding tool that drafts the plan</legend>
+<div id="planner-options"></div>
+</fieldset>
+<p class="notice error" id="plan-remote-note" role="status" hidden></p>
+<div class="notice" id="plan-trust">
+<p>
+Claude Code only: open it once in this folder and answer its trust question as shown below, then
+close it. Until then it ignores this project's permissions and the plan stops early.
+</p>
+<div class="next-command">
+<code id="plan-trust-command" data-no-i18n></code>
+<button type="button" class="secondary-button" id="copy-plan-trust">Copy</button>
+</div>
+<div class="trust-help" id="plan-trust-help" data-reload="plan" data-no-i18n hidden></div>
+</div>
+<button class="secondary-button proxied" type="button" id="plan-create" aria-describedby="plan-create-why">
+Create the plan
+</button>
+<p class="hint blocked-reason" id="plan-create-why" hidden></p>
+<p class="action-result" id="plan-create-result" role="status" aria-live="polite" data-no-i18n></p>
+<p class="hint" id="plan-progress" role="status" data-no-i18n hidden></p>
+<section id="plan-review" hidden aria-labelledby="plan-review-heading">
+<h3 id="plan-review-heading">Proposed plan</h3>
+<div class="notice error" id="plan-violations" role="alert" tabindex="-1" hidden>
+<strong>The planner broke a rule</strong>
+<ul class="plan-problems" id="plan-violation-list" data-no-i18n></ul>
+<p id="plan-undo-text"></p>
+<div class="next-command" id="plan-undo-run" hidden>
+<code id="plan-undo-command" data-no-i18n></code>
+<button type="button" class="secondary-button" id="copy-plan-undo">Copy</button>
+</div>
+<p class="hint" id="plan-undo-status" role="status"></p>
+</div>
+<div class="notice" id="plan-lint" role="status">
+<p id="plan-lint-summary"></p>
+<ul class="plan-problems" id="plan-lint-lines" data-no-i18n></ul>
+</div>
+<ul class="plan-cards list" id="plan-cards"></ul>
+<details>
+<summary>Plan files as written</summary>
+<pre id="plan-files"></pre>
+</details>
+<div id="plan-ask">
+<label class="field-label" for="plan-note">Ask for changes</label
+><textarea id="plan-note" maxlength="4000" rows="3"></textarea>
+
+</div>
+<div id="approve-confirm" hidden>
+<p>
+Publishing sets Backlog-Approved: yes, commits only IDEA.md,
+.uak/TASKS.md, .uak/OWNERS.md and .uak/PROJECT.md as your Git
+identity, and pushes them to the main branch. Agents can then
+claim tasks.
+</p>
+<label class="field-label" for="approve-name"
+>Type the project folder name to confirm:</label
+>
+<p><strong id="approve-project" data-no-i18n></strong></p>
+<input type="text" id="approve-name" autocomplete="off" spellcheck="false" />
+<div class="actions">
+<button class="secondary-button" type="button" id="approve-cancel">
+Cancel
+</button>
+<button class="secondary-button" type="button" id="approve-publish" disabled data-p="1">
+Publish the plan
+</button>
+</div>
+<p class="hint" id="approve-hint" data-no-i18n></p>
+</div>
+</section>
+</div>
+<div id="design-block" hidden><h2 class="sec">Design direction</h2><ul class="found list" id="design-list"></ul><div id="design-cmds"></div></div>
+</div>
+<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-plan-title">what approval publishes</span></div><div class="win-b" id="win-plan-body"></div><div class="win-f" id="win-plan-foot"></div></div></aside></div>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-plan"></div><span class="grp" data-unless="plan-review"><button type="button" class="primary" id="plan-create-bar" data-p="3" data-proxy="plan-create">Create the plan</button></span><span class="grp" data-needs="plan-review"><div class="actions">
+<button class="secondary-button" type="button" id="plan-recheck">
+Check the plan again
+</button>
+<button class="secondary-button" type="button" id="plan-change">
+Ask for changes
+</button>
+<button class="secondary-button" type="button" id="plan-approve" aria-describedby="plan-approve-why" data-p="2">
+Approve and publish
+</button>
+</div>
+<p class="hint blocked-reason" id="plan-approve-why" hidden></p></span><button type="button" class="primary" id="go-plan" data-p="1" data-next hidden>Continue</button></div></footer>
+</section>
+<div id="dashboard-shell">
+<section class="screen" id="screen-start" data-screen="start" aria-labelledby="team-heading">
+<div class="wz-body"><div class="wz-main">
+<h1 id="team-heading" tabindex="-1">Run one command per agent</h1>
+
+<ul class="agents list" id="agents-list"></ul>
+<p class="hint" id="start-hint"></p>
+<div hidden><div class="team-step" id="team-step">
+<div class="team-block" id="team-implement" hidden>
+<h3 id="team-implement-heading" tabindex="-1" data-no-i18n>2. Claude Code implements</h3>
+<p class="hint" id="team-implement-terminal"></p>
+<div class="next-command">
+<code id="team-implement-command" data-no-i18n></code>
+<button type="button" class="secondary-button" id="copy-team-implement">Copy</button>
+</div>
+<p class="hint" data-tool="claude">
+It claims the task, creates its own folder (a worktree) and opens Claude Code there with its first prompt.
+The first time, Claude Code asks whether you trust the task folder.
+</p>
+<div class="trust-help" id="team-implement-trust" data-no-i18n hidden></div>
+<p class="hint" data-tool="codex" hidden>
+It claims the task, creates its own folder (a worktree) and opens Codex there with its first prompt. Codex
+runs in its workspace sandbox with write access to the project's .git folder and the network on, so it can
+claim, commit and push.
+</p>
+<p class="hint resume-only">If you closed that terminal, reopen the agent with:</p>
+<div class="next-command resume-only">
+<code id="team-implement-resume" data-no-i18n></code>
+<button type="button" class="secondary-button" id="copy-team-resume">Copy</button>
+</div>
+</div>
+<div class="team-block" id="team-review" hidden>
+<h3 id="team-review-heading" data-no-i18n>3. Codex reviews</h3>
+<p class="hint" id="team-review-terminal"></p>
+<div class="next-command">
+<code id="team-review-command" data-no-i18n></code>
+<button type="button" class="secondary-button" id="copy-team-review">Copy</button>
+</div>
+<p class="hint" data-tool="codex">
+UAK_AGENT gives Codex the reviewer's name, so it acts as a second identity: it never reviews as the
+agent that wrote the code. It waits for work with uak next and reviews with $uak-review.
+The first time, Codex asks to approve this project's uak server (MCP): approve it.
+</p>
+<p class="hint" data-tool="claude" hidden>
+UAK_AGENT gives Claude Code the reviewer's name, so it acts as a second identity: it never reviews as the
+agent that wrote the code. It waits for work with uak next and reviews with /uak-review. The first time,
+Claude Code asks whether you trust this folder.
+</p>
+<div class="trust-help" id="team-review-trust" data-no-i18n hidden></div>
+</div>
+<div class="team-block" id="team-claimed-block" hidden>
+<h3>Tasks already claimed</h3>
+<ul id="team-claimed"></ul>
+</div>
+<p class="hint" id="team-windows" hidden>On Windows, paste these in Git Bash, not PowerShell.</p>
+<p class="hint" id="team-copy-status" role="status"></p>
+</div></div>
+<details class="beginner-only" id="glossary">
+<summary>Words you will see</summary>
+<dl>
+<dt><dfn>claim</dfn></dt>
+<dd>An agent takes a task so nobody else works on it at the same time.</dd>
+<dt><dfn>freeze</dfn></dt>
+<dd>The time before the deadline when new work stops, so the last minutes go to the demo.</dd>
+<dt><dfn>lint</dfn></dt>
+<dd>An automatic check of the plan: it finds tasks that are incomplete or depend on each other in a loop.</dd>
+<dt><dfn>wave</dfn></dt>
+<dd>A group of tasks that can be done at the same time; wave 2 starts when wave 1 is done.</dd>
+<dt><dfn>worktree</dfn></dt>
+<dd>A separate folder for one task, so two agents never edit the same files at once.</dd>
+<dt><dfn>PR</dfn></dt>
+<dd>A pull request: the proposed change of one task, which another agent reviews before it joins main.</dd>
+<dt><dfn>origin</dfn></dt>
+<dd>The name Git gives your project's copy on GitHub.</dd>
+<dt><dfn>MCP</dfn></dt>
+<dd>The way a coding tool talks to the kit's own commands; the tool asks you to approve it once.</dd>
+</dl>
+</details>
+<details class="technical" id="checks-details"><summary>Technical details</summary><ul class="checklist list" id="checks"></ul></details>
+</div>
+<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-start-title">your agents</span></div><div class="win-b" id="win-start-body"></div><div class="win-f" id="win-start-foot"></div></div></aside></div>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-start"></div><button type="button" class="primary" id="go-start" data-p="5" data-next>Open the dashboard</button></div></footer>
+</section>
+<section class="screen" id="screen-dashboard" data-screen="dashboard" aria-labelledby="h-dashboard">
+<div class="wz-body"><div class="wz-main">
+<h1 id="h-dashboard" tabindex="-1">Follow your project</h1>
+
+<p class="secondary mono" id="dashboard-project" data-no-i18n hidden></p>
+<p class="notice" id="dashboard-status" role="status" hidden></p>
+<p class="notice error" id="dashboard-freeze" role="status" hidden></p>
+<p class="notice" id="dashboard-remote-default" role="status" data-no-i18n hidden></p>
+<button class="secondary-button" id="dashboard-choose-project" hidden>Choose another project</button>
+<section id="beginner-dashboard" hidden>
+<div class="dashboard-metrics win-f">
+<div>
+<strong id="simple-completed">0</strong><span>Completed</span>
+</div>
+<div><strong id="simple-working">0</strong><span>Working</span></div>
+<div>
+<strong id="simple-review">0</strong><span>Waiting for review</span>
+</div>
+</div>
+<div id="simple-next">
+<div id="beginner-step">
+<p class="secondary">Your next step</p>
+<h3 id="next-heading"></h3>
+<p id="next-description"></p>
+<p class="hint" id="beginner-why"></p>
+<ul class="next-steps" id="next-steps" data-no-i18n hidden></ul>
+<div class="next-command" id="next-command-box" hidden>
+<code id="next-command" data-no-i18n></code>
+<button type="button" class="secondary-button" id="copy-next-command">
+Copy
+</button>
+</div>
+<button type="button" class="primary" id="next-check" hidden data-p="2">
+Check what’s next
+</button>
+<p class="hint" id="copy-status" role="status"></p>
+<p class="secondary" id="beginner-done-label" hidden>Already done</p>
+<ul class="beginner-checklist" id="beginner-checklist" data-no-i18n hidden></ul>
+</div>
+</div>
+<ul class="list" id="simple-tasks"></ul>
+</section>
+<section class="your-app" id="your-app" aria-labelledby="your-app-heading">
+<h3 id="your-app-heading">Your app</h3>
+<a
+id="live-url-link"
+data-no-i18n
+target="_blank"
+rel="noopener noreferrer"
+hidden
+></a>
+<p class="hint" id="live-url-empty">
+Not deployed yet. When your app is online, add its link under More.
+</p>
+</section>
+<section id="advanced-next" class="advanced-next" hidden aria-labelledby="advanced-next-heading">
+<p class="secondary">Your next step</p>
+<h3 id="advanced-next-heading"></h3>
+<p id="advanced-next-description"></p>
+<div class="next-command" id="advanced-next-box" hidden>
+<code id="advanced-next-command" data-no-i18n></code>
+<button type="button" class="secondary-button" id="copy-advanced-next">Copy</button>
+</div>
+</section>
+<iframe id="dashboard-frame" title="Project dashboard" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" hidden></iframe>
+<h2 class="sec">More</h2>
+<ul class="list actions-list" id="more">
+<li><span><strong>Deploy</strong><span class="why">Prints how this project deploys; add the link when it is online.</span></span><div class="cmd" data-cmd="bash .uak/bin/uak deploy"></div></li>
+<li><span><strong>Smoke test</strong><span class="why">Boots your app and requests one route before every merge.</span></span><div class="cmd" data-cmd="bash .uak/bin/uak init-smoke"></div></li>
+<li><span><strong>External skills</strong><span class="why">Add one to your agents.</span></span><div class="cmd" data-cmd="bash .uak/bin/uak skill add"></div></li>
+<li><span><strong>Continue in the terminal</strong><span class="why">What this page does, from the project folder.</span></span><div class="cmd" data-cmd="bash .uak/bin/uak start"></div></li>
+<li id="preferences" hidden><span><strong>Deployed app link</strong><span class="why" id="live-url-hint">Only an https:// address. The dashboard shows it as a link to your app.</span></span><span class="live"><input type="url" id="live-url-input" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://" aria-describedby="live-url-hint" /><button type="button" class="secondary-button" id="save">Save preferences</button></span><p class="hint" id="save-status" role="status"></p></li>
+</ul>
+</div>
+<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-dashboard-title">progress</span></div><div class="win-b" id="win-dashboard-body"></div><div class="win-f" id="win-dashboard-foot"></div></div></aside></div>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-dashboard"></div><button type="button" class="secondary-button" id="refresh-dashboard">Refresh</button><button type="button" class="primary" id="close-wizard" data-p="1">Close the wizard</button></div></footer>
+</section>
+</div>
+<section class="screen" id="screen-closed" data-screen="closed" aria-labelledby="h-closed">
+<div class="wz-body closed"><div class="wz-main"><h1 id="h-closed" tabindex="-1">The wizard is closed</h1>
+<p>Nothing is running any more. To continue in the terminal, paste this line:</p>
+<div class="next-command"><code id="closed-command" data-no-i18n></code></div>
+</div></div><footer class="foot"><div class="foot-in"><div class="foot-note" id="note-closed"></div><button type="button" class="primary" id="copy-closed" data-p="1">Copy the command</button></div></footer></section>
+<div id="prepare" hidden></div>
+<div id="error" class="notice error" role="alert" hidden></div>
     </main>
-    <footer class="footer">
-      <span>UPIIXIA Agentic Kit · Your coding team, coordinated.</span
-      ><span
-        >Keep the terminal open while using setup. Stop it with Ctrl+C when you
-        finish.</span
-      >
-    </footer>
-    <div class="toast-region" id="toast-region" role="status" aria-live="polite" aria-atomic="true">
-      <div class="toast" id="toast" hidden>
-        <p class="toast-title">Not yet</p>
-        <p id="toast-text"></p>
-        <div class="toast-actions">
-          <button type="button" class="secondary-button" id="toast-go">Go there</button>
-          <button type="button" class="toast-close" id="toast-close" aria-label="Dismiss" data-i18n-aria="Dismiss">
-            <span aria-hidden="true">×</span>
-          </button>
-        </div>
-      </div>
     </div>
-    <script nonce="__NONCE__" src="/workspace.js"></script>
+<div class="toast-region" id="toast-region" role="status" aria-live="polite" aria-atomic="true">
+<div class="toast" id="toast" hidden>
+<p class="toast-title">Not yet</p>
+<p id="toast-text"></p>
+<div class="toast-actions">
+<button type="button" class="secondary-button" id="toast-go">Go there</button>
+<button type="button" class="toast-close" id="toast-close" aria-label="Dismiss" data-i18n-aria="Dismiss">
+<span aria-hidden="true">×</span>
+</button>
+</div>
+</div>
+</div>
+        <script nonce="__NONCE__" src="/workspace.js"></script>
     <script nonce="__NONCE__">
       (function () {
         "use strict";
@@ -1470,13 +1282,12 @@ body.installed #steps, body.installed .rail-heading { display: none; }
             })
             .catch(function () {});
         }
-        history.replaceState(null, "", location.pathname);
+        history.replaceState(null, "", location.pathname + location.search);
         var state = {},
           choices = {},
-          step = 0,
+          step = 4,
           timer = null,
           requestBusy = false;
-        var panels = ["welcome", "project", "workflow", "review", "finish"];
         var latestDashboard = null,
           dashboardTimer = null,
           currentSection = "setup",
@@ -1522,31 +1333,14 @@ body.installed #steps, body.installed .rail-heading { display: none; }
             });
           document
             .querySelectorAll(
-              "#project-form button[type=submit],#workflow-form button[type=submit],#install",
+              "#project-form button[type=submit],#workflow-form button[type=submit],#install,#rules-confirm,#update-run",
             )
             .forEach(function (button) {
-              setWaiting(button, state.phase);
+              setWaiting(button, waitingPhase());
             });
           el("running-review").hidden = !busy || step === 4;
         }
-        function openSection(section) {
-          currentSection = section;
-          writeSaved(state.target, { section: section }); // UI-019: the tab survives a reload (B-14)
-          el("setup-shell").hidden = section !== "setup";
-          el("dashboard-shell").hidden = section !== "dashboard";
-          el("open-setup").setAttribute(
-            "aria-pressed",
-            String(section === "setup"),
-          );
-          el("open-dashboard").setAttribute(
-            "aria-pressed",
-            String(section === "dashboard"),
-          );
-          document.querySelector(".skip").href =
-            section === "dashboard" ? "#dashboard-shell" : "#content";
-          if (section === "setup" && dashboardTimer)
-            clearTimeout(dashboardTimer);
-        }
+
         function sendDashboard() {
           el("dashboard-frame").title = UAKWorkspace.t("Dashboard");
           if (latestDashboard && el("dashboard-frame").contentWindow)
@@ -1574,7 +1368,7 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           if (g.kind === "ready" && !reviewerReady())
             return { kind: g.kind, title: g.title, detail: "Next: register your reviewer in Start your team.", commands: [], steps: [] };
           return g.kind === "ready" && teamReady
-            ? { kind: g.kind, title: g.title, detail: UAKWorkspace.format("Use Start your team above: its first command claims this task for {tool}.", { tool: teamTool }), commands: [], steps: [] }
+            ? { kind: g.kind, title: g.title, detail: UAKWorkspace.format("Use the Start screen: its first command claims this task for {tool}.", { tool: teamTool }), commands: [], steps: [] }
             : g;
         }
         function drawNext(g) {
@@ -1830,13 +1624,11 @@ body.installed #steps, body.installed .rail-heading { display: none; }
               title = document.createElement("strong"),
               meta = document.createElement("span"),
               tests = document.createElement("span");
-            title.textContent = card.id + " · " + card.title;
+            title.textContent = card.id + " · " + plainText(card.title);
             title.dataset.noI18n = "";
-            meta.textContent = UAKWorkspace.format("Priority {p} · wave {w} · depends on {d}", {
-              p: card.priority || "?",
-              w: card.wave || "?",
-              d: card.depends.length ? card.depends.join(", ") : UAKWorkspace.t("nothing"),
-            });
+            meta.className = "pills";
+            [card.priority || "?", UAKWorkspace.format("wave {w}", { w: card.wave || "?" }),
+              card.depends.length ? UAKWorkspace.format("after {d}", { d: card.depends.join(", ") }) : UAKWorkspace.t("starts first")].forEach(function (text) { meta.append(pill(text)); });
             tests.textContent = card.tests.length
               ? UAKWorkspace.t("Checks it must pass:") + " " + card.tests.join(", ").replace(/_/g, " ")
               : UAKWorkspace.t("Tests first:") + " " + (card.test_first || "-");
@@ -1850,6 +1642,7 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           el("approve-publish").disabled = el("approve-name").value !== view.project;
           setPlanBusy(operationBusy());
           drawDone(state);
+          drawPlanWin(state);
         }
         // While the coding tool plans (4 to 8 minutes in the test rounds) the page shows how long and its last output line.
         var planClock = null;
@@ -2045,24 +1838,12 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           var unnamed = !data.human,
             shown = identityWarning(ident, unnamed ? "" : data.human);
           box.textContent = shown.text;
-          box.classList.toggle("error", shown.git || shown.gh);
+          box.classList.toggle("error", !unnamed && (shown.git || shown.gh));
           box.hidden = false;
         }
-        function drawJourney() {
-          var current = journeyStep(state),
-            seen = false,
-            items = Array.from(el("journey").querySelectorAll("li"));
-          items.forEach(function (li) {
-            var here = li.dataset.step === current;
-            if (here) li.setAttribute("aria-current", "step");
-            else li.removeAttribute("aria-current");
-            li.classList.toggle("done", !seen && !here);
-            if (here) seen = true;
-          });
-        }
+
         // A finished operation moves the person to the heading of the step that comes next (amendment 8).
         var identityTries = 0;
-        var NEXT_FOCUS = {"installing": "prepare-heading", "publishing": "planning-heading", "approving": "team-heading"};
         function drawDashboard(data) {
           latestDashboard = data;
           drawJourney();
@@ -2074,6 +1855,7 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           el("dashboard-status").classList.remove("error");
           el("beginner-dashboard").classList.toggle("stale", !!(data.stale && data.checking));
           drawLiveUrl(data.live_url);
+          drawDashboardWin(state);
           var p = data.progress,
             states = p.states;
           el("simple-completed").textContent =
@@ -2117,7 +1899,7 @@ body.installed #steps, body.installed .rail-heading { display: none; }
               status = document.createElement("span"),
               waits = (task.waiting_on || []).length;
             title.dataset.noI18n = "";
-            title.textContent = task.id + " · " + task.title;
+            title.textContent = task.id + " · " + plainText(task.title);
             status.textContent = UAKWorkspace.t(
               waits
                 ? "waiting on dependencies"
@@ -2219,22 +2001,522 @@ body.installed #steps, body.installed .rail-heading { display: none; }
             } else scheduleDashboard(soon);
           }
         }
-        function show(index, focus) {
-          openSection("setup");
-          drawJourney();
-          step = index;
-          panels.forEach(function (id, n) {
-            el(id).hidden = n !== index;
-          });
-          Array.from(el("steps").children).forEach(function (node, n) {
-            node.classList.toggle("done", n < index);
-            // UI-024 (A-F16): sub-steps of 1. Install, marked, never numbered a second time.
-            if (n === index) node.setAttribute("aria-current", "step");
-            else node.removeAttribute("aria-current");
+// ---- UAK-159: the ten screens of the wizard. One screen is shown at a time; its step is in the address
+        // (/?step=rules), so reload stays on it and the browser's Back and Forward move between steps.
+        // A check the page is about to start (or has just asked for) already blocks the buttons that need the project idle.
+        function waitingPhase() {
+          if (isBusy(state.phase)) return state.phase;
+          return checkStarting || shouldAutoCheck(state) ? "checking" : state.phase;
+        }
+        function openSection(section) {
+          var next = screenFor(state), after = next === "start" || next === "dashboard";
+          if (section === "dashboard") {
+            if (currentSection !== "dashboard") show(after ? next : "start", false);
+          } else if (currentSection === "dashboard") show(after ? "rules" : next, false);
+          if (section === "setup" && dashboardTimer) clearTimeout(dashboardTimer);
+          document.querySelector(".skip").href = "#content";
+        }
+        function show(name, focus, how) {
+          if (SCREENS.indexOf(name) < 0) name = "project";
+          var was = currentScreen;
+          currentScreen = name;
+          currentSection = name === "dashboard" || name === "start" ? "dashboard" : "setup";
+          if (state.target && name !== "closed") writeSaved(state.target, { section: currentSection });
+          SCREENS.forEach(function (n) {
+            if (n === name) el("screen-" + n).setAttribute("data-on", ""); else el("screen-" + n).removeAttribute("data-on");
           });
           el("error").hidden = true;
+          document.title = UAKWorkspace.t(TITLE[name] || "") + " · UPIIXIA";
+          if (how !== "pop" && was !== name) {
+            try { history[!was || how === "replace" ? "replaceState" : "pushState"]({ screen: name }, "", "/?step=" + name); } catch (e) {}
+          }
+          drawJourney();
+          drawScreens(state);
           syncRunningControls();
-          if (focus !== false) el("content").focus();
+          if (name === "start" || name === "people") loadTeam();
+          if (startTimer) { clearInterval(startTimer); startTimer = null; }
+          // The first claim of an agent shows without a reload: the team view reads the claims again every 20 s.
+          if (name === "start") startTimer = setInterval(function () { if (!document.hidden && !gone) loadTeam().then(function () { drawStart(state); }); }, 20000);
+          if (name === "dashboard" && !dashboardLoading) loadDashboard();
+          if (focus !== false) {
+            var heading = el("screen-" + name).querySelector("h1");
+            if (heading) heading.focus({ preventScroll: true });
+            window.scrollTo(0, 0);
+          }
+        }
+        function drawJourney() {
+          if (currentScreen === "closed") {
+            Array.from(el("journey").querySelectorAll("li")).forEach(function (li) { li.removeAttribute("aria-current"); li.classList.remove("done"); });
+            return;
+          }
+          var here = RAIL[currentScreen] || "project", seen = false, sprint = modeOf(state) === "sprint", shown = [], count = 0, at = 0;
+          Array.from(el("journey").querySelectorAll("li")).forEach(function (li) {
+            var mine = li.dataset.step === here;
+            li.hidden = li.dataset.step === "schedule" && !sprint;
+            if (!li.hidden) { count += 1; if (mine) at = count; }
+            if (mine) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
+            li.classList.toggle("done", !seen && !mine);
+            if (mine) seen = true;
+          });
+          el("journey").setAttribute("aria-label", UAKWorkspace.format("Step {n} of {total}", { n: at, total: count }));
+        }
+        // A cell reads in the page's language: its words only, spaces and paths as they are ("was yes" says what it was).
+        function tr(text) {
+          var m = /^(\s*)([\s\S]*?)(\s*)$/.exec(String(text)), was = /^was (.+)$/.exec(m[2]);
+          return m[1] + (was ? UAKWorkspace.format("was {value}", { value: UAKWorkspace.t(was[1]) }) : UAKWorkspace.t(m[2])) + m[3];
+        }
+        function setRows(id, rows) {
+          var box = el(id);
+          box.replaceChildren();
+          rows.forEach(function (row) {
+            var line = document.createElement("div"), a = document.createElement("span"), b = document.createElement("span");
+            line.className = "row " + (row[0] || "");
+            a.textContent = tr(row[1]); b.textContent = tr(row[2] || "");
+            line.dataset.noI18n = "";
+            line.append(a, b);
+            box.append(line);
+          });
+        }
+        function setFigs(id, figs) {
+          var box = el(id);
+          box.replaceChildren();
+          figs.forEach(function (f) {
+            var cell = document.createElement("span"), n = document.createElement("b");
+            n.textContent = f[0];
+            cell.append(n, document.createTextNode(UAKWorkspace.t(f[1])));
+            box.append(cell);
+          });
+        }
+        function drawWindow(name, title, rows, figs) {
+          el("win-" + name + "-title").textContent = title;
+          setRows("win-" + name + "-body", rows);
+          setFigs("win-" + name + "-foot", figs);
+        }
+        function folderName(path) { return String(path || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "project"; }
+        function chosenTools() {
+          return Array.from(document.querySelectorAll("input[name=harness]:checked")).map(function (i) { return i.value; });
+        }
+        function kitFiles(data) {
+          var files = ((data.detected || {}).kit_files) || {}, total = files.base || 0, tools = chosenTools();
+          tools.forEach(function (t) { total += files["." + t] || 0; });
+          return { base: files.base || 0, total: total, files: files, tools: tools };
+        }
+        // The proposal: facts only, from the server; the sentence is composed here so it can be translated.
+        function proposal(d) {
+          if (!d || !d.repo) return null;
+          if (d.repo === "new") return { mode: "sprint", reason: UAKWorkspace.t("A new repository with no history: a hackathon or prototype is the usual start.") };
+          var n = d.commits || 0;
+          if (n >= 30 || d.ci)
+            return { mode: "marathon", reason: d.ci
+              ? UAKWorkspace.format("The repository already has {n} commits and {ci}: a product with real users.", { n: n, ci: d.ci })
+              : UAKWorkspace.format("The repository already has {n} commits: a product with real users.", { n: n }) };
+          return { mode: "sprint", reason: UAKWorkspace.format("A small repository ({n} commits) with no CI: a hackathon or prototype fits.", { n: n }) };
+        }
+        function foundRow(label, value, code) {
+          var li = document.createElement("li"), k = document.createElement("span"), v = document.createElement("span");
+          k.className = "k"; v.className = "v";
+          k.textContent = UAKWorkspace.t(label);
+          if (code) { var c = document.createElement("code"); c.textContent = value; c.dataset.noI18n = ""; v.append(c); } else v.textContent = value;
+          li.append(k, v);
+          return li;
+        }
+        function drawProject(data) {
+          var kk = kitFiles(data), proj = folderName(data.target);
+          // What will happen here, in two sentences.
+          el("project-says").textContent = data.detected
+            ? UAKWorkspace.format("Setup adds the kit to {folder}: about {n} files, and none of your own files are replaced.", { folder: proj, n: kk.total || 0 }) + " " + UAKWorkspace.t("Nothing is committed or pushed until you publish.")
+            : "";
+          var d = data.detected, has = !!data.target;
+          el("project-where").hidden = !has;
+          el("project-form").hidden = has && !formOpen;
+          el("selected-project").textContent = tilde(data.target || ""); el("selected-project").title = data.target || "";
+          el("change-folder").textContent = UAKWorkspace.t(formOpen ? "Keep this folder" : "Change");
+          var list = el("found");
+          list.replaceChildren();
+          list.hidden = !d;
+          if (d) {
+            var t = UAKWorkspace;
+            list.append(foundRow("Repository", d.repo === "new" ? t.t("New: no commits yet") : t.format("Existing: {n} commits", { n: d.commits })));
+            list.append(foundRow("Hooks", d.hooks ? t.format("{name}: it keeps its hooks; the kit's checks are called from it", { name: d.hooks }) : t.t("No hook manager: the kit sets its own")));
+            list.append(foundRow("CI", d.ci || t.t("None found")));
+            list.append(foundRow("Tests", d.tests || t.t("None found"), !!d.tests));
+            list.append(foundRow("Stack", d.stack ? (el("stack").querySelector('option[value="' + d.stack + '"]') || {}).textContent || d.stack : t.t("Not recognised")));
+            var p = proposal(d);
+            if (p) {
+              if (!modePicked && !document.querySelector("input[name=mode]:checked") && !data.can_repair) {
+                var radio = document.querySelector("input[name=mode][value=" + p.mode + "]");
+                if (radio) radio.checked = true;
+              }
+              el("tag-marathon").hidden = p.mode !== "marathon";
+              el("tag-sprint").hidden = p.mode !== "sprint";
+              el("mode-reason").textContent = p.reason;
+            }
+            if (!stackPicked && d.stack && el("stack").value === "none") el("stack").value = d.stack;
+          }
+          var repair = !!data.can_repair, mode = (data.settings || {}).Mode;
+          document.querySelectorAll("input[name=mode]").forEach(function (input) { if (repair && mode) { input.disabled = input.value !== mode; if (input.value === mode) input.checked = true; } });
+        }
+        function drawInstall(data) {
+          var k = kitFiles(data), d = data.detected || {}, busy = isBusy(data.phase);
+          el("install-says").textContent = k.total
+            ? UAKWorkspace.format("Installing adds about {n} files to {folder}. Nothing is committed or pushed.", { n: k.total, folder: folderName(data.target) })
+            : UAKWorkspace.format("Installing adds the kit's files to {folder}. Nothing is committed or pushed.", { folder: folderName(data.target) });
+          var facts = el("install-facts");
+          facts.replaceChildren();
+          facts.append(foundRow("Hooks", d.hooks
+            ? UAKWorkspace.format("Your {name} hooks stay as they are. Call the kit's checks from its pre-commit: bash .uak/githooks/pre-commit", { name: d.hooks })
+            : UAKWorkspace.t("The kit sets git's hooks path to .uak/githooks: the secret scan runs on every commit.")));
+          facts.append(foundRow("Your files", UAKWorkspace.t("Existing files are kept. A file that differs is saved beside it as .uak-new.")));
+          el("install").hidden = !!data.installed && !busy && !data.can_repair;
+          el("status-heading").hidden = !(busy || data.error);
+          el("operation-status").hidden = !el("operation-status").textContent;
+          drawWindow("install", folderName(data.target) + " · " + UAKWorkspace.t("what will be written"), installRows(data), [[k.total ? "~" + k.total : "–", "files added"], [String(k.tools.length), "tools"], ["0", "files replaced"]]);
+        }
+        function installRows(data) {
+          var k = kitFiles(data), f = k.files, rows = [["", folderName(data.target) + "/", ""]];
+          rows.push(["add", "  .uak/ " + UAKWorkspace.t("engine, docs, templates"), f.base ? "~" + f.base : ""]);
+          var names = { claude: "Claude Code", codex: "Codex", cursor: "Cursor", gemini: "Gemini CLI" };
+          k.tools.forEach(function (t) { rows.push(["add", "  ." + t + "/ " + names[t], f["." + t] ? String(f["." + t]) : ""]); });
+          rows.push(["add", "  AGENTS.md  .mcp.json", ""]);
+          rows.push(["mod", "  .gitignore", "lines added"]);
+          rows.push(["keep", "  your code", "untouched"]);
+          return rows;
+        }
+        // The browser writes only what grants no authority: the test rule here, the diagnostics and the pacing. Who may
+        // review and how a change merges are read from .uak/PROJECT.md on main; they are shown, never written (SECURITY.md).
+        var RULE_NAMES = { "Test-First": ["rule-test-first", "warn"] };
+        var RULE_WORDS = {
+          "Test-First": { yes: "Required", warn: "Warn only", no: "Off" },
+          "Review-Mode": { claims: "Inside the kit", gh: "On GitHub", auto: "Automatic" },
+          "Review-Independence": { agent: "Another agent", human: "Another human's agent" },
+          "Auto-Merge": { yes: "Automatic", no: "A human" },
+        };
+        function ruleValues(data) {
+          var out = {};
+          Object.keys(RULE_NAMES).forEach(function (key) {
+            out[key] = rulesDirty ? el(RULE_NAMES[key][0]).value : (data.settings || {})[key] || RULE_NAMES[key][1];
+          });
+          return out;
+        }
+        function shownRule(data, key, fallback) {
+          var value = (data.settings || {})[key] || fallback;
+          return RULE_WORDS[key][value] ? RULE_WORDS[key][value] : value;
+        }
+        function drawRules(data) {
+          var mode = modeOf(data), values = ruleValues(data), file = data.settings || {}, sprint = mode === "sprint";
+          if (!rulesDirty) {
+            Object.keys(RULE_NAMES).forEach(function (key) { el(RULE_NAMES[key][0]).value = values[key]; });
+            el("diagnostics").checked = file.Blackbox === "on";
+            el("pacing").checked = file.Pace !== "off";
+          }
+          el("rules-mode").textContent = UAKWorkspace.format("These are the defaults of {mode} mode. Nothing is written until you confirm.", { mode: UAKWorkspace.t(sprint ? "Hackathon" : "Product") });
+          var list = el("rules-list");
+          list.replaceChildren();
+          function item(title, why, value, where) {
+            var li = document.createElement("li"), left = document.createElement("span"), strong = document.createElement("strong"), small = document.createElement("span"), val = document.createElement("span");
+            strong.textContent = UAKWorkspace.t(title); small.className = "why"; small.textContent = UAKWorkspace.t(why); val.className = "val"; val.textContent = UAKWorkspace.t(value);
+            if (where) val.append(" ", pill(where === "here" ? "set here" : "in PROJECT.md", where === "here" ? "int" : ""));
+            left.append(strong, small); li.append(left, val); list.append(li);
+          }
+          item("Tests come first", "An agent writes the failing test before the code.", RULE_WORDS["Test-First"][values["Test-First"]], "here");
+          item("Where reviews happen", "Another identity reviews every change before it merges.", shownRule(data, "Review-Mode", sprint ? "claims" : "gh"), "file");
+          item("Who may review", "An agent of another human, or any other agent identity.", shownRule(data, "Review-Independence", "agent"), "file");
+          item("Merging", "What happens after a review approves a change.", shownRule(data, "Auto-Merge", sprint ? "yes" : "no"), "file");
+          item("The merge engine", "A change to the merge gate itself always goes to a human.", "Human", "file");
+          item("Generated files", "Files a command writes, so a change to them is checked, not reviewed by eye.", "None declared", "file");
+          item("Token budget", sprint ? "Agents checkpoint after 100 events in a session." : "Agents checkpoint after 150 events in a session.", sprint ? "100 events" : "150 events");
+          var cmd = el("rules-cmd");
+          cmd.replaceChildren();
+          var lead = document.createElement("p"); lead.className = "hint"; lead.textContent = UAKWorkspace.t("The rules marked in PROJECT.md grant authority, so the browser never writes them. Change them there with a reviewed pull request:");
+          cmd.append(lead, copyRow(inProject("${EDITOR:-nano} .uak/PROJECT.md")));
+          var rows = [["", ".uak/PROJECT.md", ""]], changed = 0;
+          function line(key, now, before) {
+            var differs = now !== before;
+            changed += differs ? 1 : 0;
+            rows.push([differs ? "mod" : "keep", "  " + key + ": " + now, differs ? "was " + before : "as is"]);
+          }
+          Object.keys(RULE_NAMES).forEach(function (key) { line(key, values[key], file[key] || RULE_NAMES[key][1]); });
+          line("Blackbox", el("diagnostics").checked ? "on" : "off", file.Blackbox || "on");
+          line("Pace", el("pacing").checked ? "auto" : "off", file.Pace || "auto");
+          rows.push(["keep", "  " + UAKWorkspace.t("every other line"), UAKWorkspace.t("as is")]);
+          drawWindow("rules", ".uak/PROJECT.md · " + UAKWorkspace.t("lines that change"), rows, [[String(changed), "lines change"], [String(rows.length - 2 - changed + 1), "stay as they are"], ["0", "files outside .uak/"]]);
+        }
+
+        function drawSchedule(data) {
+          var done = stepsDone(data), start = Date.parse(el("schedule-start").value), end = Date.parse(el("schedule-end").value), rows = [];
+          el("go-schedule").hidden = !done.schedule;
+          var figs = [["–", "event"], ["–", "freeze before the end"], ["0", "tasks started"]];
+          function when(ms) { return new Date(ms).toLocaleString(UAKWorkspace.language(), { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); }
+          if (start && end && end > start) {
+            var length = end - start, freeze = Math.min(6 * 3600e3, Math.max(30 * 60e3, length * 0.15));
+            rows = [["add", UAKWorkspace.t("Start"), when(start)], ["mod", UAKWorkspace.t("Freeze"), when(end - freeze)], ["", UAKWorkspace.t("End"), when(end)]];
+            figs = [[Math.round(length / 360e3) / 10 + " h", "event"], [Math.round(freeze / 6e4) + " min", "freeze before the end"], ["0", "tasks started"]];
+          } else rows = [["keep", UAKWorkspace.t("Choose the start and the end"), ""]];
+          drawWindow("schedule", UAKWorkspace.t("the clock"), rows, figs);
+        }
+
+
+
+        function drawUnblock(data) {
+          var rows = [], g = data.guidance || {};
+          if (data.branch && data.branch.wrong) rows.push(["mod", UAKWorkspace.t("Branch"), data.branch.head || ""]);
+          if (g.terminal) rows.push(["mod", UAKWorkspace.t("Needs a terminal"), ""]);
+          if (!rows.length) rows.push(["keep", UAKWorkspace.t("Nothing blocks the next step"), ""]);
+          drawWindow("unblock", UAKWorkspace.t("what is blocked"), rows, [[String(rows.length), "problems"], ["0", "files changed"], ["–", "waiting"]]);
+          var wrong = !!(data.branch && data.branch.wrong);
+          // One problem at a time: the branch first; the terminal steps when it is on the right branch.
+          el("branch-warning").hidden = !wrong;
+          el("setup-branch-warning").hidden = true; // the same warning as the one above, from the old Check step
+          el("terminal-step").hidden = wrong || !g.terminal;
+          document.querySelectorAll("#screen-unblock .next-command code").forEach(function (c) { c.title = c.textContent; });
+          setLabel(el("unblock-again"), UAKWorkspace.t(wrong ? "Check project folder again" : "Check again"));
+        }
+        function drawProjectWindow(data) {
+          var k = kitFiles(data);
+          drawWindow("project", folderName(data.target) + " · " + UAKWorkspace.t("what will be written"), installRows(data), [[k.total ? "~" + k.total : "–", "files added"], [String(k.tools.length), "tools"], ["0", "files replaced"]]);
+        }
+
+
+        // ---- the late screens: a bordered list of rows, a window that shows the real thing, one primary below
+        function tilde(path) {
+          var home = state.home || "", p = String(path || "");
+          return home && p.indexOf(home) === 0 ? "~" + p.slice(home.length) : p;
+        }
+        // The line the person sees must work as typed: a home folder becomes ~ only where the path needs no quoting
+        // (cd ~/proyectos/tienda-api), otherwise the full quoted path stays. Copy always puts the full line.
+        function shown(command) {
+          var home = state.home || "", text = String(command);
+          if (!home) return text;
+          var escaped = home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          return text.replace(new RegExp("'" + escaped + "(/[A-Za-z0-9_./-]*)'", "g"), "~$1");
+        }
+        // One command in one line: the text is cut visually, the whole line is what Copy puts on the clipboard.
+        function copyRow(full) {
+          var row = document.createElement("div"), code = document.createElement("code"), button = document.createElement("button");
+          row.className = "copyrow";
+          code.textContent = shown(full); code.title = full; code.dataset.noI18n = ""; code.dataset.full = full;
+          button.type = "button"; button.className = "secondary-button"; button.textContent = UAKWorkspace.t("Copy");
+          button.onclick = function () {
+            var done = function () { button.textContent = UAKWorkspace.t("Copied"); setTimeout(function () { button.textContent = UAKWorkspace.t("Copy"); }, 1600); };
+            try { navigator.clipboard.writeText(full).then(done, function () {}); } catch (e) {}
+          };
+          row.append(code, button);
+          return row;
+        }
+        // A refusal that names the git command to run puts it in a copy box, next to the step's list.
+        function showFix(text) {
+          var box = el("publish-fix"), found = /\((git [^)]+)\)/.exec(String(text || ""));
+          box.replaceChildren();
+          box.hidden = !found;
+          if (found) { var h = document.createElement("h2"); h.className = "sec"; h.textContent = UAKWorkspace.t("Run this in a terminal, then try again"); box.append(h, copyRow(inProject(found[1]))); }
+        }
+        function inProject(command) { return state.target ? "cd '" + String(state.target).replace(/'/g, "'\\''") + "' && " + command : command; }
+        function pill(text, kind) {
+          var s = document.createElement("span");
+          s.className = "pill" + (kind ? " p-" + kind : ""); s.textContent = UAKWorkspace.t(text);
+          return s;
+        }
+        function plainText(text) { return String(text || "").replace(/<[^>]*>/g, ""); }
+        function listRows(id, rows) {
+          var box = el(id);
+          box.replaceChildren();
+          rows.forEach(function (row) {
+            var li = document.createElement("li"), k = document.createElement("span"), v = document.createElement("span");
+            k.className = "k"; v.className = "v";
+            k.textContent = UAKWorkspace.t(row[0]);
+            if (row[1] && row[1].nodeType) v.append(row[1]); else { v.textContent = row[1]; v.dataset.noI18n = ""; }
+            (row.slice(2) || []).forEach(function (extra) { if (extra) v.append(" ", extra); });
+            li.append(k, v); box.append(li);
+          });
+        }
+        function followFooters() {
+          document.querySelectorAll("[data-needs],[data-unless]").forEach(function (g) {
+            var need = g.dataset.needs, unless = g.dataset.unless, hide = false;
+            if (need) hide = !el(need) || el(need).hidden;
+            if (unless) hide = !el(unless) || !el(unless).hidden;
+            g.hidden = hide;
+          });
+          // A button of the bottom bar that stands for one in the page: it says what that one says and does what it does.
+          document.querySelectorAll("[data-proxy]").forEach(function (bar) {
+            var real = el(bar.dataset.proxy);
+            if (!real) return;
+            bar.textContent = real.textContent.trim();
+            if (real.getAttribute("aria-disabled")) bar.setAttribute("aria-disabled", "true"); else bar.removeAttribute("aria-disabled");
+            if (real.getAttribute("aria-busy")) bar.setAttribute("aria-busy", "true"); else bar.removeAttribute("aria-busy");
+            bar.disabled = real.disabled;
+            bar.onclick = function () { real.click(); };
+          });
+        }
+        function drawPeople(data) {
+          var done = stepsDone(data), who = data.human || data.git_human || "", view = teamView, roles = (view && view.roles) || {},
+            onMain = (data.resume || {}).kit_on_main === true, registered = view && view.registered && view.registered.registered === true;
+          el("go-people").hidden = !done.name;
+          // The reviewer can be registered only on a kit that is on main: until then the person is told, and nothing is offered.
+          if (!onMain) el("team-register").hidden = true;
+          var names = { claude: "Claude Code", codex: "Codex", cursor: "Cursor", gemini: "Gemini CLI" };
+          drawWindow("people", UAKWorkspace.t("people and roles"), [
+            ["", UAKWorkspace.t("You"), who || UAKWorkspace.t("no name yet")],
+            [registered ? "add" : "keep", UAKWorkspace.t("Your reviewer"), who ? who + "-r" : ""],
+            ["", UAKWorkspace.t("Implements"), names[roles.implement] || roles.implement || "–"],
+            ["", UAKWorkspace.t("Reviews"), names[roles.review] || roles.review || "–"],
+            ["keep", UAKWorkspace.t("Reviewer"), registered ? UAKWorkspace.t("registered") : onMain ? UAKWorkspace.t("not registered yet") : UAKWorkspace.t("after the kit is on main")],
+          ], [[who ? "1" : "0", "people"], [registered ? "1" : "0", "reviewers"], ["0", "agents running"]]);
+        }
+        function drawPublish(data) {
+          var done = stepsDone(data), k = kitFiles(data), r = data.resume || {}, name = folderName(data.target);
+          el("go-publish").hidden = !done.publish;
+          listRows("publish-list", [
+            ["Goes to main", k.total ? UAKWorkspace.format("the kit: about {n} files in .uak/, the agents' folders and AGENTS.md", { n: k.total }) : UAKWorkspace.t("the kit's files")],
+            ["Stays local", UAKWorkspace.t("your code, your idea and your plan: they wait for your approval")],
+            ["Destination", "origin/main"],
+            ["Remote", r.kit_on_main === true ? UAKWorkspace.format("the kit is on main (commit {sha})", { sha: r.base_sha || "" }) : r.kit_on_main === false ? UAKWorkspace.t("main does not have the kit yet") : UAKWorkspace.t("not read yet: Review the files reads it")],
+          ]);
+          drawWindow("publish", name + " · " + UAKWorkspace.t("what goes to main"), [
+            ["add", ".uak/", k.base ? "~" + k.base : ""],
+            ["add", "AGENTS.md  .mcp.json", ""],
+          ].concat(k.tools.map(function (t) { return ["add", "." + t + "/", k.files["." + t] ? String(k.files["." + t]) : ""]; })).concat([
+            ["keep", UAKWorkspace.t("your code"), UAKWorkspace.t("stays local")],
+            ["keep", "IDEA.md  TASKS.md", UAKWorkspace.t("after you approve")],
+          ]), [[done.publish ? "1" : "0", "commit pushed"], [k.total ? "~" + k.total : "–", "files"], ["0", "of your own files"]]);
+        }
+        var ideaEditing = false;
+        function planStage(data) {
+          if ((data.resume || {}).plan_approved === true) return "done";
+          if (planView && planView.planned) return "review";
+          return planView && planView.idea ? "draft" : "idea";
+        }
+        function drawPlanWin(data) {
+          var done = stepsDone(data), cards = (planView && planView.cards) || [], stage = planStage(data), order = ["idea", "draft", "review", "done"];
+          el("go-plan").hidden = !done.plan;
+          var form = ideaEditing || stage === "idea" || stage === "draft";
+          el("screen-plan").setAttribute("data-stage", form ? "idea" : "review");
+          Array.from(el("plan-stages").querySelectorAll("li")).forEach(function (li) {
+            var at = order.indexOf(li.dataset.stage), now = order.indexOf(stage);
+            li.classList.toggle("done", at < now || stage === "done");
+            if (at === now && stage !== "done") li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
+          });
+          var recap = el("idea-recap"), have = !form && stage !== "idea" && stage !== "draft";
+          recap.hidden = !have; el("idea-edit-line").hidden = !have;
+          if (have) {
+            var text = (planView && planView.idea) || "", pick = function (re) { var m = re.exec(text); return m ? plainText(m[1].trim()) : ""; };
+            listRows("idea-recap", [["Idea", el("idea-text").value || pick(/## 1\. One line\n(.+)/) || "–"], ["For", el("idea-audience").value || pick(/^For: (.+)$/m) || "–"],
+              ["Team", [pick(/Team size: (.+)/) || el("idea-team").value, pick(/Length: (.+)/) || el("idea-length").value].filter(Boolean).join(" · ") || "–"]]);
+          }
+          var design = data.design || {};
+          el("design-block").hidden = !design.screens;
+          if (design.screens) {
+            listRows("design-list", [["Direction", design.locked ? UAKWorkspace.t("locked in web/DESIGN.md") : UAKWorkspace.t("not locked yet")],
+              ["Creativity index", String(design.creativity) + " / 5"], ["Rounds made", String(design.rounds)]]);
+            var box = el("design-cmds");
+            box.replaceChildren();
+            if (!design.locked) box.append(copyRow(inProject("bash .uak/bin/uak design round")), copyRow(inProject("bash .uak/bin/uak design-gallery")));
+          }
+          var rows = [["add", "IDEA.md", ""], ["add", ".uak/TASKS.md", cards.length ? cards.length + " " + UAKWorkspace.t("tasks") : ""], ["add", ".uak/OWNERS.md", ""], ["mod", ".uak/PROJECT.md", "Backlog-Approved: yes"]];
+          if (design.screens) rows.push([design.locked ? "keep" : "mod", "web/DESIGN.md", design.locked ? UAKWorkspace.t("locked") : UAKWorkspace.t("not locked yet")]);
+          drawWindow("plan", UAKWorkspace.t("what approval publishes"), rows, [[String(cards.length || "–"), "tasks"], [String(design.screens ? 5 : 4), "files"], [done.plan ? "yes" : "no", "approved"]]);
+          followFooters();
+        }
+        function agentRow(role, tool, state, pillKind, command, note) {
+          var li = document.createElement("li"), head = document.createElement("div"), title = document.createElement("strong");
+          head.className = "head"; title.textContent = UAKWorkspace.t(role) + " · " + tool; title.dataset.noI18n = "";
+          head.append(title, pill(state, pillKind));
+          li.append(head);
+          if (note) { var n = document.createElement("span"); n.className = "why"; n.textContent = UAKWorkspace.t(note); li.append(n); }
+          if (command) li.append(copyRow(command));
+          return li;
+        }
+        function drawStart(data) {
+          var view = teamView || {}, byId = {}, claimed = view.claimed || [], list = el("agents-list"), names = { claude: "Claude Code", codex: "Codex", cursor: "Cursor", gemini: "Gemini CLI" };
+          (view.commands || []).forEach(function (c) { byId[c.id] = c; });
+          var count = teamView && teamView.claimed ? claimed.length : (data.resume || {}).claims || 0, roles = view.roles || {};
+          var impl = byId.implement, rev = byId.review, locked = view.locked;
+          list.replaceChildren();
+          var registered = view.registered && view.registered.registered === true;
+          if (view.reviewer || impl) {
+            list.append(agentRow("Implements", (impl && impl.tool) || names[roles.implement] || "–", count ? UAKWorkspace.format("claimed {id}", { id: (claimed[0] && (claimed[0].id || claimed[0])) || "" }) : "waiting", count ? "prog" : "", impl ? impl.command : "", locked ? locked.reason : ""));
+            list.append(agentRow("Reviews", (rev && rev.tool) || names[roles.review] || "–", registered ? "waiting" : "needs a reviewer", registered ? "" : "blk", rev ? rev.command : "", registered ? "" : "Register the reviewer on the People screen first."));
+          }
+          el("start-hint").textContent = /Win/.test(navigator.platform || "") ? UAKWorkspace.t("On Windows, paste these in Git Bash, not PowerShell.") : "";
+          el("note-start").textContent = count
+            ? (count === 1 ? UAKWorkspace.t("1 task claimed: an agent has started.") : UAKWorkspace.format("{n} tasks claimed: an agent has started.", { n: count }))
+            : UAKWorkspace.t("No agent has claimed a task yet. This page tells you when one does.");
+          drawWindow("start", UAKWorkspace.t("your agents"), [
+            [count ? "add" : "keep", UAKWorkspace.t("Implements"), count ? UAKWorkspace.format("claimed {id}", { id: (claimed[0] && (claimed[0].id || claimed[0])) || "" }) : UAKWorkspace.t("waiting")],
+            [registered ? "keep" : "mod", UAKWorkspace.t("Reviews"), registered ? UAKWorkspace.t("waiting") : UAKWorkspace.t("needs a reviewer")],
+            ["", UAKWorkspace.t("Claimed tasks"), String(count)],
+          ], [[String(count), "tasks claimed"], [registered ? "1" : "0", "reviewers"], ["0", "tasks integrated"]]);
+        }
+        function drawUpdate(data) {
+          var v = data.versions || {};
+          listRows("update-list", [["Kit in this project", v.installed || "?"], ["Kit in this setup", v.current || "?"],
+            ["Your rules", UAKWorkspace.t("kept: .uak/PROJECT.md is not replaced")], ["A file you changed", UAKWorkspace.t("kept; the new version is saved beside it as .uak-new")], ["Your code", UAKWorkspace.t("untouched")]]);
+          var k = kitFiles(data);
+          drawWindow("update", folderName(data.target) + " · " + UAKWorkspace.t("what the update changes"), [["mod", ".uak/", (v.installed || "?") + " → " + (v.current || "?")], ["mod", "AGENTS.md  .claude/  .codex/", UAKWorkspace.t("if unedited")], ["keep", UAKWorkspace.t("your code"), UAKWorkspace.t("untouched")]],
+            [["1", "kit updated"], [k.total ? "~" + k.total : "–", "files"], ["0", "files of yours replaced"]]);
+        }
+        function drawDashboardWin(data) {
+          var p = (latestDashboard || {}).progress, s = (p && p.states) || {}, tasks = (latestDashboard || {}).tasks || [];
+          var rows = [["", UAKWorkspace.t("Mode"), modeOf(data) === "sprint" ? UAKWorkspace.t("Hackathon") : UAKWorkspace.t("Product")], ["", UAKWorkspace.t("Tasks"), p ? String(p.total) : "–"]];
+          drawWindow("dashboard", folderName(data.target) + " · " + UAKWorkspace.t("progress"), rows, [[String(s.INTEGRATED || 0) + (p ? " / " + p.total : ""), "completed"], [String(s.CLAIMED || 0), "working"], [String(s.REVIEW || 0), "in review"]]);
+          document.querySelectorAll("#more .cmd[data-cmd]").forEach(function (box) { box.replaceChildren(copyRow(inProject(box.dataset.cmd))); });
+        }
+        function drawScreens(data) {
+          data = data || {};
+          drawProject(data); drawProjectWindow(data); drawInstall(data); drawUnblock(data); drawUpdate(data); drawRules(data); drawPeople(data);
+          drawSchedule(data); drawPublish(data); drawPlanWin(data); drawStart(data); drawDashboardWin(data);
+          var command = terminalCommand(data.target);
+          ["terminal-command", "closed-command"].forEach(function (id) {
+            el(id).textContent = shown(command); el(id).title = command; el(id).dataset.full = command;
+          });
+          followFooters();
+          var here = el("screen-" + currentScreen);
+          if (here) Array.from(here.querySelectorAll("[data-p]")).forEach(function (b) { b.classList.remove("primary"); b.classList.add("secondary-button"); });
+          arbitrate();
+          drawBusy(data);
+        }
+        // One primary per view: of the candidate buttons the page shows, the one with the lowest order is the primary.
+        function arbitrate() {
+          var here = el("screen-" + currentScreen);
+          if (!here) return;
+          var best = null;
+          Array.from(here.querySelectorAll("[data-p]")).forEach(function (b) {
+            if (b.getClientRects().length && (!best || Number(b.dataset.p) < Number(best.dataset.p))) best = b;
+          });
+          if (best) { best.classList.add("primary"); best.classList.remove("secondary-button"); }
+        }
+        // A button the page shows or hides later (a team view that arrives, a plan that appears) changes which one leads.
+        if (typeof MutationObserver === "function") {
+          var arbiter = null;
+          new MutationObserver(function () {
+            if (arbiter) return;
+            arbiter = setTimeout(function () { arbiter = null; followFooters(); arbitrate(); }, 0);
+          }).observe(document.getElementById("content"), { subtree: true, attributes: true, attributeFilter: ["hidden", "data-on", "aria-disabled"] });
+        }
+        var BUSY_WORDS = { installing: "Installing the kit", checking: "Checking your project", planning: "Drafting the plan", approving: "Publishing the plan", publishing: "Publishing the kit", registering: "Registering the reviewer" };
+        // A running action says what it is doing and for how long, next to its button.
+        function drawBusy(data) {
+          var note = el("note-" + currentScreen);
+          if (!note) return;
+          if (isBusy(data.phase)) {
+            if (!busySince) busySince = Date.now();
+            if (!busyTimer) busyTimer = setInterval(function () { drawBusy(state); }, 1000);
+            note.textContent = UAKWorkspace.t(BUSY_WORDS[data.phase] || "Working") + " · " + Math.round((Date.now() - busySince) / 1000) + " s";
+          } else {
+            busySince = 0;
+            if (busyTimer) { clearInterval(busyTimer); busyTimer = null; }
+            if (/ · \d+ s$/.test(note.textContent)) note.textContent = "";
+          }
+        }
+        function closeWizard(button) {
+          action(button, async function () {
+            await api("close", {});
+            closedWizard = true;
+            gone = true;
+            if (timer) clearTimeout(timer);
+            show("closed", true);
+            drawJourney();
+            try { window.close(); } catch (e) {}
+          });
         }
         function error(message) {
           // The dashboard hides the setup panel: show the failure where the person is looking.
@@ -2306,7 +2588,6 @@ body.installed #steps, body.installed .rail-heading { display: none; }
             failure = e;
             tech = (e.body && e.body.technical) || "";
             atField = !!(e.body && e.body.field && fieldError(fieldInput(e.body.field, button), e.message));
-            if (!atField) error(e.message);
           } finally {
             requestBusy = false;
             button.disabled =
@@ -2422,6 +2703,11 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           "team-register": "Registering…",
           "team-roles": "Saving…",
           "team-name-save": "Saving…",
+          "check-folder": "Checking…",
+          "unblock-again": "Checking…",
+          "rules-confirm": "Saving…",
+          "update-run": "Updating…",
+          "close-wizard": "Closing…",
         };
         // The background operation of each phase and the buttons that start it (the one pressed, or the first).
         var PHASE_BUTTONS = {
@@ -2488,6 +2774,7 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           if (button && RESULT_AT[button.id] && el(RESULT_AT[button.id])) button = el(RESULT_AT[button.id]);
           if (!isButton(button)) return;
           var line = resultLine(button);
+          if (failed && (button.id === "publish-preview" || button.id === "publish-kit")) showFix(text);
           line.textContent = text;
           line.classList.toggle("error", !!failed);
           technical(line, details || "");
@@ -2564,7 +2851,8 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           return "";
         }
         function pointTo(id) {
-          var node = el(id);
+          var node = el(id), home = node && node.closest ? node.closest(".screen") : null;
+          if (home && !home.hasAttribute("data-on") && typeof show === "function") show(home.dataset.screen, false);
           if (!node || node.offsetParent === null) return false;
           var still = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
           node.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
@@ -2855,6 +3143,7 @@ body.installed #steps, body.installed .rail-heading { display: none; }
               });
             var out = { v: 1, target: target, at: saved.at, drafts: drafts };
             if (saved.section) out.section = saved.section;
+            if (saved.rules === true) out.rules = true;
             return out;
           } catch (e) {
             return {};
@@ -2865,6 +3154,7 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           var saved = readSaved(target),
             next = { v: 1, target: target, at: Date.now(), drafts: saved.drafts || {} };
           if (saved.section) next.section = saved.section;
+          if (patch.rules === true || saved.rules === true) next.rules = true;
           if (patch.section === "setup" || patch.section === "dashboard") next.section = patch.section;
           Object.keys(patch.drafts || {}).forEach(function (id) {
             var value = patch.drafts[id];
@@ -2877,17 +3167,9 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           } catch (e) {}
         }
         // Where the page opens: the server's step decides; a reload keeps the tab the person had chosen.
-        function landing(data, saved) {
+function landing(data, saved, wanted) {
           data = data || {};
-          saved = saved || {};
-          if (!data.phase || data.phase === "welcome") return { section: "setup", panel: 0 };
-          if (data.phase === "options") return { section: "setup", panel: 2 };
-          if (!data.installed) return { section: "setup", panel: 4 };
-          var step = (data.resume || {}).step;
-          return {
-            section: saved.section || (step === "team" || step === "progress" ? "dashboard" : "setup"),
-            panel: 4,
-          };
+          return { screen: wanted && allowed(wanted, data) ? wanted : screenFor(data, saved) };
         }
         // A step is done only on evidence (null: no local copy to read, never drawn as done).
         function stepsDone(data) {
@@ -2954,13 +3236,17 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           startCheck(false);
           lastButton = currentSection === "dashboard" ? "next-check" : "check";
           checkAuto = true;
+          checkStarting = true;
+          syncRunningControls();
           api("check", {}).then(
             function () {
               checkRequested = true;
-              return refresh();
+              return refresh().then(function () { checkStarting = false; syncRunningControls(); });
             },
             function (e) {
               checkAuto = false;
+              checkStarting = false;
+              syncRunningControls();
               if (!e.gone && e.status === 400) failed(checkOwner(), e.message);
             },
           );
@@ -3085,6 +3371,55 @@ body.installed #steps, body.installed .rail-heading { display: none; }
         window.addEventListener("pageshow", function (event) {
           if (event.persisted && !gone) refresh();
         });
+        // UAK-159: which screen a project is on (pure, so the resume test can run it)
+        var SCREENS = ["project", "install", "unblock", "update", "rules", "people", "schedule", "publish", "plan", "start", "dashboard", "closed"];
+        var ORDER = ["project", "rules", "people", "schedule", "publish", "plan", "start", "dashboard"];
+        // The names are `uak start --steps`' own; the nodes of the top line and the step rail are this one list.
+        var RAIL = { project: "project", install: "project", unblock: "project", update: "project", rules: "rules", people: "people", schedule: "schedule", publish: "publish", plan: "plan", start: "start", dashboard: "start" };
+        var TITLE = { project: "Check what we found in this project", install: "Install the kit into this project", unblock: "Fix this before you continue", update: "Update the kit in this project",
+          rules: "Confirm how your team will work", people: "Say who is on your team", schedule: "Set the event schedule", publish: "Publish the kit to main",
+          plan: "Describe your idea and approve the plan", start: "Start your agents", dashboard: "Follow your project", closed: "The wizard is closed" };
+        var currentScreen = "", formOpen = false, modePicked = false, stackPicked = false, rulesDirty = false, closedWizard = false,
+          checkStarting = false, busySince = 0, busyTimer = null, startTimer = null, updateSkipped = false;
+        function modeOf(data) {
+          var chosen = null;
+          try { chosen = document.querySelector("input[name=mode]:checked"); } catch (e) {}
+          return (data.settings || {}).Mode || (chosen && chosen.value) || (typeof choices !== "undefined" && choices.mode) || "";
+        }
+        function terminalCommand(target) {
+          return target
+            ? "cd '" + String(target).replace(/'/g, "'\\''") + "' && bash .uak/bin/uak start"
+            : "bash path/to/upiixia-agentic-kit/install.sh --wizard";
+        }
+        // Where the person's project stands decides the screen (evidence only, as `uak start --steps` reads it).
+        function screenFor(data, saved) {
+          data = data || {};
+          saved = saved || readSaved(data.target);
+          var resume = data.resume || {}, g = data.guidance || {}, mode = modeOf(data);
+          if (!data.installed && !data.can_repair) return data.phase === "installing" ? "install" : "project";
+          if (data.phase === "installing") return "install";
+          if (!data.installed) return "update";
+          if (data.branch && data.branch.wrong) return "unblock";
+          if ((data.versions || {}).older && !updateSkipped) return "update";
+          // A project that is past the rules (its kit on main, a schedule, an approved plan, a claim) is not asked again.
+          var beyond = resume.kit_on_main === true || resume.freeze > 0 || resume.plan_approved === true || (resume.claims || 0) > 0;
+          if (!saved.rules && !beyond) return "rules";
+          if (!data.human) return "people";
+          if (mode === "sprint" && !(resume.freeze > 0)) return "schedule";
+          // What the readiness check still needs from a terminal blocks the publishing, not the choices before it.
+          if (g.terminal && data.checked && !data.ready) return "unblock";
+          if (resume.kit_on_main !== true) return "publish";
+          if (resume.plan_approved !== true) return "plan";
+          return journeyStep(data) === "progress" || (resume.claims || 0) > 0 ? "dashboard" : "start";
+        }
+        function allowed(name, data) {
+          if (SCREENS.indexOf(name) < 0 || name === "closed") return false;
+          if (name === "project") return true;
+          if (name === "install") return !!data.target;
+          if (name === "schedule") return !!data.installed && modeOf(data) === "sprint";
+          return !!data.installed;
+        }
+        // "dashboard" is the part of the flow after setup (Start and Dashboard); "setup" the part before it.
         // UI-019 resume: end
         function profile(value) {
           document.body.dataset.profile = value;
@@ -3351,6 +3686,7 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           drawClaimed(view);
           teamReady = !!byId.implement;
           teamTool = byId.implement ? byId.implement.tool : "Claude Code";
+          drawPeople(state); drawStart(state);
           var guide = (latestDashboard && latestDashboard.guidance) || state.guidance || {};
           drawNext(guide);
           drawAdvancedNext(guide);
@@ -3374,7 +3710,7 @@ body.installed #steps, body.installed .rail-heading { display: none; }
         async function loadTeam() {
           var step = (state.resume || {}).step;
           if (gone) return;
-          if (!state.ready && !state.team && step !== "team" && step !== "progress") {
+          if (!state.ready && !state.team && step !== "team" && step !== "progress" && currentScreen !== "start" && currentScreen !== "people") {
             el("team-step").hidden = true;
             return;
           }
@@ -3540,168 +3876,94 @@ body.installed #steps, body.installed .rail-heading { display: none; }
             el("dashboard-frame").style.height =
               Math.min(6000, Math.max(560, height)) + "px";
         });
-        el("back-from-finish").onclick = function () {
-          show(Object.keys(choices).length ? 3 : 1);
-        };
-        el("back-to-progress").onclick = function () {
-          show(4);
-        };
-        el("begin").onclick = function () {
-          show(1);
-          el("target").focus();
-        };
-        document.querySelectorAll("[data-back]").forEach(function (button) {
-          button.onclick = function () {
-            show(Number(button.dataset.back));
-          };
-        });
+        el("back-from-finish").onclick = function () { show("project"); };
+        el("back-to-progress").onclick = function () { show(screenFor(state)); };
+        el("begin").onclick = function () { show("project"); };
         el("project-form").onsubmit = function (event) {
           event.preventDefault();
           if (!checkFields(this)) return;
           clearFieldError(el("target"));
-          action(this.querySelector("button[type=submit]"), async function () {
-            try {
-              var previousTarget = state.target;
-              state = await api("inspect", { target: el("target").value });
-              drawBranch(state);
-              if (previousTarget !== state.target) {
-                latestDashboard = null;
-                planView = null;
-                teamView = null;
-                teamFor = "";
-                el("dashboard-frame").removeAttribute("src");
-                el("beginner-dashboard").hidden = true;
-                el("dashboard-frame").hidden = true;
-              }
-              if (state.branch && state.branch.wrong) {
-                // UI-020 (B-01): not on the base branch: stop here with the warning and its command.
-                el("branch-warning").focus();
-              } else if (state.installed || state.can_repair) {
-                // UI-019 (B-05): re-picking lands where the project is, with its kept check.
-                landOn(state, landing(state, readSaved(state.target)), true);
-              } else {
-                document
-                  .querySelectorAll("input[name=mode]")
-                  .forEach(function (input) {
-                    input.disabled = false;
-                    if (previousTarget !== state.target) input.checked = false;
-                  });
-                el("install").textContent = "Install into this project";
-                el("selected-project").textContent = state.target;
-                show(2);
-              }
-            } catch (e) {
-              fieldError("target", e.message);
-            }
-          }).then(function () {
-            maybeAutoCheck(state);
+          // A refusal names its field: action() puts it under the field, above the buttons, and says so next to the button.
+          action(el("check-folder"), async function () {
+            await inspectFolder(el("target").value);
+            formOpen = false;
+            drawScreens(state);
           });
         };
+        async function inspectFolder(target) {
+          var previousTarget = state.target;
+          state = await api("inspect", { target: target });
+          drawBranch(state);
+          if (previousTarget !== state.target) {
+            latestDashboard = null;
+            planView = null;
+            teamView = null;
+            teamFor = "";
+            modePicked = stackPicked = rulesDirty = false;
+            el("dashboard-frame").removeAttribute("src");
+            el("beginner-dashboard").hidden = true;
+            el("dashboard-frame").hidden = true;
+            document.querySelectorAll("input[name=mode]").forEach(function (input) { input.disabled = false; input.checked = false; });
+          }
+          el("target").value = state.target || "";
+          if (state.branch && state.branch.wrong) show("unblock", true);
+          else if (state.installed || state.can_repair) landOn(state, landing(state, readSaved(state.target)), true);
+          else show("project", false);
+          maybeAutoCheck(state);
+        }
         el("workflow-form").onsubmit = function (event) {
           event.preventDefault();
-          var modes = document.querySelector("input[name=mode]:checked");
+          var modes = document.querySelector("input[name=mode]:checked"),
+            tools = chosenTools(),
+            problem = el("workflow-error");
+          problem.textContent = "";
+          if (!state.target) {
+            fieldError("target", UAKWorkspace.t("Enter the full path to an existing Git repository."));
+            return;
+          }
+          if (state.installed && !state.can_repair) { show(screenFor(state), true); return; }
           if (!modes) {
-            error("Choose Hackathon or Product before installing.");
+            problem.textContent = UAKWorkspace.t("Choose Hackathon or Product before installing.");
             document.querySelector("input[name=mode]").focus();
             return;
           }
-          var tools = Array.from(
-            document.querySelectorAll("input[name=harness]:checked"),
-          ).map(function (input) {
-            return input.value;
-          });
           if (!tools.length) {
-            error("Choose at least one coding tool.");
+            problem.textContent = UAKWorkspace.t("Choose at least one coding tool.");
             return;
           }
-          choices = {
-            mode: modes.value,
-            harness: tools,
-            stack: el("stack").value,
-            solo: el("solo").checked,
-            blackbox: el("blackbox").checked,
-          };
-          var rows = [
-            ["Project", state.target],
-            [
-              "Workflow",
-              choices.mode === "sprint"
-                ? "Hackathon or prototype"
-                : "Product with real users",
-            ],
-            [
-              "Coding tools",
-              tools
-                .map(function (tool) {
-                  return (
-                    {
-                      claude: "Claude Code",
-                      codex: "Codex",
-                      cursor: "Cursor",
-                      gemini: "Gemini CLI",
-                    }[tool] || tool
-                  );
-                })
-                .join(", "),
-            ],
-            [
-              "Team",
-              choices.solo
-                ? "One human, independent agent reviewers"
-                : "Multiple collaborators",
-            ],
-            ["Technology preset", el("stack").selectedOptions[0].textContent],
-            [
-              "Also adds",
-              "Project files for the selected tools and .mcp.json, so they can use the kit's commands directly",
-            ],
-            [
-              "Kit diagnostics",
-              choices.blackbox
-                ? "On · stored on your coordination branch"
-                : "Off",
-            ],
-          ];
+          choices = { mode: modes.value, harness: tools, stack: el("stack").value, solo: el("solo").checked, blackbox: el("blackbox").checked };
+          var names = { claude: "Claude Code", codex: "Codex", cursor: "Cursor", gemini: "Gemini CLI" },
+            rows = [
+              ["Workflow", choices.mode === "sprint" ? "Hackathon or prototype" : "Product with real users"],
+              ["Coding tools", tools.map(function (t) { return names[t] || t; }).join(", ")],
+              ["Team", choices.solo ? "One human, independent agent reviewers" : "Multiple collaborators"],
+              ["Technology preset", el("stack").selectedOptions[0].textContent],
+              ["Kit diagnostics", choices.blackbox ? "On · stored on your coordination branch" : "Off"],
+            ];
           el("summary").replaceChildren();
           rows.forEach(function (row) {
-            var wrap = document.createElement("div"),
-              term = document.createElement("dt"),
-              value = document.createElement("dd");
+            var wrap = document.createElement("div"), term = document.createElement("dt"), value = document.createElement("dd");
             term.textContent = row[0];
             value.textContent = row[1];
-            if (row[0] === "Project") value.dataset.noI18n = "";
             wrap.append(term, value);
             el("summary").append(wrap);
           });
-          show(3);
+          show("install", true);
         };
         el("install").onclick = function () {
           action(this, async function () {
+            if (!choices.mode) { show("project", true); return false; }
             await api(state.can_repair ? "repair" : "install", choices);
-            show(4);
             await refresh();
+            // A quick install is over before the first poll sees it running: move on from here.
+            if (state.installed && !isBusy(state.phase) && !state.error && currentScreen === "install") show(screenFor(state), true);
           });
         };
-        el("repair").onclick = function () {
-          var mode = (state.settings || {}).Mode;
-          document
-            .querySelectorAll("input[name=mode]")
-            .forEach(function (input) {
-              input.disabled = !!mode && input.value !== mode;
-              if (mode) input.checked = input.value === mode;
-            });
-          el("selected-project").textContent =
-            state.target +
-            " · " +
-            UAKWorkspace.t(
-              "Repair preserves the existing workflow and project configuration.",
-            );
-          el("install").textContent = "Repair or update this project";
-          show(2);
-        };
+        el("repair").onclick = function () { el("update-run").click(); };
         el("change-project").onclick = function () {
           if (timer) clearTimeout(timer);
-          show(1);
+          formOpen = true;
+          show("project", true);
         };
         // Prepare (UI-005). The page does the gate's terminal steps itself; anything else gets a terminal box.
         function storedHuman() {
@@ -3908,26 +4170,86 @@ body.installed #steps, body.installed .rail-heading { display: none; }
             return false; // render reports what the check found
           });
         };
+        el("rules-confirm").onclick = function () {
+          action(this, async function () {
+            var file = state.settings || {}, values = ruleValues(state), changes = {};
+            Object.keys(values).forEach(function (key) {
+              if ((file[key] || RULE_NAMES[key][1]) !== values[key]) changes[key] = values[key];
+            });
+            var box = el("diagnostics").checked ? "on" : "off", pace = el("pacing").checked ? "auto" : "off";
+            if ((file.Blackbox || "on") !== box) changes.Blackbox = box;
+            if ((file.Pace || "auto") !== pace) changes.Pace = pace;
+            // Only what the person confirmed is written: nothing at all when every line stays as it is.
+            if (Object.keys(changes).length) await api("settings", changes);
+            writeSaved(state.target, { rules: true });
+            rulesDirty = false;
+            await refresh();
+            show(screenFor(state), true);
+          });
+        };
         el("save").onclick = function () {
           action(this, async function () {
-            var settings = {
-              Blackbox: el("diagnostics").checked ? "on" : "off",
-              Pace: el("pacing").checked ? "auto" : "off",
-            };
             var link = el("live-url-input").value.trim();
-            if (link) {
-              if (link.indexOf("https://") !== 0)
-                throw Error(
-                  UAKWorkspace.t("The app link must start with https://"),
-                );
-              settings["Live-URL"] = link;
-            }
-            await api("settings", settings);
-            el("save-status").textContent =
-              "Preferences saved locally. Run the readiness check again.";
+            if (link.indexOf("https://") !== 0) throw Error(UAKWorkspace.t("The app link must start with https://"));
+            await api("settings", { "Live-URL": link });
+            el("save-status").textContent = UAKWorkspace.t("Saved. The dashboard shows it as your app.");
             await refresh();
           });
         };
+        el("update-run").onclick = function () {
+          var d = state.detected || {};
+          choices = { mode: (state.settings || {}).Mode || (document.querySelector("input[name=mode]:checked") || {}).value, stack: "none", blackbox: (state.settings || {}).Blackbox !== "off" };
+          if ((d.harness || []).length) choices.harness = d.harness;
+          action(this, async function () {
+            await api("repair", choices);
+            await refresh();
+          });
+        };
+        el("idea-edit").onclick = function () { ideaEditing = true; drawPlanWin(state); el("idea-text").focus(); };
+        el("update-skip").onclick = function () { updateSkipped = true; show(screenFor(state), true); };
+        el("unblock-again").onclick = function () {
+          action(this, async function () {
+            state = await api("inspect", { target: state.target });
+            drawBranch(state);
+            if (state.branch && state.branch.wrong) { drawScreens(state); return; }
+            if (state.installed) {
+              startCheck(true);
+              await api("check", {});
+              checkRequested = true;
+              await refresh();
+              return false;
+            }
+            show(screenFor(state), true);
+          });
+        };
+        el("change-folder").onclick = function () {
+          formOpen = !formOpen;
+          drawScreens(state);
+          if (formOpen) el("target").focus();
+        };
+        document.querySelectorAll("[data-exit]").forEach(function (button) { button.onclick = function () { closeWizard(button); }; });
+        el("close-wizard").onclick = function () { closeWizard(this); };
+        document.querySelectorAll("[data-go]").forEach(function (button) { button.onclick = function () { show(button.dataset.go, true); }; });
+        document.querySelectorAll("[data-next]").forEach(function (button) {
+          button.onclick = function () {
+            var next = screenFor(state), at = ORDER.indexOf(currentScreen);
+            if (currentScreen === "start") next = "dashboard";
+            else if (next === currentScreen || ORDER.indexOf(next) <= at) next = ORDER[at + 1] || next;
+            if (next === "schedule" && modeOf(state) !== "sprint") next = "publish";
+            show(next, true);
+          };
+        });
+        el("copy-terminal-command").onclick = function () { copyText(el("terminal-command").dataset.full, "copy-status"); };
+        el("copy-closed").onclick = function () { var b = this; copyText(el("closed-command").dataset.full, "copy-status"); b.textContent = UAKWorkspace.t("Copied"); };
+        window.addEventListener("popstate", function (event) {
+          var name = (event.state || {}).screen || new URLSearchParams(location.search).get("step");
+          if (name && allowed(name, state)) show(name, true, "pop");
+        });
+        document.querySelectorAll("input[name=mode]").forEach(function (i) { i.addEventListener("change", function () { modePicked = true; drawJourney(); drawScreens(state); }); });
+        document.querySelectorAll("input[name=harness]").forEach(function (i) { i.addEventListener("change", function () { drawScreens(state); }); });
+        el("stack").addEventListener("change", function () { stackPicked = true; });
+        el("rules-advanced").addEventListener("change", function () { rulesDirty = true; drawScreens(state); });
+        ["schedule-start", "schedule-end"].forEach(function (id) { el(id).addEventListener("input", function () { drawSchedule(state); }); });
         var humanNote = "";
         function render(data) {
           var previous = state.phase;
@@ -3978,8 +4300,10 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           // Preferences and Repair stay in place while an operation runs (hiding them made the page jump, UI-018).
           el("preferences").hidden = !data.installed;
           setWaiting(el("save"), data.phase);
-          el("diagnostics").checked = (data.settings || {}).Blackbox !== "off";
-          el("pacing").checked = (data.settings || {}).Pace !== "off";
+          if (!rulesDirty) {
+            el("diagnostics").checked = (data.settings || {}).Blackbox === "on";
+            el("pacing").checked = (data.settings || {}).Pace !== "off";
+          }
           if (document.activeElement !== el("live-url-input"))
             el("live-url-input").value = (data.settings || {})["Live-URL"] || "";
           setWaiting(el("check"), data.phase);
@@ -4045,13 +4369,8 @@ body.installed #steps, body.installed .rail-heading { display: none; }
             identityTries += 1;
             setTimeout(refresh, 700);
           } else if (data.identity) identityTries = 0;
-          if (NEXT_FOCUS[previous] && !isBusy(data.phase) && !data.error) {
-            (function wait(id, tries) {
-              var node = el(id);
-              if (node && node.offsetParent !== null) node.focus();
-              else if (tries > 0) setTimeout(function () { wait(id, tries - 1); }, 150);
-            })(NEXT_FOCUS[previous], 20);
-          }
+          drawScreens(data);
+          if (previous === "installing" && !isBusy(data.phase) && !data.error && data.installed) show(screenFor(data), true);
         }
         async function refresh() {
           if (timer) clearTimeout(timer);
@@ -4071,44 +4390,34 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           }
         }
         // Apply a landing (UI-019): the panel, then the section; the dashboard loads when it is the one shown.
-        function landOn(data, where, focus) {
+function landOn(data, where, focus) {
           landedFor = data.target || "";
-          if (where.panel === 2) {
-            el("selected-project").textContent = data.target;
-            show(2, false);
-          } else if (where.panel === 4) {
-            show(4, focus === true ? undefined : false);
-            // The section first, so a check the page starts by itself shows in the button the person sees.
-            if (where.section === "dashboard") openSection("dashboard");
-            render(data);
-            if (isBusy(data.phase)) refresh();
-          }
-          if (where.section === "dashboard") {
-            openSection("dashboard");
-            // A check the page just started loads the dashboard when it ends (render); asking now only meets a 409.
-            if (checkAuto) {
-              el("dashboard-status").hidden = false;
-              el("dashboard-status").textContent = UAKWorkspace.t("Checking your next steps");
-            } else loadDashboard();
-          }
+          if (data.installed || data.can_repair) render(data);
+          if (isBusy(data.phase)) refresh();
+          show(where.screen, focus === true, "replace");
         }
         session
           .then(function () {
             return api("status");
           })
           .then(function (data) {
-            // The person may already have opened the dashboard: restore setup's step without leaving it.
-            var stay = currentSection === "dashboard";
             state = data;
-            drawJourney();
             showDemo(data.demo);
             el("target").value = data.target || "";
             var saved = readSaved(data.target),
-              where = landing(data, saved);
-            if (stay && where.panel) where.section = "dashboard";
+              wanted = new URLSearchParams(location.search).get("step"),
+              where = landing(data, saved, wanted);
             landOn(data, where, false);
-            if (stay && !where.panel) openSection("dashboard");
             restoreDrafts(saved);
+            // A folder given on the command line is read at once, so the first screen says what it found.
+            if (data.target && !data.installed && !data.detected) {
+              inspectFolder(data.target).catch(function (e) {
+                if (e.gone) return;
+                formOpen = true;
+                drawScreens(state);
+                fieldError("target", e.message);
+              });
+            }
           })
           .catch(function (e) {
             if (!e.gone) error(e.message);
@@ -4116,6 +4425,7 @@ body.installed #steps, body.installed .rail-heading { display: none; }
           .then(function () {
             // The panel shows once it knows which step is current: no welcome screen flashing first (UI-018).
             el("content").removeAttribute("data-loading");
+            drawScreens(state);
           });
       })();
     </script>
