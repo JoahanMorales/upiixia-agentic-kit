@@ -81,6 +81,11 @@ jobs:
         shard: ${{ fromJSON(needs.discover.outputs.shards) }}
     runs-on: ${{ matrix.shard.os }}
     timeout-minutes: 60   # a hang fails in an hour, not six (a Windows job once hung 84 min)
+    # UAK-195: the browser of the kit's CI (never of a project: install.sh installs no browser). Python's and Node's Playwright
+    # pinned to versions that share one Chromium build; ci_select.py browser-install refuses two that do not.
+    env:
+      UAK_PLAYWRIGHT: "1.65.2"
+      UAK_NODE_PLAYWRIGHT: "1.65.1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,6 +95,22 @@ jobs:
         run: sudo apt-get install -y mawk && awk -W version | head -1
       - name: Git identity for fixtures
         run: git config --global user.name ci && git config --global user.email ci@example.invalid
+      # UAK-195: four reviews of 2026-11-24 and 25 found defects only a browser shows while every Playwright case passed here
+      # without running. Linux installs Chromium (cached by the pinned versions) and declares it to the tests step
+      # (UAK_CI_BROWSER): there Chromium must launch before any file and a case that skips for lack of a browser fails.
+      - uses: actions/cache@v4
+        if: runner.os == 'Linux'
+        id: browser-cache
+        with:
+          path: ~/.cache/uak-ci-browser
+          key: uak-browser-${{ runner.os }}-${{ runner.arch }}-py${{ env.UAK_PLAYWRIGHT }}-node${{ env.UAK_NODE_PLAYWRIGHT }}
+      - name: Chromium for Playwright (the kit's CI only; pinned, cached)
+        if: runner.os == 'Linux'
+        env:
+          CACHE_HIT: ${{ steps.browser-cache.outputs.cache-hit }}
+        run: |
+          echo "browser cache hit: ${CACHE_HIT:-false}"
+          python3 scripts/ci_select.py browser-install --dir ~/.cache/uak-ci-browser --playwright "$UAK_PLAYWRIGHT" --node-playwright "$UAK_NODE_PLAYWRIGHT" --github-env "$GITHUB_ENV"
       - name: Codex/Cursor/Gemini subagents are generated from .claude/agents
         if: matrix.shard.checks
         run: python3 scripts/gen_harness.py --check
@@ -104,6 +125,7 @@ jobs:
           SHARD_TESTS: ${{ matrix.shard.tests }}
           RETRY: ${{ matrix.shard.os != 'ubuntu-latest' && '--retry' || '' }}
           JOB: suite (${{ matrix.shard.os }}, ${{ matrix.shard.n }})
+          UAK_CI_BROWSER: ${{ matrix.shard.os == 'ubuntu-latest' && '1' || '' }}
         # One smoke per file with stdin held open, as in a terminal (ci_select.py run): a failing file is named in the job
         # summary and the rest of the shard still runs. On macOS a failed file runs once more, when the second run fits:
         # passing the second time passes the job and says "flaky" (summary, annotation, artifact); Linux never retries.
@@ -181,11 +203,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        continue-on-error: true   # the counts of browser cases are a report; the verdict is the jobs' results
+        with:
+          pattern: result-*
+          path: results
       - name: Discover and every job the tier planned succeeded (skipped and cancelled fail)
         env:
           NEEDS: ${{ toJSON(needs) }}
           PLANNED: ${{ needs.discover.outputs.planned }}
-        run: python3 scripts/ci_select.py gate
+        run: python3 scripts/ci_select.py gate --results results
   red-main:
     # The whole matrix of a commit on main failed (after each file that failed on macOS or Windows already ran a second
     # time in its job, when the second run fits): open one issue "main is red at SHA" or add to the open one. Only a run whose

@@ -57,6 +57,6 @@ source of truth for what shipped is `CHANGELOG.md`, and for what is next, `docs/
 | [`followups-v69-5.md`](followups-v69-5.md) | UAK-194: the Share card can be saved on a phone (iPhone could neither copy nor download it) | written 2026-11-25, published 2026-11-25 |
 | [`followups-v69-6.md`](followups-v69-6.md) | UAK-195: CI has a browser, and a case that did not run says SKIP instead of PASS | written 2026-11-25, published 2026-11-25 |
 | [`followups-v69-7.md`](followups-v69-7.md) | UAK-196: the wizard never kills a process it did not start; the guard knows the new routes and files; an awk error blocks | written 2026-11-25, published 2026-11-25 |
-| [`followups-v69-8.md`](followups-v69-8.md) | UAK-197: the intermittent tests fixed one by one, the heavy hook test split, a timing rule with room, a twelfth Windows shard | written 2026-11-25, waiting for the human |
+| [`followups-v69-8.md`](followups-v69-8.md) | UAK-197: the intermittent tests fixed one by one, the heavy hook test split, a timing rule with room, a twelfth Windows shard | written 2026-11-25, published 2026-11-25 |
 | [`port-go.md`](port-go.md) | Porting the engine to Go (or Rust): an estimate | decided: not porting |
 | [`video.md`](video.md) | Plan: `uak video` (the project's video, made from the repo's own facts) | not published; v7.2 |
