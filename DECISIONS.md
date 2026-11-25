@@ -167,3 +167,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1795637484 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-200 UAK-201 | Why: backlog without PR (Plan-Channel: claims)
 - 1795640677 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-202 Paths: README.md, llms.txt, docs/GUIDE.md, docs/REFERENCE.md, docs/EVIDENCE.md, kit/.uak/tests/test_readme.py, kit/.uak/tests/timings/test_readme.txt → README.md, llms.txt, docs/GUIDE.md, docs/REFERENCE.md, docs/EVIDENCE.md, docs/media/, scripts/make_media.py, kit/.uak/tests/test_readme.py, kit/.uak/tests/timings/test_readme.txt; | Why: scope or criteria fixed before review
 - 1795642307 | UAK-199 | CRF 27, poster best q under 38328, frames 320x180 PNG with source sha | Why: headroom under v6.8 sizes
+- 1795645769 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-199 | Why: scope or criteria fixed before review
