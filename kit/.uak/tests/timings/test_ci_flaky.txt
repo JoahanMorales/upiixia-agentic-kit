@@ -1,5 +1,5 @@
-# measured 2026-11-25 45680922421
-# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 0.5 s (45677681277), macos 1.9 s (45677681277), windows 0.3 s (45680922421)
+# measured 2026-11-25 45693940366
+# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 0.5 s (45677681277), macos 2.1 s (45693940366), windows 0.3 s (45680922421)
 # UAK-197: one case that reads two Python files; measured on this task's pull request runs
-ci 4
+ci 5
 windows 3

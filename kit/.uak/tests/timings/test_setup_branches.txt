@@ -1,4 +1,4 @@
-# measured 2026-11-25 45667782309
-# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 14.5 s (45570136468), macos 30.2 s (45491687803), windows 57.4 s (45568645351)
-ci 38
-windows 72
+# measured 2026-11-25 45693940366
+# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 14.5 s (45570136468), macos 33.3 s (45683968328), windows 64.4 s (45683968328)
+ci 42
+windows 81

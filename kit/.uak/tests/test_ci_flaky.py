@@ -35,7 +35,9 @@ KNOWN_INTERMITTENT = [
      "SIGTERM) 14 s into this case (then in test_hook_session_start_locks), no FAIL line; also run 45645537660 (windows (3), job 139315504846, 417 s into the file "
      "before the split, about where this case ran). Cause not found: the kill guard (test_hook_session_start_speed.py, "
      "KILL_GUARD) wrote every signal of the next runs with each target's ps line and refused none; this case passed in run "
-     "45680922421 with 29 signals, all to processes the test started", "owner": "issue #83"},
+     "45680922421 with 29 signals, all to processes the test started. In run 45693940366 (windows (2), job 139486410033) it "
+     "failed the way of issue #83 instead: the killed flush's clone directory was still there; the file passed on its "
+     "second run in the job (the retry the split makes possible)", "owner": "issue #83"},
     # "TimeoutError: timed out": the 10 s client of test_setup_wizard.request ran out on a Windows runner (see
     # test_dashboard_journey.py, REQUEST_BOUND_S: patient_requests() is the fix this task used for its own two files).
     {"file": "test_setup_language", "case": "git_failures_are_plain", "system": "windows", "run": "45350167384",

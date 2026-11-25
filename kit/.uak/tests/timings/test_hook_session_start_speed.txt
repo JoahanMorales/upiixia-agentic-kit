@@ -1,5 +1,5 @@
-# measured 2026-11-25 45680922421
-# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 65.8 s (45677681277), macos 134.2 s (45677681277), windows 225.0 s (45677681277)
-# UAK-197: split in two (the locks and simultaneous starts went to test_hook_session_start_locks); measured on this task's pull request runs 45677681277 and 45680922421 (the file before the split took 399 to 536 s on Windows)
-ci 168
-windows 282
+# measured 2026-11-25 45693940366
+# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 37.4 s (45693940366), macos 76.0 s (45693940366), windows 116.2 s (45693940366)
+# UAK-197: split in three (locks and refresh owners in test_hook_session_start_locks, the flush's clones and killed jobs in test_hook_session_start_clones); measured on this task's run 45693940366 (the file before the split took 399 to 536 s on Windows)
+ci 95
+windows 146

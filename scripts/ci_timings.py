@@ -5,6 +5,7 @@ and the timing entry the rule gives (UAK-197).
     python3 scripts/ci_timings.py                      # the last 10 green runs of main: a table, nothing written
     python3 scripts/ci_timings.py --runs 20
     python3 scripts/ci_timings.py --run 45654821354    # these runs instead (a pull request's run, repeatable)
+    python3 scripts/ci_timings.py --run 45654821354 --with-main 20   # those runs and the last 20 green runs of main
     python3 scripts/ci_timings.py --write kit/.uak/tests/timings/test_x.txt …   # rewrite only these timing files
 
 The rule: a timing entry is the maximum measured over the runs read, per system it stands for (`ci`: Linux and macOS, the
@@ -287,12 +288,16 @@ def main(argv=None, gh=run_gh, out=sys.stdout):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--runs", type=int, default=10, help="how many green runs of main to read (default 10)")
     ap.add_argument("--run", action="append", default=[], help="read this run instead (repeatable)")
+    ap.add_argument("--with-main", type=int, default=0, metavar="N", help="with --run: also read the last N green runs of main")
     ap.add_argument("--repo", default=REPO)
     ap.add_argument("--cache", help="a folder that keeps the job logs read")
     ap.add_argument("--write", nargs="+", metavar="FILE", help="rewrite only these timing files with the rule's entries")
     a = ap.parse_args(argv)
     try:
         jobs, dates, notes = fetch(a.repo, a.runs, a.run, gh=gh, cache=a.cache)
+        if a.run and a.with_main:
+            more = fetch(a.repo, a.with_main, None, gh=gh, cache=a.cache)
+            jobs, dates, notes = jobs + more[0], dates + more[1], notes + more[2]
         table, more = measure(jobs)
         notes += more
         if not table:

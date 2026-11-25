@@ -1,5 +1,5 @@
-# measured 2026-11-25 45680922421
-# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 99.8 s (45680922421), macos 153.4 s (45680922421), windows 208.0 s (45680922421)
-# UAK-197: the cases moved from test_hook_session_start_speed; measured on this task's pull request run 45680922421 (in run 45677681277 its Windows job ended with exit code 3840 inside the file: no measurement)
-ci 192
-windows 260
+# measured 2026-11-25 45693940366
+# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 68.9 s (45693940366), macos 97.2 s (45693940366), windows 179.1 s (45693940366)
+# UAK-197: locks, refresh owners and simultaneous starts moved from test_hook_session_start_speed; measured on this task's run 45693940366
+ci 122
+windows 224
