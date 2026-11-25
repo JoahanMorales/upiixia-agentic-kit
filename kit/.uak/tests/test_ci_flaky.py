@@ -22,7 +22,8 @@ TESTS_DIR = Path(__file__).resolve().parent
 KNOWN_INTERMITTENT = [
     {"file": "test_task_participants", "case": "(temporary folder cleanup)", "system": "windows", "run": "45275593318",
      "job": "138046494771", "seen": "the file's temporary folder could not be removed: WinError 32 on tp-unknown/remote.git, "
-     "a process still used it; passed on the second run", "owner": "unowned"},
+     "a process still used it (flaky again in runs 45453936428, 45564693310, 45564886939, 45568645351, 45570090852, "
+     "45570136468, 45577461318 and 45579126437); passed on the second run", "owner": "unowned"},
     {"file": "test_bb_flush_no_hooks", "case": "old_pending_is_flushed_by_a_plain_command", "system": "windows",
      "run": "45209873743", "job": "137815575556", "seen": "the lines did not reach claims:blackbox/; passed on the second run",
      "owner": "unowned"},
@@ -49,6 +50,13 @@ KNOWN_INTERMITTENT = [
      "owner": "unowned"},
     {"file": "test_setup_wizard", "case": "duplicate_install_is_rejected", "system": "windows", "run": "45406802135",
      "job": "139032256634", "seen": "TimeoutError: timed out; passed on the second run", "owner": "unowned"},
+    {"file": "test_setup_wizard", "case": "partial_install_can_recover", "system": "windows", "run": "45565091748",
+     "job": "139039311823", "seen": "TimeoutError: timed out; passed on the second run", "owner": "unowned"},
+    {"file": "test_setup_first_run", "case": "trust_step_is_explicit", "system": "windows", "run": "45579126437",
+     "job": "139084456408", "seen": "TimeoutError: timed out (also runs 45564877259, 45575241748 and 45592256338); passed on "
+     "the second run", "owner": "unowned"},
+    {"file": "test_setup_guide", "case": "github_login_is_checked_on_its_own", "system": "windows", "run": "45577461318",
+     "job": "139078915974", "seen": "TimeoutExpired running node on the guide's script; passed on the second run", "owner": "unowned"},
     {"file": "test_setup_wizard", "case": "invalid_requests_cannot_mutate", "system": "macos", "run": "45314029684",
      "job": "138176447808", "seen": "ConnectionResetError: [Errno 54] Connection reset by peer; passed on the second run",
      "owner": "unowned"},
