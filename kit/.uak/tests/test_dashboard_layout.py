@@ -648,7 +648,19 @@ ENGLISH = re.compile(r"\b(loading|Overview|Needs you|Snapshot|Live|ago|Share|Ski
 
 def language_is_applied_before_first_paint(root, tmp):
     """On a Spanish page every painted frame, from the first one after a load or a reload, is in Spanish: no English word is
-    ever on screen and the document's language is es before the first frame."""
+    ever on screen and the document's language is es before the first frame. The arrange mode's own words (the line at the top,
+    the handles, Add and its lines, Restore, the notices) are drawn in Spanish too."""
+    old = {"main": ["tasks", "gone", "needs"], "side": ["agents"], "hide": ["tokens", "lanes"]}
+    res = page_load(root, tmp, [{"name": "es", "tab": "sum"}, {"name": "es arranging", "tab": "sum", "ui": {"arr": True}}], storage={KEY: json.dumps(old)}, mode="full", lang="es")
+    if res is not None:
+        words = res[0]["texts"] + res[1]["texts"]
+        leaks = sorted(set(w for w in words if re.search(r"Move, hide|Move up|Move down|other column|Always shown|Restore the|Every component|For the whole team|does not keep|no longer exist|could not be read|Drag to move|What waits for you|Tokens spent, by|Who built and|Main column|Side column|\bEdit\b|\bAdd\b|\bHide\b", w)))
+        assert not leaks, "English left in the Spanish arrange mode: %r" % leaks[:10]
+        for es in ("Mueve, oculta o añade componentes. Hecho cuando termines.", "Añadir", "Subir", "Bajar", "A la otra columna", "Siempre visible", "Tokens gastados, por arnés",
+                   "Quién construyó y revisó qué, en el tiempo", "Volver a la predeterminada", "Hecho", "Arrastra para mover"):
+            assert any(es in w for w in words), "the Spanish arrange mode says %r: %r" % (es, words[:30])
+        assert any("ya no existen" in w for w in notice(res[0])) and any("no guarda la disposición" in w for w in notice(res[1])), (notice(res[0]), notice(res[1]))
+        assert any("Editar" in w for w in res[0]["texts"]), "Edit reads in Spanish"
     with browser(root, tmp, truth.rich_data(), lang="es") as pg:
         settled(pg, "uak-language", "es")
         pg.context.add_init_script(PAINT_PROBE)
