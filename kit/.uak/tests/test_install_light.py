@@ -267,7 +267,7 @@ def install_from(r, root, d, *args):
 
 
 def bytecode_in(d):
-    return sorted(str(p.relative_to(d)) for p in d.rglob("*")
+    return sorted(p.relative_to(d).as_posix() for p in d.rglob("*")
                   if ".git" not in p.relative_to(d).parts and (p.name == "__pycache__" or p.suffix == ".pyc"))
 
 
