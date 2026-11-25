@@ -50,9 +50,10 @@ source of truth for what shipped is `CHANGELOG.md`, and for what is next, `docs/
 | [`visual-setup-amend-8.md`](visual-setup-amend-8.md) | Amend of UAK-162: 150 KiB, and the views the human asked for on seeing the screens (all tasks as squares, dependencies, model and harness, Black box filter, Memory graph, Tokens) | written 2026-11-24, published 2026-11-24 |
 | [`visual-setup-amend-9.md`](visual-setup-amend-9.md) | Amend of UAK-162: the "Share" button that makes a stats card image | written 2026-11-24, published 2026-11-24 |
 | [`visual-setup-amend-10.md`](visual-setup-amend-10.md) | Amend of UAK-162: 200 KiB, agents as compact cards, the board opens on its columns, no native select, a readable Memory graph, the page reloads itself | written 2026-11-24, published 2026-11-24 |
-| [`visual-setup-amend-11.md`](visual-setup-amend-11.md) | Amend of UAK-164: `docs/DASHBOARD.md` leaves its Paths (no clause needs it), so the wizard tasks and the dashboard tasks run in two lanes | written 2026-11-25, waiting for the human |
+| [`visual-setup-amend-11.md`](visual-setup-amend-11.md) | Amend of UAK-164: `docs/DASHBOARD.md` leaves its Paths (no clause needs it), so the wizard tasks and the dashboard tasks run in two lanes | written 2026-11-25, published 2026-11-25 |
 | [`visual-setup-run-here.md`](visual-setup-run-here.md) | UAK-192: the wizard runs the command for you (a button beside every copy box; "Start this agent" opens a terminal) | written 2026-11-24, published 2026-11-24 |
 | [`followups-v69-4.md`](followups-v69-4.md) | UAK-193: an install never copies Python bytecode (the merge gate counted it and went red) | written 2026-11-24, published 2026-11-24 |
 | [`followups-v69-5.md`](followups-v69-5.md) | UAK-194: the Share card can be saved on a phone (iPhone could neither copy nor download it) | written 2026-11-25, published 2026-11-25 |
+| [`followups-v69-6.md`](followups-v69-6.md) | UAK-195: CI has a browser, and a case that did not run says SKIP instead of PASS | written 2026-11-25, waiting for the human |
 | [`port-go.md`](port-go.md) | Porting the engine to Go (or Rust): an estimate | decided: not porting |
 | [`video.md`](video.md) | Plan: `uak video` (the project's video, made from the repo's own facts) | not published; v7.2 |
