@@ -114,7 +114,8 @@ def notice(r):
 @contextlib.contextmanager
 def browser(root, tmp, data, phone=False, reduced=False, lang="en", seed=None):
     """The page from file:// in Chromium. seed: {key: value} written once into localStorage before the page's first script
-    (an init script that runs in the page itself, so no reload races a write). Raises NoBrowser without Playwright."""
+    (an init script that runs in the page itself, so no reload races a write; window.name, not storage, marks it done, since a
+    storage write itself can be read stale by the next load). Raises NoBrowser without Playwright."""
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -132,7 +133,7 @@ def browser(root, tmp, data, phone=False, reduced=False, lang="en", seed=None):
             opts = dict(viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=True, has_touch=True) if phone else dict(viewport={"width": 1280, "height": 900})
             ctx = b.new_context(reduced_motion="reduce" if reduced else "no-preference", **opts)
             ctx.add_init_script("""(function () { try {
-              if (!sessionStorage.getItem('uak-test-seeded')) { sessionStorage.setItem('uak-test-seeded', '1'); var s = %s;
+              if (/index\\.html$/.test(location.pathname) && window.name !== 'uak-test-seeded') { window.name = 'uak-test-seeded'; var s = %s;
                 localStorage.setItem('uak-dash', JSON.stringify({ tab: 'sum' })); localStorage.setItem('uak-language', %s);
                 Object.keys(s).forEach(function (k) { localStorage.setItem(k, s[k]); }); } } catch (e) {} })();""" % (json.dumps(seed or {}), json.dumps(lang)))
             pg = ctx.new_page()
@@ -156,13 +157,30 @@ def settled(pg, key, value):
     peer.wait_for_function("([k, v]) => localStorage.getItem(k) === v", arg=[key, value])
 
 
+def compact(v):
+    return json.dumps(v, separators=(",", ":"))   # JSON.stringify's spelling
+
+
 def layout_in(pg):
     return pg.evaluate("""() => { const o = {}; document.querySelectorAll('#view .col[data-col]').forEach(c => {
       o[c.getAttribute('data-col')] = Array.from(c.children).map(x => x.getAttribute('data-blk') || ((x.className.match(/\\bb-([a-z]+)/) || [])[1]) || '').filter(Boolean); }); return o; }""")
 
 
+def press(pg, sel, tap=False):
+    """Click or tap the middle of SEL with the real pointer. Not locator.click(): in arrange mode the components shake (the one
+    under the pointer stops), so Playwright's wait for a stable box never ends, and force=True would skip that wait while the
+    page's smooth scroll (html { scroll-behavior: smooth }) is still moving: the click then lands where the button was. Here
+    the element is scrolled into view at once (behavior: instant), the page is waited on until it has not scrolled for five
+    frames (a smooth scroll started by a focus may still be running), and the element's middle is read after that."""
+    x, y = pg.evaluate("""(s) => new Promise(done => { const e = document.querySelector(s); e.scrollIntoView({ block: 'center', behavior: 'instant' });
+      let y = scrollY, still = 0; (function frame() { requestAnimationFrame(() => { if (scrollY === y) still++; else { still = 0; y = scrollY; }
+        if (still < 5) return frame(); if (e.getBoundingClientRect().bottom < 0 || e.getBoundingClientRect().top > innerHeight) e.scrollIntoView({ block: 'center', behavior: 'instant' });
+        const r = e.getBoundingClientRect(); done([r.x + r.width / 2, r.y + r.height / 2]); }); })(); })""", sel)
+    pg.touchscreen.tap(x, y) if tap else pg.mouse.click(x, y)
+
+
 def edit(pg):
-    pg.click('[data-f="arr:edit"]')
+    press(pg, '[data-f="arr:edit"]')
     pg.wait_for_function("document.querySelector('.arrbar.on') && document.querySelectorAll('#view .arr').length > 0")
 
 
@@ -176,8 +194,10 @@ def summary_is_a_list_of_components(root, tmp):
     if out is not None:
         assert out[0] == {"lay": DEFAULT, "note": ""} and out[1] == out[0], "no arrangement is today's order, with no notice: %r" % out[:2]
     dash = (root / ".uak/bin/lib/dash.html").read_text(encoding="utf-8")
-    blocks = re.findall(r'\{ name: "([a-z]+)", title: function \(\) \{[^}]*\}, desc: function \(\) \{ return L\(\'[^\']+\'\); \}, col: "(main|side)", max: [A-Z0-9]+, render: [a-zA-Z]+ \}', dash)
-    assert blocks == ORDER, "BLOCKS lists every component with name, title, a line, column, maximum and render, in today's order: %r" % blocks
+    blocks = re.findall(r'\{ name: "([a-z]+)", title: function \(\) \{[^}]*\}, col: "(main|side)", max: [A-Z0-9]+, render: [a-zA-Z]+ \}', dash)
+    assert blocks == ORDER, "BLOCKS lists every component with name, title, column, maximum and render, in today's order: %r" % blocks
+    about = dash[dash.index("  function about(n) {"):dash.index("  var BLOCKS = [")]
+    assert re.findall(r"(\w+): L\('[^']{12,}'\)", about) == [n for n, _ in ORDER], "each component has one line saying what it shows"
     spec = __import__("importlib.util").util.spec_from_file_location("dash_layout_mod", root / ".uak/bin/lib/dash.py")
     mod = __import__("importlib.util").util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -250,11 +270,12 @@ def arrange_mode_shakes_and_respects_reduced_motion(root, tmp):
         turn = [float(re.search(r"(-?[0-9.]+)deg", x).group(1)) for x in deg]
         assert 0.6 <= max(turn) - min(turn) <= 1.6, "about one degree in all: %r" % deg
         assert pg.is_visible(".arrbar .tip") and "Move, hide or add components" in pg.inner_text(".arrbar .tip")
-        pg.hover('#view .arr[data-blk="tasks"] .hbar b')
+        box = pg.locator('#view .arr[data-blk="tasks"] .hbar b').bounding_box()
+        pg.mouse.move(box["x"] + 4, box["y"] + box["height"] / 2)
         pg.wait_for_function("getComputedStyle(document.querySelector('#view .arr[data-blk=\"tasks\"]')).animationName === 'none'")
         pg.focus('[data-f="agents:up"]')
         pg.wait_for_function("getComputedStyle(document.querySelector('#view .arr[data-blk=\"agents\"]')).animationName === 'none'")
-        pg.click('[data-f="arr:done"]')
+        press(pg, '[data-f="arr:done"]')
         pg.wait_for_function("!document.querySelector('.arrbar.on')")
         assert pg.evaluate(anim) == 0, "the shake stops with Done"
         assert not pg.errors, pg.errors
@@ -291,13 +312,13 @@ def move_hide_and_add_persist_per_viewer(root, tmp):
         assert out[8] == DEFAULT and out[11] == DEFAULT, "an unknown name changes nothing; the input is never changed: %r" % out[8]
         assert out[9]["main"] == ["needs", "tokens", "map", "tasks", "lanes"] and out[10]["hide"] == ["tokens"], "a drop places a shown component: %r %r" % (out[9], out[10])
     # the page under node: per project, and storage that refuses
-    mine = {"main": ["tasks", "needs"], "side": ["agents"], "hide": ["tokens"]}
+    mine = {"main": ["tasks", "needs", "lanes"], "side": ["agents", "map", "progress", "pace"], "hide": ["tokens"]}
     other = truth.rich_data()
     other["repo"] = "other"
     res = page_load(root, tmp, [{"name": "mine", "tab": "sum"}], storage={KEY: json.dumps(mine)})
     if res is not None:
         got = columns(res[0]["tree"])
-        assert got["main"][:2] == ["tasks", "needs"] and got["side"][0] == "agents" and "tokens" not in got["main"] + got["side"], "the saved arrangement is drawn: %r" % got
+        assert got == {"main": mine["main"], "side": mine["side"]}, "the saved arrangement is drawn: %r" % got
         res = page_load(root, tmp, [{"name": "other project", "tab": "sum"}], base=other, storage={KEY: json.dumps(mine)})
         assert columns(res[0]["tree"]) == {"main": DEFAULT["main"], "side": DEFAULT["side"]}, "another project's page is not this one's arrangement"
         for mode in ("blocked", "full"):
@@ -307,16 +328,16 @@ def move_hide_and_add_persist_per_viewer(root, tmp):
     with browser(root, tmp, truth.rich_data()) as pg:
         before = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in tmp.iterdir() if p.is_file()}
         edit(pg)
-        pg.click('[data-f="tasks:up"]')
+        press(pg, '[data-f="tasks:up"]')
         pg.wait_for_function("document.querySelector('#view .col[data-col=main]').children[1].getAttribute('data-blk') === 'tasks'")
-        pg.click('[data-f="tokens:hide"]')
+        press(pg, '[data-f="tokens:hide"]')
         pg.wait_for_function("document.querySelector('[data-f=\"add:tokens\"]')")
-        pg.click('[data-f="lanes:col"]')
+        press(pg, '[data-f="lanes:col"]')
         pg.wait_for_function("Array.from(document.querySelectorAll('#view .col[data-col=side] .arr')).some(e => e.getAttribute('data-blk') === 'lanes')")
-        want = {"main": ["needs", "tasks", "map"], "side": ["progress", "lanes", "agents", "pace"]}
+        want = {"main": ["needs", "tasks", "map"], "side": ["progress", "agents", "pace", "lanes"]}   # to the other column at the same position (3), here its end
         assert layout_in(pg) == want, layout_in(pg)
         saved = {"main": want["main"], "side": want["side"], "hide": ["tokens"]}
-        settled(pg, KEY, json.dumps(saved))
+        settled(pg, KEY, compact(saved))
         pg.reload()
         pg.wait_for_function("document.querySelector('#view .page .col')")
         assert layout_in(pg) == want, "a reload keeps it: %r" % layout_in(pg)
@@ -324,14 +345,14 @@ def move_hide_and_add_persist_per_viewer(root, tmp):
         pg.wait_for_function("document.querySelector('#view .page .col')")
         assert layout_in(pg) == want, "the page's own reload keeps it: %r" % layout_in(pg)
         edit(pg)
-        pg.click('[data-f="add:tokens"]')
+        press(pg, '[data-f="add:tokens"]')
         pg.wait_for_function("document.querySelector('#view .arr[data-blk=tokens]')")
         assert layout_in(pg)["side"][-1] == "tokens", "add brings it back to its default place: %r" % layout_in(pg)
         # everything in one column: one full-width column, no empty one
         for n in ("progress", "lanes", "agents", "pace", "tokens"):
-            pg.click('[data-f="%s:col"]' % n)
+            press(pg, '[data-f="%s:col"]' % n)
             pg.wait_for_function("(n) => document.querySelector('#view .col[data-col=main] .arr[data-blk=' + n + ']')", arg=n)
-        pg.click('[data-f="arr:done"]')
+        press(pg, '[data-f="arr:done"]')
         pg.wait_for_function("!document.querySelector('.arrbar.on')")
         one = pg.evaluate("() => ({ cols: document.querySelectorAll('#view .col[data-col]').length, w: document.querySelector('#view .col').getBoundingClientRect().width, page: document.querySelector('#view .page').getBoundingClientRect().width })")
         assert one["cols"] == 1 and one["w"] > one["page"] - 60, "everything in one column is one full-width column: %r" % one
@@ -343,7 +364,7 @@ def move_hide_and_add_persist_per_viewer(root, tmp):
     with browser(root, tmp, truth.rich_data(), phone=True) as pg:   # storage that refuses every write: kept for the page, said once
         pg.evaluate("Storage.prototype.setItem = function () { throw new DOMException('full', 'QuotaExceededError'); }; Storage.prototype.removeItem = Storage.prototype.setItem; 0")
         edit(pg)
-        pg.tap('[data-f="tokens:hide"]')
+        press(pg, '[data-f="tokens:hide"]', tap=True)
         pg.wait_for_function("document.querySelector('[data-f=\"add:tokens\"]')")
         said = pg.inner_text(".arrbar.on")
         assert "does not keep the arrangement" in said and not pg.errors, "a full or blocked storage says so: %r %r" % (said[-200:], pg.errors)
@@ -371,9 +392,9 @@ def needs_you_cannot_be_hidden(root, tmp):
         edit(pg)
         assert pg.locator('[data-f="needs:hide"]').count() == 0 and pg.is_visible('[data-f="needs:col"]')
         for n in [n for n, _ in ORDER if n != "needs"]:
-            pg.click('[data-f="%s:hide"]' % n)
+            press(pg, '[data-f="%s:hide"]' % n)
             pg.wait_for_function("(n) => document.querySelector('[data-f=\"add:' + n + '\"]')", arg=n)
-        pg.click('[data-f="arr:done"]')
+        press(pg, '[data-f="arr:done"]')
         pg.wait_for_function("!document.querySelector('.arrbar.on')")
         assert layout_in(pg) == {"main": ["needs"]}, "only needs is left, and it is shown: %r" % layout_in(pg)
         assert pg.is_visible("#view .b-needs") and not pg.errors
@@ -409,8 +430,8 @@ def team_default_is_used_when_the_viewer_has_none(root, tmp):
         assert r.returncode == 2 and word in (r.stdout + r.stderr) and files() == start, "refused with a sentence, nothing written: %r -> %r %r" % (bad, r.returncode, r.stdout + r.stderr)
     r = run_dash(root, fx, env, "layout")
     assert r.returncode == 0 and "no team default" in r.stdout, r.stdout + r.stderr
-    team = {"main": ["tasks", "needs"], "side": ["progress", "map"], "hide": ["tokens", "lanes"]}
-    r = run_dash(root, fx, env, "layout", "--save", "main=tasks,needs", "side=progress,map", "hide=tokens,lanes")
+    team = {"main": ["tasks", "needs"], "side": ["progress", "map", "agents", "pace"], "hide": ["tokens", "lanes"]}
+    r = run_dash(root, fx, env, "layout", "--save", "main=tasks,needs", "side=progress,map,agents,pace", "hide=tokens,lanes")
     assert r.returncode == 0 and ".uak/dash/layout.json" in r.stdout, r.stdout + r.stderr
     assert files() == sorted(start + [".uak/dash", ".uak/dash/layout.json"]), "only the layout file is written: %r" % files()
     saved = json.loads((fx / ".uak/dash/layout.json").read_text(encoding="utf-8"))
@@ -432,8 +453,8 @@ def team_default_is_used_when_the_viewer_has_none(root, tmp):
     if res is not None:
         assert columns(res[0]["tree"]) == {"main": team["main"], "side": team["side"]}, "no arrangement of my own: the team's: %r" % columns(res[0]["tree"])
         assert any("Restore the team's default" in s for s in res[1]["texts"]), "Restore says where it goes"
-        cmd = [s for s in res[1]["texts"] if "dash layout --save" in s]
-        assert cmd == ["bash .uak/bin/uak dash layout --save main=tasks,needs side=progress,map hide=tokens,lanes"], "the command for the team is the arrangement shown: %r" % cmd
+        cmd = [s for s in res[1]["texts"] if s.startswith("bash .uak/bin/uak dash layout")]
+        assert cmd == ["bash .uak/bin/uak dash layout --save main=tasks,needs side=progress,map,agents,pace hide=tokens,lanes"], "the command for the team is the arrangement shown: %r" % cmd
         res = page_load(root, tmp, [{"name": "mine", "tab": "sum"}], base=base, storage={KEY: json.dumps(DEFAULT)})
         assert columns(res[0]["tree"]) == {"main": DEFAULT["main"], "side": DEFAULT["side"]}, "my own arrangement wins"
     data = truth.rich_data()
@@ -441,9 +462,9 @@ def team_default_is_used_when_the_viewer_has_none(root, tmp):
     with browser(root, tmp, data) as pg:
         assert layout_in(pg) == {"main": team["main"], "side": team["side"]}, layout_in(pg)
         edit(pg)
-        pg.click('[data-f="map:up"]')
+        press(pg, '[data-f="map:up"]')
         pg.wait_for_function("document.querySelector('#view .col[data-col=side]').children[0].getAttribute('data-blk') === 'map'")
-        pg.click('[data-f="arr:restore"]')
+        press(pg, '[data-f="arr:restore"]')
         pg.wait_for_function("document.querySelector('#view .col[data-col=side]').children[0].getAttribute('data-blk') === 'progress'")
         assert pg.evaluate("localStorage.getItem('%s')" % KEY) is None, "Restore forgets my arrangement, so I follow the team's again"
         assert not pg.errors, pg.errors
@@ -458,7 +479,7 @@ def unknown_component_falls_back(root, tmp):
     if out is not None:
         lay = out[0]["lay"]
         assert out[0]["note"] == "unknown", out[0]
-        assert lay["main"] == ["tasks", "needs", "map", "lanes"] and lay["side"] == ["agents", "progress", "tokens"] and lay["hide"] == ["pace"], "kept, dropped, new in place: %r" % lay
+        assert lay["main"] == ["tasks", "needs", "map", "lanes"] and lay["side"] == ["agents", "progress", "tokens"] and lay["hide"] == ["pace"], "kept, dropped, new after the ones that precede it by default: %r" % lay
         assert out[1]["note"] == "unknown" and out[1]["lay"]["main"] == DEFAULT["main"], "names that are not components (even object keys) are dropped: %r" % out[1]
     res = page_load(root, tmp, [{"name": "first", "tab": "sum"}, {"name": "redraw", "tab": "sum"}], storage={KEY: json.dumps(old)})
     if res is not None:
@@ -472,9 +493,9 @@ def unknown_component_falls_back(root, tmp):
     with browser(root, tmp, truth.rich_data(), seed={KEY: json.dumps(old)}) as pg:
         assert layout_in(pg) == {"main": ["tasks", "needs", "map", "lanes"], "side": ["agents", "progress", "tokens"]}, layout_in(pg)
         assert "no longer exist" in pg.inner_text("#view .arrbar"), pg.inner_text("#view .arrbar")
-        settled(pg, KEY, json.dumps({"main": ["tasks", "needs", "map", "lanes"], "side": ["agents", "progress", "tokens"], "hide": ["pace"]}))
-        pg.reload()
-        pg.wait_for_function("document.querySelector('#view .page .col')")
+        kept = pg.evaluate("(k) => localStorage.getItem(k)", KEY)
+        assert kept == compact({"main": ["tasks", "needs", "map", "lanes"], "side": ["agents", "progress", "tokens"], "hide": ["pace"]}) and not pg.errors, "the repaired arrangement replaces the old one: %r" % kept
+    with browser(root, tmp, truth.rich_data(), seed={KEY: kept}) as pg:   # the next load reads what the first one kept
         assert "no longer exist" not in pg.inner_text("#view .arrbar") and not pg.errors, "said once"
     return "browser"
 
@@ -517,23 +538,25 @@ def arranging_works_with_the_keyboard(root, tmp):
         pg.wait_for_function("document.activeElement && document.activeElement.getAttribute('data-f') === 'arr:edit'")
         # a mouse drag on a grip, to the other column
         edit(pg)
-        src = pg.locator('[data-grip="tokens"]').bounding_box()
-        dst = pg.locator('#view .arr[data-blk="lanes"]').bounding_box()
+        pg.evaluate("scrollTo({ top: Math.min(document.querySelector('[data-grip=pace]').getBoundingClientRect().top, document.querySelector('#view .arr[data-blk=tasks]').getBoundingClientRect().top) + scrollY - 60, behavior: 'instant' })")
+        src = pg.locator('[data-grip="pace"]').bounding_box()
+        dst = pg.locator('#view .arr[data-blk="tasks"]').bounding_box()
+        assert 0 <= src["y"] < 860 and 0 <= dst["y"] < 860, "both ends of the drag are on screen: %r %r" % (src, dst)
         pg.mouse.move(src["x"] + src["width"] / 2, src["y"] + src["height"] / 2)
         pg.mouse.down()
         for k in range(1, 9):
             pg.mouse.move(src["x"] + (dst["x"] + 40 - src["x"]) * k / 8, src["y"] + (dst["y"] + 4 - src["y"]) * k / 8)
         pg.mouse.up()
-        pg.wait_for_function("document.querySelector('#view .col[data-col=main] .arr[data-blk=tokens]')")
+        pg.wait_for_function("document.querySelector('#view .col[data-col=main] .arr[data-blk=pace]')")
         main = layout_in(pg)["main"]
-        assert main.index("tokens") == main.index("lanes") - 1, "the drop lands where the line showed, before lanes: %r" % main
+        assert main.index("pace") == main.index("tasks") - 1, "the drop lands where the line showed, before tasks: %r" % main
         assert not pg.errors, pg.errors
     with browser(root, tmp, truth.rich_data(), phone=True) as pg:
         edit(pg)
         sizes = pg.evaluate("() => Array.from(document.querySelectorAll('#view .hbar button, .arrbar button')).filter(b => b.offsetParent).map(b => { const r = b.getBoundingClientRect(); return [r.width, r.height]; })")
         assert sizes and all(w >= 44 and hh >= 44 for w, hh in sizes), "44 px targets at phone width: %r" % [s for s in sizes if s[0] < 44 or s[1] < 44]
         assert pg.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth"), "no sideways scroll at 390 px"
-        pg.tap('[data-f="agents:down"]')
+        press(pg, '[data-f="agents:down"]', tap=True)
         pg.wait_for_function("(() => { const s = Array.from(document.querySelectorAll('#view .col[data-col=side] .arr')).map(e => e.getAttribute('data-blk')); return s.indexOf('agents') === 2; })()")
         cdp = pg.context.new_cdp_session(pg)
 
@@ -542,11 +565,12 @@ def arranging_works_with_the_keyboard(root, tmp):
             for k in range(1, 11):
                 cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": x0 + (x1 - x0) * k / 10, "y": y0 + (y1 - y0) * k / 10}]})
             cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
-        pg.evaluate("document.querySelector('#view .arr[data-blk=pace]').scrollIntoView({block: 'center'})")
+        pg.evaluate("scrollTo({ top: document.querySelector('#view .arr[data-blk=progress]').getBoundingClientRect().top + scrollY - 100, behavior: 'instant' })")
         y0 = pg.evaluate("scrollY")
         g = pg.locator('[data-grip="pace"]').bounding_box()
         prev = pg.locator('#view .arr[data-blk="progress"]').bounding_box()
-        target = max(4, prev["y"] + 4)
+        assert 60 < prev["y"] < g["y"] < 800, "the grip and the place it goes to are on screen: %r %r" % (prev, g)
+        target = prev["y"] + 4
         touch_drag(g["x"] + g["width"] / 2, g["y"] + g["height"] / 2, g["x"] + g["width"] / 2, target)
         pg.wait_for_function("(() => { const s = Array.from(document.querySelectorAll('#view .col[data-col=side] .arr')).map(e => e.getAttribute('data-blk')); return s.indexOf('pace') < s.indexOf('progress'); })()")
         assert abs(pg.evaluate("scrollY") - y0) < 80, "a drag on the grip does not scroll the page: %r -> %r" % (y0, pg.evaluate("scrollY"))
@@ -596,9 +620,9 @@ def corrupt_arrangement_gives_the_default(root, tmp):
     with browser(root, tmp, data) as pg:   # a component that throws, moved and hidden
         edit(pg)
         assert "Could not draw this block (agents)" in pg.inner_text('#view .arr[data-blk="agents"]')
-        pg.click('[data-f="agents:up"]')
+        press(pg, '[data-f="agents:up"]')
         pg.wait_for_function("document.querySelector('#view .col[data-col=side]').children[0].getAttribute('data-blk') === 'agents'")
-        pg.click('[data-f="agents:hide"]')
+        press(pg, '[data-f="agents:hide"]')
         pg.wait_for_function("document.querySelector('[data-f=\"add:agents\"]')")
         assert pg.locator("#view .col .arr").count() == len(ORDER) - 1 and not pg.errors, pg.errors
     return "browser"

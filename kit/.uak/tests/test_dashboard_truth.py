@@ -604,7 +604,8 @@ def browser_page(root, tmp, data, tab, extra="", phone=False):
     (tmp / "data.js").write_text("window.UAK_DATA = " + json.dumps(data) + ";", encoding="utf-8")
     with sync_playwright() as p:
         b = p.chromium.launch()
-        pg = b.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=3, is_mobile=True, has_touch=True, accept_downloads=True) if phone else b.new_page(viewport={"width": 1280, "height": 900})
+        ctx = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, is_mobile=True, has_touch=True, accept_downloads=True) if phone else b.new_context(viewport={"width": 1280, "height": 900})
+        pg = ctx.new_page()   # a context of its own, so use_language can open a second document of the same origin
         pg.errors = []
         pg.on("pageerror", lambda e: pg.errors.append(str(e)))
         if tab:

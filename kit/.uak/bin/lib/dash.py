@@ -2,6 +2,7 @@
 """uak dash: one local page with the whole team state, read-only from the claims branch.
 
     bash .uak/bin/uak dash [--watch SECONDS] [--open] [--out DIR] [--claims DIR]
+    bash .uak/bin/uak dash layout [--save main=A,B side=C,D [hide=E]]
 
 Writes <git common dir>/uak-dash/index.html (once) and data.js (every refresh). The page reloads data.js by
 itself, so it works from file:// with no server, no CDN and no framework. --watch keeps refreshing (default 20 s).
@@ -963,7 +964,85 @@ def page_html(template, pal):
     return html.replace('content="dev"', 'content="%s"' % page_version(template), 1).replace(LOOK_TAG, LOOK_TAG.replace("clasico", pal), 1)
 
 
+# The summary's components, in the default order and column (dash.html's BLOCKS; test_dashboard_layout checks both agree).
+LAYOUT_COMPONENTS = (("needs", "main"), ("map", "main"), ("tasks", "main"), ("lanes", "main"),
+                     ("progress", "side"), ("agents", "side"), ("pace", "side"), ("tokens", "side"))
+LAYOUT_FILE = ".uak/dash/layout.json"
+
+
+def layout_parse(words):
+    """`main=A,B side=C hide=D` -> ({main, side, hide}, None) or (None, the sentence that refuses it). Strict: only the three
+    columns, only known component names, each at most once, "needs" never hidden. A component it does not name takes its
+    default place in the page (a newer page may add components; an older team file keeps working)."""
+    known = [n for n, _ in LAYOUT_COMPONENTS]
+    out, seen = {"main": [], "side": [], "hide": []}, set()
+    if not words:
+        return None, "layout --save needs the arrangement: main=NAME,NAME side=NAME,NAME [hide=NAME] (Edit in the page shows the command for yours)"
+    for word in words:
+        col, eq, names = word.partition("=")
+        if not eq or col not in out:
+            return None, "layout: %r is not main=, side= or hide=" % word
+        if out[col]:
+            return None, "layout: %s= is given twice" % col
+        for name in [x for x in names.split(",") if x]:
+            if name not in known:
+                return None, "layout: %r is not a component of the summary (known: %s)" % (name, ", ".join(known))
+            if name in seen:
+                return None, "layout: %s is named twice" % name
+            if col == "hide" and name == "needs":
+                return None, "layout: needs cannot be hidden: the summary always says what waits for you"
+            seen.add(name)
+            out[col].append(name)
+    return out, None
+
+
+def team_layout(root):
+    """The team's default arrangement (.uak/dash/layout.json of this checkout) for data.js, or None: a missing, unreadable or
+    malformed file is no default (the page then uses its own order), never a failure of the dashboard. Unknown names are dropped."""
+    try:
+        raw = json.loads((Path(root) / LAYOUT_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("main"), list) or not all(isinstance(raw.get(k, []), list) for k in ("side", "hide")):
+        return None
+    known = {n for n, _ in LAYOUT_COMPONENTS}
+    return {k: [n for n in raw.get(k, []) if isinstance(n, str) and n in known] for k in ("main", "side", "hide")}
+
+
+def layout_main(argv):
+    """`uak dash layout`: print the team's default; `--save main=… side=… [hide=…]`: write it to .uak/dash/layout.json (that
+    file only), for a task or the human to commit. The viewer's own arrangement stays in their browser."""
+    ap = argparse.ArgumentParser(prog="uak dash layout")
+    ap.add_argument("--save", nargs="*", metavar="COLUMN=NAMES")
+    a = ap.parse_args(argv)
+    top = run_git("rev-parse", "--show-toplevel")
+    if top.returncode != 0:
+        print("layout: not a Git repository", file=sys.stderr)
+        return 2
+    root = Path(top.stdout.decode("utf-8", "replace").strip())
+    if a.save is None:
+        cur = team_layout(root)
+        if cur is None:
+            print("LAYOUT no team default (%s): every viewer starts from the page's own order" % LAYOUT_FILE)
+        else:
+            print("LAYOUT %s · main=%s side=%s hide=%s" % (LAYOUT_FILE, ",".join(cur["main"]), ",".join(cur["side"]), ",".join(cur["hide"])))
+        return 0
+    lay, why = layout_parse(a.save)
+    if why:
+        print(why, file=sys.stderr)
+        return 2
+    path = root / LAYOUT_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(dict(lay, v=1), indent=2) + "\n", encoding="utf-8")
+    os.replace(str(tmp), str(path))
+    print("LAYOUT_SAVED %s · commit it: a viewer with no arrangement of their own starts from it" % LAYOUT_FILE)
+    return 0
+
+
 def main():
+    if sys.argv[1:2] == ["layout"]:
+        return layout_main(sys.argv[2:])
     ap = argparse.ArgumentParser(prog="uak dash")
     ap.add_argument("--watch", nargs="?", const=20, type=int, default=0)
     ap.add_argument("--open", action="store_true")
@@ -1006,6 +1085,7 @@ def main():
                 (out / "index.html").write_text(page_html(tpl, pal), encoding="utf-8")
             data["live_url"] = (project_live_url(read(Path(root) / ".uak/PROJECT.md")) if a.claims
                                 else base_live_url(root))
+            data["layout"] = team_layout(root)   # the team's default arrangement of the summary (UAK-165), or None
             commits = None if a.claims else base_commits(root)
             if commits is not None:
                 data["commits"] = commits
