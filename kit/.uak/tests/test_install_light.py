@@ -223,6 +223,7 @@ def marathon_install_under_260_files(r):
 
 PARTS = ("bin", "bin/lib", "docs", "modes", "templates", "settings", "stacks", "tests", "skills/test-first",
          "skills/frontend-design", "skills/mcp-builder")
+ALL_HARNESS = "claude,codex,cursor,gemini"
 
 
 def kit_copy(r, name):
@@ -243,7 +244,7 @@ def plant_bytecode(root):
     for f in folders:
         if not f.is_dir():
             continue
-        for rel in ("stray.pyc", "__pycache__/mod.cpython-311.pyc", "__pycache__/mod.cpython-38.opt-1.pyc"):
+        for rel in ("stray.pyc", "__pycache__/mod.cpython-311.pyc", "__pycache__/mod.cpython-38.opt-1.pyc", "__pycache__/mod.cpython-311.pyc.140234"):  # the last: the temporary name Python writes first
             q = f / rel
             q.parent.mkdir(exist_ok=True)
             q.write_bytes(b"\x00bytecode")
@@ -258,80 +259,126 @@ def tree(root):
     return out
 
 
-def install_from(r, root, d, *args):
+def run_install(r, root, d, *args, env=None):
     e = r.env.copy()
     e["UAK_EXTERNAL_SKILLS"] = "off"
-    out = subprocess.run([r.bash, str(root / "install.sh"), *args, str(d)], capture_output=True, text=True, errors="replace",
-                         env=e, timeout=240, stdin=subprocess.DEVNULL)
+    e.update(env or {})
+    return subprocess.run([r.bash, str(root / "install.sh"), *args, str(d)], capture_output=True, text=True, errors="replace",
+                          env=e, timeout=240, stdin=subprocess.DEVNULL)
+
+
+def install_from(r, root, d, *args):
+    out = run_install(r, root, d, *args)
     expect(out.returncode == 0, "install failed: " + out.stdout[-400:] + out.stderr[-400:])
 
 
 def bytecode_in(d):
     return sorted(p.relative_to(d).as_posix() for p in d.rglob("*")
-                  if ".git" not in p.relative_to(d).parts and (p.name == "__pycache__" or p.suffix == ".pyc"))
+                  if ".git" not in p.relative_to(d).parts and (p.name == "__pycache__" or p.suffix == ".pyc")
+                  and p.relative_to(d).parts[0] not in ("app", "web"))
 
 
-def install_copies_no_bytecode(r):
-    for mode in ("sprint", "marathon"):
-        root = kit_copy(r, "inst-" + mode)
-        planted = plant_bytecode(root)
-        expect(len(planted) > 30, "bytecode planted in every folder: %d" % len(planted))
-        d = repo(r, "nobc-" + mode)
+def bytecode_fixture(r):
+    """One planted kit copy and one install per configuration, shared by the four cases (Windows pays for every install)."""
+    if hasattr(r, "bytecode_fixture"):
+        return r.bytecode_fixture
+    fx = {"root": kit_copy(r, "planted")}
+    fx["planted"] = plant_bytecode(fx["root"])
+    fx["before"] = tree(fx["root"])
+    for name, mode, args in (("marathon", "marathon", ("--harness", "claude")), ("sprint", "sprint", ("--with-tests", "--harness", ALL_HARNESS))):
+        d = repo(r, "bc-" + name)
         own = d / "app/__pycache__/own.cpython-311.pyc"
         own.parent.mkdir(parents=True)
         own.write_bytes(b"the project's own")
-        install_from(r, root, d, "--mode", mode, "--with-tests", "--harness", "claude,codex,cursor,gemini")
-        left = [p for p in bytecode_in(d) if not p.startswith("app/")]
-        expect(not left, "%s: bytecode installed: %s" % (mode, left[:5]))
-        expect((d / ".uak/bin/lib").is_dir() and (d / ".claude/skills/test-first/SKILL.md").is_file(), "the install itself is whole")
-        expect(own.read_bytes() == b"the project's own", "a project's own __pycache__ is untouched")
-    return "none of %d planted copied" % len(planted)
+        install_from(r, fx["root"], d, "--mode", mode, *args)
+        fx[name] = {"dir": d, "own": own, "left": bytecode_in(d), "files": len(files(d)) - 1}
+    d = fx["sprint"]["dir"]
+    web = d / "web/__pycache__/own.pyc"
+    web.parent.mkdir(parents=True)
+    web.write_bytes(b"own")
+    install_from(r, fx["root"], d, "--mode", "sprint", "--update", "--with-tests", "--harness", ALL_HARNESS)
+    fx["update"] = {"own": web, "left": bytecode_in(d)}
+    fx["after"] = tree(fx["root"])
+    r.bytecode_fixture = fx
+    return fx
+
+
+def install_copies_no_bytecode(r):
+    fx = bytecode_fixture(r)
+    expect(len(fx["planted"]) > 30, "bytecode planted in every folder: %d" % len(fx["planted"]))
+    for name in ("marathon", "sprint"):
+        expect(not fx[name]["left"], "%s: bytecode installed: %s" % (name, fx[name]["left"][:5]))
+        expect((fx[name]["dir"] / ".uak/bin/lib").is_dir() and (fx[name]["dir"] / ".claude/skills/test-first/SKILL.md").is_file(), "the install itself is whole")
+        expect(fx[name]["own"].read_bytes() == b"the project's own", "a project's own __pycache__ is untouched")
+    return "none of %d planted copied" % len(fx["planted"])
 
 
 def update_copies_no_bytecode(r):
-    root = kit_copy(r, "upd")
-    d = repo(r, "upd")
-    install_from(r, root, d, "--mode", "sprint", "--with-tests")
-    plant_bytecode(root)
-    own = d / "web/__pycache__/own.pyc"
-    own.parent.mkdir(parents=True)
-    own.write_bytes(b"own")
-    install_from(r, root, d, "--mode", "sprint", "--update", "--with-tests")
-    left = [p for p in bytecode_in(d) if not p.startswith("web/")]
-    expect(not left, "update installed bytecode: %s" % left[:5])
-    expect(own.read_bytes() == b"own", "the project's own bytecode stays after an update")
+    fx = bytecode_fixture(r)
+    expect(not fx["update"]["left"], "update installed bytecode: %s" % fx["update"]["left"][:5])
+    expect(fx["update"]["own"].read_bytes() == b"own", "the project's own bytecode stays after an update")
     return "update clean"
 
 
 def count_is_the_same_with_bytecode_in_the_kit(r):
-    counts = []
-    for name, plant in (("clean", False), ("dirty", True)):
-        root = kit_copy(r, "cnt-" + name)
-        if plant:
-            plant_bytecode(root)
-        d = repo(r, "cnt-" + name)
-        install_from(r, root, d, "--mode", "marathon", "--harness", "claude")
-        counts.append(len(files(d)))
-    expect(counts[0] == counts[1], "files with a clean kit %d, with bytecode in it %d" % tuple(counts))
-    return "%d files either way" % counts[0]
+    fx = bytecode_fixture(r)
+    d = repo(r, "cnt-clean")  # a kit without planted bytecode: the real one, which is only read
+    install_from(r, r.package.parent, d, "--mode", "marathon", "--harness", "claude")
+    clean = len([p for p in files(d) if "__pycache__" not in p.parts])
+    expect(clean == fx["marathon"]["files"], "files with a clean kit %d, with bytecode in it %d" % (clean, fx["marathon"]["files"]))
+    return "%d files either way" % clean
 
 
 def source_folder_is_left_as_it_was(r):
-    root = kit_copy(r, "src")
-    planted = plant_bytecode(root)
-    before = tree(root)
-    d = repo(r, "src")
-    install_from(r, root, d, "--mode", "sprint", "--with-tests")
-    install_from(r, root, d, "--mode", "sprint", "--update", "--with-tests")
-    expect(all(p.is_file() for p in planted), "the planted bytecode is still in the source")
-    after = tree(root)
-    expect(before == after, "the source changed: %s" % sorted(set(before) ^ set(after) | {k for k in before if after.get(k) != before[k]})[:5])
-    return "%d entries unchanged" % len(after)
+    fx = bytecode_fixture(r)
+    expect(all(p.is_file() for p in fx["planted"]), "the planted bytecode is still in the source")
+    expect(fx["before"] == fx["after"], "the source changed: %s" % sorted({k for k in set(fx["before"]) | set(fx["after"]) if fx["before"].get(k) != fx["after"].get(k)})[:5])
+    return "%d entries unchanged" % len(fx["after"])
+
+
+def a_failed_copy_stops_the_install(r, out, d, part):
+    expect(out.returncode != 0, "the install said success: " + out.stdout[-300:])
+    expect("could not copy .uak/%s" % part in out.stderr, "it names the part: " + out.stderr[-400:])
+    expect("Continue in the terminal" not in out.stdout, "and does not go on: " + out.stdout[-300:])
+    expect(not (d / ".uak" / part).exists(), "no half-copied %s is left as installed" % part)
+    expect((d / ".uak/INSTALLING").exists(), "the install is still marked incomplete")
+
+
+def unreadable_source_file_fails_the_install(r):
+    if os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0):
+        return "skipped: file modes do not apply on Windows or as root"
+    root = bytecode_fixture(r)["root"]
+    victim = root / "kit/.uak/bin/lib/setup.py"
+    mode = victim.stat().st_mode
+    victim.chmod(0)
+    try:
+        d = repo(r, "unreadable")
+        out = run_install(r, root, d, "--mode", "sprint")
+    finally:
+        victim.chmod(mode)
+    a_failed_copy_stops_the_install(r, out, d, "bin")
+    return "exit %d, bin not left behind" % out.returncode
+
+
+def unwritable_destination_fails_the_install(r):
+    if os.name == "nt":
+        return "skipped: the stand-in tar is a POSIX script"
+    root = bytecode_fixture(r)["root"]
+    shim = r.scratch / "shim-tar"
+    shim.mkdir()
+    real = shutil.which("tar", path=r.env.get("PATH"))
+    (shim / "tar").write_text('#!/bin/sh\ncase "$*" in *-xf*) echo "tar: cannot write: No space left on device" >&2; exit 2;; esac\nexec %s "$@"\n' % real, newline="\n")
+    (shim / "tar").chmod(0o755)
+    d = repo(r, "unwritable")
+    out = run_install(r, root, d, "--mode", "sprint", env={"PATH": str(shim) + os.pathsep + r.env.get("PATH", "")})
+    a_failed_copy_stops_the_install(r, out, d, "bin")
+    return "exit %d, bin not left behind" % out.returncode
 
 
 TESTS = [install_has_no_kit_tests, with_tests_installs_them, update_removes_only_known_test_files, skill_add_copies_one,
          marathon_install_under_260_files, install_copies_no_bytecode, update_copies_no_bytecode,
-         count_is_the_same_with_bytecode_in_the_kit, source_folder_is_left_as_it_was]
+         count_is_the_same_with_bytecode_in_the_kit, source_folder_is_left_as_it_was,
+         unreadable_source_file_fails_the_install, unwritable_destination_fails_the_install]
 
 
 def main():
