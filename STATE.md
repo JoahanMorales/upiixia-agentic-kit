@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1795633813
+Updated: 1795633877
 AVAILABLE: UAK-163 UAK-164 UAK-166 UAK-167 UAK-196 
 CLAIMED: UAK-160 UAK-197 
 BLOCKED: -
@@ -15,11 +15,11 @@ UAK-197 | CLAIMED | kit-a3 | until 1795647449
 
 Blockers: BLOCKED tasks; use status --task ID --summary.
 Current decisions (last 5):
-- 1795619911 | UAK-165 | unknown names dropped, rest kept; drag on a grip only | Why: acceptance amended 2026-11-25
 - 1795625097 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-197 | Why: backlog without PR (Plan-Channel: claims)
 - 1795625101 | allow | JoahanMorales | test change: UAK-197 | Why: mueve casos del hook a otro archivo sin cambiarlos y sube a 12 los bloques de Windows en tres casos
 - 1795625127 | allow | JoahanMorales | test change: UAK-165 | Why: la enmienda 12 subió el límite de peso de la página a 256 KiB
 - 1795626438 | deadline lease/UAK-160/1795626276 | REQUIRES_RECOVERY | Claim kept; read the summary and use release --expired --read-summary. No work is deleted.
+- 1795633877 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-198 | Why: backlog without PR (Plan-Channel: claims)
 
 Global next step: available P0; else review PRs, tests, demo, rehearsal.
 Why: bounded snapshot to resume without rereading history.
