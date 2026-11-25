@@ -14,3 +14,22 @@
 - **Tests:** poster_uses_the_kit_palette, frames_use_the_kit_palette, captions_match_the_scenes, media_is_not_heavier
 - **Verify:** `python3 kit/.uak/tests/test_setup_tutorial.py`
 - **Next step:** `docs/video/scenes.html` and `render.mjs`; `cd docs/video && npm ci && npx playwright-core install chromium-headless-shell && npm run render`; ffmpeg must be on PATH (`sudo apt install -y ffmpeg` on the machine that renders). Screenshots of the poster and of each scene go to the human before review
+
+## UAK-202 · The README is rewritten: what the kit is, in plain words, readable by a person and by an agent
+
+- **Type:** docs
+- **Priority:** P0
+- **Estimate:** 6 h
+- **Depends on:** UAK-195
+- **Paths:** README.md, llms.txt, docs/GUIDE.md, docs/REFERENCE.md, docs/EVIDENCE.md, kit/.uak/tests/test_readme.py, kit/.uak/tests/timings/test_readme.txt
+- **Acceptance:**
+  - the README is rewritten from an empty page, not edited: at most 150 lines, and its first screen answers four questions in this order with no slogan before them: what this is (one sentence a person outside the project understands), who it is for, what you get after ten minutes, and the one command to start. Why: the human, 2026-11-25: "every time it fills with more slop and buzzwords and it is not understandable for an agent"; the README is 656 lines and 57,919 bytes, with 26 top-level sections, and each release appended a section instead of rewriting
+  - no sentence sells: no superlative, no "without chaos", "battle-tested", "blazing", "seamless", "powerful", "supercharge", "next-level" or the like; a list of such words lives in the test and a new one fails it. Every number in the README names what was measured and links to where (`docs/EVIDENCE.md`, a run, a task); a number that cannot be traced is removed, not softened
+  - an agent can act from it: the commands are in code blocks that can be pasted as they are; every `uak` command the README names exists in `kit/.uak/bin/lib/commands.tsv` with the options shown (a case checks each one); a short section "For an agent reading this" says which file to read for what (`AGENTS.md` for the rules, `kit/.uak/docs/CLI.md` for commands, `kit/.uak/docs/WHY.md` for the reasons), and `llms.txt` says the same things in the same order, shorter, with no claim the README does not make
+  - what leaves the README is not lost: the walkthroughs go to `docs/GUIDE.md`, the lists of commands, modes, stacks and options to `docs/REFERENCE.md`, the measurements and the team runs to `docs/EVIDENCE.md`; each is linked once from the README, and a case fails when a section of today's README has no home in one of the four files (by its heading or an explicit "dropped: reason" line in the pull request)
+  - the screenshots in the README are the product of today (the wizard of UAK-159 and UAK-192, the dashboard of UAK-162, UAK-165 and UAK-198) and each has alt text that says what it shows
+  - the existing cases that read the README (`test_tutorial_video`, `test_external_skills`, `test_tokens_elsewhere`, `test_setup_prepare`, `test_merge_engine_policy`, `test_ci_tiers`, `test_ci_shards`, `test_hook_session_start_speed`) keep passing unchanged: what they assert stays in the README or the task stops and lists the lines for the human's `uak allow`
+  - the draft is shown to the human before review, as a rendered page and as plain text, in Spanish summary of each section's purpose; the README itself stays in English
+- **Tests:** readme_is_at_most_150_lines, first_screen_answers_the_four_questions, no_selling_words, every_number_has_a_source, every_command_exists, llms_txt_agrees_with_the_readme, every_old_section_has_a_home
+- **Verify:** `python3 kit/.uak/tests/test_readme.py && python3 scripts/kit_lint.py`
+- **Next step:** read today's README once to list what it claims, then close it; write for a reader who has ten minutes and no context; the measurements are in `uak metrics`, kit/.uak/docs/WHY.md and docs/plans; the release (UAK v6.9) uses this README, so this task lands before it
