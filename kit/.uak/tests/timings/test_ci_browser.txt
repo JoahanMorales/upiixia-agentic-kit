@@ -1,4 +1,4 @@
-# measured 2026-11-25 45627486099
-# each entry is ceil(MAXIMUM over the runs read) + 1 s: runs 45572725477 45575241748 45577641985 45583823702 45592256338 45606588040 45617594578 45627486099, `ci` over Linux and macOS, `windows` over Windows: Linux max 5.4, macOS max 15.0, Windows max 13.4
+# measured 2026-11-25 45633439357
+# each entry is ceil(MAXIMUM over the runs read) + 1 s: runs 45572725477 45575241748 45577641985 45583823702 45592256338 45606588040 45617594578 45627486099 45633439357, `ci` over Linux and macOS, `windows` over Windows: Linux max 5.4, macOS max 15.0, Windows max 15.0
 ci 16
-windows 15
+windows 16
