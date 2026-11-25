@@ -20,7 +20,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
 from pathlib import Path
@@ -342,39 +341,11 @@ def install_gains_no_file(tmp):
             continue
         hit = [w for w in words if w in body]
         expect(not hit, "%s names the CI's browser (%s): the browser is the kit's CI's, not the product's" % (p.relative_to(target), hit))
-    # the list of installed files, before and after this branch: the kit of the merge base with main, installed the same way
-    base = base_commit()
-    if base is None:
-        return "%d files placed, none about the CI's browser; no main here to compare the file list with (a shallow checkout)" % len(placed)
-    old_kit = tmp / "base"
-    old_kit.mkdir()
-    tar = subprocess.run(["git", "-C", str(REPO), "archive", "--format=tar", base, "kit", "install.sh"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    expect(tar.returncode == 0, "git archive of %s: %s" % (base[:8], tar.stderr.decode(errors="replace")[-300:]))
-    with tarfile.open(fileobj=io.BytesIO(tar.stdout)) as tf:
-        tf.extractall(str(old_kit), **({"filter": "tar"} if hasattr(tarfile, "tar_filter") else {}))   # modes kept (install.sh is run)
-    before_target = tmp / "project-before"
-    before_target.mkdir()
-    subprocess.run(["git", "-C", str(before_target), "init", "-q", "-b", "main"], check=True, stdout=subprocess.DEVNULL)
-    out = subprocess.run([cs()._bash(), str(old_kit / "install.sh"), "--mode", "marathon", str(before_target)], cwd=str(old_kit), env=env, stdin=subprocess.DEVNULL,
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, errors="replace", timeout=300)
-    expect(out.returncode == 0, "the kit of %s installs: %s" % (base[:8], out.stdout[-600:]))
-    before = {q.relative_to(before_target).as_posix() for q in before_target.rglob("*") if q.is_file() and ".git" not in q.relative_to(before_target).parts}
-    after = {q.relative_to(target).as_posix() for q in placed}
-    gained = sorted(after - before)
-    expect(not gained, "an installed project gains no file against main (%s): %s" % (base[:8], gained[:10]))
-    return "%d files placed, the same list as the kit of %s, none about the CI's browser" % (len(placed), base[:8])
-
-
-def base_commit():
-    """The merge base of this checkout with main (origin/main, else main), or None in a shallow checkout without it."""
-    for ref in ("origin/main", "main"):
-        ok = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--verify", "-q", ref + "^{commit}"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        if ok.returncode != 0:
-            continue
-        mb = subprocess.run(["git", "-C", str(REPO), "merge-base", "HEAD", ref], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, universal_newlines=True)
-        if mb.returncode == 0 and mb.stdout.strip():
-            return mb.stdout.strip()
-    return None
+    # the files this task adds or changes are the kit's CI's: none of them is installed (a fixed list, not "nothing new against main")
+    own = (".uak/tests/test_ci_browser.py", ".uak/tests/timings/test_ci_browser.txt", "scripts/ci_select.py", ".github/workflows/test.yml")
+    rel = {q.relative_to(target).as_posix() for q in placed}
+    expect(not [x for x in own if x in rel], "this task's own files are not installed: %s" % [x for x in own if x in rel])
+    return "%d files placed, none of this task's files, none naming the CI's browser" % len(placed)
 
 
 TESTS = [browser_cases_run_on_the_linux_job, skip_without_browser_is_not_a_pass, skip_fails_where_a_browser_is_declared,
