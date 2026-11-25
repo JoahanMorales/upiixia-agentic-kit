@@ -150,3 +150,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1795553930 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-162 | Why: scope or criteria fixed before review
 - 1795560663 | deadline lease/UAK-162/1795552429 | REQUIRES_RECOVERY | Claim kept; read the summary and use release --expired --read-summary. No work is deleted.
 - 1795578320 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-193 | Why: backlog without PR (Plan-Channel: claims)
+- 1795586935 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-194 | Why: backlog without PR (Plan-Channel: claims)
