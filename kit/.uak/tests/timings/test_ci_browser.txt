@@ -1,3 +1,4 @@
-# provisional (local Linux run 7 s); measured again from CI before hand-in
-ci 15
-windows 40
+# measured 2026-11-25 45575241748
+# each entry is ceil(MAXIMUM over the runs read) + 1 s: runs 45572725477 45575241748 45577641985, `ci` over Linux and macOS, `windows` over Windows: Linux max 5.2, macOS max 5.9, Windows max 13.1
+ci 7
+windows 15
