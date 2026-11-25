@@ -59,6 +59,8 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount); else mount();
 })();
 /* uak-look:end */
+// The page's language before its first paint (UAK-165): the same choice workspace.js makes, read the same way; its words come with the page's script.
+try { document.documentElement.lang = (localStorage.getItem("uak-language") || (/^es\b/i.test(navigator.language || "") ? "es" : "en")) === "es" ? "es" : "en"; } catch (e) {}
 </script>
 <style>
 /* uak-system:begin (one design system: setup.html and dash.html carry this block byte for byte; test_setup_design.py compares them) */
@@ -443,6 +445,31 @@ svg.idc .px { fill: hsl(var(--h) var(--idc-px-s) var(--idc-px-l)); }
 .next { display: grid; gap: 12px; justify-items: start; padding: 24px; }
 .next h2 { margin: 0; font-size: 24px; line-height: 1.2; letter-spacing: -.02em; }
 .next p { margin: 0; color: var(--ink-2); max-width: 56ch; }
+/* Arranging the summary: a dashed outline, the handles in place of the header, and a slow shake out of step (none under reduced motion). */
+.arrbar { grid-column: 1 / -1; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+.arrbar p { margin: 0 auto 0 0; color: var(--muted); }
+.arrbar.on { padding: 12px; border: 1px dashed var(--accent-line); border-radius: var(--r); background: var(--accent-wash); }
+.arrbar.on .tip { color: var(--ink); font-weight: 600; }
+.ab { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); color: var(--ink); font: 500 12px var(--sans); }
+.ab:hover { background: var(--hover); } .ab[disabled] { color: var(--muted); background: none; cursor: default; }
+.ab.done { background: var(--ink); border-color: var(--ink); color: var(--page); }
+.adds, .team { flex: 1 1 100%; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.team .cmd { min-width: 0; } .team code { white-space: normal; overflow-wrap: anywhere; }
+.addb { display: grid; gap: 4px; max-width: 280px; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); color: var(--muted); text-align: left; }
+.addb b { display: flex; align-items: center; gap: 4px; color: var(--ink); }
+.addb:hover, .hnd:hover { border-color: var(--accent-line); color: var(--ink); }
+.arr { position: relative; outline: 1px dashed var(--accent-line); outline-offset: 4px; border-radius: var(--r); animation: jig 1.6s ease-in-out var(--d) infinite alternate; }
+.arr:hover, .arr:focus-within { animation: none; }
+@keyframes jig { from { transform: rotate(-.5deg); } to { transform: rotate(.5deg); } }
+.arr > .blk > .bh { display: none; }
+.hbar { display: flex; align-items: center; gap: 4px; min-height: 32px; margin: 0 0 8px; }
+.hbar b { margin-right: auto; }
+.hnd { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); color: var(--ink-2); }
+.hnd[disabled] { opacity: .4; cursor: default; }
+.grip { display: grid; place-items: center; width: 24px; height: 32px; margin-left: -4px; color: var(--muted); cursor: grab; touch-action: none; }
+.arr.drag { z-index: 30; animation: none; box-shadow: var(--shadow); background: var(--page); }
+.dropline { position: fixed; z-index: 40; height: 3px; border-radius: 999px; background: var(--accent-line); pointer-events: none; }
+.arr-empty { margin: 0; padding: 24px 16px; border: 1px dashed var(--line-2); border-radius: var(--r); color: var(--muted); text-align: center; }
 .g2 { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,360px),1fr)); gap: 16px; align-items: start; }
 .hb { display: grid; grid-template-columns: minmax(64px,160px) minmax(0,1fr) auto; gap: 8px 12px; align-items: center; padding: 12px; }
 .hb .l { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -547,7 +574,7 @@ dialog#story::backdrop { background: var(--scrim); }
 @media (max-width:1100px) {
   .cv { grid-template-columns: minmax(0,1fr); }
   .cl { position: static; }
-  .page { grid-template-columns: minmax(0,1fr); }
+  .page { grid-template-columns: minmax(0,1fr); } .hnd[data-f$=":col"] { display: none; }
   .bd { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .win-f.f4 { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .win-f.f4 > :nth-child(3) { border-left: 0; }
@@ -584,6 +611,7 @@ dialog#story::backdrop { background: var(--scrim); }
   .win-f > * { padding: 8px; }
   .dg { flex-direction: column; } .dg .dl { width: 2px; height: 16px; flex: none; margin-left: 24px; }
   .sq { width: 32px; height: 32px; } .sq.sm { width: 14px; height: 14px; }
+  .hnd { width: 44px; height: 44px; } .ab { min-height: 44px; } .addb { max-width: none; flex: 1 1 100%; } .grip { width: 44px; height: 44px; }
   .tbl th, .tbl td { padding: 8px 4px; }
   .row { grid-template-columns: 32px minmax(0,1fr); } .row .meta { grid-column: 2; white-space: normal; }
 }
@@ -599,7 +627,7 @@ dialog#story::backdrop { background: var(--scrim); }
 <div class="main">
 <header class="head">
   <div class="brand"><span id="logo"></span><h1 id="repo" data-no-i18n>uak dash</h1><span class="chip" id="modechip" data-no-i18n hidden></span></div>
-  <span class="fresh" id="fresh"><span class="live"></span><span id="freshtxt">loading…</span></span>
+  <span class="fresh" id="fresh"><span class="live"></span><span id="freshtxt"></span></span>
   <span class="fresh" id="freeze" hidden></span>
   <button class="chip" id="share-btn" type="button" data-no-i18n></button>
   <details class="ap" id="look">
@@ -620,6 +648,7 @@ dialog#story::backdrop { background: var(--scrim); }
 <dialog id="story" aria-labelledby="story-title"></dialog>
 <dialog id="share" aria-labelledby="share-t"></dialog>
 <div id="tip" role="tooltip"></div>
+<p id="arr-live" class="sr-only" role="status"></p>
 <script src="workspace.js"></script>
 <script src="data.js"></script>
 <script>
@@ -770,7 +799,38 @@ dialog#story::backdrop { background: var(--scrim); }
     'Start the guide: it asks what you build and writes the plan.': 'Inicia la guía: te pregunta qué construyes y escribe el plan.',
     'Nothing is claimed or integrated yet, so every figure is zero.': 'Aún no se toma ni integra nada, por eso las cifras están en cero.',
     'Lease used': 'Plazo usado',
-    'late': 'tarde'
+    'late': 'tarde',
+    'Edit': 'Editar',
+    'Add': 'Añadir',
+    'Hide': 'Ocultar',
+    'Hidden': 'Oculto',
+    'Always shown': 'Siempre visible',
+    'Move up': 'Subir',
+    'Move down': 'Bajar',
+    'To the other column': 'A la otra columna',
+    'Drag to move': 'Arrastra para mover',
+    'Palette': 'Paleta',
+    'The default is back': 'Vuelve la disposición predeterminada',
+    'The team\'s default is back': 'Vuelve la disposición del equipo',
+    'Main column': 'Columna principal',
+    'Side column': 'Columna lateral',
+    'Move a component here': 'Mueve un componente aquí',
+    'Move, hide or add components. Done when you finish.': 'Mueve, oculta o añade componentes. Hecho cuando termines.',
+    'Restore the default': 'Volver a la predeterminada',
+    'Restore the team\'s default': 'Volver a la del equipo',
+    'Every component is shown.': 'Todos los componentes están a la vista.',
+    'For the whole team: run this and commit the file it writes': 'Para todo el equipo: ejecuta esto y haz commit del archivo que escribe',
+    'This browser does not keep the arrangement: it lasts until the page is closed.': 'Este navegador no guarda la disposición: dura hasta que cierres la página.',
+    'Your saved arrangement could not be read: the summary shows the default.': 'Tu disposición guardada no se pudo leer: el resumen muestra la predeterminada.',
+    'Your arrangement named components that no longer exist: they were left out.': 'Tu disposición nombraba componentes que ya no existen: se dejaron fuera.',
+    'What waits for you: reviews, stalled tasks, the human queue': 'Lo que espera por ti: revisiones, tareas detenidas, la cola humana',
+    'Every task as a square, with what it waits for': 'Cada tarea como un cuadro, con lo que espera',
+    'The tasks that are moving, as a list or columns': 'Las tareas en marcha, en lista o en columnas',
+    'Who built and reviewed what, over time': 'Quién construyó y revisó qué, en el tiempo',
+    'How much of the plan is integrated': 'Cuánto del plan está integrado',
+    'Who is online and on which task': 'Quién está en línea y en qué tarea',
+    'Tasks integrated per period': 'Tareas integradas por periodo',
+    'Tokens spent, by harness': 'Tokens gastados, por arnés'
   };
   function L(s) { return window.UAKWorkspace && UAKWorkspace.language() === "es" && ES[s] || T(s); }
   var langBox = document.getElementById("dash-language");
@@ -1001,6 +1061,57 @@ dialog#story::backdrop { background: var(--scrim); }
   // What the copy and the share hand over, made from the bytes of the image shown (env stands for window: its Blob, File and ClipboardItem).
   function copyImage(env, bytes) { return env.nav.clipboard.write([new env.ClipboardItem({ "image/png": new env.Blob([bytes], { type: "image/png" }) })]); }
   function shareImage(env, bytes, name, title) { return env.nav.share({ files: [new env.File([bytes], name, { type: "image/png" })], title: title }); }
+  // The summary's arrangement (UAK-165): {main, side, hide}, lists of component names. def is [[name, column], ...] in the default
+  // order. A stored arrangement is checked against it: a name it does not know is left out (note "unknown"), one that cannot be
+  // read gives the default (note "corrupt"), a component it does not name takes its default place, "needs" is never hidden.
+  function arrRead(def, raw) {
+    var x = raw, out = { main: [], side: [], hide: [] }, seen = {}, home = {}, note = "";
+    def.forEach(function (b) { home[b[0]] = b[1]; });
+    if (typeof x === "string") { try { x = x.length > 4096 ? 0 : JSON.parse(x); } catch (e) { x = 0; } }
+    if (x === null || x === undefined) x = {};
+    else if (!x || typeof x !== "object" || !Array.isArray(x.main) || !Array.isArray(x.side)) { x = {}; note = "corrupt"; }
+    ["main", "side", "hide"].forEach(function (k) {
+      (Array.isArray(x[k]) ? x[k] : []).forEach(function (n) {
+        if (typeof n !== "string" || !Object.prototype.hasOwnProperty.call(home, n)) { note = note || "unknown"; return; }
+        if (seen[n] || (k === "hide" && n === "needs")) return;
+        seen[n] = 1; out[k].push(n);
+      });
+    });
+    def.forEach(function (b, i) {   // in its default column, after every component that precedes it by default there (else first)
+      if (seen[b[0]]) return;
+      var col = out[b[1]], at = 0;
+      for (var j = 0; j < i; j++) at = Math.max(at, col.indexOf(def[j][0]) + 1);
+      col.splice(at, 0, b[0]);
+    });
+    return { lay: out, note: note };
+  }
+  function arrCopy(a) { return { main: a.main.slice(), side: a.side.slice(), hide: a.hide.slice() }; }
+  // dir -1 up, 1 down, 0 to the other column (same position). stacked: one column on screen, so up from the side's first and down
+  // from the main's last cross over, as the eye sees them.
+  function arrMove(a, name, dir, stacked) {
+    var b = arrCopy(a), c = b.main.indexOf(name) >= 0 ? "main" : b.side.indexOf(name) >= 0 ? "side" : "", o = c === "main" ? "side" : "main";
+    if (!c) return b;
+    var l = b[c], i = l.indexOf(name), j = i + dir;
+    if (!dir) { l.splice(i, 1); b[o].splice(Math.min(i, b[o].length), 0, name); }
+    else if (j >= 0 && j < l.length) { l.splice(i, 1); l.splice(j, 0, name); }
+    else if (stacked && (c === "main") === (dir > 0)) { l.splice(i, 1); if (dir > 0) b[o].unshift(name); else b[o].push(name); }
+    return b;
+  }
+  // A drop: NAME (shown) at position AT of column COL.
+  function arrPlace(a, name, col, at) {
+    var b = arrCopy(a);
+    if (b.hide.indexOf(name) >= 0 || !b[col]) return b;
+    ["main", "side"].forEach(function (k) { var i = b[k].indexOf(name); if (i >= 0) b[k].splice(i, 1); });
+    b[col].splice(Math.max(0, Math.min(at, b[col].length)), 0, name);
+    return b;
+  }
+  function arrHide(a, name) {
+    var b = arrCopy(a);
+    if (name === "needs" || b.hide.indexOf(name) >= 0) return b;
+    ["main", "side"].forEach(function (k) { var i = b[k].indexOf(name); if (i >= 0) { b[k].splice(i, 1); b.hide.push(name); } });
+    return b;
+  }
+  function arrAdd(def, a, name) { return arrRead(def, { main: a.main, side: a.side, hide: a.hide.filter(function (n) { return n !== name; }) }).lay; }
   /* logic:end */
   function h(tag, attrs, kids) {
     var el = document.createElement(tag);
@@ -1133,10 +1244,10 @@ dialog#story::backdrop { background: var(--scrim); }
     return h("span", { "class": "seg", role: "group", "aria-label": label }, items.map(function (x) { return h("button", { type: "button", text: x[1], "aria-pressed": String(cur === x[0]), on: function () { set(x[0]); } }); }));
   }
   function render() {
-    var d = window.UAK_DATA; if (!d) return;
+    var d = window.UAK_DATA; if (!d || DRAG) return;   // a refresh waits for the drop: the box being dragged stays in the page
     D = d; lastGen = d.generated;
     AG = {}; d.agents.forEach(function (a) { AG[a.name] = a; }); models(d); DG = depGraph(d.tasks); SEL = "";
-    var act = document.activeElement, caret = act && act.id === "q" ? act.selectionStart : -1;
+    var act = document.activeElement, caret = act && act.id === "q" ? act.selectionStart : -1, f = FOCUS || (act && act.getAttribute && act.getAttribute("data-f"));
     Object.keys(HEADING).forEach(function (key) { LABEL[key] = T(HEADING[key]); });
     STATES = {}; d.tasks.forEach(function (t) { STATES[t.id] = t.state; });
     header(d); tabs(d);
@@ -1144,6 +1255,8 @@ dialog#story::backdrop { background: var(--scrim); }
     guard(ui.tab, function () { ({ sum: summary, board: board, agents: agents, talk: talk, bb: blackbox, memory: memory, tokens: tokens })[ui.tab](v, d); return v; });
     if (storyId) fillStory(true);
     reportSize();
+    if (f) { var fe = document.querySelector('[data-f="' + f + '"]') || document.querySelector('[data-f="add:' + f.split(":")[0] + '"]'); if (fe && fe.disabled) fe = fe.parentNode.querySelector("button:not([disabled])"); if (fe) keepInView(fe, !!FOCUS); }
+    FOCUS = ""; ANCHOR = null; if (ANN) { document.getElementById("arr-live").textContent = ANN; ANN = ""; }
     if (caret >= 0) { var q = document.getElementById("q"); if (q) { q.focus(); q.setSelectionRange(caret, caret); } }
   }
   function header(d) {
@@ -1154,6 +1267,7 @@ dialog#story::backdrop { background: var(--scrim); }
     document.getElementById("embedded-title").textContent = d.repo + " · " + T("Project dashboard");
     document.getElementById("repo").textContent = d.repo;
     var sb = document.getElementById("share-btn"); sb.innerHTML = ""; sb.appendChild(icon("M8 10V2M5 5l3-3 3 3M3 9v4h10V9")); sb.appendChild(h("span", { "class": "sbt", text: L('Share') })); sb.setAttribute("aria-label", L('Share')); sb.onclick = openShare;
+    document.getElementById("pal-label").textContent = L('Palette');
     var mc = document.getElementById("modechip"); mc.hidden = !d.mode; mc.textContent = d.mode || "";
     var fz = document.getElementById("freeze");
     if (d.freeze) { fz.hidden = false; fz.textContent = !frozenNow(d) ? T("Freeze in ") + ago(d.generated, d.freeze) : T("Frozen"); } else fz.hidden = true;
@@ -1421,6 +1535,17 @@ dialog#story::backdrop { background: var(--scrim); }
     var leg = h("div", { "class": "legend" }, BAR.filter(function (s) { return st[s]; }).map(function (s) { return h("span", {}, [h("i", { "class": "sq sm s-" + SQ[s], style: "--c:" + color(s), "aria-hidden": "true" }), (s === "WAITING" ? T("Waiting") : rowLabel(s)) + " " + st[s]]); }));
     return frame(b, all.length + T(" tasks") + (planCounts(d.tasks).cancelled ? " · " + planCounts(d.tasks).cancelled + " " + L('cancelled') : ""), null, h("div", { "class": "card pad" }, [list.length ? squares(list) : h("span", { "class": "muted", text: T("No messages match") }), depline(), leg]));
   }
+  // What each component shows: the one line under its name in Add.
+  function about(n) {
+    return { needs: L('What waits for you: reviews, stalled tasks, the human queue'),
+             map: L('Every task as a square, with what it waits for'),
+             tasks: L('The tasks that are moving, as a list or columns'),
+             lanes: L('Who built and reviewed what, over time'),
+             progress: L('How much of the plan is integrated'),
+             agents: L('Who is online and on which task'),
+             pace: L('Tasks integrated per period'),
+             tokens: L('Tokens spent, by harness') }[n];
+  }
   var BLOCKS = [
     { name: "needs", title: function () { return L('Needs you'); }, col: "main", max: 6, render: needsBlock },
     { name: "map", title: function () { return L('All tasks'); }, col: "main", max: 999, render: mapBlock },
@@ -1436,21 +1561,108 @@ dialog#story::backdrop { background: var(--scrim); }
   function guard(name, fn) {
     try { return fn(); } catch (e) { ERRORS.push(name + ": " + (e && e.message)); if (window.console) console.error("uak dash: " + name, e); return h("div", { "class": "card pad muted", role: "status", text: L('Could not draw this block') + " (" + name + ")" }); }
   }
+  // The viewer's arrangement, kept in this browser per project: read once per page, then held here (a write that fails keeps it for
+  // the page's life and says so). Without one of their own the viewer follows the team's (.uak/dash/layout.json), else the default.
+  var LAY = null, LAYKEY = "", LAYNOTE = "", KEEPFAIL = false, FOCUS = "", ANN = "";
+  function arrDef() { return BLOCKS.map(function (b) { return [b.name, b.col]; }); }
+  function keepLay(l) { LAY = l; try { if (l) store.setItem(LAYKEY, JSON.stringify(l)); else store.removeItem(LAYKEY); KEEPFAIL = false; } catch (e) { KEEPFAIL = true; } }
+  function arrangement(d) {
+    if (LAYKEY !== "uak-layout:" + d.repo) {
+      LAYKEY = "uak-layout:" + d.repo; LAY = null; LAYNOTE = "";
+      var raw = null; try { raw = store.getItem(LAYKEY); } catch (e) {}
+      // a stored null is no arrangement: the team's default applies
+      if (typeof raw === "string" && raw !== "null") { var r = arrRead(arrDef(), raw); LAYNOTE = r.note; if (r.note) keepLay(r.note === "corrupt" ? null : r.lay); else LAY = r.lay; }
+    }
+    return LAY || arrRead(arrDef(), d.layout).lay;
+  }
+  // The button pressed stays where it was on the screen: the page scrolls by what the component moved, at once, so a component
+  // moved up or down keeps its place under the pointer and the eye, and pressing again moves it again. A hide sends focus to the
+  // Add button that undoes it: the keyboard follows it there, the pointer stays where it was.
+  var ANCHOR = null;
+  function arrGo(next, name, f, said, btn, e) { ANCHOR = btn ? { y: btn.getBoundingClientRect().top, mouse: !!(e && e.detail) } : null; keepLay(next); FOCUS = name + ":" + f; ANN = said; render(); }
+  function keepInView(el, moved) {
+    var add = /^add:/.test(el.getAttribute("data-f"));
+    if (moved && ANCHOR && !add) scrollBy({ top: el.getBoundingClientRect().top - ANCHOR.y, behavior: "instant" });
+    el.focus({ preventScroll: !moved || !!ANCHOR && !(add && !ANCHOR.mouse) });
+  }
+  function where(l, n) { var c = l.main.indexOf(n) >= 0 ? "main" : "side"; return (l[c].indexOf(n) + 1) + "/" + l[c].length + " · " + (c === "main" ? L('Main column') : L('Side column')); }
+  function handles(b, el, c, i, lay, st) {
+    var n = lay[c].length;
+    function hb(f, ic, label, off, next) { return h("button", { type: "button", "class": "hnd", "data-f": b.name + ":" + f, title: label, "aria-label": label + " · " + b.title(), disabled: off ? "" : null, on: function (e) { arrGo(next(), b.name, f, b.title() + " · " + (f === "hide" ? L('Hidden') : where(next(), b.name)), this, e); } }, [icon(ic)]); }
+    el.setAttribute("inert", "");
+    return h("div", { "class": "arr", "data-blk": b.name, style: "--d:-" + ((i * 0.7 + (c === "side" ? 0.4 : 0)) % 1.6).toFixed(1) + "s" }, [h("div", { "class": "hbar" }, [
+      h("span", { "class": "grip", "data-grip": b.name, title: L('Drag to move'), "aria-hidden": "true" }, [icon("M6 4h.01M10 4h.01M6 8h.01M10 8h.01M6 12h.01M10 12h.01")]), h("b", { text: b.title() }),
+      hb("up", "M8 13V3M4 7l4-4 4 4", L('Move up'), !i && (!st || c === "main"), function () { return arrMove(lay, b.name, -1, st); }),
+      hb("down", "M8 3v10M4 9l4 4 4-4", L('Move down'), i === n - 1 && (!st || c === "side"), function () { return arrMove(lay, b.name, 1, st); }),
+      hb("col", "M2.5 3h11v10h-11zM9 3v10", L('To the other column'), false, function () { return arrMove(lay, b.name, 0, st); }),
+      b.name === "needs" ? h("span", { "class": "muted", text: L('Always shown') }) : hb("hide", "M2 2l12 12M4.2 4.6C2.5 5.9 1.5 8 1.5 8s2.4 4.5 6.5 4.5c1.3 0 2.4-.4 3.4-1M7 3.6l1-.1c4.1 0 6.5 4.5 6.5 4.5s-.5.9-1.4 2", L('Hide'), false, function () { return arrHide(lay, b.name); })]), el]);
+  }
+  // Drag, on top of the buttons: only the grip takes the pointer (touch-action: none on it alone), so a finger anywhere else still
+  // scrolls the page. A line shows where the component lands; the drop is the same change of the arrangement as the buttons make.
+  var DRAG = null;
+  function dropAt(x, y) {
+    var best = null, bd = Infinity;
+    Array.prototype.forEach.call(document.querySelectorAll("#view .col[data-col]"), function (c) {
+      var r = c.getBoundingClientRect(), d = Math.max(r.left - x, 0, x - r.right) + Math.max(r.top - y, 0, y - r.bottom);
+      if (d < bd) { bd = d; best = c; }
+    });
+    if (!best) return null;
+    var boxes = Array.prototype.filter.call(best.children, function (a) { return a.classList.contains("arr") && a !== DRAG.box; }), at = 0, r0 = best.getBoundingClientRect();
+    boxes.forEach(function (a) { var r = a.getBoundingClientRect(); if (y > r.top + r.height / 2) at++; });
+    return { col: best.getAttribute("data-col"), at: at, x: r0.left, w: r0.width, y: !boxes.length ? r0.top : at < boxes.length ? boxes[at].getBoundingClientRect().top - 10 : boxes[boxes.length - 1].getBoundingClientRect().bottom + 8 };
+  }
+  document.addEventListener("pointerdown", function (e) {
+    var g = ui.arr && e.target.closest && e.target.closest("[data-grip]");
+    if (!g || e.button > 0) return;
+    e.preventDefault();
+    DRAG = { name: g.getAttribute("data-grip"), box: g.closest(".arr"), x: e.clientX, y: e.clientY, sy: scrollY, to: null, line: null };
+    DRAG.box.classList.add("drag");
+    try { g.setPointerCapture(e.pointerId); } catch (x) {}
+  });
+  document.addEventListener("pointermove", function (e) {
+    if (!DRAG) return;
+    DRAG.box.style.transform = "translate(" + (e.clientX - DRAG.x) + "px," + (e.clientY - DRAG.y + scrollY - DRAG.sy) + "px)";
+    var t = DRAG.to = dropAt(e.clientX, e.clientY);
+    if (t) { DRAG.line = DRAG.line || document.body.appendChild(h("div", { "class": "dropline" })); DRAG.line.style.cssText = "left:" + t.x + "px;width:" + t.w + "px;top:" + t.y + "px"; }
+    if (e.clientY < 48) scrollBy(0, -16); else if (e.clientY > innerHeight - 48) scrollBy(0, 16);
+  });
+  function endDrag(e) {
+    if (!DRAG) return;
+    var d = DRAG, t = d.to, l; DRAG = null;
+    if (d.line) d.line.remove();
+    d.box.classList.remove("drag"); d.box.style.transform = "";
+    // released outside the window (a mouse let go beyond its edge): a cancel, never a drop at the nearest column
+    if (e.type === "pointerup" && t && e.clientX >= 0 && e.clientY >= 0 && e.clientX <= innerWidth && e.clientY <= innerHeight) { l = arrPlace(arrangement(D), d.name, t.col, t.at); arrGo(l, d.name, "up", blockOf(d.name).title() + " · " + where(l, d.name)); }
+  }
+  ["pointerup", "pointercancel", "lostpointercapture"].forEach(function (k) { document.addEventListener(k, endDrag); });
+  function blockOf(n) { return BLOCKS.filter(function (b) { return b.name === n; })[0]; }
+  function arrBar(d, lay, def) {
+    if (!ui.arr) return h("div", { "class": "arrbar" }, [LAYNOTE ? h("p", { role: "status", text: LAYNOTE === "corrupt" ? L('Your saved arrangement could not be read: the summary shows the default.') : L('Your arrangement named components that no longer exist: they were left out.') }) : null,
+      h("button", { "class": "ab", type: "button", "data-f": "arr:edit", on: function () { ui.arr = true; LAYNOTE = ""; FOCUS = "arr:done"; render(); } }, [icon("M3 13h3l7-7-3-3-7 7zM9 4l3 3"), L('Edit')])]);
+    var add = lay.hide.map(function (n) { return h("button", { type: "button", "class": "addb", "data-f": "add:" + n, on: function (e) { var l = arrAdd(def, lay, n); arrGo(l, n, "up", blockOf(n).title() + " · " + where(l, n), this, e); } }, [h("b", {}, [icon("M8 3v10M3 8h10"), blockOf(n).title()]), h("span", { text: about(n) })]); });
+    return h("div", { "class": "arrbar on" }, [h("p", { "class": "tip", text: L('Move, hide or add components. Done when you finish.') }),
+      h("button", { "class": "ab", type: "button", "data-f": "arr:restore", disabled: LAY ? null : "", on: function () { keepLay(null); FOCUS = "arr:done"; ANN = d.layout ? L('The team\'s default is back') : L('The default is back'); render(); } }, [d.layout ? L('Restore the team\'s default') : L('Restore the default')]),
+      h("button", { "class": "ab done", type: "button", "data-f": "arr:done", on: function () { ui.arr = false; FOCUS = "arr:edit"; render(); } }, [L('Done')]),
+      h("div", { "class": "adds", role: "group", "aria-label": L('Add') }, [h("span", { "class": "muted", text: L('Add') })].concat(add.length ? add : [h("span", { text: L('Every component is shown.') })])),
+      h("div", { "class": "team" }, [h("span", { "class": "muted", text: L('For the whole team: run this and commit the file it writes') }), copyBox("bash .uak/bin/uak dash layout --save" + ["main", "side", "hide"].map(function (c) { return lay[c].length ? " " + c + "=" + lay[c].join(",") : ""; }).join(""))]),
+      KEEPFAIL ? h("p", { role: "status", text: L('This browser does not keep the arrangement: it lasts until the page is closed.') }) : null]);
+  }
   function summary(v, d) {
     viewHeading(v, T("Overview"));
-    var cols = { main: h("div", { "class": "col" }), side: h("div", { "class": "col" }) }, empty = !d.tasks.length;
-    BLOCKS.forEach(function (b) {
-      if (empty && b.col === "side") return;
-      if (empty && b.name !== "needs") return;
-      if (empty && !needs(d).length) return;
-      cols[b.col].appendChild(guard(b.name, function () { return b.render(d, b.max, b); }));
+    var empty = !d.tasks.length, def = arrDef(), lay = arrangement(d), arr = ui.arr = ui.arr && !empty, st = !!(window.matchMedia && matchMedia("(max-width:1100px)").matches), by = {}, cols = {};
+    BLOCKS.forEach(function (b) { by[b.name] = b; });
+    ["main", "side"].forEach(function (c) {
+      cols[c] = h("div", { "class": "col", "data-col": c });
+      (empty ? (c === "main" && needs(d).length ? ["needs"] : []) : lay[c]).forEach(function (n, i) {
+        var b = by[n], el = guard(n, function () { return b.render(d, b.max, b); });
+        cols[c].appendChild(arr ? guard(n, function () { return handles(b, el, c, i, lay, st); }) : el);
+      });
+      if (arr && !lay[c].length) cols[c].appendChild(h("p", { "class": "arr-empty", text: L('Move a component here') }));
     });
-    if (empty) {
-      cols.main.appendChild(h("div", { "class": "card next" }, [h("h2", { text: L('Your project has no plan yet') }), h("p", { text: L('Start the guide: it asks what you build and writes the plan.') }), copyBox("bash .uak/bin/uak start"),
-        h("p", { "class": "muted", text: L('Nothing is claimed or integrated yet, so every figure is zero.') })]));
-      cols.side = null;
-    }
-    v.appendChild(h("div", { "class": "page", style: empty ? "grid-template-columns:minmax(0,1fr)" : null }, [cols.main, cols.side]));
+    if (empty) cols.main.appendChild(h("div", { "class": "card next" }, [h("h2", { text: L('Your project has no plan yet') }), h("p", { text: L('Start the guide: it asks what you build and writes the plan.') }), copyBox("bash .uak/bin/uak start"),
+      h("p", { "class": "muted", text: L('Nothing is claimed or integrated yet, so every figure is zero.') })]));
+    var shown = ["main", "side"].filter(function (c) { return cols[c].children.length; }).map(function (c) { return cols[c]; });
+    v.appendChild(h("div", { "class": "page" + (arr ? " arranging" : ""), style: shown.length < 2 ? "grid-template-columns:minmax(0,1fr)" : null }, [empty ? null : guard("arrange", function () { return arrBar(d, lay, def); })].concat(shown)));
   }
 
   var GROUPS = [["cifail", "Approved, CI failed"], ["changes", "Changes requested"], ["human", "Waiting for a human merge"], ["waiting", "Waiting for a reviewer"], ["rereview", "Re-review"],
@@ -1919,7 +2131,9 @@ dialog#story::backdrop { background: var(--scrim); }
     if (shareEl.showModal) shareEl.showModal(); else shareEl.setAttribute("open", "");
   }
   // Closing releases the two PNGs (about a megabyte of base64 each) held by the images.
-  shareEl.addEventListener("close", function () { shareEl.innerHTML = ""; try { if (shareOpener && shareOpener.focus) shareOpener.focus(); } catch (e) {} shareOpener = null; });
+  // The close event runs after the dialog closed, in a task of its own: a dialog opened again before it (a close and a click in
+  // one task) is not emptied (Linux CI with a browser, run 45669137198).
+  shareEl.addEventListener("close", function () { if (shareEl.open) return; shareEl.innerHTML = ""; try { if (shareOpener && shareOpener.focus) shareOpener.focus(); } catch (e) {} shareOpener = null; });
   shareEl.addEventListener("click", function (e) { if (e.target === shareEl) shareEl.close(); });
   // Tokens: what the data really holds (kind, harness, model, scope, task); it carries no dates and no budget, and the page says so.
   function tokens(v, d) {
@@ -2101,7 +2315,7 @@ dialog#story::backdrop { background: var(--scrim); }
   document.addEventListener("uak:state", function () { if (window.UAK_DASH_LOOK) UAKLook.set(window.UAK_DASH_LOOK, false); if (window.UAKWorkspace && window.UAK_DASH_LANGUAGE) UAKWorkspace.setLanguage(window.UAK_DASH_LANGUAGE); else render(); });
   window.addEventListener("uak:language", function () { render(); if(window.UAKWorkspace){UAKWorkspace.apply(document.body);mountLanguage();} reportSize(); });
   // A hook for the tests: draw one tab from the given data (test_dashboard_truth drives it under node with a stub document).
-  window.UAK_TEST_RENDER = function (tab, data) { window.UAK_DATA = data; ui.tab = tab; render(); return document.getElementById("view"); };
+  window.UAK_TEST_RENDER = function (tab, data, extra) { window.UAK_DATA = data; ui.tab = tab; for (var k in extra || {}) ui[k] = extra[k]; render(); return document.getElementById("view"); };
   function reportSize() { if(window.UAK_EMBEDDED)window.parent.postMessage({type:"uak:dashboard-size",height:document.documentElement.scrollHeight},"*"); }
   if(window.UAKWorkspace)UAKWorkspace.start(document.body);
   if(window.UAK_EMBEDDED){document.querySelector(".head").hidden=true;document.getElementById("embedded-title").hidden=false;}

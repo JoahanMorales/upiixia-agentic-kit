@@ -33,7 +33,9 @@ UAK-158 (one design system), UAK-159 (the wizard's flow), UAK-162 (the dashboard
    tasks show what is moving (blocked, in review, in progress), 8 rows; agents 4; progress is one block per task up
    to 24 tasks and one proportional bar beyond. A plan of 60 tasks adds less than 50 px to the page.
 7. **Order of the summary.** What needs the person first, then tasks (list or columns), then activity; at the side:
-   progress, agents, integrations per period, tokens. Activity is the smallest of these.
+   progress, agents, integrations per period, tokens. Activity is the smallest of these. This is the default: the viewer
+   may arrange the summary (UAK-165: move, hide, add; what needs the person can be moved, never hidden), a team may ship
+   its own default, and rule 6 holds in every position.
 8. **Integrations per period.** The period adapts to the time elapsed so that 6 to 8 bars show: by the hour early
    in a hackathon, then 2, 3, 4, 6 or 12 hours, by the day in a long project; the viewer can fix it (1 h, 2 h, 4 h,
    day).

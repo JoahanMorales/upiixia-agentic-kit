@@ -298,10 +298,12 @@ def page_is_not_heavier(root, tmp):
     to 128 KiB on 2026-11-24 (docs/plans/visual-setup-amend-7.md) and, for the views they asked for after seeing the screens
     (every task as a square, what waits for what, the black box as a tool, the memory graph, the token breakdown), to
     150 KiB the same day (docs/plans/visual-setup-amend-8.md) and, for the changes after the human signed off the look
-    (agents as cards, listboxes, a readable memory graph, the page reloading itself), to 200 KiB (docs/plans/visual-setup-amend-10.md).
+    (agents as cards, listboxes, a readable memory graph, the page reloading itself), to 200 KiB (docs/plans/visual-setup-amend-10.md),
+    and on 2026-11-25 to 256 KiB for the summary the viewer arranges and the two tasks after it (docs/plans/visual-setup-amend-12.md:
+    UAK-165, UAK-166, UAK-167; the page was 196,171 bytes and a draft of the arrange mode without drag measured 13,512 more).
     Measured on the file's bytes."""
     size = len((root / ".uak/bin/lib/dash.html").read_bytes().replace(b"\r\n", b"\n"))  # a Windows checkout adds a byte per line: the bound is on the file as committed
-    assert size <= 200 * 1024, "dash.html is %d bytes; the bound is 200 KiB (%d)" % (size, 200 * 1024)
+    assert size <= 256 * 1024, "dash.html is %d bytes; the bound is 256 KiB (%d)" % (size, 256 * 1024)
 
 
 def both_profiles_and_languages_are_complete(root, tmp):
@@ -588,32 +590,59 @@ def figures_agree_across_tabs(root, tmp):
     assert out["tokTasks"] == 3 and out["tokCancelled"] == 1 and out["counts"]["plan"] + out["counts"]["cancelled"] == 5, out
 
 
+class NoBrowser(Exception):
+    """The case needs Chromium and there is none here: printed as `SKIP name (no browser)`, never PASS (UAK-195, AGENTS.md rule 9)."""
+
+
+BROWSER = {"launched": 0}   # Chromium launches of the case running now: its PASS line says "browser" when there was one
+
+
 @contextlib.contextmanager
 def browser_page(root, tmp, data, tab, extra="", phone=False):
-    """The page opened in a real browser from file:// when Playwright is installed (yields None otherwise: the case then checks the code)."""
+    """The page opened in a real browser from file://. Without Playwright or its Chromium it raises NoBrowser: the case is a
+    SKIP, never a PASS that did not run (the parts of the case before it, the code and the node checks, have run)."""
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        yield None
-        return
+        raise NoBrowser()
     lib = root / ".uak/bin/lib"
     shutil.copy(str(lib / "dash.html"), str(tmp / "index.html"))
     shutil.copy(str(lib / "workspace.js"), str(tmp / "workspace.js"))
     (tmp / "data.js").write_text("window.UAK_DATA = " + json.dumps(data) + ";", encoding="utf-8")
     with sync_playwright() as p:
-        b = p.chromium.launch()
-        pg = b.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=3, is_mobile=True, has_touch=True, accept_downloads=True) if phone else b.new_page(viewport={"width": 1280, "height": 900})
+        try:
+            b = p.chromium.launch()
+        except Exception as exc:  # noqa: BLE001  (Playwright without its Chromium)
+            raise NoBrowser() from exc
+        BROWSER["launched"] += 1
+        ctx = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, is_mobile=True, has_touch=True, accept_downloads=True) if phone else b.new_context(viewport={"width": 1280, "height": 900})
+        pg = ctx.new_page()
         pg.errors = []
         pg.on("pageerror", lambda e: pg.errors.append(str(e)))
         if tab:
             pg.add_init_script("localStorage.setItem('uak-dash', JSON.stringify({tab:'%s'%s}))" % (tab, extra))
         pg.goto("file://" + str(tmp / "index.html"))
-        pg.wait_for_timeout(500)
+        pg.wait_for_function("document.getElementById('view').childElementCount > 0")
         try:
             yield pg
         finally:
             b.close()
 
+
+def use_language(pg, lang):
+    """Reload the page with LANG as the stored choice, waiting on conditions, never a fixed time. The choice is carried to the
+    next load through window.name (kept by the tab and written at once) and stored by that load before its first script, so
+    the case tests what a person relies on, the page honouring a stored choice, without racing Chromium's commit of
+    localStorage: a write followed at once by a reload can read the old value or none (measured on 2026-11-25: 10 of 200
+    write-then-reload cycles here, and in review about 4 % even after another document had read the new value; that was the
+    English dialog of run 45606588040). A person who picks a language and reloads within that commit could see the previous
+    one; that is the browser's flush, not the page: the page reads what storage gives it at load (UAK-165)."""
+    if not getattr(pg, "carries_language", False):
+        pg.add_init_script("(function () { var m = /^uak-test-language:(es|en)$/.exec(window.name); if (m) try { localStorage.setItem('uak-language', m[1]); } catch (e) {} })();")
+        pg.carries_language = True
+    pg.evaluate("(v) => { localStorage.setItem('uak-language', v); window.name = 'uak-test-language:' + v; }", lang)
+    pg.reload()
+    pg.wait_for_function("(v) => window.UAKWorkspace && UAKWorkspace.language() === v && document.documentElement.lang === v && document.getElementById('view').childElementCount > 0", arg=lang)
 
 
 STUB_JS = r"""
@@ -972,11 +1001,9 @@ def share_dialog_shows_a_real_image(root, tmp):
         if pg is None:
             return
         for lang in ("en", "es"):
-            pg.evaluate("localStorage.setItem('uak-language', '%s')" % lang)
-            pg.reload()
-            pg.wait_for_timeout(300)
+            use_language(pg, lang)
             pg.evaluate("document.getElementById('share-btn').click()")
-            pg.wait_for_timeout(300)
+            pg.wait_for_function("document.getElementById('share').open")
             assert pg.evaluate("document.querySelectorAll('#share img.share-img').length") == 2, "the dialog does not hold two <img> (canvas shown instead?)"
             assert pg.evaluate("document.querySelectorAll('#share canvas').length") == 0, "a canvas is in the dialog"
             for fmt in (0, 1):
@@ -989,15 +1016,13 @@ def share_dialog_shows_a_real_image(root, tmp):
                 assert box["iw"] >= 0.5 * (box["dw"] - 32) - 1, "the image is shown smaller than half its width allows: %r" % box
                 assert all(b[1] <= box["vh"] and b[0] >= 0 for b in box["btn"]), "the actions are not visible without scrolling: %r" % box
                 assert ("Mant\u00e9n pulsada" if lang == "es" else "Press and hold") in box["text"], box["text"][:300]
-        pg.evaluate("localStorage.setItem('uak-language', 'en')")
-        pg.reload()
-        pg.wait_for_timeout(300)
+        use_language(pg, "en")
         pg.focus("#share-btn")
         pg.keyboard.press("Enter")
-        pg.wait_for_timeout(300)
+        pg.wait_for_function("document.getElementById('share').open")
         assert pg.evaluate("document.getElementById('share').open"), "Enter on Share does not open the dialog"
         pg.keyboard.press("Escape")
-        pg.wait_for_timeout(200)
+        pg.wait_for_function("!document.getElementById('share').open")
         assert not pg.evaluate("document.getElementById('share').open") and pg.evaluate("document.activeElement && document.activeElement.id") == "share-btn", "after Escape the focus is not back on the Share button"
 
 
@@ -1030,12 +1055,19 @@ def share_export_failure_says_so(root, tmp):
             pg.evaluate("HTMLCanvasElement.prototype.toDataURL = function () { %s; }; 0" % js)
             pg.errors[:] = []
             pg.evaluate("window.UAK_ERRORS.length = 0; document.getElementById('share-btn').click()")
-            pg.wait_for_timeout(300)
+            pg.wait_for_function("document.getElementById('share').open")
             st = pg.evaluate("""() => ({ open: document.getElementById('share').open, imgs: document.querySelectorAll('#share img').length, buttons: document.querySelectorAll('#share .acts button').length,
               text: document.getElementById('share').innerText, errors: window.UAK_ERRORS.length })""")
             assert st["open"] and st["imgs"] == 0 and st["buttons"] == 0 and st["errors"] >= 1 and ("could not be made" in st["text"] or "No se pudo hacer" in st["text"]), "%s: %r" % (label, st)
             assert not pg.errors, "%s: a page error escaped: %r" % (label, pg.errors)
             pg.evaluate("document.getElementById('share').close()")
+            pg.wait_for_function("!document.getElementById('share').open && !document.getElementById('share').childElementCount")   # its close handler ran
+        # closed and opened again in one task: the close event of the first, which runs later, does not empty the second
+        # (Linux CI with a browser, run 45669137198: the dialog was open with no text)
+        reopened = pg.evaluate("""() => new Promise(done => { const d = document.getElementById('share'); document.getElementById('share-btn').click();
+          d.addEventListener('close', () => done({ open: d.open, text: d.innerText.trim().length }), { once: true });   // after the page's own close handler
+          d.close(); document.getElementById('share-btn').click(); })""")
+        assert reopened["open"] and reopened["text"] > 0, "a dialog opened right after a close keeps its content: %r" % reopened
 
 
 TESTS = [blocked_tasks_are_not_available, frozen_is_frozen, needs_human_comes_first, offline_uses_last_claims,
@@ -1060,19 +1092,23 @@ def main():
     spec = importlib.util.spec_from_file_location("truth_planning", root / ".uak/bin/lib/planning.py")
     tp.PLANNING = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(tp.PLANNING)
-    failed = 0
+    failed = skipped = 0
     for test in [t for t in TESTS if not args.case or t.__name__ in args.case]:
         tmp = Path(tempfile.mkdtemp(prefix="uak-truth-"))
         started = time.monotonic()
+        BROWSER["launched"] = 0
         try:
             test(root, tmp)
-            print("PASS %s (%.2fs)" % (test.__name__, time.monotonic() - started))
+            print("PASS %s (%s%.2fs)" % (test.__name__, "browser, " if BROWSER["launched"] else "", time.monotonic() - started))
+        except NoBrowser:
+            skipped += 1
+            print("SKIP %s (no browser)" % test.__name__)
         except Exception as exc:  # noqa: BLE001
             failed += 1
             print("FAIL %s (%s: %s)" % (test.__name__, type(exc).__name__, str(exc)[:1500]))
         finally:
             shutil.rmtree(str(tmp), ignore_errors=True)
-    print("DASHBOARD_TRUTH_RESULT %s failed=%d" % ("PASS" if not failed else "FAIL", failed))
+    print("DASHBOARD_TRUTH_RESULT %s failed=%d skipped=%d" % ("PASS" if not failed else "FAIL", failed, skipped))
     return 1 if failed else 0
 
 
