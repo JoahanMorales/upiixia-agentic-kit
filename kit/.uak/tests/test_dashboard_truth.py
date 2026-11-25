@@ -860,6 +860,25 @@ def share_buttons_follow_capability(root, tmp):
     assert out["firefoxHttp"] == {"share": False, "copy": False, "download": True}, "no secure context, no copy: %r" % out["firefoxHttp"]
     assert out["old"] == {"share": False, "copy": False, "download": False}, out["old"]
     assert out["shareThatRefuses"]["share"] is False and out["shareThatThrows"]["share"] is False, "canShare saying no (or throwing) hides Share"
+    # Every condition of every rule has a fake that only it decides: start from an environment where all three work and take away one thing.
+    flips = under_node(root, """
+      function base() { return { secure: true, coarse: true, anchorDownload: true, clipboardItem: true, files: [{}], nav: { share: function () {}, canShare: function () { return true; }, clipboard: { write: function () {} } } }; }
+      var cuts = {
+        none: function (e) {},
+        no_share_fn: function (e) { delete e.nav.share; }, no_canShare: function (e) { delete e.nav.canShare; }, no_files: function (e) { e.files = null; }, canShare_no: function (e) { e.nav.canShare = function () { return false; }; },
+        insecure: function (e) { e.secure = false; }, insecure_desktop: function (e) { e.secure = false; e.coarse = false; },
+        no_clipboard: function (e) { delete e.nav.clipboard; }, no_write: function (e) { e.nav.clipboard = {}; }, no_item: function (e) { e.clipboardItem = false; },
+        no_anchor: function (e) { e.anchorDownload = false; }
+      };
+      var r = {}; Object.keys(cuts).forEach(function (k) { var e = base(); cuts[k](e); r[k] = shareCaps(e); }); return r;
+    """)
+    T, F = True, False
+    want = {"none": (T, T, T), "no_share_fn": (F, T, T), "no_canShare": (F, T, T), "no_files": (F, T, T), "canShare_no": (F, T, T),
+            "insecure": (T, F, F), "insecure_desktop": (T, F, T), "no_clipboard": (T, F, T), "no_write": (T, F, T), "no_item": (T, F, T), "no_anchor": (T, T, F)}
+    for k, (sh, cp, dl) in want.items():
+        assert (flips[k]["share"], flips[k]["copy"], flips[k]["download"]) == (sh, cp, dl), "%s: %r" % (k, flips[k])
+
+
 
 
 def share_refusal_says_what_to_do(root, tmp):
@@ -883,7 +902,7 @@ def share_refusal_says_what_to_do(root, tmp):
         assert needle in dash, needle
     body = dash[dash.index("function openShare("):dash.index("shareEl.addEventListener")]
     assert "shareRefusal(" in body and body.count("refuse(") >= 4, "share, copy and download each report a refusal"
-    assert "navigator.clipboard.write(" in body and "navigator.share(" in body and "msg.textContent" in body
+    assert "copyImage(" in body and "shareImage(" in body and "msg.textContent" in body
 
 
 def share_image_equals_the_download(root, tmp):
@@ -891,9 +910,9 @@ def share_image_equals_the_download(root, tmp):
     download's link, and (decoded) the copy and the shared file."""
     dash = dash_source(root)
     body = dash[dash.index("function openShare("):dash.index("shareEl.addEventListener")]
-    assert body.count('toDataURL("image/png")') == 1, "the PNG is exported once per card"
+    assert dash.count('toDataURL("image/png")') == 1 and "exportCard(x[0]" in body, "the PNG is exported once per card"
     assert "href: img.src" in body, "the download link uses the image's own source"
-    assert "pngBytes(" in body and "toBlob(" not in body, "copy and share decode that same URL"
+    assert "copyImage(" in body and "shareImage(" in body and "pngBytes(img.src)" in body and "toBlob(" not in body, "copy and share decode that same URL"
     out = under_node(root, """
       var b = pngBytes("data:image/png;base64,iVBORw0KGgo=");
       return { n: b.length, head: Array.prototype.slice.call(b), bad: pngBytes("data:text/plain;base64,AAAA"), none: pngBytes("") };
@@ -902,6 +921,27 @@ def share_image_equals_the_download(root, tmp):
         return
     assert out["head"] == [137, 80, 78, 71, 13, 10, 26, 10], out
     assert out["bad"] is None and out["none"] is None, "only a PNG data URL decodes"
+    sent = under_node(root, """
+      function Blob_(parts, o) { this.parts = parts; this.type = o.type; }
+      function File_(parts, n, o) { this.parts = parts; this.name = n; this.type = o.type; }
+      function Item(d) { this.d = d; }
+      var got = {};
+      var env = { Blob: Blob_, File: File_, ClipboardItem: Item, nav: { share: function (d) { got.share = d; return { then: function () {} }; }, clipboard: { write: function (items) { got.copy = items; return { then: function () {} }; } } } };
+      var res = {};
+      [["h", "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"], ["v", "iVBORw0KGgoAAAANSUhEUgAAAAIAAAAC"]].forEach(function (c) {
+        var url = "data:image/png;base64," + c[1], bytes = pngBytes(url);
+        copyImage(env, bytes); shareImage(env, bytes, "demo-" + c[0] + ".png", "demo");
+        var blob = got.copy[0].d["image/png"], file = got.share.files[0];
+        res[c[0]] = { want: Array.prototype.slice.call(bytes), blob: Array.prototype.slice.call(blob.parts[0]), file: Array.prototype.slice.call(file.parts[0]), btype: blob.type, ftype: file.type, fname: file.name };
+      });
+      return res;
+    """)
+    if sent is None:
+        return
+    for fmt in ("h", "v"):
+        r = sent[fmt]
+        assert len(r["want"]) == 24 and r["blob"] == r["want"] and r["file"] == r["want"], "the copied and shared bytes are not the image's: %r" % r
+        assert r["btype"] == "image/png" and r["ftype"] == "image/png" and r["fname"] == "demo-%s.png" % fmt, r
     with browser_page(root, tmp, rich_data(), "sum", phone=True) as pg:
         if pg is None:
             return
@@ -924,7 +964,7 @@ def share_dialog_shows_a_real_image(root, tmp):
     one sentence under it says so, a switch picks the format, and at 390x844 it fits without sideways scrolling."""
     dash = dash_source(root)
     body = dash[dash.index("function openShare("):dash.index("shareEl.addEventListener")]
-    for needle in ('h("img"', "share-img", "L('Press and hold the image to save or share it.')", "aria-pressed", 'shareEl.addEventListener("close"', "shareCaps(shareEnv())"):
+    for needle in ('h("img"', "share-img", "L('Press and hold the image to save or share it (right-click on a computer).')", "aria-pressed", 'shareEl.addEventListener("close"', "shareCaps(env)"):
         assert needle in body or needle in dash, "the share dialog lost %s" % needle
     assert 'h("canvas"' in body and 'getElementById("share")' in dash and ".appendChild(cv)" not in body and "cvs.push(" in body, "the canvas only draws: it is never in the page"
     assert "fetch(" not in body and "XMLHttpRequest" not in body, "nothing here needs the network"
@@ -937,9 +977,11 @@ def share_dialog_shows_a_real_image(root, tmp):
             pg.wait_for_timeout(300)
             pg.evaluate("document.getElementById('share-btn').click()")
             pg.wait_for_timeout(300)
+            assert pg.evaluate("document.querySelectorAll('#share img.share-img').length") == 2, "the dialog does not hold two <img> (canvas shown instead?)"
+            assert pg.evaluate("document.querySelectorAll('#share canvas').length") == 0, "a canvas is in the dialog"
             for fmt in (0, 1):
                 pg.evaluate("document.querySelectorAll('#share .fsw button')[%d].click()" % fmt)
-                box = pg.evaluate("""() => { const d = document.getElementById('share').getBoundingClientRect(), im = document.querySelector('#share .sc:not([hidden]) img.share-img').getBoundingClientRect();
+                box = pg.evaluate("""() => { const d = document.getElementById('share').getBoundingClientRect(), im = (document.querySelector('#share .sc:not([hidden]) img.share-img') || document.body).getBoundingClientRect();
                   const bs = Array.from(document.querySelectorAll('#share .sc:not([hidden]) .acts button')).map(b => b.getBoundingClientRect());
                   return { dw: d.width, ih: im.height, iw: im.width, top: d.top, bottom: d.bottom, btn: bs.map(b => [b.top, b.bottom]), side: document.getElementById('share').scrollWidth > document.getElementById('share').clientWidth,
                            text: document.getElementById('share').innerText, vh: innerHeight }; }""")
@@ -948,13 +990,59 @@ def share_dialog_shows_a_real_image(root, tmp):
                 assert all(b[1] <= box["vh"] and b[0] >= 0 for b in box["btn"]), "the actions are not visible without scrolling: %r" % box
                 assert ("Mant\u00e9n pulsada" if lang == "es" else "Press and hold") in box["text"], box["text"][:300]
         pg.evaluate("localStorage.setItem('uak-language', 'en')")
+        pg.reload()
+        pg.wait_for_timeout(300)
+        pg.focus("#share-btn")
+        pg.keyboard.press("Enter")
+        pg.wait_for_timeout(300)
+        assert pg.evaluate("document.getElementById('share').open"), "Enter on Share does not open the dialog"
+        pg.keyboard.press("Escape")
+        pg.wait_for_timeout(200)
+        assert not pg.evaluate("document.getElementById('share').open") and pg.evaluate("document.activeElement && document.activeElement.id") == "share-btn", "after Escape the focus is not back on the Share button"
+
+
+EXPORT_CANVAS = """
+  function png(w, h) { var b = [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, w >> 8, w & 255, 0, 0, h >> 8, h & 255], s = ""; b.forEach(function (x) { s += String.fromCharCode(x); }); return "data:image/png;base64," + btoa(s); }
+"""
+
+
+def share_export_failure_says_so(root, tmp):
+    """When the card cannot be exported (toDataURL throws, or returns something that is not a PNG of the card's size), the dialog
+    still opens, says in one sentence that the image could not be made and what to do, shows no action, and the error is kept
+    in UAK_ERRORS; a broken image is never shown with Copy and Download that cannot work."""
+    dash = dash_source(root)
+    out = under_node(root, EXPORT_CANVAS + """
+      var good = { toDataURL: function () { return png(1200, 630); } }, thrower = { toDataURL: function () { throw new Error("SecurityError"); } },
+          empty = { toDataURL: function () { return "data:,"; } }, wrong = { toDataURL: function () { return png(300, 150); } }, notpng = { toDataURL: function () { return "data:image/jpeg;base64,AAAA"; } };
+      function r(c) { var x = exportCard(c, 1200, 630); return { ok: !!x.url, error: !!x.error }; }
+      return { good: r(good), thrower: r(thrower), empty: r(empty), wrong: r(wrong), notpng: r(notpng), v: exportCard({ toDataURL: function () { return png(1080, 1920); } }, 1080, 1920).url === png(1080, 1920) };
+    """)
+    if out is not None:
+        assert out["good"] == {"ok": True, "error": False} and out["v"] is True, out
+        for k in ("thrower", "empty", "wrong", "notpng"):
+            assert out[k] == {"ok": False, "error": True}, "%s must be a failure: %r" % (k, out[k])
+    body = dash[dash.index("function openShare("):dash.index("shareEl.addEventListener")]
+    assert "exportCard(" in body and "ERRORS.push(" in body and "L('The image could not be made" in dash, "the export is guarded and says so"
+    with browser_page(root, tmp, rich_data(), "sum", phone=True) as pg:
+        if pg is None:
+            return
+        for label, js in (("throws", "throw new DOMException('tainted', 'SecurityError')"), ("empty", "return 'data:,'")):
+            pg.evaluate("HTMLCanvasElement.prototype.toDataURL = function () { %s; }; 0" % js)
+            pg.errors[:] = []
+            pg.evaluate("window.UAK_ERRORS.length = 0; document.getElementById('share-btn').click()")
+            pg.wait_for_timeout(300)
+            st = pg.evaluate("""() => ({ open: document.getElementById('share').open, imgs: document.querySelectorAll('#share img').length, buttons: document.querySelectorAll('#share .acts button').length,
+              text: document.getElementById('share').innerText, errors: window.UAK_ERRORS.length })""")
+            assert st["open"] and st["imgs"] == 0 and st["buttons"] == 0 and st["errors"] >= 1 and ("could not be made" in st["text"] or "No se pudo hacer" in st["text"]), "%s: %r" % (label, st)
+            assert not pg.errors, "%s: a page error escaped: %r" % (label, pg.errors)
+            pg.evaluate("document.getElementById('share').close()")
 
 
 TESTS = [blocked_tasks_are_not_available, frozen_is_frozen, needs_human_comes_first, offline_uses_last_claims,
          dashboard_meets_contrast_and_targets, dashboard_keeps_every_field, empty_project_says_the_next_step, no_server_no_request,
          page_is_not_heavier, both_profiles_and_languages_are_complete, messages_are_one_conversation_per_task, every_task_is_visible, square_says_why_it_waits,
          agents_show_model_and_harness, black_box_filter_finds_an_error, memory_graph_edges_come_from_data, tokens_break_down, share_card_matches_the_page,
-         share_card_has_both_formats, share_dialog_shows_a_real_image, share_buttons_follow_capability, share_refusal_says_what_to_do, share_image_equals_the_download, project_name_is_not_the_worktree, page_reloads_when_a_newer_page_is_written, no_native_select, one_definition_of_stalled, figures_agree_across_tabs, agents_are_compact_cards, board_opens_on_columns, memory_graph_is_readable, every_tab_renders_with_partial_data, titles_never_overflow]
+         share_card_has_both_formats, share_dialog_shows_a_real_image, share_buttons_follow_capability, share_refusal_says_what_to_do, share_image_equals_the_download, share_export_failure_says_so, project_name_is_not_the_worktree, page_reloads_when_a_newer_page_is_written, no_native_select, one_definition_of_stalled, figures_agree_across_tabs, agents_are_compact_cards, board_opens_on_columns, memory_graph_is_readable, every_tab_renders_with_partial_data, titles_never_overflow]
 
 
 def main():
