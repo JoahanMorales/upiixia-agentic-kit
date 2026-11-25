@@ -348,7 +348,8 @@ def run_start(cwd, tmp, extra=None, script=None, codes=True):
     if codes:
         env["UAK_START_CODES"] = "1"
     env.update(extra or {})
-    done = subprocess.run(["bash", Path(script or BIN / "start").as_posix()], cwd=str(cwd), env=env, stdin=subprocess.DEVNULL,
+    from test_hack import resolve_binary
+    done = subprocess.run([resolve_binary("bash"), Path(script or BIN / "start").as_posix()], cwd=str(cwd), env=env, stdin=subprocess.DEVNULL,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=240)
     return done.returncode, done.stdout
 
