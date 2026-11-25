@@ -590,20 +590,31 @@ def figures_agree_across_tabs(root, tmp):
     assert out["tokTasks"] == 3 and out["tokCancelled"] == 1 and out["counts"]["plan"] + out["counts"]["cancelled"] == 5, out
 
 
+class NoBrowser(Exception):
+    """The case needs Chromium and there is none here: printed as `SKIP name (no browser)`, never PASS (UAK-195, AGENTS.md rule 9)."""
+
+
+BROWSER = {"launched": 0}   # Chromium launches of the case running now: its PASS line says "browser" when there was one
+
+
 @contextlib.contextmanager
 def browser_page(root, tmp, data, tab, extra="", phone=False):
-    """The page opened in a real browser from file:// when Playwright is installed (yields None otherwise: the case then checks the code)."""
+    """The page opened in a real browser from file://. Without Playwright or its Chromium it raises NoBrowser: the case is a
+    SKIP, never a PASS that did not run (the parts of the case before it, the code and the node checks, have run)."""
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        yield None
-        return
+        raise NoBrowser()
     lib = root / ".uak/bin/lib"
     shutil.copy(str(lib / "dash.html"), str(tmp / "index.html"))
     shutil.copy(str(lib / "workspace.js"), str(tmp / "workspace.js"))
     (tmp / "data.js").write_text("window.UAK_DATA = " + json.dumps(data) + ";", encoding="utf-8")
     with sync_playwright() as p:
-        b = p.chromium.launch()
+        try:
+            b = p.chromium.launch()
+        except Exception as exc:  # noqa: BLE001  (Playwright without its Chromium)
+            raise NoBrowser() from exc
+        BROWSER["launched"] += 1
         ctx = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, is_mobile=True, has_touch=True, accept_downloads=True) if phone else b.new_context(viewport={"width": 1280, "height": 900})
         pg = ctx.new_page()
         pg.errors = []
@@ -1074,19 +1085,23 @@ def main():
     spec = importlib.util.spec_from_file_location("truth_planning", root / ".uak/bin/lib/planning.py")
     tp.PLANNING = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(tp.PLANNING)
-    failed = 0
+    failed = skipped = 0
     for test in [t for t in TESTS if not args.case or t.__name__ in args.case]:
         tmp = Path(tempfile.mkdtemp(prefix="uak-truth-"))
         started = time.monotonic()
+        BROWSER["launched"] = 0
         try:
             test(root, tmp)
-            print("PASS %s (%.2fs)" % (test.__name__, time.monotonic() - started))
+            print("PASS %s (%s%.2fs)" % (test.__name__, "browser, " if BROWSER["launched"] else "", time.monotonic() - started))
+        except NoBrowser:
+            skipped += 1
+            print("SKIP %s (no browser)" % test.__name__)
         except Exception as exc:  # noqa: BLE001
             failed += 1
             print("FAIL %s (%s: %s)" % (test.__name__, type(exc).__name__, str(exc)[:1500]))
         finally:
             shutil.rmtree(str(tmp), ignore_errors=True)
-    print("DASHBOARD_TRUTH_RESULT %s failed=%d" % ("PASS" if not failed else "FAIL", failed))
+    print("DASHBOARD_TRUTH_RESULT %s failed=%d skipped=%d" % ("PASS" if not failed else "FAIL", failed, skipped))
     return 1 if failed else 0
 
 
