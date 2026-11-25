@@ -26,7 +26,9 @@
 |---|---|---|
 | AI use / prior code | `<...>` | `<URL>` |
 | Data and licenses | `<...>` | `<URL>` |
-| Format and video limits | `<...>` | `<URL>` |
+| Pitch and video limits | `<duration and format for each>` | `<URL>` |
+| Repository requirements and disqualification rules | `<...>` | `<URL>` |
+| Sponsor requirements, if required by the official rules | `<... or none>` | `<URL>` |
 
 ## Plan B
 - A video of the whole flow at `<path>` (v1 at T−50%, final at T−2 h). Use it if `<network, mic, external API>` fails.

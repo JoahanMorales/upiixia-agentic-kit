@@ -68,6 +68,7 @@ Goal: win the rubric with a demo people remember. Speed beats polish, and the fr
 
 ## Submission checklist
 - [ ] Product README in English: real screenshots, setup (`uv sync` / `npm ci`), `.env.example` variables, and how to run the demo with no keys.
+- [ ] Check every disqualification rule in `.uak/PROJECT.md` §Event rules against its official source, including repository requirements and sponsor requirements only when the rules require them. Record evidence or resolve unknowns before submission.
 - [ ] Videos within the event limits, with links open to judges.
 - [ ] The demo is deployed (`uak deploy` since T0+2h, on a plan that does not sleep), or reproducible from a clean clone in 5 min or less.
 - [ ] Data and library licenses declared (non-commercial ones explicit).
