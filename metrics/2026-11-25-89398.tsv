@@ -79,6 +79,7 @@
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 # ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
+# ledger: epoch, command, task, exit, code, ms, agent, harness (exit - = ended in an exec; #sum rows = older lines, counted)
 1795560701	heartbeat	UAK-162	0	-	6581	kit-a2	claude-code
 1795560704	status	UAK-162	0	-	2105	kit-a2	claude-code
 1795560708	status	-	0	-	2172	kit-a2	claude-code
@@ -767,3 +768,8 @@
 1795641923	lint	-	0	-	1045	kit-a5	claude-code
 1795642002	heartbeat	UAK-160	0	-	4839	kit-a1	claude-code
 1795642166	heartbeat	UAK-197	0	-	3141	kit-a3	claude-code
+1795642252	heartbeat	UAK-160	0	-	7541	kit-a1	claude-code
+1795642311	checkpoint	UAK-199	0	-	3865	kit-a5	claude-code
+1795642358	lint	-	0	-	891	kit-a2	claude-code
+1795642378	heartbeat	UAK-198	0	-	3513	kit-a2	claude-code
+1795642498	heartbeat	UAK-160	0	-	3223	kit-a1	claude-code
