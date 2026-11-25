@@ -1,7 +1,7 @@
 # STATE
 
 Phase: execution
-Updated: 1795637861
+Updated: 1795638022
 AVAILABLE: UAK-163 UAK-164 UAK-166 UAK-167 UAK-196 UAK-199 UAK-200 UAK-201 
 CLAIMED: UAK-160 UAK-197 UAK-198 UAK-202 
 BLOCKED: -
@@ -11,7 +11,7 @@ CANCELLED: UAK-002 UAK-005 UAK-149
 
 Claims (first 24; status --task ID shows detail):
 UAK-160 | CLAIMED | kit-a1 | until 1795626276 (EXPIRED: release --expired --read-summary TOKEN)
-UAK-197 | CLAIMED | kit-a3 | until 1795650015
+UAK-197 | CLAIMED | kit-a3 | until 1795652422
 UAK-198 | CLAIMED | kit-a2 | until 1795652261
 UAK-202 | CLAIMED | kit-a4 | until 1795651956
 
