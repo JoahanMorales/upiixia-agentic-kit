@@ -1,0 +1,4 @@
+# measured 2026-11-25 45672190419
+# each entry is ceil(MAXIMUM over the runs read) + 1 s: runs 45672190419, 45669137198, 45665524570, 45643626140, 45638994194 (and 45635485890 for Linux and macOS), `ci` over Linux and macOS, `windows` over Windows (start line to result line of the file). Linux runs the file with Chromium since UAK-195 (8 cases in the browser, 15 launches: 17.71 s in 45669137198, 18.17 s in 45672190419); macOS and Windows have no browser and run its node parts (macOS max 5.92, Windows max 30.22).
+ci 20
+windows 32

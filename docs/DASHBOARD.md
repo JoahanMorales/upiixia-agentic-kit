@@ -167,7 +167,8 @@ phone) has seven tabs: Overview, Board, Agents, Messages, Black box, Memory and 
 things need you (`(2) project`) and nothing when none.
 
 **Overview.** Built from eight blocks kept in one registry (`BLOCKS` in `dash.html`: a name, a title, a column, a maximum
-of rows and one render function over the data), so a block can later be moved or hidden without a rewrite. Main column:
+of rows and one render function over the data); the summary is a list of block names per column, and by default it is the
+order below. Main column:
 *Needs you* (a stale remote, a freeze, a merge in the human queue, a review waiting, a stalled task, each with the command to
 look at it and its age, then the four figures: agents online, reviews waiting, stalled, needs a human); *Tasks* as a list
 of what is moving (blocked, in review, in progress; at most 8 rows) or as four columns, with a search by task or agent;
@@ -178,6 +179,32 @@ one bar beyond), *Agents* (4, with the rest in the Agents tab), *Integrations* (
 time elapsed, or is fixed at 1 h, 2 h, 4 h or a day, with the date at which the plan ends at that pace) and *Tokens*.
 The summary never grows with the plan: 60 tasks add less than 50 px. An empty project shows the one next step and its
 command (`bash .uak/bin/uak start`); a finished one says so and shows how to add work.
+
+**Arranging the summary.** **Edit**, above the blocks, starts an arrange mode that cannot be missed: every block gets a dashed
+outline, a slow small shake out of step with its neighbours (none under `prefers-reduced-motion`; the one under the pointer
+or with focus holds still) and, in place of its header, its handles: move up, move down, to the other column (not shown
+when the page is one column, on a phone or under 1100 px: there up and down cross between the two stacked groups) and hide.
+*Needs you* has no hide: a summary that does not say what waits for you is not the kit's. One line at the top says what
+can be done; **Add** lists the hidden blocks, each with one line saying what it shows; **Restore the default** (or *the
+team's default*) forgets your arrangement; **Done** leaves the mode. Every handle is a button (Tab, Enter or Space): focus
+stays on the block you moved and each move is announced ("Tasks · 2/4 · Main column"); the pressed button stays where it
+was on the screen, so pressing again moves the block again. A grip at the left of each block can also be dragged with a
+mouse or a finger (the grip alone takes the touch, so a finger anywhere else still scrolls the page; a line shows where
+the block lands). Every block keeps its maximum of rows in any position, and a block that cannot be drawn says so and can
+still be moved or hidden.
+
+The arrangement is yours: it stays in this browser per project (`localStorage`, key `uak-layout:<project>`), survives a
+reload and the page's own reload, and changes no file and nobody else's panel. A team can ship a default: in arrange mode
+the page shows the command for the arrangement on screen, `bash .uak/bin/uak dash layout --save main=… side=… hide=…`, which
+writes `.uak/dash/layout.json` (that file only; a task or the human commits it). A viewer with no arrangement of their own
+starts from it. A saved arrangement from an older page keeps what it can: names of blocks that no longer exist are dropped,
+blocks added since take their default place (after the blocks that precede them by default), and one line says so once;
+one that cannot be read (not JSON, the wrong shape, over 4 KiB) gives the default and says so once. A browser that keeps
+nothing (storage blocked or full) keeps the arrangement until the page closes and says so in the arrange bar (the only
+place a change is made, so the only place that sentence is shown). A stored `null` counts as no arrangement. A drag let go
+outside the window is a cancel. The team file is written only inside the repository: a symlinked `.uak` or `.uak/dash` is
+refused, the content goes to a new temporary file of a random name and is renamed onto `layout.json` (a symlink at that
+name is replaced, never written through).
 
 **All tasks as squares.** Under *Needs you* every task of the plan is one small square (a number inside, the state by colour
 and by shape: filled, ringed for review, outlined for in progress, round for blocked, dashed for available, grey for waiting;
