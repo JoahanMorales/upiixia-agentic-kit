@@ -422,7 +422,7 @@ def team_default_is_used_when_the_viewer_has_none(root, tmp):
     named twice, needs hidden or a word it does not know are refused with a sentence and write nothing; `uak dash` carries the
     file in data.js; a viewer with no arrangement of their own draws it, their own wins, and Restore goes back to the team's."""
     fx, env = fixture_repo(tmp)
-    files = lambda: sorted(str(p.relative_to(fx)) for p in fx.rglob("*") if ".git" not in p.parts)
+    files = lambda: sorted(p.relative_to(fx).as_posix() for p in fx.rglob("*") if ".git" not in p.parts)
     start = files()
     for bad, word in ((["main=needs,bogus"], "bogus"), (["main=needs,map", "side=map"], "twice"), (["main=map", "hide=needs"], "cannot be hidden"),
                       (["main=needs", "middle=map"], "middle"), ([], "main="), (["main=needs/../x"], "needs/../x")):
@@ -588,8 +588,11 @@ def corrupt_arrangement_gives_the_default(root, tmp):
     that throws on read or write leaves a working page; a component that throws while being moved says it could not be drawn
     and can still be moved and hidden; no case leaves an exception or an empty summary."""
     bad = ["{", "x" * 5000, json.dumps({"main": ["needs"] * 900, "side": [], "hide": []}), "[]", "5", "null", json.dumps({"main": "needs", "side": []}), json.dumps({"side": ["map"]})]
-    out = truth.under_node(root, DEF_JS + "return %s.map(function (v) { return arrRead(DEF, v); });" % json.dumps(bad))
+    # the two long values are built in node: a program passed with -e has to fit Windows' command line (32,767 characters)
+    out = truth.under_node(root, DEF_JS + """var bad = %s; bad[1] = new Array(5001).join("x"); bad[2] = JSON.stringify({ main: new Array(901).join("n,").split(",").slice(0, 900).map(function () { return "needs"; }), side: [], hide: [] });
+      return [bad[1].length === 5000 && bad[2].length > 4096].concat(bad.map(function (v) { return arrRead(DEF, v); }));""" % json.dumps([b if len(b) < 100 else "" for b in bad]))
     if out is not None:
+        assert out.pop(0) is True, "the long values are what they claim"
         for v, r in zip(bad, out):
             note = "" if v == "null" else "corrupt"
             assert r == {"lay": DEFAULT, "note": note}, "%r gives the default (%s): %r" % (v[:40], note or "no note", r)
