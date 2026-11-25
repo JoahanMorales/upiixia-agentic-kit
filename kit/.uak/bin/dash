@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # uak dash: the team's state on one local page (progress, agents, conversations, reviews, black box).
 #   bash .uak/bin/uak dash [--watch [SECONDS]] [--open] [--out DIR] [--claims DIR]
+#   bash .uak/bin/uak dash layout [--save main=A,B side=C,D [hide=E]]   the team's default arrangement of the summary
 # Read-only on the claims branch; Python 3.8+ standard library (lib/dash.py), like the MCP server.
 set -u
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
