@@ -1,0 +1,3 @@
+# provisional until the first CI run of this file: a developer machine (Linux, Chromium present) took 28.8 s at most over 4 runs
+ci 30
+windows 60
