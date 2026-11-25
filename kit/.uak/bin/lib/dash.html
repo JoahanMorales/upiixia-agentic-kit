@@ -993,9 +993,9 @@ dialog#story::backdrop { background: var(--scrim); }
   function exportCard(cv, w, h) {
     try {
       var url = cv.toDataURL("image/png"), b = pngBytes(url);
-      if (!b || b.length < 24) return { error: "not a PNG: " + String(url).slice(0, 24) };
+      if (!b || b.length < 24) return { error: "not-a-png:" + String(url).slice(0, 24) };
       var pw = b[16] * 16777216 + b[17] * 65536 + b[18] * 256 + b[19], ph = b[20] * 16777216 + b[21] * 65536 + b[22] * 256 + b[23];
-      return pw === w && ph === h ? { url: url } : { error: "PNG of " + pw + "x" + ph + ", not " + w + "x" + h };
+      return pw === w && ph === h ? { url: url } : { error: "png-size:" + pw + "x" + ph };
     } catch (e) { return { error: String(e && e.message || e) }; }
   }
   // What the copy and the share hand over, made from the bytes of the image shown (env stands for window: its Blob, File and ClipboardItem).
@@ -1901,12 +1901,12 @@ dialog#story::backdrop { background: var(--scrim); }
       var f = [], bad = null;
       cvs.forEach(function (x) {
         if (bad) return;
-        try { f = drawCard(x[0], D, x[1]); } catch (e) { bad = "draw: " + (e && e.message); return; }
+        try { f = drawCard(x[0], D, x[1]); } catch (e) { bad = "draw:" + (e && e.message); return; }
         var r = exportCard(x[0], x[1] === "v" ? 1080 : 1200, x[1] === "v" ? 1920 : 630); x[0].width = x[0].height = 0;
         if (r.error) bad = r.error; else x[2].src = r.url;
       });
       if (bad) {
-        failed = true; ERRORS.push("share export: " + bad); if (window.console) console.error("uak dash: share export", bad);
+        failed = true; ERRORS.push("share-export:" + bad); if (window.console) console.error("uak dash: share export", bad);
         inner.innerHTML = ""; inner.appendChild(h("p", { role: "status", text: L('The image could not be made on this device. Reload the page and try again, or take a screenshot of it.') })); return;
       }
       figs.innerHTML = ""; f.forEach(function (x) { figs.appendChild(h("dt", { text: x[1] })); figs.appendChild(h("dd", { style: "margin:0" }, [h("b", { text: x[0] })])); });
