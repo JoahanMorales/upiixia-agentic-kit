@@ -1,29 +1,34 @@
 #!/usr/bin/env python3
-"""UAK-202: the README says what the kit is in plain words, readable by a person and by an agent.
+"""UAK-202: the README says what the kit is, readable by a person and by an agent, with a voice and without lies.
 
 Why (the human, 2026-11-25): "every time it fills with more slop and buzzwords and it is not understandable for an
-agent". The README had grown to 656 lines and 26 top-level sections, because each release appended one instead of
-rewriting. These cases keep the rewrite from drifting back:
+agent" (656 lines, 26 top-level sections, one appended per release); and on the first rewrite of 105 lines the same
+day: "too short, lifeless, it does not help; as you defined the kit I would not feel like using it". So the README
+may say where the kit is going, marked as an aim, and says what works today in sentences that are true today.
 
-  readme_is_at_most_150_lines               the whole README fits in 150 lines
-  first_screen_answers_the_four_questions   what it is, who it is for, what you have after ten minutes, the one
-                                            command to start, in that order, with nothing (no slogan) before them
-  no_selling_words                          no word of SELLING in the README, llms.txt or the three docs it links;
-                                            no question and no emoji in the README or llms.txt
-  every_number_has_a_source                 a number in the README sits next to its source (a task, a run,
+  readme_is_at_most_300_lines               the whole README fits in 300 lines
+  top_has_banner_vision_and_badges          the banner, the title, one line with the vision (marked as the aim) and the
+                                            badges (tests, license, runtime dependencies, coding tools, M8ven)
+  first_screen_answers_the_four_questions   then, with nothing else before them: what it is, who it is for, what you
+                                            have after ten minutes, the one command to start
+  no_empty_words                            no word of EMPTY_WORDS in the README, llms.txt or the three docs it links,
+                                            and no emoji in the README or llms.txt
+  every_number_has_a_source                 a measurement in the README sits next to its source (a task, a run,
                                             `uak metrics` or docs/EVIDENCE.md)
+  wins_name_their_event_and_source          each win: event, date, place, the entry's public repository (or "not
+                                            public"), the kit version, and a source that says it
+  comparison_rows_have_a_source_and_a_date  each tool beside the kit: a link to its own docs, the date it was checked,
+                                            and where it does more than the kit
   every_command_exists                      every uak, wt, install.sh and slash command shown exists with the options
                                             shown, and the shell blocks paste as they are (no placeholders)
   llms_txt_agrees_with_the_readme           llms.txt is shorter, says the same things in the same order and claims
                                             nothing (command, link, number) the README does not
   every_old_section_has_a_home              each heading of the old README has a home in the README, docs/GUIDE.md,
                                             docs/REFERENCE.md or docs/EVIDENCE.md, or a "dropped: reason"
-  sections_in_order_with_one_for_agents     the outline after the first screen, and the section that tells an agent
-                                            which file to read for what
-  images_show_todays_product_with_alt_text  every image exists, is not a retired one, and has alt text saying what
-                                            it shows
+  sections_in_order_with_one_for_agents     the outline, and the section that tells an agent which file to read for what
+  images_show_todays_product_with_alt_text  every image exists and has alt text saying what it shows
 
-To ban one more word: add a line to SELLING. Standard library only.
+To ban one more word: add a line to EMPTY_WORDS. Standard library only.
 Run: python3 kit/.uak/tests/test_readme.py [--case NAME]."""
 import argparse
 import re
@@ -40,14 +45,13 @@ COMMANDS = REPO / "kit" / ".uak" / "bin" / "lib" / "commands.tsv"
 WT = REPO / "kit" / ".uak" / "bin" / "wt"
 INSTALL = REPO / "install.sh"
 SLASH = REPO / "kit" / ".claude" / "commands"
-MAX_LINES = 150
-SCREEN = 40   # "the first screen": the lines a reader sees before scrolling on a laptop
+MAX_LINES = 300
+SCREEN = 60   # "the first screen": the banner, the title and the badges, then what a laptop shows
 
-# Words and phrases that sell instead of saying what the thing does. One pattern per line, case-insensitive; add a
-# line to ban one more. They apply to the README, llms.txt and the three docs the README links.
-SELLING = [
-    r"\bwithout chaos\b",
-    r"\bchaos\b",
+# Empty words: they sell with nothing behind them. One pattern per line, case-insensitive; add a line to ban one more.
+# They apply to the README, llms.txt and the three docs the README links. "No chaos" is allowed: it is the kit's aim,
+# and the README marks it as an aim.
+EMPTY_WORDS = [
     r"\bbattle[- ]tested\b",
     r"\bblazing(ly)?\b",
     r"\bseamless(ly)?\b",
@@ -122,8 +126,21 @@ JARGON = ["claim", "lease", "worktree", "harness", "sprint", "marathon", "uak", 
           "agentic"]
 
 # The sections after the first screen, in this order (other sections may sit between them).
-OUTLINE = ["How it works", "What it does not do", "Where to read more", "For an agent reading this", "Contributing",
-           "License"]
+OUTLINE = ["Why it exists", "See it run", "Get started", "How it works", "What it has won", "How it compares",
+           "What it does not do", "Where to read more", "For an agent reading this", "Contributing", "License"]
+# The top of the README, before the four answers.
+BANNER = "docs/media/banner.png"
+TITLE = "# UPIIXIA Agentic Kit"
+VISION_MARK = "aim"   # the vision line says it is the aim, not a claim about today
+BADGES = {   # what each badge is, and a piece of its image URL
+    "tests": "actions/workflows/test.yml/badge.svg",
+    "license": "img.shields.io/badge/license-",
+    "runtime dependencies": "img.shields.io/badge/runtime_deps-",
+    "coding tools": "img.shields.io/badge/agents-",
+    "M8ven": "m8ven.ai/badge/",
+}
+# The wins (the human, 2026-11-25): each must be in the table with its proof.
+WINS = ["Kavak", "Chilangatón", "HackADA", "Diablos Rojos"]
 # The section for an agent names each file with what it is for.
 AGENT_FILES = {"AGENTS.md": "rules", "CLI.md": "command", "WHY.md": "reason"}
 
@@ -134,6 +151,7 @@ NOT_MEASUREMENTS = [
     r"\bv\d+(\.\d+)*\b",                                          # a release
     r"\b[A-Z][A-Z0-9]*-\d+\b",                                     # a task ID
     r"^\s*\d+\.\s",                                                # the number of a numbered list item
+    r"\b\d{4}-\d\d-\d\d\b",                                         # a date
 ]
 SOURCES = [
     r"\]\(docs/EVIDENCE\.md(#[^)]*)?\)",
@@ -144,8 +162,10 @@ SOURCES = [
 
 # Images retired from the README, with the reason.
 RETIRED_IMAGES = {
-    "docs/media/banner.png": "the v6.8 banner: a slogan and figures without a source",
+    # the v6.8 banner ("No chaos" as a fact, "~2 s" and "144x" with no source) was redrawn by UAK-202 in the same file
 }
+BADGE_HOSTS = ("https://github.com/JoahanMorales/upiixia-agentic-kit/actions/", "https://img.shields.io/",
+               "https://m8ven.ai/")
 
 # Every heading of the README before UAK-202 (2026-11-25, 656 lines) and where its content lives now: (file, the
 # heading there) or "dropped: reason".
@@ -153,10 +173,10 @@ OLD_SECTIONS = [
     ("UPIIXIA Agentic Kit", ("README.md", "# UPIIXIA Agentic Kit")),
     ("Ship with a team of AI coding agents, in parallel, without chaos.",
      "dropped: a slogan; the first screen now says what the kit is"),
-    ("Try it in 30 seconds (no setup, no API key)", ("README.md", "## Try it without installing")),
-    ("Quick start", ("README.md", "## Start from a terminal")),
+    ("Try it in 30 seconds (no setup, no API key)", ("README.md", "## See it run")),
+    ("Quick start", ("README.md", "## Get started")),
     ("Stuck before the first claim? `uak start`", ("docs/GUIDE.md", "## When nothing can be claimed yet")),
-    ("Why", ("README.md", "## How it works")),
+    ("Why", ("README.md", "## Why it exists")),
     ("Two modes, one engine", ("docs/REFERENCE.md", "## Modes")),
     ("How it works", ("README.md", "## How it works")),
     ("Subagent orchestration: fast swarms, a balanced lead, a strong advisor", ("docs/REFERENCE.md", "## Subagent tiers")),
@@ -170,12 +190,11 @@ OLD_SECTIONS = [
     ("See everything: `uak dash`", ("docs/GUIDE.md", "## Follow the work: board and dashboard")),
     ("Speed", ("docs/EVIDENCE.md", "## Speed of the commands")),
     ("Token economy", ("docs/REFERENCE.md", "## Token use")),
-    ("Battle-tested: six team runs", ("docs/EVIDENCE.md", "## Team events")),
+    ("Battle-tested: six team runs", ("README.md", "## What it has won")),
     ("Works with", ("docs/REFERENCE.md", "## Coding tools")),
     ("Commands", ("docs/REFERENCE.md", "## Commands")),
     ("What's inside", ("docs/REFERENCE.md", "## What the install adds")),
-    ("How it compares", "dropped: claims about other tools that were not checked again against those tools; "
-                        "docs/INSPIRATIONS.md keeps what the kit took from them"),
+    ("How it compares", ("README.md", "## How it compares")),
     ("FAQ", ("README.md", "## What it does not do")),
     ("Contributing", ("README.md", "## Contributing")),
     ("License", ("README.md", "## License")),
@@ -295,22 +314,46 @@ def label_text(lines, start):
 # ---------------------------------------------------------------------------------------------------- the cases
 
 
-def readme_is_at_most_150_lines():
+def readme_is_at_most_300_lines():
     lines = read(README).rstrip("\n").split("\n")
     expect(len(lines) <= MAX_LINES, "README.md has %d lines, more than %d: move walkthroughs to docs/GUIDE.md, lists to "
                                     "docs/REFERENCE.md and measurements to docs/EVIDENCE.md" % (len(lines), MAX_LINES))
     return "%d lines" % len(lines)
 
 
+def top_lines(lines):
+    """The lines before the first of the four answers: the top block (banner, title, vision, badges)."""
+    at = label_lines(lines)
+    return lines[:at[LABELS[0]]] if LABELS[0] in at else lines[:SCREEN]
+
+
+def top_has_banner_vision_and_badges():
+    lines = read(README).split("\n")
+    top = top_lines(lines)
+    filled = [l.strip() for l in top if l.strip()]
+    first_image = next((l for l in filled if "<img" in l or l.startswith("![")), "")
+    expect(filled and (filled[0] == first_image or filled[0].startswith("<p") and first_image),
+           "the README opens with the banner image, nothing before it: %r" % (filled[0] if filled else ""))
+    expect(BANNER in first_image, "the first image is the banner %s: %r" % (BANNER, first_image))
+    expect(TITLE in filled, "the title %r is in the top block" % TITLE)
+    title_at = filled.index(TITLE)
+    expect(filled.index(first_image) < title_at, "the banner comes before the title")
+    after = filled[title_at + 1:]
+    expect(after and VISION_MARK in plain(after[0]).lower(),
+           "right after the title, one line says the vision and marks it as the %s: %r" % (VISION_MARK, after[:1]))
+    expect(len(re.findall(r"[.!](\s|$)", plain(after[0]))) <= 3 and len(plain(after[0]).split()) <= 40,
+           "the vision is one short line: %r" % after[0])
+    block = "\n".join(top)
+    for what, piece in BADGES.items():
+        expect(piece in block, "the %s badge is in the top block (%s)" % (what, piece))
+    others = [l for l in after[1:] if not re.search(r"!\[[^\]]*\]\(https://|</?(p|div)\b", l)]
+    expect(not others, "the top block holds only the banner, the title, the vision and the badges: %r" % others[:3])
+    return "banner, title, vision, %d badges" % len(BADGES)
+
+
 def first_screen_answers_the_four_questions():
     text = read(README)
     lines = text.split("\n")
-    filled = [i for i, l in enumerate(lines) if l.strip()]
-    expect(filled and lines[filled[0]].strip() == "# UPIIXIA Agentic Kit",
-           "the README opens with its title, nothing before it: %r" % (lines[filled[0]] if filled else ""))
-    expect(len(filled) > 1 and lines[filled[1]].startswith("**%s.**" % LABELS[0]),
-           "right after the title comes **%s.**, with no slogan, badge or image before it: %r"
-           % (LABELS[0], lines[filled[1]] if len(filled) > 1 else ""))
     at = label_lines(lines)
     for label in LABELS:
         expect(label in at, "the first screen has the line **%s.** ..." % label)
@@ -318,6 +361,9 @@ def first_screen_answers_the_four_questions():
                % (label, at[label] + 1, SCREEN))
     order = [at[l] for l in LABELS]
     expect(order == sorted(order), "the four answers come in this order: %s" % " · ".join(LABELS))
+    between = [l for l in lines[at[LABELS[0]]:at["Start"]] if l.strip() and not any(l.startswith("**%s.**" % x) for x in LABELS)]
+    expect(not [l for l in between if l.startswith("#") or "<img" in l or l.startswith("![")],
+           "nothing but the answers between them: %r" % between[:3])
     what = label_text(lines, at[LABELS[0]])
     words = what.split()
     expect(len(re.findall(r"[.!?](\s|$)", what)) == 1 and what.endswith("."),
@@ -340,37 +386,93 @@ def first_screen_answers_the_four_questions():
     expect(lang in ("bash", "sh", "shell"), "the start block is marked bash: %r" % lang)
     expect(len(commands) == 1, "one command to start, on one line: %r" % commands)
     expect("install.sh" in commands[0], "the start command runs the installer: %r" % commands[0])
-    before = "\n".join(lines[:at["Start"]])
-    expect("<img" not in before and "![" not in before, "no image before the four answers")
     return "start: " + commands[0]
 
 
-def selling_hits(text):
+def empty_word_hits(text):
     prose, _ = split_code(text)
     hits = []
     for n, line in enumerate(prose, 1):
         seen = plain(line)
-        for pattern in SELLING:
+        for pattern in EMPTY_WORDS:
             m = re.search(pattern, seen, re.I)
             if m:
                 hits.append("line %d: %r (%s)" % (n, m.group(0), line.strip()[:100]))
     return hits
 
 
-def no_selling_words():
+def no_empty_words():
     found = []
     for path in (README, LLMS, GUIDE, REFERENCE, EVIDENCE):
-        found += ["%s %s" % (path.relative_to(REPO).as_posix(), h) for h in selling_hits(read(path))]
-    expect(not found, "selling words: " + "; ".join(found[:12]))
+        found += ["%s %s" % (path.relative_to(REPO).as_posix(), h) for h in empty_word_hits(read(path))]
+    expect(not found, "empty words: " + "; ".join(found[:12]))
     for path in (README, LLMS):
-        prose, _ = split_code(read(path))
-        for n, line in enumerate(prose, 1):
-            seen = plain(line)
-            expect("?" not in seen, "%s line %d asks a question; say the answer instead: %r"
-                   % (path.name, n, line.strip()[:100]))
+        for n, line in enumerate(read(path).split("\n"), 1):
             m = EMOJI.search(line)
             expect(not m, "%s line %d has an emoji or pictograph %r: %r" % (path.name, n, m and m.group(0), line[:80]))
-    return "%d patterns, 5 files" % len(SELLING)
+    return "%d patterns, 5 files" % len(EMPTY_WORDS)
+
+
+def table(lines):
+    """[(header cells), [row cells]] of the first Markdown table in LINES."""
+    rows = [l for l in lines if l.lstrip().startswith("|")]
+    cells = [[c.strip() for c in r.strip().strip("|").split("|")] for r in rows]
+    cells = [c for c in cells if not all(re.match(r"^:?-{3,}:?$", x) for x in c if x)]
+    return (cells[0], cells[1:]) if cells else ([], [])
+
+
+def wins_name_their_event_and_source():
+    readme = read(README)
+    head, rows = table(section(readme, "What it has won"))
+    expect(rows, "the section What it has won has a table")
+    col = {name: next((i for i, h in enumerate(head) if name in h.lower()), None)
+           for name in ("event", "date", "place", "entry", "kit", "source")}
+    expect(all(v is not None for v in col.values()), "the wins table has the columns event, date, place, entry, kit, "
+                                                      "source: %r" % head)
+    changelog = read(REPO / "CHANGELOG.md")
+    evidence = read(EVIDENCE)
+    seen = []
+    for r in rows:
+        event = plain(r[col["event"]])
+        seen.append(event)
+        expect(re.search(r"\b\d{4}-\d\d-\d\d\b", r[col["date"]]), "%s: a date (YYYY-MM-DD): %r" % (event, r[col["date"]]))
+        expect(plain(r[col["place"]]).strip(), "%s: the place obtained" % event)
+        entry = r[col["entry"]]
+        expect(re.search(r"\]\(https://github\.com/[\w.-]+/[\w.-]+\)", entry) or "not public" in entry,
+               "%s: the entry's public repository, or \"not public\": %r" % (event, entry))
+        expect(re.search(r"\bv\d+\.\d+\.\d+\b", r[col["kit"]]), "%s: the kit version it ran: %r" % (event, r[col["kit"]]))
+        src = r[col["source"]]
+        target = re.search(r"\]\(((CHANGELOG\.md|docs/EVIDENCE\.md)(#[^)]*)?|https?://[^)]+)\)", src)
+        expect(target, "%s: a source (the CHANGELOG, the event's page or the statement in docs/EVIDENCE.md): %r"
+               % (event, src))
+        key = event.split()[0].lower()
+        if target.group(2) == "CHANGELOG.md":
+            low = changelog.lower()
+            expect(key in low and plain(r[col["place"]]).strip().lower() in low,
+                   "%s: CHANGELOG.md says the event and the place" % event)
+        elif target.group(2) == "docs/EVIDENCE.md":
+            stated = [l for l in evidence.split("\n") if key in l.lower() and "statement" in l.lower()]
+            expect(stated and re.search(r"\d{4}-\d\d-\d\d", stated[0]),
+                   "%s: docs/EVIDENCE.md records the dated statement" % event)
+    for win in WINS:
+        expect(any(win.lower() in e.lower() for e in seen), "the win %r is in the table with its proof" % win)
+    return "%d wins" % len(rows)
+
+
+def comparison_rows_have_a_source_and_a_date():
+    readme = read(README)
+    head, rows = table(section(readme, "How it compares"))
+    expect(rows, "the section How it compares has a table")
+    src = next((i for i, h in enumerate(head) if "source" in h.lower()), None)
+    more = next((i for i, h in enumerate(head) if "does more" in h.lower() or "better" in h.lower()), None)
+    expect(src is not None and more is not None, "the table has a source column and one for where the other tool "
+                                                 "does more: %r" % head)
+    for r in rows:
+        name = plain(r[0]).strip()
+        expect(re.search(r"\]\(https?://[^)]+\)", r[src]), "%s: a link to its own docs or repository" % name)
+        expect(re.search(r"\b\d{4}-\d\d-\d\d\b", r[src]), "%s: the date it was checked" % name)
+        expect(plain(r[more]).strip() not in ("", "-", "—"), "%s: where it does more than the kit" % name)
+    return "%d tools" % len(rows)
 
 
 def unsourced_numbers(text):
@@ -581,8 +683,9 @@ def images_show_todays_product_with_alt_text():
         alt = re.search(r"\balt=\"([^\"]*)\"", tag)
         images.append((src.group(1) if src else "", alt.group(1) if alt else ""))
     expect(images, "the README shows the product")
+    images = [(src, alt) for src, alt in images if not src.startswith(BADGE_HOSTS)]   # the badges of the top block
     for src, alt in images:
-        expect(not src.startswith("http"), "images are files of this repository: %s" % src)
+        expect(not src.startswith("http"), "images are files of this repository (or a badge): %s" % src)
         expect((REPO / src).is_file(), "the image exists: %s" % src)
         expect(src not in RETIRED_IMAGES, "%s is retired: %s" % (src, RETIRED_IMAGES.get(src)))
         expect(len(alt.split()) >= 5 and Path(src).name not in alt,
@@ -590,8 +693,9 @@ def images_show_todays_product_with_alt_text():
     return "%d images" % len(images)
 
 
-TESTS = [readme_is_at_most_150_lines, first_screen_answers_the_four_questions, no_selling_words,
-         every_number_has_a_source, every_command_exists, llms_txt_agrees_with_the_readme,
+TESTS = [readme_is_at_most_300_lines, top_has_banner_vision_and_badges, first_screen_answers_the_four_questions,
+         no_empty_words, every_number_has_a_source, wins_name_their_event_and_source,
+         comparison_rows_have_a_source_and_a_date, every_command_exists, llms_txt_agrees_with_the_readme,
          every_old_section_has_a_home, sections_in_order_with_one_for_agents, images_show_todays_product_with_alt_text]
 
 
