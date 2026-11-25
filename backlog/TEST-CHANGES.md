@@ -17,3 +17,4 @@ Append-only. Format: - ID | epoch | human | reason. Why: a test is a spec; chang
 - UAK-160 | 1795502196 | JoahanMorales | el español se escribe desde códigos; los tests comparan frases traducidas
 - UAK-162 | 1795502200 | JoahanMorales | el panel se rediseña según la maqueta; los tests leen la estructura anterior
 - UAK-191 | 1795537986 | JoahanMorales | dos casos de test_ci_tiers leen la tabla viva y tres casos fijan el tope en 19 trabajos
+- UAK-197 | 1795625101 | JoahanMorales | mueve casos del hook a otro archivo sin cambiarlos y sube a 12 los bloques de Windows en tres casos
