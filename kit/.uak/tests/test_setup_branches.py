@@ -10,7 +10,9 @@ import importlib.util
 import os
 import re
 import shutil
+import stat
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -321,10 +323,20 @@ def quote_in_path_gets_a_command(root, tmp):
 def remove_when_released(folder, seconds=60):
     """Remove a case's temporary folder; on Windows a process that still works in it (the server's last request) makes
     the removal fail until it ends, so try again for a bounded time. Returns "" or the last error."""
+    def writable(func, path, *_):
+        # Git writes its objects read-only, and Windows refuses to delete a read-only file (WinError 5): make it
+        # writable and try once more, as tempfile.TemporaryDirectory does.
+        try:
+            for p in (os.path.dirname(path), path):
+                os.chmod(p, os.stat(p).st_mode | stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC * os.path.isdir(p))
+        except FileNotFoundError:
+            return
+        func(path)
+    kw = {"onexc": writable} if sys.version_info >= (3, 12) else {"onerror": writable}
     deadline = time.monotonic() + seconds
     while True:
         try:
-            shutil.rmtree(folder)
+            shutil.rmtree(folder, **kw)
             return ""
         except FileNotFoundError:
             return ""
