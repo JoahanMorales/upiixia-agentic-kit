@@ -931,6 +931,29 @@ TESTS += [every_background_job_has_a_limit, cached_copy_always_says_its_age, lim
 # PID 0 or to a process group is refused and written down with the script and function that sent it, the file fails
 # naming it, and every other signal is written down and sent. A mitigation and a detector, not a fix of a found cause.
 KILL_GUARD = r"""# BASH_ENV of test_hook_session_start_speed/_locks (UAK-197): every signal goes through here; see KILL_GUARD there.
+kill_guard_started() { # PID [MSYS STIME]: KG_STARTED = the epoch the process started; fails when it cannot be told
+  local et= d=0 a= b= c= now=
+  KG_STARTED=
+  if [ -n "${UAK_KILL_GUARD_WINPIDS:-}" ]; then
+    # Git Bash's ps gives STIME: HH:MM:SS for a process of today, a date for an older one (started before the test).
+    case "${2:-}" in
+      [0-9][0-9]:[0-9][0-9]:[0-9][0-9]) KG_STARTED=$(date -d "$2" +%s 2>/dev/null) || return 1;;
+      '') return 1;;
+      *) KG_STARTED=0;;
+    esac
+    return 0
+  fi
+  et=$(ps -o etime= -p "$1" 2>/dev/null) || return 1
+  et=${et// /}
+  [ -n "$et" ] || return 1
+  case "$et" in *-*) d=${et%%-*}; et=${et#*-};; esac
+  IFS=: read -r a b c <<KGEOF
+$et
+KGEOF
+  if [ -z "$c" ]; then c=$b; b=$a; a=0; fi
+  now=$(date +%s)
+  KG_STARTED=$((now - ((10#$d * 24 + 10#$a) * 60 + 10#$b) * 60 - 10#$c))
+}
 kill() {
   local first=${1:-} opt= targets= refused= t= rc=0 line= seen=
   case "$first" in -0|-s0|-l|-L) builtin kill "$@"; return;; esac
@@ -952,6 +975,11 @@ kill() {
            case "${1:-}" in [0-9]*) ;; *) [ "$#" -eq 0 ] || shift;; esac
            seen="$seen [$t: ${line:-no such process}]"
            case " $UAK_KILL_GUARD_WINPIDS " in *" ${4:-x} "*) refused="$refused $t(winpid ${4})"; continue;; esac
+         fi
+         # Only a process started after this test file began may get a signal: a PID that names an older process (an
+         # ancestor, the human's session, a PID reused by something else) is refused.
+         if [ -n "${UAK_KILL_GUARD_SINCE:-}" ] && kill_guard_started "$t" "${7:-}" && [ "$KG_STARTED" -lt $((UAK_KILL_GUARD_SINCE - 2)) ]; then
+           refused="$refused $t(started $((UAK_KILL_GUARD_SINCE - KG_STARTED)) s before the test)"; continue
          fi
          targets="$targets $t";;
     esac
@@ -1020,7 +1048,8 @@ def kill_guard(r):
     guard.write_text(KILL_GUARD, encoding="utf-8")
     log.write_text("", encoding="utf-8")
     env = {"BASH_ENV": guard.as_posix(), "UAK_KILL_GUARD_LOG": log.as_posix(),
-           "UAK_KILL_GUARD_PIDS": " ".join(str(p) for p in sorted(set(ancestors())))}
+           "UAK_KILL_GUARD_PIDS": " ".join(str(p) for p in sorted(set(ancestors()))),
+           "UAK_KILL_GUARD_SINCE": str(int(time.time()))}
     if os.name == "nt":
         env["UAK_KILL_GUARD_WINPIDS"] = " ".join(str(p) for p in getattr(ancestors, "winpids", []))
     print("KILL_GUARD protects %s (Windows PIDs of the chain: %s)" % (env["UAK_KILL_GUARD_PIDS"], env.get("UAK_KILL_GUARD_WINPIDS", "-")),
@@ -1083,6 +1112,10 @@ def kill_guard_refuses_an_ancestor(r):
                       'I    %s       1    %s       4242  cons0     197108 10:00:00 /usr/bin/sleep\\n" "$2" "$2"; }; '
                       'kill -TERM "$1"; echo "f=$?"', "_", other],
                      env={"UAK_KILL_GUARD_PIDS": "", "UAK_KILL_GUARD_WINPIDS": "4242", "UAK_KILL_GUARD_DRY": "1"}, allowed=None)
+        # A process older than the test file (forced: the file "began" 100 s from now) is refused, whatever its PID.
+        older = r.run([r.bash, "-c", 'kill -TERM "$1"; echo "g=$?"', "_", other],
+                      env={"UAK_KILL_GUARD_PIDS": "", "UAK_KILL_GUARD_SINCE": str(int(time.time()) + 100), "UAK_KILL_GUARD_DRY": "1"},
+                      allowed=None)
         real = r.run([r.bash, "-c", 'kill -0 "$1"; echo "d=$?"; kill -KILL "$2"; echo "e=$?"', "_", victim, other],
                      env={"UAK_KILL_GUARD_PIDS": victim}, allowed=None)
         procs[1].wait(timeout=20)
@@ -1098,14 +1131,16 @@ def kill_guard_refuses_an_ancestor(r):
     expect(all(x in dry.stdout for x in ("a=1", "b=1", "c=1")), "refused kills fail: %r" % dry.stdout)
     expect("d=0" in real.stdout and "e=0" in real.stdout, "kill -0 and a kill of another process work: %r" % real.stdout)
     refused = [l for l in new if l.startswith("REFUSED")]
-    expect(len(refused) == 4 and " %s " % victim in refused[0] + " " and " 0 " in refused[1] + " " and "-" + victim in refused[2],
-           "four refusals written down, with the target: %r" % new)
+    expect(len(refused) >= 4 and " %s " % victim in refused[0] + " " and " 0 " in refused[1] + " " and "-" + victim in refused[2],
+           "the refusals are written down, with the target: %r" % new)
     expect("f=1" in msys.stdout and "%s(winpid 4242)" % other in refused[3] and "/usr/bin/sleep" in refused[3],
            "a target whose Windows PID is protected is refused, its ps line written down: %r %r" % (msys.stdout, refused[3:]))
+    expect("g=1" in older.stdout and len(refused) == 5 and "%s(started" % other in refused[4] and "before the test)" in refused[4],
+           "a process older than the test is refused: %r %r" % (older.stdout, refused[4:]))
     expect(not [l for l in new if l.startswith("SENT") and victim in l], "nothing was sent to the protected process: %r" % new)
     expect(any(l.startswith("SENT kill -KILL %s" % other) for l in new), "the allowed kill is written down: %r" % new)
     expect(victim_alive and procs[1].returncode is not None, "the protected process lives, the other got its signal")
-    return "a protected PID, PID 0, a group and a protected Windows PID refused; another process killed"
+    return "a protected PID, PID 0, a group, a protected Windows PID and an older process refused; another process killed"
 
 
 def run_cases(tests, label, prefix):
