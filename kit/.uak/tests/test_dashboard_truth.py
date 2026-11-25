@@ -298,10 +298,12 @@ def page_is_not_heavier(root, tmp):
     to 128 KiB on 2026-11-24 (docs/plans/visual-setup-amend-7.md) and, for the views they asked for after seeing the screens
     (every task as a square, what waits for what, the black box as a tool, the memory graph, the token breakdown), to
     150 KiB the same day (docs/plans/visual-setup-amend-8.md) and, for the changes after the human signed off the look
-    (agents as cards, listboxes, a readable memory graph, the page reloading itself), to 200 KiB (docs/plans/visual-setup-amend-10.md).
+    (agents as cards, listboxes, a readable memory graph, the page reloading itself), to 200 KiB (docs/plans/visual-setup-amend-10.md),
+    and on 2026-11-25 to 256 KiB for the summary the viewer arranges and the two tasks after it (docs/plans/visual-setup-amend-12.md:
+    UAK-165, UAK-166, UAK-167; the page was 196,171 bytes and a draft of the arrange mode without drag measured 13,512 more).
     Measured on the file's bytes."""
     size = len((root / ".uak/bin/lib/dash.html").read_bytes().replace(b"\r\n", b"\n"))  # a Windows checkout adds a byte per line: the bound is on the file as committed
-    assert size <= 200 * 1024, "dash.html is %d bytes; the bound is 200 KiB (%d)" % (size, 200 * 1024)
+    assert size <= 256 * 1024, "dash.html is %d bytes; the bound is 256 KiB (%d)" % (size, 256 * 1024)
 
 
 def both_profiles_and_languages_are_complete(root, tmp):
@@ -608,12 +610,27 @@ def browser_page(root, tmp, data, tab, extra="", phone=False):
         if tab:
             pg.add_init_script("localStorage.setItem('uak-dash', JSON.stringify({tab:'%s'%s}))" % (tab, extra))
         pg.goto("file://" + str(tmp / "index.html"))
-        pg.wait_for_timeout(500)
+        pg.wait_for_function("document.getElementById('view').childElementCount > 0")
         try:
             yield pg
         finally:
             b.close()
 
+
+def use_language(pg, lang):
+    """Reload the page in LANG, waiting on conditions, never a fixed time. Chromium commits a localStorage write to the browser
+    asynchronously: a reload right after the write can read the old value (measured on 2026-11-25: 10 of 200 write-then-reload
+    cycles read a stale or missing uak-language, and the page then showed the language its storage held; 0 of 200 once another
+    document of the origin read the new value first). That was the English dialog of run 45606588040 (UAK-165)."""
+    pg.evaluate("localStorage.setItem('uak-language', '%s')" % lang)
+    peer = pg.context.new_page()
+    try:
+        peer.goto(pg.url.split("?")[0].split("#")[0].replace("index.html", "data.js"))
+        peer.wait_for_function("(v) => localStorage.getItem('uak-language') === v", arg=lang)
+    finally:
+        peer.close()
+    pg.reload()
+    pg.wait_for_function("(v) => window.UAKWorkspace && UAKWorkspace.language() === v && document.documentElement.lang === v && document.getElementById('view').childElementCount > 0", arg=lang)
 
 
 STUB_JS = r"""
@@ -972,11 +989,9 @@ def share_dialog_shows_a_real_image(root, tmp):
         if pg is None:
             return
         for lang in ("en", "es"):
-            pg.evaluate("localStorage.setItem('uak-language', '%s')" % lang)
-            pg.reload()
-            pg.wait_for_timeout(300)
+            use_language(pg, lang)
             pg.evaluate("document.getElementById('share-btn').click()")
-            pg.wait_for_timeout(300)
+            pg.wait_for_function("document.getElementById('share').open")
             assert pg.evaluate("document.querySelectorAll('#share img.share-img').length") == 2, "the dialog does not hold two <img> (canvas shown instead?)"
             assert pg.evaluate("document.querySelectorAll('#share canvas').length") == 0, "a canvas is in the dialog"
             for fmt in (0, 1):
@@ -989,15 +1004,13 @@ def share_dialog_shows_a_real_image(root, tmp):
                 assert box["iw"] >= 0.5 * (box["dw"] - 32) - 1, "the image is shown smaller than half its width allows: %r" % box
                 assert all(b[1] <= box["vh"] and b[0] >= 0 for b in box["btn"]), "the actions are not visible without scrolling: %r" % box
                 assert ("Mant\u00e9n pulsada" if lang == "es" else "Press and hold") in box["text"], box["text"][:300]
-        pg.evaluate("localStorage.setItem('uak-language', 'en')")
-        pg.reload()
-        pg.wait_for_timeout(300)
+        use_language(pg, "en")
         pg.focus("#share-btn")
         pg.keyboard.press("Enter")
-        pg.wait_for_timeout(300)
+        pg.wait_for_function("document.getElementById('share').open")
         assert pg.evaluate("document.getElementById('share').open"), "Enter on Share does not open the dialog"
         pg.keyboard.press("Escape")
-        pg.wait_for_timeout(200)
+        pg.wait_for_function("!document.getElementById('share').open")
         assert not pg.evaluate("document.getElementById('share').open") and pg.evaluate("document.activeElement && document.activeElement.id") == "share-btn", "after Escape the focus is not back on the Share button"
 
 
@@ -1030,7 +1043,7 @@ def share_export_failure_says_so(root, tmp):
             pg.evaluate("HTMLCanvasElement.prototype.toDataURL = function () { %s; }; 0" % js)
             pg.errors[:] = []
             pg.evaluate("window.UAK_ERRORS.length = 0; document.getElementById('share-btn').click()")
-            pg.wait_for_timeout(300)
+            pg.wait_for_function("document.getElementById('share').open")
             st = pg.evaluate("""() => ({ open: document.getElementById('share').open, imgs: document.querySelectorAll('#share img').length, buttons: document.querySelectorAll('#share .acts button').length,
               text: document.getElementById('share').innerText, errors: window.UAK_ERRORS.length })""")
             assert st["open"] and st["imgs"] == 0 and st["buttons"] == 0 and st["errors"] >= 1 and ("could not be made" in st["text"] or "No se pudo hacer" in st["text"]), "%s: %r" % (label, st)
