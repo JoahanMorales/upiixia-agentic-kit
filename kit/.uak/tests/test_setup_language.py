@@ -586,7 +586,6 @@ def no_missing_text_in_either_language(root, tmp):
     for text in ("Owner", "Rounds", "Moves", "Claimed", "Who took part", "Every move, in order", "PLANNED", "AMENDED",
                  "waiting to be claimed", "Review: approved, waiting for a human merge", "Reviews file history"):
         assert cat.es.get(text) and cat.es[text] != text, "the drawer's %r has Spanish" % text
-    browser_screens(root, tmp)
 
 
 def english_left(text):
@@ -666,12 +665,20 @@ def screen_texts(html):
     return reader.screens
 
 
+class NoBrowser(Exception):
+    """A case that needs Chromium and finds none: main prints `SKIP name (no browser)` (root AGENTS.md rule 9)."""
+
+
+def screens_in_chromium(root, tmp):
+    browser_screens(root, tmp)
+    return "browser"
+
+
 def browser_screens(root, tmp):
     """Chromium, when Playwright is here: the page in Spanish, each screen as a person sees it, no English UI string."""
     found = guide.chromium()
     if not found:
-        print("  note: no Playwright with a Chromium here (CI has none): the screens are read from the page's source")
-        return
+        raise NoBrowser()
     import test_setup_run_here as here
     sync_playwright, kwargs = found
     here.MODULE = here.team.MODULE = wizard.MODULE
@@ -792,7 +799,7 @@ def glossary_is_respected(root, tmp):
     assert cat.t(title) == title and cat.gate(title) == title, "a task title stays as it is"
 
 
-TESTS += [texts_are_keyed_by_code, rewording_the_engine_changes_nothing, no_missing_text_in_either_language,
+TESTS += [screens_in_chromium, texts_are_keyed_by_code, rewording_the_engine_changes_nothing, no_missing_text_in_either_language,
           one_voice_in_spanish, glossary_is_respected]
 
 
@@ -811,18 +818,21 @@ def main():
     spec = importlib.util.spec_from_file_location("language_planning", root / ".uak/bin/lib/planning.py")
     tp.PLANNING = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(tp.PLANNING)
-    failed = 0
+    failed = skipped = 0
     for test in TESTS:
         if args.case and test.__name__ not in args.case:
             continue
         with tempfile.TemporaryDirectory(prefix="uak-language-") as folder:
             try:
-                test(root, Path(folder))
-                print("PASS " + test.__name__)
+                how = test(root, Path(folder))
+                print("PASS %s%s" % (test.__name__, " (browser, 10 screens at 1280 and 390 px)" if how == "browser" else ""))
+            except NoBrowser:
+                skipped += 1
+                print("SKIP %s (no browser)" % test.__name__)
             except Exception as exc:
                 failed += 1
                 print("FAIL %s: %s: %s" % (test.__name__, type(exc).__name__, exc))
-    print("SETUP_LANGUAGE_RESULT failed=%d" % failed)
+    print("SETUP_LANGUAGE_RESULT failed=%d skipped=%d" % (failed, skipped))
     return 1 if failed else 0
 
 
