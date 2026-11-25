@@ -458,6 +458,10 @@ def ci_timings_reads_runs_and_writes_entries(r):
         gamma = (folder / "test_gamma.txt").read_text(encoding="utf-8")
         expect(re.search(r"(?m)^ci 4$", gamma) and re.search(r"(?m)^windows 38$", gamma), "a file measured on Windows only keeps its ci entry: %s" % gamma)
         expect((folder / "test_beta.txt").read_text(encoding="utf-8") == beta_before, "a file not named in --write is not touched")
+        rc = ct.main(["--runs", "3", "--write", str(folder / "test_beta.txt")], gh=fake_gh(runs, jobs, logs, []), out=io.StringIO())
+        beta = (folder / "test_beta.txt").read_text(encoding="utf-8")
+        expect(rc == 0 and re.search(r"(?m)^ci 15$", beta) and re.search(r"(?m)^windows 30$", beta),
+               "a file measured on Linux only (12 s, the longer of its two runs) gets ci 15 and keeps windows: %s" % beta)
         lint = lint_module()
         _, _, problems = lint.read_timings(folder)
         expect(problems == [], "what it writes is a timing file the lint reads: %s" % problems)
