@@ -2,48 +2,68 @@ WEBVTT
 
 1
 00:00:00.000 --> 00:00:04.500
-Demonstration (simulated): the UPIIXIA Agentic Kit, from zero to a deployed product.
+A demonstration with drawn screens: the setup page, then the dashboard.
 
 2
-00:00:04.500 --> 00:00:09.500
-Start in an empty folder and clone the kit once.
+00:00:04.500 --> 00:00:08.500
+In a terminal, install.sh --wizard opens the setup page on your computer.
 
 3
-00:00:09.500 --> 00:00:14.500
-install.sh --wizard opens a setup page on your own computer.
+00:00:08.500 --> 00:00:13.000
+The first screen says what it found in your folder and proposes a way to work.
 
 4
-00:00:14.500 --> 00:00:21.000
-In the page: install the kit, then prepare the project with your name and the event schedule.
+00:00:13.000 --> 00:00:17.500
+Install the kit: its files go beside your code. Nothing is committed or pushed.
 
 5
-00:00:21.000 --> 00:00:27.000
-Plan: describe your idea. Claude Code drafts the tasks, each with its tests.
+00:00:17.500 --> 00:00:23.000
+Confirm the rules, then register a second identity that reviews every change.
 
 6
-00:00:27.000 --> 00:00:33.000
-You approve the plan by typing the project name. Only a person can approve it.
+00:00:23.000 --> 00:00:27.000
+Publish sends the kit to main. Your idea and plan wait for your approval.
 
 7
-00:00:33.000 --> 00:00:40.000
-Start your team: Claude Code implements as claude-ana; a second identity, ana-r, reviews. One subscription is enough.
+00:00:27.000 --> 00:00:31.000
+Write your idea in one line. Your coding agent drafts the plan.
 
 8
-00:00:40.000 --> 00:00:47.000
-Agents claim tasks and write the tests first: red, then green.
+00:00:31.000 --> 00:00:35.500
+Each task lists the checks it must pass. You approve by typing the folder's name.
 
 9
-00:00:47.000 --> 00:00:54.000
-Done goes to review. The reviewer approves, and uak merge runs the checks on the merged result.
+00:00:35.500 --> 00:00:40.500
+Start this agent opens a terminal with it; below it, the same command to copy.
 
 10
-00:00:54.000 --> 00:01:01.000
-The board follows every task: available, in progress, in review, integrated.
+00:00:40.500 --> 00:00:44.500
+Each task claims its files, so two agents never edit the same one.
 
 11
-00:01:01.000 --> 00:01:07.000
-The last task is integrated, and uak deploy puts the app online.
+00:00:44.500 --> 00:00:49.000
+The last screen follows the project, and your app's link once it is deployed.
 
 12
-00:01:07.000 --> 00:01:14.000
-The cafeteria queue board, deployed at its live URL. This was a demonstration with simulated screens.
+00:00:49.000 --> 00:00:54.000
+The dashboard shows every task as a square: integrated, in review, in progress or waiting.
+
+13
+00:00:54.000 --> 00:00:58.000
+Point at a square to see what it waits for and what it unblocks.
+
+14
+00:00:58.000 --> 00:01:03.000
+What waits for you comes first. An approved change merges once the checks pass.
+
+15
+00:01:03.000 --> 00:01:07.000
+Agents: one card each, with its task and when it was last seen.
+
+16
+00:01:07.000 --> 00:01:10.500
+Edit arranges the summary: move, hide or add blocks.
+
+17
+00:01:10.500 --> 00:01:14.000
+Share turns the progress into an image to post.

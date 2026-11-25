@@ -503,38 +503,50 @@ def jpeg_blocks(path):
     return width, height, out
 
 
-def palette_verdict(name, pixels, palette):
-    """Why the colours of an image are not the palette's ('' when they are): the most common colour is a light ground of
-    the palette, at least 80% of the image is a palette colour, and dark or saturated violet areas stay small (the old
-    card: a near-black ground with a purple glow)."""
+def palette_stats(pixels, palette):
+    """{top, near, dark, glow} of an image: its most common colour (in steps of 6), and the shares of palette colours,
+    of dark pixels and of saturated violet that is not a palette colour (the glow of the old card). Each distinct
+    colour is measured once."""
     def dist(a, b):
         return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
-    near, counts, dark, glow = 0, {}, 0, 0
-    tokens = list(palette.items())
+    tokens, exact, coarse = list(palette.values()), {}, {}
     for p in pixels:
+        exact[p] = exact.get(p, 0) + 1
+    near = dark = glow = 0
+    for p, k in exact.items():
         key = tuple(v // 6 * 6 for v in p)
-        counts[key] = counts.get(key, 0) + 1
-        if min(dist(p, c) for _, c in tokens) <= 18:
-            near += 1
-        lum = (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) / 255.0
-        if lum < 0.25:
-            dark += 1
+        coarse[key] = coarse.get(key, 0) + k
+        on = min(dist(p, c) for c in tokens) <= 18
+        near += k if on else 0
+        if (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) / 255.0 < 0.25:
+            dark += k
         mx, mn = max(p), min(p)
-        if mx > 40 and (mx - mn) / float(mx) > 0.35 and p[2] >= p[1] and p[0] >= p[1] and p[2] > p[0] * 0.9:
-            glow += 1
+        if not on and mx > 40 and (mx - mn) / float(mx) > 0.3 and p[2] >= p[1] and p[0] >= p[1] and p[2] > p[0] * 0.9:
+            glow += k
     n = float(len(pixels))
-    top = max(counts.items(), key=lambda kv: kv[1])[0]
-    ground = min(GROUNDS, key=lambda g: dist(top, palette[g]))
-    if dist(top, palette[ground]) > 12:
+    return {"top": max(coarse.items(), key=lambda kv: kv[1])[0], "near": near / n, "dark": dark / n, "glow": glow / n}
+
+
+def palette_verdict(name, pixels, palette):
+    """Why the colours of an image are not the palette's ('' when they are): the most common colour is a light ground of
+    the palette, at least 80% of the image is a palette colour, little of it is dark (a light design, not the old dark
+    card) and almost none is a saturated violet outside the palette (its glow)."""
+    s = palette_stats(pixels, palette)
+
+    def dist(a, b):
+        return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
+
+    ground = min(GROUNDS, key=lambda g: dist(s["top"], palette[g]))
+    if dist(s["top"], palette[ground]) > 12:
         return "%s: its most common colour %s is not a ground of the palette (nearest --%s %s)" % (
-            name, "#%02x%02x%02x" % top, ground, "#%02x%02x%02x" % palette[ground])
-    if near / n < 0.80:
-        return "%s: only %.0f%% of it is a palette colour (at least 80%%)" % (name, 100 * near / n)
-    if dark / n > 0.12:
-        return "%s: %.0f%% of it is dark (at most 12%%): a light design, not a dark card" % (name, 100 * dark / n)
-    if glow / n > 0.08:
-        return "%s: %.0f%% of it is saturated violet (at most 8%%): no purple card, no glow" % (name, 100 * glow / n)
+            name, "#%02x%02x%02x" % s["top"], ground, "#%02x%02x%02x" % palette[ground])
+    if s["near"] < 0.80:
+        return "%s: only %.0f%% of it is a palette colour (at least 80%%)" % (name, 100 * s["near"])
+    if s["dark"] > 0.12:
+        return "%s: %.0f%% of it is dark (at most 12%%): a light design, not a dark card" % (name, 100 * s["dark"])
+    if s["glow"] > 0.03:
+        return "%s: %.1f%% of it is a saturated violet outside the palette (at most 3%%): no glow" % (name, 100 * s["glow"])
     return ""
 
 

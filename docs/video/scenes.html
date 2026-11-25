@@ -2,391 +2,578 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>UPIIXIA Agentic Kit demo</title>
-<!-- UI-016: every frame is a pure function of t (seconds): render.mjs calls window.seek(t) and takes a screenshot. -->
+<title>UPIIXIA Agentic Kit tutorial</title>
+<!-- UAK-199: the tutorial, drawn with the kit's own design system. Every frame is a pure function of t (seconds):
+     render.mjs serves this folder and kit/.uak/bin/lib/ from disk, calls window.seek(t) and takes a screenshot.
+     The wizard scenes use the stylesheet of kit/.uak/bin/lib/setup.html, the dashboard scenes the one of dash.html,
+     each in its own shadow root, read when the page loads: a change of the product's look shows in the next render.
+     The scenes and their seconds are the JSON below; captions.json holds the captions on the same seconds and
+     test_setup_tutorial.py checks that both agree. -->
+<script type="application/json" id="scenes">[
+  {"id": "title",    "page": "title",     "start": 0,    "end": 4.5},
+  {"id": "terminal", "page": "terminal",  "start": 4.5,  "end": 8.5},
+  {"id": "project",  "page": "wizard",    "start": 8.5,  "end": 13},
+  {"id": "install",  "page": "wizard",    "start": 13,   "end": 17.5},
+  {"id": "team",     "page": "wizard",    "start": 17.5, "end": 23},
+  {"id": "publish",  "page": "wizard",    "start": 23,   "end": 27},
+  {"id": "idea",     "page": "wizard",    "start": 27,   "end": 31},
+  {"id": "plan",     "page": "wizard",    "start": 31,   "end": 35.5},
+  {"id": "start",    "page": "wizard",    "start": 35.5, "end": 40.5},
+  {"id": "claim",    "page": "wizard",    "start": 40.5, "end": 44.5},
+  {"id": "follow",   "page": "wizard",    "start": 44.5, "end": 49},
+  {"id": "squares",  "page": "dashboard", "start": 49,   "end": 54},
+  {"id": "waits",    "page": "dashboard", "start": 54,   "end": 58},
+  {"id": "needs",    "page": "dashboard", "start": 58,   "end": 63},
+  {"id": "agents",   "page": "dashboard", "start": 63,   "end": 67},
+  {"id": "arrange",  "page": "dashboard", "start": 67,   "end": 70.5},
+  {"id": "share",    "page": "dashboard", "start": 70.5, "end": 74}
+]</script>
 <style>
-  :root {
-    --bg: #07090c; --panel: #0f1419; --panel2: #141b22; --line: #242e38; --ink: #e8edf2; --muted: #8d99a6;
-    --green: #3fb950; --blue: #58a6ff; --amber: #d29922; --purple: #bc8cff; --red: #f85149; --mint: #a3d8bc;
-    /* The setup page (kit/.uak/bin/lib/setup.html, light) */
-    --s-bg: #f4f6f3; --s-paper: #fff; --s-ink: #182b28; --s-secondary: #52645e; --s-muted: #67756e;
-    --s-line: #dce4dc; --s-accent: #14634e; --s-wash: #e8f1e9;
-    --sans: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-    --mono: "SF Mono", Menlo, Consolas, monospace;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 1280px; height: 720px; overflow: hidden; background: var(--bg); color: var(--ink); font-family: var(--sans); }
-  #stage { position: relative; width: 1280px; height: 720px; overflow: hidden;
-    background: radial-gradient(900px 500px at 0% 100%, rgba(20, 90, 100, .28), transparent 60%),
-                radial-gradient(800px 500px at 100% 0%, rgba(110, 50, 200, .25), transparent 60%), var(--bg); }
-  .scene { position: absolute; inset: 0; }
-  .top { position: absolute; left: 24px; top: 18px; display: flex; gap: 10px; align-items: center; z-index: 50; }
-  .pill { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 14px; border-radius: 15px;
-    border: 1px solid var(--line); background: rgba(15, 20, 25, .85); font: 600 13px var(--mono); color: var(--ink); letter-spacing: .04em; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
-  .step { font: 600 14px var(--sans); color: var(--muted); letter-spacing: 0; }
-  .step b { color: var(--ink); }
-  /* Windows */
-  .win { position: absolute; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--panel);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
-  .bar { height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: var(--panel2);
-    border-bottom: 1px solid var(--line); font: 13px var(--mono); color: var(--muted); }
-  .bar .l { width: 12px; height: 12px; border-radius: 50%; }
-  .bar .ttl { flex: 1; text-align: center; margin-right: 52px; }
-  .term { padding: 16px 20px; font: 16px/1.62 var(--mono); white-space: pre; color: var(--ink); }
-  .term .p { color: var(--purple); }
-  .term .c { color: var(--muted); }
-  .term .g { color: var(--green); }
-  .term .r { color: var(--red); }
-  .term .b { color: var(--blue); }
-  .term .a { color: var(--mint); }
-  .term .y { color: var(--amber); }
-  .caret { display: inline-block; width: 9px; height: 18px; background: var(--ink); vertical-align: -3px; }
-  /* Browser chrome */
-  .url { flex: 1; height: 26px; border-radius: 13px; background: #0a0e12; border: 1px solid var(--line); display: flex;
-    align-items: center; padding: 0 12px; font: 13px var(--sans); color: var(--ink); margin: 0 14px; }
-  .light .bar { background: #e9ece8; border-bottom-color: #d4dad3; color: #52645e; }
-  .light .url { background: #fff; border-color: #d4dad3; color: #182b28; }
-  .light { background: var(--s-bg); border-color: #cfd8cf; }
-  /* Setup page */
-  .setup { display: flex; height: calc(100% - 38px); color: var(--s-ink); font-family: var(--sans); }
-  .side { width: 230px; padding: 24px 18px; border-right: 1px solid var(--s-line); background: var(--s-paper); }
-  .brand { font: 700 15px var(--sans); margin-bottom: 22px; color: var(--s-ink); }
-  .brand span { color: var(--s-accent); }
-  .st { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px; border-radius: 10px;
-    font: 600 15px var(--sans); color: var(--s-muted); margin-bottom: 4px; }
-  .st .n { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--s-line); display: grid; place-items: center;
-    font: 700 12px var(--sans); }
-  .st.cur { background: var(--s-wash); color: var(--s-ink); }
-  .st.cur .n { border-color: var(--s-accent); color: var(--s-accent); }
-  .st.done .n { background: var(--s-accent); border-color: var(--s-accent); color: #fff; }
-  .main { flex: 1; padding: 26px 32px; overflow: hidden; }
-  .main h3 { font: 700 24px var(--sans); margin-bottom: 6px; }
-  .hint { font: 14px/1.45 var(--sans); color: var(--s-secondary); margin-bottom: 14px; }
-  .card { background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
-  .card h4 { font: 700 16px var(--sans); margin-bottom: 8px; }
-  .row { display: flex; align-items: center; gap: 10px; font: 15px var(--sans); height: 32px; }
-  .ok { width: 22px; height: 22px; border-radius: 50%; background: var(--s-accent); color: #fff; display: grid; place-items: center; font: 700 13px var(--sans); }
-  .wait { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--s-line); }
-  .field { height: 38px; border: 1.5px solid #b9c6bb; border-radius: 10px; background: #fff; padding: 0 12px; display: flex;
-    align-items: center; font: 15px var(--mono); color: var(--s-ink); }
-  .field.focus { border-color: var(--s-accent); box-shadow: 0 0 0 3px rgba(20, 99, 78, .18); }
-  .lbl { font: 600 13px var(--sans); color: var(--s-secondary); margin-bottom: 5px; }
-  .btn { display: inline-flex; align-items: center; height: 38px; padding: 0 16px; border-radius: 10px; font: 700 14px var(--sans);
-    background: var(--s-accent); color: #fff; }
-  .btn.sec { background: #fff; color: var(--s-ink); border: 1.5px solid #b9c6bb; }
-  .btn.off { opacity: .45; }
-  .btn.press { transform: scale(.96); box-shadow: 0 0 0 4px rgba(20, 99, 78, .25); }
-  .saved { font: 600 14px var(--sans); color: var(--s-accent); }
-  .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-  .task { background: #fff; border: 1px solid var(--s-line); border-radius: 12px; padding: 10px 12px; }
-  .task .id { font: 700 12px var(--mono); color: var(--s-accent); }
-  .task .t { font: 600 15px var(--sans); margin: 3px 0; }
-  .task .ts { font: 11.5px var(--mono); color: var(--s-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .banner { border-radius: 12px; background: var(--s-wash); border: 1px solid #b8d6c1; padding: 12px 16px; font: 600 15px var(--sans); color: var(--s-accent); }
-  .mini { background: #0f1419; color: #e8edf2; border-radius: 10px; padding: 10px 12px; font: 14px/1.6 var(--mono); white-space: pre; margin-top: 8px; }
-  .mini .p { color: #bc8cff; } .mini .c { color: #8d99a6; } .mini .g { color: #3fb950; }
-  /* Board (uak dash) */
-  .dash { padding: 16px; height: calc(100% - 38px); }
-  .prog { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
-  .prog .pct { font: 800 44px var(--sans); }
-  .prog .lab { font: 15px var(--sans); color: var(--muted); }
-  .seg { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: #2a323a; margin-bottom: 16px; }
-  .cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-  .colh { display: flex; align-items: center; gap: 7px; font: 700 13px var(--sans); color: var(--ink); margin-bottom: 8px; }
-  .colh .sq { width: 10px; height: 10px; border-radius: 3px; }
-  .colh .k { margin-left: auto; color: var(--muted); }
-  .kc { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
-  .kc .id { font: 700 12px var(--mono); }
-  .kc .t { font: 13px var(--sans); color: var(--ink); margin-top: 2px; }
-  .kc .who { font: 12px var(--mono); color: var(--muted); margin-top: 4px; }
-  .kc.flash { border-color: var(--green); box-shadow: 0 0 0 2px rgba(63, 185, 80, .35); }
-  /* Product */
-  .prod { height: calc(100% - 38px); background: #fffaf3; color: #2a1d12; font-family: var(--sans); padding: 26px 34px; }
-  .prod h1 { font: 800 28px var(--sans); }
-  .prod .sub { color: #7a6553; font: 15px var(--sans); margin-top: 2px; }
-  .serve { border-radius: 22px; background: #2a1d12; color: #fffaf3; padding: 26px 30px; }
-  .serve .k { font: 700 15px var(--sans); letter-spacing: .12em; text-transform: uppercase; color: #f2c38b; }
-  .serve .num { font: 800 120px/1 var(--sans); letter-spacing: -.02em; margin: 10px 0 6px; }
-  .q { background: #fff; border: 1px solid #ecdcc8; border-radius: 14px; padding: 12px 16px; display: flex; justify-content: space-between;
-    font: 600 18px var(--sans); margin-bottom: 10px; }
-  .q span { color: #9a7b60; font-weight: 500; }
-  .take { display: inline-flex; height: 52px; align-items: center; padding: 0 26px; border-radius: 14px; background: #e07a1f; color: #fff;
-    font: 800 18px var(--sans); }
-  .live { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; background: rgba(63, 185, 80, .15);
-    color: #3fb950; font: 700 12px var(--sans); border: 1px solid rgba(63, 185, 80, .5); }
-  .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-  .big { font: 800 84px/1.02 var(--sans); letter-spacing: -.02em;
-    background: linear-gradient(180deg, #fff 0%, #c9c6ff 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .lead { font: 500 28px var(--sans); color: var(--ink); margin-top: 18px; }
-  .lead2 { font: 500 20px var(--sans); color: var(--muted); margin-top: 10px; }
-  .chip { position: absolute; display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 12px;
-    background: rgba(15, 20, 25, .92); border: 1px solid var(--line); font: 600 16px var(--sans); color: var(--ink); box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+  @font-face { font-family: Inter; src: url(/kit/.uak/bin/lib/fonts/Inter.woff2) format("woff2"); font-weight: 100 900; font-style: normal; }
+  @font-face { font-family: "JetBrains Mono"; src: url(/kit/.uak/bin/lib/fonts/JetBrainsMono.woff2) format("woff2"); font-weight: 100 800; font-style: normal; }
+  html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: #f6f6f9; }
+  #stage { position: relative; width: 1280px; height: 720px; overflow: hidden; }
+  .host { position: absolute; inset: 0; z-index: 0; }
+  .host[hidden] { display: none; }
+  #cursor { position: absolute; left: 0; top: 0; width: 26px; height: 34px; z-index: 10; pointer-events: none; transform-origin: 3px 3px; }
+  #cursor[hidden] { display: none; }
 </style>
 </head>
 <body>
-<div id="stage"></div>
+<div id="stage">
+  <div class="host" id="wiz"></div>
+  <div class="host" id="dash" hidden></div>
+  <div id="cursor" aria-hidden="true" hidden><svg viewBox="0 0 26 34" width="26" height="34"><path d="M3 3 L3 27 L9.5 21 L14 31 L18.5 29 L14 19.5 L23 19.5 Z" fill="#1d1b27" stroke="#ffffff" stroke-width="2" stroke-linejoin="round"/></svg></div>
+</div>
 <script>
 "use strict";
+const SCENES = JSON.parse(document.getElementById("scenes").textContent);
+window.DURATION = SCENES[SCENES.length - 1].end;
+const ZOOM = { wiz: 1.6, dash: 1.45 }; // the wizard is laid out at 800x450, the dashboard at 883x497; both fill 1280x720
+const PROJECT = "cafe-turnos", WHERE = "~/proyectos/cafe-turnos";
+
+// ---- the product's own stylesheets, in two shadow roots --------------------------------------------------------------
+// :root, html and body become .pg (the page of a scene), so the tokens of the palette apply inside the shadow root.
+function adopt(html) {
+  let css = html.slice(html.indexOf("<style>") + 7, html.indexOf("</style>"));
+  css = css.replace(/@font-face\s*\{[^}]*\}/g, "").replace(/:root/g, ".pg")
+    .replace(/(^|[\s,}])(html|body)(?=[\s{\[.:,])/g, "$1.pg");
+  return css;
+}
+// What a scene needs beyond the product's rules: the page at 800x450, no motion of its own, the pressed state that a
+// pointer gives (the product's :hover rules, as a class), and the few sizes a 16:9 frame asks for.
+const COMMON = `
+  .pg { overflow: hidden; position: relative; }
+  .pg *, .pg *::before, .pg *::after { animation: none !important; transition: none !important; }
+  .hov.primary:not(:disabled), .hov.btn:not(:disabled) { background: color-mix(in srgb, var(--btn) 86%, var(--ink)); }
+  .hov.secondary-button, .hov.ghost, .hov.chip, .hov.ab, .hov.hnd { background: var(--hover); color: var(--ink); }
+  .press { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
+`;
+const WIZ = COMMON + `
+  .pg { zoom: ${ZOOM.wiz}; width: 800px; height: 450px; }
+  .scr { display: flex; flex-direction: column; height: 386px; }
+  .scr .wz-body { width: 100%; }
+  .wz-main .nodes li { white-space: nowrap; font-size: 12px; }
+  .wz-top { padding: 10px 24px 8px; }
+  .wz-body { grid-template-columns: minmax(0, 1fr) 312px; gap: 20px; padding: 14px 24px 0; flex: 1; overflow: hidden; align-content: start; }
+  .wz-main > * + * { margin-top: 10px; }
+  .wz-main h1 { font-size: 22px; }
+  .foot { position: static; }
+  .foot-in { padding: 10px 24px; max-width: none; }
+  .win-b { font-size: 11.5px; line-height: 1.65; }
+  .win-h { gap: 6px; }
+  .win-h > span { margin-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .box { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); padding: 10px 12px; }
+  .found li, .plain > li, .rules > li { padding: 7px 12px; }
+  .term-b { padding: 12px 14px; font: 500 12.5px/1.75 var(--mono); color: var(--ink); white-space: pre; }
+  .term-b .p { color: var(--accent-ink); }
+  .term-b .o { color: var(--integrated-ink); }
+  .term-b .m { color: var(--muted); }
+  .caret { display: inline-block; width: 7px; height: 14px; background: var(--ink); vertical-align: -2px; }
+  /* the title: a frame of the same language (the brand, the window, the line of nodes) */
+  .ttl { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 32px; align-items: center; padding: 74px 40px 0; }
+  .ttl h1 { font-size: 34px; line-height: 1.12; letter-spacing: -.025em; max-width: 14ch; margin: 14px 0 12px; }
+  .ttl p { font-size: 15px; color: var(--ink-2); max-width: 34ch; }
+  .ttl .brand { font-size: 16px; }
+  .ttl .mark { width: 32px; height: 32px; }
+  .ttl .win-b { font-size: 13px; line-height: 1.75; }
+  .ttl .win-h > span { font-size: 12px; }
+  .ttl-nodes { padding: 48px 40px 0; }
+  .ttl .pill { font-size: 12px; padding: 6px 10px; }
+  .ttl-nodes li { font-size: 13px; white-space: nowrap; color: var(--ink-2); }
+  .ttl-nodes i { width: 11px !important; height: 11px !important; }
+`;
+const DASH = COMMON + `
+  .pg { zoom: ${ZOOM.dash}; width: 883px; height: 497px; }
+  .app { min-height: 0; height: 497px; overflow: hidden; }
+  .tabs { height: 497px; padding: 12px 8px; }
+  .rows > li { grid-template-columns: 90px 60px minmax(0, 1fr) 64px 104px; gap: 10px; }
+  #tip { position: absolute; opacity: 1; }
+  .head { padding: 10px 20px; }
+  .page { grid-template-columns: minmax(0, 1fr) 240px; padding: 12px 20px 0; gap: 14px; }
+  .wide { padding: 12px 20px 0; }
+  .col { gap: 12px; }
+  .agrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 50; }
+  .dlg { position: absolute; z-index: 60; left: 50%; top: 22px; width: 430px; margin-left: -215px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow); }
+  .card-img { border: 1px solid var(--line); border-radius: var(--r-s); background: var(--surface); padding: 18px 20px 12px; }
+  .card-img .top { display: flex; align-items: flex-start; gap: 10px; }
+  .card-img .nm { font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+  .card-img .since { font-size: 9px; color: var(--muted); }
+  .card-img .pc { margin-left: auto; text-align: right; }
+  .card-img .pc b { display: block; font-size: 30px; line-height: 1; color: var(--accent-ink); letter-spacing: -.02em; }
+  .card-img .pc small { font-size: 9px; color: var(--ink-2); }
+  .card-img .bar { height: 3px; width: 120px; margin: 6px 0 0 auto; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .card-img .bar i { display: block; height: 100%; background: var(--accent-line); }
+  .card-img .figs { display: flex; gap: 26px; margin: 22px 0 18px; }
+  .card-img .figs b { display: block; font-size: 22px; letter-spacing: -.02em; }
+  .card-img .figs span { font-size: 9px; color: var(--ink-2); }
+  .card-img .ids { display: flex; gap: 6px; align-items: center; }
+  .card-img .credit { text-align: right; font-size: 7px; color: var(--muted); margin-top: 6px; }
+  .arr .hbar .hnd { width: 26px; height: 26px; }
+`;
+
+const hosts = {};
+async function mount(id, css, theme) {
+  const host = document.getElementById(id), root = host.attachShadow({ mode: "open" });
+  root.innerHTML = `<style>${css}</style><div class="pg" data-pal="lavanda" data-theme="light"></div>`;
+  hosts[id] = { host, root, pg: root.querySelector(".pg") };
+}
+window.ready = (async () => {
+  const [setup, dash] = await Promise.all(["/kit/.uak/bin/lib/setup.html", "/kit/.uak/bin/lib/dash.html"].map(async (p) => {
+    const r = await fetch(p);
+    if (!r.ok) throw new Error("cannot read " + p);
+    return r.text();
+  }));
+  await mount("wiz", adopt(setup) + WIZ);
+  await mount("dash", adopt(dash) + DASH);
+  await Promise.all([document.fonts.load("400 13px Inter"), document.fonts.load("700 13px Inter"), document.fonts.load("500 12px 'JetBrains Mono'")]);
+  if (!document.fonts.check("13px Inter") || !document.fonts.check("12px 'JetBrains Mono'")) throw new Error("the kit's fonts did not load");
+  return true;
+})();
+
+// ---- small helpers ---------------------------------------------------------------------------------------------------
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const p = (t, a, b) => clamp((t - a) / (b - a), 0, 1);
-const ease = (x) => 1 - Math.pow(1 - x, 3);
+const ease = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-// Typed text: n characters at cps from start; a caret while typing (and blinking after, when asked).
-function typed(text, t, start, cps, caret) {
-  if (t < start) return caret === "always" ? '<span class="caret"></span>' : "";
-  const n = Math.floor((t - start) * cps);
-  const done = n >= text.length;
-  const c = !done || (caret === "always" && Math.floor(t * 2) % 2 === 0) ? '<span class="caret"></span>' : "";
-  return esc(text.slice(0, n)) + c;
-}
-// A scene's opacity: fades in over 0.4 s from a, out over 0.4 s before b.
-function vis(t, a, b) { return Math.min(p(t, a, a + 0.4), 1 - p(t, b - 0.4, b)); }
-function wrap(o, html, dy) {
-  if (o <= 0) return "";
-  return '<div class="scene" style="opacity:' + o.toFixed(3) + ';transform:translateY(' + ((1 - ease(o)) * (dy || 14)).toFixed(1) + 'px)">' + html + "</div>";
-}
-function bar(title, url, light) {
-  const lights = '<span class="l" style="background:#ff5f57"></span><span class="l" style="background:#febc2e"></span><span class="l" style="background:#28c840"></span>';
-  return '<div class="bar">' + lights + (url ? '<div class="url">' + url + "</div>" : '<div class="ttl">' + title + "</div>") + "</div>";
+function typed(text, lt, t0, cps) { return text.slice(0, clamp(Math.floor((lt - t0) * cps), 0, text.length)); }
+const MARK = '<svg width="16" height="16" viewBox="0 0 5 5" shape-rendering="crispEdges"><path fill="currentColor" d="M0 0h1v4H0zM4 0h1v5H4zM1 4h3v1H1zM2 1h1v1H2z"/></svg>';
+const IC = {
+  check: '<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>',
+  ok: '<svg viewBox="0 0 16 16" class="ic"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13M5.3 8.2l1.8 1.8 3.6-3.8"/></svg>',
+  eye: '<svg viewBox="0 0 16 16" class="ic"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8ZM8 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4"/></svg>',
+  copy: '<svg viewBox="0 0 16 16" class="ic"><path d="M5.5 5.5h7v8h-7zM3.5 10.5v-8h7"/></svg>',
+  share: '<svg viewBox="0 0 16 16" class="ic"><path d="M8 10V2M5 5l3-3 3 3M3 9v4h10V9"/></svg>',
+  edit: '<svg viewBox="0 0 16 16" class="ic"><path d="M3 13h3l7-7-3-3-7 7zM9 4l3 3"/></svg>',
+  x: '<svg viewBox="0 0 16 16" class="ic"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>',
+  up: '<svg viewBox="0 0 16 16" class="ic"><path d="M8 13V3M4 7l4-4 4 4"/></svg>',
+  down: '<svg viewBox="0 0 16 16" class="ic"><path d="M8 3v10M4 9l4 4 4-4"/></svg>',
+  col: '<svg viewBox="0 0 16 16" class="ic"><path d="M2.5 3h11v10h-11zM9 3v10"/></svg>',
+  hide: '<svg viewBox="0 0 16 16" class="ic"><path d="M2 2l12 12M6.5 6.6a2 2 0 0 0 2.9 2.8M4.3 4.4C2.6 5.5 1.5 8 1.5 8s2.4 4.5 6.5 4.5c1.3 0 2.4-.4 3.4-1M8 3.5c4.1 0 6.5 4.5 6.5 4.5s-.5 1-1.5 2.1"/></svg>',
+  grip: '<svg viewBox="0 0 16 16" class="ic"><path d="M6 4h.01M10 4h.01M6 8h.01M10 8h.01M6 12h.01M10 12h.01"/></svg>',
+  find: '<svg viewBox="0 0 16 16" class="ic"><path d="M7 2.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9M10.5 10.5 14 14"/></svg>',
+};
+const TABS = [["Overview", "M2 7.5 8 2.5l6 5M3.5 6.5V13h3.5V9.5h2V13h3.5V6.5"], ["Board", "M2.5 3h3v10h-3zM6.5 3h3v6h-3zM10.5 3h3v8h-3z"],
+  ["Agents", "M6 7a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5M1.5 14c0-3 2-5 4.5-5s4.5 2 4.5 5M11 3a2.5 2.5 0 0 1 0 4.5M12.5 9.2c1.4.6 2 2.3 2 4.8"],
+  ["Messages", "M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"], ["Black box", "M2.5 5 8 2.5 13.5 5v6L8 13.5 2.5 11zM2.5 5 8 7.5 13.5 5M8 7.5v6"],
+  ["Memory", "M3 2.5h8a2 2 0 0 1 2 2v9H5a2 2 0 0 1-2-2zM5 11.5h8"],
+  ["Tokens", "M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11M8 5v6M6.2 9.5c.3.5 1 .8 1.8.8 1 0 1.8-.4 1.8-1.1S9 8 8 7.8 6.3 7.4 6.3 6.7 7 5.7 8 5.7c.7 0 1.3.3 1.6.8"]];
+
+// The dashboard's identicon (dash.html idcells): the pattern from the human's name, the hue from the agent's.
+function fnv(s) { let x = 2166136261; for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619) >>> 0; } return x >>> 0; }
+function idc(name, human, size) {
+  const bits = fnv("p:" + (human || name)), on = [];
+  for (let y = 0; y < 5; y++) for (let x = 0; x < 3; x++) if ((bits >> (y * 3 + x)) & 1) { on.push([x, y]); if (x !== 2) on.push([4 - x, y]); }
+  const hue = Math.round((fnv("c:" + name) * 137.508) % 360);
+  return `<svg viewBox="-1 -1 7 7" width="${size}" height="${size}" class="idc" style="--h:${hue}"><rect x="-1" y="-1" width="7" height="7" class="bg"/>` +
+    (on.length ? on : [[2, 2]]).map(([x, y]) => `<rect x="${x}" y="${y}" width="1.02" height="1.02" class="px"/>`).join("") + "</svg>";
 }
 
-const STEPS = [[0, "Demonstration"], [4.5, "1 · Install the kit"], [14.5, "2 · Prepare in the setup page"],
-  [21, "3 · Plan with Claude Code"], [33, "4 · Start your team"], [40, "5 · Claim, test, review, merge"],
-  [61, "6 · Integrated and deployed"]];
+// ---- the wizard (kit/.uak/bin/lib/setup.html) ------------------------------------------------------------------------
+const STEPS = ["Project detected", "Rules", "People", "Schedule", "Publish the kit", "Idea and plan", "Start the agents"];
+function wzTop(cur) {
+  return `<header class="wz-top"><div class="brand"><span class="mark">${MARK}</span><b>UPIIXIA</b></div>
+    <nav class="journey"><ol class="nodes">${STEPS.map((s, i) => `<li class="${i < cur ? "done" : ""}"${i === cur ? ' aria-current="step"' : ""}><i></i><span>${s}</span></li>`).join("")}</ol></nav>
+    <details class="ap term"><summary><span class="long">Continue in the terminal</span></summary></details>
+    <div class="profile"><details class="ap"><summary><i></i>Apariencia</summary></details></div></header>`;
+}
+function win(title, rows, figs) {
+  return `<div class="wz-prev"><div class="win"><div class="win-h"><i></i><i></i><i></i><span>${esc(title)}</span></div>
+    <div class="win-b">${rows.map(([k, a, b]) => `<div class="row ${k}"><span>${esc(a)}</span><span>${esc(b || "")}</span></div>`).join("")}</div>
+    ${figs ? `<div class="win-f">${figs.map(([n, l]) => `<span><b>${esc(n)}</b>${esc(l)}</span>`).join("")}</div>` : ""}</div></div>`;
+}
+function foot(note, buttons) {
+  return `<div class="foot"><div class="foot-in"><button class="secondary-button" type="button">Exit</button><p class="foot-note">${note || ""}</p>${buttons}</div></div>`;
+}
+function screen(cur, main, side, footer) {
+  return `<div class="scr">${wzTop(cur)}<div class="wz-body"><div class="wz-main">${main}</div>${side}</div>${footer}</div>`;
+}
+const kv = (rows, cls) => `<ul class="${cls || "found"} list">${rows.map(([k, v]) => `<li><span class="k">${k}</span><span class="v">${v}</span></li>`).join("")}</ul>`;
+const WRITTEN = [["", PROJECT + "/", ""], ["add", "  .uak/ engine, docs, templates", "~175"], ["add", "  .claude/ Claude Code", "19"],
+  ["add", "  .codex/ Codex", "7"], ["add", "  AGENTS.md  .mcp.json", ""], ["mod", "  .gitignore", "lines added"], ["keep", "  your code", "untouched"]];
+const WRITTEN_FIGS = [["~201", "files added"], ["2", "tools"], ["0", "files replaced"]];
 
-// ---- Scene 0: title -------------------------------------------------------------------------------------------
-function title(t) {
-  return '<div class="center"><div class="pill" style="margin-bottom:26px"><span class="dot"></span>DEMONSTRATION · SIMULATED SCREENS</div>' +
-    '<div class="big">UPIIXIA<br>Agentic Kit</div>' +
-    '<div class="lead">From an empty folder to a deployed product</div>' +
-    '<div class="lead2">Install · plan · build with agents · review · merge · deploy</div></div>';
-}
+const SCENE = {};
 
-// ---- Scene 1: terminal -----------------------------------------------------------------------------------------
-function terminal(t) {
-  const L = [];
-  const pr = (dir) => '<span class="p">ana@laptop ' + dir + " %</span> ";
-  L.push(pr("~") + typed("mkdir cafeteria-queue && cd cafeteria-queue", t, 5.0, 32));
-  if (t >= 6.6) L.push(pr("~/cafeteria-queue") + typed("ls -A", t, 6.7, 14));
-  if (t >= 7.2) L.push('<span class="c">(empty folder)</span>');
-  if (t >= 7.5) L.push(pr("~/cafeteria-queue") + typed("git clone --depth 1 \\", t, 7.6, 40));
-  if (t >= 8.2) L.push("    " + typed("https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit", t, 8.2, 52));
-  if (t >= 9.6) L.push('<span class="c">Cloning into \'/Users/ana/.uak-kit\'... done.</span>');
-  if (t >= 10.0) L.push(pr("~/cafeteria-queue") + typed("bash ~/.uak-kit/install.sh --wizard .", t, 10.1, 30));
-  if (t >= 11.8) L.push('<span class="a">UAK SETUP http://127.0.0.1:8765/</span>');
-  if (t >= 12.1) L.push('<span class="c">Keep this terminal open. Configure the kit in your browser;</span>');
-  if (t >= 12.1) L.push('<span class="c">press Ctrl+C here to stop.</span>');
-  if (t >= 12.7) L.push('<span class="g">Opening your browser…</span>');
-  let chip = "";
-  if (t >= 10.2) chip = '<div class="chip" style="left:190px;top:574px;opacity:' + p(t, 10.2, 10.6) + '">One command opens a local setup page: nothing to configure by hand.</div>';
-  return '<div class="win" style="left:150px;top:96px;width:980px;height:452px">' + bar("~/cafeteria-queue — zsh") +
-    '<div class="term">' + L.join("\n") + "</div></div>" + chip;
-}
+SCENE.title = () => ({
+  host: "wiz",
+  html: `<div class="ttl"><div>
+      <div class="brand"><span class="mark">${MARK}</span><b>UPIIXIA Agentic Kit</b></div>
+      <h1>The setup page, then the dashboard</h1>
+      <p style="margin-top:16px"><span class="pill">Demonstration · drawn screens</span></p>
+    </div>
+    ${win("tutorial · 74 s", [["", "0:08  setup page", ""], ["", "0:27  idea and plan", ""], ["", "0:35  your agents", ""], ["", "0:49  dashboard", ""]], [["10", "screens"], ["74 s", "long"], ["es · en", "captions"]])}
+    </div>
+    <div class="journey ttl-nodes"><ol class="nodes">${["Project", "Install", "Rules", "People", "Publish", "Plan", "Agents", "Dashboard"].map((s, i) =>
+      `<li${i === 0 ? ' aria-current="step"' : ""}><i></i><span>${s}</span></li>`).join("")}</ol></div>`,
+});
 
-// ---- Scene 2-4: the setup page ----------------------------------------------------------------------------------
-const TASKS = [
-  ["CAF-001", "Queue model and API", "tickets_are_served_in_order"],
-  ["CAF-002", "Take-a-number page", "student_gets_a_ticket"],
-  ["CAF-003", "Staff console: call next", "staff_calls_the_next_ticket"],
-  ["CAF-004", "“Now serving” screen", "screen_shows_the_current_ticket"],
-  ["CAF-005", "Live updates", "screen_updates_without_reload"],
-  ["CAF-006", "Deploy to Render", "health_check_is_green"],
-];
-function sidebar(t) {
-  const marks = [14.5, 17, 21, 33, 1e9];
-  const names = ["Install", "Prepare", "Plan", "Start your team"];
-  let h = '<div class="side"><div class="brand"><span>UPIIXIA</span> Agentic Kit</div>';
-  names.forEach((n, i) => {
-    const cls = t >= marks[i + 1] ? "done" : t >= marks[i] ? "cur" : "";
-    h += '<div class="st ' + cls + '"><span class="n">' + (cls === "done" ? "✓" : i + 1) + "</span>" + n + "</div>";
-  });
-  return h + '<div class="hint" style="margin-top:22px;font-size:13px">Runs on your computer.<br>Nothing leaves it until you publish.</div></div>';
-}
-function install(t) {
-  const rows = [["Copy the kit into cafeteria-queue", 15.3], ["Git hooks and agent settings", 15.9], ["uak start: the coordination branch is ready", 16.5]];
-  let h = '<h3>Installing your workspace</h3><p class="hint">Hackathon mode (sprint): reviewed changes merge after the checks pass.</p><div class="card">';
-  rows.forEach(([r, at]) => { h += '<div class="row">' + (t >= at ? '<span class="ok">✓</span>' : '<span class="wait"></span>') + r + "</div>"; });
-  return h + "</div>" + (t >= 16.6 ? '<div class="banner">Installed. Next: prepare your project.</div>' : "");
-}
-function prepare(t) {
-  let h = '<h3>Prepare your project</h3><p class="hint">These steps used to need a terminal. Do them here, in order.</p>';
-  h += '<div class="card"><h4>1. Your name</h4><div class="lbl">Your name (lowercase, for example ana)</div><div style="display:flex;gap:10px;align-items:center">' +
-    '<div class="field ' + (t < 17.9 ? "focus" : "") + '" style="width:260px">' + typed("ana", t, 17.3, 8) + '</div><span class="btn sec ' + (t >= 17.75 && t < 17.95 ? "press" : "") + '">Save name</span>' +
-    (t >= 17.95 ? '<span class="saved">✓ Saved: ana</span>' : "") + "</div></div>";
-  h += '<div class="card"><h4>2. Event schedule</h4><div class="hint" style="margin-bottom:8px">The kit stops new work before the deadline (the freeze).</div><div style="display:flex;gap:12px;align-items:flex-end">';
-  [["Start", "Nov 14 · 09:00", 18.3], ["End", "Nov 15 · 09:00", 18.9], ["Time zone", "America/Mexico_City", 19.4]].forEach(([l, v, at]) => {
-    h += '<div><div class="lbl">' + l + '</div><div class="field" style="width:' + (l === "Time zone" ? 210 : 160) + 'px">' + typed(v, t, at, 30) + "</div></div>";
-  });
-  h += '<span class="btn sec ' + (t >= 20.0 && t < 20.2 ? "press" : "") + '">Save schedule</span></div>' +
-    (t >= 20.2 ? '<div class="saved" style="margin-top:10px">✓ Saved. Freeze at 08:00 on Nov 15.</div>' : "") + "</div>";
-  return h;
-}
-const IDEA = "A cafeteria queue board for our hackathon: students take a number, staff call the next one, and a screen shows who is next.";
-function plan(t) {
-  let h = '<h3>Plan your project</h3>';
-  const compact = t >= 24.3;
-  h += '<div class="lbl" style="margin-top:8px">Your idea</div><div class="field ' + (t < 23.6 ? "focus" : "") + '" style="height:' + (compact ? 38 : 64) +
-    'px;align-items:flex-start;padding-top:9px;font:15px/1.45 var(--sans);white-space:' + (compact ? "nowrap;text-overflow:ellipsis" : "normal") + ';overflow:hidden">' + typed(IDEA, t, 21.3, 60) + "</div>";
-  if (!compact) {
-    h += '<div style="margin-top:12px;display:flex;gap:12px;align-items:center"><span class="btn ' + (t >= 23.5 && t < 23.75 ? "press" : "") + '">Draft the plan with Claude Code</span>' +
-      (t >= 23.7 ? '<span class="saved">Claude Code is drafting tasks' + ".".repeat(1 + Math.floor((t - 23.7) * 6) % 3) + "</span>" : "") + "</div>";
-    return h;
+SCENE.terminal = (lt) => {
+  const cmd = "bash ~/upiixia-agentic-kit/install.sh --wizard .";
+  const shown = typed(cmd, lt, 0.4, 30), done = shown.length === cmd.length, out = lt >= 2.3;
+  const caret = !out && Math.floor(lt * 2.5) % 2 === 0 ? '<span class="caret"></span>' : "";
+  const lines = [`<span class="p">${esc(WHERE)} $</span> ${esc(shown)}${done && !out ? "" : caret}`];
+  if (out) {
+    lines.push('<span class="o">UAK SETUP http://127.0.0.1:8765/</span>');
+    lines.push('<span class="m">Keep this terminal open. The page opens from that file</span>');
+    lines.push('<span class="m">with a one-time code (valid 120 seconds, used once).</span>');
   }
-  h += '<div style="display:flex;align-items:baseline;gap:10px;margin:14px 0 8px"><h4 style="font:700 17px var(--sans)">Proposed plan</h4><span class="hint" style="margin:0">6 tasks · each names its tests</span></div><div class="grid3">';
-  TASKS.forEach(([id, ti, ts], i) => {
-    const o = p(t, 24.4 + i * 0.25, 24.7 + i * 0.25);
-    h += '<div class="task" style="opacity:' + o + '"><div class="id">' + id + '</div><div class="t">' + ti + '</div><div class="ts">test · ' + ts + "</div></div>";
-  });
-  h += "</div>";
-  if (t >= 26.4 && t < 27.6) h += '<div style="margin-top:12px"><span class="btn ' + (t >= 27.2 ? "press" : "") + '">Approve and publish</span></div>';
-  if (t >= 27.6 && t < 30.4) {
-    h += '<div class="card" style="margin-top:12px;border-color:#b8d6c1"><div class="lbl">Type the project folder name to confirm: <b style="color:var(--s-ink)">cafeteria-queue</b></div>' +
-      '<div style="display:flex;gap:10px;align-items:center"><div class="field focus" style="width:300px">' + typed("cafeteria-queue", t, 27.9, 16) + "</div>" +
-      '<span class="btn ' + (t < 28.9 ? "off" : "") + (t >= 29.8 ? " press" : "") + '">Publish the plan</span>' +
-      '<span class="hint" style="margin:0">Only a person can approve.</span></div></div>';
+  return {
+    host: "wiz",
+    html: `<div style="padding:78px 56px 0"><div class="win"><div class="win-h"><i></i><i></i><i></i><span>terminal · ${esc(WHERE)}</span></div>
+      <div class="term-b" style="font-size:15px;min-height:150px;padding:16px 18px">${lines.join("\n")}</div></div></div>`,
+  };
+};
+
+SCENE.project = (lt) => ({
+  host: "wiz",
+  html: screen(0, `<h1>Check what we found in this project</h1>
+      <p class="where"><span class="mono">${WHERE}</span> <button type="button" class="link-button">Change</button></p>
+      ${kv([["Repository", "New: no commits yet"]])}
+      <fieldset class="q" style="margin-top:12px"><legend>Work mode</legend><div class="opts">
+        <label class="choice"><input type="radio" name="m"><span><strong>Product with real users</strong><small>No deadline. A human makes the final merge decision.</small></span></label>
+        <label class="choice"><input type="radio" name="m" checked><span><strong>Hackathon or prototype <em class="tag">Proposed</em></strong><small>A deadline and a freeze before the demo.</small></span></label>
+      </div></fieldset>`,
+    win(PROJECT + " · what will be written", WRITTEN, WRITTEN_FIGS),
+    foot("", '<button class="primary" type="button" id="go">Continue</button>')),
+  cursor: [{ t: 0.4, at: [620, 250] }, { t: 3.4, sel: "#go", click: true }],
+});
+
+SCENE.install = (lt) => {
+  const busy = lt >= 1.9, secs = Math.max(1, Math.floor(lt - 1.9) + 1);
+  return {
+    host: "wiz",
+    html: screen(0, `<h1>Install the kit into this project</h1>
+        <p class="says">Installing adds about 201 files to ${PROJECT}. Nothing is committed or pushed.</p>
+        ${kv([["Workflow", "Hackathon or prototype"], ["Coding tools", "Claude Code, Codex"], ["Your files", "Existing files are kept."]])}
+        ${busy ? `<div class="list" style="padding:8px 12px;background:var(--accent-wash);border-color:var(--accent-line)">Installing your workspace. Working in the background.</div>` : ""}`,
+      win(PROJECT + " · what will be written", WRITTEN, WRITTEN_FIGS),
+      foot(busy ? `Installing the kit · ${secs} s` : "", `<button class="secondary-button" type="button">Back</button><button class="primary" type="button" id="go"${busy ? ' disabled' : ""}>${busy ? '<span class="spin" style="transform:rotate(' + Math.round(lt * 400) % 360 + 'deg)"></span>Installing…' : "Install the kit"}</button>`)),
+    cursor: [{ t: 0.3, at: [560, 300] }, { t: 1.8, sel: "#go", click: true }, { t: 3.2, at: [700, 300] }],
+  };
+};
+
+SCENE.team = (lt) => {
+  if (lt < 2.6) {
+    return {
+      host: "wiz",
+      html: screen(1, `<h1>Confirm how your team will work</h1>
+          <p class="says">These are the defaults of Hackathon mode. Nothing is written until you confirm.</p>
+          <ul class="rules list">
+            <li><span><strong>Tests come first</strong><span class="why">An agent writes the failing test before the code.</span></span><span class="val">Required</span></li>
+            <li><span><strong>Where reviews happen</strong><span class="why">Another identity reviews every change before it merges.</span></span><span class="val">Inside the kit</span></li>
+          </ul>`,
+        win(".uak/PROJECT.md · lines that change", [["", ".uak/PROJECT.md", ""], ["keep", "  Test-First: yes", "as is"], ["keep", "  Blackbox: off", "as is"], ["keep", "  Pace: auto", "as is"], ["keep", "  every other line", "as is"]],
+          [["0", "lines change"], ["4", "stay as they are"], ["0", "files outside .uak/"]]),
+        foot("", '<button class="primary" type="button" id="go">Confirm these rules</button>')),
+      cursor: [{ t: 0.2, at: [600, 260] }, { t: 1.9, sel: "#go", click: true }],
+    };
   }
-  if (t >= 30.4) h += '<div class="banner" style="margin-top:12px">✓ Published. Backlog-Approved: yes · 6 tasks ready for your agents.</div>';
-  return h;
+  const reg = lt >= 4.3;
+  return {
+    host: "wiz",
+    html: screen(2, `<h1>Say who is on your team</h1>
+        <div class="box"><strong style="color:var(--integrated-ink)">${IC.check.replace('class="ic"', 'class="ic" style="vertical-align:-3px"')} Done</strong> Saved: ana. <button type="button" class="link-button">Change</button></div>
+        <div class="box"><h4>1. Register the reviewer</h4>
+          <p style="margin-top:4px"><strong>ana-r</strong> reviews your agents' work. In Hackathon mode an approved change merges after the checks pass.</p>
+          ${reg ? '<p class="hint" style="color:var(--integrated-ink)">ana-r is registered: it reviews your agents\' work.</p>' : '<div style="margin-top:8px"><button class="secondary-button" type="button" id="reg">Register ana-r</button></div>'}</div>`,
+      win("people and roles", [["", "You", "ana"], [reg ? "add" : "keep", "Your reviewer", reg ? "ana-r" : "not registered"], ["", "Implements", "Claude Code"], ["", "Reviews", "Codex"]],
+        [["1", "people"], [reg ? "1" : "0", "reviewers"], ["0", "agents running"]]),
+      foot("", '<button class="primary" type="button" id="go">Continue</button>')),
+    cursor: [{ t: 2.6, at: [560, 300] }, { t: 3.9, sel: "#reg", click: true }, { t: 4.9, at: [420, 330] }],
+  };
+};
+
+SCENE.publish = (lt) => {
+  const busy = lt >= 2.4;
+  return {
+    host: "wiz",
+    html: screen(4, `<h1>Publish the kit to main</h1>
+        ${kv([["Goes to main", "the kit: about 201 files in .uak/, the agents' folders and AGENTS.md"], ["Stays local", "your code, your idea and your plan: they wait for your approval"], ["Destination", "origin/main"]])}`,
+      win(PROJECT + " · what goes to main", [["add", ".uak/", "~175"], ["add", "AGENTS.md  .mcp.json", ""], ["add", ".claude/", "19"], ["add", ".codex/", "7"], ["keep", "your code", "stays local"], ["keep", "IDEA.md  TASKS.md", "after you approve"]],
+        [["0", "commit pushed"], ["~201", "files"], ["0", "of your own files"]]),
+      foot(busy ? "Publishing the kit · 1 s" : "", `<button class="primary" type="button" id="go"${busy ? ' disabled' : ""}>${busy ? '<span class="spin" style="transform:rotate(' + Math.round(lt * 400) % 360 + 'deg)"></span>Publishing…' : "Publish the kit to main"}</button>`)),
+    cursor: [{ t: 0.3, at: [560, 260] }, { t: 2.3, sel: "#go", click: true }, { t: 3.6, at: [640, 280] }],
+  };
+};
+
+function planNodes(cur) {
+  return `<ol class="nodes" style="margin-top:4px">${["Write the idea", "The plan is drafted", "Review", "Approve"].map((s, i) =>
+    `<li class="${i < cur ? "done on" : ""}"${i === cur ? ' aria-current="step"' : ""}><i></i><span>${s}</span></li>`).join("")}</ol>`;
 }
-function team(t) {
-  let h = '<h3>Start your team</h3><p class="hint">Two identities, one Claude Code login: one writes the code, the other reviews it.</p>';
-  h += '<div class="grid3" style="grid-template-columns:1fr 1.25fr 1.25fr">';
-  h += '<div class="card" style="opacity:' + p(t, 33.4, 33.8) + '"><h4>1. Register the reviewer</h4><div class="field" style="width:100%">ana-r</div>' +
-    (t >= 34.2 ? '<div class="saved" style="margin-top:10px">✓ Registered</div>' : "") + "</div>";
-  h += '<div class="card" style="opacity:' + p(t, 34.4, 34.8) + '"><h4>2. Claude Code implements</h4><div class="hint" style="margin:0">In a terminal, in the project folder:</div>' +
-    '<div class="mini"><span class="p">$</span> ' + typed("claude", t, 34.9, 14) + (t >= 35.6 ? '\n<span class="g">claude-ana</span> <span class="c">· claims the next task</span>' : "") + "</div></div>";
-  h += '<div class="card" style="opacity:' + p(t, 35.8, 36.2) + '"><h4>3. A second identity reviews</h4><div class="hint" style="margin:0">A second terminal:</div>' +
-    '<div class="mini"><span class="p">$</span> ' + typed("UAK_AGENT=ana-r claude", t, 36.3, 22) + (t >= 37.5 ? '\n<span class="p">&gt;</span> /uak-review' : "") + "</div></div></div>";
-  if (t >= 38.0) h += '<div class="banner" style="margin-top:6px;opacity:' + p(t, 38.0, 38.4) + '">One subscription is enough: both identities share the same Claude Code login.</div>';
-  return h;
+SCENE.idea = (lt) => {
+  const idea = "A queue board for school cafeterias", who = "students who wait 20 min";
+  const a = typed(idea, lt, 0.3, 24), b = typed(who, lt, 2.0, 24), drafting = lt >= 3.45;
+  return {
+    host: "wiz",
+    html: screen(5, `<h1>Write the idea, then approve the plan</h1>${planNodes(drafting ? 1 : 0)}
+        <div class="field" style="margin-top:12px"><label class="field-label">What are you building? One line.</label><input type="text" value="${esc(a)}" style="width:100%"></div>
+        <div class="field" style="margin-top:8px"><label class="field-label">Who is it for?</label><input type="text" value="${esc(b)}" style="width:100%"></div>`,
+      win("what approval publishes", [["add", "IDEA.md", ""], ["add", ".uak/TASKS.md", drafting ? "drafting" : ""], ["add", ".uak/OWNERS.md", ""], ["mod", ".uak/PROJECT.md", "Backlog-Approved: yes"]],
+        [["–", "tasks"], ["4", "files"], ["no", "approved"]]),
+      foot(drafting ? "Claude Code is drafting the plan · 1 s" : "", `<button class="primary" type="button" id="go"${drafting ? ' disabled' : ""}>${drafting ? '<span class="spin" style="transform:rotate(' + Math.round(lt * 400) % 360 + 'deg)"></span>Creating the plan…' : "Create the plan"}</button>`)),
+    cursor: [{ t: 0.2, at: [430, 250] }, { t: 3.3, sel: "#go", click: true }, { t: 3.9, at: [660, 300] }],
+  };
+};
+
+const TASKS = [["APP-001", "Set up the app", "P0", "WAVE 1", "STARTS FIRST", "Tests first: no (scaffold)"],
+  ["APP-002", "Show the queue", "P1", "WAVE 2", "AFTER APP-001", "Checks it must pass: shows the queue, hides an empty one"],
+  ["APP-003", "Take a number", "P1", "WAVE 2", "AFTER APP-001", "Checks it must pass: a number is never given twice"]];
+SCENE.plan = (lt) => {
+  const confirm = lt >= 1.5, name = typed(PROJECT, lt, 1.9, 9), approved = lt >= 3.5;
+  return {
+    host: "wiz",
+    html: screen(5, `<h1>Write the idea, then approve the plan</h1>${planNodes(approved ? 3 : 2)}
+        <ul class="list" style="margin-top:12px">${TASKS.slice(0, confirm ? 1 : 2).map(([id, title, p, w, after, check]) => `<li style="padding:8px 12px"><strong>${id} · ${title}</strong>
+          <div style="display:flex;gap:6px;margin:4px 0"><span class="pill">${p}</span><span class="pill">${w}</span><span class="pill">${after}</span></div>
+          <span class="secondary" style="font-size:12px">${check}</span></li>`).join("")}</ul>
+        ${confirm ? `<div class="box"><label class="field-label" style="display:block">Type the project folder name to confirm:</label>
+          <div style="display:flex;gap:8px;margin-top:6px;align-items:center"><input type="text" value="${esc(name)}" placeholder="${PROJECT}" style="flex:1">
+          <button class="secondary-button" type="button">Cancel</button><button class="secondary-button" type="button" id="pub"${name === PROJECT ? "" : " disabled"}>Publish the plan</button></div></div>` : ""}`,
+      win("what approval publishes", [["add", "IDEA.md", ""], ["add", ".uak/TASKS.md", "8 tasks"], ["add", ".uak/OWNERS.md", ""], ["mod", ".uak/PROJECT.md", "Backlog-Approved: yes"]],
+        [["8", "tasks"], ["4", "files"], [approved ? "yes" : "no", "approved"]]),
+      foot("", '<button class="secondary-button" type="button">Check the plan again</button><button class="secondary-button" type="button">Ask for changes</button><button class="primary" type="button" id="go">Approve and publish</button>')),
+    cursor: [{ t: 0.2, at: [600, 270] }, { t: 1.3, sel: "#go", click: true }, { t: 3.3, sel: "#pub", click: true }],
+  };
+};
+
+function agentLi(role, tool, pill, pillKind, command, id, note) {
+  return `<li style="padding:8px 12px"><div class="head"><strong>${role} · ${tool}</strong><span class="pill ${pillKind}">${pill}</span></div>
+    <div class="runctl"><div class="run-bar"><button class="secondary-button run-go" type="button" id="${id}" style="min-height:30px">Start this agent</button></div>
+    <div class="copyrow"><code>${esc(command)}</code><button type="button" class="secondary-button" id="${id}-copy">Copy</button></div>
+    ${note ? `<p class="run-status" style="font-size:12px;color:var(--ink-2)">${note}</p>` : ""}</div></li>`;
 }
-function setup(t) {
-  let main;
-  if (t < 17) main = install(t);
-  else if (t < 21) main = prepare(t);
-  else if (t < 33) main = plan(t);
-  else main = team(t);
-  return '<div class="win light" style="left:80px;top:64px;width:1120px;height:560px">' + bar("", "🔒 127.0.0.1:8765 · UPIIXIA Agentic Kit · Setup", true) +
-    '<div class="setup">' + sidebar(t) + '<div class="main">' + main + "</div></div></div>";
+function startScreen(lt, claimed, opened) {
+  const term = opened ? `<div class="win" style="position:absolute;left:452px;top:206px;width:330px;box-shadow:var(--shadow)">
+      <div class="win-h"><i></i><i></i><i></i><span>terminal · Claude Code</span></div>
+      <div class="term-b" style="font-size:11.5px">${["<span class=\"p\">$</span> bash .uak/bin/wt new APP-001",
+        claimed >= 1 ? '<span class="o">OK claim APP-001 | CLAIMED | attempt 1</span>' : "",
+        claimed >= 2 ? "TASK MAP APP-001 · 3 file(s) in its Paths" : "",
+        claimed >= 3 ? '<span class="o">WT_READY: APP-001 · branch feat/app-001</span>' : ""].filter(Boolean).join("\n")}</div></div>` : "";
+  const n = claimed >= 1 ? 1 : 0;
+  return screen(6, `<h1>Run one command per agent</h1>
+      <ul class="agents list">
+        ${agentLi("Implements", "Claude Code", n ? "claimed APP-001" : "waiting", n ? "p-prog" : "", `cd ${WHERE} && UAK_HUMAN= bash .uak/bin/wt new APP-001`, "s1",
+          opened ? "Opened a terminal window for Claude Code at 10:42. It is yours: it stays open if you close the wizard." : "")}
+        ${agentLi("Reviews", "Codex", "waiting", "", `cd ${WHERE} && UAK_HUMAN= UAK_AGENT=ana-r codex`, "s2", "")}
+      </ul>`,
+    win("your agents", [[n ? "add" : "keep", "Implements", n ? "claimed APP-001" : "waiting"], ["keep", "Reviews", "waiting"], ["", "Claimed tasks", String(n)]],
+      [[String(n), "tasks claimed"], ["1", "reviewers"], ["0", "tasks integrated"]]),
+    foot(n ? "1 task claimed: an agent has started." : "No agent has claimed a task yet. This page tells you when one does.", '<button class="primary" type="button">Open the dashboard</button>')) + term;
+}
+SCENE.start = (lt) => ({
+  host: "wiz",
+  html: startScreen(lt, 0, lt >= 3.3),
+  cursor: [{ t: 0.2, at: [600, 300] }, { t: 1.6, sel: "#s1-copy" }, { t: 3.0, sel: "#s1", click: true }, { t: 4.6, at: [700, 360] }],
+});
+SCENE.claim = (lt) => ({ host: "wiz", html: startScreen(lt, lt < 0.6 ? 0 : lt < 1.3 ? 1 : lt < 2.0 ? 2 : 3, true) });
+
+SCENE.follow = (lt) => ({
+  host: "wiz",
+  html: screen(6, `<h1>Follow your project</h1>
+      <div><p class="muted" style="font-size:12px">Your next step</p><h3>APP-001 is in review</h3><p class="secondary" style="font-size:12px">ana-r reviews it; an approved change merges after the checks pass.</p></div>
+      <ul class="list" style="margin-top:10px">${[["APP-001 · Set up the app", "in review"], ["APP-002 · Show the queue", "waiting on dependencies"]]
+        .map(([a, b]) => `<li style="display:flex;justify-content:space-between;gap:12px"><span>${a}</span><span class="muted">${b}</span></li>`).join("")}</ul>
+      <div><h4>Your app</h4><p class="secondary" style="font-size:12px;margin-top:2px">Not deployed yet. When your app is online, add its link under More.</p></div>`,
+    win(PROJECT + " · progress", [["", "Mode", "Hackathon"], ["", "Tasks", "8"]], [["0 / 8", "completed"], ["0", "working"], ["1", "in review"]]),
+    foot("", '<button class="secondary-button" type="button">Refresh</button><button class="primary" type="button" id="go">Open the dashboard</button>')),
+  cursor: [{ t: 0.3, at: [600, 330] }, { t: 3.7, sel: "#go", click: true }],
+});
+
+// ---- the dashboard (kit/.uak/bin/lib/dash.html) ----------------------------------------------------------------------
+const PLAN = [ // number, title, state, owner, waits for
+  [1, "Set up the app", "INTEGRATED", "ana-1"], [2, "Show the queue", "INTEGRATED", "luis-1"], [3, "Take a number", "INTEGRATED", "sofi-1"],
+  [4, "Staff calls the next number", "INTEGRATED", "ana-1"], [5, "Now serving screen", "REVIEW", "luis-1"], [6, "Sound when a number is called", "CLAIMED", "sofi-1"],
+  [7, "Menu of the day", "CLAIMED", "ana-1"], [8, "Prices on the menu", "AVAILABLE", ""], [9, "Order ahead from the menu", "WAITING", "", [7]],
+  [10, "Wait time estimate", "AVAILABLE", ""], [11, "Pay at the counter", "WAITING", "", [9]], [12, "Deploy the board", "WAITING", "", [5, 6]]];
+const SQ = { INTEGRATED: ["s-int", "integrated"], REVIEW: ["s-rev", "review"], CLAIMED: ["s-prog", "claimed"], AVAILABLE: ["s-av", "available"], WAITING: ["s-wt", "waiting"] };
+const LABEL = { INTEGRATED: "integrated", REVIEW: "in review", CLAIMED: "in progress", AVAILABLE: "available", WAITING: "Waiting" };
+const id3 = (n) => "APP-" + String(n).padStart(3, "0");
+function states(lt, merged) { return PLAN.map((p) => p[0] === 5 && merged ? "INTEGRATED" : p[2]); }
+function dHead(extra) {
+  return `<header class="head"><div class="brand"><span id="logo">${idc(PROJECT, PROJECT, 26)}</span><h1>${PROJECT}</h1><span class="chip">sprint</span></div>
+    <span class="fresh"><span class="live"></span><span>Live · 20 s ago</span></span>
+    <button class="chip" type="button" id="share-btn">${IC.share}<span class="sbt">Share</span></button>
+    <details class="ap"><summary><i></i>Apariencia</summary></details>${extra || ""}</header>`;
+}
+function dApp(tab, body, extra, scroll) {
+  return `<div class="app"><div class="tabs">${TABS.map(([n, d], i) => `<button class="${i === tab ? "on" : ""}" type="button"><svg viewBox="0 0 16 16" class="ic"><path d="${d}"/></svg>${n}</button>`).join("")}</div>
+    <div class="main"><div style="transform:translateY(${-(scroll || 0)}px)">${dHead()}${body}</div></div></div>${extra || ""}`;
+}
+function squares(st, sel) {
+  const waits = sel ? (PLAN[sel - 1][4] || []) : [], unb = sel ? PLAN.filter((p) => (p[4] || []).includes(sel)).map((p) => p[0]) : [];
+  return `<div class="tmap">${PLAN.map((p, i) => {
+    const s = st[i], [cls, c] = SQ[s];
+    const extra = sel ? (p[0] === sel ? " sel" : waits.includes(p[0]) ? " w" : unb.includes(p[0]) ? " u" : " dim") : "";
+    return `<button class="sq ${cls}${extra}" type="button" id="sq${p[0]}" style="--c:var(--${c})">${p[0]}</button>`;
+  }).join("")}</div>`;
+}
+function counts(st) { const c = {}; st.forEach((s) => { c[s] = (c[s] || 0) + 1; }); return c; }
+function mapBlock(st, sel) {
+  const c = counts(st);
+  const line = sel ? `${id3(sel)} cannot start: it waits for 1 task — ${id3(PLAN[sel - 1][4][0])} (${LABEL[st[PLAN[sel - 1][4][0] - 1]]})` : "Point at a task to see what it waits for";
+  const leg = [["INTEGRATED", "integrated"], ["REVIEW", "in review"], ["CLAIMED", "in progress"], ["AVAILABLE", "available"], ["WAITING", "Waiting"]]
+    .filter(([k]) => c[k]).map(([k, l]) => `<span><i class="sq sm ${SQ[k][0]}" style="--c:var(--${SQ[k][1]})"></i>${l} ${c[k]}</span>`).join("");
+  return `<section class="blk b-map"><div class="bh"><h2>All tasks</h2><span class="n">${PLAN.length} tasks</span></div>
+    <div class="card pad">${squares(st, sel)}<p class="depline">${line}</p><div class="legend" style="padding:8px 0 0">${leg}</div></div></section>`;
+}
+function progressBlock(st) {
+  const c = counts(st), n = PLAN.length, done = c.INTEGRATED || 0;
+  const rows = [["integrated", "Integrated", "INTEGRATED"], ["review", "In review", "REVIEW"], ["claimed", "In progress", "CLAIMED"], ["available", "Available", "AVAILABLE"], ["waiting", "Waiting on dependencies", "WAITING"]];
+  return `<section class="blk b-progress"><div class="bh"><h2>Progress</h2></div><div class="card pad">
+    <div class="big"><b>${Math.round(100 * done / n)}%</b><span>${done} of ${n} tasks integrated.</span></div>
+    <div class="stack">${rows.filter((r) => c[r[2]]).map((r) => `<i style="--c:var(--${r[0]});flex:${c[r[2]]} 1 0"></i>`).join("")}</div>
+    <dl class="kv">${rows.map((r) => `<dt><i class="sw" style="--c:var(--${r[0]})"></i>${r[1]}</dt><dd style="margin:0"><b>${c[r[2]] || 0}</b></dd>`).join("")}</dl></div></section>`;
+}
+const AGENTS = [["ana-1", "ana", "in progress APP-007", "12 s"], ["luis-1", "luis", "in review APP-005", "40 s"], ["sofi-1", "sofi", "in progress APP-006", "2 min"], ["ana-r", "ana", "in review APP-005", "3 min"]];
+function agentsBlock() {
+  return `<section class="blk b-agents"><div class="bh"><h2>Agents</h2><span class="n">4 online</span><div class="x"><span class="pres online"></span></div></div>
+    <div class="card"><ul class="list ppl">${AGENTS.map(([a, h, task, ago]) => `<li>${idc(a, h, 24)}<div style="min-width:0"><b>${a}</b><small>${task}</small></div><span class="muted num">${ago}</span></li>`).join("")}</ul></div></section>`;
+}
+function needsBlock(waiting) {
+  const items = waiting ? `<li><span class="ico">${IC.eye}</span><div><b><span class="mono">APP-005</span> waits for review</b><p>owner luis-1 · offered to all</p></div>
+      <div class="act"><div class="cmd"><code>uak status --task APP-005</code><button type="button">${IC.copy}</button></div><div class="when num">4 min</div></div></li>`
+    : `<li class="allclear"><span class="ico">${IC.ok}</span><div><p>Nothing needs you right now: no review waiting, nothing stalled, nothing for a human.</p></div></li>`;
+  return `<section class="blk b-needs"><div class="bh"><h2>Needs you</h2>${waiting ? '<span class="n">1 thing, the most urgent first</span>' : ""}</div>
+    <div class="win"><ul class="list need">${items}</ul><div class="win-f f4">
+      <div><b>4</b>Agents online<small>ana-1, luis-1 +2</small></div><div><b>${waiting ? 1 : 0}</b>Reviews waiting<small>${waiting ? "oldest 4 min" : "none waiting"}</small></div>
+      <div><b>0</b>Stalled<small>every task is moving</small></div><div><b>0</b>Needs a human<small>nothing for you</small></div></div></div></section>`;
+}
+function pipe(s) {
+  const at = { AVAILABLE: 0, WAITING: 0, CLAIMED: 1, REVIEW: 2, INTEGRATED: 3 }[s];
+  return `<ol class="nodes pipe${s === "INTEGRATED" ? " int" : ""}">${[0, 1, 2, 3].map((i) => `<li class="${i <= at ? "on" : ""}"${i === at && s !== "INTEGRATED" ? ' aria-current="step"' : ""}><i></i></li>`).join("")}</ol>`;
+}
+function tasksBlock(st, phase) {
+  const review = { waiting: "waiting for a reviewer · 4 min", approved: "approved, waiting for the merge" }[phase] || "";
+  const rows = [[5, review], [7, "ana-1 · 12 s"], [6, "sofi-1 · 2 min"]];
+  const pk = { CLAIMED: "p-prog", REVIEW: "p-rev", INTEGRATED: "p-int" };
+  return `<section class="blk b-tasks"><div class="bh"><h2>Tasks</h2><span class="n">${PLAN.length} tasks</span></div>
+    <ul class="list rows">${rows.map(([n, w]) => { const s = st[n - 1]; return `<li><span class="pill ${pk[s]}">${LABEL[s]}</span><button class="tid">${id3(n)}</button><span class="t">${PLAN[n - 1][1]}</span>${pipe(s)}<span class="w">${s === "INTEGRATED" ? "integrated" : w}</span></li>`; }).join("")}</ul></section>`;
+}
+function summary(st, opts) {
+  opts = opts || {};
+  const phase = opts.phase || "waiting";
+  const main = { needs: needsBlock(phase === "waiting"), map: mapBlock(st, opts.sel), tasks: tasksBlock(st, phase) };
+  const order = opts.order || ["needs", "map", "tasks"];
+  const wrap = (name, html, i) => opts.arranging ? `<div class="arr" data-blk="${name}" style="transform:rotate(${(Math.sin(opts.lt * 9 + i * 2.1) * 0.25).toFixed(3)}deg)"><div class="hbar"><span class="grip">${IC.grip}</span><b>${{ needs: "Needs you", map: "All tasks", tasks: "Tasks" }[name]}</b>
+      <button type="button" class="hnd" id="up-${name}"${i === 0 ? " disabled" : ""}>${IC.up}</button><button type="button" class="hnd">${IC.down}</button><button type="button" class="hnd">${IC.col}</button>${name === "needs" ? '<span class="muted">Always shown</span>' : `<button type="button" class="hnd">${IC.hide}</button>`}</div>${html}</div>` : html;
+  const bar = opts.arranging
+    ? `<div class="arrbar on"><p class="tip">Move, hide or add components. Done when you finish.</p><button class="ab" type="button" disabled>Restore the default</button><button class="ab done" type="button" id="done">Done</button><div class="adds"><span class="muted">Add</span><span>Every component is shown.</span></div></div>`
+    : `<div class="arrbar"><button class="ab" type="button" id="edit">${IC.edit}Edit</button></div>`;
+  return `<section id="view"><div class="page${opts.arranging ? " arranging" : ""}">${bar}<div class="col" data-col="main">${order.map((n, i) => wrap(n, main[n], i)).join("")}</div>
+    <div class="col" data-col="side">${[progressBlock(st), agentsBlock()].map((h, i) => opts.arranging ? `<div class="arr" style="transform:rotate(${(Math.sin(opts.lt * 9 + 7 + i * 2.1) * 0.25).toFixed(3)}deg)">${h}</div>` : h).join("")}</div></div></section>`;
 }
 
-// ---- Scene 5: agents and the board ------------------------------------------------------------------------------
-// Each task: [in progress, in review, integrated] times.
-const FLOW = { "CAF-001": [41.0, 45.5, 49.5], "CAF-002": [46.5, 51.0, 53.0], "CAF-003": [51.5, 54.5, 56.0],
-  "CAF-004": [54.8, 56.8, 58.0], "CAF-005": [57.0, 58.6, 59.6], "CAF-006": [58.8, 60.4, 62.6] };
-const ANA = [
-  [40.3, '<span class="p">$</span> uak next'], [40.8, '<span class="c">→ CAF-001 Queue model and API · P0</span>'],
-  [41.0, '<span class="g">OK claim CAF-001 | CLAIMED</span>'], [41.6, '<span class="c">  writing tests/test_queue.py first</span>'],
-  [42.4, '<span class="p">$</span> uak red CAF-001'], [43.0, '<span class="r">RED_OK  3 failed (assertions): the test leads</span>'],
-  [43.8, '<span class="c">  implementing queue.py · verify loop 1/3</span>'], [44.6, '<span class="g">PASS  3 passed in 0.4 s</span>'],
-  [45.2, '<span class="p">$</span> uak done CAF-001 --pr #1'], [45.5, '<span class="b">DONE CAF-001 → review by ana-r</span>'],
-  [46.2, '<span class="p">$</span> uak next'], [46.5, '<span class="g">OK claim CAF-002 | CLAIMED</span>'],
-  [47.4, '<span class="r">RED_OK  1 failed: student_gets_a_ticket</span>'], [48.8, '<span class="g">PASS  1 passed</span>'],
-  [51.0, '<span class="b">DONE CAF-002 → review</span>'], [51.5, '<span class="g">OK claim CAF-003</span>'],
-  [53.2, '<span class="r">RED</span> <span class="c">→</span> <span class="g">PASS</span> <span class="c">staff_calls_the_next_ticket</span>'],
-  [54.5, '<span class="b">DONE CAF-003 → review</span>'], [54.8, '<span class="g">OK claim CAF-004</span>'],
-  [56.8, '<span class="b">DONE CAF-004 → review</span>'], [57.0, '<span class="g">OK claim CAF-005</span>'],
-  [58.6, '<span class="b">DONE CAF-005 → review</span>'], [58.8, '<span class="g">OK claim CAF-006 · Deploy to Render</span>'],
-  [60.4, '<span class="b">DONE CAF-006 → review</span>'], [61.0, '<span class="c">  nothing left to claim · 6 of 6 done</span>'],
-];
-const REV = [
-  [40.3, '<span class="p">$</span> uak next --review'], [40.6, '<span class="c">waiting for work to review…</span>'],
-  [45.8, '<span class="p">&gt;</span> /uak-review CAF-001'], [46.6, '<span class="c">  reading the diff · running the tests</span>'],
-  [47.6, '<span class="g">APPROVE  the tests cover the queue order</span>'], [48.4, '<span class="p">$</span> uak merge CAF-001'],
-  [49.2, '<span class="c">  smoke: green on the merged result</span>'], [49.5, '<span class="g">INTEGRATED CAF-001 → main</span>'],
-  [51.4, '<span class="p">&gt;</span> /uak-review CAF-002'], [52.4, '<span class="g">APPROVE</span>'], [53.0, '<span class="g">INTEGRATED CAF-002</span>'],
-  [54.8, '<span class="p">&gt;</span> /uak-review CAF-003'], [56.0, '<span class="g">INTEGRATED CAF-003</span>'],
-  [57.0, '<span class="p">&gt;</span> /uak-review CAF-004'], [58.0, '<span class="g">INTEGRATED CAF-004</span>'],
-  [59.0, '<span class="p">&gt;</span> /uak-review CAF-005'], [59.6, '<span class="g">INTEGRATED CAF-005</span>'],
-  [60.6, '<span class="p">&gt;</span> /uak-review CAF-006'], [61.6, '<span class="g">APPROVE  the health check is green</span>'],
-  [62.0, '<span class="p">$</span> uak merge CAF-006'], [62.6, '<span class="g">INTEGRATED CAF-006 · last task</span>'],
-  [63.4, '<span class="p">$</span> uak deploy'], [64.0, '<span class="c">  Render Blueprint · build · health check</span>'],
-  [64.9, '<span class="g">LIVE  https://cafeteria-queue.onrender.com</span>'],
-];
-function lines(list, t, max) {
-  const shown = list.filter(([at]) => t >= at).map(([, s]) => s);
-  return shown.slice(-max).join("\n");
-}
-function state(id, t) {
-  const f = FLOW[id];
-  return t >= f[2] ? 3 : t >= f[1] ? 2 : t >= f[0] ? 1 : 0;
-}
-function board(t) {
-  const cols = [["Available", "#6e7681"], ["In progress", "#d29922"], ["In review", "#58a6ff"], ["Integrated", "#3fb950"]];
-  const by = [[], [], [], []];
-  TASKS.forEach(([id, ti]) => by[state(id, t)].push([id, ti]));
-  const n = by[3].length, pct = Math.round((n / 6) * 100);
-  let h = '<div class="dash"><div class="prog"><span class="pct">' + pct + '%</span><span class="lab"><b style="color:var(--ink)">' + n +
-    ' of 6 tasks integrated.</b></span></div><div class="seg">';
-  [3, 2, 1].forEach((k) => { if (by[k].length) h += '<div style="width:' + (by[k].length / 6 * 100) + '%;background:' + cols[k][1] + '"></div>'; });
-  h += '</div><div class="cols">';
-  cols.forEach(([name, color], k) => {
-    h += '<div><div class="colh"><span class="sq" style="background:' + color + '"></span>' + name + '<span class="k">' + by[k].length + "</span></div>";
-    by[k].forEach(([id, ti]) => {
-      const who = k === 0 ? "free to claim" : k === 2 ? "ana-r reviews" : k === 3 ? "merged" : "claude-ana";
-      const f = FLOW[id], last = k > 0 ? f[k - 1] : -9;
-      if (k === 3) { h += '<div class="kc' + (t - last < 0.8 ? " flash" : "") + '" style="padding:6px 10px"><div class="id" style="color:' + color + '">' + id + ' ✓</div><div class="t" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + ti + "</div></div>"; return; }
-      h += '<div class="kc' + (t - last < 0.8 ? " flash" : "") + '"><div class="id" style="color:' + color + '">' + id + '</div><div class="t">' + ti + '</div><div class="who">' + who + "</div></div>";
-    });
-    h += "</div>";
-  });
-  return h + "</div></div>";
-}
-function work(t) {
-  const ff = t >= 50 && t < 60.5 ? '<div class="chip" style="right:28px;top:14px;padding:6px 12px;font-size:14px;color:var(--amber)">⏩ fast-forward</div>' : "";
-  return '<div class="win" style="left:24px;top:64px;width:600px;height:268px">' + bar("claude-ana · Claude Code (implements)") +
-    '<div class="term" style="font-size:14px;line-height:1.5;padding:10px 14px">' + lines(ANA, t, 9) + "</div></div>" +
-    '<div class="win" style="left:24px;top:346px;width:600px;height:268px">' + bar("ana-r · Claude Code (reviews)") +
-    '<div class="term" style="font-size:14px;line-height:1.5;padding:10px 14px">' + lines(REV, t, 9) + "</div></div>" +
-    '<div class="win" style="left:640px;top:64px;width:616px;height:550px">' + bar("", "cafeteria-queue · uak dash · <span style=\"color:#3fb950\">● Live</span>") + board(t) + "</div>" + ff;
-}
+SCENE.squares = (lt) => {
+  const st = states(lt, false).map((s, i) => (i === 6 && lt < 2.2) ? "AVAILABLE" : s);
+  // The summary is taller than the frame: the page scrolls to the squares, as a person would.
+  return { host: "dash", html: dApp(0, summary(st, {}), "", Math.round(120 * ease((lt - 0.6) / 1.2))), cursor: [{ t: 0.2, at: [760, 420] }, { t: 2.6, at: [600, 330] }] };
+};
+SCENE.waits = (lt) => {
+  const st = states(lt, false), sel = lt >= 1.0 ? 9 : 0;
+  const tip = sel ? `<div id="tip" class="on" style="left:300px;top:178px">${id3(9)} · Waiting · ${PLAN[8][1]}</div>` : "";
+  return { host: "dash", html: dApp(0, summary(st, { sel }), tip, 120), cursor: [{ t: 0.0, at: [600, 330] }, { t: 0.9, sel: "#sq9" }] };
+};
+SCENE.needs = (lt) => {
+  // ana-r reviews APP-005 and approves it; the checks pass and it merges: the row walks its line of nodes to the end.
+  const phase = lt < 1.8 ? "waiting" : lt < 3.2 ? "approved" : "merged", st = states(lt, phase === "merged");
+  return { host: "dash", html: dApp(0, summary(st, { phase, order: ["needs", "tasks", "map"] })) };
+};
+SCENE.agents = (lt) => {
+  const card = ([a, h, task, ago]) => `<article class="ac"><div class="ac-h">${idc(a, h, 26)}<b>${a}</b></div><div class="sub"><span class="pres online"></span> online · ${ago} ago</div>
+    <div class="chips" style="margin:0"><button class="chip"><i class="sw" style="--c:var(--${task.startsWith("in progress") ? "claimed" : "review"})"></i><span class="mono">${task.slice(-7)}</span><span class="muted">${task.slice(0, -8)}</span></button></div>
+    <div class="sub ell">${a === "ana-r" ? "gpt-5-codex" : "claude-sonnet-5-5"}</div><div class="sub num">${{ "ana-1": "31 messages · 0 verdicts · 2 checkpoints", "luis-1": "18 messages · 0 verdicts · 1 checkpoint", "sofi-1": "12 messages · 0 verdicts · 1 checkpoint", "ana-r": "9 messages · 4 verdicts · 0 checkpoints" }[a]}</div></article>`;
+  const people = [["ana", "human"], ["luis", "human"], ["sofi", "human"]];
+  return {
+    host: "dash",
+    html: dApp(2, `<section id="view"><div class="wide"><section style="margin-bottom:16px"><div class="bh"><h2>Online</h2><span class="n">4</span><div class="x">active in the last 30 min</div></div>
+      <div class="agrid">${AGENTS.map(card).join("")}</div></section>
+      <section><div class="bh"><h2>People</h2><span class="n">3</span><div class="x">the humans of the project</div></div></section></div></section>`),
+  };
+};
+SCENE.arrange = (lt) => {
+  const st = states(0, true), arranging = lt >= 0.8 && lt < 3.0, moved = lt >= 1.9;
+  return {
+    host: "dash",
+    html: dApp(0, summary(st, { phase: "merged", arranging, lt, order: moved ? ["needs", "tasks", "map"] : ["needs", "map", "tasks"] })),
+    cursor: [{ t: 0.0, at: [560, 300] }, { t: 0.6, sel: "#edit", click: true }, { t: 1.7, sel: moved ? "#up-map" : "#up-tasks", click: true }, { t: 2.8, sel: "#done", click: true }],
+  };
+};
+SCENE.share = (lt) => {
+  const st = states(0, true), open = lt >= 0.9, c = counts(st);
+  const card = `<div class="card-img"><div class="top">${idc(PROJECT, PROJECT, 34)}<div><div class="nm">${PROJECT}</div><div class="since">since Nov 14, 2026</div></div>
+      <div class="pc"><b>${Math.round(100 * c.INTEGRATED / PLAN.length)}%</b><small>Integrated</small><div class="bar"><i style="width:${100 * c.INTEGRATED / PLAN.length}%"></i></div></div></div>
+      <div class="figs"><div><b>41.2M</b><span>Tokens spent</span></div><div><b>4</b><span>Agents</span></div><div><b>${c.INTEGRATED} / ${PLAN.length}</b><span>Integrated</span></div><div><b>96</b><span>Commits on main</span></div></div>
+      <div class="ids">${AGENTS.map(([a, h]) => idc(a, h, 20)).join("")}</div><div class="credit">UPIIXIA Agentic Kit</div></div>`;
+  const dlg = open ? `<div class="scrim"></div><div class="dlg"><div class="pad"><div class="bh"><h2>Share</h2><button class="st-x chip" type="button" style="margin:0 0 0 auto;border:0">${IC.x}</button></div>
+      <div class="fsw" style="margin:0 0 10px"><button class="chip" type="button" aria-pressed="true" style="min-height:30px">1200 x 630</button><button class="chip" type="button" aria-pressed="false" style="min-height:30px">Story 1080 x 1920</button></div>
+      ${card}<div class="chips acts" style="margin-top:10px;display:flex;gap:8px"><button class="chip" type="button">Copy image</button><button class="chip" type="button" id="dl">Download PNG</button></div></div></div>` : "";
+  return { host: "dash", html: dApp(0, summary(st, { phase: "merged" }), dlg), cursor: [{ t: 0.0, at: [600, 300] }, { t: 0.7, sel: "#share-btn", click: true }, { t: 2.6, sel: "#dl" }] };
+};
 
-// ---- Scene 6: the product -----------------------------------------------------------------------------------------
-function product(t) {
-  const flip = t >= 70.0;
-  const now = flip ? "A-043" : "A-042";
-  const queue = flip ? [["A-044", "Luis"], ["A-045", "Marta"], ["A-046", "Iker"]] : [["A-043", "Sofía"], ["A-044", "Luis"], ["A-045", "Marta"]];
-  let h = '<div class="win" style="left:80px;top:64px;width:1120px;height:560px;border-color:#3a2f24">' +
-    bar("", '🔒 https://cafeteria-queue.onrender.com <span class="live" style="margin-left:auto">● Deployed · live</span>') + '<div class="prod">' +
-    '<div style="display:flex;align-items:flex-end;justify-content:space-between"><div><h1>☕ Cafeteria Queue</h1><div class="sub">UPIIXIA Hackathon · main cafeteria</div></div>' +
-    '<span class="take' + (t >= 69.4 && t < 69.7 ? '" style="transform:scale(.96)' : "") + '">Take a number</span></div>' +
-    '<div style="display:grid;grid-template-columns:1.3fr 1fr;gap:24px;margin-top:22px">' +
-    '<div class="serve"><div class="k">Now serving</div><div class="num" style="opacity:' + (flip ? p(t, 70.0, 70.4) : 1) + '">' + now +
-    '</div><div style="font:500 18px var(--sans);color:#d9c3a5">Counter 2 · average wait 4 min</div></div><div>' +
-    '<div class="k" style="font:700 14px var(--sans);letter-spacing:.12em;color:#9a7b60;margin-bottom:10px">NEXT UP</div>';
-  queue.forEach(([n, who]) => { h += '<div class="q">' + n + "<span>" + who + "</span></div>"; });
-  h += '<div style="font:15px var(--sans);color:#7a6553;margin-top:6px">' + (flip ? 11 : 12) + " people in line · updates live</div></div></div>" +
-    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:22px">' +
-    [["Served today", flip ? "42" : "41"], ["Average wait", "4 min"], ["Counters open", "2"]].map(([k, v]) => '<div class="q" style="flex-direction:column;gap:4px;margin:0"><span style="font:600 13px var(--sans);letter-spacing:.08em;text-transform:uppercase">' + k + '</span><b style="font:800 30px var(--sans)">' + v + "</b></div>").join("") + "</div></div></div>";
-  h += '<div class="chip" style="left:96px;top:584px;opacity:' + p(t, 67.2, 67.6) + '"><span style="color:var(--green)">✓</span> Last task CAF-006: INTEGRATED · 6 of 6</div>';
-  return h;
+// ---- the frame ------------------------------------------------------------------------------------------------------
+const cursorEl = document.getElementById("cursor");
+function where(root, k, zoom) {
+  if (k.at) return { x: k.at[0] * zoom, y: k.at[1] * zoom };
+  const el = root.querySelector(k.sel);
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width * 0.55, y: r.top + r.height * 0.55, el };
 }
-function endcard(t) {
-  return '<div class="center" style="background:rgba(7,9,12,.95)"><div class="pill" style="margin-bottom:22px"><span class="dot"></span>DEMONSTRATION · SIMULATED SCREENS</div>' +
-    '<div class="big" style="font-size:60px">From zero to deployed.</div>' +
-    '<div class="lead" style="font:500 22px var(--mono);margin-top:24px;color:var(--mint)">bash ~/.uak-kit/install.sh --wizard .</div>' +
-    '<div class="lead2">github.com/JoahanMorales/upiixia-agentic-kit</div></div>';
-}
-
-function frame(t) {
-  let h = "";
-  h += wrap(vis(t, -1, 4.5), title(t));
-  h += wrap(vis(t, 4.5, 14.6), terminal(t));
-  h += wrap(vis(t, 14.5, 40.1), setup(t));
-  h += wrap(vis(t, 40.0, 66.6), work(t));
-  h += wrap(vis(t, 66.5, 99), product(t));
-  if (t >= 72.0) h += wrap(p(t, 72.0, 72.5), endcard(t), 6);
-  if (t >= 4.5) {
-    let step = STEPS[0][1];
-    STEPS.forEach(([at, s]) => { if (t >= at) step = s; });
-    h += '<div class="top"><span class="pill"><span class="dot"></span>DEMONSTRATION</span><span class="step"><b>' + step + "</b></span></div>";
+function placeCursor(root, keys, lt, zoom) {
+  if (!keys || !keys.length) { cursorEl.hidden = true; return; }
+  const pts = [];
+  keys.forEach((k) => { const w = where(root, k, zoom) || (pts.length ? { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y } : { x: 640, y: 400 }); pts.push(Object.assign({}, k, w)); });
+  let i = 0;
+  while (i < pts.length - 1 && lt >= pts[i + 1].t) i++;
+  const a = pts[i], b = pts[i + 1];
+  let x = a.x, y = a.y;
+  if (b && lt > a.t) {
+    const travel = Math.min(0.8, b.t - a.t), f = ease((lt - (b.t - travel)) / travel);
+    x = a.x + (b.x - a.x) * f; y = a.y + (b.y - a.y) * f;
   }
-  return h;
+  // The pointer reaches its target: the product's hover look; a click: its focus ring and a short press.
+  const near = b && lt > b.t - 0.25 ? b : a;
+  let scale = 1;
+  pts.forEach((p) => {
+    if (!p.el) return;
+    if (lt >= p.t - 0.25 && lt < p.t + 0.35 && (p === near || p === a)) p.el.classList.add("hov");
+    if (p.click && lt >= p.t && lt < p.t + 0.3) { p.el.classList.add("press"); scale = 0.85; }
+  });
+  cursorEl.hidden = false;
+  cursorEl.style.transform = `translate(${(x - 3).toFixed(1)}px, ${(y - 3).toFixed(1)}px) scale(${scale})`;
 }
-window.DURATION = 74;
-window.seek = (t) => { document.getElementById("stage").innerHTML = frame(t); };
-window.seek(Number(new URLSearchParams(location.search).get("t") || 0));
+window.seek = (t) => {
+  t = clamp(t, 0, window.DURATION - 1e-6);
+  const scene = SCENES.find((s) => t >= s.start && t < s.end) || SCENES[SCENES.length - 1];
+  const lt = t - scene.start, view = SCENE[scene.id](lt);
+  for (const id of Object.keys(hosts)) hosts[id].host.hidden = id !== view.host;
+  const h = hosts[view.host];
+  h.pg.innerHTML = view.html;
+  placeCursor(h.root, view.cursor, lt, ZOOM[view.host]);
+  return scene.id;
+};
 </script>
 </body>
 </html>

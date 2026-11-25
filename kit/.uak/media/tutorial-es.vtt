@@ -2,48 +2,68 @@ WEBVTT
 
 1
 00:00:00.000 --> 00:00:04.500
-Demostración (simulada): el UPIIXIA Agentic Kit, de cero a un producto desplegado.
+Demostración con pantallas dibujadas: la página de configuración y luego el panel.
 
 2
-00:00:04.500 --> 00:00:09.500
-Empieza en una carpeta vacía y clona el kit una vez.
+00:00:04.500 --> 00:00:08.500
+En una terminal, install.sh --wizard abre la configuración en tu computadora.
 
 3
-00:00:09.500 --> 00:00:14.500
-install.sh --wizard abre una página de configuración en tu propia computadora.
+00:00:08.500 --> 00:00:13.000
+La primera pantalla dice qué encontró en tu carpeta y propone una forma de trabajar.
 
 4
-00:00:14.500 --> 00:00:21.000
-En la página: instala el kit y prepara el proyecto con tu nombre y el horario del evento.
+00:00:13.000 --> 00:00:17.500
+Instala el kit: sus archivos quedan junto a tu código. No se hace commit ni push.
 
 5
-00:00:21.000 --> 00:00:27.000
-Planea: describe tu idea. Claude Code redacta las tareas, cada una con sus pruebas.
+00:00:17.500 --> 00:00:23.000
+Confirma las reglas y registra una segunda identidad que revisa cada cambio.
 
 6
-00:00:27.000 --> 00:00:33.000
-Apruebas el plan escribiendo el nombre del proyecto. Solo una persona puede aprobarlo.
+00:00:23.000 --> 00:00:27.000
+Publicar sube el kit a main. Tu idea y tu plan esperan tu aprobación.
 
 7
-00:00:33.000 --> 00:00:40.000
-Arranca tu equipo: Claude Code implementa como claude-ana; una segunda identidad, ana-r, revisa. Basta una suscripción.
+00:00:27.000 --> 00:00:31.000
+Escribe tu idea en una línea. Tu agente de código redacta el plan.
 
 8
-00:00:40.000 --> 00:00:47.000
-Los agentes toman tareas y escriben primero las pruebas: rojo, luego verde.
+00:00:31.000 --> 00:00:35.500
+Cada tarea dice qué pruebas debe pasar. Apruebas escribiendo el nombre de la carpeta.
 
 9
-00:00:47.000 --> 00:00:54.000
-Lo terminado pasa a revisión. La revisora aprueba y uak merge corre las pruebas sobre el resultado integrado.
+00:00:35.500 --> 00:00:40.500
+«Iniciar este agente» abre una terminal con él; debajo está el mismo comando para copiar.
 
 10
-00:00:54.000 --> 00:01:01.000
-El tablero sigue cada tarea: disponible, en curso, en revisión, integrada.
+00:00:40.500 --> 00:00:44.500
+Cada tarea reserva sus archivos: dos agentes nunca editan el mismo.
 
 11
-00:01:01.000 --> 00:01:07.000
-La última tarea queda integrada y uak deploy pone la app en línea.
+00:00:44.500 --> 00:00:49.000
+La última pantalla sigue el proyecto y el enlace de tu app cuando esté desplegada.
 
 12
-00:01:07.000 --> 00:01:14.000
-El tablero de turnos de la cafetería, desplegado en su URL pública. Esto fue una demostración con pantallas simuladas.
+00:00:49.000 --> 00:00:54.000
+El panel muestra cada tarea como un cuadro: integrada, en revisión, en curso o esperando.
+
+13
+00:00:54.000 --> 00:00:58.000
+Apunta a un cuadro para ver qué espera y qué desbloquea.
+
+14
+00:00:58.000 --> 00:01:03.000
+Lo que te espera va primero. Un cambio aprobado se integra cuando pasan las pruebas.
+
+15
+00:01:03.000 --> 00:01:07.000
+Agentes: una tarjeta por agente, con su tarea y cuándo se vio por última vez.
+
+16
+00:01:07.000 --> 00:01:10.500
+Editar acomoda el resumen: mueve, oculta o agrega bloques.
+
+17
+00:01:10.500 --> 00:01:14.000
+Compartir convierte el avance en una imagen para publicar.
