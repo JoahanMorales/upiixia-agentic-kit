@@ -27,12 +27,12 @@ KNOWN_INTERMITTENT = [
     {"file": "test_bb_flush_no_hooks", "case": "old_pending_is_flushed_by_a_plain_command", "system": "windows",
      "run": "45209873743", "job": "137815575556", "seen": "the lines did not reach claims:blackbox/; passed on the second run",
      "owner": "unowned"},
-    {"file": "test_hook_session_start_locks", "case": "killed_bb_flush_is_recovered_and_published_once", "system": "windows",
+    {"file": "test_hook_session_start_clones", "case": "killed_bb_flush_is_recovered_and_published_once", "system": "windows",
      "run": "45633439357", "seen": "the clone directory of the killed flush was not removed (also run 45357519599, "
      "windows (5), with the retry of UAK-190 in place); cause not found", "owner": "issue #83"},
-    {"file": "test_hook_session_start_locks", "case": "killed_flush_leaves_no_clone_on_windows", "system": "windows",
+    {"file": "test_hook_session_start_clones", "case": "killed_flush_leaves_no_clone_on_windows", "system": "windows",
      "run": "45677681277", "job": "139429604593", "seen": "the job's step ended with exit code 3840 (15 << 8: its Bash got "
-     "SIGTERM) 14 s into this case, no FAIL line; also run 45645537660 (windows (3), job 139315504846, 417 s into the file "
+     "SIGTERM) 14 s into this case (then in test_hook_session_start_locks), no FAIL line; also run 45645537660 (windows (3), job 139315504846, 417 s into the file "
      "before the split, about where this case ran). Cause not found: the kill guard (test_hook_session_start_speed.py, "
      "KILL_GUARD) wrote every signal of the next runs with each target's ps line and refused none; this case passed in run "
      "45680922421 with 29 signals, all to processes the test started", "owner": "issue #83"},

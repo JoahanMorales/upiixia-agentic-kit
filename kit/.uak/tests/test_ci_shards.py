@@ -536,8 +536,10 @@ def twelfth_shard_when_the_longest_passes_80(r):
 
 # UAK-197: test_hook_session_start_speed took 339 to 536 s on Windows, over the 300 s (RETRY_MAX_S) under which a failed
 # file runs a second time in its job, so a failure of it was never retried and cost a manual re-run of main. It is split
-# in two (the locks and simultaneous starts went to test_hook_session_start_locks.py); each half is measured on Windows.
-SPLIT = ("test_hook_session_start_speed", "test_hook_session_start_locks")
+# in three (locks and simultaneous starts in test_hook_session_start_locks.py, the flush's clones and the jobs killed at
+# their limit in test_hook_session_start_clones.py: two halves were not enough, one measured 270 s on a slow Windows runner,
+# run 45683968328); each is measured on Windows and its entry by the rule stays at most 300 s.
+SPLIT = ("test_hook_session_start_speed", "test_hook_session_start_locks", "test_hook_session_start_clones")
 
 
 def no_file_takes_more_than_300_s_on_windows(r):

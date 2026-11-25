@@ -1,0 +1,4 @@
+# provisional (UAK-197): the clone and killed-job cases moved from test_hook_session_start_speed and _locks, about 140 s
+# on a slow Windows runner (run 45683968328); replaced by the measurement of this task's next run (scripts/ci_timings.py)
+ci 120
+windows 175

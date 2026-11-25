@@ -10,16 +10,284 @@ import hashlib
 import inspect
 import os
 import re
-import shutil
 import subprocess
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from test_hack import expect
-from test_hook_session_start_speed import (BUDGET, alive, counted_fixture, first_pending_dir, hook_functions,
-                                           refresh_fixture, run_cases, settle, settle_once, start, stub_engine)
+from test_hook_session_start_speed import (alive, counted_fixture, hook_functions, refresh_fixture, run_cases, settle,
+                                           settle_once, start, stub_engine)
+
+
+def session_start_orphan_output_cannot_change_replacement_cache(r):
+    gd, control = refresh_fixture(r, "orphan-output", '''
+new_read() { printf 'Next: NEW snapshot\\n'; }
+if [ "${3:-}" = recover ]; then
+  trap - EXIT
+  start_bg next start_capture next new_read
+  wait
+  exit 0
+fi
+printf 'Next: KEPT snapshot\\n' > "$gd/uak-start.next.txt"
+start_bg next start_capture next bash "$case_dir/backend.sh" OLD "$case_dir" Next
+old_pid=$!
+wait_file "$case_dir/old-ready"
+kill -KILL "$old_pid"
+wait "$old_pid" 2>/dev/null || true
+age_refresh
+# Windows may defer recovery while an orphan holds an output handle; it must fail closed in that case.
+bash "$0" "$gd" "$case_dir" recover
+: > "$case_dir/release-old"
+wait_file "$case_dir/old-done"
+cat "$gd/uak-start.next.txt" > "$case_dir/after-orphan"
+# Once the orphan closes, either recovery path must finish normally.
+start_bg next start_capture next new_read
+wait
+''')
+    after = (control / "after-orphan").read_text(encoding="utf-8")
+    expect(after in ("Next: KEPT snapshot\n", "Next: NEW snapshot\n"),
+           "assertion failed: orphan output changed the committed cache: %r" % after)
+    expect((gd / "uak-start.next.txt").read_text(encoding="utf-8") == "Next: NEW snapshot\n",
+           "recovery succeeds after the orphan closes its output")
+    expect(not list(gd.glob("uak-start.next*.running")), "no crashed generation marker remains")
+    return "orphan output cannot write into the replacement's cache inode"
+
+
+def session_start_orphan_inbox_output_cannot_change_cache(r):
+    gd, control = refresh_fixture(r, "orphan-inbox", '''
+export UAK_BACKEND_DIR="$case_dir"
+mv .uak/bin/uak .uak/bin/uak-real
+cat > .uak/bin/uak <<'INBOX'
+#!/usr/bin/env bash
+if [ "$1" = inbox ]; then
+  if mkdir "$UAK_BACKEND_DIR/selected" 2>/dev/null; then
+    exec bash "$UAK_BACKEND_DIR/backend.sh" OLD "$UAK_BACKEND_DIR" Inbox
+  fi
+  printf 'Inbox: NEW snapshot\\n'; exit 0
+fi
+exec bash "$(dirname "$0")/uak-real" "$@"
+INBOX
+printf 'Inbox: KEPT snapshot\\n' > "$gd/uak-inbox.txt"
+inbox_kept &
+old_pid=$!
+wait_file "$case_dir/old-ready"
+kill -KILL "$old_pid"
+wait "$old_pid" 2>/dev/null || true
+inbox_kept
+cat "$gd/uak-inbox.txt" > "$case_dir/before-orphan"
+: > "$case_dir/release-old"
+wait_file "$case_dir/old-done"
+''')
+    before = (control / "before-orphan").read_text(encoding="utf-8")
+    after = (gd / "uak-inbox.txt").read_text(encoding="utf-8")
+    expect(before == after == "Inbox: NEW snapshot\n",
+           "assertion failed: orphan inbox output changed a committed cache: %r -> %r" % (before, after))
+    return "inbox readers use private publication sources"
+
+
+def session_start_revokes_a_dead_owners_pending_move(r):
+    gd, control = refresh_fixture(r, "pending-move", '''
+export UAK_MOVE_CASE="$case_dir" UAK_MOVE_CACHE="$gd/uak-start.next.txt"
+UAK_REAL_MV=$(type -P mv); export UAK_REAL_MV
+cat > "$case_dir/move.sh" <<'MOVE'
+#!/usr/bin/env bash
+src= dst=
+for arg in "$@"; do src=$dst; dst=$arg; done
+if [ "$dst" = "$UAK_MOVE_CACHE" ] && grep -q '^Next: OLD' "$src"; then
+  : > "$UAK_MOVE_CASE/move-ready"
+  n=0
+  while [ ! -f "$UAK_MOVE_CASE/release-move" ] && [ "$n" -lt 400 ]; do sleep 0.1; n=$((n + 1)); done
+  "$UAK_REAL_MV" "$@"; status=$?
+  : > "$UAK_MOVE_CASE/move-done"
+  exit "$status"
+fi
+exec "$UAK_REAL_MV" "$@"
+MOVE
+mv() { bash "$case_dir/move.sh" "$@"; }
+old_read() { printf 'Next: OLD snapshot\\n'; }
+new_read() { printf 'Next: NEW snapshot\\n'; }
+new_publish() {
+  start_capture next new_read
+  : > "$case_dir/new-ready"
+  wait_file "$case_dir/release-new"
+}
+printf 'Next: KEPT snapshot\\n' > "$gd/uak-start.next.txt"
+start_bg next start_capture next old_read
+old_pid=$!
+wait_file "$case_dir/move-ready"
+kill -KILL "$old_pid"
+wait "$old_pid" 2>/dev/null || true
+age_refresh
+start_bg next new_publish
+new_pid=$!
+wait_file "$case_dir/new-ready"
+cat "$gd/uak-start.next.txt" > "$case_dir/before-move"
+find "$gd" -name 'uak-start.next*.running' | sort > "$case_dir/markers-before"
+: > "$case_dir/release-move"
+wait_file "$case_dir/move-done"
+cat "$gd/uak-start.next.txt" > "$case_dir/after-move"
+find "$gd" -name 'uak-start.next*.running' | sort > "$case_dir/markers-after"
+: > "$case_dir/release-new"
+wait "$new_pid"
+''')
+    before = (control / "before-move").read_text(encoding="utf-8")
+    after = (control / "after-move").read_text(encoding="utf-8")
+    expect(before == after == "Next: NEW snapshot\n",
+           "assertion failed: a dead owner's delayed rename overwrote NEW: %r -> %r" % (before, after))
+    marks = (control / "markers-before").read_text(encoding="utf-8")
+    expect(marks and marks == (control / "markers-after").read_text(encoding="utf-8"),
+           "the dead generation cannot remove the current generation's marker")
+    expect((gd / "uak-start.next.txt").read_text(encoding="utf-8") == "Next: NEW snapshot\n", "NEW stays committed")
+    return "dead generation's rename source is revoked before replacement"
+
+
+def session_start_finishes_an_interrupted_reap(r):
+    gd, control = refresh_fixture(r, "interrupted-reap", '''
+old_gen=$(mktemp -d "$gd/uak-start.next.XXXXXX")
+printf '%s\\n' "$old_gen" > "$case_dir/old-generation"
+printf 'private OLD output\\n' > "$old_gen/output"
+printf '%s\\n' "$NOW" > "$old_gen.running"
+(exit 0) &
+dead_pid=$!
+wait "$dead_pid"
+owner=$(printf 'REAP %s %s\\n' "$dead_pid" "${old_gen##*/}" | git hash-object -w --stdin)
+git update-ref --no-deref refs/worktree/uak-start/next "$owner"
+new_read() {
+  local expected_old=
+  IFS= read -r expected_old < "$case_dir/old-generation"
+  [ ! -e "$expected_old" ] || : > "$case_dir/started-before-revocation"
+  printf 'Next: NEW snapshot\\n'
+}
+printf 'Next: KEPT snapshot\\n' > "$gd/uak-start.next.txt"
+start_bg next start_capture next new_read
+wait
+''')
+    old = Path((control / "old-generation").read_text(encoding="utf-8").strip())
+    expect(not old.exists() and not old.is_symlink(), "interrupted REAP revokes the old generation")
+    expect(not (control / "started-before-revocation").exists(), "replacement starts only after revocation")
+    expect((gd / "uak-start.next.txt").read_text(encoding="utf-8") == "Next: NEW snapshot\n",
+           "an interrupted REAP cannot strand refresh ownership")
+    expect(not list(gd.glob("uak-start.next*.running")), "REAP and replacement markers are cleaned")
+    return "dead reaper adopted without losing old-generation cleanup"
+
+
+def session_start_failed_reap_is_closed_and_retryable(r):
+    gd, control = refresh_fixture(r, "failed-reap", '''
+rm() {
+  local expected_old= arg candidate=
+  [ ! -f "$case_dir/old-generation" ] || IFS= read -r expected_old < "$case_dir/old-generation"
+  if [ -f "$case_dir/fail-cleanup" ]; then
+    expected_old=$(CDPATH= cd -- "$expected_old" && pwd -P) || return 1
+    for arg in "$@"; do
+      candidate=${arg%/}
+      [ ! -d "$candidate" ] || candidate=$(CDPATH= cd -- "$candidate" && pwd -P) || return 1
+      if [ "$candidate" = "$expected_old" ]; then : > "$case_dir/cleanup-blocked"; return 1; fi
+    done
+  fi
+  command rm "$@"
+}
+new_read() { printf 'NEW\\n' >> "$case_dir/calls"; printf 'Next: NEW snapshot\\n'; }
+if [ "${3:-}" = failed-attempt ]; then
+  trap - EXIT
+  start_bg next start_capture next new_read
+  wait
+  exit 0
+fi
+old_gen=$(mktemp -d "$gd/uak-start.next.XXXXXX")
+printf '%s\\n' "$old_gen" > "$case_dir/old-generation"
+printf 'private OLD output\\n' > "$old_gen/output"
+printf '%s\\n' "$NOW" > "$old_gen.running"
+(exit 0) &
+dead_pid=$!
+wait "$dead_pid"
+owner=$(printf 'REAP %s %s\\n' "$dead_pid" "${old_gen##*/}" | git hash-object -w --stdin)
+git update-ref --no-deref refs/worktree/uak-start/next "$owner"
+printf 'Next: KEPT snapshot\\n' > "$gd/uak-start.next.txt"
+: > "$case_dir/fail-cleanup"
+bash "$0" "$gd" "$case_dir" failed-attempt
+cat "$gd/uak-start.next.txt" > "$case_dir/after-failure"
+[ ! -f "$case_dir/calls" ] || cp "$case_dir/calls" "$case_dir/early-calls"
+command rm "$case_dir/fail-cleanup"
+start_bg next start_capture next new_read
+wait
+''')
+    expect((control / "cleanup-blocked").exists(), "the cleanup fault actually ran")
+    expect((control / "after-failure").read_text(encoding="utf-8") == "Next: KEPT snapshot\n"
+           and not (control / "early-calls").exists(), "failed revocation cannot start or publish a replacement")
+    expect((control / "calls").read_text(encoding="utf-8").splitlines() == ["NEW"], "one retry runs after cleanup works")
+    expect((gd / "uak-start.next.txt").read_text(encoding="utf-8") == "Next: NEW snapshot\n", "REAP recovery finishes")
+    expect(not list(gd.glob("uak-start.next*.running")), "recovered cleanup leaves no old markers")
+    return "cleanup failure stays closed and a later caller finishes REAP"
+
+
+def session_start_corrupt_owner_records_cannot_delete_paths(r):
+    gd, control = refresh_fixture(r, "corrupt-owner", '''
+mkdir -p "$gd/../../victim"
+printf 'KEEP\\n' > "$gd/../../victim/sentinel"
+printf '%s\\n' "$gd/../../victim/sentinel" > "$case_dir/victim-path"
+printf 'Next: KEPT snapshot\\n' > "$gd/uak-start.next.txt"
+new_read() { printf 'BAD\\n' >> "$case_dir/calls"; printf 'Next: BAD snapshot\\n'; }
+(exit 0) &
+dead_pid=$!
+wait "$dead_pid"
+for record in 'REAP 0 uak-start.next.ABC123' 'REAP nope uak-start.next.ABC123' \
+              'UNKNOWN 999999 uak-start.next.ABC123' 'REAP 999999 ../../victim' \
+              'REAP 999999 uak-start.next.ABC123/../../victim' 'RUNNING 999999 uak-start.next.ABC123 extra' \
+              'REAP 999999 uak-start.next.ABC123
+RUNNING 1 uak-start.next.DEF456'; do
+  record=${record//999999/$dead_pid}
+  owner=$(printf '%s\\n' "$record" | git hash-object -w --stdin)
+  git update-ref --no-deref refs/worktree/uak-start/next "$owner"
+  start_bg next start_capture next new_read
+  wait
+  after=$(git rev-parse --verify refs/worktree/uak-start/next 2>/dev/null || true)
+  [ "$after" = "$owner" ] || : > "$case_dir/corrupt-ref-mutated"
+done
+''')
+    victim = Path((control / "victim-path").read_text(encoding="utf-8").strip())
+    expect(victim.read_text(encoding="utf-8") == "KEEP\n", "corrupt paths cannot escape gitdir")
+    expect(not (control / "calls").exists(), "invalid ownership records must fail closed without a backend")
+    expect(not (control / "corrupt-ref-mutated").exists(), "invalid records cannot claim or clear ownership")
+    expect((gd / "uak-start.next.txt").read_text(encoding="utf-8") == "Next: KEPT snapshot\n", "corruption keeps last cache")
+    return "invalid schema, PID and traversal tokens fail closed"
+
+
+def session_start_internal_owner_refs_bypass_user_hooks(r):
+    gd, control = refresh_fixture(r, "reference-hook", '''
+mkdir "$case_dir/user-hooks"
+cat > "$case_dir/user-hooks/reference-transaction" <<'HOOK'
+#!/usr/bin/env bash
+: > "$UAK_REFERENCE_HOOK_MARKER"
+exit 1
+HOOK
+chmod +x "$case_dir/user-hooks/reference-transaction"
+export UAK_REFERENCE_HOOK_MARKER="$case_dir/reference-hook-ran"
+git config core.hooksPath "$case_dir/user-hooks"
+new_read() { printf 'Next: NEW snapshot\\n'; }
+start_bg next start_capture next new_read
+wait
+''')
+    expect(not (control / "reference-hook-ran").exists(), "private ownership CAS must not invoke project hooks")
+    expect((gd / "uak-start.next.txt").read_text(encoding="utf-8") == "Next: NEW snapshot\n", "internal ref claim succeeds")
+    return "reference-transaction hook is excluded from internal ownership updates"
+
+
+def session_start_inbox_failure_preserves_cache_and_status(r):
+    gd, control = refresh_fixture(r, "inbox-failure", '''
+mv .uak/bin/uak .uak/bin/uak-real
+cat > .uak/bin/uak <<'INBOX'
+#!/usr/bin/env bash
+exit 7
+INBOX
+printf 'Inbox: KEPT snapshot\\n' > "$gd/uak-inbox.txt"
+if inbox_kept; then status=0; else status=$?; fi
+printf '%s\\n' "$status" > "$case_dir/status"
+''')
+    expect((control / "status").read_text(encoding="utf-8").strip() == "7",
+           "assertion failed: private inbox cleanup masked the failed read's status")
+    expect((gd / "uak-inbox.txt").read_text(encoding="utf-8") == "Inbox: KEPT snapshot\n", "failed read keeps cache")
+    expect(not list(gd.glob("uak-inbox.??????")), "failed private inbox output is removed")
+    return "inbox read failure survives cleanup without replacing cached output"
 
 
 def session_start_coalesces_aged_live_refreshes(r):
@@ -473,448 +741,26 @@ start_once pace 0 bash -c 'echo x >> "$1/pace.calls"; sleep 1' _ "$gd"
     return "an empty guard older than a minute no longer blocks the job"
 
 
-def killed_bb_flush_is_recovered_and_published_once(r):
-    """UAK-185 review: a flush killed mid-push left uak-blackbox.pending.PID and a clone, and the lines were never
-    retried. The next start puts them back and publishes them once; the clone goes with the kill."""
-    f, w = counted_fixture(r, "ss-bb-kill")
-    common = first_pending_dir(r, w)
-    gate = Path(r.scratch) / "ss-bb-gate"
-    gate.write_text("closed\n")
-    hook = Path(f.remote) / "hooks" / "pre-receive"
-    hook.write_text("#!/bin/sh\nwhile [ -f '%s' ]; do sleep 0.2; done\nexit 0\n" % gate.as_posix(), encoding="utf-8")
-    hook.chmod(0o755)
-    lines = "".join("2026-11-10T10:0%dZ | agent | kit | error | uak claim | kill-test-%d | - | - | - | v6.4\n" % (i, i)
-                    for i in (1, 2))
-    pending = common / "uak-blackbox.pending"
-    pending.write_text(lines, encoding="utf-8")
-    try:
-        start(r, w, "agent-1", UAK_START_WAIT="1", UAK_START_LIMIT="3")
-        deadline = time.monotonic() + 40
-        left = []
-        while time.monotonic() < deadline:
-            left = [p for p in common.glob("uak-blackbox.pending.*") if p.name.rsplit(".", 1)[1].isdigit()]
-            if left and not alive(r, w, int(left[0].name.rsplit(".", 1)[1])) and not list(common.glob("uak-bb-tmp.*")):
-                break
-            time.sleep(0.3)
-        expect(left, "a flush killed mid-push leaves its snapshot (the test needs it): %r" % list(common.glob("uak-*")))
-        expect(not list(common.glob("uak-bb-tmp.*")), "the killed flush's clone directory is removed: %r"
-               % list(common.glob("uak-bb-tmp.*")))
-    finally:
-        gate.unlink()
-    settle_once(r, w)
-    start(r, w, "agent-1", UAK_START_WAIT="1")
-    deadline = time.monotonic() + 40
-    found = ""
-    while time.monotonic() < deadline:
-        names = [n for n in r.g(f.remote, "ls-tree", "-r", "--name-only", "claims").stdout.split() if n.startswith("blackbox/")]
-        found = "".join(r.g(f.remote, "show", "claims:" + n).stdout for n in names)
-        if ("kill-test-1" in found and "kill-test-2" in found and not list(common.glob("uak-blackbox.pending.*"))
-                and not list(common.glob("uak-bb-tmp.*"))):
-            break
-        time.sleep(0.5)
-    settle_once(r, w)
-    expect(found.count("kill-test-1") == 1 and found.count("kill-test-2") == 1,
-           "the next start publishes the recovered lines once: %r" % found[-600:])
-    expect(not list(common.glob("uak-blackbox.pending.*")), "no snapshot is left: %r" % list(common.glob("uak-*")))
-    return "killed mid-push, recovered by the next start, published once"
-
-
-def other_users_pending_file_is_left(r):
-    """UAK-185 review: `kill -0` fails with EPERM for a process of another user, and bb_leftover read that as a dead
-    owner and took the file under a live flush. PID 1 is alive and not ours: its pending file stays; a dead PID's goes."""
-    f, w = counted_fixture(r, "ss-bb-eperm")
-    probe = r.run([r.bash, "-c", 'kill -0 1 2>&1; echo "rc=$?"'], cwd=w, allowed=None).stdout
-    if "rc=0" in probe:
-        return "kill -0 1 succeeds here (same user): nothing to prove, skipped"
-    if "ermission" not in probe and "not permitted" not in probe.lower():
-        return "kill -0 1 does not report a permission error here (%r): skipped" % probe.strip()[:80]
-    dead = r.run([r.bash, "-c", "sleep 0 & echo $!; wait"], cwd=w).stdout.split()[0]
-    common = Path(r.scratch) / "ss-eperm-common"
-    common.mkdir()
-    foreign = common / "uak-blackbox.pending.1"
-    foreign.write_text("line-of-a-live-flush\n", encoding="utf-8")
-    harness = Path(r.scratch) / "ss-eperm.sh"
-    harness.write_text('COMMON="$1"\n' + hook_functions(r, w, "start_pid_ok", "bb_leftover") +
-                       '\nbb_leftover any; echo "any=$?"\n', encoding="utf-8")
-    out = r.run([r.bash, harness.as_posix(), common.as_posix()], cwd=w, allowed=None)
-    expect("any=1" in out.stdout, "a pending file of PID 1 (alive, another user) is not a dead owner's: %r %r" % (out.stdout, out.stderr))
-    expect(foreign.exists() and foreign.read_text(encoding="utf-8") == "line-of-a-live-flush\n", "its file is left as it was")
-    (common / ("uak-blackbox.pending." + dead)).write_text("line-of-a-dead-flush\n", encoding="utf-8")
-    out = r.run([r.bash, harness.as_posix(), common.as_posix()], cwd=w, allowed=None)
-    expect("any=0" in out.stdout, "a dead owner's file is still found: %r %r" % (out.stdout, out.stderr))
-    return "PID 1's pending file is left; a dead PID's is taken"
-
-
-def clone_listing(common):
-    """What is left of the clone directories: every path under them, with its size."""
-    out = []
-    for d in common.glob("uak-bb-tmp.*"):
-        for root, dirs, files in os.walk(str(d)):
-            for n in dirs + files:
-                p = os.path.join(root, n)
-                try:
-                    out.append("%s (%d)" % (os.path.relpath(p, str(common)), os.path.getsize(p)))
-                except OSError as exc:
-                    out.append("%s (%s)" % (os.path.relpath(p, str(common)), exc))
-    return out[:12]
-
-
-def process_listing():
-    """Windows only: the git, bash and sleep processes that run with their parent and command line, to see what still
-    holds a directory."""
-    if os.name != "nt":
-        return "no process listing here"
-    import subprocess
-    cmd = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'git|bash|sh|sleep' } | ForEach-Object "
-           "{ '{0}<{1} {2} {3}' -f $_.ProcessId, $_.ParentProcessId, $_.Name, $_.CommandLine }")
-    try:
-        out = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True, timeout=60).stdout
-    except (OSError, subprocess.SubprocessError) as exc:
-        return "process listing failed: %s" % exc
-    return " | ".join(l.strip()[:160] for l in out.splitlines() if l.strip())[:2500]
-
-
-def kill_round(r, f, w, common, gate, n):
-    """One scenario: a flush held at the remote's gate passes its 3 s limit and is killed. Returns (seconds from the
-    owner's death to the clone's removal or None, diagnostics) and leaves the checkout recovered for the next round."""
-    lines = "".join("2026-11-10T10:0%dZ | agent | kit | error | uak claim | kill-loop-%d-%d | - | - | - | v6.4\n" % (i, n, i)
-                    for i in (1, 2))
-    (common / "uak-blackbox.pending").write_text(lines, encoding="utf-8")
-    gate.write_text("closed\n")
-    start(r, w, "agent-1", UAK_START_WAIT="1", UAK_START_LIMIT="3")
-    deadline = time.monotonic() + 40
-    dead_at = gone_at = None
-    while time.monotonic() < deadline:
-        left = [p for p in common.glob("uak-blackbox.pending.*") if p.name.rsplit(".", 1)[1].isdigit()]
-        if left and dead_at is None and not alive(r, w, int(left[0].name.rsplit(".", 1)[1])):
-            dead_at = time.monotonic()
-        if dead_at is not None and not list(common.glob("uak-bb-tmp.*")):
-            gone_at = time.monotonic()
-            break
-        time.sleep(0.1)
-        if dead_at is not None and time.monotonic() - dead_at > 15:
-            break
-    diag = ""
-    if dead_at is not None and gone_at is None:
-        diag = "left: %s; owner: %s; processes: %s" % (clone_listing(common), [
-            (d.name, (d / "owner").read_text().strip() if (d / "owner").exists() else None) for d in common.glob("uak-bb-tmp.*")],
-            process_listing())
-        for d in list(common.glob("uak-bb-tmp.*")):
-            try:
-                shutil.rmtree(str(d))
-                diag += "; rmtree after the wait worked"
-            except OSError as exc:
-                diag += "; rmtree after the wait: %s" % exc
-    gate.unlink()
-    settle_once(r, w)
-    start(r, w, "agent-1", UAK_START_WAIT="1")
-    again = time.monotonic() + 40
-    while time.monotonic() < again and (list(common.glob("uak-blackbox.pending.*")) or list(common.glob("uak-bb-tmp.*"))):
-        time.sleep(0.3)
-    settle_once(r, w)
-    if dead_at is None:
-        return None, "the flush never passed its limit and died (left: %r)" % list(common.glob("uak-*"))
-    return (None if gone_at is None else gone_at - dead_at), diag
-
-
-def killed_flush_leaves_no_clone_on_windows(r):
-    """UAK-190. The cause of a Windows failure is NOT found. On main at 967f794 (run 45326081765, windows (10)) the clone
-    directory of a killed flush was still there when killed_bb_flush_is_recovered_and_published_once looked. It
-    failed again with the retry and the sweep already in place (run 45357519599, sha 17108d62, windows (5)): the
-    clone was still there after that case's 40 s wait, so the 10 s retry does not explain it. About 2 failures in 9
-    Windows runs of that case. This case repeats the scenario and never reproduced it: 20 rounds before the fix (run
-    45338123292, job 138255069367) and 20 after (run 45342514688, job 138269556072) on one checkout, 8 rounds on
-    fresh checkouts (run 45361468655), the clone gone 0.5-0.6 s after the owner's death each time.
-    What the fix is: a mitigation. bb_unclone retries the removal for up to 10 s, and the next flush removes a clone
-    whose owner (the file `owner` in it) is gone, so a leftover is never read as a live clone. It does not make the
-    old case pass if something still holds the directory for 40 s.
-    Hypothesis, unconfirmed: a child spawned between start_kill_tree's listing and its TERM escapes the kill and
-    holds the clone (for example a git push held at the remote's gate).
-    UAK_KILL_ROUNDS sets the rounds (default 1 fresh checkout; about 20 s a round on Windows)."""
-    rounds = int(os.environ.get("UAK_KILL_ROUNDS", "1"))
-    times, bad = [], []
-    for n in range(rounds):
-        # A fresh checkout each round: the first session start of a checkout also starts the refresh, the pace and
-        # the map build, the load under which the failure was seen (run 45326081765 and 45357519599).
-        f, w, common, gate = held_push_fixture(r, "ss-bb-kill-loop-%d" % n)
-        try:
-            took, diag = kill_round(r, f, w, common, gate, n)
-        finally:
-            if gate.exists():
-                gate.unlink()
-        if took is None:
-            bad.append("round %d: %s" % (n, diag))
-        else:
-            times.append(took)
-    summary = "%d rounds, clone removed after %s s (max %.1f)" % (
-        rounds, ",".join("%.1f" % t for t in times), max(times) if times else -1)
-    print("MEASURED killed_flush_leaves_no_clone: %s; failures %d: %s" % (summary, len(bad), bad), flush=True)
-    expect(not bad, "a killed flush left its clone directory in %d of %d rounds: %s" % (len(bad), rounds, bad[:3]))
-    return summary
-
-
-def plant_clone(common, owner, age=0, name=None):
-    """A clone directory as bb_flush_job makes it: uak-bb-tmp.TIME.HOOKPID, with the PID of the process that lives as
-    long as the flush in its file `owner` (UAK-190 review: the PID in the name is the hook's, gone in seconds)."""
-    d = common / (name or "uak-bb-tmp.%d.%d" % (int(time.time()) - age, 4242))
-    (d / "uak-bb.AAAAAA" / ".git").mkdir(parents=True)
-    (d / "uak-bb.AAAAAA" / ".git" / "HEAD").write_text("ref: refs/heads/x\n")
-    if owner is not None:
-        (d / "owner").write_text("%s\n" % owner)
-    return d
-
-
-def leftover_clone_is_removed_by_the_next_flush(r):
-    """UAK-190: a clone directory whose flush died stays when its removal failed (Windows refuses while a file is in
-    use). The next flush removes it at once when the owner recorded in it is gone, however young it is; a live
-    owner's clone stays, and so does a young one that records no owner yet."""
-    f, w = counted_fixture(r, "ss-bb-leftover")
-    common = first_pending_dir(r, w)
-    dead = r.run([r.bash, "-c", "sleep 0 & echo $!; wait"], cwd=w).stdout.split()[0]
-    mine = r.run([r.bash, "-c", "sleep 100 & echo $!; disown"], cwd=w).stdout.split()[0]
-    gone = plant_clone(common, dead)
-    kept = plant_clone(common, mine, name="uak-bb-tmp.%d.4243" % int(time.time()))
-    fresh = plant_clone(common, None, name="uak-bb-tmp.%d.4244" % int(time.time()))
-    (common / "uak-blackbox.pending").write_text(
-        "2026-11-10T10:01Z | agent | kit | error | uak claim | leftover-1 | - | - | - | v6.4\n", encoding="utf-8")
-    try:
-        start(r, w, "agent-1", UAK_START_WAIT="1")
-        deadline = time.monotonic() + 40
-        while time.monotonic() < deadline and gone.exists():
-            time.sleep(0.3)
-        settle_once(r, w)
-        expect(not gone.exists(), "a young clone whose owner is gone is removed by the next flush: %r"
-               % list(common.glob("uak-bb-tmp.*")))
-        expect(kept.exists(), "a clone whose owner is alive stays")
-        expect(fresh.exists(), "a young clone that records no owner yet stays")
-    finally:
-        r.run([r.bash, "-c", 'kill -KILL "$1" 2>/dev/null; true', "_", mine], cwd=w, allowed=None)
-    return "a dead owner's clone is removed, a live one's stays"
-
-
-def held_push_fixture(r, name):
-    f, w = counted_fixture(r, name)
-    common = first_pending_dir(r, w)
-    gate = Path(r.scratch) / (name + "-gate")
-    gate.write_text("closed\n")
-    hook = Path(f.remote) / "hooks" / "pre-receive"
-    hook.write_text("#!/bin/sh\nwhile [ -f '%s' ]; do sleep 0.2; done\nexit 0\n" % gate.as_posix(), encoding="utf-8")
-    hook.chmod(0o755)
-    return f, w, common, gate
-
-
-def published(r, f):
-    names = [n for n in r.g(f.remote, "ls-tree", "-r", "--name-only", "claims").stdout.split() if n.startswith("blackbox/")]
-    return "".join(r.g(f.remote, "show", "claims:" + n).stdout for n in names)
-
-
-def pending_line(tag):
-    return "2026-11-10T10:01Z | agent | kit | error | uak claim | %s | - | - | - | v6.4\n" % tag
-
-
-def recover_and_count(r, f, w, common, tags):
-    """The gate is open: let every flush end, start once more to recover what a kill left, and count the lines."""
-    settle_once(r, w)
-    deadline = time.monotonic() + 60
-    found = ""
-    while time.monotonic() < deadline:
-        start(r, w, "agent-1", UAK_START_WAIT="1")
-        settle_once(r, w)
-        found = published(r, f)
-        if all(t in found for t in tags) and not list(common.glob("uak-blackbox.pending*")):
-            break
-        time.sleep(1)
-    return found
-
-
-def second_start_leaves_a_live_flushs_clone(r):
-    """UAK-190 review of 34480754: the clone carried the PID of the session-start hook, gone in seconds while the flush
-    lives up to 300 s, so a second start took the clone of a flush that was still pushing for a dead owner's."""
-    f, w, common, gate = held_push_fixture(r, "ss-bb-second")
-    (common / "uak-blackbox.pending").write_text(pending_line("second-1"), encoding="utf-8")
-    try:
-        start(r, w, "agent-1", UAK_START_WAIT="1")
-        deadline = time.monotonic() + 40
-        first = []
-        while time.monotonic() < deadline and not (first and list(common.glob("uak-blackbox.pending.*"))):
-            first = list(common.glob("uak-bb-tmp.*"))
-            time.sleep(0.3)
-        expect(first, "the held flush has its clone: %r" % list(common.glob("uak-*")))
-        (common / "uak-blackbox.pending").write_text(pending_line("second-2"), encoding="utf-8")
-        start(r, w, "agent-1", UAK_START_WAIT="1")
-        # UAK-197: a fixed 4 s became a bounded wait: the second flush sweeps the clone directories before it makes its
-        # own, so its own directory means the sweep has run.
-        deadline = time.monotonic() + 40
-        while time.monotonic() < deadline and not set(common.glob("uak-bb-tmp.*")) - set(first):
-            time.sleep(0.2)
-        expect(set(common.glob("uak-bb-tmp.*")) - set(first), "the second start's flush made its clone directory: %r"
-               % list(common.glob("uak-*")))
-        expect(all(p.exists() for p in first), "a second start leaves the clone of a flush that still lives: %r"
-               % list(common.glob("uak-bb-tmp.*")))
-    finally:
-        gate.unlink()
-    found = recover_and_count(r, f, w, common, ("second-1", "second-2"))
-    expect(found.count("second-1") == 1 and found.count("second-2") == 1, "each line is published once: %r" % found[-500:])
-    expect(not list(common.glob("uak-bb-tmp.*")), "no clone is left: %r" % list(common.glob("uak-bb-tmp.*")))
-    return "a second start during a held push removes nothing; both lines published once"
-
-
-def eight_starts_with_a_held_push_publish_once(r):
-    """UAK-190 review: eight simultaneous starts while a push is held. Every line is published exactly once, no clone
-    goes while its flush lives, none is left at the end. Off by default (UAK_STORM_ROUNDS sets the rounds; the review's
-    ten rounds ran on Linux, 10 of 10; a CI run with UAK_STORM_ROUNDS set is the Windows evidence)."""
-    from concurrent.futures import ThreadPoolExecutor
-    rounds = int(os.environ.get("UAK_STORM_ROUNDS", "0"))
-    if rounds < 1:
-        return "skipped: it costs 38 s a round on Windows, 14 s on Linux; UAK_STORM_ROUNDS=10 runs the review's ten rounds"
-    f, w, common, gate = held_push_fixture(r, "ss-bb-storm")
-    try:
-        for n in range(rounds):
-            tags = ["storm-%d-%d" % (n, i) for i in (1, 2, 3)]
-            gate.write_text("closed\n")
-            (common / "uak-blackbox.pending").write_text("".join(pending_line(t) for t in tags[:2]), encoding="utf-8")
-            with ThreadPoolExecutor(max_workers=8) as pool:
-                list(pool.map(lambda _: start(r, w, "agent-1", UAK_START_WAIT="1"), range(8)))
-                # A line written while the first flush is held: the second wave's flush must not take the first's clone.
-                # UAK-197: a fixed 2 s became a bounded wait for a held flush (its snapshot uak-blackbox.pending.PID).
-                deadline = time.monotonic() + 40
-                while time.monotonic() < deadline and not [x for x in common.glob("uak-blackbox.pending.*")
-                                                           if x.name.rsplit(".", 1)[1].isdigit()]:
-                    time.sleep(0.2)
-                (common / "uak-blackbox.pending").write_text(pending_line(tags[2]), encoding="utf-8")
-                list(pool.map(lambda _: start(r, w, "agent-1", UAK_START_WAIT="1"), range(8)))
-            # A flush that finds nothing pending ends at once and takes its own clone; a clone that went while its
-            # owner (the PID in its file) still runs was taken from a live flush.
-            seen = {}
-            end = time.monotonic() + 6
-            while time.monotonic() < end:
-                for d in common.glob("uak-bb-tmp.*"):
-                    if not seen.get(d):
-                        try:
-                            seen[d] = (d / "owner").read_text().strip()
-                        except OSError:
-                            seen[d] = ""
-                time.sleep(0.3)
-            lost = [str(d) for d, o in seen.items() if o and not d.exists() and alive(r, w, int(o))]
-            expect(not lost, "round %d: a clone went while its flush still ran: %r" % (n, lost))
-            # The flushes held at the remote each own a snapshot (uak-blackbox.pending.BBPID) and each needs its clone.
-            held = [x for x in common.glob("uak-blackbox.pending.*") if x.name.rsplit(".", 1)[1].isdigit()
-                    and alive(r, w, int(x.name.rsplit(".", 1)[1]))]
-            clones = list(common.glob("uak-bb-tmp.*"))
-            expect(len(clones) >= len(held) and held, "round %d: %d flushes are held and %d clones remain" % (n, len(held), len(clones)))
-            gate.unlink()
-            found = recover_and_count(r, f, w, common, tags)
-            for t in tags:
-                expect(found.count(t) == 1, "round %d: %s is published %d times (once)" % (n, t, found.count(t)))
-            expect(not list(common.glob("uak-bb-tmp.*")), "round %d: a clone is left: %r" % (n, list(common.glob("uak-bb-tmp.*"))))
-    finally:
-        if gate.exists():
-            gate.unlink()
-    return "%d rounds of eight starts: every line once, no clone lost or left" % rounds
-
-
-def sweep_harness(r, w, common, body):
-    script = Path(r.scratch) / "sweep.sh"
-    script.write_text('COMMON="$1"; NOW=$(date +%s)\n' + hook_functions(r, w, "epoch_age", "start_pid_ok", "bb_sweep", "bb_unclone")
-                      + "\n" + body + "\n", encoding="utf-8")
-    return [r.bash, script.as_posix(), common.as_posix()]
-
-
-def unremovable_clone_is_retried_then_left_to_the_next_flush(r):
-    """UAK-190, Windows imitated on POSIX (an imitation: a directory of mode 000 holding a file cannot be emptied, as
-    a directory in use cannot on Windows): the removal is retried and succeeds once the directory can be removed;
-    past 10 s it stops, leaves no process, and the next flush removes it; the hook's foreground is not delayed."""
-    if os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0):
-        return "mode 000 does not stop this user here: skipped"
-    import threading
-    f, w = counted_fixture(r, "ss-bb-unremovable")
-    common = first_pending_dir(r, w)
-    dead = r.run([r.bash, "-c", "sleep 0 & echo $!; wait"], cwd=w).stdout.split()[0]
-    clone = plant_clone(common, dead)
-    lock = clone / "uak-bb.AAAAAA" / "locked"
-    lock.mkdir()
-    (lock / "f").write_text("x")
-    lock.chmod(0)
-    cmd = sweep_harness(r, w, common, 'bb_unclone; echo "left=$(ls "$COMMON" | grep -c uak-bb-tmp)"')
-    try:
-        timer = threading.Timer(3, lambda: lock.chmod(0o755))
-        timer.start()
-        began = time.monotonic()
-        out = r.run(cmd, cwd=w, allowed=None)
-        took = time.monotonic() - began
-        timer.join()
-        first_took = took
-        expect("left=0" in out.stdout and not clone.exists(), "the retry removes it once it can be removed: %r %r" % (out.stdout, out.stderr))
-        expect(3 <= took < 9, "after about 3 s, not at once and not at the end of the retries: %.1f s" % took)
-        clone = plant_clone(common, dead)
-        lock = clone / "uak-bb.AAAAAA" / "locked"
-        lock.mkdir()
-        (lock / "f").write_text("x")
-        lock.chmod(0)
-        began = time.monotonic()
-        out = r.run(cmd, cwd=w, allowed=None)
-        took = time.monotonic() - began
-        expect("left=1" in out.stdout and clone.exists(), "a directory that stays unremovable is left: %r" % out.stdout)
-        expect(took < 16, "the retry is bounded: %.1f s" % took)
-        (common / "uak-blackbox.pending").write_text(pending_line("unremovable-1"), encoding="utf-8")
-        spent, _ = start(r, w, "agent-1", UAK_START_WAIT="1")
-        expect(spent < BUDGET, "the session start is not delayed by it: %.1f s" % spent)
-        settle_once(r, w)
-        expect(clone.exists(), "the flush that could not remove it left it")
-        lock.chmod(0o755)
-        (common / "uak-blackbox.pending").write_text(pending_line("unremovable-2"), encoding="utf-8")
-        start(r, w, "agent-1", UAK_START_WAIT="1")
-        deadline = time.monotonic() + 40
-        while time.monotonic() < deadline and clone.exists():
-            time.sleep(0.3)
-        expect(not clone.exists(), "the next flush removes it once it can be")
-    finally:
-        for d in common.glob("uak-bb-tmp.*"):
-            for p in d.rglob("locked"):
-                p.chmod(0o755)
-    settle_once(r, w)
-    return "retried until removable (%.1f s), bounded at %.1f s when not, removed by the next flush" % (first_took, took)
-
-
-def clone_removal_stays_inside_the_clone_directories(r):
-    """UAK-190: the sweep touches only directories named uak-bb-tmp.TIME.PID in the git directory: a link named like
-    one is removed without its target, a plain file, a name with garbage, an owner that is not a PID and PID 1 are
-    left alone."""
-    f, w = counted_fixture(r, "ss-bb-safe")
-    common = first_pending_dir(r, w)
-    outside = Path(r.scratch) / "ss-bb-outside"
-    outside.mkdir()
-    (outside / "keep").write_text("keep")
-    now = int(time.time())
-    link = common / ("uak-bb-tmp.%d.5001" % now)
-    try:
-        os.symlink(str(outside), str(link))
-        linked = True
-    except (OSError, NotImplementedError):
-        linked = False
-    plain = common / ("uak-bb-tmp.%d.5002" % now)
-    plain.write_text("a file")
-    dead = r.run([r.bash, "-c", "sleep 0 & echo $!; wait"], cwd=w).stdout.split()[0]
-    garbage = plant_clone(common, dead, name="uak-bb-tmp.garbage.abc;rm")
-    badowner = plant_clone(common, "../../x", name="uak-bb-tmp.%d.5003" % now)
-    pid1 = plant_clone(common, "1", name="uak-bb-tmp.%d.5004" % now)
-    out = r.run(sweep_harness(r, w, common, "bb_sweep; echo swept"), cwd=w, allowed=None)
-    expect("swept" in out.stdout, "the sweep runs: %r %r" % (out.stdout, out.stderr))
-    expect((outside / "keep").read_text() == "keep", "the target of a link is intact")
-    if linked:
-        expect(not os.path.lexists(str(link)), "a link named like a clone is removed")
-    expect(plain.is_file(), "a plain file stays")
-    expect(garbage.is_dir() and badowner.is_dir(), "a name with garbage and an owner that is no PID stay")
-    if os.name != "nt":   # Git Bash has no PID 1
-        expect(pid1.is_dir(), "PID 1 is an owner that lives: its clone stays")
-    return "link removed, target intact; file, garbage, bad owner and PID 1 left alone"
-
-
 # moved_cases_are_the_same_cases (UAK-197): each function moved here, as its source text was in
 # test_hook_session_start_speed.py on main at 0e50f9d0 (sha256 of inspect.getsource, first 16 hex digits). Text, not an
 # AST dump: identical text is an identical AST on every Python. A case changed by this task as its fix is listed in FIXED
 # with each text the fix replaced (original, now): with the originals put back, the source is main's, digit for digit.
 ORIGINAL = {
+    "session_start_orphan_output_cannot_change_replacement_cache": "8dfe58b99c9d4eef",
+    "session_start_orphan_inbox_output_cannot_change_cache": "00b82cc7aa7e8b3c",
+    "session_start_revokes_a_dead_owners_pending_move": "de76503ea7e233e2",
+    "session_start_finishes_an_interrupted_reap": "b0dc929145fa32a2",
+    "session_start_failed_reap_is_closed_and_retryable": "8905fc1b8eb6963f",
+    "session_start_corrupt_owner_records_cannot_delete_paths": "ff673063949742cb",
+    "session_start_internal_owner_refs_bypass_user_hooks": "55e95d88f86660f0",
+    "session_start_inbox_failure_preserves_cache_and_status": "6b423d8559850e80",
+    "every_background_job_has_a_limit": "0cd8090d1afd4c65",
+    "limited_jobs_poll_coarsely": "4d3a77a0dadc445f",
+    "first_pending_dir": "efdbf245471de5f8",
+    "lens_tick": "5e0747dc919acea5",
+    "killed_map_build_is_not_a_built_map": "3357121e355aa88b",
+    "killed_tokens_publish_is_retried": "45bb1062e791e3e7",
+    "counter_files_are_validated": "ecc1ec1ddaf87072",
     "session_start_coalesces_aged_live_refreshes": "85a78f02cda948b3",
     "session_start_recovers_a_dead_refresh_owner": "ef2467b8377e6368",
     "session_start_concurrent_claims_launch_one_refresh": "c70d5e3cf25c4e99",
@@ -950,8 +796,17 @@ ORIGINAL = {
     "unremovable_clone_is_retried_then_left_to_the_next_flush": "4417ad537fd680fb",
     "clone_removal_stays_inside_the_clone_directories": "76afc3bf936fe22b",
 }
-CONSTANTS = "3f63e571ebd279e2"   # repr((HUNG_UAK, ONCE_FUNCS))
+CONSTANTS = "3f63e571ebd279e2"   # repr((HUNG_UAK, ONCE_FUNCS)), here
+CLONE_CONSTANTS = "da58833e90bd03fb"   # repr((HANG, LENS_STUB)), in test_hook_session_start_clones.py
 FIXED = {
+    'lens_tick': [
+        ("""    time.sleep(2)   # the tick's own background jobs (drift fetch, heartbeat, pr-sync) are short; the directory is removed next
+""",
+         """    # UAK-197: no fixed 2 s here any more. It waited for the tick's own background jobs (drift fetch, heartbeat, pr-sync)
+    # before the directory was removed; the case that calls this ends with settle_once, a bounded wait until no process
+    # works in the checkout, and polls for what it checks.
+"""),
+    ],
     'stale_lock_reclaim_runs_once': [
         ('for n in pace map; do start_once "$n" 60 bash -c \'echo x >> "$1/$2.calls"; sleep 1\' _ "$gd" "$n"; done""")',
          'for n in pace map; do start_once "$n" 60 bash -c \'echo x >> "$1/$2.calls"; sleep 1\' _ "$gd" "$n"; done\n# UAK-197: wait for the jobs started here; the test counts once every script has ended.\nwait""")'),
@@ -992,51 +847,54 @@ def source_digest(text):
 
 
 def moved_cases_are_the_same_cases(r):
+    import test_hook_session_start_clones as clones
     import test_hook_session_start_speed as speed
-    here = globals()
+    files = {"locks": globals(), "clones": vars(clones), "speed": vars(speed)}
     changed, missing = [], []
     for name, digest in ORIGINAL.items():
-        fn = here.get(name)
-        if fn is None:
-            missing.append(name)
+        homes = [k for k, ns in files.items() if callable(ns.get(name)) and getattr(ns[name], "__module__", "") in
+                 ("__main__", "test_hook_session_start_locks", "test_hook_session_start_clones", "test_hook_session_start_speed")
+                 and inspect.getsourcefile(ns[name]).endswith("test_hook_session_start_%s.py" % k)]
+        if len(homes) != 1:
+            (missing if not homes else changed).append("%s (defined in %s)" % (name, homes or "none"))
             continue
-        text = inspect.getsource(fn)
+        text = inspect.getsource(files[homes[0]][name])
         for original, now in FIXED.get(name, ()):
             expect(text.count(now) == 1, "%s: the fix's text is in it once: %r" % (name, now[:60]))
             text = text.replace(now, original)
         if source_digest(text) != digest:
             changed.append(name)
-        expect(not hasattr(speed, name), "%s is defined in one file only (it moved)" % name)
-    expect(not missing, "moved here: %s" % missing)
-    expect(not changed, "moved, not rewritten: the source of %s differs from main's" % changed)
-    # ONCE_FUNCS gained start_limit_value, the fix of stale_lock_reclaim_runs_once; without it the pair is main's.
-    once = tuple(f for f in here.get("ONCE_FUNCS", ()) if f != "start_limit_value")
-    expect("start_limit_value" in here.get("ONCE_FUNCS", ()) and len(once) == len(here["ONCE_FUNCS"]) - 1,
-           "ONCE_FUNCS has start_limit_value once")
-    expect(source_digest(repr((here.get("HUNG_UAK"), once))) == CONSTANTS, "HUNG_UAK and ONCE_FUNCS moved unchanged but for the fix")
-    mine = [t.__name__ for t in TESTS if t.__name__ != "moved_cases_are_the_same_cases"]
-    theirs = [t.__name__ for t in speed.TESTS]
-    expect(not set(mine) & set(theirs), "no case runs in both files: %s" % sorted(set(mine) & set(theirs)))
+        expect(homes[0] != "speed", "%s moved out of the speed file" % name)
+    expect(not missing, "moved: %s" % missing)
+    expect(not changed, "moved, not rewritten, and defined in one file only: %s" % changed)
+    once = tuple(f for f in globals().get("ONCE_FUNCS", ()) if f != "start_limit_value")
+    expect("start_limit_value" in globals().get("ONCE_FUNCS", ()) and len(once) == len(ONCE_FUNCS) - 1,
+           "ONCE_FUNCS has start_limit_value once (the fix of stale_lock_reclaim_runs_once)")
+    expect(source_digest(repr((globals().get("HUNG_UAK"), once))) == CONSTANTS, "HUNG_UAK and ONCE_FUNCS moved unchanged but for the fix")
+    expect(source_digest(repr((vars(clones).get("HANG"), vars(clones).get("LENS_STUB")))) == CLONE_CONSTANTS, "HANG and LENS_STUB moved unchanged")
+    lists = {"locks": [t.__name__ for t in TESTS if t.__name__ != "moved_cases_are_the_same_cases"],
+             "clones": [t.__name__ for t in clones.TESTS], "speed": [t.__name__ for t in speed.TESTS]}
+    every = [n for v in lists.values() for n in v]
     new_here = {"kill_guard_refuses_an_ancestor"}   # added by UAK-197 to the speed file
-    expect(sorted(set(mine + theirs) - new_here) == sorted(BEFORE) and len(mine + theirs) == len(set(mine + theirs)),
-           "every case of the file before the split runs once: missing %s, new %s"
-           % (sorted(set(BEFORE) - set(mine + theirs)), sorted(set(mine + theirs) - set(BEFORE) - new_here)))
+    expect(len(every) == len(set(every)), "no case runs in two files: %s" % sorted({n for n in every if every.count(n) > 1}))
+    expect(sorted(set(every) - new_here) == sorted(BEFORE), "every case of the file before the split runs once: missing %s, new %s"
+           % (sorted(set(BEFORE) - set(every)), sorted(set(every) - set(BEFORE) - new_here)))
     # The check sees a change: one character more in a moved case is not the original.
-    probe = inspect.getsource(here["pending_line"])
+    probe = inspect.getsource(vars(clones)["pending_line"])
     expect(source_digest(probe + " ") != ORIGINAL["pending_line"] and source_digest(probe) == ORIGINAL["pending_line"], "the digest sees one character")
-    return "%d functions moved unchanged%s; %d cases here, %d in the speed file" % (
-        len(ORIGINAL) - len(FIXED), (", %s changed only by its fix" % ", ".join(FIXED)) if FIXED else "", len(mine), len(theirs))
+    return "%d functions moved unchanged%s; cases: %s" % (
+        len(ORIGINAL) - len(FIXED), (", %s changed only by its fix" % ", ".join(FIXED)) if FIXED else "",
+        ", ".join("%d in %s" % (len(v), k) for k, v in lists.items()))
 
-
-TESTS = [session_start_coalesces_aged_live_refreshes, session_start_recovers_a_dead_refresh_owner,
-         session_start_concurrent_claims_launch_one_refresh, session_start_abandoned_handoff_cannot_run_or_release,
-         hung_worker_is_killed, pace_and_map_run_once_under_ten_starts, cached_start_does_not_wait]
+TESTS = [session_start_orphan_output_cannot_change_replacement_cache, session_start_orphan_inbox_output_cannot_change_cache,
+         session_start_revokes_a_dead_owners_pending_move, session_start_finishes_an_interrupted_reap,
+         session_start_failed_reap_is_closed_and_retryable, session_start_corrupt_owner_records_cannot_delete_paths,
+         session_start_internal_owner_refs_bypass_user_hooks, session_start_inbox_failure_preserves_cache_and_status]
+TESTS += [session_start_coalesces_aged_live_refreshes, session_start_recovers_a_dead_refresh_owner,
+          session_start_concurrent_claims_launch_one_refresh, session_start_abandoned_handoff_cannot_run_or_release,
+          hung_worker_is_killed, pace_and_map_run_once_under_ten_starts, cached_start_does_not_wait]
 TESTS += [corrupt_time_file_does_not_end_the_hook, future_time_file_is_stale, stale_lock_reclaim_runs_once,
-          once_lock_with_a_bad_time_is_stale, empty_guard_is_recovered, killed_bb_flush_is_recovered_and_published_once]
-TESTS += [other_users_pending_file_is_left]
-TESTS += [killed_flush_leaves_no_clone_on_windows, leftover_clone_is_removed_by_the_next_flush,
-          second_start_leaves_a_live_flushs_clone, eight_starts_with_a_held_push_publish_once,
-          unremovable_clone_is_retried_then_left_to_the_next_flush, clone_removal_stays_inside_the_clone_directories]
+          once_lock_with_a_bad_time_is_stale, empty_guard_is_recovered]
 TESTS += [moved_cases_are_the_same_cases]
 
 
