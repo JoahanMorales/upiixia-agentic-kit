@@ -174,7 +174,52 @@ def deploy_says_what_is_missing(r):
     return "the message says what to add"
 
 
-TESTS = [deploy_recognises_stdlib_python, deploy_says_what_is_missing]
+def deploy_test_takes_its_port_without_a_race(r):
+    """UAK-197: deploy_recognises_stdlib_python failed twice in one macOS job (run 45645537660, suite (macos-latest, 1)):
+    the app said "Address already in use" on 49185, then on 49187, ports the test had just picked. The port is taken
+    once by a helper: a port the system gives for the address the app binds, and another one when the app says it is in
+    use. Forced here: the first port picked is held by a listening socket, then every port is."""
+    import inspect
+    expect("pick" in inspect.signature(serves).parameters and "tries" in inspect.signature(serves).parameters,
+           "serves(t, argv, pick=…, tries=…): the port comes from one helper")
+    t = repo(r, "port-race")
+    (t / "app").mkdir()
+    (t / "app/server.py").write_text(SERVER % {"pkg": "app."}, encoding="utf-8")
+    (t / "app/queue.py").write_text("def size():\n    return 0\n", encoding="utf-8")
+    held = socket.socket()
+    held.bind(("0.0.0.0", 0))
+    held.listen(1)
+    busy = held.getsockname()[1]
+    try:
+        picks, tried = [busy], []
+
+        def pick():
+            tried.append(picks.pop(0) if picks else free_port())
+            return tried[-1]
+        status, body = serves(t, ["python3", "-m", "app.server"], pick=pick)
+        expect(status == 200 and body.get("ok") is True, "served on the second port: %s %s" % (status, body))
+        expect(tried[0] == busy and len(tried) == 2, "the port in use was given up for another: %s (busy %d)" % (tried, busy))
+        try:
+            serves(t, ["python3", "-m", "app.server"], pick=lambda: busy, tries=3)
+            raise AssertionError("served although every port was in use")
+        except AssertionError as exc:
+            expect("in use" in str(exc) and str(busy) in str(exc) and "3 ports" in str(exc),
+                   "every retry taken: it says so and names the ports: %s" % str(exc)[:300])
+        # The case itself takes its port through the helper: with its first port held it still passes.
+        global PICK
+        saved, first = PICK, [busy]
+        PICK = lambda: first.pop(0) if first else saved()
+        try:
+            deploy_recognises_stdlib_python(r)
+        finally:
+            PICK = saved
+        expect(not first, "deploy_recognises_stdlib_python picked its port through PICK")
+    finally:
+        held.close()
+    return "a port in use is replaced; all in use fails with the ports named; the case uses the helper"
+
+
+TESTS = [deploy_recognises_stdlib_python, deploy_says_what_is_missing, deploy_test_takes_its_port_without_a_race]
 
 
 def main():

@@ -364,12 +364,12 @@ def windows_longest_shard_keeps_a_margin(r):
     lint = kit_lint()
     if lint is None:
         return "no kit source repository here"
-    expect(getattr(lint, "WINDOWS_MARGIN", None) == 0.85, "WINDOWS_MARGIN is 0.85: %r" % getattr(lint, "WINDOWS_MARGIN", None))
+    expect(getattr(lint, "WINDOWS_MARGIN", None) == 0.80, "WINDOWS_MARGIN is 0.80: %r" % getattr(lint, "WINDOWS_MARGIN", None))
     n = lint.windows_shard_count()
     longest = windows_load(lint, n)
-    expect(longest <= lint.WINDOWS_BOUND_S * 0.85, "%d shards: the longest is predicted at %d s, over 85%% of the bound (%d s)"
-           % (n, longest, lint.WINDOWS_BOUND_S * 0.85))
-    expect(windows_load(lint, n - 1) > lint.WINDOWS_BOUND_S * 0.85, "%d is not the smallest count with the margin" % n)
+    expect(longest <= lint.WINDOWS_BOUND_S * 0.80, "%d shards: the longest is predicted at %d s, over 80%% of the bound (%d s)"
+           % (n, longest, lint.WINDOWS_BOUND_S * 0.80))
+    expect(windows_load(lint, n - 1) > lint.WINDOWS_BOUND_S * 0.80, "%d is not the smallest count with the margin" % n)
     return "%d shards, longest %d s of %d" % (n, longest, lint.WINDOWS_BOUND_S)
 
 
@@ -499,6 +499,68 @@ def job_bound_sits_under_the_time_limit(r):
 
 
 TESTS = TESTS + [job_bound_sits_under_the_time_limit]
+
+
+# UAK-197: a twelfth Windows shard when the longest passes 80 % of its bound. With the table of 2026-11-25, 11 shards put
+# the longest at 1445 of 1800 s (80.3 %): one slow runner turned it red. 12 put it at about 1326 s and the whole matrix is
+# 21 jobs, inside the cap of 22. The lint says which shard is the longest and its share.
+def twelfth_shard_when_the_longest_passes_80(r):
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    expect(lint.WINDOWS_MARGIN == 0.80, "the margin is 80 %% of the bound: %r" % lint.WINDOWS_MARGIN)
+    names = ["test_w%02d" % i for i in range(12)]
+    # Twelve files of 720 s: in 11 shards two share one, 15 + 1440 = 1455 s, 80.8 % (under the old 85 %): a twelfth shard.
+    expect(lint.windows_shard_count(lambda t: 720, names) == 12, "1455 s of 1800 in 11 shards passes 80 %%: %r" % lint.windows_shard_count(lambda t: 720, names))
+    # 700 s: two in a shard is 1415 s, 78.6 %: six shards hold them.
+    expect(lint.windows_shard_count(lambda t: 700, names) == 6, "1415 s stays under 80 %%: %r" % lint.windows_shard_count(lambda t: 700, names))
+    n = lint.windows_shard_count()
+    longest = windows_load(lint, n)
+    expect(longest <= lint.WINDOWS_BOUND_S * 0.80 and windows_load(lint, n - 1) > lint.WINDOWS_BOUND_S * 0.80,
+           "%d shards is the smallest count under 80 %%: %d s, and %d s with one fewer" % (n, longest, windows_load(lint, n - 1)))
+    cs = ci_select()
+    jobs = cs.job_count(cs.matrices("full", cs.select([])))
+    expect(jobs == 1 + 8 + n and jobs <= 22, "the whole matrix is %d jobs (at most 22)" % jobs)
+    report = lint.windows_shard_report()
+    k = max(range(n), key=lambda i: (lint.windows_seconds(lint.ci_windows_shards(n)[i]), -i)) + 1
+    share = "%.1f %%" % (100.0 * longest / lint.WINDOWS_BOUND_S)
+    expect(report.startswith("%d Windows shards (%d jobs" % (n, jobs)) and "windows (%d): %d of 1800 s, %s" % (k, longest, share) in report,
+           "the report names the longest shard and its share: %r" % report)
+    out = subprocess.run([sys.executable, str(REPO / "scripts" / "kit_lint.py"), "--windows-report"],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    expect(out.returncode == 0 and out.stdout.strip() == "KIT_LINT_INFO " + report, "the lint prints it: %r" % out.stdout[-300:])
+    lint_src = (REPO / "scripts" / "kit_lint.py").read_text(encoding="utf-8")
+    expect('print("KIT_LINT_INFO " + windows_shard_report())' in lint_src.split("def main():", 1)[1], "and so does every full lint run")
+    return report
+
+
+# UAK-197: test_hook_session_start_speed took 339 to 536 s on Windows, over the 300 s (RETRY_MAX_S) under which a failed
+# file runs a second time in its job, so a failure of it was never retried and cost a manual re-run of main. It is split
+# in two (the locks and simultaneous starts went to test_hook_session_start_locks.py); each half is measured on Windows.
+SPLIT = ("test_hook_session_start_speed", "test_hook_session_start_locks")
+
+
+def no_file_takes_more_than_300_s_on_windows(r):
+    lint = kit_lint()
+    if lint is None:
+        return "no kit source repository here"
+    cs = ci_select()
+    seen = []
+    for t in SPLIT:
+        expect((REPO / "kit" / ".uak" / "tests" / (t + ".py")).is_file(), "%s.py exists" % t)
+        text = (REPO / "kit" / ".uak" / "tests" / "timings" / (t + ".txt")).read_text(encoding="utf-8")
+        m = re.search(r"(?m)^#\s*rule:.*\bwindows ([0-9.]+) s \(([0-9]+)\)", text)
+        expect(m and re.search(r"(?m)^#\s*measured [0-9-]+ [0-9]+\s*$", text), "%s's timing file keeps its Windows measurement: %r" % (t, text[:300]))
+        measured = float(m.group(1))
+        expect(measured <= cs.RETRY_MAX_S, "%s took %.0f s on Windows (run %s), over %d s" % (t, measured, m.group(2), cs.RETRY_MAX_S))
+        entry = lint.ci_windows_seconds(t)
+        expect(entry <= cs.RETRY_MAX_S, "%s's Windows entry is %d s: over %d s a failure of it is not run again" % (t, entry, cs.RETRY_MAX_S))
+        seen.append("%s %.0f s (entry %d)" % (t, measured, entry))
+    over = sorted(t for t, s in lint.CI_WINDOWS_SECONDS.items() if s > cs.RETRY_MAX_S)
+    return "%s; other files over %d s on Windows (not this task's): %s" % ("; ".join(seen), cs.RETRY_MAX_S, ", ".join(over))
+
+
+TESTS = TESTS + [twelfth_shard_when_the_longest_passes_80, no_file_takes_more_than_300_s_on_windows]
 
 
 def main():
