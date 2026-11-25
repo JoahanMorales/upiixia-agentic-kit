@@ -319,7 +319,7 @@ def write_result(path, job, res, running=""):
     body = {"job": job, "conclusion": "running" if running else res.get("conclusion", "passed"), "running": running, "done": done,
             "failed": res["failed"], "flaky": res["flaky"], "counts": res["counts"], "not_rerun": res["not_rerun"],
             "slow": res["slow"], "stopped": res["stopped"], "browser": res.get("browser", {}), "no_browser": res.get("no_browser", {}),
-            "system": _this_system()}
+            "browser_read": bool(res.get("browser_read")), "system": _this_system()}
     tmp = str(path) + ".part"
     Path(tmp).write_text(json.dumps(body), encoding="utf-8")
     os.replace(tmp, str(path))
@@ -503,13 +503,17 @@ def _browser_line(prefix, browser):
 
 def browser_summary(results):
     """Markdown lines, per system, from the jobs' result JSON: cases run in a browser, skipped, Chromium launches seen."""
-    by = {}
+    by, read = {}, set()
     for r in results:
         by.setdefault(_system_of(r), {}).update({"%s/%s" % (r.get("job", ""), f): v for f, v in (r.get("browser") or {}).items()})
+        if r.get("browser_read") or r.get("browser"):
+            read.add(_system_of(r))
     lines = ["### browser cases (UAK-195: `PASS case (browser, ...)` ran in Chromium, `SKIP case (no browser)` did not run)"]
     for system in ("Linux", "macOS", "Windows"):
         if system not in by:
             lines.append("- %s: no result files" % system)
+        elif system not in read:
+            lines.append("- %s: output not read (no browser declared there: its files run as before UAK-195)" % system)
         else:
             lines.append(_browser_line("- %s: " % system, by[system]))
     return "\n".join(lines) + "\n"
@@ -541,7 +545,8 @@ def run_files(files, runner, retry, log=_say, seconds=None, bound=None, clock=ti
     SLOW_MIN_FILES files and SLOW_MIN_TABLE_S table seconds: one stale entry cannot decide it. Before each file the name and
     the clock are printed (flushed) and the partial result is written; a run that passes the bound is killed (the runner's
     `timeout`, the time left) and the job stops there."""
-    res = {"ran": list(files), "failed": [], "flaky": [], "counts": {}, "not_rerun": {}, "slow": "", "stopped": "", "browser": {}, "no_browser": {}}
+    res = {"ran": list(files), "failed": [], "flaky": [], "counts": {}, "not_rerun": {}, "slow": "", "stopped": "", "browser": {}, "no_browser": {},
+           "browser_read": bool(getattr(runner, "read_output", False))}
     start = clock()
     ratios, seen_table = [], 0.0
     for i, f in enumerate(files):
@@ -665,9 +670,12 @@ def _start(argv, **kw):
 class _RealRunner:
     """Runs one file; `timeout` (seconds, set by run_files to the time left to the job's bound) stops a file that would end
     the job by the platform's cancel: the whole group (POSIX) or tree (Windows) is killed and `timed_out` is set."""
-    def __init__(self, kind, tests_dir=None):
+    def __init__(self, kind, tests_dir=None, read_output=False):
         self.kind = kind
         self.tests_dir = tests_dir   # another folder of test files (this runner's own tests); default kit/.uak/tests
+        # UAK-195: read the file's stdout through a pipe and watch Chromium launches only where a browser is declared (Linux in
+        # the kit's CI). Otherwise the file inherits stdout and runs exactly as before UAK-195 (_popen and __call__ below).
+        self.read_output = read_output
         self.timeout = None
         self.timed_out = False
         self.output = None      # the lines the file printed that the browser convention reads (UAK-195)
@@ -790,16 +798,25 @@ class _RealRunner:
             return False
 
     def _popen(self, name):
-        # stdout is read line by line (copied to ours as it comes, flushed) for the browser lines of UAK-195; stderr is the job's.
-        out = subprocess.PIPE
-        if self.kind == "smoke" and self.tests_dir is None:
+        if self.read_output or self.tests_dir is not None:
+            return self._popen_reading(name)
+        if self.kind == "smoke":
             # stdin held open, as in a terminal: a command that reads it (BSD awk -W version did) hangs here, not on a laptop.
-            return _start(["bash", ".uak/bin/smoke", "--package-only"], cwd=str(KIT), env=dict(os.environ, UAK_SMOKE_TESTS=name), stdin=subprocess.PIPE, stdout=out)
+            return _start(["bash", ".uak/bin/smoke", "--package-only"], cwd=str(KIT), env=dict(os.environ, UAK_SMOKE_TESTS=name), stdin=subprocess.PIPE)
         if name == "mcp_tools":
-            return _start([sys.executable, "tests/test_mcp_tools.py"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=out)
+            return _start([sys.executable, "tests/test_mcp_tools.py"], cwd=str(ROOT), stdin=subprocess.DEVNULL)
+        return _start([sys.executable, ".uak/tests/%s.py" % name, "--package", str(KIT)], cwd=str(KIT), stdin=subprocess.DEVNULL)
+
+    def _popen_reading(self, name):
+        """The same commands with stdout read through a pipe (read_output), or a test folder of this runner's own tests."""
+        out = {"stdout": subprocess.PIPE} if self.read_output else {}
         if self.tests_dir is not None:
-            return _start([sys.executable, str(Path(self.tests_dir) / ("%s.py" % name)), "--package", str(KIT)], cwd=str(KIT), stdin=subprocess.DEVNULL, stdout=out)
-        return _start([sys.executable, ".uak/tests/%s.py" % name, "--package", str(KIT)], cwd=str(KIT), stdin=subprocess.DEVNULL, stdout=out)
+            return _start([sys.executable, str(Path(self.tests_dir) / ("%s.py" % name)), "--package", str(KIT)], cwd=str(KIT), stdin=subprocess.DEVNULL, **out)
+        if self.kind == "smoke":
+            return _start(["bash", ".uak/bin/smoke", "--package-only"], cwd=str(KIT), env=dict(os.environ, UAK_SMOKE_TESTS=name), stdin=subprocess.PIPE, **out)
+        if name == "mcp_tools":
+            return _start([sys.executable, "tests/test_mcp_tools.py"], cwd=str(ROOT), stdin=subprocess.DEVNULL, **out)
+        return _start([sys.executable, ".uak/tests/%s.py" % name, "--package", str(KIT)], cwd=str(KIT), stdin=subprocess.DEVNULL, **out)
 
     KEEP = re.compile(r"^(PASS |SKIP |[A-Z][A-Z0-9_]*_RESULT )")
 
@@ -852,6 +869,25 @@ class _RealRunner:
             stop.wait(0.1)
 
     def __call__(self, name):
+        if self.read_output:
+            return self._call_reading(name)
+        sys.stdout.flush()
+        p = self._popen(name)
+        try:
+            return self._wait(p)
+        except BaseException:
+            # the driver was cancelled (SIGINT, or SIGTERM and SIGHUP turned into SystemExit by cmd_run): the file runs in its own
+            # session, so it would outlive us; end its whole tree (POSIX: walked by parent links, so a child that called setsid
+            # goes too; Windows: taskkill /T) before leaving
+            self._kill(p)
+            raise
+        finally:
+            if p.stdin:
+                p.stdin.close()
+
+    def _call_reading(self, name):
+        """__call__ on a job that declares a browser: the file's stdout copied line by line and kept for the browser lines,
+        and on Linux the Chromium launches under it counted."""
         import threading
         sys.stdout.flush()
         self.output, self.launches = None, None
@@ -958,7 +994,10 @@ def _cmd_run(argv):
         os.environ[BROWSER_CHECKED_ENV] = said   # inherited by the files, so a run they start does not launch Chromium again
     retry = a.retry and os.environ.get("RUNNER_OS") != "Linux"   # Linux never retries, whatever the workflow passes
     seconds = lint.ci_windows_seconds if a.kind == "windows" else lint.ci_seconds
+    # stdout is read (and Chromium counted) only where a browser is declared; elsewhere the files run as before UAK-195
     runner = _RealRunner(a.kind, tests_dir=a.tests_dir) if a.tests_dir else _real_runner(a.kind)
+    if declared:
+        runner.read_output = True
     res = run_files(a.files, runner, retry, seconds=seconds, bound=a.bound, out=a.out, job=a.job, browser_declared=declared)
     rep = flaky_report(a.job, res)
     for line in rep["annotations"]:

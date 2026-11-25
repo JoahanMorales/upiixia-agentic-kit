@@ -142,9 +142,10 @@ assert said == "clicked", said
 
 
 def run_one(folder, name, declared=False, kind="windows"):
-    """The real runner (stdout read line by line, Chromium launches watched) on one fixture file."""
+    """The real runner with its output read (the explicit switch: the job's runner reads only where a browser is declared),
+    stdout read line by line and, on Linux, Chromium launches watched, on one fixture file."""
     mod = cs()
-    runner = mod._RealRunner(kind, tests_dir=folder)
+    runner = mod._RealRunner(kind, tests_dir=folder, read_output=True)
     logs = []
     # the runner copies the file's lines to stdout: kept here, or this file's own output would carry the fixtures' SKIP lines
     real, sys.stdout = sys.stdout, io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
@@ -239,8 +240,10 @@ def skip_without_browser_is_not_a_pass(tmp):
     expect(res["failed"] == ["fx_hidden"] and "skipped=" in res["no_browser"].get("fx_hidden", ""), "a skip the result line does not count fails: %r" % res)
     # the CLI passes the file's lines through and says the same
     out = cli_run(folder, ["fx_skip"], clean_env())
-    expect(out.returncode == 0 and "SKIP clicks_the_button (no browser)" in out.stdout and "1 skipped (no browser)" in out.stdout,
-           "the run passes and shows the skip: rc %d %s" % (out.returncode, out.stdout[-800:]))
+    expect(out.returncode == 0 and "SKIP clicks_the_button (no browser)" in out.stdout and "browser cases:" not in out.stdout,
+           "no browser declared: the file runs as before (its output not read), it passes and shows the skip: rc %d %s" % (out.returncode, out.stdout[-800:]))
+    expect(mod._real_runner("windows").read_output is False and mod._real_runner("smoke").read_output is False,
+           "the job's runner reads no output unless a browser is declared")
     return "a skip is counted as a skip"
 
 
@@ -265,7 +268,9 @@ def skip_fails_where_a_browser_is_declared(tmp):
     expect(out.returncode == 1 and "fx_skip" in out.stdout and "clicks_the_button" in out.stdout and "UAK_CI_BROWSER" in out.stdout,
            "declared, a skip fails the job and says which case: rc %d %s" % (out.returncode, out.stdout[-900:]))
     out = cli_run(folder, ["fx_skip"], clean_env(PYTHONPATH=str(missing_pw)))
-    expect(out.returncode == 0, "not declared, the same skip passes: rc %d %s" % (out.returncode, out.stdout[-600:]))
+    expect(out.returncode == 0 and "browser cases:" not in out.stdout, "not declared, the same skip passes and nothing is read: rc %d %s" % (out.returncode, out.stdout[-600:]))
+    out = cli_run(folder, ["fx_skip"], clean_env(UAK_CI_BROWSER="1", UAK_CI_BROWSER_CHECKED="Chromium 1"))
+    expect("browser cases: 0 ran in a browser, 1 skipped (no browser)" in out.stdout, "declared: the output is read and counted: %s" % out.stdout[-600:])
     # declared on a job without a browser: the job fails before any file, saying what is missing
     for pw, says in ((missing_pw, "cannot import Playwright"), (broken_pw, "Chromium does not launch")):
         out = cli_run(folder, ["fx_plain"], clean_env(UAK_CI_BROWSER="1", PYTHONPATH=str(pw)))
@@ -299,6 +304,8 @@ def summary_counts_browser_cases(tmp):
                  "- macOS: 0 ran in a browser, 2 skipped (no browser); Chromium launches not counted on this system",
                  "- Windows: no result files"):
         expect(line in text, "per system: %r in %s" % (line, text))
+    unread = mod.browser_summary([{"job": "windows (1)", "system": "Windows", "browser_read": False, "browser": {}}])
+    expect("- Windows: output not read (no browser declared there" in unread, "a system whose output was not read says so, not 0 of 0: %s" % unread)
     # the gate writes it to the run's summary, from the result artifacts, and still judges only the jobs
     rd = tmp / "results" / "result-ubuntu-latest-2"
     rd.mkdir(parents=True)
