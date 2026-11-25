@@ -563,21 +563,22 @@ def install_question_is_spanish_for_a_spanish_speaker(c):
         # English: the question as it was, and 'n' is not an answer there
         out, code, _, d = ask(c, b"n\n", c.env(LANG="en_US.UTF-8"), QUESTION)
         expect('"n" is not b or t' in out and "¿" not in out and "Continue in the terminal:" in out, "English stays English: " + tail(out))
-    # No terminal: the two lines are Spanish in a Spanish locale, and the same lines as before in every other one
-    d = c.repo()
-    out = c.piped(d, env=es).stdout
+    # No terminal: the two lines are Spanish in a Spanish locale, and the same lines as before in every other one.
+    # Each case is its own real install; they run side by side (the folders are separate) to keep the file's clock down.
+    english = ({"LC_ALL": "C", "LANG": "es_MX.UTF-8"}, {"LANG": "en_US.UTF-8"}, {"LC_ALL": "de_DE.UTF-8", "LANG": "es_ES.UTF-8"}, {})
+    spanish = ({"LC_ALL": "es_MX.UTF-8"}, {"LC_MESSAGES": "es_ES"}, {"LANG": "es"}, {"LANG": "es-419"})
+    jobs = [((), es), (("--wizard",), es)] + [((), c.env(**l)) for l in english + spanish]
+    folders = [c.repo() for _ in jobs]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        outs = list(pool.map(lambda pair: c.piped(pair[1], *pair[0][0], env=pair[0][1]).stdout, zip(jobs, folders)))
+    out = outs[0]
     expect("Continúa en la terminal:  cd " in out and "Continúa en el navegador: bash " in out, "the two lines in Spanish: " + tail(out))
     expect("Continue in" not in out, "no English left on those lines: " + tail(out))
-    d = c.repo()
-    out = c.piped(d, "--wizard", env=es).stdout
-    expect("Pediste el navegador, pero aquí no hay una terminal, así que no se abrió la página." in out, "the reason: " + tail(out))
-    for locale in ({"LC_ALL": "C", "LANG": "es_MX.UTF-8"}, {"LANG": "en_US.UTF-8"}, {"LC_ALL": "de_DE.UTF-8", "LANG": "es_ES.UTF-8"}, {}):
-        d = c.repo()
-        out = c.piped(d, env=c.env(**locale)).stdout
+    expect("Pediste el navegador, pero aquí no hay una terminal, así que no se abrió la página." in outs[1], "the reason: " + tail(outs[1]))
+    for locale, out in zip(english, outs[2:6]):
         expect(TERMINAL_WORDS in out and BROWSER_WORDS in out and "Continúa" not in out, "%r is English: %s" % (locale, tail(out)))
-    for locale in ({"LC_ALL": "es_MX.UTF-8"}, {"LC_MESSAGES": "es_ES"}, {"LANG": "es"}, {"LANG": "es-419"}):
-        d = c.repo()
-        out = c.piped(d, env=c.env(**locale)).stdout
+    for locale, out in zip(spanish, outs[6:]):
         expect("Continúa en la terminal:" in out, "%r is Spanish: %s" % (locale, tail(out)))
     return "Spanish by LC_ALL, LC_MESSAGES, then LANG; the question, n/navegador/terminal/browser, the wrong answer and both lines"
 
@@ -587,8 +588,9 @@ def install_tokens_do_not_change(c):
     es = c.env(LANG="es_MX.UTF-8")
     # No terminal: the English lines are exactly what they were, the Spanish ones carry the same two commands.
     d1, d2 = c.repo(), c.repo()
-    english = c.piped(d1, env=en)
-    spanish = c.piped(d2, env=es)
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        english, spanish = pool.map(lambda job: c.piped(job[0], env=job[1]), ((d1, en), (d2, es)))
     expect(english.returncode == 0 and spanish.returncode == 0, "exit codes: %r %r" % (english.returncode, spanish.returncode))
     mine = [l for l in english.stdout.splitlines() if l.startswith("Continue in the")]
     expect(len(mine) == 2, "the English lines: %r" % mine)

@@ -847,18 +847,22 @@ def code_line(line):
         return None
     try:
         data = json.loads(line[5:])
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
     return data if isinstance(data, dict) else None
 
 
 def attach_code(check, data):
-    """Put one CODE line on the check it follows: its own code and values, then the codes of the lines under it."""
-    head = coded(data.get("check")) if isinstance(data.get("check"), dict) else None
-    if data.get("state") in ("ok", "todo", "note") and head:
+    """Put one CODE line on the check it follows: its own code and values, then the codes of the lines under it. Every
+    field is checked for its type before it is used; a wrong one is dropped and the rest of the line still counts."""
+    state = data.get("state")
+    head = coded(data.get("check"))
+    if isinstance(state, str) and state in ("ok", "todo", "note") and head:
         check.update(head)
-    hints = [coded(h) for h in (data.get("hints") or [])[:CODE_HINTS_MAX]]
-    if hints:
+    given = data.get("hints")
+    items = given[:CODE_HINTS_MAX] if isinstance(given, list) else []
+    hints = [coded(h) for h in items]
+    if any(hints):
         texts = check.get("text", "").split("\n")[1:]
         check["hints"] = [dict(h or {}, text=texts[i] if len(texts) == len(hints) else "") for i, h in enumerate(hints)]
 
@@ -871,7 +875,7 @@ def readiness(output, code):
         match = re.match(r"^(OK|TODO|NOTE)\s+(.*)$", line)
         data = code_line(line)
         if data is not None:
-            if data.get("state") == "ready":
+            if isinstance(data.get("state"), str) and data["state"] == "ready":
                 ready_code = coded(data.get("check"))
             elif checks:
                 attach_code(checks[-1], data)

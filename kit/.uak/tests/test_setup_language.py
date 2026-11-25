@@ -799,7 +799,48 @@ def glossary_is_respected(root, tmp):
     assert cat.t(title) == title and cat.gate(title) == title, "a task title stays as it is"
 
 
-TESTS += [screens_in_chromium, texts_are_keyed_by_code, rewording_the_engine_changes_nothing, no_missing_text_in_either_language,
+def malformed_code_lines_are_dropped_not_fatal(root, tmp):
+    """Every field of a CODE line is checked for its type before it is used: a wrong one is dropped, the rest of the line
+    and the check still show, and the readiness never raises (the reviewer's finding on 3f810e55)."""
+    module = wizard.MODULE
+    good_check = {"code": "remote_missing", "values": {"remote": "origin"}}
+    good_hint = {"code": "remote_add", "values": {"remote": "origin"}}
+    prose = "TODO  2. a remote named origin\n         git remote add origin <URL>\n"
+    wrong = [None, 7, 1.5, True, "text", "", [], {}, [1, 2], ["a"], [["nested"]], [[{"code": "x", "values": {}}]], {"code": "x"}]
+    for field in ("hints", "check", "state", "n"):
+        for value in wrong:
+            line = {"state": "todo", "n": 2, "check": good_check, "hints": [good_hint]}
+            line[field] = value
+            out = module.readiness("OK    1. kit installed\n" + prose + "CODE " + json.dumps(line) + "\n", 1)
+            assert [c["state"] for c in out["checks"]] == ["ok", "todo"], (field, value, out)
+            todo = out["checks"][1]
+            if field == "hints":
+                assert todo.get("code") == "remote_missing", (field, value, todo)
+                assert not todo.get("hints") or all(h.get("code") for h in todo["hints"] if h), (field, value, todo)
+            if field == "check":
+                assert "hints" in todo and todo["hints"][0]["code"] == "remote_add", (field, value, todo)
+    # Inside the lists: items that are not objects, codes that are not names, values that are not strings, are dropped
+    # one by one; the good items beside them stay.
+    items = [good_hint, 5, "x", None, [good_hint], {"code": ["a"], "values": {}}, {"code": "remote_add", "values": [1]},
+             {"code": "remote_add", "values": {"a": [1], "b": {"c": 1}, "remote": "origin"}}]
+    line = {"state": "todo", "n": 2, "check": good_check, "hints": items}
+    out = module.readiness("TODO  2. a remote named origin\n" + "         x\n" * len(items) + "CODE " + json.dumps(line) + "\n", 1)
+    shown = out["checks"][0].get("hints") or []
+    assert shown and shown[0]["code"] == "remote_add" and shown[0]["values"] == {"remote": "origin"}, shown
+    assert all(isinstance(h.get("code", ""), str) and all(isinstance(v, str) for v in h.get("values", {}).values()) for h in shown), shown
+    assert {"a": [1]} not in [h.get("values") for h in shown], shown
+    # A READY line with a wrong check never raises either
+    for bad in (None, 3, "x", [], {"code": 3}):
+        module.readiness("START READY \u00b7 bash .uak/bin/wt new APP-001\nCODE " + json.dumps({"state": "ready", "check": bad}) + "\n", 0)
+    # A line nested too deep for the parser is dropped too
+    module.readiness("TODO  2. a\nCODE " + "[" * 100000 + "\n", 1)
+    # And a huge list is cut, not read whole
+    many = [good_hint] * 200
+    out = module.readiness("TODO  2. a\nCODE " + json.dumps({"state": "todo", "check": good_check, "hints": many}) + "\n", 1)
+    assert len(out["checks"][0].get("hints", [])) <= module.CODE_HINTS_MAX, "bounded"
+
+
+TESTS += [malformed_code_lines_are_dropped_not_fatal, screens_in_chromium, texts_are_keyed_by_code, rewording_the_engine_changes_nothing, no_missing_text_in_either_language,
           one_voice_in_spanish, glossary_is_respected]
 
 
@@ -832,7 +873,7 @@ def main():
             except Exception as exc:
                 failed += 1
                 print("FAIL %s: %s: %s" % (test.__name__, type(exc).__name__, exc))
-    print("SETUP_LANGUAGE_RESULT failed=%d skipped=%d" % (failed, skipped))
+    print("SETUP_LANGUAGE_RESULT %s failed=%d skipped=%d" % ("FAIL" if failed else "PASS", failed, skipped))
     return 1 if failed else 0
 
 
