@@ -950,6 +950,7 @@ kill() {
   fi
   if [ -z "$targets" ]; then return "$rc"; fi
   printf 'SENT kill %s%s from %s %s\n' "${opt:--TERM}" "$targets" "${0##*/}" "${FUNCNAME[1]:-main}" >> "${UAK_KILL_GUARD_LOG:-/dev/null}"
+  if [ -n "${UAK_KILL_GUARD_DRY:-}" ]; then return "$rc"; fi   # the guard's own test: written down, never sent
   builtin kill $opt $targets || return
   return "$rc"
 }
@@ -1023,34 +1024,40 @@ def kill_guard_report(log):
 
 
 def kill_guard_refuses_an_ancestor(r):
-    """UAK-197: the guard every Bash of these files sources refuses a signal to an ancestor of the test, to PID 0 and to
-    a process group, writes it down, and still sends every other signal (forced here with a process of its own)."""
+    """UAK-197: the guard every Bash of these files sources refuses a signal to a protected process (an ancestor of the
+    test in a real run), to PID 0 and to a process group, writes it down, and still sends every other signal. Forced with
+    processes this case starts: its own `victim` stands for a protected ancestor, and the refused kills run with
+    UAK_KILL_GUARD_DRY set, so a broken guard would only write SENT, never signal anything."""
     import subprocess
     log = Path(os.environ.get("UAK_KILL_GUARD_LOG", ""))
     expect(os.environ.get("BASH_ENV") and log.is_file(), "the guard is installed for this file's Bashes")
     before = log.read_text(encoding="utf-8", errors="replace")
-    victim = subprocess.Popen([r.bash, "-c", "echo $$; exec sleep 60"], stdout=subprocess.PIPE, text=True)
-    mine = victim.stdout.readline().strip()
-    parent = os.environ["UAK_KILL_GUARD_PIDS"].split()[0]
+    procs = [subprocess.Popen([r.bash, "-c", "echo $$; exec sleep 60"], stdout=subprocess.PIPE, text=True) for _ in range(2)]
+    victim, other = (p.stdout.readline().strip() for p in procs)
     try:
-        out = r.run([r.bash, "-c", 'kill -TERM "$1"; echo "a=$?"; kill -TERM 0; echo "b=$?"; kill -TERM -- -"$2"; echo "c=$?";'
-                     ' kill -0 "$2"; echo "d=$?"; kill -KILL "$2"; echo "e=$?"', "_", parent, mine], allowed=None)
-        victim.wait(timeout=20)
+        dry = r.run([r.bash, "-c", 'kill -TERM "$1"; echo "a=$?"; kill -TERM 0; echo "b=$?"; kill -TERM -- -"$1"; echo "c=$?"', "_",
+                     victim], env={"UAK_KILL_GUARD_PIDS": victim, "UAK_KILL_GUARD_DRY": "1"}, allowed=None)
+        real = r.run([r.bash, "-c", 'kill -0 "$1"; echo "d=$?"; kill -KILL "$2"; echo "e=$?"', "_", victim, other],
+                     env={"UAK_KILL_GUARD_PIDS": victim}, allowed=None)
+        procs[1].wait(timeout=20)
+        victim_alive = procs[0].poll() is None
     finally:
-        if victim.poll() is None:
-            victim.kill()
-            victim.wait(timeout=20)
-        victim.stdout.close()
+        for p in procs:
+            if p.poll() is None:
+                p.kill()
+            p.wait(timeout=20)
+            p.stdout.close()
     new = log.read_text(encoding="utf-8", errors="replace")[len(before):].splitlines()
     log.write_text(before, encoding="utf-8")   # the forced refusals are this case's, not the file's
-    expect("a=1" in out.stdout and "b=1" in out.stdout and "c=1" in out.stdout, "refused kills fail: %r" % out.stdout)
-    expect("d=0" in out.stdout and "e=0" in out.stdout, "kill -0 and a kill of the test's own process work: %r" % out.stdout)
+    expect(all(x in dry.stdout for x in ("a=1", "b=1", "c=1")), "refused kills fail: %r" % dry.stdout)
+    expect("d=0" in real.stdout and "e=0" in real.stdout, "kill -0 and a kill of another process work: %r" % real.stdout)
     refused = [l for l in new if l.startswith("REFUSED")]
-    expect(len(refused) == 3 and parent in refused[0] and " 0 " in refused[1] + " " and "-" + mine in refused[2],
+    expect(len(refused) == 3 and " %s " % victim in refused[0] + " " and " 0 " in refused[1] + " " and "-" + victim in refused[2],
            "three refusals written down, with the target: %r" % new)
-    expect(any(l.startswith("SENT kill -KILL %s" % mine) for l in new), "the allowed kill is written down: %r" % new)
-    expect(victim.returncode is not None, "the test's own process got its signal")
-    return "ancestor, PID 0 and a group refused; the test's own process killed"
+    expect(not [l for l in new if l.startswith("SENT") and victim in l], "nothing was sent to the protected process: %r" % new)
+    expect(any(l.startswith("SENT kill -KILL %s" % other) for l in new), "the allowed kill is written down: %r" % new)
+    expect(victim_alive and procs[1].returncode is not None, "the protected process lives, the other got its signal")
+    return "a protected PID, PID 0 and a group refused; another process killed"
 
 
 def run_cases(tests, label, prefix):
