@@ -60,6 +60,7 @@ source of truth for what shipped is `CHANGELOG.md`, and for what is next, `docs/
 | [`followups-v69-8.md`](followups-v69-8.md) | UAK-197: the intermittent tests fixed one by one, the heavy hook test split, a timing rule with room, a twelfth Windows shard | written 2026-11-25, published 2026-11-25 |
 | [`followups-v69-9.md`](followups-v69-9.md) | UAK-198: the dashboard uses the whole screen on a wide monitor (it stopped at 1360 px, aligned left) | written 2026-11-25, published 2026-11-25 |
 | [`followups-v69-10.md`](followups-v69-10.md) | UAK-199: the tutorial poster and video in the kit direction; UAK-202: the README rewritten in plain words, readable by a person and an agent | written 2026-11-25, waiting for the human |
+| [`followups-v69-amend-197.md`](followups-v69-amend-197.md) | Amend of UAK-197: a third hook test file (the clone cases), because two files still pass 240 s on a slow Windows runner | written 2026-11-25, waiting for the human |
 | [`v610-faster.md`](v610-faster.md) | Plan v6.10, first two tasks: UAK-200 (the pages assembled from parts, so tasks can share a page) and UAK-201 (a trend in `uak metrics`, a cause on every reject, lessons shown at claim) | written 2026-11-25, waiting for the human |
 | [`port-go.md`](port-go.md) | Porting the engine to Go (or Rust): an estimate | decided: not porting |
 | [`video.md`](video.md) | Plan: `uak video` (the project's video, made from the repo's own facts) | not published; v7.2 |
