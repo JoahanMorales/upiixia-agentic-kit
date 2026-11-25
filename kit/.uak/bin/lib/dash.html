@@ -635,12 +635,12 @@ dialog#story::backdrop { background: var(--scrim); }
   .bmap > .bh, .bmap > .depline { flex: 1 1 100%; }
   .bmap > section { flex: 1 1 auto; min-width: 0; }
   .cv { grid-template-columns: clamp(280px, 17vw, 380px) minmax(0,1fr) clamp(264px, 15vw, 340px); }
-  .wide.bbw { display: grid; grid-template-columns: minmax(0,1fr) clamp(360px, 32%, 640px); grid-template-rows: auto auto 1fr; column-gap: 16px; align-items: start; }
+  .wide.bbw { display: grid; grid-template-columns: minmax(0,1fr) clamp(440px, 36%, 640px); grid-template-rows: auto auto 1fr; column-gap: 16px; align-items: start; }
   .bbw > :not(.g2) { grid-column: 1; }
   .bbw > .g2 { grid-column: 2; grid-row: 1 / span 3; grid-template-columns: minmax(0,1fr); }
   .bbx dd, .bbx details[open] summary .t { max-width: 60ch; }
-  .g2.mem .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); gap: 1px; background: var(--line); }
-  .g2.mem .list > * { border-top: 0; background: var(--surface); }
+  .g2.mem .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); }
+  .g2.mem .list > * { border-left: 1px solid var(--line); margin: -1px 0 0 -1px; }
   .g2.mem .list > .mre { grid-column: 1 / -1; }
   .gv { grid-template-columns: minmax(0,1fr) clamp(360px, 26%, 520px); }
   .tkh { display: grid; grid-template-columns: auto minmax(0,1fr); column-gap: 32px; align-items: center; }
