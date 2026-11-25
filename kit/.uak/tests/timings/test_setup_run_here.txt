@@ -1,3 +1,3 @@
-# measured 2026-11-25 run 45574235627 (and earlier runs, smaller before the review fixes added the setsid cases): maximum seconds (ubuntu 33, macos 69, windows 92)
-ci 70
+# measured 2026-11-25 runs 45574235627 and 45581122618: maximum seconds (ubuntu 40, macos 83, windows 92)
+ci 84
 windows 93
