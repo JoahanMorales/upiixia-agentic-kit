@@ -1,0 +1,19 @@
+## UAK-196 · The wizard never kills a process it did not start, and the guard knows the wizard's new routes and files
+
+- **Type:** fix
+- **Priority:** P0
+- **Estimate:** 4 h
+- **Depends on:** UAK-192
+- **Paths:** kit/.uak/bin/lib/setup.py, kit/.uak/bin/guard, kit/.uak/docs/SECURITY.md, kit/.uak/tests/test_setup_processes.py, kit/.uak/tests/test_guard_wizard_files.py, kit/.uak/tests/timings/test_setup_processes.txt, kit/.uak/tests/timings/test_guard_wizard_files.txt
+- **Acceptance:**
+  - every kill the wizard does checks that the process is still the one it recorded: `stop_children()` compares each recorded pid with its recorded start time, as `reap_children` and `TreeWatch.kill` already do, and skips a pid whose start time differs or cannot be read. Why: the review of UAK-192 planted a record whose stamp differed and `stop_children()` killed an unrelated process; since UAK-192 the record also holds the descendants of each run, so a pid that exits and is given to another program during a run could be killed when the wizard ends. The human's rule since the first day of this plan: the wizard must not ruin ports or processes
+  - a case fails when the start-time check is removed from any of the three places (`stop_children`, `reap_children`, `TreeWatch.kill`): today removing it from `TreeWatch.kill` leaves the suite green
+  - the sweep of launcher folders removes only folders this wizard created: the record line carries what proves it (the folder's device, inode and creation stamp, or a random name kept in the wizard's memory and its key file), and an empty `uak-agent-*` folder that a hand-written record names is left alone
+  - while a wizard is live for the project, the guard refuses an agent's command that names `/api/run`, `/api/run/stop` or `/api/close` on the wizard's port or on a port it cannot read, and one that removes, empties or rewrites `uak-wizard.refused` or `uak-wizard.launchers`; with no live wizard the same commands pass, and the rules of UAK-188 keep their results on the cases of `test_guard_wizard_files` and `test_setup_trust`. Why: the reviews of UAK-159 and UAK-192 found the three routes missing from the guard's list (not exploitable: without the token the server answers 403) and that an agent could quietly delete the record of refused requests
+  - an error of the `awk` the guard runs for the wizard's rules blocks the command and says so, instead of allowing it: today `WZ=$(awk …)` followed by `[ -z "$WZ" ] || block` lets every command through when `awk` fails (found by the author of UAK-188 when a duplicated function name made every refusal pass). A case runs the guard with an `awk` that exits non-zero
+  - `uak-wizard.refused` cannot grow without bound: it keeps its last 200 lines
+  - SECURITY.md lists the routes and the files as they are after this task, and what is still not covered on macOS (a descendant that started its own session and whose parent ended within the first poll)
+  - no foreground process is added to an unrelated command checked by the guard (counted as in UAK-188), and the wizard's idle CPU does not grow
+- **Tests:** stop_children_checks_the_start_time, start_time_check_is_pinned_in_three_places, sweep_removes_only_its_own_folders, guard_refuses_the_new_routes_while_live, guard_protects_the_refused_and_launcher_records, awk_error_blocks, refused_record_is_bounded
+- **Verify:** `python3 kit/.uak/tests/test_setup_processes.py && python3 kit/.uak/tests/test_guard_wizard_files.py && python3 kit/.uak/tests/test_setup_trust.py`
+- **Next step:** `stop_children`, `reap_children`, `TreeWatch` and the launcher sweep in kit/.uak/bin/lib/setup.py; the wizard's endpoint regex in kit/.uak/bin/guard (line 716 at UAK-192) and `WZ=$(awk` (lines 133 and 346 at UAK-188); the guard is the human's file, so the merge goes to the human
