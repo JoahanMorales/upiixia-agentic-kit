@@ -15,8 +15,8 @@ number (UAK-192), and public issue #85 lists nine files below their measurement.
 Where the seconds come from: the runner (scripts/ci_select.py run) opens a log group named after each file
 (`::group::test_x`, then `test_x starts, job elapsed …` with the clock) and closes it when the file ends; a second run is
 the group `test_x (second run)`. A file's seconds are the time from its group line to its endgroup line (the log's own
-timestamps); both runs of a file count. Only jobs that succeeded are read; a group that never closes (a job cancelled or
-killed inside the file) is not a measurement. A file measured on one system only keeps the entry of the other.
+timestamps); both runs of a file count. Jobs that were cancelled or skipped are not read; in a job that failed, the files
+the runner names as failed are not measurements; a group that never closes (a job killed inside the file) is not one either. A file measured on one system only keeps the entry of the other.
 Needs `gh` (authenticated); nothing else touches the network. The parsing is pure and tested offline
 (kit/.uak/tests/test_ci_timings.py, ci_timings_reads_runs_and_writes_entries)."""
 import argparse
@@ -125,19 +125,31 @@ def parse_job_log(text):
     return seconds, notes
 
 
+def failed_files(text):
+    """The files the runner says failed in a job (`##[error]test_x failed (job)` or `failed both times`)."""
+    return set(re.findall(r"##\[error\](test_[A-Za-z0-9_]+|mcp_tools) failed\b", text))
+
+
 def measure(jobs):
-    """{file: {system: (seconds, run)}} from [(run, job name, conclusion, log text)], and notes. Jobs that did not succeed,
-    and jobs of no known system, are left out and named in the notes."""
+    """{file: {system: (seconds, run)}} from [(run, job name, conclusion, log text)], and notes. A job that was cancelled,
+    skipped or never ended is left out; in a job that failed, the files the runner names as failed are left out and every
+    file that passed is a measurement (a pull request's run fails on its own new test, the others ran whole). Jobs of no
+    known system are left out."""
     table, notes = {}, []
     for run, job, conclusion, text in jobs:
         system = system_of(job)
         if system is None:
             continue
-        if conclusion != "success":
+        if conclusion not in ("success", "failure"):
             notes.append("run %s, %s: %s, not read" % (run, job, conclusion or "no conclusion"))
             continue
         got, why = parse_job_log(text)
         notes.extend("run %s, %s: %s" % (run, job, w) for w in why)
+        if conclusion == "failure":
+            bad = failed_files(text)
+            for name in sorted(bad & set(got)):
+                notes.append("run %s, %s: %s failed there, not measured" % (run, job, name))
+                del got[name]
         for name, s in got.items():
             have = table.setdefault(name, {}).get(system)
             if have is None or s > have[0]:
@@ -246,7 +258,7 @@ def fetch(repo, runs=10, only=None, gh=run_gh, cache=None):
         for job in jobs:
             if system_of(job.get("name", "")) is None:
                 continue
-            if job.get("conclusion") != "success":
+            if job.get("conclusion") not in ("success", "failure"):
                 out.append((rid, job["name"], job.get("conclusion"), ""))
                 continue
             text = None

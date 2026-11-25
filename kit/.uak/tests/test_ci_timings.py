@@ -417,6 +417,11 @@ def ci_timings_reads_runs_and_writes_entries(r):
     expect(got == {"test_alpha": 96.0}, "a raw log with a byte-order mark: %s" % got)
     got, notes = ct.parse_job_log(cancelled)
     expect(got == {} and any("not measured" in n for n in notes), "a job stopped inside a file measures nothing: %s %s" % (got, notes))
+    failing = linux + "2026-11-25T10:02:00.0000000Z ##[error]test_beta failed both times (suite (ubuntu-latest, 1))\n"
+    table, notes = ct.measure([(9, "suite (ubuntu-latest, 1)", "failure", failing), (9, "windows (3)", "cancelled", cancelled)])
+    expect(table == {"test_alpha": {"linux": (40.0, 9)}} and any("test_beta failed there" in n for n in notes)
+           and any("cancelled, not read" in n for n in notes),
+           "in a failed job the files that passed are measured, the failed one is not; a cancelled job is not read: %s %s" % (table, notes))
     got, notes = ct.parse_job_log("2026-11-25T10:00:00.0000000Z Run actions/checkout\nno timestamps here\n")
     expect(got == {} and any("no file timings" in n for n in notes), "a log with no timing lines says so: %s" % notes)
     expect([ct.system_of(j) for j in ("suite (ubuntu-latest, 3)", "suite (macos-latest, 2)", "windows (11)", "ci", "discover")]
