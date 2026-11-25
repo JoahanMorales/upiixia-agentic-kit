@@ -213,6 +213,18 @@ entries that link to nothing are only in the list. Under 640 px wide it shows th
 spend down by kind of token, harness, model, scope, agent (the owner of the task) and task, with the most expensive tasks and
 the average and median per integrated task; the data carries no dates and no budget, and the page says so.
 
+### Sharing the card from a phone
+
+The Share dialog shows each card (1200 x 630 and the 1080 x 1920 story) as a real image: press and hold it to get "Save to Photos", "Copy" or "Share" from the system. The buttons under it appear only where they can work, decided by testing what the browser offers and never by its name:
+
+| Button | Shown when |
+|---|---|
+| Share | `navigator.canShare({ files })` says the system sheet takes a PNG (needs `https://` or `localhost`) |
+| Copy image | a secure context with `navigator.clipboard.write` and `ClipboardItem` |
+| Download PNG | a link with `download` is honoured: always on a computer; on a touch screen only from a secure context |
+
+Opened over plain `http://` on a phone, the image and its sentence are what remain. A refused action says what to do instead; closing the system sheet says nothing. The PNG is exported once per card and is the image's source, the download and the copy; it is released when the dialog closes. Nothing here uses the network.
+
 ## Appearance: one design system, nine palettes
 
 The setup page and the dashboard are drawn with the same tokens (`docs/design/DIRECTION.md`): one block of CSS custom
