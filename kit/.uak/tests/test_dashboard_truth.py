@@ -1061,6 +1061,13 @@ def share_export_failure_says_so(root, tmp):
             assert st["open"] and st["imgs"] == 0 and st["buttons"] == 0 and st["errors"] >= 1 and ("could not be made" in st["text"] or "No se pudo hacer" in st["text"]), "%s: %r" % (label, st)
             assert not pg.errors, "%s: a page error escaped: %r" % (label, pg.errors)
             pg.evaluate("document.getElementById('share').close()")
+            pg.wait_for_function("!document.getElementById('share').open && !document.getElementById('share').childElementCount")   # its close handler ran
+        # closed and opened again in one task: the close event of the first, which runs later, does not empty the second
+        # (Linux CI with a browser, run 45669137198: the dialog was open with no text)
+        reopened = pg.evaluate("""() => new Promise(done => { const d = document.getElementById('share'); document.getElementById('share-btn').click();
+          d.addEventListener('close', () => done({ open: d.open, text: d.innerText.trim().length }), { once: true });   // after the page's own close handler
+          d.close(); document.getElementById('share-btn').click(); })""")
+        assert reopened["open"] and reopened["text"] > 0, "a dialog opened right after a close keeps its content: %r" % reopened
 
 
 TESTS = [blocked_tasks_are_not_available, frozen_is_frozen, needs_human_comes_first, offline_uses_last_claims,

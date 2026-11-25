@@ -1,4 +1,4 @@
-# measured 2026-11-25 45638994194
-# each entry is ceil(MAXIMUM over the runs read) + 1 s: runs 45638994194 and 45635485890 (its Windows job failed on the two cases fixed since; not counted there), `ci` over Linux and macOS, `windows` over Windows: Linux max 3.06, macOS max 5.33, Windows max 30.22 (start to result line of the file). These entries are the node-only measurement: no CI job had a browser in these runs and the 8 browser cases printed SKIP. With Chromium the file takes about 29 to 32 s on a developer machine (Linux), so the `ci` entry must be read again once the Linux jobs have a browser (UAK-195; the timing rule itself is being replaced by UAK-197).
-ci 7
+# measured 2026-11-25 45669137198
+# each entry is ceil(MAXIMUM over the runs read) + 1 s: runs 45669137198, 45665524570, 45643626140, 45638994194 (and 45635485890 for Linux and macOS), `ci` over Linux and macOS, `windows` over Windows (start line to result line of the file). Linux runs the file with Chromium since UAK-195 (run 45669137198: 8 cases in the browser, 15 launches, 17.71 s); macOS and Windows have no browser and run its node parts (macOS max 5.92, Windows max 30.22).
+ci 19
 windows 32

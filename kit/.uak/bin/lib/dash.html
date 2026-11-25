@@ -2131,7 +2131,9 @@ dialog#story::backdrop { background: var(--scrim); }
     if (shareEl.showModal) shareEl.showModal(); else shareEl.setAttribute("open", "");
   }
   // Closing releases the two PNGs (about a megabyte of base64 each) held by the images.
-  shareEl.addEventListener("close", function () { shareEl.innerHTML = ""; try { if (shareOpener && shareOpener.focus) shareOpener.focus(); } catch (e) {} shareOpener = null; });
+  // The close event runs after the dialog closed, in a task of its own: a dialog opened again before it (a close and a click in
+  // one task) is not emptied (Linux CI with a browser, run 45669137198).
+  shareEl.addEventListener("close", function () { if (shareEl.open) return; shareEl.innerHTML = ""; try { if (shareOpener && shareOpener.focus) shareOpener.focus(); } catch (e) {} shareOpener = null; });
   shareEl.addEventListener("click", function (e) { if (e.target === shareEl) shareEl.close(); });
   // Tokens: what the data really holds (kind, harness, model, scope, task); it carries no dates and no budget, and the page says so.
   function tokens(v, d) {
