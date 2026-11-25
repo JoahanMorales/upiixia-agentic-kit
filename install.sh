@@ -124,7 +124,14 @@ putmcp() { # putmcp SRC DEST: put, minus the MCP server block with --no-mcp
   if [ "$mcp" = on ]; then put "$1" "$2"; return; fi
   t=$(mktemp); nomcp "$1" > "$t"; put "$t" "$2"; rm -f "$t"
 }
-putdir() { (cd "$1" && find . -type f) | while IFS= read -r f; do put "$1/${f#./}" "$2/${f#./}"; done; }
+# Python's bytecode is never the kit's: another test file of the kit's own smoke writes it into the source folders while
+# an install reads them (UAK-193: 270 files against a bound of 270). It is left out of the copy by name, never deleted
+# from the source (another process may be importing it) and never copied-then-removed (a file made in between would stay).
+# POSIX tar both ways (Git Bash, macOS bsdtar); the same tool unpacks the pinned skill below.
+copytree() { # copytree SRC DEST: SRC's contents into DEST (made if missing), without __pycache__ or *.pyc
+  mkdir -p "$2" && (cd "$1" && tar -cf - --exclude=__pycache__ --exclude='*.pyc' .) | (cd "$2" && tar -xf -)
+}
+putdir() { (cd "$1" && find . -name __pycache__ -prune -o -type f ! -name '*.pyc' -print) | while IFS= read -r f; do put "$1/${f#./}" "$2/${f#./}"; done; }
 
 say "UPIIXIA Agentic Kit → $target (mode $mode, stack $stack${extra:+, skills $extra})"
 if [ -d "$target/.uak/bin" ] && [ "$update" = no ]; then
@@ -152,7 +159,7 @@ kit_snapshot > "$keep/kit-before"
 for f in smoke-project .smoke-project.provenance; do [ ! -f "$target/.uak/bin/$f" ] || cp -p "$target/.uak/bin/$f" "$keep/$f"; done
 for part in bin docs modes templates settings stacks; do
   rm -rf "$target/.uak/$part"
-  cp -R "$kit/.uak/$part" "$target/.uak/$part"
+  copytree "$kit/.uak/$part" "$target/.uak/$part" || { say "could not copy .uak/$part" >&2; exit 1; }
 done
 # The kit's protocol tests and the skill library are not project files (UAK-127: 111 + 114 of 535 files). A file of an
 # earlier install goes when its hash is one the kit shipped (known-files.txt); an edited or added one stays, with its folder.
@@ -164,7 +171,7 @@ prune_known() { # prune_known DIR
   done
   find "$1" -depth -type d -exec rmdir {} \; 2>/dev/null || true
 }
-if [ "$with_tests" = yes ]; then rm -rf "$target/.uak/tests"; cp -R "$kit/.uak/tests" "$target/.uak/tests"
+if [ "$with_tests" = yes ]; then rm -rf "$target/.uak/tests"; copytree "$kit/.uak/tests" "$target/.uak/tests"
   find "$target/.uak/tests" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
   rm -rf "$target/.uak/tests/timings"   # the seconds of each test file: only the kit's CI reads them (UAK-187)
 else prune_known "$target/.uak/tests"; fi
@@ -330,7 +337,7 @@ fi
 for f in "$kit/.claude/commands/"uak-*.md; do
   n=$(basename "$f" .md)
   if [ -f "$target/.claude/commands/$n.md" ]; then
-    if has codex || has cursor || has gemini; then mkdir -p "$target/.agents/skills"; cp -R "$kit/.agents/skills/$n" "$target/.agents/skills/"; fi
+    if has codex || has cursor || has gemini; then mkdir -p "$target/.agents/skills"; copytree "$kit/.agents/skills/$n" "$target/.agents/skills/$n"; fi
     if has gemini; then mkdir -p "$target/.gemini/commands"; cp "$kit/.gemini/commands/$n.toml" "$target/.gemini/commands/"; fi
   else
     rm -rf "$target/.agents/skills/$n" "$target/.gemini/commands/$n.toml"

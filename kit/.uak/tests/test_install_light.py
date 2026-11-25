@@ -221,8 +221,117 @@ def marathon_install_under_260_files(r):
     return "%d files, %d bytes" % (len(fs), size)
 
 
+PARTS = ("bin", "bin/lib", "docs", "modes", "templates", "settings", "stacks", "tests", "skills/test-first",
+         "skills/frontend-design", "skills/mcp-builder")
+
+
+def kit_copy(r, name):
+    """A copy of the kit used as the install source: a test never writes into the real kit, where another shard of the
+    smoke may be importing from it."""
+    root = r.scratch / ("src-" + name)
+    shutil.copytree(r.package, root / "kit", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copy2(r.package.parent / "install.sh", root / "install.sh")
+    return root
+
+
+def plant_bytecode(root):
+    """Bytecode in every folder the installer copies, in skill folders and a stack's skills; returns what it planted."""
+    uak_dir = root / "kit/.uak"
+    folders = [uak_dir / p for p in PARTS] + [p for p in (uak_dir / "stacks").glob("*/skills") if p.is_dir()]
+    folders += [root / "kit/.claude/commands", root / "kit/.agents/skills"]
+    planted = []
+    for f in folders:
+        if not f.is_dir():
+            continue
+        for rel in ("stray.pyc", "__pycache__/mod.cpython-311.pyc", "__pycache__/mod.cpython-38.opt-1.pyc"):
+            q = f / rel
+            q.parent.mkdir(exist_ok=True)
+            q.write_bytes(b"\x00bytecode")
+            planted.append(q)
+    return planted
+
+
+def tree(root):
+    out = {}
+    for p in sorted(root.rglob("*")):
+        out[str(p.relative_to(root))] = hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else "dir"
+    return out
+
+
+def install_from(r, root, d, *args):
+    e = r.env.copy()
+    e["UAK_EXTERNAL_SKILLS"] = "off"
+    out = subprocess.run([r.bash, str(root / "install.sh"), *args, str(d)], capture_output=True, text=True, errors="replace",
+                         env=e, timeout=240, stdin=subprocess.DEVNULL)
+    expect(out.returncode == 0, "install failed: " + out.stdout[-400:] + out.stderr[-400:])
+
+
+def bytecode_in(d):
+    return sorted(str(p.relative_to(d)) for p in d.rglob("*")
+                  if ".git" not in p.relative_to(d).parts and (p.name == "__pycache__" or p.suffix == ".pyc"))
+
+
+def install_copies_no_bytecode(r):
+    for mode in ("sprint", "marathon"):
+        root = kit_copy(r, "inst-" + mode)
+        planted = plant_bytecode(root)
+        expect(len(planted) > 30, "bytecode planted in every folder: %d" % len(planted))
+        d = repo(r, "nobc-" + mode)
+        own = d / "app/__pycache__/own.cpython-311.pyc"
+        own.parent.mkdir(parents=True)
+        own.write_bytes(b"the project's own")
+        install_from(r, root, d, "--mode", mode, "--with-tests", "--harness", "claude,codex,cursor,gemini")
+        left = [p for p in bytecode_in(d) if not p.startswith("app/")]
+        expect(not left, "%s: bytecode installed: %s" % (mode, left[:5]))
+        expect((d / ".uak/bin/lib").is_dir() and (d / ".claude/skills/test-first/SKILL.md").is_file(), "the install itself is whole")
+        expect(own.read_bytes() == b"the project's own", "a project's own __pycache__ is untouched")
+    return "none of %d planted copied" % len(planted)
+
+
+def update_copies_no_bytecode(r):
+    root = kit_copy(r, "upd")
+    d = repo(r, "upd")
+    install_from(r, root, d, "--mode", "sprint", "--with-tests")
+    plant_bytecode(root)
+    own = d / "web/__pycache__/own.pyc"
+    own.parent.mkdir(parents=True)
+    own.write_bytes(b"own")
+    install_from(r, root, d, "--mode", "sprint", "--update", "--with-tests")
+    left = [p for p in bytecode_in(d) if not p.startswith("web/")]
+    expect(not left, "update installed bytecode: %s" % left[:5])
+    expect(own.read_bytes() == b"own", "the project's own bytecode stays after an update")
+    return "update clean"
+
+
+def count_is_the_same_with_bytecode_in_the_kit(r):
+    counts = []
+    for name, plant in (("clean", False), ("dirty", True)):
+        root = kit_copy(r, "cnt-" + name)
+        if plant:
+            plant_bytecode(root)
+        d = repo(r, "cnt-" + name)
+        install_from(r, root, d, "--mode", "marathon", "--harness", "claude")
+        counts.append(len(files(d)))
+    expect(counts[0] == counts[1], "files with a clean kit %d, with bytecode in it %d" % tuple(counts))
+    return "%d files either way" % counts[0]
+
+
+def source_folder_is_left_as_it_was(r):
+    root = kit_copy(r, "src")
+    planted = plant_bytecode(root)
+    before = tree(root)
+    d = repo(r, "src")
+    install_from(r, root, d, "--mode", "sprint", "--with-tests")
+    install_from(r, root, d, "--mode", "sprint", "--update", "--with-tests")
+    expect(all(p.is_file() for p in planted), "the planted bytecode is still in the source")
+    after = tree(root)
+    expect(before == after, "the source changed: %s" % sorted(set(before) ^ set(after) | {k for k in before if after.get(k) != before[k]})[:5])
+    return "%d entries unchanged" % len(after)
+
+
 TESTS = [install_has_no_kit_tests, with_tests_installs_them, update_removes_only_known_test_files, skill_add_copies_one,
-         marathon_install_under_260_files]
+         marathon_install_under_260_files, install_copies_no_bytecode, update_copies_no_bytecode,
+         count_is_the_same_with_bytecode_in_the_kit, source_folder_is_left_as_it_was]
 
 
 def main():
