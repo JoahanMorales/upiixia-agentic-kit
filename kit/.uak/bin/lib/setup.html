@@ -615,7 +615,7 @@ h1[tabindex="-1"]:focus, h1[tabindex="-1"]:focus-visible { outline: none; }
         </div>
       </details></div>
     </header>
-    <div hidden><button type="button" id="open-setup" aria-pressed="true">Configuration</button><button type="button" id="open-dashboard" aria-pressed="false">Dashboard</button><div id="steps"></div><div id="running-review"><button type="button" id="back-to-progress">Return to progress</button></div><button type="button" id="begin">Set up</button></div>
+    <div hidden data-no-i18n><button type="button" id="open-setup" aria-pressed="true">Configuration</button><button type="button" id="open-dashboard" aria-pressed="false">Dashboard</button><div id="steps"></div><div id="running-review"><button type="button" id="back-to-progress">Return to progress</button></div><button type="button" id="begin">Set up</button></div>
     <div class="shell" id="setup-shell">
     <main class="surface" id="content" tabindex="-1" data-loading>
 <section class="screen" id="screen-project" data-screen="project" aria-labelledby="h-project">
@@ -660,7 +660,7 @@ h1[tabindex="-1"]:focus, h1[tabindex="-1"]:focus-visible { outline: none; }
 <video id="demo-video" data-src="/media/tutorial.mp4" data-poster="/media/tutorial-poster.jpg" controls preload="none" playsinline width="1280" height="720" aria-labelledby="demo-heading"><track kind="captions" srclang="en" label="English" data-src="/media/tutorial-en.vtt" /><track kind="captions" srclang="es" label="Español" data-src="/media/tutorial-es.vtt" /></video></details></section>
 <p id="demo-link" class="secondary" hidden><a href="https://github.com/JoahanMorales/upiixia-agentic-kit/blob/main/kit/.uak/media/tutorial.mp4" target="_blank" rel="noopener noreferrer">Watch the 75-second demo on GitHub</a></p>
 </div>
-<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-project-title">what will be written</span></div><div class="win-b" id="win-project-body"></div><div class="win-f" id="win-project-foot"></div></div></aside></div>
+<aside class="wz-prev" aria-label="What this step changes" data-i18n-aria="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-project-title">what will be written</span></div><div class="win-b" id="win-project-body"></div><div class="win-f" id="win-project-foot"></div></div></aside></div>
 <footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-project"></div><button class="primary" type="submit" form="workflow-form" id="project-continue">Continue</button></div></footer>
 </section>
 <section class="screen" id="screen-install" data-screen="install" aria-labelledby="h-install">
@@ -683,7 +683,7 @@ h1[tabindex="-1"]:focus, h1[tabindex="-1"]:focus-visible { outline: none; }
 </div>
 <p class="field-error" id="install-error" role="alert"></p>
 </div>
-<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-install-title">what will be written</span></div><div class="win-b" id="win-install-body"></div><div class="win-f" id="win-install-foot"></div></div></aside></div>
+<aside class="wz-prev" aria-label="What this step changes" data-i18n-aria="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-install-title">what will be written</span></div><div class="win-b" id="win-install-body"></div><div class="win-f" id="win-install-foot"></div></div></aside></div>
 <footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-install"></div><button type="button" class="ghost" id="back-from-install" data-go="project">Back</button><button class="primary" id="install" data-p="1" type="button">Install the kit</button><p class="hint blocked-reason" id="install-why" hidden></p><button class="secondary-button" id="repair" type="button" hidden>Update the kit</button><p class="hint blocked-reason" id="update-run-why" hidden></p><button class="secondary-button" id="change-project" type="button" hidden>Choose another project</button><button class="secondary-button" id="check" type="button" hidden>Check what is next</button><button class="secondary-button" id="back-from-finish" type="button" hidden>Back</button></div></footer>
 </section>
 <section class="screen" id="screen-unblock" data-screen="unblock" aria-labelledby="h-unblock">
@@ -735,7 +735,7 @@ this). First go to your project:
 </div>
 <p class="notice error" id="unblock-error" role="alert" hidden></p>
 </div>
-<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-unblock-title">what is blocked</span></div><div class="win-b" id="win-unblock-body"></div><div class="win-f" id="win-unblock-foot"></div></div></aside></div>
+<aside class="wz-prev" aria-label="What this step changes" data-i18n-aria="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-unblock-title">what is blocked</span></div><div class="win-b" id="win-unblock-body"></div><div class="win-f" id="win-unblock-foot"></div></div></aside></div>
 <footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-unblock"></div><button class="primary" type="button" id="unblock-again" data-p="1" data-p="1">Check again</button></div></footer>
 </section>
 <section class="screen" id="screen-update" data-screen="update" aria-labelledby="h-update">
@@ -744,7 +744,7 @@ this). First go to your project:
 <ul class="found list" id="update-list"></ul>
 <p class="hint" id="update-says" hidden></p><p class="field-error" id="update-error" role="alert"></p>
 </div>
-<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-update-title">what the update changes</span></div><div class="win-b" id="win-update-body"></div><div class="win-f" id="win-update-foot"></div></div></aside></div>
+<aside class="wz-prev" aria-label="What this step changes" data-i18n-aria="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-update-title">what the update changes</span></div><div class="win-b" id="win-update-body"></div><div class="win-f" id="win-update-foot"></div></div></aside></div>
 <footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-update"></div><button type="button" class="ghost" id="update-skip">Not now</button><button class="primary" type="button" id="update-run" data-p="1">Update the kit</button><p class="hint blocked-reason" id="update-run-why" hidden></p></div></footer>
 </section>
 <section class="screen" id="screen-rules" data-screen="rules" aria-labelledby="h-rules">
@@ -762,7 +762,7 @@ this). First go to your project:
 </details>
 <p class="field-error" id="rules-error" role="alert"></p>
 </div>
-<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-rules-title">.uak/PROJECT.md · lines that change</span></div><div class="win-b" id="win-rules-body"></div><div class="win-f" id="win-rules-foot"></div></div></aside></div>
+<aside class="wz-prev" aria-label="What this step changes" data-i18n-aria="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-rules-title">.uak/PROJECT.md · lines that change</span></div><div class="win-b" id="win-rules-body"></div><div class="win-f" id="win-rules-foot"></div></div></aside></div>
 <footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-rules"></div><button class="primary" id="rules-confirm" type="button" data-p="1">Confirm these rules</button><p class="hint blocked-reason" id="rules-confirm-why" hidden></p></div></footer>
 </section>
 <section class="screen" id="screen-people" data-screen="people" aria-labelledby="h-people">
@@ -855,7 +855,7 @@ on this computer; teammates choose their own.
 </div>
 <p class="hint blocked-reason" id="team-locked-why" hidden></p>
 </div>
-<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-people-title">people and roles</span></div><div class="win-b" id="win-people-body"></div><div class="win-f" id="win-people-foot"></div></div></aside></div>
+<aside class="wz-prev" aria-label="What this step changes" data-i18n-aria="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-people-title">people and roles</span></div><div class="win-b" id="win-people-body"></div><div class="win-f" id="win-people-foot"></div></div></aside></div>
 <footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-people"></div><span class="grp" data-unless="name-done"><button type="button" class="secondary-button" id="human-save" data-p="2">Use this name</button></span><button type="button" class="primary" id="go-people" data-p="1" data-next hidden>Continue</button></div></footer>
 </section>
 <section class="screen" id="screen-schedule" data-screen="schedule" aria-labelledby="h-schedule">
@@ -893,7 +893,7 @@ last minutes go to the demo.
 </div>
 </form>
 </div>
-<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-schedule-title">the clock</span></div><div class="win-b" id="win-schedule-body"></div><div class="win-f" id="win-schedule-foot"></div></div></aside></div>
+<aside class="wz-prev" aria-label="What this step changes" data-i18n-aria="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-schedule-title">the clock</span></div><div class="win-b" id="win-schedule-body"></div><div class="win-f" id="win-schedule-foot"></div></div></aside></div>
 <footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-schedule"></div><span class="grp" data-unless="schedule-done"><button form="schedule-form" type="submit" class="secondary-button" id="schedule-save" data-p="2">Save schedule</button></span><button type="button" class="primary" id="go-schedule" data-p="1" data-next hidden>Continue</button></div></footer>
 </section>
 <section class="screen" id="screen-publish" data-screen="publish" aria-labelledby="h-publish">
@@ -942,14 +942,14 @@ last minutes go to the demo.
 </div>
 </div>
 </div>
-<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-publish-title">what goes to main</span></div><div class="win-b" id="win-publish-body"></div><div class="win-f" id="win-publish-foot"></div></div></aside></div>
+<aside class="wz-prev" aria-label="What this step changes" data-i18n-aria="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-publish-title">what goes to main</span></div><div class="win-b" id="win-publish-body"></div><div class="win-f" id="win-publish-foot"></div></div></aside></div>
 <footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-publish"></div><span class="grp" data-unless="publish-confirm"><button type="button" class="secondary-button" id="publish-preview" data-p="3" aria-describedby="publish-preview-why">Review the files</button>
 <p class="hint blocked-reason" id="publish-preview-why" hidden></p></span><span class="grp" data-needs="publish-confirm"><button type="button" class="secondary-button" id="publish-cancel">Cancel</button><button type="button" class="primary" data-p="1" id="publish-kit">Publish the kit to main</button></span><button type="button" class="primary" id="go-publish" data-p="1" data-next hidden>Continue</button></div></footer>
 </section>
 <section class="screen" id="screen-plan" data-screen="plan" aria-labelledby="planning-heading">
 <div class="wz-body"><div class="wz-main">
 <h1 id="planning-heading" tabindex="-1">Write the idea, then approve the plan</h1>
-<ol class="nodes stages" id="plan-stages" aria-label="Where the plan is"><li data-stage="idea"><i></i><span>Write the idea</span></li><li data-stage="draft"><i></i><span>The plan is drafted</span></li><li data-stage="review"><i></i><span>Review</span></li><li data-stage="done"><i></i><span>Approve</span></li></ol>
+<ol class="nodes stages" id="plan-stages" aria-label="Where the plan is" data-i18n-aria="Where the plan is"><li data-stage="idea"><i></i><span>Write the idea</span></li><li data-stage="draft"><i></i><span>The plan is drafted</span></li><li data-stage="review"><i></i><span>Review</span></li><li data-stage="done"><i></i><span>Approve</span></li></ol>
 <p class="notice step-done" id="plan-done" role="status" data-no-i18n hidden></p>
 <ul class="found list" id="idea-recap" hidden></ul><p class="hint" id="idea-edit-line" hidden><button type="button" class="link-button" id="idea-edit">Edit the idea</button></p>
 <div id="planning">
@@ -1064,7 +1064,7 @@ Publish the plan
 </div>
 <div id="design-block" hidden><h2 class="sec">Design direction</h2><ul class="found list" id="design-list"></ul><div id="design-cmds"></div></div>
 </div>
-<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-plan-title">what approval publishes</span></div><div class="win-b" id="win-plan-body"></div><div class="win-f" id="win-plan-foot"></div></div></aside></div>
+<aside class="wz-prev" aria-label="What this step changes" data-i18n-aria="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-plan-title">what approval publishes</span></div><div class="win-b" id="win-plan-body"></div><div class="win-f" id="win-plan-foot"></div></div></aside></div>
 <footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-plan"></div><span class="grp" data-unless="plan-review"><button type="button" class="primary" id="plan-create-bar" data-p="3" data-proxy="plan-create">Create the plan</button></span><span class="grp" data-needs="plan-review"><div class="actions">
 <button class="secondary-button" type="button" id="plan-recheck">
 Check the plan again
@@ -1159,7 +1159,7 @@ Claude Code asks whether you trust this folder.
 </details>
 <details class="technical" id="checks-details"><summary>Technical details</summary><ul class="checklist list" id="checks"></ul></details>
 </div>
-<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-start-title">your agents</span></div><div class="win-b" id="win-start-body"></div><div class="win-f" id="win-start-foot"></div></div></aside></div>
+<aside class="wz-prev" aria-label="What this step changes" data-i18n-aria="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-start-title">your agents</span></div><div class="win-b" id="win-start-body"></div><div class="win-f" id="win-start-foot"></div></div></aside></div>
 <footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-start"></div><button type="button" class="primary" id="go-start" data-p="5" data-next>Open the dashboard</button></div></footer>
 </section>
 <section class="screen" id="screen-dashboard" data-screen="dashboard" aria-labelledby="h-dashboard">
@@ -1236,7 +1236,7 @@ Not deployed yet. When your app is online, add its link under More.
 <li id="preferences" hidden><span><strong>Deployed app link</strong><span class="why" id="live-url-hint">Only an https:// address. The dashboard shows it as a link to your app.</span></span><span class="live"><input type="url" id="live-url-input" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://" aria-describedby="live-url-hint" /><button type="button" class="secondary-button" id="save">Save preferences</button></span><p class="hint" id="save-status" role="status"></p></li>
 </ul>
 </div>
-<aside class="wz-prev" aria-label="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-dashboard-title">progress</span></div><div class="win-b" id="win-dashboard-body"></div><div class="win-f" id="win-dashboard-foot"></div></div></aside></div>
+<aside class="wz-prev" aria-label="What this step changes" data-i18n-aria="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-dashboard-title">progress</span></div><div class="win-b" id="win-dashboard-body"></div><div class="win-f" id="win-dashboard-foot"></div></div></aside></div>
 <footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-dashboard"></div><button type="button" class="secondary-button" id="refresh-dashboard">Refresh</button><button type="button" class="primary" id="close-wizard" data-p="1">Close the wizard</button></div></footer>
 </section>
 </div>
@@ -1382,21 +1382,23 @@ Not deployed yet. When your app is online, add its link under More.
             ? { kind: g.kind, title: g.title, detail: UAKWorkspace.format("Use the Start screen: its first command claims this task for {tool}.", { tool: teamTool }), commands: [], steps: [] }
             : g;
         }
+        // UAK-160: a check the engine coded is written by the page from its code (UAKWorkspace.code); one without a code
+        // (an older kit's `uak start`) keeps the old path through the gate's patterns.
         function drawNext(g) {
           g = teamGuide(g);
-          el("next-heading").textContent = UAKWorkspace.gate(UAKWorkspace.t(g.title || "Check what your project needs"));
+          el("next-heading").textContent = (g.code ? UAKWorkspace.code(g.code, g.values || {}) : UAKWorkspace.gate(UAKWorkspace.t(g.title || "Check what your project needs")));
           el("next-description").textContent = UAKWorkspace.t(g.detail || "");
           // Only `commands` (the exact claim command) is copyable; the gate's fix lines are text.
           var command = (g.commands || []).join("\n");
           el("next-command").textContent = command;
           el("next-command-box").hidden = !command;
           el("next-steps").replaceChildren();
-          (g.steps || []).forEach(function (line) {
+          (g.items && g.items.length ? g.items.map(function (i) { return UAKWorkspace.code(i.code, i.values || {}); }) : (g.steps || []).map(function (line) { return UAKWorkspace.t(line); })).forEach(function (line) {
             var li = document.createElement("li");
-            li.textContent = UAKWorkspace.t(line);
+            li.textContent = line;
             el("next-steps").append(li);
           });
-          el("next-steps").hidden = !(g.steps || []).length;
+          el("next-steps").hidden = !(g.items && g.items.length) && !(g.steps || []).length;
           el("next-check").hidden = ["check", "todo", "ready", "error", "waiting"].indexOf(g.kind) < 0;
           setWaiting(el("next-check"), state.phase);
           setLabel(el("next-check"), UAKWorkspace.t(
@@ -1421,9 +1423,11 @@ Not deployed yet. When your app is online, add its link under More.
           );
           var done = state.completed || [];
           el("beginner-checklist").replaceChildren();
-          done.forEach(function (line) {
-            var li = document.createElement("li");
+          done.forEach(function (line, at) {
+            var li = document.createElement("li"),
+              item = (state.completed_items || [])[at];
             li.append(icon("ok"), document.createTextNode(UAKWorkspace.gate(line)));
+            if (item && item.code) li.lastChild.nodeValue = UAKWorkspace.code(item.code, item.values || {});
             el("beginner-checklist").append(li);
           });
           el("beginner-checklist").hidden = !done.length;
@@ -1514,6 +1518,9 @@ Not deployed yet. When your app is online, add its link under More.
                       ? "The kit is installed. Let’s get ready."
                       : "Kit files found. Let’s check your project."
                     : "Continue setting up your project";
+          if (data.guidance && data.guidance.code && !isBusy(data.phase) && !data.ready && data.phase !== "error" &&
+              data.installed && (data.checks || []).length)
+            return UAKWorkspace.code(data.guidance.code, data.guidance.values);
           return UAKWorkspace.gate(UAKWorkspace.t(title || ""));
         }
         // Planning (UI-004). Plan text comes from files an agent wrote: it is shown with textContent only.
@@ -2354,7 +2361,9 @@ Not deployed yet. When your app is online, add its link under More.
           if (ui.input) {
             input = document.createElement("input"); input.type = "text"; input.autocomplete = "off"; input.spellcheck = false;
             input.placeholder = "frontend-design"; input.setAttribute("aria-label", UAKWorkspace.t(ui.input)); input.value = runInput[key] || "";
-            input.oninput = function () { runInput[key] = input.value; };
+            input.oninput = function () { runInput[key] = input.value; input.removeAttribute("aria-invalid"); if (runLocal[key]) runLocal[key].field = false; };
+            // UAK-160: a name the server refused is marked invalid and read with its message (the field's own error).
+            if (local.field) { input.setAttribute("aria-invalid", "true"); input.setAttribute("aria-describedby", "run-status-" + key.replace(/[^a-z0-9]+/gi, "-")); }
             bar.append(input);
           }
           go.type = "button"; go.className = "secondary-button run-go";
@@ -2375,6 +2384,7 @@ Not deployed yet. When your app is online, add its link under More.
           }
           var status = document.createElement("p");
           status.className = "run-status" + (words[1] ? " error" : ""); status.setAttribute("role", "status"); status.dataset.noI18n = "";
+          status.id = "run-status-" + key.replace(/[^a-z0-9]+/gi, "-");
           status.textContent = words[0];
           box.append(bar, row, status);
           if (words[2].length) {
@@ -2393,7 +2403,7 @@ Not deployed yet. When your app is online, add its link under More.
             runLocal[key] = name === "start-agent" && !answer.opened ? { error: true, sentence: answer.sentence } : {};
           } catch (e) {
             if (e.gone) return;
-            runLocal[key] = { error: true, sentence: e.message };
+            runLocal[key] = { error: true, sentence: e.message, field: !!(e.body && e.body.field === "name") };
           }
           await refresh();
           drawScreens(state);
@@ -3173,10 +3183,12 @@ Not deployed yet. When your app is online, add its link under More.
             // The gate's first line in the page's language.
             // The lines under it (doctor's failures, the fix) through the catalog: a command stays as it is (UI-012).
             var lines = String(check.text || "").split("\n");
-            text.textContent = [UAKWorkspace.gate(lines[0])].concat(lines.slice(1).map(function (line) {
-              var indent = line.match(/^\s*/)[0];
-              return indent + UAKWorkspace.t(line.slice(indent.length));
-            })).join("\n");
+            text.textContent = check.code
+              ? [UAKWorkspace.code(check.code, check.values || {})].concat((check.hints || []).map(function (h) { return UAKWorkspace.code(h.code || "", h.values || {}); })).join("\n")
+              : [UAKWorkspace.gate(lines[0])].concat(lines.slice(1).map(function (line) {
+                  var indent = line.match(/^\s*/)[0];
+                  return indent + UAKWorkspace.t(line.slice(indent.length));
+                })).join("\n");
             li.append(mark, text);
             el("checks").append(li);
           });
@@ -3629,7 +3641,7 @@ function landing(data, saved, wanted) {
         function drawAdvancedNext(guide) {
           guide = teamGuide(guide);
           el("advanced-next").hidden = document.body.dataset.profile !== "advanced" || !guide.title;
-          el("advanced-next-heading").textContent = UAKWorkspace.gate(UAKWorkspace.t(guide.title || ""));
+          el("advanced-next-heading").textContent = (guide.code ? UAKWorkspace.code(guide.code, guide.values || {}) : UAKWorkspace.gate(UAKWorkspace.t(guide.title || "")));
           el("advanced-next-description").textContent = UAKWorkspace.t(guide.detail || "");
           el("advanced-next-command").textContent = (guide.commands || []).join("\n");
           el("advanced-next-box").hidden = !(guide.commands || []).length;
@@ -4128,10 +4140,11 @@ function landing(data, saved, wanted) {
           if (box) {
             el("terminal-cd").textContent = box.cd;
             el("terminal-steps").replaceChildren();
-            (box.steps || []).forEach(function (line) {
+            (box.steps || []).forEach(function (line, at) {
               var li = document.createElement("li");
               // A doctor line reads in the page's language; a command matches no pattern and stays as it is (UI-012).
               li.textContent = UAKWorkspace.t(line);
+              if (box.items && box.items[at] && box.items[at].code) li.textContent = UAKWorkspace.code(box.items[at].code, box.items[at].values || {});
               el("terminal-steps").append(li);
             });
           }
