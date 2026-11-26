@@ -69,12 +69,49 @@ def repo(r, name):
     return t
 
 
-def free_port():
+# UAK-197: deploy_recognises_stdlib_python failed twice in one macOS job, run 45645537660, suite (macos-latest, 1): the
+# app said "[Errno 48] Address already in use" on port 49185, then on 49187 in the second run. The cause: the test picked
+# a port by binding 127.0.0.1:0 and closing it, then the app bound 0.0.0.0 on that port. A port free on the loopback
+# address is not free on every address: on macOS the outgoing connections of the runner take their local ports from the
+# same range (49152 and up) on its other addresses, and between the pick and the app's bind anything may take it. Not
+# provable from the log which one it was; both are closed by the same two steps: the port is asked for on the address the
+# app binds (0.0.0.0), and when the app still says it is in use, take_port gives it another port (5 tries).
+PICK_HOST = "0.0.0.0"
+
+
+def free_port(host=PICK_HOST):
     s = socket.socket()
-    s.bind(("127.0.0.1", 0))
+    s.bind((host, 0))
     port = s.getsockname()[1]
     s.close()
     return port
+
+
+PICK = free_port          # how serves() picks a port; deploy_test_takes_its_port_without_a_race replaces it
+# In use: Errno 98 (Linux), 48 (macOS), WinError 10048; WinError 10013 is a port Windows holds for another (exclusive use or
+# an excluded range): another port is the answer to all of them.
+IN_USE = re.compile(r"Address already in use|address is already in use|Errno (48|98)\b|WinError 100(48|13)|"
+                    r"only one usage of each socket address|forbidden by its access permissions")
+
+
+class PortInUse(Exception):
+    pass
+
+
+def take_port(attempt, tries=5, pick=None):
+    """The one helper that gives a test a port: attempt(port) runs with a port from pick(); when it raises PortInUse the
+    port was taken between the pick and the bind, and the next try gets another. After `tries` ports in use it fails
+    and names them."""
+    pick = pick or PICK
+    tried = []
+    for _ in range(tries):
+        port = pick()
+        tried.append(port)
+        try:
+            return attempt(port)
+        except PortInUse:
+            continue
+    raise AssertionError("every port tried was in use (%d ports: %s)" % (len(tried), ", ".join(map(str, tried))))
 
 
 def cmd_of(dockerfile):
@@ -83,10 +120,14 @@ def cmd_of(dockerfile):
     return json.loads(m.group(1))
 
 
-def serves(t, argv):
-    """Run the image's CMD where the image runs it (WORKDIR = the build context, COPY . .) and ask /api/health."""
+def serves(t, argv, pick=None, tries=5):
+    """Run the image's CMD where the image runs it (WORKDIR = the build context, COPY . .) and ask /api/health, on a
+    port from take_port: one the app found in use is replaced by another."""
     expect(argv[0] in ("python3", "python"), "the CMD starts Python: %s" % argv)
-    port = free_port()
+    return take_port(lambda port: serve_once(t, argv, port), tries=tries, pick=pick)
+
+
+def serve_once(t, argv, port):
     env = dict(os.environ, PORT=str(port), PYTHONDONTWRITEBYTECODE="1")
     env.pop("UAK_PORT", None)
     proc = subprocess.Popen([sys.executable] + argv[1:], cwd=str(t), env=env,
@@ -102,6 +143,8 @@ def serves(t, argv):
             except OSError:
                 time.sleep(0.2)
         out, err = proc.communicate(timeout=5) if proc.poll() is not None else (b"", b"")
+        if IN_USE.search(err.decode("utf-8", "replace")):
+            raise PortInUse(port)
         raise AssertionError("the CMD %s never served $PORT %d: %s %s" % (argv, port, out[-400:], err[-800:]))
     finally:
         if proc.poll() is None:
@@ -174,7 +217,55 @@ def deploy_says_what_is_missing(r):
     return "the message says what to add"
 
 
-TESTS = [deploy_recognises_stdlib_python, deploy_says_what_is_missing]
+def deploy_test_takes_its_port_without_a_race(r):
+    """UAK-197: deploy_recognises_stdlib_python failed twice in one macOS job (run 45645537660, suite (macos-latest, 1)):
+    the app said "Address already in use" on 49185, then on 49187, ports the test had just picked. The port is taken
+    once by a helper: a port the system gives for the address the app binds, and another one when the app says it is in
+    use. Forced here: the first port picked is held by a listening socket, then every port is."""
+    import inspect
+    expect("pick" in inspect.signature(serves).parameters and "tries" in inspect.signature(serves).parameters,
+           "serves(t, argv, pick=…, tries=…): the port comes from one helper")
+    t = repo(r, "port-race")
+    (t / "app").mkdir()
+    (t / "app/server.py").write_text(SERVER % {"pkg": "app."}, encoding="utf-8")
+    (t / "app/queue.py").write_text("def size():\n    return 0\n", encoding="utf-8")
+    # The port is held by a bound socket that does not listen (a connection to it is refused at once): the app's bind
+    # fails on it on Linux and macOS; on Windows only with SO_EXCLUSIVEADDRUSE, as the app sets SO_REUSEADDR.
+    held = socket.socket()
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        held.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    held.bind(("0.0.0.0", 0))
+    busy = held.getsockname()[1]
+    try:
+        picks, tried = [busy], []
+
+        def pick():
+            tried.append(picks.pop(0) if picks else free_port())
+            return tried[-1]
+        status, body = serves(t, ["python3", "-m", "app.server"], pick=pick)
+        expect(status == 200 and body.get("ok") is True, "served on the second port: %s %s" % (status, body))
+        expect(tried[0] == busy and len(tried) == 2, "the port in use was given up for another: %s (busy %d)" % (tried, busy))
+        try:
+            serves(t, ["python3", "-m", "app.server"], pick=lambda: busy, tries=3)
+            raise AssertionError("served although every port was in use")
+        except AssertionError as exc:
+            expect("in use" in str(exc) and str(busy) in str(exc) and "3 ports" in str(exc),
+                   "every retry taken: it says so and names the ports: %s" % str(exc)[:300])
+        # The case itself takes its port through the helper: with its first port held it still passes.
+        global PICK
+        saved, first = PICK, [busy]
+        PICK = lambda: first.pop(0) if first else saved()
+        try:
+            deploy_recognises_stdlib_python(Runner(r.package, Path(r.scratch) / "port-race-case", r.bash, r.git))
+        finally:
+            PICK = saved
+        expect(not first, "deploy_recognises_stdlib_python picked its port through PICK")
+    finally:
+        held.close()
+    return "a port in use is replaced; all in use fails with the ports named; the case uses the helper"
+
+
+TESTS = [deploy_recognises_stdlib_python, deploy_says_what_is_missing, deploy_test_takes_its_port_without_a_race]
 
 
 def main():
@@ -182,19 +273,25 @@ def main():
     parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--case", action="append")
     args = parser.parse_args()
+    # UAK_DEPLOY_ROUNDS=N runs deploy_recognises_stdlib_python N times, each round in a scratch folder of its own (UAK-197:
+    # the 20 runs in a row on macOS the fix is judged by). Off by default.
+    rounds = int(os.environ.get("UAK_DEPLOY_ROUNDS", "1"))
     fails = 0
     with tempfile.TemporaryDirectory(prefix="uak-deploy-stdlib-") as tmp:
         runner = Runner(args.package.resolve(), Path(tmp), resolve_binary("bash"), resolve_binary("git"))
         for test in TESTS:
             if args.case and test.__name__ not in args.case:
                 continue
-            started = time.monotonic()
-            try:
-                note = test(runner)
-                print("PASS %s (%s, %.2fs)" % (test.__name__, note, time.monotonic() - started))
-            except Exception as exc:  # noqa: BLE001
-                fails += 1
-                print("FAIL %s (%s)" % (test.__name__, str(exc)[:2500]))
+            for k in range(rounds if test is deploy_recognises_stdlib_python else 1):
+                r = runner if k == 0 else Runner(runner.package, Path(tmp) / ("round-%d" % (k + 1)), runner.bash, runner.git)
+                label = test.__name__ + (" round %d" % (k + 1) if k else "")
+                started = time.monotonic()
+                try:
+                    note = test(r)
+                    print("PASS %s (%s, %.2fs)" % (label, note, time.monotonic() - started))
+                except Exception as exc:  # noqa: BLE001
+                    fails += 1
+                    print("FAIL %s (%s)" % (label, str(exc)[:2500]))
     print("DEPLOY_PYTHON_STDLIB_RESULT %s failed=%d" % ("PASS" if not fails else "FAIL", fails))
     return 1 if fails else 0
 
