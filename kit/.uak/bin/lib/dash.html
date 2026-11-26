@@ -622,45 +622,51 @@ dialog#story::backdrop { background: var(--scrim); }
   .tbl th, .tbl td { padding: 8px 4px; }
   .row { grid-template-columns: 32px minmax(0,1fr); } .row .meta { grid-column: 2; white-space: normal; }
 }
-/* A wide window (UAK-198): the page takes the whole width and uses it, in columns rather than longer boxes; running text stays
-   under about 90 characters a line. Nothing here applies up to 1432 px: the screens approved at 1280 and 390 px are unchanged. */
+/* A wide window (UAK-198, the human's choice A): the page scales up. From 1433 px the app is zoomed by --z = width / 1432
+   (at most 1.8, so a 3840 px window is not absurd): type, squares, cards, charts, paddings and the drawer and Share dialog grow
+   together and the composition stays the one approved at 1280 px, laid out as at 1432 px. CSS zoom lays text out again at its
+   new size (crisp, unlike a transform); its 100vh is scaled too, so what is as tall as the window divides by --z. Nothing here
+   applies up to 1432 px: the screens approved at 1280 and 390 px are unchanged. */
 @media (min-width:1433px) {
+  .app { min-height: calc(100vh / var(--z, 1)); }
+  .tabs { height: calc(100vh / var(--z, 1)); }
+  .gside { max-height: calc(100vh / var(--z, 1) - 32px); }
+  dialog#story { zoom: var(--z, 1); width: min(760px, calc(100vw / var(--z, 1))); height: calc(100dvh / var(--z, 1)); }
+  dialog#share { zoom: var(--z, 1); width: min(560px, calc(100vw / var(--z, 1) - 32px)); max-height: calc(100dvh / var(--z, 1) - 24px); }
+  .share-img.v { max-height: min(560px, calc(100dvh / var(--z, 1) - 330px)); }
   .page, .wide { max-width: none; }
+  /* the page's side gutters stay 24 px on the screen (scaled they would leave a wider band at the right than at 1280 px) */
+  .head, .page, .wide { padding-left: calc(24px / var(--z, 1)); padding-right: calc(24px / var(--z, 1)); }
+  /* what should not stretch: running text under about 90 characters, and a row's status next to its title */
+  .need > li { grid-template-columns: 24px minmax(0,64ch) auto; justify-content: start; }
+  .rows > li { grid-template-columns: 96px 72px minmax(0,56ch) 112px minmax(0,164px); justify-content: start; }
+  .tk p, .g2.mem .row > div { max-width: 64ch; }
+  .msg { max-width: min(72ch,90%); }
+  .bbx dd, .bbx details[open] summary .t { max-width: 60ch; }
+  .card.next { max-width: 720px; }
   .col.flow { display: block; column-gap: 16px; }
   .col.flow > * { break-inside: avoid; margin-bottom: 16px; }
-  .need > li > div, .tk p { max-width: 64ch; }
-  .msg { max-width: min(72ch,90%); }
-  .card.next { max-width: 720px; }
-  .wide.bmap { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 12px; }
-  .bmap > .bh, .bmap > .depline { flex: 1 1 100%; }
-  .bmap > section { flex: 1 1 auto; min-width: 0; }
-  .cv { grid-template-columns: clamp(280px, 17vw, 380px) minmax(0,1fr) clamp(264px, 15vw, 340px); }
-  .wide.bbw { display: grid; grid-template-columns: minmax(0,1fr) clamp(520px, 36%, 640px); grid-template-rows: auto auto 1fr; column-gap: 16px; align-items: start; }
-  .bbw > :not(.g2) { grid-column: 1; }
-  .bbw > .g2 { grid-column: 2; grid-row: 1 / span 3; grid-template-columns: minmax(0,1fr); }
-  .bbx dd, .bbx details[open] summary .t { max-width: 60ch; }
-  .g2.mem .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); }
-  .g2.mem .list > * { border-left: 1px solid var(--line); margin: -1px 0 0 -1px; }
-  .g2.mem .list > .mre { grid-column: 1 / -1; }
-  .gv { grid-template-columns: minmax(0,1fr) clamp(360px, 26%, 520px); }
-  .tkh { display: grid; grid-template-columns: auto minmax(0,1fr); column-gap: 32px; align-items: center; }
-  .tkh > .big { grid-row: 1 / span 2; }
-  .tkh > .stack { margin: 0 0 8px; }
-  .tkh > .kv { grid-template-columns: repeat(4, max-content max-content); column-gap: 8px; }
-  .tkh > .kv dt:not(:first-child) { margin-left: 24px; }
-  .g2.tkg { display: flex; flex-wrap: wrap; }
-  .tkg > * { flex: 1 1 360px; min-width: 0; }
-  .tkg > .full { flex-basis: 100%; }
-  .g2 > .full .hb { grid-template-columns: repeat(2, minmax(64px,160px) minmax(0,1fr) auto); }
-  /* Agents: a group takes the room its cards need (six to a row to start with), small groups share a row and the row is filled;
-     a group is never narrower than its heading, a card never wider than 300 px (a compact one 240). */
-  .wide.agw { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 24px; }
-  .agw > section { flex: var(--n, 1) 1 calc(min(var(--n, 1), 6) * (var(--cw, 220px) + 8px) - 8px); min-width: min(100%, 360px); }
-  .agw .agrid > * { max-width: var(--cx, 300px); }
 }
-@media (min-width:2400px) {
-  .g2 > .full .hb { grid-template-columns: repeat(3, minmax(64px,160px) minmax(0,1fr) auto); }
-}
+/* Past the scale's cap (a page more than 1600 px wide once scaled, a window of about 2900 px) the extra width becomes columns:
+   the summary's side in two (sumCols), the board's small stages in a row, agent groups side by side, and so on. */
+html.vw .wide.bmap { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 12px; }
+html.vw .bmap > .bh, html.vw .bmap > .depline { flex: 1 1 100%; }
+html.vw .bmap > section { flex: 1 1 auto; min-width: 0; }
+html.vw .cv { grid-template-columns: 380px minmax(0,1fr) 340px; }
+html.vw .wide.bbw { display: grid; grid-template-columns: minmax(0,1fr) clamp(520px, 36%, 640px); grid-template-rows: auto auto 1fr; column-gap: 16px; align-items: start; }
+html.vw .bbw > :not(.g2) { grid-column: 1; }
+html.vw .bbw > .g2 { grid-column: 2; grid-row: 1 / span 3; grid-template-columns: minmax(0,1fr); }
+html.vw .g2.mem .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); }
+html.vw .g2.mem .list > * { border-left: 1px solid var(--line); margin: -1px 0 0 -1px; }
+html.vw .g2.mem .list > .mre { grid-column: 1 / -1; }
+html.vw .gv { grid-template-columns: minmax(0,1fr) clamp(360px, 26%, 520px); }
+html.vw .g2.tkg { display: flex; flex-wrap: wrap; }
+html.vw .tkg > * { flex: 1 1 360px; min-width: 0; }
+html.vw .tkg > .full { flex-basis: 100%; }
+html.vw .g2 > .full .hb { grid-template-columns: repeat(2, minmax(64px,160px) minmax(0,1fr) auto); }
+html.vw .wide.agw { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 24px; }
+html.vw .agw > section { flex: var(--n, 1) 1 calc(min(var(--n, 1), 6) * (var(--cw, 220px) + 8px) - 8px); min-width: min(100%, 360px); }
+html.vw .agw .agrid > * { max-width: var(--cx, 300px); }
 @media (prefers-reduced-motion:reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
@@ -890,6 +896,17 @@ dialog#story::backdrop { background: var(--scrim); }
     ["talk", "Messages", "M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"], ["bb", "Black box", "M2.5 5 8 2.5 13.5 5v6L8 13.5 2.5 11zM2.5 5 8 7.5 13.5 5M8 7.5v6"], ["memory", "Memory", "M3 2.5h8a2 2 0 0 1 2 2v9H5a2 2 0 0 1-2-2zM5 11.5h8"], ["tokens", "Tokens", "M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11M8 5v6M6.2 9.5c.3.5 1 .8 1.8.8 1 0 1.8-.4 1.8-1.1S9 8 8 7.8 6.3 7.4 6.3 6.7 7 5.7 8 5.7c.7 0 1.3.3 1.6.8"]];
   var KC = { review: "review", approve: "integrated", integrated: "integrated", reject: "blocked", blocker: "blocked", request: "claimed", contract: "violet", human: "orange" };
   var LEASE = 14400, MAXTASKS = 8;
+  // The scale of a wide window (wideScale): the app is zoomed, the dialogs too (CSS), and what the script places with fixed
+  // coordinates inside the zoomed app divides by it. Past the cap the page is wider than 1600 px once scaled: html.vw.
+  var Z = 1;
+  function fitScale() {
+    var r = document.documentElement, app = document.querySelector && document.querySelector(".app");
+    Z = wideScale(window.innerWidth || 0);
+    if (r.style && r.style.setProperty) r.style.setProperty("--z", String(Z));
+    if (app && app.style) app.style.zoom = Z > 1 ? String(Z) : "";
+    if (r.classList) r.classList.toggle("vw", Z > 1 && window.innerWidth / Z >= 1600);
+  }
+  fitScale();
   var ui = { tab: "sum", agent: "", task: "", kind: "", q: "", view: "list", period: 0, mf: "all", bv: "cols", mv: "list", bk: "", bh: "", bp: "", bq: "", allDone: false, open: {}, more: {} };
   var store = null; try { store = window.localStorage; } catch (e) {}
   try { var saved = JSON.parse(store.getItem("uak-dash") || "{}"); ["tab", "agent", "task", "kind", "q", "view", "period", "mf", "bv", "mv", "bk", "bh", "bp", "bq"].forEach(function (k) { if (k in saved) ui[k] = saved[k]; }); } catch (e) {}
@@ -1169,6 +1186,9 @@ dialog#story::backdrop { background: var(--scrim); }
     var k = Math.min(n, side), cw = n === 1 ? 296 : Math.max(296, Math.min(440, Math.round((w * 0.36 - 16 * (n - 1)) / n)));
     return { flow: 1, side: k, w: k * cw + 16 * (k - 1) };
   }
+  // How much the page scales up on a wide window (UAK-198, the human's choice A): 1 up to 1432 px, then the window's width over
+  // 1432 (the page is laid out as at 1432 px and drawn larger), at most 1.8.
+  function wideScale(w) { return w > 1432 ? Math.min(1.8, Math.round(w / 1432 * 1000) / 1000) : 1; }
   // The memory graph's canvas: 760 x 560 in a card up to 800 px wide (the approved one); wider, the card's own width (labels keep
   // their size) and a height that fits the window, no taller than the graph needs at its largest scale (1.4).
   function graphBox(cw, vh, bw, bh) {
@@ -1288,8 +1308,9 @@ dialog#story::backdrop { background: var(--scrim); }
       if (LBOPEN && LBOPEN !== close) LBOPEN(false);
       pop.hidden = false; btn.setAttribute("aria-expanded", "true"); LBOPEN = close; active = cur;
       var r = btn.getBoundingClientRect(), h2 = Math.min(pop.scrollHeight, 280), below = innerHeight - r.bottom;
-      pop.style.minWidth = r.width + "px"; pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)) + "px";
-      pop.style.top = (below >= h2 + 8 || below >= r.top ? r.bottom + 4 : r.top - h2 - 4) + "px"; paint(); pop.focus();
+      // in the zoomed app a fixed position is in the app's own units: what the window measures divides by Z
+      pop.style.minWidth = r.width / Z + "px"; pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth * Z - 8)) / Z + "px";
+      pop.style.top = (below >= h2 * Z + 8 || below >= r.top ? r.bottom + 4 : r.top - h2 * Z - 4) / Z + "px"; paint(); pop.focus();
     }
     items.forEach(function (x, i) { pop.appendChild(h("li", { role: "option", id: id + "-" + i, text: x[1], on: function () { pick(i); } })); });
     btn.addEventListener("click", function () { if (pop.hidden) open(); else close(true); });
@@ -1694,7 +1715,7 @@ dialog#story::backdrop { background: var(--scrim); }
   });
   document.addEventListener("pointermove", function (e) {
     if (!DRAG) return;
-    DRAG.box.style.transform = "translate(" + (e.clientX - DRAG.x) + "px," + (e.clientY - DRAG.y + scrollY - DRAG.sy) + "px)";
+    DRAG.box.style.transform = "translate(" + (e.clientX - DRAG.x) / Z + "px," + (e.clientY - DRAG.y + scrollY - DRAG.sy) / Z + "px)";   // the box follows the pointer in the zoomed app
     var t = DRAG.to = dropAt(e.clientX, e.clientY);
     if (t) { DRAG.line = DRAG.line || document.body.appendChild(h("div", { "class": "dropline" })); DRAG.line.style.cssText = "left:" + t.x + "px;width:" + t.w + "px;top:" + t.y + "px"; }
     if (e.clientY < 48) scrollBy(0, -16); else if (e.clientY > innerHeight - 48) scrollBy(0, 16);
@@ -1752,6 +1773,7 @@ dialog#story::backdrop { background: var(--scrim); }
     if (fitting) return;
     fitting = requestAnimationFrame(function () {
       fitting = 0; if (window.innerWidth === fitW || DRAG) return; fitW = window.innerWidth;
+      var z0 = Z; fitScale(); if (Z !== z0) { render(); return; }
       if (ui.tab === "sum") fitSummary(document.querySelector("#view .page")); else if (ui.tab === "memory" && ui.mv === "graph") render();
     });
   });
@@ -2072,7 +2094,7 @@ dialog#story::backdrop { background: var(--scrim); }
     [["+", 1.4], ["-", 1 / 1.4]].forEach(function (z) { tools.appendChild(h("button", { "class": "chip", type: "button", "aria-label": z[0] === "+" ? L('Zoom in') : L('Zoom out'), text: z[0], on: function () { GZ.z = Math.max(1, Math.min(6, GZ.z * z[1])); render(); } })); });
     tools.appendChild(h("button", { "class": "chip", type: "button", text: L('Fit'), on: function () { GZ = { z: 1, x: 0, y: 0 }; render(); } }));
     // The canvas: the width the graph's card has here (graphBox), measured on an empty copy of the two columns.
-    var probe = wrap.appendChild(h("div", { "class": "gv" }, [h("div", { "class": "card" }), h("div", { "class": "card pad gside" })])), gb = graphBox(probe.firstChild.clientWidth, window.innerHeight, lay.box.w, lay.box.h);
+    var probe = wrap.appendChild(h("div", { "class": "gv" }, [h("div", { "class": "card" }), h("div", { "class": "card pad gside" })])), gb = graphBox(probe.firstChild.clientWidth, window.innerHeight / Z, lay.box.w, lay.box.h);
     probe.remove(); W = gb.W; H = gb.H;
     // Scale to fit, with a padding, over the unbounded layout: nothing is clamped to the frame.
     var pad = 40, sc = Math.min(1.4, (W - 2 * pad) / lay.box.w, (H - 2 * pad) / lay.box.h), fw = W / sc, fh = H / sc, fx = lay.box.x - (fw - lay.box.w) / 2, fy = lay.box.y - (fh - lay.box.h) / 2;
@@ -2235,7 +2257,7 @@ dialog#story::backdrop { background: var(--scrim); }
     var t = d.tokens || { total: 0 }, wrap = h("div", { "class": "wide" }); v.appendChild(wrap);
     if (!t.total) { wrap.appendChild(h("div", { "class": "card empty" }, [h("b", { text: T("Tokens spent") + " · 0" }), T("No machine has published its spend yet: uak tokens --publish")])); return; }
     var tb = tokenBreak(t, d.tasks), kinds = t.by_kind || {}, kt = ["input", "cache_write", "cache_read", "output"], KL = { input: L('Input'), cache_write: L('Cache write'), cache_read: L('Cache read'), output: L('Output') };
-    var head = h("div", { "class": "card pad tkh", style: "margin-bottom:16px" }, [h("div", { "class": "big" }, [h("b", { text: M(t.total) }), h("span", { text: T("Tokens spent") + " · " + T("published by every machine with uak tokens") })])]);
+    var head = h("div", { "class": "card pad", style: "margin-bottom:16px" }, [h("div", { "class": "big" }, [h("b", { text: M(t.total) }), h("span", { text: T("Tokens spent") + " · " + T("published by every machine with uak tokens") })])]);
     var ksum = kt.reduce(function (a, k) { return a + (kinds[k] || 0); }, 0);
     if (ksum) {
       var bar = h("div", { "class": "stack", role: "img", "aria-label": kt.map(function (k) { return KL[k] + " " + M(kinds[k] || 0); }).join(", ") }), kv = h("dl", { "class": "kv" });

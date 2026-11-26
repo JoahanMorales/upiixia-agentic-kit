@@ -1009,7 +1009,7 @@ RIGHT_JS = """() => { const v = document.getElementById('view'), W = document.do
 def content_reaches_the_right_edge_on_wide_screens(root, tmp):
     """At 1440, 1920 and 2560 px every view of every tab reaches within 32 px of the window's right edge and never past it, the
     header's controls end at the right edge, the summary's side column is at the right, and a task's detail opens against the
-    right edge (at most 760 px wide) while Share opens centred inside the window."""
+    right edge, as tall as the window and as wide as 760 px scaled, while Share opens centred inside the window."""
     for width in (1440, 1920, 2560):
         with screen(root, tmp, wide_data(), width) as pg:
             for view in WIDE_VIEWS:
@@ -1022,8 +1022,8 @@ def content_reaches_the_right_edge_on_wide_screens(root, tmp):
             assert side >= width - 32, "%d px: the side column ends at %d" % (width, side)
             pg.evaluate("document.querySelector('#view .rows [data-story]').click()")
             pg.wait_for_function("document.getElementById('story').open")
-            st = pg.evaluate("(() => { const r = document.getElementById('story').getBoundingClientRect(); return [r.left, r.right, r.width]; })()")
-            assert abs(st[1] - width) <= 1 and st[2] <= 760, "%d px: the task's detail sits against the right edge: %r" % (width, st)
+            st = pg.evaluate("(() => { const r = document.getElementById('story').getBoundingClientRect(); return [r.left, r.right, r.width, r.top, r.bottom, innerHeight, wideScale_z()]; })()".replace("wideScale_z()", "parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--z')) || 1"))
+            assert abs(st[1] - width) <= 1 and abs(st[2] - 760 * st[6]) <= 2 and abs(st[3]) <= 1 and abs(st[4] - st[5]) <= 2, "%d px: the task's detail sits against the right edge, as tall as the window: %r" % (width, st)
             pg.keyboard.press("Escape")
             pg.wait_for_function("!document.getElementById('story').open")
             pg.evaluate("document.getElementById('share-btn').click()")
@@ -1048,122 +1048,119 @@ LINES_JS = """() => { document.querySelectorAll('#view details').forEach(d => { 
   return out.filter(x => x[0] > 95); }"""
 
 
-def wide_screens_add_columns_not_stretch(root, tmp):
-    """The extra width is used, not stretched. The rule (pure, under node): up to 1480 px of content the summary is the approved
-    one (a side of 296 px); from 1480 px the side shows its components in two columns, from 2900 px in three, each 296 to 440 px;
-    a list alone flows into those columns; the memory graph's canvas is the card's width and fits the window. In Chromium at 1920
-    and 2560 px: the side's blocks sit in two columns, none wider than 460 px; the squares fill the row; the board's four columns
-    share the width; the Agents grid has more cards per row, none stretched (360 px at most, a group alone in its heading's width); the tokens' panels sit three or more to a row and
-    the long breakdown in two groups; lessons and decisions in two columns; the black box's panels beside its notes; the graph
-    on a larger canvas with labels at their size; no line of running text over about 90 characters (95, spaces counted).
-    The viewer's arrangement means the same at every width: arrange mode moves, crosses and drags at 2560 px, the side's columns
-    are never stored, and an arrangement saved before UAK-198 is drawn as it was saved."""
-    out = truth.under_node(root, """return [sumCols(1160, 4, 4), sumCols(1320, 4, 4), sumCols(1479, 4, 4), sumCols(1480, 4, 4), sumCols(1800, 4, 4), sumCols(2440, 4, 4),
-      sumCols(3720, 4, 4), sumCols(1800, 4, 1), sumCols(3720, 2, 2), sumCols(1800, 8, 0), sumCols(1160, 8, 0), sumCols(1800, 0, 8), sumCols(3720, 1, 0), sumCols(NaN, 4, 4),
-      graphBox(763, 900, 500, 400), graphBox(NaN, 900, 500, 400), graphBox(1316, 1080, 900, 600), graphBox(1904, 1440, 900, 700), graphBox(1316, 1080, 300, 60)];""")
+ZOOM_JS = "parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--z')) || 1"
+
+
+def wide_screens_scale_up_not_stretch(root, tmp):
+    """The human's choice (A): a wide window scales the approved page up instead of stretching it. The rule, pure, under node: the
+    scale is 1 up to 1432 px, then the window's width over 1432 (continuous: 1433 px is 1.001), at most 1.8, so a 3840 px window
+    is not absurd; past the cap the summary's side gains columns (sumCols). In Chromium at 1920 and 2560 px: every box of every
+    view is the box of the 1432 px page times the scale (the composition approved at 1280 px, drawn larger, the squares
+    28 px times the scale); a task row's status sits next to its title and the row is no wider than its columns; no line of
+    running text is over about 90 characters (95, spaces counted). What places itself with the pointer or the window's
+    coordinates still lands right in the zoomed page: the task's list box opens under its button, a square's tip sits at the
+    pointer, a node of the memory graph is chosen where it is clicked, Share exports the same two PNG images as at 1280 px, and
+    in arrange mode at 2560 px the moved component follows the pointer, the drop line shows where it lands and it lands there.
+    The viewer's arrangement means the same at every width: what is kept is the two lists and the hidden ones, never a scale or a
+    column count, and an arrangement saved before UAK-198 is drawn as saved."""
+    out = truth.under_node(root, """return [wideScale(1280), wideScale(1432), wideScale(1433), wideScale(1920), wideScale(2560), wideScale(2578), wideScale(3840), wideScale(NaN),
+      sumCols(1312, 4, 4), sumCols(2013, 4, 4), sumCols(2013, 4, 1), sumCols(2013, 8, 0), graphBox(763, 900, 500, 400), graphBox(1316, 1080, 300, 60)];""")
     if out is not None:
-        narrow = {"flow": 1, "side": 1, "w": 296}
-        assert out[0] == narrow and out[1] == narrow and out[2] == narrow and out[13] == narrow, "up to 1480 px the approved summary: %r" % out[:3]
-        assert out[3] == {"flow": 1, "side": 2, "w": 608}, "from 1480 px two side columns of 296: %r" % out[3]
-        assert out[4] == {"flow": 1, "side": 2, "w": 648} and out[5] == {"flow": 1, "side": 2, "w": 878}, "the side grows with the width: %r %r" % (out[4], out[5])
-        assert out[6] == {"flow": 1, "side": 3, "w": 1340}, "three columns from 2900 px: %r" % out[6]
-        assert out[7] == {"flow": 1, "side": 1, "w": 316} and out[8] == {"flow": 1, "side": 2, "w": 888}, "never more columns than components: %r %r" % (out[7], out[8])
-        assert out[9] == {"flow": 2, "side": 0, "w": 0} and out[10] == {"flow": 1, "side": 0, "w": 0} and out[11] == {"flow": 2, "side": 0, "w": 0} and out[12] == {"flow": 1, "side": 0, "w": 0}, \
-            "a list alone flows into the columns of its width: %r" % out[9:13]
-        assert out[14] == {"W": 760, "H": 560} and out[15] == {"W": 760, "H": 560}, "the approved graph up to 800 px: %r" % out[14:16]
-        assert out[16]["W"] == 1316 and 560 <= out[16]["H"] <= 1080 - 240 and out[17]["W"] == 1904 and out[17]["H"] <= 1440 - 240, "a larger canvas that fits the window: %r" % out[16:18]
-        assert out[18]["W"] == 1316 and out[18]["H"] < 560, "a flat graph gets a flat canvas, not a tall empty one: %r" % out[18]
-    with screen(root, tmp, wide_data(), 1280) as pg:
-        show(pg, "sum")
-        rows1280 = pg.evaluate("new Set(Array.from(document.querySelectorAll('#view .b-map .sq')).map(e => Math.round(e.getBoundingClientRect().top))).size")
-        show(pg, "agents")
-        show(pg, "talk")
-        thread1280 = pg.evaluate("document.querySelector('#view .cv > .win').getBoundingClientRect().width")
-    PER_ROW = """() => { const g = Array.from(document.querySelectorAll('#view .agrid')).sort((a, b) => b.children.length - a.children.length)[0], c = Array.from(g.children).map(e => e.getBoundingClientRect());
-      return { per: c.filter(x => Math.round(x.top) === Math.round(c[0].top)).length, w: Math.round(Math.max(...Array.from(document.querySelectorAll('#view .agrid > *')).map(e => e.getBoundingClientRect().width))) }; }"""
-    per = {}
-    for width in (1280, 1920, 2560):
-        with screen(root, tmp, wide_data_named("40 agents"), width) as pg:
-            show(pg, "agents")
-            per[width] = pg.evaluate(PER_ROW)
-    for width in (1920, 2560):
-        assert per[width]["per"] > per[1280]["per"] and per[width]["w"] <= 360, "%d px: more agent cards per row, none stretched: %r" % (width, per)
-        with screen(root, tmp, wide_data(), width) as pg:
+        assert out[0] == 1 and out[1] == 1 and out[7] == 1, "no scale up to 1432 px: %r" % out[:2]
+        assert 1 < out[2] <= 1.001 and out[3] == 1.341 and out[4] == 1.788 and out[5] == 1.8 and out[6] == 1.8, "the width over 1432, continuous, at most 1.8: %r" % out[2:7]
+        assert out[8] == {"flow": 1, "side": 1, "w": 296}, "the approved summary at the 1432 px layout: %r" % out[8]
+        assert out[9]["side"] == 2 and out[10]["side"] == 1 and out[11]["flow"] == 2, "past the cap, columns: %r" % out[9:12]
+        assert out[12] == {"W": 760, "H": 560} and out[13]["H"] < 560, "the graph's canvas: %r" % out[12:]
+    # The composition: at 1920 and 2560 px every box is where the 1432 px page has it, and as wide, times the scale (the window
+    # as tall in page units; the side gutters are 24 px on the screen at every scale, so the 1432 px page gets the same gutters).
+    # Heights are not compared: a line of text set at 17 px may wrap a word earlier than the same line at 13 px.
+    for width, height in ((1920, 1080), (2560, 1440)):
+        z = round(width / 1432.0, 3)
+        base = {}
+        with screen(root, tmp, wide_data(), 1432, height=int(round(height / z))) as pg:
+            pg.add_style_tag(content=".head, .page, .wide { padding-left: %.4fpx !important; padding-right: %.4fpx !important; }" % (24 / z, 24 / z))
+            for view in WIDE_VIEWS:
+                show(pg, view)
+                base[view] = pg.evaluate(BOXES_JS)
+        with screen(root, tmp, wide_data(), width, height=height) as pg:
+            assert abs(pg.evaluate(ZOOM_JS) - z) < 0.0005, "the page's scale at %d px: %r" % (width, pg.evaluate(ZOOM_JS))
+            for view in WIDE_VIEWS:
+                show(pg, view)
+                got = pg.evaluate(BOXES_JS)
+                assert len(got) == len(base[view]), "%d px, %s: %d boxes, %d at 1432 px" % (width, view, len(got), len(base[view]))
+                bad = [(i, a, b) for i, (a, b) in enumerate(zip(got, base[view])) if abs(a[0] / z - b[0]) > 2 or abs(a[2] / z - b[2]) > 2]
+                assert not bad, "%d px, %s: a box is not where the 1432 px page has it, times %.3f (index, here, at 1432): %r" % (width, view, z, bad[:4])
             show(pg, "sum")
-            s = pg.evaluate("""() => { const q = (x) => Array.from(document.querySelectorAll(x)), r = (e) => e.getBoundingClientRect();
-              const side = q('#view .col[data-col=side] > *'), main = r(document.querySelector('#view .col[data-col=main]')), map = document.querySelector('#view .b-map .tmap'), sq = q('#view .b-map .sq');
-              const top0 = Math.round(r(sq[0]).top), first = sq.filter(e => Math.round(r(e).top) === top0);
-              return { lefts: new Set(side.map(e => Math.round(r(e).left))).size, widths: side.map(e => Math.round(r(e).width)), main: Math.round(main.width),
-                       rows: new Set(sq.map(e => Math.round(r(e).top))).size, gap: Math.round(r(map).right - r(first[first.length - 1]).right) }; }""")
-            assert s["lefts"] >= 2 and all(296 <= w <= 460 for w in s["widths"]) and s["main"] >= 848, "%d px: the side's blocks in two columns of 296 to 460 px: %r" % (width, s)
-            assert s["rows"] < rows1280 and s["gap"] < 40, "%d px: the squares fill the row (%d rows here, %d at 1280): %r" % (width, s["rows"], rows1280, s)
-            show(pg, "board-cards")
-            b = pg.evaluate("""() => { const c = Array.from(document.querySelectorAll('#view .bd > *')).map(e => e.getBoundingClientRect()), bd = document.querySelector('#view .bd').getBoundingClientRect();
-              return { n: c.length, tops: new Set(c.map(x => Math.round(x.top))).size, w: c.map(x => Math.round(x.width)), bd: Math.round(bd.width) }; }""")
-            assert b["n"] == 4 and b["tops"] == 1 and max(b["w"]) - min(b["w"]) <= 2 and sum(b["w"]) >= b["bd"] - 40, "%d px: the board's four columns share the width: %r" % (width, b)
-            show(pg, "board-map")
-            m = pg.evaluate("""() => { const c = Array.from(document.querySelectorAll('#view .wide > section')).map(e => e.getBoundingClientRect()), W = document.querySelector('#view .wide').clientWidth;
-              return { tops: c.map(x => Math.round(x.top)), w: c.map(x => Math.round(x.width)), W: W }; }""")
-            assert len(set(m["tops"])) < len(m["tops"]) and m["w"][0] < m["W"] / 2, "%d px: the stages with few tasks sit side by side, none a wide empty box: %r" % (width, m)
-            show(pg, "agents")
-            a = pg.evaluate(PER_ROW)
-            assert a["w"] <= 360, "%d px: no agent card is stretched: %r" % (width, a)
-            show(pg, "tokens")
-            k = pg.evaluate("""() => { const p = Array.from(document.querySelectorAll('#view .g2 > *')).map(e => e.getBoundingClientRect()), t = Math.round(p[0].top);
-              const full = document.querySelector('#view .g2 > .full .hb'), dts = Array.from(document.querySelectorAll('#view .tkh .kv dt')).map(e => Math.round(e.getBoundingClientRect().top));
-              return { row: p.filter(x => Math.round(x.top) === t).length, groups: full ? new Set(Array.from(full.querySelectorAll('.l')).map(e => Math.round(e.getBoundingClientRect().left))).size : 0, kv: new Set(dts).size }; }""")
-            assert k["row"] >= 3 and k["groups"] >= 2 and k["kv"] == 1, "%d px: the tokens' panels flow into columns: %r" % (width, k)
-            show(pg, "mem-list")
-            ml = pg.evaluate("new Set(Array.from(document.querySelectorAll('#view .g2 > section:first-child .list > li')).map(e => Math.round(e.getBoundingClientRect().left))).size")
-            assert ml >= 2, "%d px: the lessons sit in two columns: %r" % (width, ml)
-            show(pg, "mem-graph")
-            g = pg.evaluate("""() => { const s = document.querySelector('#view svg.mg').getBoundingClientRect(), t = document.querySelector('#view svg.mg text');
-              return { w: Math.round(s.width), h: Math.round(s.height), top: Math.round(s.top), vh: innerHeight, label: t ? Math.round(t.getBoundingClientRect().height) : 0 }; }""")
-            assert g["w"] > 1000 and g["top"] + g["h"] <= g["vh"] + 40 and 8 <= g["label"] <= 16, "%d px: the graph on a larger canvas that fits the window, labels at their size: %r" % (width, g)
-            show(pg, "bb")
-            bb = pg.evaluate("""() => { const g = document.querySelector('#view .g2').getBoundingClientRect(), n = document.querySelector('#view .wide > section:last-child').getBoundingClientRect();
-              return { g: Math.round(g.left), n: Math.round(n.right), top: Math.round(g.top), ntop: Math.round(n.top) }; }""")
-            assert bb["g"] > bb["n"] and bb["top"] < bb["ntop"] + 200, "%d px: the black box's panels sit beside its notes: %r" % (width, bb)
-            show(pg, "talk")
-            t = pg.evaluate("Math.round(document.querySelector('#view .cv > .win').getBoundingClientRect().width)")
-            assert t > thread1280 + 200, "%d px: the conversation is wider (%d at 1280): %r" % (width, thread1280, t)
+            sq = pg.evaluate("document.querySelector('#view .b-map .sq').getBoundingClientRect().width")
+            assert abs(sq - 28 * z) <= 1, "%d px: a square is 28 px times the scale: %r" % (width, sq)
+            rows = pg.evaluate("""() => Array.from(document.querySelectorAll('#view .b-tasks .rows > li[data-story]')).map(li => { const t = li.querySelector('.t').getBoundingClientRect(),
+              p = li.querySelector('.pipe').getBoundingClientRect(), w = li.querySelector('.w').getBoundingClientRect(), a = li.firstElementChild.getBoundingClientRect();
+              return { gap: Math.round(p.left - t.right), used: Math.round(w.right - a.left) }; })""")
+            assert rows and all(r["gap"] <= 12 * z + 2 and r["used"] <= 975 * z for r in rows), "%d px: a row's status next to its title: %r" % (width, rows[:3])
             for view in WIDE_VIEWS:
                 show(pg, view)
                 long = pg.evaluate(LINES_JS)
                 assert not long, "%d px, %s: lines of running text over about 90 characters: %r" % (width, view, long[:4])
+            # what is placed with the window's coordinates
+            show(pg, "bb")
+            lb = pg.evaluate("""() => new Promise(done => { const b = document.querySelector('#view .lbb'); b.click(); requestAnimationFrame(() => {
+              const p = document.querySelector('#view .lbp:not([hidden])').getBoundingClientRect(), r = b.getBoundingClientRect(); done([r.left, r.bottom, p.left, p.top]); }); })""")
+            assert abs(lb[2] - lb[0]) <= 2 and 0 <= lb[3] - lb[1] <= 6 * z + 2, "%d px: the list box opens under its button: %r" % (width, lb)
+            pg.keyboard.press("Escape")
+            show(pg, "sum")
+            sq = pg.locator("#view .b-map .sq").nth(5).bounding_box()
+            pg.mouse.move(sq["x"] + sq["width"] / 2, sq["y"] + sq["height"] / 2)
+            pg.mouse.move(sq["x"] + sq["width"] / 2 + 2, sq["y"] + sq["height"] / 2 + 1)
+            pg.wait_for_function("document.getElementById('tip').className === 'on'")
+            tip = pg.evaluate("(() => { const r = document.getElementById('tip').getBoundingClientRect(); return [r.left, r.top]; })()")
+            px, py = sq["x"] + sq["width"] / 2 + 2, sq["y"] + sq["height"] / 2 + 1
+            assert abs(tip[0] - (px + 12)) <= 2 or tip[0] + 12 <= px, "%d px: the tip sits at the pointer: %r %r" % (width, tip, (px, py))
+            pg.mouse.move(5, 5)
+            show(pg, "mem-graph")
+            node = pg.locator("#view svg.mg .gn.n-task").first.bounding_box()
+            pg.mouse.click(node["x"] + node["width"] / 2, node["y"] + node["height"] / 2)
+            pg.wait_for_function("document.querySelector('#view svg.mg .gn.sel')")
             assert not pg.errors, pg.errors
-    # the arrangement at 2560: arrange mode works, the columns are not stored, an older arrangement is drawn as saved
+    # Share exports the same images at every scale
+    cards = {}
+    for width in (1280, 1920, 2560):
+        with screen(root, tmp, wide_data(), width) as pg:
+            pg.evaluate("document.getElementById('share-btn').click()")
+            pg.wait_for_function("document.querySelectorAll('#share img.share-img').length === 2")
+            cards[width] = pg.evaluate("""async () => { const im = Array.from(document.querySelectorAll('#share img.share-img')); await Promise.all(im.map(i => i.decode()));
+              return im.map(i => [i.naturalWidth, i.naturalHeight, i.src]); }""")
+    assert cards[1280][0][:2] == [1200, 630] and cards[1280][1][:2] == [1080, 1920], "the two cards' sizes: %r" % [c[:2] for c in cards[1280]]
+    assert cards[1920] == cards[1280] and cards[2560] == cards[1280], "Share exports the same PNG at every scale"
+    # arrange mode at 2560: buttons, crossing and a drag that lands where the line shows
     with screen(root, tmp, wide_data(), 2560) as pg:
-        show(pg, "arr")
-        assert pg.evaluate("new Set(Array.from(document.querySelectorAll('#view .col[data-col=side] > .arr')).map(e => Math.round(e.getBoundingClientRect().left))).size") >= 2, "arranging keeps the side's columns"
-        def drag(grip, onto):
-            pg.evaluate("scrollTo({ top: 0, behavior: 'instant' })")
-            src, dst = pg.locator('[data-grip="%s"]' % grip).bounding_box(), pg.locator('#view .arr[data-blk="%s"]' % onto).bounding_box()
-            pg.mouse.move(src["x"] + src["width"] / 2, src["y"] + src["height"] / 2)
-            pg.mouse.down()
-            for k in range(1, 9):
-                pg.mouse.move(src["x"] + (dst["x"] + 40 - src["x"]) * k / 8, src["y"] + (dst["y"] + 4 - src["y"]) * k / 8)
-            pg.mouse.up()
-            return src, dst
-        # a drag inside the side, onto the top of its second column: it lands there, after the first column's components
-        src, dst = drag("tokens", "pace")
-        assert dst["x"] > pg.locator('#view .arr[data-blk="progress"]').bounding_box()["x"] + 100, "pace heads the side's second column: %r" % dst
-        pg.wait_for_function("Array.from(document.querySelectorAll('#view .col[data-col=side] > .arr')).map(e => e.getAttribute('data-blk')).join() === 'progress,agents,tokens,pace'")
-        press(pg, '[data-f="agents:down"]')
-        pg.wait_for_function("document.querySelector('#view .col[data-col=side]').children[2].getAttribute('data-blk') === 'agents'")
-        press(pg, '[data-f="pace:col"]')
-        pg.wait_for_function("document.querySelector('#view .col[data-col=main] .arr[data-blk=pace]')")
-        drag("tokens", "tasks")
+        edit(pg)
+        press(pg, '[data-f="tasks:up"]')
+        pg.wait_for_function("document.querySelector('#view .col[data-col=main]').children[1].getAttribute('data-blk') === 'tasks'")
+        press(pg, '[data-f="tokens:col"]')
         pg.wait_for_function("document.querySelector('#view .col[data-col=main] .arr[data-blk=tokens]')")
+        pg.evaluate("scrollTo({ top: Math.min(document.querySelector('[data-grip=pace]').getBoundingClientRect().top, document.querySelector('#view .arr[data-blk=map]').getBoundingClientRect().top) + scrollY - 60, behavior: 'instant' })")
+        src, dst = pg.locator('[data-grip="pace"]').bounding_box(), pg.locator('#view .arr[data-blk="map"]').bounding_box()
+        assert 0 <= src["y"] < 1380 and 0 <= dst["y"] < 1380, "both ends of the drag are on screen: %r %r" % (src, dst)
+        pg.mouse.move(src["x"] + src["width"] / 2, src["y"] + src["height"] / 2)
+        pg.mouse.down()
+        tx, ty = dst["x"] + 40, dst["y"] + 4
+        for k in range(1, 9):
+            pg.mouse.move(src["x"] + src["width"] / 2 + (tx - src["x"] - src["width"] / 2) * k / 8, src["y"] + src["height"] / 2 + (ty - src["y"] - src["height"] / 2) * k / 8)
+        pg.wait_for_function("document.querySelector('.dropline')")
+        mid = pg.evaluate("""() => { const l = document.querySelector('.dropline').getBoundingClientRect(), g = document.querySelector('[data-grip=pace]').getBoundingClientRect(),
+          m = document.querySelector('#view .arr[data-blk=map]').getBoundingClientRect(); return { line: l.top, map: m.top, gx: g.left + g.width / 2, gy: g.top + g.height / 2 }; }""")
+        assert -24 <= mid["line"] - mid["map"] <= 0, "the drop line shows the place above map: %r" % mid
+        assert abs(mid["gx"] - tx) <= 6 and abs(mid["gy"] - ty) <= 6, "the moved component follows the pointer: %r %r" % (mid, (tx, ty))
+        pg.mouse.up()
+        pg.wait_for_function("document.querySelector('#view .col[data-col=main] .arr[data-blk=pace]')")
         lay = layout_in(pg)
-        assert lay == {"main": ["needs", "map", "tokens", "tasks", "pace", "lanes"], "side": ["progress", "agents"]}, "moves, crossing and drags at 2560 px: %r" % lay
+        assert lay["main"].index("pace") == lay["main"].index("map") - 1 and "tokens" in lay["main"], "it lands where the line showed: %r" % lay
         kept = json.loads(pg.evaluate("(k) => localStorage.getItem(k)", KEY))
-        assert sorted(kept) == ["hide", "main", "side"] and kept["side"] == ["progress", "agents"], "what is kept is the two lists and the hidden ones, never a column count: %r" % kept
+        assert sorted(kept) == ["hide", "main", "side"] and kept["main"] == lay["main"], "what is kept is the two lists and the hidden ones: %r" % kept
         assert not pg.errors, pg.errors
     old = {"main": ["needs", "lanes", "tasks"], "side": ["tokens", "progress", "map", "agents"], "hide": ["pace"]}
     with screen(root, tmp, wide_data(), 1920, seed={KEY: json.dumps(old)}) as pg:
         assert layout_in(pg) == {"main": old["main"], "side": old["side"]}, "an arrangement saved before UAK-198 is drawn as saved: %r" % layout_in(pg)
-        assert pg.evaluate("new Set(Array.from(document.querySelectorAll('#view .col[data-col=side] > *')).map(e => Math.round(e.getBoundingClientRect().left))).size") >= 2
         assert pg.evaluate("(k) => localStorage.getItem(k)", KEY) == json.dumps(old), "and kept as it was: nothing about the width is added"
         assert not pg.errors, pg.errors
     return "browser"
@@ -1179,8 +1176,8 @@ SCROLL_JS = """() => { const d = document.documentElement, ctl = Array.from(docu
 def no_sideways_scroll_from_320_to_3840(root, tmp):
     """From 320 to 3840 px no view of any tab scrolls sideways and the header's controls end at the window's right edge; the same
     with no task, one task, 300 tasks and 40 agents, with every side block hidden, with every block in the main column or in the
-    side, with what needs you in the side (arranging too: on main it pushed a 296 px side past the window at 1280 px), and at
-    1920 px zoomed to 200 % (960 px of CSS), where the page is the 960 px page."""
+    side, with what needs you in the side (arranging too: on main it pushed a 296 px side past the window at 1280 px), at browser
+    zoom 67 % to 175 % of a 1920 px screen, and at 1920 px zoomed to 200 % (960 px of CSS), where the page is the 960 px page."""
     for width in (320, 360, 390, 414, 640, 768, 900, 1024, 1100, 1280, 1366, 1440, 1600, 1920, 2560, 3840):
         with screen(root, tmp, wide_data(), width, phone=width < 640) as pg:
             for view in WIDE_VIEWS:
@@ -1209,6 +1206,17 @@ def no_sideways_scroll_from_320_to_3840(root, tmp):
                     r = pg.evaluate(RIGHT_JS)
                     assert width - 32 <= r["right"] <= width, "%s, %d px: the summary reaches the right edge: %r" % (name, width, r)
                 assert not pg.errors, pg.errors
+    for zf in (0.67, 0.75, 0.9, 1.1, 1.25, 1.5, 1.75):   # a 1920 px screen at browser zoom 67 % to 175 %: the window in CSS px is 1920 / zoom
+        width = int(round(1920 / zf))
+        with screen(root, tmp, wide_data(), width, height=int(round(1080 / zf)), scale=zf) as pg:
+            for view in WIDE_VIEWS:
+                show(pg, view)
+                m = pg.evaluate(SCROLL_JS)
+                assert m["sw"] <= m["cw"] and width - 32 <= m["head"] <= width, "browser zoom %d %%, %s: %r" % (zf * 100, view, m)
+                if width > 1432 and view != "mem-graph":
+                    r = pg.evaluate(RIGHT_JS)
+                    assert width - 32 <= r["right"] <= width, "browser zoom %d %%, %s: the content reaches the right edge: %r" % (zf * 100, view, r)
+            assert not pg.errors, pg.errors
     with screen(root, tmp, wide_data(), 960, height=540, scale=2) as zoomed:
         show(zoomed, "sum")
         z = zoomed.evaluate(BOXES_JS)
@@ -1222,7 +1230,7 @@ def no_sideways_scroll_from_320_to_3840(root, tmp):
 TESTS = [summary_is_a_list_of_components, arrange_mode_shakes_and_respects_reduced_motion, move_hide_and_add_persist_per_viewer,
          needs_you_cannot_be_hidden, team_default_is_used_when_the_viewer_has_none, unknown_component_falls_back,
          arranging_works_with_the_keyboard, corrupt_arrangement_gives_the_default, language_is_applied_before_first_paint]
-TESTS += [content_reaches_the_right_edge_on_wide_screens, wide_screens_add_columns_not_stretch, layout_is_unchanged_at_1280_and_below,
+TESTS += [content_reaches_the_right_edge_on_wide_screens, wide_screens_scale_up_not_stretch, layout_is_unchanged_at_1280_and_below,
           no_sideways_scroll_from_320_to_3840]
 
 
