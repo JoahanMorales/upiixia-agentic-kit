@@ -1,5 +1,7 @@
 # UPIIXIA Agentic Kit
 
+The harness for multi-agent teams. It runs no model of its own: it coordinates the coding tools you already use, such as Claude Code, Codex and Cursor.
+
 > A set of Bash scripts and written rules that lets several AI coding agents work in one Git repository at the same time, each on its own task, with every change tested and reviewed before it reaches the main branch.
 
 The aim: several people and their coding agents working on one repository at the same time, without stepping on each other.

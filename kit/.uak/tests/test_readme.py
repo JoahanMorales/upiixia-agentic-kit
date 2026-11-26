@@ -7,7 +7,8 @@ day: "too short, lifeless, it does not help; as you defined the kit I would not 
 may say where the kit is going, marked as an aim, and says what works today in sentences that are true today.
 
   readme_is_at_most_300_lines               the whole README fits in 300 lines
-  top_has_banner_vision_and_badges          the banner, the title, one line with the vision (marked as the aim) and the
+  top_has_banner_vision_and_badges          the banner, the title, the tagline with what the kit is not, one line with
+                                            the vision (marked as the aim) and the
                                             badges (tests, license, runtime dependencies, coding tools, M8ven)
   first_screen_answers_the_four_questions   then, with nothing else before them: what it is, who it is for, what you
                                             have after ten minutes, the one command to start
@@ -131,6 +132,8 @@ OUTLINE = ["Why it exists", "See it run", "Get started", "How it works", "What i
 # The top of the README, before the four answers.
 BANNER = "docs/media/banner.png"
 TITLE = "# UPIIXIA Agentic Kit"
+TAGLINE = "**The harness for multi-agent teams.**"   # the human's words (2026-11-26), right under the title
+TAGLINE_TRUTH = "no model"   # and in the same line, what it is not: it runs no model, it coordinates your tools
 VISION_MARK = "aim"   # the vision line says it is the aim, not a claim about today
 BADGES = {   # what each badge is, and a piece of its image URL
     "tests": "actions/workflows/test.yml/badge.svg",
@@ -342,8 +345,11 @@ def top_has_banner_vision_and_badges():
     title_at = filled.index(TITLE)
     expect(filled.index(first_image) < title_at, "the banner comes before the title")
     after = filled[title_at + 1:]
+    expect(after and after[0].startswith(TAGLINE) and TAGLINE_TRUTH in after[0].lower(),
+           "right under the title, %s and, in the same line, that it runs %s: %r" % (TAGLINE, TAGLINE_TRUTH, after[:1]))
+    after = after[1:]
     expect(after and VISION_MARK in plain(after[0]).lower(),
-           "right after the title, one line says the vision and marks it as the %s: %r" % (VISION_MARK, after[:1]))
+           "then one line says the vision and marks it as the %s: %r" % (VISION_MARK, after[:1]))
     expect(len(re.findall(r"[.!](\s|$)", plain(after[0]))) <= 3 and len(plain(after[0]).split()) <= 40,
            "the vision is one short line: %r" % after[0])
     block = "\n".join(top)
