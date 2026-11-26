@@ -1049,6 +1049,9 @@ LINES_JS = """() => { document.querySelectorAll('#view details').forEach(d => { 
   return out.filter(x => x[0] > 95); }"""
 
 
+# The blocks without the cells of the rows: a cell sized by its text (the command, a capped line) follows the font's own widths
+# at each size, so it is no measure of where the composition puts things.
+BLOCKS_JS = BOXES_JS.replace(", #view .need > li > *, #view .rows > li > *", "")
 ZOOM_JS = "parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--z')) || 1"
 
 
@@ -1082,12 +1085,12 @@ def wide_screens_scale_up_not_stretch(root, tmp):
             pg.add_style_tag(content=".head, .page, .wide { padding-left: %.4fpx !important; padding-right: %.4fpx !important; }" % (24 / z, 24 / z))
             for view in WIDE_VIEWS:
                 show(pg, view)
-                base[view] = pg.evaluate(BOXES_JS)
+                base[view] = pg.evaluate(BLOCKS_JS)
         with screen(root, tmp, wide_data(), width, height=height) as pg:
             assert abs(pg.evaluate(ZOOM_JS) - z) < 0.0005, "the page's scale at %d px: %r" % (width, pg.evaluate(ZOOM_JS))
             for view in WIDE_VIEWS:
                 show(pg, view)
-                got = pg.evaluate(BOXES_JS)
+                got = pg.evaluate(BLOCKS_JS)
                 assert len(got) == len(base[view]), "%d px, %s: %d boxes, %d at 1432 px" % (width, view, len(got), len(base[view]))
                 bad = [(i, a, b) for i, (a, b) in enumerate(zip(got, base[view])) if abs(a[0] / z - b[0]) > 2 or abs(a[2] / z - b[2]) > 2]
                 assert not bad, "%d px, %s: a box is not where the 1432 px page has it, times %.3f (index, here, at 1432): %r" % (width, view, z, bad[:4])
