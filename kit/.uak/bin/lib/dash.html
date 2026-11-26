@@ -627,6 +627,7 @@ dialog#story::backdrop { background: var(--scrim); }
    together and the composition stays the one approved at 1280 px, laid out as at 1432 px. CSS zoom lays text out again at its
    new size (crisp, unlike a transform); its 100vh is scaled too, so what is as tall as the window divides by --z. Nothing here
    applies up to 1432 px: the screens approved at 1280 and 390 px are unchanged. */
+html { --z: 1; }   /* the scale; the script sets it from the window's width (wideScale) */
 @media (min-width:1433px) {
   .app { min-height: calc(100vh / var(--z, 1)); }
   .tabs { height: calc(100vh / var(--z, 1)); }
