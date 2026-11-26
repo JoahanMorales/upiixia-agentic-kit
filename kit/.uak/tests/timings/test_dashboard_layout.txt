@@ -1,4 +1,5 @@
-# measured 2026-11-25 45672190419
-# each entry is ceil(MAXIMUM over the runs read) + 1 s: runs 45672190419, 45669137198, 45665524570, 45643626140, 45638994194 (and 45635485890 for Linux and macOS), `ci` over Linux and macOS, `windows` over Windows (start line to result line of the file). Linux runs the file with Chromium since UAK-195 (8 cases in the browser, 15 launches: 17.71 s in 45669137198, 18.17 s in 45672190419); macOS and Windows have no browser and run its node parts (macOS max 5.92, Windows max 30.22).
-ci 20
-windows 32
+# measured 2026-11-26 45730747487
+# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 90.2 s (45730747487), macos 10.0 s (45705330053), windows 30.2 s (45638994194)
+# UAK-198: runs of this task's pull request (Linux runs the file's cases in Chromium, macOS and Windows its node parts; 45730747487 is the file of the scale-up, 13 cases) and 45638994194 for Windows (30.2 s, before UAK-198)
+ci 113
+windows 38
