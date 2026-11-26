@@ -632,7 +632,7 @@ SCENE.lanes = (lt) => {
       <div class="lane-rail" style="left:${X0}px;width:${X1 - X0}px;top:${y - 2}px"></div>
       <div class="lane-rail" style="left:${X0}px;width:${prog >= 0 ? (X1 - X0) * prog : 0}px;top:${y - 2}px;background:${c}"></div>` +
       STOPS.map(([lab, at]) => `<i class="lnode${prog >= at && prog >= 0 ? " on" : ""}" style="--c:${c};left:${lerp(X0, X1, at) - 8}px;top:${y - 8}px"></i>` +
-        (i === 0 ? `<span class="abs mono" style="left:${lerp(X0, X1, at) - 40}px;width:80px;text-align:center;top:${y + 16}px;font:500 13px var(--mono);color:var(--muted)">${lab}</span>` : "")).join("") + car;
+        (i === 0 ? `<span class="abs mono" style="left:${lerp(X0, X1, at) - 40}px;width:80px;text-align:center;top:${y - 44}px;font:500 13px var(--mono);color:var(--muted)">${lab}</span>` : "")).join("") + car;
     const lit = merged !== false && merged < 1.4;
     svg += `<path d="M ${X1} ${y} C ${X1 + 60} ${y}, ${MAINX - 50} ${y}, ${MAINX + 5} ${y}" stroke="${lit ? c : "var(--line-2)"}" stroke-width="${lit ? 6 : 4}" fill="none" stroke-linecap="round"/>`;
     if (merged !== false) html += `<i class="abs" style="left:${MAINX - 7}px;top:${y - 12}px;width:24px;height:24px;border-radius:50%;background:${c};border:4px solid var(--page);transform:scale(${(1 + 0.45 * (1 - ease(merged / 0.4))).toFixed(3)})"></i>`;
