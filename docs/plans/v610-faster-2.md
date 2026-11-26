@@ -1,0 +1,35 @@
+## UAK-203 · A conflict in a generated file is resolved by regenerating it, at `done` and at the merge
+
+- **Type:** fix
+- **Priority:** P0
+- **Estimate:** 5 h
+- **Depends on:** UAK-201
+- **Paths:** kit/.uak/bin/lib/review-merge.sh, kit/.uak/bin/lib/done.sh, kit/.uak/bin/lib/hints.sh, kit/.uak/docs/WHY.md, kit/.uak/docs/CLI.md, kit/.uak/tests/test_generated_conflict.py, kit/.uak/tests/timings/test_generated_conflict.txt
+- **Acceptance:**
+  - when the only conflicts between a task's branch and the base are in files declared `Generated: PATH = COMMAND` in the base's `PROJECT.md`, `uak merge` does not send the task to the human: in its own clone it merges, takes either side of each generated file, runs COMMAND, checks the result as it already does for a generated file (COMMAND succeeds, the file equals what COMMAND writes, no other tracked file changed), runs the smoke and Verify on that result, and lands it; the record says which files were regenerated. Why: on 2026-11-24 and 25 an approved task lost a whole round (a new push, 30 to 60 minutes of CI, a new `done`, a new review) every time another task merged first, because both had regenerated `kit/.uak/settings/known-files.txt` and Git cannot merge it; it happened to UAK-162, UAK-192, UAK-194, UAK-195, UAK-165 and UAK-160, and the gate answered "Conflict with current base; a human must resolve and request a new review" for a file a command rewrites
+  - the approval still holds for what was reviewed: the gate lands the reviewed tip merged with the base, and the only content that differs from "reviewed tip plus base" is inside generated files; a conflict in any other file is refused as today, and so is a generated file whose COMMAND fails or touches another file
+  - `uak done` stops warning "UPSTREAM … you both edit it … Fix now, not at merge" for a file that is generated: it says the gate will regenerate it; for every other file the warning stays
+  - the pull request on the forge may still show "conflicting" for that file: `uak merge` says so in one sentence, and when the task goes to the human for another reason the hint gives the three commands that resolve it (merge the base, run COMMAND, commit)
+  - nothing changes for a project with no `Generated:` line
+- **Tests:** generated_conflict_is_regenerated_at_merge, other_conflict_is_still_refused, failing_generator_is_refused, done_does_not_warn_for_a_generated_file, record_names_the_regenerated_files, project_without_generated_is_unchanged
+- **Verify:** `python3 kit/.uak/tests/test_generated_conflict.py && python3 kit/.uak/tests/test_merge_engine_policy.py`
+- **Next step:** where the gate merges the base and where it runs the `Generated:` command (search `Generated` in kit/.uak/bin/lib/review-merge.sh; its rule is a row of kit/.uak/docs/WHY.md); the `UPSTREAM` warning in kit/.uak/bin/lib/done.sh; the gate's library is the human's file, so the merge goes to the human
+
+## UAK-204 · Two tasks can work in the same file when they claim different regions of it
+
+- **Type:** feature
+- **Priority:** P0
+- **Estimate:** 12 h
+- **Depends on:** UAK-203
+- **Paths:** kit/.uak/bin/lib/claim.sh, kit/.uak/bin/lib/plan.sh, kit/.uak/bin/lib/backlog.sh, kit/.uak/bin/lib/done.sh, kit/.uak/bin/lib/review-merge.sh, kit/.uak/bin/lib/lint.sh, kit/.uak/bin/lib/hints.sh, kit/.uak/bin/lib/regions.py, kit/.uak/bin/lib/commands.tsv, kit/AGENTS.md, kit/.uak/docs/CLI.md, kit/.uak/docs/WHY.md, kit/.uak/tests/test_region_claims.py, kit/.uak/tests/timings/test_region_claims.txt
+- **Acceptance:**
+  - a task's `Paths` may name regions of a file: `PATH#NAME` (a function, a class or a method `Class.method`), several separated by commas (`setup.py#run_action,#TreeWatch`), or a marked block `PATH#block:NAME` between the comments `uak-region:begin NAME` and `uak-region:end NAME`; a bare `PATH` still means the whole file. Two live claims may share a file when their regions do not overlap; a whole-file claim overlaps every region of that file. Why: the human, 2026-11-26: "this kit is for building fast"; on 2026-11-24 and 25 tasks waited in a queue for a file another task held although they touched different functions (UAK-196 waited for UAK-160 for a day over `setup.py`), and Git itself merges two branches that edit different parts of a file. Regions are names, never line numbers: a line number stops being true at the first commit above it
+  - regions are found by the kit, not trusted: `regions.py` gives the start and end line of each named region in a version of a file for Python (functions, classes, methods), shell (functions), JavaScript (top-level functions and `name = function`/arrow assignments) and marked blocks in any text file; a region that does not exist in the base is refused at `plan` with the names that do exist, and a file type with no parser accepts only marked blocks or the whole file
+  - the claim is enforced where a path is enforced today: `uak done` and the gate refuse a change outside the task's regions, naming the hunk and the region it fell in or "outside every region" (new top-level code goes in a region the task declares as new with `PATH#new:NAME`, which no other live claim may also declare); deleting or renaming a region another live claim holds is refused
+  - a refused claim says who holds what: "UAK-204 overlaps UAK-160 (kit-a1) on setup.py#run_action", and `uak wait ID --for free PATH#NAME` returns when it is released; the holder gets one message
+  - the gate lands two such tasks one after the other without a human when Git merges them cleanly and the smoke and Verify pass on the merged result; a real textual conflict, or a red smoke, goes as today. The kit says plainly what regions do not protect against: two regions that depend on each other's behaviour; the smoke of the merged result is the check, and WHY.md says so
+  - `uak status` and the dashboard's data show the regions of each live claim; `uak next` offers a task whose regions are free even when its file is held
+  - nothing changes for a plan that uses bare paths; a kit older than this one reading a newer plan refuses a `#` path with a sentence that names the version needed
+- **Tests:** regions_are_found_in_python_shell_and_js, a_marked_block_is_a_region, disjoint_regions_can_be_claimed_together, whole_file_overlaps_every_region, a_missing_region_is_refused_at_plan, change_outside_the_region_is_refused, new_code_needs_a_declared_new_region, refusal_names_the_holder_and_the_region, two_region_tasks_merge_without_a_human, bare_paths_behave_as_before
+- **Verify:** `python3 kit/.uak/tests/test_region_claims.py && python3 kit/.uak/tests/test_merge_engine_policy.py`
+- **Next step:** how `Paths` are parsed and compared for overlap (search `overlaps` in kit/.uak/bin/lib/claim.sh and kit/.uak/bin/lib/plan.sh) and how `done` and the gate decide "outside Paths" (search `SCOPE` in kit/.uak/bin/lib/done.sh and kit/.uak/bin/lib/review-merge.sh); the parser is a new Python file with no dependency (the standard `ast` for Python, a small scanner for shell and JavaScript); the gate's library is the human's file, so the merge goes to the human

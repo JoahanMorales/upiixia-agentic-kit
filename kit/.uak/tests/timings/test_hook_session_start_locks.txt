@@ -1,0 +1,5 @@
+# measured 2026-11-25 45693940366
+# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 68.9 s (45693940366), macos 97.2 s (45693940366), windows 179.1 s (45693940366)
+# UAK-197: locks, refresh owners and simultaneous starts moved from test_hook_session_start_speed; measured on this task's run 45693940366
+ci 122
+windows 224

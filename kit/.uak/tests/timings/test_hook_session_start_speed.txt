@@ -1,4 +1,5 @@
-ci 199
-windows 536
-# measured 2026-11-24 45379109296
-# Maximum of the runs read, plus 1 s. Windows: 399, 476, 486, 535 s (45365777029, 45387908212, 45383987406, 45379109296 = 535). ci: Linux 170 s (45365777029) and macOS 198 s (main run 45467440714, the file before this task's cases: macOS has not run this version of the file yet; the next main run measures it)
+# measured 2026-11-25 45693940366
+# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 37.4 s (45693940366), macos 76.0 s (45693940366), windows 116.2 s (45693940366)
+# UAK-197: split in three (locks and refresh owners in test_hook_session_start_locks, the flush's clones and killed jobs in test_hook_session_start_clones); measured on this task's run 45693940366 (the file before the split took 399 to 536 s on Windows)
+ci 95
+windows 146
