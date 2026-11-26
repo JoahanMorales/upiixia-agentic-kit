@@ -260,12 +260,13 @@ def missing_demo_hides_the_block(root, tmp):
 # UAK-199: the media themselves. Why: the review of UAK-158 found the poster still showing the old dark card with a
 # purple glow (the look from before docs/design/DIRECTION.md) and the frames showing screens of v6.8. The poster and three
 # frames extracted at render time (docs/video/render.mjs) are read here in pure Python, without ffmpeg: their dominant
-# colours must be the Lavanda palette of the kit's own design system (the uak-system block of setup.html).
+# colours must be the Lavanda palette of the kit's own design system on its designed dark (the uak-system block of
+# setup.html, [data-theme="dark"]; the human asked for dark on 2026-11-25): its grounds, not the darker, flat-black card.
 SHIPPED = {"tutorial.mp4": 820642, "tutorial-poster.jpg": 38328}  # the sizes of v6.8: the new media are not heavier
 MAX_SECONDS = 75.0
 FRAMES = ("tutorial-frame-1.png", "tutorial-frame-2.png", "tutorial-frame-3.png")
 FRAME_BYTES = 40 * 1024
-GROUNDS = ("page", "surface", "raised", "hover", "accent-wash", "line")
+GROUNDS = ("page", "surface", "raised", "hover")
 
 
 class Skip(Exception):
@@ -283,13 +284,13 @@ def kit_media(name):
 
 
 def lavanda():
-    """{token: (r, g, b)} for the Lavanda palette in light, computed from the uak-system block of setup.html."""
+    """{token: (r, g, b)} for the Lavanda palette on the dark theme, computed from the uak-system block of setup.html."""
     css = lib("setup.html")
     css = css[css.index("/* uak-system:begin"):css.index("/* uak-system:end")]
     pal = re.search(r'\[data-pal="lavanda"\] \{ --h: (\d+); --sa: (\d+)%; \}', css)
     assert pal, "setup.html names the Lavanda hue and saturation"
     hue, sat = float(pal.group(1)), float(pal.group(2))
-    block = re.search(r':root\[data-pal\]:not\(\[data-pal="clasico"\]\) \{([^}]*)\}', css).group(1)
+    block = re.search(r':root\[data-pal\]:not\(\[data-pal="clasico"\]\)\[data-theme="dark"\] \{([^}]*)\}', css).group(1)
 
     def hsl(h, s, l):
         s, l = s / 100.0, l / 100.0
@@ -504,47 +505,53 @@ def jpeg_blocks(path):
 
 
 def palette_stats(pixels, palette):
-    """{top, near, dark, glow} of an image: its most common colour (in steps of 6), and the shares of palette colours,
-    of dark pixels and of saturated violet that is not a palette colour (the glow of the old card). Each distinct
-    colour is measured once."""
+    """{top, near, below, glow} of an image: its most common colour (in steps of 4), and the shares of palette colours,
+    of pixels darker than the palette's darkest ground (the old card's near-black) and of saturated violet that is not a
+    palette colour (its glow). Each distinct colour is measured once."""
     def dist(a, b):
         return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
+    def lum(p):
+        return (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) / 255.0
+
     tokens, exact, coarse = list(palette.values()), {}, {}
+    floor = min(lum(palette[g]) for g in GROUNDS) - 0.012
     for p in pixels:
         exact[p] = exact.get(p, 0) + 1
-    near = dark = glow = 0
+    near = below = glow = 0
     for p, k in exact.items():
-        key = tuple(v // 6 * 6 for v in p)
+        key = tuple(v // 4 * 4 for v in p)
         coarse[key] = coarse.get(key, 0) + k
         on = min(dist(p, c) for c in tokens) <= 18
         near += k if on else 0
-        if (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) / 255.0 < 0.25:
-            dark += k
+        if lum(p) < floor:
+            below += k
         mx, mn = max(p), min(p)
         if not on and mx > 40 and (mx - mn) / float(mx) > 0.3 and p[2] >= p[1] and p[0] >= p[1] and p[2] > p[0] * 0.9:
             glow += k
     n = float(len(pixels))
-    return {"top": max(coarse.items(), key=lambda kv: kv[1])[0], "near": near / n, "dark": dark / n, "glow": glow / n}
+    top = max(coarse.items(), key=lambda kv: kv[1])[0]
+    return {"top": tuple(v + 2 for v in top), "near": near / n, "below": below / n, "glow": glow / n}
 
 
 def palette_verdict(name, pixels, palette):
-    """Why the colours of an image are not the palette's ('' when they are): the most common colour is a light ground of
-    the palette, at least 80% of the image is a palette colour, little of it is dark (a light design, not the old dark
-    card) and almost none is a saturated violet outside the palette (its glow)."""
+    """Why the colours of an image are not the palette's ('' when they are): the most common colour is a ground of the
+    dark palette, at least 80% of the image is a palette colour, almost nothing is darker than its darkest ground (the old
+    card: a flat near-black with a purple glow) and almost none is a saturated violet outside the palette."""
     s = palette_stats(pixels, palette)
 
     def dist(a, b):
         return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
     ground = min(GROUNDS, key=lambda g: dist(s["top"], palette[g]))
-    if dist(s["top"], palette[ground]) > 12:
+    if dist(s["top"], palette[ground]) > 7:
         return "%s: its most common colour %s is not a ground of the palette (nearest --%s %s)" % (
             name, "#%02x%02x%02x" % s["top"], ground, "#%02x%02x%02x" % palette[ground])
     if s["near"] < 0.80:
         return "%s: only %.0f%% of it is a palette colour (at least 80%%)" % (name, 100 * s["near"])
-    if s["dark"] > 0.12:
-        return "%s: %.0f%% of it is dark (at most 12%%): a light design, not a dark card" % (name, 100 * s["dark"])
+    if s["below"] > 0.05:
+        return "%s: %.0f%% of it is darker than the palette's grounds (at most 5%%): the old near-black card" % (
+            name, 100 * s["below"])
     if s["glow"] > 0.03:
         return "%s: %.1f%% of it is a saturated violet outside the palette (at most 3%%): no glow" % (name, 100 * s["glow"])
     return ""

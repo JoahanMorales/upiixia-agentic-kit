@@ -10,28 +10,29 @@
      The scenes and their seconds are the JSON below; captions.json holds the captions on the same seconds and
      test_setup_tutorial.py checks that both agree. -->
 <script type="application/json" id="scenes">[
-  {"id": "title",    "page": "title",     "start": 0,    "end": 4.5},
-  {"id": "terminal", "page": "terminal",  "start": 4.5,  "end": 8.5},
-  {"id": "project",  "page": "wizard",    "start": 8.5,  "end": 13},
-  {"id": "install",  "page": "wizard",    "start": 13,   "end": 17.5},
-  {"id": "team",     "page": "wizard",    "start": 17.5, "end": 23},
-  {"id": "publish",  "page": "wizard",    "start": 23,   "end": 27},
-  {"id": "idea",     "page": "wizard",    "start": 27,   "end": 31},
-  {"id": "plan",     "page": "wizard",    "start": 31,   "end": 35.5},
-  {"id": "start",    "page": "wizard",    "start": 35.5, "end": 40.5},
-  {"id": "claim",    "page": "wizard",    "start": 40.5, "end": 44.5},
-  {"id": "follow",   "page": "wizard",    "start": 44.5, "end": 49},
-  {"id": "squares",  "page": "dashboard", "start": 49,   "end": 54},
-  {"id": "waits",    "page": "dashboard", "start": 54,   "end": 58},
-  {"id": "needs",    "page": "dashboard", "start": 58,   "end": 63},
-  {"id": "agents",   "page": "dashboard", "start": 63,   "end": 67},
-  {"id": "arrange",  "page": "dashboard", "start": 67,   "end": 70.5},
-  {"id": "share",    "page": "dashboard", "start": 70.5, "end": 74}
+  {"id": "title",    "page": "crew",      "start": 0,    "end": 4.5},
+  {"id": "you",      "page": "crew",      "start": 4.5,  "end": 8.5},
+  {"id": "project",  "page": "wizard",    "start": 8.5,  "end": 12.5},
+  {"id": "install",  "page": "wizard",    "start": 12.5, "end": 16.5},
+  {"id": "team",     "page": "wizard",    "start": 16.5, "end": 21.5},
+  {"id": "publish",  "page": "wizard",    "start": 21.5, "end": 25.5},
+  {"id": "idea",     "page": "wizard",    "start": 25.5, "end": 29.5},
+  {"id": "plan",     "page": "wizard",    "start": 29.5, "end": 34},
+  {"id": "start",    "page": "wizard",    "start": 34,   "end": 38.5},
+  {"id": "follow",   "page": "wizard",    "start": 38.5, "end": 42.5},
+  {"id": "crew",     "page": "crew",      "start": 42.5, "end": 47},
+  {"id": "lanes",    "page": "crew",      "start": 47,   "end": 51.5},
+  {"id": "grid",     "page": "crew",      "start": 51.5, "end": 56},
+  {"id": "squares",  "page": "dashboard", "start": 56,   "end": 60},
+  {"id": "needs",    "page": "dashboard", "start": 60,   "end": 64},
+  {"id": "agents",   "page": "dashboard", "start": 64,   "end": 67.5},
+  {"id": "arrange",  "page": "dashboard", "start": 67.5, "end": 71},
+  {"id": "share",    "page": "dashboard", "start": 71,   "end": 74}
 ]</script>
 <style>
   @font-face { font-family: Inter; src: url(/kit/.uak/bin/lib/fonts/Inter.woff2) format("woff2"); font-weight: 100 900; font-style: normal; }
   @font-face { font-family: "JetBrains Mono"; src: url(/kit/.uak/bin/lib/fonts/JetBrainsMono.woff2) format("woff2"); font-weight: 100 800; font-style: normal; }
-  html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: #f6f6f9; }
+  html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: #0e0e11; }
   #stage { position: relative; width: 1280px; height: 720px; overflow: hidden; }
   .host { position: absolute; inset: 0; z-index: 0; }
   .host[hidden] { display: none; }
@@ -43,13 +44,14 @@
 <div id="stage">
   <div class="host" id="wiz"></div>
   <div class="host" id="dash" hidden></div>
+  <div class="host" id="own" hidden></div>
   <div id="cursor" aria-hidden="true" hidden><svg viewBox="0 0 26 34" width="26" height="34"><path d="M3 3 L3 27 L9.5 21 L14 31 L18.5 29 L14 19.5 L23 19.5 Z" fill="#1d1b27" stroke="#ffffff" stroke-width="2" stroke-linejoin="round"/></svg></div>
 </div>
 <script>
 "use strict";
 const SCENES = JSON.parse(document.getElementById("scenes").textContent);
 window.DURATION = SCENES[SCENES.length - 1].end;
-const ZOOM = { wiz: 1.6, dash: 1.45 }; // the wizard is laid out at 800x450, the dashboard at 883x497; both fill 1280x720
+const ZOOM = { wiz: 1.6, dash: 1.45, own: 1 }; // the wizard is laid out at 800x450, the dashboard at 883x497, the crew at 1280x720
 const PROJECT = "cafe-turnos", WHERE = "~/proyectos/cafe-turnos";
 
 // ---- the product's own stylesheets, in two shadow roots --------------------------------------------------------------
@@ -137,7 +139,7 @@ const DASH = COMMON + `
 const hosts = {};
 async function mount(id, css, theme) {
   const host = document.getElementById(id), root = host.attachShadow({ mode: "open" });
-  root.innerHTML = `<style>${css}</style><div class="pg" data-pal="lavanda" data-theme="light"></div>`;
+  root.innerHTML = `<style>${css}</style><div class="pg" data-pal="lavanda" data-theme="dark"></div>`;
   hosts[id] = { host, root, pg: root.querySelector(".pg") };
 }
 window.ready = (async () => {
@@ -148,6 +150,7 @@ window.ready = (async () => {
   }));
   await mount("wiz", adopt(setup) + WIZ);
   await mount("dash", adopt(dash) + DASH);
+  await mount("own", adopt(setup) + OWN);
   await Promise.all([document.fonts.load("400 13px Inter"), document.fonts.load("700 13px Inter"), document.fonts.load("500 12px 'JetBrains Mono'")]);
   if (!document.fonts.check("13px Inter") || !document.fonts.check("12px 'JetBrains Mono'")) throw new Error("the kit's fonts did not load");
   return true;
@@ -215,36 +218,6 @@ const WRITTEN = [["", PROJECT + "/", ""], ["add", "  .uak/ engine, docs, templat
 const WRITTEN_FIGS = [["~201", "files added"], ["2", "tools"], ["0", "files replaced"]];
 
 const SCENE = {};
-
-SCENE.title = () => ({
-  host: "wiz",
-  html: `<div class="ttl"><div>
-      <div class="brand"><span class="mark">${MARK}</span><b>UPIIXIA Agentic Kit</b></div>
-      <h1>The setup page, then the dashboard</h1>
-      <p style="margin-top:16px"><span class="pill">Demonstration · drawn screens</span></p>
-    </div>
-    ${win("tutorial · 74 s", [["", "0:08  setup page", ""], ["", "0:27  idea and plan", ""], ["", "0:35  your agents", ""], ["", "0:49  dashboard", ""]], [["10", "screens"], ["74 s", "long"], ["es · en", "captions"]])}
-    </div>
-    <div class="journey ttl-nodes"><ol class="nodes">${["Project", "Install", "Rules", "People", "Publish", "Plan", "Agents", "Dashboard"].map((s, i) =>
-      `<li${i === 0 ? ' aria-current="step"' : ""}><i></i><span>${s}</span></li>`).join("")}</ol></div>`,
-});
-
-SCENE.terminal = (lt) => {
-  const cmd = "bash ~/upiixia-agentic-kit/install.sh --wizard .";
-  const shown = typed(cmd, lt, 0.4, 30), done = shown.length === cmd.length, out = lt >= 2.3;
-  const caret = !out && Math.floor(lt * 2.5) % 2 === 0 ? '<span class="caret"></span>' : "";
-  const lines = [`<span class="p">${esc(WHERE)} $</span> ${esc(shown)}${done && !out ? "" : caret}`];
-  if (out) {
-    lines.push('<span class="o">UAK SETUP http://127.0.0.1:8765/</span>');
-    lines.push('<span class="m">Keep this terminal open. The page opens from that file</span>');
-    lines.push('<span class="m">with a one-time code (valid 120 seconds, used once).</span>');
-  }
-  return {
-    host: "wiz",
-    html: `<div style="padding:78px 56px 0"><div class="win"><div class="win-h"><i></i><i></i><i></i><span>terminal · ${esc(WHERE)}</span></div>
-      <div class="term-b" style="font-size:15px;min-height:150px;padding:16px 18px">${lines.join("\n")}</div></div></div>`,
-  };
-};
 
 SCENE.project = (lt) => ({
   host: "wiz",
@@ -351,8 +324,8 @@ SCENE.plan = (lt) => {
         ${confirm ? `<div class="box"><label class="field-label" style="display:block">Type the project folder name to confirm:</label>
           <div style="display:flex;gap:8px;margin-top:6px;align-items:center"><input type="text" value="${esc(name)}" placeholder="${PROJECT}" style="flex:1">
           <button class="secondary-button" type="button">Cancel</button><button class="secondary-button" type="button" id="pub"${name === PROJECT ? "" : " disabled"}>Publish the plan</button></div></div>` : ""}`,
-      win("what approval publishes", [["add", "IDEA.md", ""], ["add", ".uak/TASKS.md", "8 tasks"], ["add", ".uak/OWNERS.md", ""], ["mod", ".uak/PROJECT.md", "Backlog-Approved: yes"]],
-        [["8", "tasks"], ["4", "files"], [approved ? "yes" : "no", "approved"]]),
+      win("what approval publishes", [["add", "IDEA.md", ""], ["add", ".uak/TASKS.md", "24 tasks"], ["add", ".uak/OWNERS.md", ""], ["mod", ".uak/PROJECT.md", "Backlog-Approved: yes"]],
+        [["24", "tasks"], ["4", "files"], [approved ? "yes" : "no", "approved"]]),
       foot("", '<button class="secondary-button" type="button">Check the plan again</button><button class="secondary-button" type="button">Ask for changes</button><button class="primary" type="button" id="go">Approve and publish</button>')),
     cursor: [{ t: 0.2, at: [600, 270] }, { t: 1.3, sel: "#go", click: true }, { t: 3.3, sel: "#pub", click: true }],
   };
@@ -384,10 +357,10 @@ function startScreen(lt, claimed, opened) {
 }
 SCENE.start = (lt) => ({
   host: "wiz",
-  html: startScreen(lt, 0, lt >= 3.3),
-  cursor: [{ t: 0.2, at: [600, 300] }, { t: 1.6, sel: "#s1-copy" }, { t: 3.0, sel: "#s1", click: true }, { t: 4.6, at: [700, 360] }],
+  // The button opens a terminal that runs the same command as the box below it; the claim shows on the page.
+  html: startScreen(lt, lt < 3.1 ? 0 : lt < 3.5 ? 1 : lt < 3.9 ? 2 : 3, lt >= 2.7),
+  cursor: [{ t: 0.2, at: [600, 300] }, { t: 1.3, sel: "#s1-copy" }, { t: 2.5, sel: "#s1", click: true }, { t: 3.6, at: [700, 360] }],
 });
-SCENE.claim = (lt) => ({ host: "wiz", html: startScreen(lt, lt < 0.6 ? 0 : lt < 1.3 ? 1 : lt < 2.0 ? 2 : 3, true) });
 
 SCENE.follow = (lt) => ({
   host: "wiz",
@@ -396,7 +369,7 @@ SCENE.follow = (lt) => ({
       <ul class="list" style="margin-top:10px">${[["APP-001 · Set up the app", "in review"], ["APP-002 · Show the queue", "waiting on dependencies"]]
         .map(([a, b]) => `<li style="display:flex;justify-content:space-between;gap:12px"><span>${a}</span><span class="muted">${b}</span></li>`).join("")}</ul>
       <div><h4>Your app</h4><p class="secondary" style="font-size:12px;margin-top:2px">Not deployed yet. When your app is online, add its link under More.</p></div>`,
-    win(PROJECT + " · progress", [["", "Mode", "Hackathon"], ["", "Tasks", "8"]], [["0 / 8", "completed"], ["0", "working"], ["1", "in review"]]),
+    win(PROJECT + " · progress", [["", "Mode", "Hackathon"], ["", "Tasks", "24"]], [["0 / 24", "completed"], ["0", "working"], ["1", "in review"]]),
     foot("", '<button class="secondary-button" type="button">Refresh</button><button class="primary" type="button" id="go">Open the dashboard</button>')),
   cursor: [{ t: 0.3, at: [600, 330] }, { t: 3.7, sel: "#go", click: true }],
 });
@@ -406,7 +379,11 @@ const PLAN = [ // number, title, state, owner, waits for
   [1, "Set up the app", "INTEGRATED", "ana-1"], [2, "Show the queue", "INTEGRATED", "luis-1"], [3, "Take a number", "INTEGRATED", "sofi-1"],
   [4, "Staff calls the next number", "INTEGRATED", "ana-1"], [5, "Now serving screen", "REVIEW", "luis-1"], [6, "Sound when a number is called", "CLAIMED", "sofi-1"],
   [7, "Menu of the day", "CLAIMED", "ana-1"], [8, "Prices on the menu", "AVAILABLE", ""], [9, "Order ahead from the menu", "WAITING", "", [7]],
-  [10, "Wait time estimate", "AVAILABLE", ""], [11, "Pay at the counter", "WAITING", "", [9]], [12, "Deploy the board", "WAITING", "", [5, 6]]];
+  [10, "Wait time estimate", "AVAILABLE", ""], [11, "Pay at the counter", "WAITING", "", [9]], [12, "Deploy the board", "WAITING", "", [5, 6]],
+  [13, "Staff sign in", "AVAILABLE", ""], [14, "Close the queue at night", "WAITING", "", [4]], [15, "Daily report of waits", "WAITING", "", [10]],
+  [16, "Allergens on the menu", "WAITING", "", [7]], [17, "Several counters", "AVAILABLE", ""], [18, "Queue on a phone", "WAITING", "", [2]],
+  [19, "Sold-out dishes", "WAITING", "", [7]], [20, "Notice when your number is near", "WAITING", "", [5]], [21, "Accessibility pass", "AVAILABLE", ""],
+  [22, "Spanish and English", "AVAILABLE", ""], [23, "Load test of the queue", "WAITING", "", [12]], [24, "Demo script", "WAITING", "", [12]]];
 const SQ = { INTEGRATED: ["s-int", "integrated"], REVIEW: ["s-rev", "review"], CLAIMED: ["s-prog", "claimed"], AVAILABLE: ["s-av", "available"], WAITING: ["s-wt", "waiting"] };
 const LABEL = { INTEGRATED: "integrated", REVIEW: "in review", CLAIMED: "in progress", AVAILABLE: "available", WAITING: "Waiting" };
 const id3 = (n) => "APP-" + String(n).padStart(3, "0");
@@ -471,29 +448,27 @@ function tasksBlock(st, phase) {
   return `<section class="blk b-tasks"><div class="bh"><h2>Tasks</h2><span class="n">${PLAN.length} tasks</span></div>
     <ul class="list rows">${rows.map(([n, w]) => { const s = st[n - 1]; return `<li><span class="pill ${pk[s]}">${LABEL[s]}</span><button class="tid">${id3(n)}</button><span class="t">${PLAN[n - 1][1]}</span>${pipe(s)}<span class="w">${s === "INTEGRATED" ? "integrated" : w}</span></li>`; }).join("")}</ul></section>`;
 }
+// Arrange mode as the product draws it under reduced motion (the render's setting): the blocks hold still, no jig.
 function summary(st, opts) {
   opts = opts || {};
   const phase = opts.phase || "waiting";
   const main = { needs: needsBlock(phase === "waiting"), map: mapBlock(st, opts.sel), tasks: tasksBlock(st, phase) };
   const order = opts.order || ["needs", "map", "tasks"];
-  const wrap = (name, html, i) => opts.arranging ? `<div class="arr" data-blk="${name}" style="transform:rotate(${(Math.sin(opts.lt * 9 + i * 2.1) * 0.25).toFixed(3)}deg)"><div class="hbar"><span class="grip">${IC.grip}</span><b>${{ needs: "Needs you", map: "All tasks", tasks: "Tasks" }[name]}</b>
+  const wrap = (name, html, i) => opts.arranging ? `<div class="arr" data-blk="${name}"><div class="hbar"><span class="grip">${IC.grip}</span><b>${{ needs: "Needs you", map: "All tasks", tasks: "Tasks" }[name]}</b>
       <button type="button" class="hnd" id="up-${name}"${i === 0 ? " disabled" : ""}>${IC.up}</button><button type="button" class="hnd">${IC.down}</button><button type="button" class="hnd">${IC.col}</button>${name === "needs" ? '<span class="muted">Always shown</span>' : `<button type="button" class="hnd">${IC.hide}</button>`}</div>${html}</div>` : html;
   const bar = opts.arranging
     ? `<div class="arrbar on"><p class="tip">Move, hide or add components. Done when you finish.</p><button class="ab" type="button" disabled>Restore the default</button><button class="ab done" type="button" id="done">Done</button><div class="adds"><span class="muted">Add</span><span>Every component is shown.</span></div></div>`
     : `<div class="arrbar"><button class="ab" type="button" id="edit">${IC.edit}Edit</button></div>`;
   return `<section id="view"><div class="page${opts.arranging ? " arranging" : ""}">${bar}<div class="col" data-col="main">${order.map((n, i) => wrap(n, main[n], i)).join("")}</div>
-    <div class="col" data-col="side">${[progressBlock(st), agentsBlock()].map((h, i) => opts.arranging ? `<div class="arr" style="transform:rotate(${(Math.sin(opts.lt * 9 + 7 + i * 2.1) * 0.25).toFixed(3)}deg)">${h}</div>` : h).join("")}</div></div></section>`;
+    <div class="col" data-col="side">${[progressBlock(st), agentsBlock()].map((h, i) => opts.arranging ? `<div class="arr">${h}</div>` : h).join("")}</div></div></section>`;
 }
 
 SCENE.squares = (lt) => {
-  const st = states(lt, false).map((s, i) => (i === 6 && lt < 2.2) ? "AVAILABLE" : s);
-  // The summary is taller than the frame: the page scrolls to the squares, as a person would.
-  return { host: "dash", html: dApp(0, summary(st, {}), "", Math.round(120 * ease((lt - 0.6) / 1.2))), cursor: [{ t: 0.2, at: [760, 420] }, { t: 2.6, at: [600, 330] }] };
-};
-SCENE.waits = (lt) => {
-  const st = states(lt, false), sel = lt >= 1.0 ? 9 : 0;
+  // The summary is taller than the frame: the page scrolls to the squares, as a person would; then the pointer asks a
+  // square what it waits for: what it waits for rings orange, what it unblocks violet.
+  const st = states(lt, false).map((s, i) => (i === 6 && lt < 1.0) ? "AVAILABLE" : s), sel = lt >= 2.2 ? 9 : 0;
   const tip = sel ? `<div id="tip" class="on" style="left:300px;top:178px">${id3(9)} · Waiting · ${PLAN[8][1]}</div>` : "";
-  return { host: "dash", html: dApp(0, summary(st, { sel }), tip, 120), cursor: [{ t: 0.0, at: [600, 330] }, { t: 0.9, sel: "#sq9" }] };
+  return { host: "dash", html: dApp(0, summary(st, { sel }), tip, Math.round(120 * ease((lt - 0.3) / 0.6))), cursor: [{ t: 0.2, at: [760, 420] }, { t: 2.1, sel: "#sq9" }] };
 };
 SCENE.needs = (lt) => {
   // ana-r reviews APP-005 and approves it; the checks pass and it merges: the row walks its line of nodes to the end.
@@ -524,12 +499,206 @@ SCENE.share = (lt) => {
   const st = states(0, true), open = lt >= 0.9, c = counts(st);
   const card = `<div class="card-img"><div class="top">${idc(PROJECT, PROJECT, 34)}<div><div class="nm">${PROJECT}</div><div class="since">since Nov 14, 2026</div></div>
       <div class="pc"><b>${Math.round(100 * c.INTEGRATED / PLAN.length)}%</b><small>Integrated</small><div class="bar"><i style="width:${100 * c.INTEGRATED / PLAN.length}%"></i></div></div></div>
-      <div class="figs"><div><b>41.2M</b><span>Tokens spent</span></div><div><b>4</b><span>Agents</span></div><div><b>${c.INTEGRATED} / ${PLAN.length}</b><span>Integrated</span></div><div><b>96</b><span>Commits on main</span></div></div>
+      <div class="figs"><div><b>4</b><span>Agents</span></div><div><b>${c.INTEGRATED} / ${PLAN.length}</b><span>Integrated</span></div></div>
       <div class="ids">${AGENTS.map(([a, h]) => idc(a, h, 20)).join("")}</div><div class="credit">UPIIXIA Agentic Kit</div></div>`;
   const dlg = open ? `<div class="scrim"></div><div class="dlg"><div class="pad"><div class="bh"><h2>Share</h2><button class="st-x chip" type="button" style="margin:0 0 0 auto;border:0">${IC.x}</button></div>
       <div class="fsw" style="margin:0 0 10px"><button class="chip" type="button" aria-pressed="true" style="min-height:30px">1200 x 630</button><button class="chip" type="button" aria-pressed="false" style="min-height:30px">Story 1080 x 1920</button></div>
       ${card}<div class="chips acts" style="margin-top:10px;display:flex;gap:8px"><button class="chip" type="button">Copy image</button><button class="chip" type="button" id="dl">Download PNG</button></div></div></div>` : "";
   return { host: "dash", html: dApp(0, summary(st, { phase: "merged" }), dlg), cursor: [{ t: 0.0, at: [600, 300] }, { t: 0.7, sel: "#share-btn", click: true }, { t: 2.6, sel: "#dl" }] };
+};
+
+
+// ---- the crew: the kit's own material at full size (the agents' avatars, their terminals, the lanes into main, the
+// grid of squares). The same tokens and type as the product, drawn at 1280x720 with no zoom.
+const OWN = COMMON + `
+  .pg { zoom: 1; width: 1280px; height: 720px; color: var(--ink); font-family: var(--sans); }
+  .abs { position: absolute; }
+  .brandx { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; letter-spacing: -.01em; }
+  .brandx .mark { width: 30px; height: 30px; border-radius: 7px; }
+  .big { margin: 0; max-width: none; font-weight: 800; letter-spacing: -.04em; line-height: .98; }
+  .big em { font-style: normal; color: var(--accent); }
+  .lead { margin: 0; font-size: 18px; line-height: 1.5; color: var(--ink-2); }
+  .who b { display: block; font: 700 20px var(--mono); }
+  .who small { display: block; font-size: 14px; color: var(--muted); }
+  .rtag { display: inline-block; margin-top: 4px; font: 600 11px var(--mono); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 4px; background: var(--accent-wash); color: var(--accent-ink); }
+  .term { padding: 10px 14px; font: 500 14px/1.75 var(--mono); white-space: pre; color: var(--ink-2); overflow: hidden; }
+  .term .ok { color: var(--integrated); } .term .red { color: var(--blocked); } .term .rv { color: var(--review); } .term .p { color: var(--accent); }
+  .ow .win-h > span { font-size: 13px; }
+  .gsq { position: absolute; border-radius: 9px; display: grid; place-items: center; font-family: var(--mono); font-weight: 600; }
+  .gsq.int { background: var(--integrated); color: hsl(150 30% 10%); }
+  .gsq.prog { background: var(--surface); border: 5px solid var(--c); color: var(--ink); }
+  .gsq.rev { background: var(--surface); box-shadow: inset 0 0 0 5px var(--review); color: var(--ink); }
+  .gsq.av { border: 2px dashed var(--line-2); color: var(--muted); }
+  .gsq.wt { background: var(--hover); border: 1px solid var(--line-2); color: var(--muted); }
+  .gsq .on { position: absolute; right: -18px; top: -18px; }
+  .lane-rail { position: absolute; height: 4px; border-radius: 2px; background: var(--line-2); }
+  .lnode { position: absolute; width: 16px; height: 16px; border-radius: 50%; border: 3px solid var(--line-2); background: var(--page); }
+  .lnode.on { border-color: var(--c); background: var(--c); }
+  .car { position: absolute; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 6px; border-radius: 8px; background: var(--surface); border: 2px solid var(--c); font: 600 15px var(--mono); white-space: nowrap; }
+`;
+// The identicon of dash.html on the dark theme (its --idc-bg-l 21% and --idc-px-l 62%), at any size.
+function face(name, human, size, style) {
+  const bits = fnv("p:" + (human || name)), on = [];
+  for (let y = 0; y < 5; y++) for (let x = 0; x < 3; x++) if ((bits >> (y * 3 + x)) & 1) { on.push([x, y]); if (x !== 2) on.push([4 - x, y]); }
+  const hue = Math.round((fnv("c:" + name) * 137.508) % 360);
+  return `<svg viewBox="-1 -1 7 7" width="${size}" height="${size}" shape-rendering="crispEdges" style="display:block;border-radius:${Math.round(size / 6)}px;${style || ""}">` +
+    `<rect x="-1" y="-1" width="7" height="7" fill="hsl(${hue} 22% 21%)"/>` + (on.length ? on : [[2, 2]]).map(([x, y]) => `<rect x="${x}" y="${y}" width="1.02" height="1.02" fill="hsl(${hue} 60% 62%)"/>`).join("") + "</svg>";
+}
+const hue = (name) => Math.round((fnv("c:" + name) * 137.508) % 360);
+const tint = (name) => `hsl(${hue(name)} 60% 62%)`;
+const backOut = (x) => { x = clamp(x, 0, 1); const c = 1.6; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const lerp = (a, b, f) => a + (b - a) * f;
+const brandx = () => `<div class="brandx"><span class="mark">${MARK}</span>UPIIXIA Agentic Kit</div>`;
+const CREW = [["ana-1", "ana", "Claude Code"], ["luis-1", "luis", "Codex"], ["sofi-1", "sofi", "Cursor"], ["ana-r", "ana", "Codex", "reviewer"]];
+// What each terminal prints, in the kit's words (wt new, uak red, the hooks' DONE line, /uak-review, uak merge).
+const SAYS = {
+  "ana-1": [[0.3, '<span class="p">$</span> wt new APP-007'], [0.9, '<span class="ok">OK claim APP-007</span>'], [1.8, '<span class="red">RED 1 failed</span>'], [3.2, '<span class="ok">PASS 4 passed</span>']],
+  "luis-1": [[0.5, '<span class="p">$</span> wt new APP-005'], [1.1, '<span class="ok">OK claim APP-005</span>'], [2.0, '<span class="ok">PASS 6 passed</span>'], [2.8, "DONE APP-005 → review"]],
+  "sofi-1": [[0.7, '<span class="p">$</span> wt new APP-006'], [1.3, '<span class="ok">OK claim APP-006</span>'], [2.4, '<span class="red">RED 1 failed</span>'], [3.6, '<span class="ok">PASS 2 passed</span>']],
+  "ana-r": [[0.9, '<span class="p">&gt;</span> /uak-review APP-004'], [1.7, '<span class="rv">APPROVE APP-004</span>'], [2.5, '<span class="p">$</span> uak merge APP-004'], [3.4, '<span class="p">&gt;</span> /uak-review APP-005']],
+};
+// The poster's terminals: one line each, large enough to read at the 560 px the setup page shows it.
+const SAYS_POSTER = { "ana-1": '<span class="red">RED</span> APP-007', "luis-1": "DONE APP-005", "sofi-1": '<span class="ok">PASS</span> APP-006', "ana-r": '<span class="rv">APPROVE</span> APP-004' };
+// The 24 tasks of the plan as the crew finds them: 1-3 integrated, 4 in review until ana-r merges it, 5 in review, 6 and 7 in progress.
+function planState(i, t) {
+  if (i < 3) return ["int"];
+  if (i === 3) return t >= 0 ? ["int"] : ["rev", "ana-r"];
+  if (i === 4) return ["rev", "ana-r"];
+  if (i === 5) return ["prog", "sofi-1"];
+  if (i === 6) return ["prog", "ana-1"];
+  return [[8, 10, 13, 15, 16, 18, 21, 23].includes(i) ? "wt" : "av"];
+}
+function strip(x, y, sz, gap, t, label) {
+  return `<div class="abs mono" style="left:${x}px;top:${y + sz / 2 - 10}px;font:500 14px var(--mono);color:var(--muted)">${label}</div>` +
+    Array.from({ length: 24 }, (_, i) => { const [k] = planState(i, t); return `<i class="gsq ${k}" style="left:${x + 190 + i * (sz + gap)}px;top:${y}px;width:${sz}px;height:${sz}px;border-radius:5px;border-width:${k === "prog" ? 3 : k === "av" ? 1.5 : 1}px;--c:var(--claimed)"></i>`; }).join("");
+}
+function crewRow(t, top, size, poster) {
+  return CREW.map(([name, human, tool, role], i) => {
+    const enter = poster ? 1 : ease((t - i * 0.12) / 0.45), x = 72 + i * 288;
+    const lines = poster ? [SAYS_POSTER[name]] : SAYS[name].filter(([at]) => t >= at).map(([, l]) => l);
+    const caret = !poster && Math.floor(t * 2.5) % 2 ? "▍" : "";
+    return `<div class="abs ow" style="left:${x}px;top:${top}px;width:270px;opacity:${enter};transform:translateY(${((1 - enter) * 18).toFixed(1)}px)">
+      <div style="display:flex;align-items:flex-end;gap:14px">${face(name, human, size)}<div class="who"><b>${name}</b><small>${role ? "reviews · " + tool : tool}</small>${role ? '<span class="rtag">reviewer</span>' : ""}</div></div>
+      <div class="win" style="margin-top:12px"><div class="win-h"><i></i><i></i><i></i><span>${name}</span></div>
+      <div class="term" style="${poster ? "font-size:21px;line-height:1.5;padding:12px 16px" : "height:122px"}">${lines.join("\n")}${caret}</div></div></div>`;
+  }).join("");
+}
+function crewFrame(t, poster) {
+  return `<div class="abs" style="left:72px;top:46px">${brandx()}</div>
+    <h1 class="abs big" style="left:72px;top:92px;font-size:84px">Meet your<br><em>coding team.</em></h1>
+    <p class="abs lead" style="left:778px;top:110px;width:430px">Several people and their coding agents build one product at once. Each agent claims its own task and writes the test first; another one reviews before it reaches main.</p>
+    ${crewRow(t, 300, 112, poster)}${strip(72, 566, 24, 9, t, "one plan · 24 tasks")}`;
+}
+SCENE.title = (lt) => ({ host: "own", html: crewFrame(lt, true) });
+SCENE.you = (lt) => {
+  const cmd = "bash install.sh --wizard", shown = typed(cmd, lt, 0.5, 24), out = lt >= 2.2;
+  const caret = !out && Math.floor(lt * 2.5) % 2 === 0 ? "▍" : "";
+  const grow = backOut(lt / 0.6);
+  return { host: "own", html: `<div class="abs" style="left:72px;top:118px;transform:scale(${(0.6 + 0.4 * grow).toFixed(3)});transform-origin:150px 150px;opacity:${clamp(lt / 0.3, 0, 1)}">${face("ana", "ana", 300)}</div>
+    <div class="abs" style="left:430px;top:110px;width:780px"><span class="pill" style="font-size:13px;padding:6px 10px">ana · a person</span>
+      <h1 class="big" style="font-size:84px;margin:20px 0 18px">You bring<br>the idea.</h1>
+      <p class="lead" style="width:560px">You write it in one line and approve the plan. Your coding agents do the tasks, each with its own avatar.</p>
+      <div class="win" style="margin-top:24px;width:600px"><div class="win-h"><i></i><i></i><i></i><span>terminal · ~/proyectos/${PROJECT}</span></div>
+      <div class="term" style="font-size:17px">${['<span class="p">$</span> ' + esc(shown) + caret].concat(out ? ['<span class="ok">UAK SETUP http://127.0.0.1:8765/</span>'] : []).join("\n")}</div></div></div>` };
+};
+SCENE.crew = (lt) => ({ host: "own", html: `<div class="abs" style="left:72px;top:46px">${brandx()}</div>
+  <h1 class="abs big" style="left:72px;top:90px;font-size:56px">Each agent, its own task<br><em>and its own terminal.</em></h1>
+  ${crewRow(lt, 262, 96, false)}${strip(72, 590, 24, 9, -1, "one plan · 24 tasks")}` });
+// Lanes: each agent's task rides the line of nodes and joins one line, main. ana-1 merges APP-004 (ana-r approved it),
+// then claims APP-007; luis-1's APP-005 reaches review; sofi-1's APP-006 turns green.
+const LANES = [["ana-1", "ana", "Claude Code"], ["luis-1", "luis", "Codex"], ["sofi-1", "sofi", "Cursor"]];
+const RIDES = { "ana-1": [["APP-004", 0.6, -0.9, 1.6], ["APP-007", 0.0, 2.4, 4.2]], "luis-1": [["APP-005", 0.5, 0.0, 4.0]], "sofi-1": [["APP-006", 0.25, 0.2, 4.2]] };
+const STOPS = [["claim", 0], ["red", 0.25], ["green", 0.5], ["review", 0.75], ["merge", 1]];
+SCENE.lanes = (lt) => {
+  const X0 = 330, X1 = 1040, MAINX = 1150, TOP = 236, GAP = 118;
+  let html = `<div class="abs" style="left:72px;top:46px">${brandx()}</div>
+    <h1 class="abs big" style="left:72px;top:90px;font-size:56px">Side by side, <em>into one main.</em></h1>
+    <div class="abs mono" style="left:${MAINX - 22}px;top:${TOP - 30}px;font:700 17px var(--mono)">main</div>
+    <div class="abs" style="left:${MAINX}px;top:${TOP}px;width:10px;height:${GAP * 2 + 50}px;border-radius:5px;background:var(--ink-2)"></div>`;
+  let svg = "";
+  LANES.forEach(([name, human, tool], i) => {
+    const y = TOP + 22 + i * GAP, c = tint(name);
+    let car = "", prog = -1, merged = false;
+    for (const [task, from, t0, t1] of RIDES[name]) {
+      if (lt < t0) continue;
+      const f = lerp(from, 1, ease((lt - t0) / (t1 - t0)));
+      if (lt >= t1 && from + 0 >= 0) { if (task === "APP-004") merged = lt - t1; continue; }
+      prog = Math.min(f, task === "APP-005" ? 0.75 : task === "APP-006" ? 0.5 : task === "APP-007" ? 0.25 : 1);
+      const st = prog < 0.25 ? "claimed" : prog < 0.5 ? "red" : prog < 0.75 ? "green" : prog < 1 ? "in review" : "merging";
+      const col = st === "red" ? "var(--blocked)" : st === "green" ? "var(--integrated)" : st === "in review" ? "var(--review)" : "var(--muted)";
+      car = `<div class="car" style="--c:${c};left:${(lerp(X0, X1, prog) - 60).toFixed(1)}px;top:${y - 22}px">${face(name, human, 32)}${task}<span style="font-weight:500;color:${col}">${st}</span></div>`;
+    }
+    html += `<div class="abs" style="left:72px;top:${y - 30}px;display:flex;align-items:center;gap:14px">${face(name, human, 60)}<div class="who"><b>${name}</b><small>${tool}</small></div></div>
+      <div class="lane-rail" style="left:${X0}px;width:${X1 - X0}px;top:${y - 2}px"></div>
+      <div class="lane-rail" style="left:${X0}px;width:${prog >= 0 ? (X1 - X0) * prog : 0}px;top:${y - 2}px;background:${c}"></div>` +
+      STOPS.map(([lab, at]) => `<i class="lnode${prog >= at && prog >= 0 ? " on" : ""}" style="--c:${c};left:${lerp(X0, X1, at) - 8}px;top:${y - 8}px"></i>` +
+        (i === 0 ? `<span class="abs mono" style="left:${lerp(X0, X1, at) - 40}px;width:80px;text-align:center;top:${y + 16}px;font:500 13px var(--mono);color:var(--muted)">${lab}</span>` : "")).join("") + car;
+    const lit = merged !== false && merged < 1.4;
+    svg += `<path d="M ${X1} ${y} C ${X1 + 60} ${y}, ${MAINX - 50} ${y}, ${MAINX + 5} ${y}" stroke="${lit ? c : "var(--line-2)"}" stroke-width="${lit ? 6 : 4}" fill="none" stroke-linecap="round"/>`;
+    if (merged !== false) html += `<i class="abs" style="left:${MAINX - 7}px;top:${y - 12}px;width:24px;height:24px;border-radius:50%;background:${c};border:4px solid var(--page);transform:scale(${(1 + 0.45 * (1 - ease(merged / 0.4))).toFixed(3)})"></i>`;
+  });
+  return { host: "own", html: html + `<svg class="abs" style="left:0;top:0;overflow:visible" width="1280" height="720">${svg}</svg>` };
+};
+// The grid: the plan's strip grows into the whole wall of squares; ana-r merges APP-004 (it pops green), the avatars sit
+// on the squares they hold.
+SCENE.grid = (lt) => {
+  const g = ease(lt / 1.1), SZ = 96, GAPG = 12, GX = 592, GY = 84;
+  const sqs = Array.from({ length: 24 }, (_, i) => {
+    const sx = 72 + 190 + i * 33, sy = 590, gx = GX + (i % 6) * (SZ + GAPG), gy = GY + Math.floor(i / 6) * (SZ + GAPG);
+    const x = lerp(sx, gx, g), y = lerp(sy, gy, g), sz = lerp(24, SZ, g);
+    let [k, who] = planState(i, lt - 1.6);
+    let pop = 1;
+    if (i === 3 && lt >= 1.6) pop = 1 + 0.14 * (1 - ease((lt - 1.6) / 0.35));
+    const on = who && g > 0.85 ? `<span class="on" style="opacity:${ease((g - 0.85) / 0.15)}">${face(who, who.split("-")[0], 44, "box-shadow:0 0 0 3px var(--page)")}</span>` : "";
+    return `<div class="gsq ${k}" style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${sz.toFixed(1)}px;height:${sz.toFixed(1)}px;font-size:${(sz * 0.24).toFixed(1)}px;border-radius:${lerp(5, 10, g).toFixed(1)}px;--c:${who ? tint(who) : "var(--claimed)"};transform:scale(${pop.toFixed(3)})">${g > 0.6 ? i + 1 : ""}${on}</div>`;
+  }).join("");
+  const done = lt >= 1.6 ? 4 : 3;
+  return { host: "own", html: `<div class="abs" style="left:72px;top:46px">${brandx()}</div>
+    <h1 class="abs big" style="left:72px;top:130px;font-size:60px;width:470px">Every task<br>is a square.<br><em>Green when it merges.</em></h1>
+    <p class="abs lead" style="left:72px;top:388px;width:440px">The plan's 24 tasks; each avatar sits on the task its agent holds, ana-r on the ones in review.</p>
+    <div class="abs mono" style="left:72px;top:500px;font:500 16px var(--mono);color:var(--muted)"><b style="color:var(--ink);font-size:30px">${done}</b> of 24 integrated</div>${sqs}` };
+};
+
+
+// ---- for the README (render.mjs --readme): the same material outside the video's timeline -------------------------
+// banner(version): 1280x640, the crew and the vision line; the version is the major.minor of kit/.uak/VERSION, passed in
+// at render time (the eyebrow test_banner_version reads in scripts/make_media.py has the same words).
+// loop(t): 8 s that loop, the parallel moment: avatars take squares, a reviewer passes, squares turn green.
+const LOOP_LEN = 8;
+const LOOP_RUNS = [ // square, agent, claim, review, merge (seconds of the loop)
+  [3, "ana-1", 0.4, 2.6, 3.6], [4, "luis-1", 0.8, 3.4, 4.4], [5, "sofi-1", 1.2, 4.2, 5.2],
+  [6, "ana-1", 3.9, 5.6, 6.5], [9, "luis-1", 4.7, 6.2, 7.0], [10, "sofi-1", 5.5, 6.9, 7.6]];
+function loopFrame(t) {
+  const SZ = 104, G = 14, COLS = 8, X = (1280 - (COLS * SZ + (COLS - 1) * G)) / 2, Y = 236;
+  const fade = t > 7.6 ? 1 - ease((t - 7.6) / 0.4) : t < 0.25 ? ease(t / 0.25) : 1;
+  const sqs = Array.from({ length: 24 }, (_, i) => {
+    let k = i < 3 ? "int" : [11, 13, 15, 18, 20, 22].includes(i) ? "wt" : "av", who = "", pop = 1;
+    for (const [sq, a, c, r, m] of LOOP_RUNS) {
+      if (sq !== i) continue;
+      if (t >= m) { k = "int"; pop = 1 + 0.14 * (1 - ease((t - m) / 0.35)); }
+      else if (t >= r) { k = "rev"; who = "ana-r"; }
+      else if (t >= c) { k = "prog"; who = a; }
+    }
+    const x = X + (i % COLS) * (SZ + G), y = Y + Math.floor(i / COLS) * (SZ + G);
+    const on = who ? `<span class="on">${face(who, who.split("-")[0], 46, "box-shadow:0 0 0 3px var(--page)")}</span>` : "";
+    return `<div class="gsq ${k}" style="left:${x}px;top:${y}px;width:${SZ}px;height:${SZ}px;font-size:24px;--c:${who ? tint(who) : "var(--claimed)"};transform:scale(${pop.toFixed(3)})">${i + 1}${on}</div>`;
+  }).join("");
+  return `<div style="opacity:${fade.toFixed(3)}"><div class="abs" style="left:72px;top:56px">${brandx()}</div>
+    <h1 class="abs big" style="left:72px;top:110px;font-size:46px">Every task is a square. <em>Green when it merges.</em></h1>${sqs}
+    <div class="abs" style="left:${X}px;top:${Y + 3 * (SZ + G) + 18}px;display:flex;gap:22px;font:500 15px var(--mono);color:var(--muted)">${CREW.map(([n, h, tool, role]) =>
+      `<span style="display:flex;align-items:center;gap:8px">${face(n, h, 26)}${n} · ${role ? "reviews" : tool}</span>`).join("")}</div></div>`;
+}
+function bannerFrame(version) {
+  return `<div class="abs" style="left:72px;top:60px"><span class="pill" style="font-size:13px;padding:7px 11px;text-transform:none;letter-spacing:.02em">v${esc(version)} · multi-agent orchestration</span></div>
+    <h1 class="abs big" style="left:72px;top:110px;font-size:80px">UPIIXIA <em>Agentic Kit</em></h1>
+    <p class="abs lead" style="left:72px;top:212px;width:980px;font-size:22px">Several people and their coding agents build one product at once: each agent claims its own task and writes the test first, and another one reviews before it reaches main.</p>
+    ${CREW.map(([n, h, tool, role], i) => `<div class="abs" style="left:${72 + i * 290}px;top:330px;display:flex;align-items:center;gap:16px">${face(n, h, 120)}<div class="who"><b>${n}</b><small>${role ? "reviews · " + tool : tool}</small></div></div>`).join("")}
+    ${strip(-118, 520, 24, 9, -1, "")}`;
+}
+window.EXTRA = {
+  banner: (version) => { const h = hosts.own; for (const id of Object.keys(hosts)) hosts[id].host.hidden = id !== "own"; h.pg.innerHTML = bannerFrame(version); cursorEl.hidden = true; },
+  loop: (t) => { const h = hosts.own; for (const id of Object.keys(hosts)) hosts[id].host.hidden = id !== "own"; h.pg.innerHTML = loopFrame(t); cursorEl.hidden = true; },
+  LOOP_LEN,
 };
 
 // ---- the frame ------------------------------------------------------------------------------------------------------

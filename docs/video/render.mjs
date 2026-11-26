@@ -6,6 +6,7 @@
 // extracted from the encoded video (the palette test reads them without ffmpeg) and the WebVTT captions.
 //   node render.mjs                 the whole render (npm run render)
 //   node render.mjs --still 42 out.png   one frame, to look at a scene while drawing it
+//   node render.mjs --readme DIR    the README assets (banner, loop, stills) from the same drawing (npm run readme)
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -21,7 +22,7 @@ const out = join(here, "out");
 const frames = join(out, "frames");
 const FPS = 10;
 const POSTER_T = 2.0;                 // the title: a designed frame, readable at the 560 px the setup page shows it
-const FRAME_T = [11.0, 38.0, 52.5];   // the palette test's frames: a wizard screen, the start screen, the dashboard
+const FRAME_T = [11.0, 45.5, 58.5];   // the palette test's frames: a wizard screen, the crew, the dashboard
 const LIMITS = { "tutorial.mp4": 820642, "tutorial-poster.jpg": 38328 };   // the sizes of v6.8: never heavier
 const ORIGIN = "http://tutorial.uak.invalid";
 const TYPES = { ".html": "text/html; charset=utf-8", ".woff2": "font/woff2", ".js": "text/javascript", ".css": "text/css" };
@@ -86,6 +87,40 @@ async function shot(page, t, path) {
 }
 
 const args = process.argv.slice(2);
+if (args[0] === "--readme") {
+  // The README's assets, in dark, from the same scenes.html: a 1280x640 banner whose eyebrow carries the major.minor of
+  // kit/.uak/VERSION (read now, as scripts/make_media.py does), an 8 s loop of the parallel moment as animated WebP and
+  // GIF with a still fallback, and two stills (the crew, the lanes into main).
+  const dir = args[1] || join(out, "readme");
+  mkdirSync(dir, { recursive: true });
+  const version = readFileSync(join(repo, "kit", ".uak", "VERSION"), "utf8").trim().split(".").slice(0, 2).join(".");
+  const { browser, page, check } = await open();
+  await page.setViewportSize({ width: 1280, height: 640 });
+  await page.evaluate((v) => window.EXTRA.banner(v), version);
+  await page.screenshot({ path: join(dir, "banner.png") });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  // the stills are cropped to what they show (the video keeps room at the bottom for its captions)
+  await page.evaluate((t) => window.seek(t), POSTER_T);
+  await page.screenshot({ path: join(dir, "crew.png"), clip: { x: 0, y: 0, width: 1280, height: 640 } });
+  await page.evaluate((t) => window.seek(t), 49.6);
+  await page.screenshot({ path: join(dir, "lanes-into-main.png"), clip: { x: 0, y: 0, width: 1280, height: 600 } });
+  const lf = join(out, "loop"); rmSync(lf, { recursive: true, force: true }); mkdirSync(lf, { recursive: true });
+  const LFPS = 12, len = await page.evaluate(() => window.EXTRA.LOOP_LEN);
+  for (let i = 0; i < len * LFPS; i++) {
+    await page.evaluate((t) => window.EXTRA.loop(t), i / LFPS);
+    await page.screenshot({ path: join(lf, `l${String(i).padStart(4, "0")}.png`), animations: "disabled" });
+  }
+  await page.evaluate((t) => window.EXTRA.loop(t), 5.0);
+  await page.screenshot({ path: join(dir, "parallel-loop-still.png") });
+  check();
+  await browser.close();
+  const src = ["-framerate", String(LFPS), "-i", join(lf, "l%04d.png")];
+  ffmpeg([...src, "-vf", "scale=960:540:flags=lanczos", "-c:v", "libwebp_anim", "-lossless", "0", "-q:v", "70", "-compression_level", "6", "-loop", "0", join(dir, "parallel-loop.webp")]);
+  ffmpeg([...src, "-filter_complex", "scale=800:450:flags=lanczos,split[a][b];[a]palettegen=max_colors=64:stats_mode=full[p];[b][p]paletteuse=dither=none", "-loop", "0", join(dir, "parallel-loop.gif")]);
+  for (const f of ["banner.png", "crew.png", "lanes-into-main.png", "parallel-loop.webp", "parallel-loop.gif", "parallel-loop-still.png"]) console.log(`${f}: ${statSync(join(dir, f)).size} bytes`);
+  console.log(`banner eyebrow: v${version} · multi-agent orchestration`);
+  process.exit(0);
+}
 if (args[0] === "--still") {
   const { browser, page, check } = await open();
   await shot(page, Number(args[1]), args[2] || join(here, "still.png"));
@@ -113,7 +148,7 @@ await browser.close();
 
 const mp4 = join(media, "tutorial.mp4");
 ffmpeg(["-framerate", String(FPS), "-i", join(frames, "f%05d.png"), "-c:v", "libx264", "-preset", "veryslow", "-tune", "animation",
-  "-crf", "27", "-threads", "4", "-pix_fmt", "yuv420p", "-profile:v", "high", "-movflags", "+faststart", "-an",
+  "-crf", "29", "-threads", "4", "-pix_fmt", "yuv420p", "-profile:v", "high", "-movflags", "+faststart", "-an",
   "-map_metadata", "-1", "-fflags", "+bitexact", "-flags:v", "+bitexact", mp4]);
 // The poster: the best JPEG quality that stays under the size of v6.8.
 const poster = join(media, "tutorial-poster.jpg");

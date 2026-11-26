@@ -2,68 +2,72 @@ WEBVTT
 
 1
 00:00:00.000 --> 00:00:04.500
-A demonstration with drawn screens: the setup page, then the dashboard.
+A demonstration with drawn screens: one product, built by a team of coding agents.
 
 2
 00:00:04.500 --> 00:00:08.500
-In a terminal, install.sh --wizard opens the setup page on your computer.
+You bring the idea. In a terminal, install.sh --wizard opens the setup page.
 
 3
-00:00:08.500 --> 00:00:13.000
+00:00:08.500 --> 00:00:12.500
 The first screen says what it found in your folder and proposes a way to work.
 
 4
-00:00:13.000 --> 00:00:17.500
+00:00:12.500 --> 00:00:16.500
 Install the kit: its files go beside your code. Nothing is committed or pushed.
 
 5
-00:00:17.500 --> 00:00:23.000
+00:00:16.500 --> 00:00:21.500
 Confirm the rules, then register a second identity that reviews every change.
 
 6
-00:00:23.000 --> 00:00:27.000
+00:00:21.500 --> 00:00:25.500
 Publish sends the kit to main. Your idea and plan wait for your approval.
 
 7
-00:00:27.000 --> 00:00:31.000
+00:00:25.500 --> 00:00:29.500
 Write your idea in one line. Your coding agent drafts the plan.
 
 8
-00:00:31.000 --> 00:00:35.500
+00:00:29.500 --> 00:00:34.000
 Each task lists the checks it must pass. You approve by typing the folder's name.
 
 9
-00:00:35.500 --> 00:00:40.500
+00:00:34.000 --> 00:00:38.500
 Start this agent opens a terminal with it; below it, the same command to copy.
 
 10
-00:00:40.500 --> 00:00:44.500
-Each task claims its files, so two agents never edit the same one.
-
-11
-00:00:44.500 --> 00:00:49.000
+00:00:38.500 --> 00:00:42.500
 The last screen follows the project, and your app's link once it is deployed.
 
+11
+00:00:42.500 --> 00:00:47.000
+Each agent claims its own task and its files, and writes the failing test first.
+
 12
-00:00:49.000 --> 00:00:54.000
-The dashboard shows every task as a square: integrated, in review, in progress or waiting.
+00:00:47.000 --> 00:00:51.500
+Another identity reviews each change; approved work merges into main, one at a time.
 
 13
-00:00:54.000 --> 00:00:58.000
-Point at a square to see what it waits for and what it unblocks.
+00:00:51.500 --> 00:00:56.000
+Every task of the plan is a square. It turns green when its work is merged.
 
 14
-00:00:58.000 --> 00:01:03.000
-What waits for you comes first. An approved change merges once the checks pass.
+00:00:56.000 --> 00:01:00.000
+The dashboard: point at a square to see what it waits for and what it unblocks.
 
 15
-00:01:03.000 --> 00:01:07.000
-Agents: one card each, with its task and when it was last seen.
+00:01:00.000 --> 00:01:04.000
+What waits for you comes first. An approved change merges once the checks pass.
 
 16
-00:01:07.000 --> 00:01:10.500
-Edit arranges the summary: move, hide or add blocks.
+00:01:04.000 --> 00:01:07.500
+Agents: one card each, with its task and when it was last seen.
 
 17
-00:01:10.500 --> 00:01:14.000
+00:01:07.500 --> 00:01:11.000
+Edit arranges the summary: move, hide or add blocks.
+
+18
+00:01:11.000 --> 00:01:14.000
 Share turns the progress into an image to post.
