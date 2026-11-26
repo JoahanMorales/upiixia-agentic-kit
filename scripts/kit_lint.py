@@ -123,8 +123,13 @@ def ci_tests():
 # a line it cannot read, a number that is not a whole number of seconds from 1 to 3600 and a second `ci` or `windows` line.
 # A file whose seconds were measured again carries a line `# measured YYYY-MM-DD RUN` (the day and the run id of the logs):
 # test_ci_timings compares the files with the frozen values of UAK-187 entry by entry, except the ones with that line.
-# To measure again, take each file's group time (from its ::group:: line to its ::endgroup:: line) in
-# `gh run view RUN --log --job JOB` of recent runs on main, and write the two numbers in its file.
+# The rule for an entry (UAK-197): the maximum measured over the runs read, per system it stands for (`ci`: Linux and macOS,
+# whose suite shards both read it; `windows`: Windows), times 1.25, rounded up, and never less than that maximum plus 2 s.
+# Why: with "maximum plus 1 s" a file that takes 25 to 96 s on macOS from run to run forced five pushes of nothing but a
+# number (UAK-192), and public issue #85 lists nine files below their measurement. `python3 scripts/ci_timings.py` reads the
+# last green runs of main (each file's group time, from its ::group:: line to its ::endgroup:: line, in the job logs),
+# prints for every file the maximum per system and the entry the rule gives, and `--write FILE…` rewrites the files named,
+# each with its `# measured` line and a `# rule:` line that keeps the maxima it used.
 TIMINGS_DIR = ROOT / "kit/.uak/tests/timings"
 TIMINGS_REL = "kit/.uak/tests/timings"
 TIMING_LINE = re.compile(r"(ci|windows)[ \t]+([0-9]+)")
@@ -210,13 +215,20 @@ PORTABILITY_SET = {
 }
 
 
-# Files that failed on Windows and passed on the re-run (the artifact `result-windows-N` counts them: runs 2, failures 1).
-# The portability set runs on every pull request on macOS and Windows, so a member that fails by itself blocks merges for
-# nothing: the lint refuses a member named here (UAK-169). Add a file the day it is seen; each row cites its run.
-KNOWN_INTERMITTENT = {
-    "test_task_participants": "windows (10) at 316583c4 (run 45275593318): failed, passed on the second run",
-    "test_bb_flush_no_hooks": "windows (10) at caf6387b (run 45209873743): failed, passed on the second run",
-}
+# Files with a known intermittent case. The portability set runs on every pull request on macOS and Windows, so a member that
+# fails by itself blocks merges for nothing: the lint refuses a member named here (UAK-169). The list itself is one place,
+# KNOWN_INTERMITTENT of kit/.uak/tests/test_ci_flaky.py (UAK-197): each case with the system and run that showed it and the
+# task or issue that owns it. Add a case there the day it is seen; a task that fixes one removes it.
+def _known_intermittent():
+    p = ROOT / "kit/.uak/tests/test_ci_flaky.py"
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ci_flaky_for_lint", str(p))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.by_file()
+
+
+KNOWN_INTERMITTENT = _known_intermittent()
 
 
 def portability_problems(tests, table=None, windows=None, intermittent=None):
@@ -345,12 +357,14 @@ def _split(tests, n, seconds=None):
 
 # A Windows shard's time is WINDOWS_SETUP_S (checkout and setup, about 15 s) plus the Windows seconds of its files
 # (CI_WINDOWS_SECONDS, measured per file). The bound is 30 minutes, not UAK-128's 25: test_flaky_guard alone took 1496 s,
-# and no split can put it under 25 (UAK-150 split it in two files). The longest shard must stay at or under WINDOWS_MARGIN of the bound (25.5 min against
-# the job's 45 minute timeout, which is not raised), so noise does not turn the job red.
+# and no split can put it under 25 (UAK-150 split it in two files). The longest shard must stay at or under WINDOWS_MARGIN of
+# the bound, so noise does not turn the job red: past it the matrix takes one more shard. 80 %, not 85 % (UAK-197): with the
+# table of 2026-11-25, 11 shards put the longest at 1445 of 1800 s (80.3 %) and 12 at about 1326 s; the whole matrix is then
+# 21 jobs. The lint prints the longest shard and its share (windows_shard_report).
 WINDOWS_SETUP_S = 15
 WINDOWS_BOUND_S = 30 * 60
-WINDOWS_MARGIN = 0.85
-WINDOWS_MAX_SHARDS = 15   # 24 jobs a commit on main: discover (1) + 4 shards x 2 OS (8) + these
+WINDOWS_MARGIN = 0.80
+WINDOWS_MAX_SHARDS = 13   # 22 jobs a commit on main, the cap the human set on 2026-11-24: discover (1) + 4 shards x 2 OS (8) + these
 
 
 
@@ -398,17 +412,31 @@ def ci_windows_shards(n):
     return _split(ci_tests(), n, ci_windows_seconds)
 
 
-def windows_seconds(shard):
-    return WINDOWS_SETUP_S + sum(ci_windows_seconds(t) for t in shard["tests"].split())
+def windows_seconds(shard, seconds=None):
+    seconds = seconds or ci_windows_seconds
+    return WINDOWS_SETUP_S + sum(seconds(t) for t in shard["tests"].split())
 
 
-def windows_shard_count():
-    """The smallest shard count whose longest shard stays under WINDOWS_MARGIN of WINDOWS_BOUND_S (capped at WINDOWS_MAX_SHARDS)."""
-    total = len(ci_tests())
-    for n in range(1, min(total, WINDOWS_MAX_SHARDS) + 1):
-        if max(windows_seconds(s) for s in ci_windows_shards(n)) <= WINDOWS_BOUND_S * WINDOWS_MARGIN:
+def windows_shard_count(seconds=None, tests=None):
+    """The smallest shard count whose longest shard stays under WINDOWS_MARGIN of WINDOWS_BOUND_S (capped at WINDOWS_MAX_SHARDS).
+    `seconds` (a function of a file) and `tests` replace the real table and files, for the tests."""
+    seconds = seconds or ci_windows_seconds
+    tests = ci_tests() if tests is None else list(tests)
+    for n in range(1, min(len(tests), WINDOWS_MAX_SHARDS) + 1):
+        if max(windows_seconds(s, seconds) for s in _split(tests, n, seconds)) <= WINDOWS_BOUND_S * WINDOWS_MARGIN:
             return n
-    return min(total, WINDOWS_MAX_SHARDS)
+    return min(len(tests), WINDOWS_MAX_SHARDS)
+
+
+def windows_shard_report(seconds=None, tests=None):
+    """One line: how many Windows shards, which is the longest, its seconds and its share of WINDOWS_BOUND_S."""
+    seconds = seconds or ci_windows_seconds
+    tests = ci_tests() if tests is None else list(tests)
+    n = windows_shard_count(seconds, tests)
+    loads = [(windows_seconds(s, seconds), s["n"]) for s in _split(tests, n, seconds)]
+    longest, k = max(loads, key=lambda x: (x[0], -x[1]))
+    return "%d Windows shards (%d jobs with discover and 8 suite shards); the longest is windows (%d): %d of %d s, %.1f %% (at most %d %%)" % (
+        n, 1 + 8 + n, k, longest, WINDOWS_BOUND_S, 100.0 * longest / WINDOWS_BOUND_S, round(WINDOWS_MARGIN * 100))
 
 
 def check_test_discovery(findings):
@@ -539,7 +567,11 @@ def main():
     ap.add_argument("--ci-tests", action="store_true", help="print the Windows matrix for $GITHUB_OUTPUT")
     ap.add_argument("--ci-windows", action="store_true", help="print the Windows shards for $GITHUB_OUTPUT")
     ap.add_argument("--ci-shards", type=int, metavar="N", help="print the suite's N shards for $GITHUB_OUTPUT")
+    ap.add_argument("--windows-report", action="store_true", help="print the Windows shard count, the longest shard and its share")
     a = ap.parse_args()
+    if a.windows_report:
+        print("KIT_LINT_INFO " + windows_shard_report())
+        return 0
     if a.ci_tests:
         print("tests=" + json.dumps(ci_tests()))
         return 0
@@ -563,6 +595,7 @@ def main():
     check_dogfood(findings)
     for f in findings:
         print("KIT_LINT " + f)
+    print("KIT_LINT_INFO " + windows_shard_report())
     print("KIT_LINT_%s %d finding(s)" % ("FAIL" if findings else "PASS", len(findings)))
     return 1 if findings else 0
 
