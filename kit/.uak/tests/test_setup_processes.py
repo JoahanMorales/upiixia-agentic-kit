@@ -9,6 +9,7 @@ while the signal arrives), real HTTP, real Git with a local bare remote. The pag
 its scheduling functions run in Node when there is one. Every process this file starts is stopped by its PID."""
 import argparse
 import contextlib
+import gc
 import importlib.util
 import io
 import json
@@ -837,6 +838,7 @@ def reopen_notice_says_what_happened(root, tmp):
 SPAWNER = ("import subprocess, sys, time\n"
            "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'], start_new_session=True)\n"
            "print(g.pid, flush=True)\n"
+           "g.wait()\n"  # reaped when it ends (no zombie that still has its start time, as on macOS)
            "time.sleep(120)\n")
 
 
@@ -858,6 +860,10 @@ def end_pid(pid, stamp):
     """A grandchild this test's own child started: ended by PID only while it is still that process."""
     if pid and stamp and wizard.MODULE.process_stamp(pid) == stamp:
         os.kill(pid, signal.SIGKILL)
+
+
+def still_running_pid(pid):
+    return wizard.MODULE.read_stamp(pid) is not None
 
 
 def still_running(proc, seconds=0.6):
@@ -927,9 +933,13 @@ def stop_children_checks_the_start_time(root, tmp):
         # A number nobody has any more is forgotten without a word.
         gone = subprocess.Popen([sys.executable, "-c", "pass"])
         gone.wait(15)
-        with Recorded({gone.pid: "123"}) as rec:
+        gone_pid = gone.pid
+        del gone  # Windows: the handle Popen holds keeps the number (and its start time) until it is closed
+        gc.collect()
+        with Recorded({gone_pid: "123"}) as rec:
             m.stop_children()
-        assert not rec.said(gone.pid) and not m.CHILDREN, rec.out.getvalue()
+        assert not m.CHILDREN, "it is forgotten"
+        assert not rec.said(gone_pid) or not still_running_pid(gone_pid), rec.out.getvalue()
     finally:
         end(other)
         end(mine)

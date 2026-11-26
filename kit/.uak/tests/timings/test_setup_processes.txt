@@ -1,2 +1,4 @@
-ci 130
+# measured 2026-11-26 45751796663
+# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 117.3 s (45751796663)
+ci 147
 windows 140
