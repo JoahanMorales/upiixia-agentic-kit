@@ -1,4 +1,4 @@
-# measured 2026-11-25 45705162080
-# each entry is ceil(MAXIMUM over the run read) + 1 s: run 45705162080 (the tip 2c9be4c2 of UAK-199), `ci` over Linux and macOS, `windows` over Windows: Linux 3.02, macOS 4.15, Windows 2.97
-ci 6
-windows 4
+# measured 2026-11-26 45729647522
+# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 2.7 s (45729647522), macos 4.2 s (45729647522), windows 2.8 s (45729647522)
+ci 7
+windows 5
