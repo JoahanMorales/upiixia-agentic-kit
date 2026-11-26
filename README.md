@@ -1,656 +1,186 @@
-<div align="center">
-
-<img src="docs/media/banner.png" alt="UPIIXIA Agentic Kit: Haiku swarms, Sonnet builds, Opus advises" width="860">
+<p align="center"><img src="docs/media/banner.png" alt="UPIIXIA Agentic Kit: several people and their coding agents build one product at once. Four pixel avatars of coding agents, one on Claude Code, one on Codex, one on Cursor, and a reviewer on Codex, above a row of task squares filling in" width="860"></p>
 
 # UPIIXIA Agentic Kit
 
-### Ship with a team of AI coding agents, in parallel, without chaos.
+**The orchestration harness for multi-agent teams.** It runs no model of its own: it coordinates the coding tools you already use, such as Claude Code, Codex and Cursor.
 
-**Multi-agent coordination for Claude Code, Codex, Cursor and Gemini CLI.** Agents claim tasks, run bounded verify → fix loops, review each other and merge. It works across several humans and machines, with **no server**: just a Git branch and Bash.
-
-**`sprint`** mode wins hackathons · **`marathon`** mode ships secure, scalable products
+**The aim:** several people and their coding agents working on one repository at the same time, without stepping on each other. No chaos.
 
 [![tests](https://github.com/JoahanMorales/upiixia-agentic-kit/actions/workflows/test.yml/badge.svg)](https://github.com/JoahanMorales/upiixia-agentic-kit/actions/workflows/test.yml)
 ![license](https://img.shields.io/badge/license-MIT-blue)
-![deps](https://img.shields.io/badge/runtime_deps-bash_%2B_git-success)
-![agents](https://img.shields.io/badge/agents-Claude_Code_·_Codex_·_Cursor_·_Gemini-8A2BE2)
-
+![runtime deps](https://img.shields.io/badge/runtime_deps-bash_%2B_git-success)
+![coding tools](https://img.shields.io/badge/agents-Claude_Code_·_Codex_·_Cursor_·_Gemini-8A2BE2)
 [![M8ven Score](https://m8ven.ai/badge/mcp/joahanmorales-upiixia-agentic-kit-1e9007)](https://m8ven.ai/mcp/joahanmorales-upiixia-agentic-kit-1e9007?s=readme)
 
-▶ [Demo (simulated): from zero to a deployed product in 74 s](kit/.uak/media/tutorial.mp4) · captions: [English](kit/.uak/media/tutorial-en.vtt) / [Español](kit/.uak/media/tutorial-es.vtt)
+**What it is.** A set of Bash scripts and written rules that lets several AI coding agents work in one Git repository at the same time, each on its own task, with every change tested and reviewed before it reaches the main branch.
 
-[Quick start](#quick-start) · [First claim](#stuck-before-the-first-claim-uak-start) · [Why](#why) · [Orchestration](#subagent-orchestration-fast-swarms-a-balanced-lead-a-strong-advisor) · [Pacing](#plan-pacing-spend-the-5-hour-window-dont-hit-the-wall) · [Black box](#black-box-the-kit-learns-from-every-team-that-uses-it) · [Frontend](#frontends-that-dont-look-generated) · [Deploy](#deploy-in-one-command-uak-deploy) · [Dashboard](#see-everything-uak-dash) · [Modes](#two-modes-one-engine) · [Loop engineering](#loop-engineering) · [Graph engineering](#graph-engineering) · [Speed](#speed) · [Token economy](#token-economy) · [Results](#battle-tested-six-team-runs) · [Contributing](CONTRIBUTING.md)
+**Who it is for.** Anyone who runs more than one coding agent (Claude Code, Codex, Cursor or Gemini CLI) on the same repository: one person with three agents, or a team of five on five laptops, at a hackathon with a deadline or on a product with users.
 
-</div>
+**What you have after ten minutes.** The kit installed in your repository, a plan of tasks for your idea that you read and approved, and the exact command that puts your first agent on its first task. A page in your browser walks you there, then shows the whole team's progress.
 
----
+**Start.** In the root folder of your Git repository:
 
-## Try it in 30 seconds (no setup, no API key)
+```bash
+git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit && bash ~/.uak-kit/install.sh --wizard .
+```
 
-<img src="docs/media/demo.svg" alt="uak demo: 3 agents claim, loop, review and merge through one Git branch" width="860">
+## Why it exists
+
+One coding agent in one terminal is easy to follow. Put four people on one repository, each running two or three agents, and the same things break every time. They broke for us at Hack-Nation 2026, where five agents and four people built one product overnight ([the retro](docs/RETRO-hacknation-2026.md)):
+
+- two agents edit the same file and one of them loses;
+- an agent runs out of tokens while holding the task everyone else waits for;
+- a force-push wipes a teammate's work;
+- nobody is sure the merged code was ever run;
+- the person in charge turns into a traffic light, approving every merge by hand.
+
+The kit is what we wrote after that weekend, and it has been rewritten after every event since: each rule in it points to the incident that made it ([WHY.md](kit/.uak/docs/WHY.md)). What it does today:
+
+| What breaks | What the kit does today |
+|---|---|
+| Two agents edit the same file | Each task lists the files it may change. A claim whose files overlap a live claim is refused, and the merge refuses a change outside the task's files. |
+| An agent stops halfway | A claim has a lease that the agent's hooks renew. When it runs out, another agent takes the task over from the summary the first one left. |
+| An agent loops on a failing test | `uak loop` stops after `--max` tries, on the same failure twice, or when the agent edits the test. |
+| A force-push, `sudo`, reading `.env` | Hooks in Claude Code, Codex, Cursor and Gemini CLI block them, also inside `cd x && ...`. |
+| An API key pasted into the chat | In Claude Code a hook blocks the message before the model reads it. |
+| "Did anyone run it" | The reviewer is never the author and runs the task's check on the exact commit it approves. |
+| A person merges every pull request | In `sprint` mode the merge gate merges an approved task after running the checks again; shared files (CI, lock files, the kit's engine) still go to a person. |
+
+Where it is going: adding one more agent, or one more teammate, should cost the team nothing but the work itself. It is not there yet. Every command is a round trip to the Git remote, so it takes seconds, and in this repository most merges still wait for a person because they touch the kit's own engine; `docs/EVIDENCE.md` has the counts.
+
+## See it run
+
+<picture><source srcset="docs/media/parallel-loop.webp" type="image/webp"><img src="docs/media/parallel-loop.gif" alt="Animation: a grid of task squares. Agent avatars take squares, a reviewer passes over them, and each square turns green when its work is merged" width="860"></picture>
+
+Each square is a task. Agents take the ones whose files nobody else holds, another agent reviews the result, and the square turns green when it merges. To watch the real thing, with no install, no AI and no key:
 
 ```bash
 git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit && bash upiixia-agentic-kit/kit/.uak/bin/uak demo
 ```
-It runs a real 3-agent session in a temp repo with a local Git remote:
-- `uak start` at minute 0: every step to the first claim checked, then the command that starts;
-- parallel claims, and an overlapping claim rejected, with `uak next` saying why it offers nothing;
-- a bounded fix loop (`LOOP_FAIL → LOOP_FAIL → LOOP_PASS`);
-- a review of the exact SHA by another agent, then a gated merge;
-- a dependent task unlocking by itself;
-- the team board.
 
-## Quick start
+Three scripted agents share a temporary repository with a local remote. Two claims go through, a third is refused because its files overlap, a test fails before the code exists, a bounded fix loop makes it pass, another agent reviews that exact commit, the gate merges it, and a task that was waiting on it opens by itself.
 
-Going to a hackathon? The one-page plan is in **[docs/HACKATHON.md](docs/HACKATHON.md)**. You pick the mode yourself at install. There is no default: `sprint` for a deadline with judges, `marathon` for a product with users after launch.
+<img src="docs/media/demo.svg" alt="A terminal recording of uak demo: three agents claim tasks, one overlap is refused, a fix loop passes, another agent approves and the task merges" width="860">
 
+While agents work, a person follows them on one local page drawn from the `claims` branch:
 
-**New to the kit? Start in your browser** (needs Git, Bash 3.2+ or Git Bash, Python 3.8+; no account or API key):
+<img src="docs/media/dash.png" alt="This repository's own dashboard in the dark theme: what needs a person, one square per task coloured by state, progress and the agents online" width="860">
+
+A click on a task tells its whole story:
+
+<img src="docs/media/dash-task.png" alt="One task of this repository opened on the dashboard: what it waits for and what it unblocks, the time it spent in each state and who took part" width="860">
+
+There is also a [74-second video](kit/.uak/media/tutorial.mp4) (UAK-199): a demonstration, with drawn screens of the setup page and the dashboard, from an empty project to a deployed app, with [English](kit/.uak/media/tutorial-en.vtt) and [Spanish](kit/.uak/media/tutorial-es.vtt) captions.
+
+## Get started
+
+You need Git, Bash 3.2 or newer (Git Bash on Windows) and, for the setup page, Python 3.8 or newer. Installing needs no account, no API key and no server; writing the plan from the page uses Claude Code or Codex, signed in.
+
+**With the setup page** (a person at a computer): the command under **Start.** above. It opens a local page that detects your project, installs the kit, publishes it to `main`, writes the plan with you and ends with one button per agent. If `~/.uak-kit` already exists, run `git -C ~/.uak-kit pull` and then the part after `&&`.
+
+**From a terminal** (no browser, CI, or an agent installing the kit):
 
 ```bash
 git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit
-bash ~/.uak-kit/install.sh --wizard /path/to/project   # a local page: install, next step, plan, progress
+bash ~/.uak-kit/install.sh --mode sprint .
+bash .uak/bin/uak start
 ```
 
-The page and what it guarantees: **[docs/DASHBOARD.md](docs/DASHBOARD.md)**. The terminal path below gives the same result.
+Write `--mode marathon` instead for a product. `uak start` checks each step from install to the first claim in order, gives the fix for the first one missing, and ends with the exact command that starts the first task. The installer never overwrites a file of yours: when one differs, the kit's version is written beside it as `.uak-new`. Other options (a stack preset, which coding tools, `--solo` when you are the only person on the repository) are listed in `docs/REFERENCE.md`.
 
-**1. Install into any Git repo** (30 s; needs Bash 3.2+ and Git):
+**As a Claude Code plugin:** `/plugin marketplace add JoahanMorales/upiixia-agentic-kit`, then `/plugin install uak@upiixia-agentic-kit`, then `/uak:setup`.
+
+**Claude Code in a new folder:** run `claude` once in the repository and accept the trust question. Until then Claude Code ignores the repository's `.claude/settings.json` ("this workspace has not been trusted"), and an agent started without a window stops at its first command. Each task's folder asks once too.
+
+Every agent starts its session with:
 
 ```bash
-git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit ~/.uak-kit
-bash ~/.uak-kit/install.sh --mode sprint .          # hackathon / AI prototype
-# or: --mode marathon                               # real product: specs, CODEOWNERS, security reviews
-# options: --stack fastapi-react|nextjs|django|go|expo|python-data|ai-agent|spring-boot   --skills ai,tdd   --update (refresh the engine later)
-#          --harness claude,codex (only the dirs of the tools you use)   --no-mcp (CLI only)   --no-blackbox
-#          --solo (alone on the GitHub repo: agents review each other on claims; in marathon you still merge)
-bash .uak/bin/uak start                              # every step to the first claim, in order, then the command that starts
+bash .uak/bin/uak next
 ```
 
-At a terminal the install ends with one question: continue in the browser (`b`) or here in the terminal (`t` or Enter). `--wizard` or `--terminal` answer it beforehand; with no terminal (a pipe, CI, an agent) nothing is asked or opened and the two commands are printed. Both ways read the project's files: `bash .uak/bin/uak start --steps` lists the same steps the page shows.
-
-It never overwrites your files: a kit file you edited gets its new text beside it as `.uak-new`; an older kit file nobody touched is simply updated by `--update`. Your hook manager (husky, lefthook) keeps its `core.hooksPath`.
-
-**Or, in Claude Code:**
-
-```
-/plugin marketplace add JoahanMorales/upiixia-agentic-kit
-/plugin install uak@upiixia-agentic-kit
-/uak:setup
-```
-
-**Claude Code in a new folder:** run `claude` once in the repo and accept the trust question, then close it. Until then Claude Code ignores the repo's `.claude/settings.json` permissions ("this workspace has not been trusted"), so a headless planner or agent stops on its first command. Each task worktree asks once too.
-
-**2. Plan:** open your agent in the repo and run `/uak-setup`, then `/uak-plan`. Codex, Cursor and Gemini read `AGENTS.md` natively (in Codex the phase scripts are `$uak-setup`, `$uak-plan`). Then `bash .uak/bin/uak start` until it says `START READY`.
-
-**3. Start the team:**
+and a person follows the work with:
 
 ```bash
-bash .uak/bin/uak up 4 --tmux                 # claim the 4 best tasks, one worktree + agent each (tmux)
-# or one agent at a time:
-bash .uak/bin/wt new HACK-003 --agent ana-1   # branch + worktree + identity + port + claim
-bash .uak/bin/uak board --watch 10            # live team kanban for the humans
+bash .uak/bin/uak dash --watch --open
 ```
-
-**4. Deploy the walking skeleton early:** `bash .uak/bin/uak deploy --write` writes the Dockerfile and a Render Blueprint for your stack (Vercel for Next.js). Connect the repo once; every merge redeploys.
-
-That's it. `uak next` always tells every agent what to do next.
-
-### Stuck before the first claim? `uak start`
-
-The first claim needs a few things: the kit pushed to `main` (agents read `main`'s copy, not yours), an approved
-plan, a reviewer who is not the author. Missing any one of them used to look the same: "No eligible candidate".
-`uak start` checks them in order and names the one fix for each:
-
-```text
-$ bash .uak/bin/uak start
-OK    1. kit installed (marathon, uak 5.3.0)
-OK    2. remote origin reachable
-OK    3. preflight: doctor has no failures (4 warning(s): bash .uak/bin/doctor)
-OK    4. .uak/ on origin/main matches this checkout (uak 5.3.0)
-OK    5. plan: 1 task(s), lint clean
-TODO  6. approve the plan: Backlog-Approved is not yes on main, so nothing can be claimed for 10 min and then only P0
-         you are the human: read .uak/TASKS.md, set Backlog-Approved: yes in .uak/PROJECT.md, push it to main
-NOTE  reviews: no reviewer is registered, so the first PR waits until a second agent holds a claim. Working alone? …
-
-START · 1 thing to do before the first claim. Then run uak start again.
-```
-When everything is in place, it prints `START READY · bash .uak/bin/wt new APP-001`. `--fix` does the mechanical
-fixes (hooks; `Review-Mode: claims` when gh says you are the repo's only collaborator). An agent gets the same
-answer from `uak next`: with nothing to offer, it says why for each task.
-
-```text
-Why not APP-001: Backlog pending approval: Backlog-Approved is not yes in .uak/PROJECT.md on main, so only P0 tasks,
-and only after 10 min (10 min left). The human approves the plan: set Backlog-Approved: yes there and push it to main.
-```
-
-**Alone on the repo?** Install with `--solo`. GitHub never lets a PR's author approve it, so in `--solo` mode agent
-identities review each other on the claims branch, and you still merge.
-
-## Why
-
-One agent in one terminal is easy. **Five agents run by four people on three machines** is chaos:
-
-- two agents edit the same file;
-- one runs out of tokens while holding the task everyone waits on;
-- a force-push wipes a teammate's work;
-- the human becomes a traffic light for every merge.
-
-This kit is the protocol we used to ship **76 PRs in ~14 hours with 5 agents and 4 humans** at Hack-Nation 2026, rebuilt from a data-driven post-mortem of everything that went wrong ([retro](docs/RETRO-hacknation-2026.md)).
-
-| Without the kit | With the kit |
-|---|---|
-| "Who's on the login page?" | `uak next`: one eligible task per agent, with path overlap rejected at claim time |
-| An agent dies and its work is stranded | Leases + a 6-line live summary: the next agent resumes from the exact next step |
-| Agents loop forever on a failing test | Bounded loops: 5 attempts, stuck detection, then escalate with the exact error |
-| `cd x && git push --force` | Blocked by a hook, even when chained |
-| An API key pasted into the chat | Blocked before the model ever sees it |
-| The human merges 75 PRs by hand | Reviewer rotation + an auto-merge queue that re-runs every gate (sprint) |
-| "Did anyone check that it works?" | Every PR has a reviewer who is not the author and who **runs** Verify on the exact SHA |
-
-## Two modes, one engine
-
-| | `sprint` (hackathon, AI prototype) | `marathon` (real product) |
-|---|---|---|
-| Optimizes | demo wow per hour, a stunning frontend | correctness, security, scale |
-| Planning | IDEA → rubric → vertical P0 tasks | constitution → spec (EARS) → plan + threat model → tasks |
-| Backlog changes | `uak plan` publishes instantly (no PR) | reviewed PR |
-| Merge | auto-merge after review and green gates | human CODEOWNERS + required CI; agents pre-review |
-| Frontend | design lock at T+1h, `design-critic` on 1280×720 screenshots | perf budgets, accessibility in CI |
-| Safety net | mandatory freeze scaled to the event (`uak clock`), plan-B video, human owns submission | `security-reviewer`, dependency decisions, ADRs, TDD |
-| Lease / review wait | 45 min / 4 h | 4 h / 24 h |
-
-The mode is one line, `Mode:` in `.uak/PROJECT.md`. Rules: [`AGENTS.md`](kit/AGENTS.md) · [sprint](kit/.uak/modes/sprint.md) · [marathon](kit/.uak/modes/marathon.md).
 
 ## How it works
 
-```mermaid
-flowchart LR
-  P[Planner<br/>/uak-plan] -->|TASKS.md · uak plan| C[(claims branch<br/>tasks · leases · worklogs · inbox)]
-  A1[Agent ana-1<br/>worktree hack-003] <-->|claim · heartbeat · msg| C
-  A2[Agent bob-1<br/>worktree hack-004] <-->|claim · heartbeat · msg| C
-  A1 -->|PR + evidence| R{Reviewer<br/>by rotation}
-  R -->|approve SHA| M[uak merge<br/>or human]
-  M --> main[(main)]
-  H[Human] -->|one digest| C
-```
+Everything lives in your repository. The plan is `.uak/TASKS.md`, the project's rules are `.uak/PROJECT.md`, and the live state (who works on what, reviews, messages) is a series of commits on a branch named `claims` on your Git remote. There is no server: each command reads and writes that branch, so it works the same from one laptop or from five, with any mix of coding tools.
 
-- **The `claims` branch is the database.** Every state change is a commit pushed fast-forward. Races resolve like Git does: fetch, rebase, re-validate, retry. It works across machines, people and tools.
-- **Path reservations.** Tasks declare `Paths`. Overlapping claims are rejected, and shared files (lockfiles, schemas, CI) need an owner.
-- **Typed async inbox.** `contract`, `request`, `review`, `approve`, `reject`. Hooks inject only the actionable messages into the agent's context.
-- **Guards.** A `PreToolUse` hook blocks destructive Git, `sudo`, `.env` reads and publishing. A `UserPromptSubmit` hook blocks pasted secrets.
+1. **Plan.** Each task has an ID, the files it may change (`Paths`), the tests that show it works (`Tests`), the command that checks it (`Verify`) and the tasks it waits for. An agent drafts the plan with `/uak-plan`; a person approves it.
+2. **Claim.** `wt new HACK-001` gives the task its own branch and folder (a Git worktree) and records the claim on `claims`.
+3. **Test first.** The agent writes the task's tests, `uak red` records that they fail, then it writes the code. `uak done` refuses a change that edits or deletes an existing test.
+4. **Review.** `uak done` asks one reviewer, picked by rotation and never the author, who runs `Verify` on the exact commit and approves or rejects that commit.
+5. **Merge.** `uak merge` merges the approved commit, runs the checks again on the result and pushes `main` and `claims` together.
+6. **Next.** `uak next` tells each agent what to do now, and when there is nothing, why. `uak board` prints the team in a terminal; `uak dash` draws it as a page.
 
-## Subagent orchestration: fast swarms, a balanced lead, a strong advisor
+<img src="docs/media/lanes-into-main.png" alt="Three agents' lanes side by side: each task moves through claim, red, green and review, then merges into one line, main" width="860">
 
-The best result per token, in **every** harness. The strongest model wakes up only where judgment changes the outcome ([ORCHESTRATION.md](kit/.uak/docs/ORCHESTRATION.md)).
+You choose one of two modes at install. `sprint` is for a deadline: an agent merges after the review, and new work stops at a freeze before the end. `marathon` is for a product with users: a person merges every pull request, with specs and security reviews. The walkthroughs are in `docs/GUIDE.md`.
 
-| Tier | Claude Code | Codex | Cursor | Gemini CLI | Job |
+## What it has won
+
+Teams using the kit took first place at these four events, with the kit running in the entry's repository. Each event's data then became a release of the kit.
+
+| Event | Date | Place | Entry | Kit | Source |
 |---|---|---|---|---|---|
-| **fast** swarm | Haiku 5.5 | GPT-6 Luna | Composer 2.5 | Gemini 3 Flash | scouts and runners: find, read, run noisy commands, return ≤15 lines, up to 3 in parallel |
-| **balanced** lead | Sonnet 5.5 | GPT-6.1 Sol | your model | your model | plans, edits, runs Verify, decides; reviews |
-| **strong** advisor | Opus 5.5 | GPT-6 Astra | Opus 5.5 | Gemini 3 Pro | only at **plan lock**, **the same failure twice**, and **done** on risky diffs |
-
-On the GPT-5.6 family, Sol is strong, Terra balanced and Luna fast. The guard knows both families.
-
-- **The same 6 subagents everywhere.** `.claude/agents`, `.codex/agents`, `.cursor/agents` and `.gemini/agents` are generated from one source (`scripts/gen_harness.py`) and checked in CI.
-- **Configured for you:**
-  - Claude: `model: sonnet`, `advisorModel: opus`, `CLAUDE_CODE_SUBAGENT_MODEL=haiku`, spawn depth 1.
-  - Codex: `model = "gpt-6.1-sol"`, `default_subagent_model = "gpt-6-luna"`, `max_concurrent_threads_per_session`.
-- **Enforced, not just suggested:** `guard agent` (Claude Code, Codex and Cursor hooks) caps parallel subagents and **strong subagents per session**, even under ultracode. `UAK_ALLOW_OPUS=1` is the human override.
-- **No advisor tool or a long session:** `/uak-advise plan|stuck|done` sends a ≤40-line packet instead of replaying the transcript.
-- **Verified live:** a real headless run used `claude-sonnet-5-5` as lead and `claude-haiku-5-5` as scout, for 0.085 USD in total.
-- We checked the viral claims against the docs. `/advisor` is real; `--subagents`, "dispatcher pools" and "JEV 16 ms" are not ([details](kit/.uak/docs/ORCHESTRATION.md#what-we-did-not-adopt-claims-that-circulate-online)).
-
-## Plan pacing: spend the 5-hour window, don't hit the wall
-
-`uak pace` compares **budget left** with **time left** in each usage window and turns it into a level the guard enforces ([COSTS.md](kit/.uak/docs/COSTS.md)).
-
-```bash
-bash .uak/bin/uak pace
-# PACE surge | claude-5h 30% used, resets in 1h0m, ratio 3.50 | caps: parallel 8, strong 4 | spend: budget will expire unused…
-```
-
-| Situation | Ratio | Level | What changes |
-|---|---|---|---|
-| 1 h left of 5 h, 70% of the plan left | 3.5 | **surge** | 2× parallel subagents, +2 strong, `uak up 2` |
-| on track | 1.0–1.6 | normal | default routing |
-| 3 h left, 50% left | 0.83 | **conserve** | ½ parallel, 1 strong, fast tier for every read |
-| ≥ 90% used, or ratio < 0.6 | — | **critical** | 1 subagent, no strong model, checkpoint and hand off before the limit |
-
-- **Hard limits above pacing.** Fixed numbers that pacing can lower but never raise: in sprint, 6 parallel, 3 strong, 40 spawns per session, 8 per machine, 6 per minute, and 6 agents per `uak up`. A wrong reading can't burn your plan in minutes. Surge also needs fresh data.
-- **Where the numbers come from:**
-  - Claude Code: the status line's `rate_limits` (Pro/Max).
-  - Codex: `rate_limits` in `~/.codex/sessions`.
-  - Cursor or any dashboard: `uak pace set 60 --resets +12d --window 30d`.
-- **COSTS.md** also has the price tables (Haiku is 1×, Sonnet 20×, Opus 40× per token; Luna 1×, Sol 20×, Astra 100×) and the Pro, Max, Plus and Ultra limits. It suggests starting caps per plan.
-
-## Black box: the kit learns from every team that uses it
-
-Like a flight recorder: **every `uak` error and guard block is recorded automatically**, and agents add one line when the kit slows them down (`uak bb add friction "…" --fix "…"`). Lines are anonymous: no identities, paths, SHAs or code, and anything that looks like a secret is dropped. They go to `claims:blackbox/`. `scripts/blackbox_harvest.py` finds public repos that use the kit, reads their `claims:blackbox/` and ranks what to fix next (`uak bb export` also writes a readable `.uak/BLACKBOX.md`).
-
-**On by default; off with `Blackbox: off`** in `.uak/PROJECT.md`, or `install.sh --no-blackbox` ([BLACKBOX.md](kit/.uak/docs/BLACKBOX.md)). The [first harvest](docs/blackbox/upiixsol-2026-10.md) came from a 3-day, 2-human marathon project. Every row became a v4.1 fix. The [Reap buildathon autopsy](docs/blackbox/reap-2026-10.md) (4 h, 5 humans, 11 agents on Codex, Cursor and Claude Code) became v4.2. The [MLB hackathon autopsy](docs/blackbox/mlb-2026-10.md) (10 days, 4 humans on Windows, 13 identities on Claude Code, Codex and Cursor) became v4.3, shipped in v5.
-
-## Loop engineering
-
-Every loop declares a **trigger, a verifier, a budget, a stop condition and an escalation**, or it isn't allowed ([LOOPS.md](kit/.uak/docs/LOOPS.md)).
-
-```bash
-# An unattended, bounded fix loop. Works with any CLI agent that reads a prompt on stdin.
-bash .uak/bin/uak loop --verify "uv run pytest -q" --agent "claude -p --permission-mode acceptEdits" --max 5 --task HACK-007
-# LOOP_FAIL iteration=1 exit=1 · test_api.py::test_search FAILED
-# LOOP_PASS iteration=2 · 12 passed in 1.9s
-# Many failing files: one small loop per file, in parallel worktrees, fixes applied back
-bash .uak/bin/uak loop --verify "uv run pytest -q" --parallel 3 --each "uv run pytest -q {}" --agent "codex exec -"
-```
-- **Guards, not promises:** the loop stops when the agent changes nothing, or when it edits an existing test (the verifier).
-
-- **Inner loop** (`/uak-loop`): implement → `q verify` → fix; 5 tries; the same error twice → BLOCKED with that error.
-- **Hook loops:** a heartbeat every lease/3 and a claims check every 20 s (inbox read only when it moved), in the background; `uak wait` instead of polling.
-- **Review loop:** `done` → an online reviewer by rotation → approve or reject → merge queue. An offer nobody starts in 15 min moves to another agent, then to all: nothing waits on a closed session.
-- **Deadline loop:** decisions resolve after 15 min (routine only), backlog P0s after 10 min, freeze on schedule.
-- Failures are fed back as a 40-line tail, never full logs. Agent output goes to a log file, never into your context.
-
-## Graph engineering
-
-A team of agents is a graph: **members, mandates, message paths, shared state, routing, traceability**. Every edge here is a file or a command ([GRAPH.md](kit/.uak/docs/GRAPH.md)).
-
-```bash
-bash .uak/bin/uak graph --min-wave1 4
-# GRAPH 9 tasks · 3 waves · critical path 135 min: HACK-002 → HACK-006 → HACK-009
-# wave 1 (5): HACK-001 HACK-002 HACK-003 HACK-004 HACK-005
-bash .uak/bin/uak graph --mermaid      # live state colors, paste into any PR or issue
-bash .uak/bin/uak graph --assign       # ready task → idle agent that already integrated work in those folders
-```
-
-**The code graph (`uak map`)**, graphify-style with two layers: EXTRACTED edges (symbols, resolved imports and call
-edges, by Bash + awk: free, offline, rebuilt on every change) and optional INFERRED ones (`uak map notes`: the fast
-model gives the key files a purpose and concepts once, cached by content hash). An agent reads a compact `MAP.md`
-instead of opening files. Measured on a 123-file analytics repo: the whole source is ~187k tokens, `MAP.md` ~1.3k, and "where is
-`data_path` defined and who uses its module" costs ~280 tokens from the map vs ~3.1k opening the files.
-```bash
-bash .uak/bin/uak map find data_path · map users core/config.py · map path A B · map impact HACK-001
-bash .uak/bin/uak msg impact:HACK-001 --kind contract "data_path takes a Path now"   # every task whose files import it
-```
-
-**Memory anchored to paths**: `uak learn "what bites · where · what to do"` stores a lesson on the task's paths;
-`uak next`, which every session starts with, shows the newest lessons to whoever works there next. A reviewer's
-reject note becomes one with `--learn`. The claim also brings back past work by words: the rejects, contracts
-and lessons of similar tasks with other paths, ranked by BM25 (`uak recall ID --similar`; no model, no network).
-
-`uak lint` fails on dependency cycles and unknown IDs. `Uses contract:` edges let consumers work on mocks instead of waiting.
-
-## The harness is used when it matters
-
-Good tools are useless if the agent does not know when to reach for them. Rules in `AGENTS.md` are in context, but
-attention fades over a session. v5 puts the right command at the moment of decision: a quick card at session start
-(when X → run Y), capped reminders after tool calls (5 reads in a row → the code map; polling → `uak wait`; a push
-that touches files another task imports → `msg impact:`), and the next step printed by every command.
-
-Measured, not assumed ([adoption eval](docs/evals/README.md), real headless Claude Code sessions): with the rule in
-context, the agent warned the task that imports its change in **0 of 3** runs; with the adoption layer, **3 of 3**.
-
-**The graph comes to the agent (v5.2).** Reminders were not enough for the code map: at MLB agents called it 9 times
-for 67 Claude Code tasks, and a pilot study saw agents route 0–6% of lookups to a semantic tool when grep was there.
-So the map is pushed into the loop instead of waiting to be asked. The claim prints the task's slice of the map
-(its files, what they define, who imports them, which tasks to warn), and after a `grep`/`Read` the post-tool hook adds one line:
-`uak map: data_path is defined at lib/config.py:1; called from 3 places in 2 other files: …`, or
-`uak map: lib/config.py · imported by 12 files · not in HACK-007's Paths: the merge gate refuses edits here`.
-Claude Code, Codex, Cursor and Gemini CLI, each symbol or file once per session. `uak stats` reports adoption per
-harness (map calls and pushed lines per task, `wait` and polls per done), with the hooks' own calls counted apart.
-
-**MCP server.** The same harness is also a native MCP server (`.uak/bin/uak-mcp`, Python standard library): 15 tools
-(`uak_next`, `uak_claim`, `uak_ship`, `uak_wait`, `uak_map`, `uak_memory`, …), resources (the code map, team status,
-lessons) and the `/uak-*` workflows as prompts, for Claude Code, Codex, Cursor and Gemini CLI. It speaks both MCP
-2026-07-28 (stateless) and 2025-11-25 (handshake), and every tool runs the same CLI and gates.
-**MCP or Bash: your choice, per team or per agent.** Both stay available and share the same state: an agent can
-claim through `uak_claim` and ship through `bash .uak/bin/uak done`. Don't want the server? Decline it when Claude
-Code asks, or install with `--no-mcp` (no `.mcp.json`, `.cursor/mcp.json`, nor the uak blocks in Codex and Gemini
-configs). In the eval, agents with both chose Bash and did as well; MCP matters most in clients without a shell.
-
-## Frontends that don't look generated
-
-We won first place at Chilangatón and nearly lost it on the UI. The first version was a column of white boxes with gray
-borders, raw `stone-*` classes and every label in the same weight, and it was redone from scratch 3 hours in. The
-autopsy found five causes, and v5.4 closes each one:
-
-| What went wrong | What the kit does now |
-|---|---|
-| The plan wrote the look as a sentence ("sober, public-document") and nobody saw a screenshot | `/uak-plan` makes the **design lock** its own wave-1 task, verified by screenshots; `uak design-gallery` opens the directions side by side in the human's browser, and the human picks by looking. Accessibility is a floor every direction meets, never a style |
-| The design skill was for landings, not app screens | `/uak-design-lock` uses Anthropic's [`frontend-design`](https://github.com/anthropics/skills) (plan the tokens, check them against a list of AI tells, build, critique from screenshots); the new **`product-ui`** skill covers app screens: layout recipes for maps with panels, dashboards, detail pages, flows and lists, five hierarchy rules, the 3-second judge test |
-| 10 views started before the design system and each made its own colors and components | Every UI task depends on the design lock, which ships the tokens **and** the UI kit. **`uak design-lint`** fails raw palette classes, hex colors, local copies of UI kit components, emoji icons, bounce easing and default typefaces (91 findings on that first UI) |
-| The landing came last, as one more screen | **`landing-story`** (new skill): the landing is a P0 task built from `IDEA.md` (the one line, one sourced number, the wow as a real screen, three steps, one ask), checked with a 5-second test and a "cover the logo" test |
-| Nobody judged the look until the end | The post-edit hook runs `design-lint` on each UI file an agent writes and puts the findings in its context (the idea behind [Impeccable](https://github.com/pbakaus/impeccable)'s hook); `uak done` refuses new lines that break the system; `design-critic` compares each screen with the locked screenshot and fails the admin-template look |
-
-**v5.8: the gate reaches every screen.** Friends used it at the next hackathon and the result was still mediocre: the
-lock was good, and the other ten screens copied its one screen as grey panels with striped rows, under a nav nobody
-owned. An experiment that followed the kit literally scored its own main screen 5/10. Now:
-
-| What went wrong | What the kit does now |
-|---|---|
-| Nobody looked: "UI not walked in browser" in the approvals | `uak done` on a task in `UI-Paths` needs screenshots at 1280 and 390 and the `design-critic`'s `VERDICT: SHIP` for that commit; the critic must open every PNG, and the reviewer captures the screen too |
-| One locked screen, copied ten times; a bare nav nobody owned | The design lock owns the shell (`AppShell`, `NavBar`, `PageLayout`) and locks three screens; `DESIGN.md` comes from a template with numbers and a screen → recipe → hero table, and every UI task names its recipe |
-| The lint missed the tells and the contrast | `design-lint` fails side stripes, gradients, color literals, arbitrary pixels, eyebrows, glass, heavy shadows, sparkles, Geist/Inter, keyed map tiles, token pairs under 4.5:1, and hand-typed hex in the lock's directions |
-| Skills that contradicted each other | `design-taste-frontend` is opt-in; `product-ui` gains map and chart recipes and checkable questions instead of "is it Stripe-level?" |
-
-**v5.9: a copied repo keeps its old kit.** We won HackADA on a repository copied from the previous hackathon, and it ran
-uak 5.3.0: none of the frontend gate above. `uak start` now says when the project's kit is older than the one installed
-(or the latest release) and gives the update command. Plans refuse a Verify that does not parse, the gate refuses a green
-Verify that hit "command not found" (a negated `rg` passed on Windows, where Git Bash has none), `doctor` names the
-Verify tools a laptop lacks, and each worktree gets the main checkout's `.env`, so the map stops asking for a key.
-
-**v5.9.1: what Windows runs is not what the kit found.** A [Windows audit](docs/blackbox/windows-audit-2026-10.md) of
-the same project on an event laptop: `python3` was the Store alias and doctor said OK; `start` could not tell the kit
-was old without `~/.uak-kit`; the updated project still had no `tzdata`, a Node under Vite 8's `engines` and a Vite
-without `envDir`. doctor now runs Python instead of finding it and checks those three, `start` asks the kit's GitHub,
-Codex/Cursor/Gemini hooks start through `git` (a bare `bash` from PowerShell is WSL), and the installer pins the kit's
-scripts to LF.
-
-**v5.9.2: the hooks stop starting processes.** On Git Bash a process costs 20 to 50 ms, and the hooks around every
-command an agent sends started about 140: 5.1 s per command on a Windows laptop, **0.52 s** now
-([measured there](docs/perf-windows.md)). guard and the tick read the payload, `.uak-env` and the state files with
-bash builtins and run each rule's grep only when its words are there; the same 6,620 commands get the same answers. A
-300-line heredoc no longer outlasts the 5 s hook timeout (35 s → 1.2 s), and long payloads stay linear.
-
-**v5.10: test-first that agents cannot short-cut, and a harness that gets pruned.** Agents optimize toward green:
-stuck on red they edit the assertion, skip the test or delete it. Now `uak done` refuses all three in every mode
-(a human allows a real test change), checks that the task's `Tests:` names exist, and asks for `uak red ID`: the
-test failing on its assertion before the code (a red on a missing module does not count). The new `test-first` skill
-covers Fakes instead of mocks, tests by layer and contracts. `uak garden` prunes the harness: stale lessons, docs that
-name missing commands, and the corrections humans keep typing. Marathon now gets the whole design chain, and
-design-lint knows the 2026 tells (gradient text, glows, italic serif heroes, icon-tile grids, em dashes, filler copy).
-v5.10.1: the kit checks itself (`scripts/kit_lint.py` in CI: its portability and structure rules as code, and `uak garden` on a
-fresh install). How it is built and where to change what: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); a Go engine estimate:
-[docs/plans/port-go.md](docs/plans/port-go.md).
-
-**v5.11: an engine you can change without breaking it.** It stays in Bash and Python (no Go or Rust engine), and its
-structure changed instead: `uak` went from 1,995 lines to a dispatcher under 300 lines over one file per command family; one
-registry (`lib/commands.tsv`) drives help, dispatch, the CLI.md index and the MCP tools; one reader of `PROJECT.md`
-replaces 13 copies; `uak --json CMD` gives programs the result with a stable code (`overlap`, `lease-active`,
-`tests-weakened`…) while agents keep the text. And the kit is now developed with the kit: its roadmap is
-[`.uak/TASKS.md`](.uak/TASKS.md), claimed, reviewed and merged through its own gates. The first phase there is the
-claims transaction without the process storm (`next` ≤ 40 processes).
-
-**v6.0: the claims engine without the process storm, built with the kit itself.** 19 tasks planned, claimed,
-reviewed by an agent that was not the author and merged through the kit's own gates, each after every CI run of its
-SHA was green on Linux, macOS and Windows. `next`, `status`, `heartbeat`, STATE.md and the merge gate's scope check
-read the claims in one awk pass: on a Windows laptop `next` went from 5.1 to 3.6 s, `status` from 4.5 to 2.9 s, and
-STATE.md costs 4 processes for any number of tasks ([measured](docs/perf-windows.md#the-claims-commands-next-status-heartbeat-uak-001--uak-017-nov-2026)).
-The old and new engines print the same and write the same claims tree over a 38-step scenario
-(`scripts/claims_diff.py`, in CI). The 40-process target for `next` is not met (93 now): what is left is the claims
-transaction itself. Also: `uak plan` no longer warns about OWNERS rows of integrated tasks, a review refused in the
-author's worktree says where to review from, and CI runs in balanced shards (15.6 → about 7 minutes).
-
-**v6.1: what two hackathons taught.** From the black boxes of DevDay-Exchange and deus-ex-machina (OpenAI x Kavak,
-first place; [autopsy](docs/blackbox/devday-deus-2026-11.md)): the `/uak-*` phase scripts are native in Codex
-(`$uak-X`), Cursor and Gemini CLI; skills survive a Windows clone; `uak integrate` records work that reached main
-outside the gate (deus ended with 6 of 23 tasks integrated in claims while the product shipped); product commits on
-main are refused by the pre-commit hook; token spend comes from every machine and says which never reported; and a
-metric that was not measured is `null`, never 0. 18 tasks, each through the kit's own flow. v6.1.1 closes what
-those reviews left open: an unapproved one-file match needs a human, `doctor` and install work on older Macs and keep
-edited skills, `plan --amend` checks overlaps like claims do, lint hints when a task points outside its Paths, and
-`Merge-Smoke: affected` runs only the tests a change touches (engine changes still run everything).
-
-**v6.2: landings people want to look at.** The human scored the six frontends the kit had built: 2.8 of 5, and what they
-marked was not the tells the gates already ban but giant type (168–207 px), plain pages with nothing to look at, and
-palettes without a reason ([F0 catalog](docs/design/failures.md)). So the landing is now a tournament the human judges:
-`uak design round` writes 6–8 variants of the same landing, each a different design genome (type, scale, color,
-layout, components, imagery, motion, voice; no two share more than 3 genes), `uak design pick` shows them at 1280 and
-390 in the human's browser, `uak design round --from` breeds the next round from the picks, and `/uak-design-lock`
-runs it in the first hours of a sprint. `landing-story` builds each one from the team's own material with the
-[MotionSites](https://github.com/Motionsites-AI/claude-skill) workflow (the installer fetches it pinned and verified),
-inside the F0 bounds; `design-lint` warns on giant type. The merge gate runs the suite in parallel shards
-(`Smoke-Jobs`, 749 → 333 s on our slowest machine).
-
-**v6.3: a design taste the kit learns, and ships to everyone.** Picks and notes fold into a taste profile (per person and
-per team, traits only), and the kit ships a default prior learned from real projects (`design-prior.json`; only traits
-picked in 2+ projects, style traits need 3), so every team starts from what worked without getting the same landing.
-Every round now gets a `stage` (three.js, canvas, SVG, video…), an exact font pair per variant, a light/dark balance,
-palettes built with harmony rules (`uak design palettes`, no agents), and budgets for animation and words in the hero.
-Captures at 1920 flag narrow pages, distorted images, heavy frames, dense heroes and palette drift, and `uak design report`
-shows tokens and minutes per round.
-
-**v6.4: six variants that are not the same landing.** A creativity index (`--creativity 1-5`) gives every variant its own
-hero composition and one identity motif; a motif the human praised survives breeding, quoted from the parent's page.
-`uak design shoot` measures each hero's geometry, flags siblings that came out the same and scores the round 0-100
-(colonIA: 27 → 54). Bred rounds keep the picked palettes, distinct faces and a cap on three.js stages, and captures no
-longer lose a viewport to a slow page.
-
-**v6.5: what the black boxes said in November.** A harvest of 14 repos' black boxes (1,409 events) became eight fixes:
-`review` and `merge` agree on who may approve, `wt new` resumes a handed-over claim, `integrate` records reviewed code
-that is already on main and names what was not reviewed, a design critique survives commits that touch no UI, the black
-box is published even without harness hooks, and a guessed spelling (`review --approve`, `uak decisions`) gets the right
-one back.
-
-**v6.6: the defects the audit found.** A read-only audit of the engine (`docs/audit-2026-11.md`) measured what the kit
-costs and found where an agent could break the protocol. Fixed: one live task per identity for every command that
-renews a lease, a guard that checks substitutions inside quotes and blocks `gh … merge` with flags and plain pushes to
-claims, an MCP tool that cannot run a command unseen, a merge lock that dies with its merge, and an integrate outside
-the gate that says whether anyone reviewed it (marathon asks a human).
-
-**v6.8: lighter.** An install is under 260 files instead of 534 (the kit's own tests stay in the kit, skills come with
-`uak skill add`); CI runs 18 jobs per commit instead of 121; `uak smoke --affected` runs the tests a change touches;
-`status` and `next` reuse one fetch of claims and never wait for the token scan; `Merge-Engine: ci` is an optional
-policy that lets the gate merge an approved engine change when the required checks are green; `board`, `--json status`
-and the dashboard show what a review is waiting for and agree on when it is late; `doctor` and `wt new` know the
-pre-push hook and never take another hook manager's hooks out of use.
-
-**v6.7: everything measurable.** Every command leaves a line (outcome and milliseconds), and `uak metrics` puts each
-speed number next to an instability number: tasks per day and what came back, hours to merge and rejects, error rate
-per command, why a human had to step in. Every task records who touched it and with which model; REVIEW says what it
-is waiting for; `uak timeline ID`, or a click on a dashboard card, shows a task's whole story for an audit; `uak
-autopsy` writes an event's report from the claims branch; `uak plan --check` validates a plan before a human publishes
-it; and a pre-push hook stops an agent's push to the base whatever built the ref.
-
-## Deploy in one command: `uak deploy`
-
-```text
-$ bash .uak/bin/uak deploy --write --disk data/live
-DEPLOY fastapi-react · target Render (Blueprint, one Docker web service) · port $PORT (default 8000) · health /api/health
-DEPLOY env (names from .env.example; values go in the dashboard, never in git): OPENAI_API_KEY MAPBOX_TOKEN VITE_MAPBOX_TOKEN
-DEPLOY wrote Dockerfile
-DEPLOY wrote .dockerignore
-DEPLOY wrote render.yaml
-```
-It reads the project: FastAPI with or without React (one image: FastAPI serves `/api` and the React build), Django,
-Next.js (Vercel, zero config), Streamlit, Go, Spring Boot, Expo web and Vite (static sites). It writes the files and
-never overwrites yours (`FILE.uak-new`). Only the variable **names** from `.env.example` go into the Blueprint; `.env`
-never enters the image. `--disk` keeps the files the app writes across deploys. `/uak-plan` puts it in the setup
-task, so the walking skeleton is online at T0+2h, not 30 min before the deadline.
-
-## See everything: `uak dash`
-
-<img src="docs/media/dash.png" alt="uak dash: what needs you, every task as a small square, who did what, progress, agents, integrations and tokens" width="860">
-
-`bash .uak/bin/uak dash --watch --open` writes one local page and keeps it current: what needs you first, every task as a
-small square (hover one to see what it waits for), project progress, a board of four stages, every agent as a card with an identicon (one pattern per human, one color per identity), who is online, the
-conversation between agents with filters, reviews waiting, stalled tasks, the human queue, the black box with
-adoption per harness, lessons, decisions and token spend, plus the pace (integrated per day) and the conversation
-volume. Light and dark, works on a phone. No server, no CDN, nothing leaves the machine; it reads the
-claims branch read-only. Humans stop asking agents "where are we".
-
-<img src="docs/media/dash-task.png" alt="uak dash with a task opened: time in each state, who took part with model and harness, every move in order" width="860">
-
-A click on a task opens its story: what it waits for and what it unblocks, the time in each state, who took part (agent,
-model, harness) and every move in order, the same record `bash .uak/bin/uak timeline ID` prints.
-
-The **Share** button draws a card of the project's numbers (tokens, agents, integrated tasks, commits) on a canvas, in the
-page's own palette, as a 1200x630 image and as a 1080x1920 story, to download or copy:
-
-<img src="docs/media/share-card.png" alt="The Share card: project name, the figures and the agents' identicons" width="860">
-
-## Speed
-
-Every `uak` call is a Git round trip to the shared branch, so v5 cut the trips, not just the work:
-
-| Measured on GitHub over SSH (reads of a real 36-task team repo) | v4 | v5 |
-|---|---:|---:|
-| `uak next` | 10.4–12.2 s | **1.5–2.1 s** |
-| `uak status` | 7.3–9.2 s | **1.7 s** |
-| one Git round trip (SSH connection reused, `ControlMaster`) | 1.2 s | 0.4 s |
-| a message reaches a working agent's context | up to 2 min | **~20 s** (a cheap `ls-remote` check per tool call) |
-
-One fetch brings claims and the config together, the GitHub clock check is cached for an hour, and `next` skips
-tasks that are taken before running its gates. Agents that wait for something run **`uak wait ID --for approve`**
-once instead of polling `status` in a loop.
-
-## Token economy
-
-Tokens are the scarcest resource of an agent team. Every default is tuned to spend fewer of them, and **v5 measures it**:
-
-```text
-$ bash .uak/bin/uak tokens --team --by model
-TOKENS total 157.9M · output 625k · cache hit 97% · 2 transcript(s)
-                          input  cache-w  cache-r   output    total  share   hit%
-claude-opus-5-5             462     2.1M   132.9M     474k   135.4M    85%    98%
-```
-`uak tokens` reads the transcripts Claude Code and Codex already write (no API key) and splits the real spend by task,
-model, harness and lead vs subagent; every machine publishes to the claims branch, so `stats` and the human's
-`digest` show the team's bill.
-
-- `AGENTS.md` is **76 lines**, lint-capped at 100. Detail loads on demand from a trigger table.
-- `q` turns a 2,000-line test log into **one line** on success, or a 40-line tail on failure.
-- **Huge outputs never flood the context**, in Claude Code, Codex, Cursor and Gemini CLI: a shell output over 12k chars reaches the model as head + tail + the path of the full log (Claude `updatedToolOutput`; Codex, Cursor and Gemini rewrite tests, builds and searches before they run, also on Windows). A huge diff becomes a per-file index with line ranges.
-- **No rereads**: the same `status`/`next`/`inbox` twice in one session prints `= unchanged`; `LOOP:` stops a retry loop; acks are refused and one message reaches many tasks in one line.
-- Noisy work runs in **subagents** (a Haiku runner, a Sonnet reviewer); only a summary comes back.
-- Only **actionable messages** are injected. Duplicate broadcasts are gone: 194 of 717 messages in our event were noise.
-- Skills are installed **per mode**: each installed skill's description costs tokens in every session.
-- One task = one session, a 6-line handoff, and `/clear`. Compaction keeps only ID, next step, failures and commands.
-
-## Battle-tested: six team runs
-
-Every rule cites the incident behind it ([WHY.md](kit/.uak/docs/WHY.md)), and each event's data became a release:
-
-| Event | Team | What it changed |
-|---|---|---|
-| Hack-Nation 2026 ([retro](docs/RETRO-hacknation-2026.md)) | 5 agents, 4 humans, 3 machines, 76 PRs in ~14 h | v3: guards, rotation, `uak plan`, mandatory freeze |
-| Reap buildathon ([autopsy](docs/blackbox/reap-2026-10.md)) | 4 h, 5 humans, 11 agents on Codex, Cursor and Claude Code | v4.2: scope on the current base, `uak clock`, `uak allow`, output cap, `= unchanged` |
-| MLB hackathon ([autopsy](docs/blackbox/mlb-2026-10.md)) | 10 days, 4 Windows laptops, 13 identities, 32 tasks integrated | v4.3/v5: merge by any agent, approvals that survive merges of main, Windows cap, `retire`, `followup` |
-| MLB, the v5 week ([autopsy](docs/blackbox/mlb-2026-10-week2.md)) | 6 more days on v5.0.0, 18 identities, 81 of 89 tasks integrated | v5.2: presence, review offers that move on, messages to offline identities reach their tasks, identity reuse, human authority only from the shell |
-| A solo marathon project (black box shared with us) | 1 human on a GitHub repo, two hours without a first claim | v5.2.1/v5.3: `--solo` review, a root task may write where its dependent owns, `uak start`, `next` says why |
-| Chilangatón 2026, **first place** ([autopsy](docs/blackbox/chilangaton-2026-10.md)) | 7 h, 5 humans, 10 Claude Code identities on macOS and Windows, 35 tasks, venue Wi-Fi | v5.4: the frontend gate (`product-ui`, `design-lint`, a design lock picked from screenshots), `uak deploy`, reviews only to agents, CI that installs the stack, a lost merge race is OK |
-| HackADA 2026, **first place** ([autopsy](docs/blackbox/hackada-2026-10.md)) | ~4 h, 9 Claude Code identities on macOS and Windows, 25 of 27 tasks integrated, on a repo copied from the previous event (kit v5.3.0) | v5.9: `start` says when the kit is old, plans refuse a Verify that does not parse, the gate refuses a green Verify with a missing command, `doctor` checks the Verify tools, worktrees get the `.env` |
-| HackADA on a Windows laptop ([audit](docs/blackbox/windows-audit-2026-10.md)) | the suite and the product on Git Bash, Node 20.16, the Store's `python3`, no uv or rg | v5.9.1: doctor runs Python and checks `tzdata`, Node `engines` and `envDir`; `start` asks the kit's GitHub; hooks through `git`; LF scripts |
-| The same laptop, timed ([perf](docs/perf-windows.md)) | 140 processes and 5.1 s of hooks around every shell command on Git Bash | v5.9.2: guard and the tick on builtins (35 → 1 and 85 → 3 processes), a heredoc inside the hook timeout |
-| Research on agents gaming tests and on harness design (2026) | agents edit assertions, skip or delete tests to reach green; the best harnesses are small, evidence-based and pruned | v5.10: tests only grow, named tests, `uak red`, skill `test-first`, `uak garden` |
-| The kit's own architecture review (Nov 2026) | a 1,995-line `uak`, 13 copies of the config reader, five hand-kept command lists | v5.11: one file per command family, one registry, one config reader, `uak --json`; the kit developed with the kit |
-| Hacktoberfest 2026 ([autopsy](docs/blackbox/hacktoberfest-2026-10.md)) | ~16 h overnight, 5 humans, 13 identities on Claude Code and Codex, macOS and Windows, 33 of 35 tasks integrated | v5.5: a reject stands until a new commit, no verdict over a held review, no review offers to a human the Mac file system renamed, gate false positives gone (fixtures, carried files, its own port), `.env.example` readable, Codex `--add-dir`, `wt stop` on Windows; plan rules for a contract no task implements and a demo that only replays its recording. v5.6–v5.7: a nine-part audit after it (claims cannot grant authority, the gate runs the backlog's Verify, human-only commands ask the human, no secrets on claims, task threads reach the next owner, the merge lock is renewed) |
-| DevDay-Exchange and deus-ex-machina, **first place** ([autopsy](docs/blackbox/devday-deus-2026-11.md)) | two v6.0.0 events: 37 of 41 tasks through the kit; and a win with 120 of 155 commits outside tasks, Codex + Claude Code on 3 Macs | v6.1: claims that match main, native `/uak-*` in every harness, skills on Windows clones, tokens from every machine |
-
-Hack-Nation 2026 in detail:
-
-| What happened | Fix |
-|---|---|
-| The secret scanner silently detected **nothing** all event: Ubuntu's `mawk` ignores regex `{n}` | `grep -E` rules, a regression test, a `doctor` check |
-| A force-push slipped past the deny list when chained with `&&` | `guard` parses every command segment |
-| A teammate pasted an API key and a sudo password into chat | `guard prompt` blocks it before the model sees it |
-| 194 of 717 messages were duplicate notices | one notice per owner; non-actionable kinds summarized |
-| 38 lease recoveries, mostly tasks just waiting for review | mode-aware leases; REVIEW waits 4× longer |
-| 8 PRs only added tasks to the backlog | `uak plan` publishes to the claims branch |
-| 2 agents gave 51 of 70 review verdicts; the busiest agent (247 of 717 messages) ran out of tokens | reviewer rotation by load |
-| No freeze: 8 PRs and a product rename in the last 6 h | freeze is mandatory in sprint; `/uak-design-lock` |
-
-**339 integration tests** run against real Git processes and local bare remotes, in CI on Linux (mawk, from a folder named `José Pérez`), macOS (BSD awk) and Windows (Git Bash, CRLF checkout): `cd kit && bash .uak/bin/smoke --package-only`. Every MCP tool is exercised through JSON-RPC in a real install, and the server is started the way Claude Code starts it: `python3 tests/test_mcp_tools.py`.
-
-## Works with
-| Tool | How |
-|---|---|
-| **Claude Code** | full support: hooks (guard, prompt guard, heartbeat, inbox, spawn caps, pace), status line, slash commands, subagents, skills, plugin, MCP server (`.mcp.json`, approve once) |
-| **Codex CLI** | `AGENTS.md`, the `/uak-*` phase scripts as skills (`$uak-plan`, `.agents/skills`), `.codex/config.toml` (Sol lead, Luna swarm), `.codex/agents/*.toml`, `.codex/hooks.json` (guard, spawn caps, inbox, black box), pace from session logs, MCP server (`[mcp_servers.uak]`) |
-| **Cursor** | `.cursor/rules/uak.mdc`, `.cursor/agents/*.md` (Composer swarm, Opus strong), `.cursor/hooks.json` (shell guard, spawn caps, black box), skills and `/uak-*` from `.agents/skills`, MCP server (`.cursor/mcp.json`; on Windows the rule sends messages and waits through it) |
-| **Gemini CLI** | `.gemini/settings.json` (reads `AGENTS.md`; hooks: guard, session context, output cap), `.gemini/agents/*.md` (Flash swarm, Pro strong), `/uak-*` from `.gemini/commands`, skills from `.agents/skills`, MCP server (`mcpServers`) |
-| **Aider, any agent** | `AGENTS.md` + the `uak` CLI; `uak loop --agent '<cli reading stdin>'`; any MCP client: `python3 .uak/bin/uak-mcp` |
-
-Mix them freely: coordination lives in Git, not in any tool.
-
-## Commands
-| Command | What |
-|---|---|
-| `uak demo` | see everything in 30 s |
-| `uak start [--fix \| --steps \| --wizard]` | install → first claim: what is missing, in order, then the one command that starts |
-| `uak next` | what you should do now; with nothing to offer, why (per task) |
-| `wt new ID [--agent NAME]` | start a task (branch, worktree, port, claim); without `--agent` it reuses a free identity of this machine |
-| `uak loop --verify CMD [--parallel N --each CMD]` | bounded autonomous fix loop, one per failing file |
-| `uak graph [--mermaid \| --assign]` | backlog DAG: waves, critical path, cycles · who should take what |
-| `uak tokens [--team] [--by model]` | the real token bill per task, model, harness, lead vs subagent |
-| `uak map [show\|find\|callers\|users\|path\|related\|impact\|notes]` | the code graph: read the structure instead of files |
-| `uak wait ID --for approve\|integrated\|message` | one call that returns when it happens, no polling |
-| `uak learn "…"` · `uak recall ID [--similar]` | lessons tied to paths; `claim`/`next` show them, plus past rejects and contracts on similar work (BM25 by words) |
-| `uak handover ID --to NAME` · `retire NAME` · `followup ID --title TEXT` | pass a task on · close an identity · more work on an integrated task |
-| `uak done` / `review` / `merge` | ship → review by rotation → gated merge queue |
-| `uak up N [--tmux]` | claim the N best tasks and launch one agent per worktree |
-| `uak board [--watch] [--md]` | team kanban: state, owner, lease, PR, wave |
-| `uak stats` | retro numbers: messages, reviews, recoveries, merge queue |
-| `uak demo` | the 30-second real 3-agent run |
-| `uak pace` | plan usage vs time left → surge / normal / conserve / critical |
-| `uak bb add KIND "…"` · `bb export` | the black box: kit problems, anonymous, on by default |
-| `uak integrate ID` | record a PR a human merged while its owner was away |
-| `wt stop` · `wt pr` | stop this worktree's servers · the PR URL when `gh` lacks permission |
-| `/uak-advise plan\|stuck\|done` | a strong-model checkpoint from a compact packet |
-| `/uak-secure` | the pre-launch security audit (22 checks + human-only items) |
-| `uak msg` / `inbox` / `digest` | agent messages · the human's single summary |
-| `uak plan FILE` | publish new tasks instantly (sprint) |
-| `uak deploy [--write]` | how this project deploys; writes the Dockerfile and a Render Blueprint (Vercel for Next.js) |
-| `uak design-lint` | screens use the design system: no raw palette, hex colors, local component copies or AI tells |
-| `uak design-gallery` | the design lock's directions side by side, opened in your browser; over SSH it serves them on localhost and your Tailscale address |
-| `uak doctor` | preflight everything at minute 0 |
-| `q CMD` | quiet runner (one line on success) |
-
-Full reference: [CLI.md](kit/.uak/docs/CLI.md). Example backlog: [examples/ai-hackathon](examples/ai-hackathon/). Slash commands: `/uak-setup`, `/uak-plan`, `/uak-start`, `/uak-loop`, `/uak-ship`, `/uak-review`, `/uak-handoff`, `/uak-retro`, plus `/uak-design-lock` and `/uak-demo` (sprint) and `/uak-spec` (marathon).
-
-## What's inside
-```
-AGENTS.md · .claude/CLAUDE.md  76-line core every agent reads (the only kit file at the root) · Claude Code extras
-.uak/bin/                    uak CLI, wt, loop, graph, map, tokens, guard, pace, bb, cap, clock, statusline, doctor, start, deploy, design-lint, q, secret-scan (Bash 3.2, no jq)
-.uak/bin/uak-mcp             the MCP server (Python 3.8+ stdlib), optional; configs: .mcp.json, .cursor/mcp.json, Codex, Gemini
-.uak/modes/                  sprint.md · marathon.md
-.uak/docs/                   CLI · PROTOCOL · LOOPS · GRAPH · ORCHESTRATION · COSTS · BLACKBOX · SECURITY · WHY
-.uak/templates/              PROJECT, TASKS, OWNERS, IDEA, spec, plan, ADR
-.uak/skills/                 curated skills (superpowers, Anthropic frontend-design and webapp-testing, Vercel, taste-skill, Karpathy guidelines), pinned, licensed, plus our product-ui and landing-story
-.uak/stacks/                 stack presets: fastapi-react, nextjs, django, go, expo, python-data, ai-agent, spring-boot
-.claude/                     slash commands, subagents, hooks, status line (settings per mode)
-.codex/ · .cursor/ · .gemini/  the same subagents per harness + hooks (Codex, Cursor, Gemini), only for the --harness you pick
-```
+| OpenAI × Kavak hackathon | 2026-11-09 | first place | AXIA (repository not public) | v6.0.0 | [CHANGELOG, v6.1.0](CHANGELOG.md), and the maintainer's statement of 2026-11-25 in `docs/EVIDENCE.md` |
+| HackADA | 2026-10-29 | first place | [colonIA](https://github.com/rvvictor/HackADA-Upiixia) | v5.3.0 | [CHANGELOG, v5.9.0](CHANGELOG.md) |
+| Chilangatón | 2026-10-25 | first place | [colonIA](https://github.com/rvvictor/Chilangaton-Upiixia) | v5.3.0 | [CHANGELOG, v5.4.0](CHANGELOG.md) |
+| ISAC × Diablos Rojos, sports analytics | 2026-10-12 to 2026-10-22 | first place | [Stuff+ 2240](https://github.com/JoahanMorales/stuffplus2240) | v4.2.1, then v5.0.0 | [the maintainer's profile](https://github.com/JoahanMorales), read 2026-11-25 |
+
+Each public entry has the kit in its own repository (`.uak/VERSION`). The black box and autopsy of every event are in `docs/blackbox/`.
 
 ## How it compares
 
-Most tools solve one slice: running agents side by side, giving them a mailbox, or planning one person's work. This
-kit is the protocol for a **team** of humans and agents on several machines and harnesses at once.
+Other tools solve parts of this, and several do those parts better. Each row is what that tool's own documentation says, read on the date shown.
 
-| | **This kit** | MCP Agent Mail + Beads | Claude Code agent teams | Claude Squad · Conductor · Vibe Kanban | Spec Kit · BMAD · Task Master |
-|---|---|---|---|---|---|
-| Humans × machines × harnesses | **many × many × mixed**, through one Git branch | many agents, mixed harnesses, one MCP server per project | one machine, Claude Code only (experimental) | one machine, one human | one human |
-| What you install | Bash + Git (MCP server optional, Python stdlib) | an MCP server (Python or Rust) + Beads CLI | built in | an app or tmux | a CLI or npm package |
-| Who works on what | exclusive claims, overlapping paths rejected, leases, handover | advisory file leases; Beads tracks tasks and dependencies | shared task list with dependencies | one worktree per agent | task lists with dependencies |
-| Messages | typed inbox; `impact:ID` routes a contract along the code graph | inboxes, threads, search | mailbox between teammates | — | — |
-| Review and merge | independent review of the exact SHA + gated, atomic merge queue | — | — | you review and merge | — |
-| Event modes, freeze, black box | **yes** (`sprint`/`marathon`, `uak clock`, autopsies of real events) | — | — | — | — |
-| Code graph, token bill, path memory | **yes** (`uak map`, `uak tokens`, `uak learn`) | — | — | — | — |
-| Native tools for the agent | **MCP server (15 tools, MCP 2026-07-28 and 2025-11-25) + CLI + hooks** in Claude Code, Codex, Cursor, Gemini | MCP tools | built-in tools | — | slash commands |
-| Frontend gate, one-command deploy | **yes** (`design-lint` in the hook, `done` and the smoke; `uak deploy`) | — | — | — | — |
-| Adoption measured with real agents | **yes** ([eval](docs/evals/README.md)) | — | — | — | — |
+| Tool | What it is, in its own docs | How its agents share the work | Where it does more than this kit | Source, checked |
+|---|---|---|---|---|
+| Claude Code agent teams | Several Claude Code instances as a team, with a lead; experimental and off by default | A shared task list with file locking on claims, and a mailbox; stored locally, one team per session, Claude Code only | Built into Claude Code: the lead starts its teammates itself and they message each other live | [code.claude.com](https://code.claude.com/docs/en/agent-teams), 2026-11-25 |
+| Claude Squad | A terminal app to manage several agents (Claude Code, Codex, Gemini, Aider and others); AGPL-3.0 | One tmux session and one Git worktree per agent, in one terminal window | A terminal interface to watch and switch between many agent sessions | [github.com/smtg-ai/claude-squad](https://github.com/smtg-ai/claude-squad), 2026-11-25 |
+| Conductor | A Mac app that runs Claude Code, Codex and Cursor agents in isolated workspaces | One Git worktree and branch per workspace, on your Mac | A native app with a diff viewer, pull requests and a panel of CI checks | [conductor.build/docs](https://www.conductor.build/docs/), 2026-11-25 |
+| Vibe Kanban | A kanban board for coding agents; its README says it is sunsetting; Apache-2.0 | Issues on a board; each workspace gets a branch, a terminal and a dev server | A web board with inline comments on diffs, and a self-hosted instance a team can share | [github.com/BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban), 2026-11-25 |
+| MCP Agent Mail | A mail-like coordination layer for coding agents, as an MCP server; deprecated in favour of a Rust version | Inboxes, threads and advisory file reservations, with an optional pre-commit guard | Searchable message threads and a web page for people to read them | [github.com/Dicklesworthstone/mcp_agent_mail](https://github.com/Dicklesworthstone/mcp_agent_mail), 2026-11-25 |
+| Beads | A distributed graph issue tracker for AI agents, on Dolt; it moved to gastownhall/beads | Issues with dependencies; a claim is atomic, and ready work is what has no open blocker; it syncs through the Git remote | A versioned issue database with dependency queries | [github.com/gastownhall/beads](https://github.com/gastownhall/beads), 2026-11-25 |
+| GitHub Spec Kit | A toolkit that gives coding agents structured processes and templates, from spec to implementation | One agent walks constitution, spec, plan, tasks and implementation, a person reviewing each step | A spec-driven workflow with templates, extensions and integrations for many coding agents | [github.com/github/spec-kit](https://github.com/github/spec-kit), 2026-11-25 |
+| BMAD Method | An AI-driven agile method, from an idea to working software | Skills and planning documents (requirements, epics); its build skill includes a review stage | A full planning method with product, architecture, design and test roles | [github.com/bmad-code-org/BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD), 2026-11-25 |
+| Task Master | A task-management system for AI agents inside the editor; MIT with Commons Clause | Tasks and subtasks with dependencies, generated from a product document; it shows the next task | Turns a product document into a task list with a model, and runs as an MCP server in the editor | [github.com/eyaltoledano/claude-task-master](https://github.com/eyaltoledano/claude-task-master), 2026-11-25 |
 
-They combine well: plan with Spec Kit or BMAD, watch agents in a GUI if you like one, and coordinate the team here.
+What this kit adds to that list: several people on several machines coordinate through one Git branch, with no server; a claim on overlapping files is refused; the reviewer is another agent that runs the check on the exact commit; and a merge gate runs the checks again before `main` moves. If you work alone on one laptop and want an app to watch your agents' sessions and switch between them, Conductor (on a Mac) or Claude Squad gives you that; this kit does not.
 
-## FAQ
-**Do I need a server, a database or an API key?** No. Bash, Git and a remote (GitHub, GitLab, or even a bare repo on a USB drive). `gh` is optional.
+## What it does not do
 
-**How is this different from Spec Kit, BMAD or Task Master?** They structure **one** human's work with agents. This kit coordinates **many humans and agents in parallel**: claims, leases, reviews, merges. It borrows the best of those for planning ([INSPIRATIONS](docs/INSPIRATIONS.md)).
+- It does not start or host the agents. You open each coding tool yourself (`uak up` can open several in tmux); the kit gives them the rules, the commands and the hooks.
+- It is not a sandbox. The hooks stop common accidents; for an agent you do not trust, use your coding tool's sandbox as well.
+- It does not decide for you: a person approves the plan, and in `marathon` a person merges.
+- It needs one Git remote that everyone pushes to. If the repository is public, its `claims` branch is public too, black box included: one-line notes about the kit's own failures, with no names, paths or code, on by default and turned off with `Blackbox: off` in `.uak/PROJECT.md`.
+- On Windows it runs in Git Bash, never in WSL's bash.
+- It is not fast per command: each command is a round trip to the Git remote and takes seconds.
 
-**And from agent orchestrators or swarms?** They spawn agents on one machine. This kit has no daemon: any agent, anywhere, coordinates through `git push`.
+## Where to read more
 
-**Windows?** Yes, with Git Bash: a 10-day team event ran on 4 Windows laptops (Claude Code, Codex, Cursor), and every push runs the whole suite on a Windows runner. The MCP server starts through `git` and runs its tools with Git Bash, never WSL's `bash.exe`. macOS ships Bash 3.2, which is supported. In PowerShell terminals, the MCP tools avoid shell quoting for message text (`$`, quotes, accents); the server finds a real Python (`python3`, `python` or `py`, skipping the Store alias). The Codex, Cursor and Gemini hooks start through `git` too, and `doctor` names what a Windows laptop lacks: uv, rg, a Node that meets the project's `engines`, `tzdata` for `zoneinfo`.
+- [docs/GUIDE.md](docs/GUIDE.md): walkthroughs. The setup page, a task from claim to merge, working alone, fix loops, the code map, screens, deploying, the black box.
+- [docs/REFERENCE.md](docs/REFERENCE.md): lists. Install options, modes, stacks, coding tools, commands, what the install adds.
+- [docs/EVIDENCE.md](docs/EVIDENCE.md): what was measured, when and how, the team events and the wins with their proof.
+- [docs/DASHBOARD.md](docs/DASHBOARD.md): the setup page and the dashboard in detail.
+- [docs/HACKATHON.md](docs/HACKATHON.md): one page for a hackathon.
+- [CHANGELOG.md](CHANGELOG.md): what changed in each release.
 
-**Will it burn my Opus (or Astra) budget?** No. The strong tier is pinned to checkpoints, the guard blocks fan-out beyond the per-session budget, and `uak pace` tightens it when your 5-hour or weekly window runs low. Run `uak tokens --by model` to see the real spend per tier.
+## For an agent reading this
 
-**What does the black box send, and where?** Only anonymous one-line events about the kit (error text without paths or names, plus your agents' notes) to your own repo's `claims` branch. If your repo is public, its claims branch is public too, which is how kit maintainers read it; private repos stay private. Turn it off with `Blackbox: off`.
-
-**Is my vibe-coded backend safe to launch?** Run `/uak-secure`. It checks IDOR, enumeration, rate limits, idempotent payments, transactions, CORS, log redaction, backups and 15 more items, each with how to verify it. It leaves the human-only items (key rotation, 2FA, the restore drill, watching the logs) to you.
-
-**Is the guard a sandbox?** No. It is defense in depth against accidents. For untrusted agents, use your tool's sandbox as well.
+- To install the kit in a repository, follow [skills/setup/SKILL.md](skills/setup/SKILL.md) or run the three commands under "From a terminal". The setup page (`--wizard`) is for a person and refuses to start for an agent.
+- [AGENTS.md](kit/AGENTS.md) has the rules every agent follows; a project has it at its root.
+- [CLI.md](kit/.uak/docs/CLI.md) has every command and its options; a project has it at `.uak/docs/CLI.md`.
+- [WHY.md](kit/.uak/docs/WHY.md) has the reason (an incident or a measurement) behind each rule; a project has it at `.uak/docs/WHY.md`.
+- Start every session with `bash .uak/bin/uak next` and do what its `Next:` line says.
+- To change the kit itself, read [the repository's own AGENTS.md](AGENTS.md).
 
 ## Contributing
-PRs are welcome, especially stack presets, an i18n locale, new loop and graph checks, and retros from your own hackathon. Read [CONTRIBUTING.md](CONTRIBUTING.md): every rule needs evidence, and every engine change needs a test.
+
+Pull requests are welcome: stack presets, checks for loops and the task graph, and the black box or retro of your own event. Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Every new rule cites its incident or measurement in `kit/.uak/docs/WHY.md`, and every change to the engine comes with a test that fails without it. The kit is developed with itself: its tasks and their state are on this repository's `claims` branch.
 
 ## License
-MIT © Joahan Morales and contributors. Vendored skills keep their licenses ([SOURCES](kit/.uak/skills/SOURCES.md)).
 
-<sub>Keywords: multi-agent coding, AI agent team, Claude Code multi-agent, Codex, Cursor, Gemini CLI, AGENTS.md, git worktrees, parallel agents, loop engineering, graph engineering, agentic workflow, hackathon kit, spec-driven development, AI pair programming, agent coordination, vibe coding guardrails.</sub>
+MIT, Joahan Morales and contributors ([LICENSE](LICENSE)). Skills taken from other projects keep their own licenses ([SOURCES](kit/.uak/skills/SOURCES.md)).

@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
-"""Regenerate docs/media/banner.png (1280x640); with --gif also the legacy docs/media/demo.gif from a REAL `uak demo` run.
-The README animation is docs/media/demo.svg, made by scripts/render_demo.py (no browser needed).
+"""The README's images (UAK-202: all of them in the dark theme, Lavanda).
 
-    uv run --with playwright --with pillow python scripts/make_media.py
+    python3 scripts/make_media.py --from DIR     the art drawn by docs/video (UAK-199): first
+        cd docs/video && npm ci && npx playwright-core install chromium-headless-shell && npm run readme -- DIR
+      then this copies DIR's banner.png, parallel-loop.webp, parallel-loop.gif and lanes-into-main.png into docs/media/,
+      the still images and the animated WebP with rounded corners of their own (GitHub shows them on a light page too),
+      and writes docs/media/banner.version. Run it again after kit/.uak/VERSION moves: the banner says its major.minor.
+    uv run --with playwright --with pillow python scripts/make_media.py --dash
+      docs/media/dash.png and dash-task.png: this repository's own dashboard, dark, Lavanda.
+    uv run --with playwright --with pillow python scripts/make_media.py --fallback [--gif]
+      a banner drawn here without Node (banner_html, the same direction), and with --gif the legacy demo.gif.
+The terminal animation is docs/media/demo.svg, made by scripts/render_demo.py (no browser needed).
 
 HTML/CSS is rendered in headless Chromium (Inter + JetBrains Mono, cached locally); frames are
 assembled into a GIF with Pillow. Every line shown in the GIF comes from the actual demo output.
@@ -87,71 +95,58 @@ def page_html(body, w, h, extra_css=""):
 
 # ---------------------------------------------------------------- banner
 def banner_html():
-    rows = [("claimed", "CLAIMED", "HACK-003", "ana-1", "lease 41m", "Search API"),
-            ("review", "REVIEW", "HACK-004", "bob-1", "PR #12", "Results UI"),
-            ("claimed", "CLAIMED", "HACK-006", "cy-1", "lease 18m", "Ranking"),
-            ("integrated", "INTEGRATED", "HACK-001", "", "", "Contracts + mocks"),
-            ("available", "AVAILABLE", "HACK-007", "P0", "wave 2", "Export")]
-    trs = "".join(f"<tr><td><span class='pill p-{k}'>{s}</span></td><td class='id'>{i}</td><td class='who'>{w}</td>"
-                  f"<td class='inf'>{n}</td><td class='ttl'>{t}</td></tr>" for k, s, i, w, n, t in rows)
-    tiers = [("var(--green)", "Haiku 5.5", "swarms", "scouts · runners"),
-             ("var(--blue)", "Sonnet 5.5", "builds", "the lead"),
-             ("var(--violet)", "Opus 5.5", "advises", "3 checkpoints")]
-    chips = "".join(f"<div class='chip'><i style='background:{c};box-shadow:0 0 14px {c}'></i><b>{m}</b><span>{v}</span>"
-                    f"<em>{d}</em></div>" for c, m, v, d in tiers)
+    """The README's banner, in the kit's direction (docs/design/DIRECTION.md, UAK-202): the Lavanda palette
+    in the dark theme, Inter for text and JetBrains Mono for IDs and state pills, one hairline per panel, no glow, no gradient, no shadow.
+    It carries no figure: the old one said "~2 s" and "144x" with no source. The board's rows are the cast of `uak demo`."""
+    rows = [("integrated", "INTEGRATED", "HACK-001", "ana-1", "Search API", "reviewed by bob-1 · merged"),
+            ("claimed", "IN PROGRESS", "HACK-002", "bob-1", "Results UI", "its own branch and worktree"),
+            ("claimed", "IN PROGRESS", "HACK-003", "cy-1", "Ranking", "opened when HACK-001 merged"),
+            ("blocked", "REFUSED", "HACK-004", "cy-1", "API cache", "its files overlap HACK-001")]
+    trs = "".join(f"<tr><td><span class='pill p-{k}'>{st}</span></td><td class='id'>{i}</td><td class='who'>{w}</td>"
+                  f"<td class='ttl'>{t}<span>{n}</span></td></tr>" for k, st, i, w, t, n in rows)
+    steps = ["claim", "test first", "review", "merge"]
+    line = "".join(f"<li class='{'on' if n < 3 else 'end'}'><i></i><span>{x}</span></li>" for n, x in enumerate(steps))
     body = f"""
-<div class='glow' style='width:620px;height:620px;right:-120px;top:-260px;background:#6d28d9'></div>
-<div class='glow' style='width:520px;height:520px;left:-200px;bottom:-280px;background:#0e7490'></div>
-<div class='glow' style='width:380px;height:380px;right:260px;bottom:-240px;background:#15803d;opacity:.35'></div>
-<div class='grid'></div>
 <div class='left'>
-  <div class='eyebrow mono'><i></i> v{banner_version()} · multi-agent orchestration</div>
+  <div class='eyebrow mono'><i></i>v{banner_version()} · multi-agent orchestration</div>
   <h1>UPIIXIA<br>Agentic Kit</h1>
-  <p class='sub'>Run a team of AI coding agents in parallel.<br><span>One Git branch. No server. No chaos.</span></p>
-  <div class='chips'>{chips}</div>
-  <div class='foot mono'>Claude Code · Codex · Cursor · Gemini CLI <b>·</b> Bash + Git <b>·</b> MIT</div>
+  <p class='aim'>Several people and their coding agents on one repository, in parallel, without stepping on each other.</p>
+  <ol class='nodes mono'>{line}</ol>
+  <div class='foot mono'>Claude Code · Codex · Cursor · Gemini CLI<b>|</b>Bash + Git<b>|</b>MIT</div>
 </div>
 <div class='right'>
-  <div class='win'>
-    <div class='bar'><span class='dot r'></span><span class='dot y'></span><span class='dot g'></span><span class='t mono'>~/team · uak board</span></div>
-    <div class='term mono'>
-      <div class='cmd'><span class='pr'>human ❯</span> uak board</div>
-      <div class='hdr'>main@0909dbf · 6 tasks · freeze in 5h59m</div>
-      <table>{trs}</table>
-      <div class='graph'>
-        <div class='lane'><span class='lbl'>claims</span><div class='track'>
-          <b style='left:3%'><u>claim</u></b><b style='left:21%'><u>heartbeat</u></b><b class='a' style='left:40%'><u>conflict</u></b>
-          <b style='left:58%'><u>loop ✓</u></b><b class='v' style='left:77%'><u>review ✓</u></b><b class='gr' style='left:96%'><u>merge</u></b></div></div>
-      </div>
-    </div>
+  <div class='panel'>
+    <div class='head'><span class='mark mono'>uak</span><b>Team board</b><span class='src mono'>from the claims branch</span></div>
+    <table class='rows'>{trs}</table>
   </div>
-  <div class='stats'><div><b>~2 s</b><span>uak next on GitHub<br>(v4: 12 s)</span></div>
-  <div><b>144×</b><span>smaller: code map<br>vs reading the source</span></div><div><b>0</b><span>servers · daemons<br>just Bash + Git</span></div></div>
 </div>"""
     css = """
-.left{position:absolute;left:72px;top:64px;width:600px}
-.eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:13px;color:#c9d1d9;padding:6px 13px;border:1px solid rgba(255,255,255,.12);
-  border-radius:999px;background:rgba(255,255,255,.03)} .eyebrow i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green)}
-h1{margin-top:22px;font-size:76px;line-height:1.02;font-weight:800;letter-spacing:-.035em;padding:0 .06em .14em 0;margin-bottom:-.14em;
-  background:linear-gradient(180deg,#fff 30%,#b8c4ff);-webkit-background-clip:text;background-clip:text;color:transparent}
-.sub{margin-top:22px;font-size:24px;line-height:1.38;color:#c9d1d9;font-weight:500;letter-spacing:-.01em} .sub span{color:var(--mut);font-weight:400}
-.chips{margin-top:30px;display:flex;flex-direction:column;gap:10px}
-.chip{display:flex;align-items:center;gap:12px;width:430px;padding:11px 16px;border:1px solid rgba(255,255,255,.09);border-radius:12px;
-  background:linear-gradient(90deg,rgba(255,255,255,.045),rgba(255,255,255,.01))}
-.chip i{width:9px;height:9px;border-radius:50%} .chip b{font-size:17px;font-weight:700;width:104px} .chip span{font-size:17px;color:#e6edf3}
-.chip em{margin-left:auto;font-style:normal;font-size:13px;color:var(--dim);font-family:'JetBrains Mono'}
-.foot{position:absolute;top:510px;font-size:14px;color:var(--mut)} .foot b{color:#3d444d;margin:0 6px}
-.right{position:absolute;right:56px;top:64px;width:540px;transform:perspective(1800px) rotateY(-5deg) rotateX(2deg);transform-origin:left center}
-.term{padding:18px 20px 20px;font-size:13.5px}
-.cmd{color:#e6edf3} .pr{color:var(--violet);font-weight:700} .hdr{margin:10px 0 12px;color:var(--mut);font-size:12.5px}
-table{border-collapse:collapse;width:100%} td{padding:6px 6px 6px 0;white-space:nowrap} .id{color:#e6edf3;font-weight:500} .who{color:var(--cyan)}
-.inf{color:var(--mut)} .ttl{color:#c9d1d9;font-family:Inter;font-size:13.5px}
-.graph{margin-top:18px;padding-top:16px;border-top:1px dashed rgba(255,255,255,.09)}
-.lane{display:flex;align-items:center;gap:12px} .lbl{color:var(--mut);font-size:12px;width:50px}
-.track{position:relative;flex:1;height:2px;background:linear-gradient(90deg,#3d444d,#58a6ff,#3fb950)}
-.track b{position:absolute;top:-5px;width:12px;height:12px;border-radius:50%;background:#0d1117;border:2px solid var(--blue);transform:translateX(-50%)}
-.track b.v{border-color:var(--violet)} .track b.a{border-color:var(--amber)} .track b.gr{border-color:var(--green);background:var(--green)}
-.graph{padding-bottom:22px} .stats{display:flex;gap:14px;margin-top:26px} .stats div{flex:1;padding:12px 16px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.025)} .stats b{display:block;font-size:26px;font-weight:800;letter-spacing:-.02em;background:linear-gradient(90deg,#fff,#b8c4ff);-webkit-background-clip:text;color:transparent} .stats span{display:block;margin-top:3px;font-size:12px;line-height:1.35;color:var(--mut)} .track b u{position:absolute;top:18px;left:50%;transform:translateX(-50%);text-decoration:none;font-size:10.5px;color:var(--dim);white-space:nowrap;font-family:'JetBrains Mono'}
+body{background:#0e0e12;color:hsl(250 25% 96%)}
+.left{position:absolute;left:72px;top:92px;width:560px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:500;color:hsl(250 12% 78%);padding:5px 11px;
+  border:1px solid hsl(250 8% 27%);border-radius:999px;background:hsl(250 9% 10%);letter-spacing:.02em}
+.eyebrow i{width:7px;height:7px;border-radius:50%;background:hsl(250 72% 68%)}
+h1{margin-top:26px;font-size:64px;line-height:1.04;font-weight:700;letter-spacing:-.03em;color:hsl(250 25% 96%)}
+.aim{margin-top:22px;font-size:22px;line-height:1.42;color:hsl(250 12% 78%);font-weight:400;max-width:520px}
+.nodes{list-style:none;display:flex;margin-top:34px;width:480px}
+.nodes li{flex:1;position:relative;font-size:12px;color:hsl(250 12% 78%)}
+.nodes li i{display:block;width:12px;height:12px;border-radius:50%;background:#0e0e12;border:2px solid hsl(250 72% 74%);position:relative;z-index:1}
+.nodes li.end i{background:hsl(250 72% 68%)}
+.nodes li:not(:last-child)::after{content:'';position:absolute;left:12px;right:0;top:5px;height:2px;background:hsl(250 36% 30%)}
+.nodes li span{display:block;margin-top:9px;text-transform:uppercase;letter-spacing:.06em;font-size:11px;font-weight:500}
+.foot{position:absolute;top:470px;font-size:13px;color:hsl(250 7% 60%)} .foot b{color:hsl(250 8% 27%);margin:0 10px;font-weight:400}
+.right{position:absolute;right:64px;top:150px;width:520px}
+.panel{background:hsl(250 9% 10%);border:1px solid hsl(250 8% 17.5%);border-radius:8px;overflow:hidden}
+.head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid hsl(250 8% 17.5%)}
+.mark{width:30px;height:30px;border-radius:6px;background:hsl(250 72% 86%);color:hsl(250 45% 20%);display:grid;place-items:center;font-size:11px;font-weight:700}
+.head b{font-size:15px;font-weight:600} .src{margin-left:auto;font-size:11px;color:hsl(250 7% 60%)}
+.rows{border-collapse:collapse;width:100%}
+.rows td{padding:15px 0 15px 18px;border-top:1px solid hsl(250 8% 17.5%);vertical-align:top;white-space:nowrap}
+.rows tr:first-child td{border-top:0} .rows td:last-child{padding-right:18px;white-space:normal}
+.pill{display:inline-block;padding:3px 8px;border-radius:999px;font:600 10px/1.3 'JetBrains Mono',monospace;letter-spacing:.06em}
+.p-integrated{background:#16301f;color:#a3dcbd} .p-claimed{background:#16273d;color:#a9cdf3} .p-blocked{background:#361d19;color:#f5a79e}
+.id{font:500 13px 'JetBrains Mono',monospace;color:hsl(250 25% 96%)} .who{font:400 12px 'JetBrains Mono',monospace;color:hsl(250 72% 82%)}
+.ttl{font-size:14px;font-weight:500;color:hsl(250 25% 96%)} .ttl span{display:block;margin-top:3px;font-size:12px;font-weight:400;color:hsl(250 7% 60%)}
 """
     return page_html(body, 1280, 640, css)
 
@@ -297,12 +292,101 @@ def build_gif(page, out):
     return len(frames)
 
 
+# ---------------------------------------------------------------- the art of docs/video (UAK-199 → UAK-202)
+README_ART = ("banner.png", "lanes-into-main.png", "parallel-loop.webp", "parallel-loop.gif")
+
+
+def rounded(img, radius=18):
+    """IMG (RGBA) with transparent rounded corners."""
+    from PIL import Image, ImageDraw
+    mask = Image.new("L", img.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, img.size[0] - 1, img.size[1] - 1), radius=radius, fill=255)
+    out = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    out.paste(img, (0, 0), mask)
+    return out
+
+
+def import_art(src):
+    """Copy the README's art drawn by docs/video from SRC into docs/media/: PNGs and the animated WebP get rounded
+    corners; the GIF (the fallback for readers without WebP) is copied as it is."""
+    import shutil
+    from PIL import Image, ImageSequence
+    src = Path(src)
+    for name in README_ART:
+        if not (src / name).is_file():
+            sys.exit("missing %s in %s: run `npm run readme -- %s` in docs/video first" % (name, src, src))
+    for name in ("banner.png", "lanes-into-main.png"):
+        rounded(Image.open(src / name).convert("RGBA")).save(OUT / name, optimize=True)
+    anim = Image.open(src / "parallel-loop.webp")
+    frames, durations = [], []
+    for f in ImageSequence.Iterator(anim):
+        frames.append(rounded(f.convert("RGBA"), radius=14))
+        durations.append(f.info.get("duration", 83))
+    frames[0].save(OUT / "parallel-loop.webp", save_all=True, append_images=frames[1:], duration=durations, loop=0,
+                   quality=80, method=6, minimize_size=True)
+    shutil.copy(src / "parallel-loop.gif", OUT / "parallel-loop.gif")
+    (OUT / "banner.version").write_text(banner_version() + "\n", encoding="utf-8")  # kit_lint: the banner is not stale
+    for name in README_ART:
+        print(name, (OUT / name).stat().st_size // 1024, "KB")
+
+
+# ---------------------------------------------------------------- dashboard screenshots (UAK-202)
+DASH_GROUND = (14, 14, 18)   # the dark theme's page ground under Lavanda (hsl 250 9% 6%), as the frame of the shot
+
+
+def framed(src, dest, pad=16, radius=18):
+    """The shot on a dark rounded ground of its own, transparent outside the corners: dark art on GitHub's light
+    page reads as a deliberate card, and on its dark page as the page itself."""
+    from PIL import Image, ImageDraw
+    shot = Image.open(src).convert("RGBA")
+    w, h = shot.size[0] + 2 * pad, shot.size[1] + 2 * pad
+    card = Image.new("RGBA", (w, h), DASH_GROUND + (255,))
+    card.paste(shot, (pad, pad))
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, fill=255)
+    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    out.paste(card, (0, 0), mask)
+    out.save(dest, optimize=True)
+
+
+def dash_shots(task="UAK-165"):
+    """docs/media/dash.png and dash-task.png: this repository's own dashboard (its public claims branch), dark theme,
+    Lavanda, 1280x760, English; the task opened is TASK. Run from a checkout of this repository with its claims."""
+    import tempfile
+    from playwright.sync_api import sync_playwright
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run([sys.executable, str(ROOT / "kit/.uak/bin/lib/dash.py"), "--out", tmp], cwd=str(ROOT), check=True)
+        page_file = Path(tmp) / "index.html"
+        with sync_playwright() as p:
+            b = p.chromium.launch()
+            ctx = b.new_context(viewport={"width": 1280, "height": 760}, color_scheme="dark")
+            ctx.add_init_script("try{localStorage.setItem('uak-look',JSON.stringify({theme:'dark',pal:'lavanda'}));"
+                                "localStorage.setItem('uak-language','en')}catch(e){}")
+            page = ctx.new_page()
+            page.goto(page_file.as_uri())
+            page.wait_for_timeout(2000)
+            page.screenshot(path=str(Path(tmp) / "dash.png"))
+            page.locator("text='%s'" % task.split("-")[-1]).first.click()
+            page.wait_for_timeout(1500)
+            page.screenshot(path=str(Path(tmp) / "dash-task.png"))
+            b.close()
+        for name in ("dash.png", "dash-task.png"):
+            framed(Path(tmp) / name, OUT / name)
+            print(name, (OUT / name).stat().st_size // 1024, "KB")
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
+    if "--dash" in sys.argv:   # the README's dashboard shots only (UAK-202)
+        dash_shots(); return
+    if "--from" in sys.argv:   # the README's art, drawn by docs/video (UAK-199)
+        import_art(sys.argv[sys.argv.index("--from") + 1]); return
     if "--html" in sys.argv:   # no Playwright browser: render the HTML with any Chromium, e.g.
         # chromium --headless --screenshot=banner.png --window-size=1280,640 --virtual-time-budget=3000 file://…/banner.html
         dest = Path(sys.argv[sys.argv.index("--html") + 1])
-        dest.write_text(page_html(banner_html(), 1280, 640), encoding="utf-8"); print(dest); return
+        dest.write_text(banner_html(), encoding="utf-8"); print(dest); return
+    if "--fallback" not in sys.argv:
+        sys.exit(__doc__)
     from playwright.sync_api import sync_playwright
     gif = "--gif" in sys.argv
     out = demo_output() if gif else None
