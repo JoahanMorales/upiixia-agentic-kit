@@ -6,6 +6,7 @@ that share a path, so they ran one at a time (2026-11-23, plan "visual setup"). 
 timing file and does not touch scripts/kit_lint.py. These cases call the lint's reader, the selector and a real install."""
 import argparse
 import importlib.util
+import json
 import re
 import shutil
 import subprocess
@@ -309,6 +310,194 @@ def timing_only_change_is_first_tier(r):
 
 TESTS = [tables_equal_before_and_after, measured_again_may_differ_from_the_frozen_values, test_without_timing_file_is_named, timing_file_without_test_is_refused,
          unreadable_timing_line_is_refused, shards_are_unchanged, timings_are_not_installed, timing_only_change_is_first_tier]
+
+
+# UAK-197: a timing entry has room for a slow runner. With "maximum plus 1 s" a file that takes 25 to 96 s on macOS from run
+# to run forced five pushes of nothing but a number (UAK-192), and public issue #85 lists nine files below their
+# measurement. The rule: the maximum over the runs read, per system the entry stands for, times 1.25, rounded up, and never
+# less than the maximum plus 2 s. scripts/ci_timings.py reads the runs with gh; its parsing is tested here on saved logs.
+def timings_module():
+    return load("ci_timings_for_timings", REPO / "scripts" / "ci_timings.py")
+
+
+RULE_LINE = re.compile(r"(?m)^#\s*rule:.*?maxima (.*)$")
+
+
+def timing_rule_has_room_for_a_slow_runner(r):
+    ct = timings_module()
+    for seconds, want in ((100, 125), (96, 120), (4, 6), (8, 10), (8.1, 11), (0.4, 3), (25.2, 32), (536, 670), (1, 3)):
+        got = ct.entry_for(seconds)
+        expect(got == want, "a file measured at %s s gets the entry %d (x 1.25 rounded up, at least max + 2), got %r" % (seconds, want, got))
+    for seconds in (0, 1, 2.5, 7.9, 8, 9, 33.3, 299, 1500):
+        e = ct.entry_for(seconds)
+        expect(e >= seconds * 1.25 and e >= seconds + 2 and e == int(e), "%s s: %r has the room the rule gives" % (seconds, e))
+    lint_src = (REPO / "scripts" / "kit_lint.py").read_text(encoding="utf-8")
+    expect("times 1.25, rounded up, and never less than that maximum plus 2 s" in lint_src, "the lint's comment says the rule")
+    # Every timing file written by the rule keeps the maxima it used, and its numbers are what the rule gives for them.
+    checked = []
+    for p in sorted(TIMINGS.glob("*.txt")):
+        text = p.read_text(encoding="utf-8")
+        m = RULE_LINE.search(text)
+        if not m:
+            continue
+        maxima = dict((s, float(v)) for s, v in re.findall(r"(linux|macos|windows) ([0-9.]+) s", m.group(1)))
+        ci = [maxima[s] for s in ("linux", "macos") if s in maxima]
+        nums = dict((k, int(v)) for k, v in re.findall(r"(?m)^(ci|windows)[ \t]+([0-9]+)\s*$", text))
+        expect(MEASURED.search(text), "%s has a rule line and a `# measured` line" % p.name)
+        if ci:
+            expect(nums.get("ci") == ct.entry_for(max(ci)), "%s: ci %r, the rule gives %d for %s" % (p.name, nums.get("ci"), ct.entry_for(max(ci)), max(ci)))
+        if "windows" in maxima:
+            expect(nums.get("windows") == ct.entry_for(maxima["windows"]), "%s: windows %r, the rule gives %d" % (p.name, nums.get("windows"), ct.entry_for(maxima["windows"])))
+        checked.append(p.stem)
+    expect(checked, "at least the timing files this task measured carry the rule's line")
+    return "the rule checked on %d values and %d timing files" % (9, len(checked))
+
+
+def log_lines(job, stamped, prefix=True):
+    """A job log as `gh run view --log` prints it (JOB<TAB>STEP<TAB>TIME TEXT) or raw (a byte-order mark, TIME TEXT)."""
+    out = []
+    for i, (secs, text) in enumerate(stamped):
+        t = "2026-11-25T10:%02d:%02d.%07dZ %s" % (secs // 60, secs % 60, i, text)
+        out.append(("%s\tUNKNOWN STEP\t%s" % (job, t)) if prefix else ("﻿" + t if i == 0 else t))
+    return "\n".join(out) + "\n"
+
+
+def runner_group(start, name, seconds, second_run=None, inner=()):
+    """What scripts/ci_select.py run prints around one file; inner lines are the test's own output."""
+    rows = [(start, "##[group]%s" % name), (start, "10:00:00Z %s starts, job elapsed 0 s, table 9 s" % name)]
+    rows += [(start + 1, x) for x in inner]
+    rows += [(start + seconds, "##[endgroup]")]
+    if second_run is not None:
+        rows += [(start + seconds, "##[group]%s (second run)" % name), (start + seconds + second_run, "##[endgroup]")]
+    return rows
+
+
+SHARD = "  SHARD_TESTS: test_alpha test_beta test_gamma"
+FAKE = ["##[group]test_one", "10:00:01Z test_one starts, job elapsed 0 s, table 60 s", "##[endgroup]", "##[error]test_one failed (x)"]
+
+
+def fake_gh(runs, jobs, logs, calls):
+    """gh as ci_timings calls it, answered from saved data; anything else is a failure, as gh without network is."""
+    ct = timings_module()
+
+    def gh(args):
+        calls.append(list(args))
+        if args[:2] == ["run", "list"]:
+            return json.dumps(runs)
+        if args[:2] == ["run", "view"] and "--log" in args:
+            job = args[args.index("--job") + 1]
+            if job not in logs:
+                raise ct.Failure("gh run view --log failed: no such job %s" % job)
+            return logs[job]
+        if args[:2] == ["run", "view"] and "--json" in args:
+            rid = int(args[2])
+            if "jobs" in args[args.index("--json") + 1]:
+                return json.dumps({"jobs": jobs.get(rid, [])})
+            return json.dumps(next(x for x in runs if x["databaseId"] == rid))
+        raise ct.Failure("unexpected gh %s" % args)
+    return gh
+
+
+def ci_timings_reads_runs_and_writes_entries(r):
+    import contextlib
+    import io
+    import os
+    ct = timings_module()
+    linux = log_lines("suite (ubuntu-latest, 1)", [(0, SHARD)] + runner_group(10, "test_alpha", 40, inner=FAKE)
+                      + runner_group(60, "test_beta", 8, second_run=12) + [(90, "##[group]Run actions/upload-artifact@v4")])
+    macos = log_lines("suite (macos-latest, 1)", [(0, SHARD)] + runner_group(5, "test_alpha", 96), prefix=False)
+    windows = log_lines("windows (2)", [(0, SHARD)] + runner_group(5, "test_alpha", 200) + runner_group(300, "test_gamma", 30))
+    cancelled = log_lines("windows (3)", [(0, SHARD), (5, "##[group]test_alpha"), (5, "10:00:05Z test_alpha starts, job elapsed 0 s, table 9 s")])
+    later = log_lines("suite (macos-latest, 1)", [(0, SHARD)] + runner_group(5, "test_alpha", 70))
+    # The parser: a file's group from the runner's start line to its last endgroup; both runs count; a test's own groups
+    # (test_ci_tiers prints a fake runner's) and a group that never ends (a cancelled job) are no measurement.
+    got, notes = ct.parse_job_log(linux)
+    expect(got == {"test_alpha": 40.0, "test_beta": 12.0}, "Linux: %s %s" % (got, notes))
+    got, _ = ct.parse_job_log(macos)
+    expect(got == {"test_alpha": 96.0}, "a raw log with a byte-order mark: %s" % got)
+    got, notes = ct.parse_job_log(cancelled)
+    expect(got == {} and any("not measured" in n for n in notes), "a job stopped inside a file measures nothing: %s %s" % (got, notes))
+    failing = linux + "2026-11-25T10:02:00.0000000Z ##[error]test_beta failed both times (suite (ubuntu-latest, 1))\n"
+    table, notes = ct.measure([(9, "suite (ubuntu-latest, 1)", "failure", failing), (9, "windows (3)", "cancelled", cancelled)])
+    expect(table == {"test_alpha": {"linux": (40.0, 9)}} and any("test_beta failed there" in n for n in notes)
+           and any("cancelled, not read" in n for n in notes),
+           "in a failed job the files that passed are measured, the failed one is not; a cancelled job is not read: %s %s" % (table, notes))
+    got, notes = ct.parse_job_log("2026-11-25T10:00:00.0000000Z Run actions/checkout\nno timestamps here\n")
+    expect(got == {} and any("no file timings" in n for n in notes), "a log with no timing lines says so: %s" % notes)
+    expect([ct.system_of(j) for j in ("suite (ubuntu-latest, 3)", "suite (macos-latest, 2)", "windows (11)", "ci", "discover")]
+           == ["linux", "macos", "windows", None, None], "jobs map to systems")
+    runs = [{"databaseId": 501, "conclusion": "success", "createdAt": "2026-11-25T10:00:00Z"},
+            {"databaseId": 502, "conclusion": "success", "createdAt": "2026-11-24T09:00:00Z"},
+            {"databaseId": 503, "conclusion": "cancelled", "createdAt": "2026-11-24T08:00:00Z"}]
+    jobs = {501: [{"databaseId": 11, "name": "suite (ubuntu-latest, 1)", "conclusion": "success"},
+                  {"databaseId": 12, "name": "suite (macos-latest, 1)", "conclusion": "success"},
+                  {"databaseId": 13, "name": "windows (2)", "conclusion": "success"},
+                  {"databaseId": 14, "name": "windows (3)", "conclusion": "cancelled"},
+                  {"databaseId": 15, "name": "ci", "conclusion": "success"}],
+            502: [{"databaseId": 21, "name": "suite (macos-latest, 1)", "conclusion": "success"}],
+            503: [{"databaseId": 31, "name": "suite (macos-latest, 1)", "conclusion": "cancelled"}]}
+    logs = {"11": linux, "12": macos, "13": windows, "14": cancelled, "21": later}
+    with tempfile.TemporaryDirectory(prefix="uak-ci-timings-") as tmp:
+        folder = Path(tmp) / "timings"
+        folder.mkdir()
+        write(folder, "test_alpha.txt", "# why: a note that stays\n# measured 2026-11-01 1\nci 50\nwindows 100\n")
+        write(folder, "test_beta.txt", "ci 5\nwindows 30\n")
+        write(folder, "test_gamma.txt", "ci 4\nwindows 9\n")
+        beta_before = (folder / "test_beta.txt").read_text(encoding="utf-8")
+        calls, out, err = [], io.StringIO(), io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = ct.main(["--runs", "3", "--write", str(folder / "test_alpha.txt"), str(folder / "test_gamma.txt")],
+                         gh=fake_gh(runs, jobs, logs, calls), out=out)
+        text = out.getvalue()
+        expect(rc == 0, "reads and writes: rc %d %s %s" % (rc, text[-600:], err.getvalue()))
+        expect(any(c[:2] == ["run", "list"] and "main" in c and "success" in c for c in calls), "it asks gh for green runs of main: %s" % calls[:1])
+        expect(not any("--job" in c and c[c.index("--job") + 1] in ("14", "15", "31") for c in calls), "a cancelled job, the ci job and a cancelled run are not read")
+        row = [l for l in text.splitlines() if l.startswith("test_alpha ")]
+        expect(row and "96" in row[0] and "200" in row[0] and "120" in row[0] and "250" in row[0] and "raise" in row[0],
+               "the table gives the maxima per system and the rule's entries (ci 96 -> 120, windows 200 -> 250): %s" % row)
+        expect("cancelled" in text and "503" in text, "a run that did not succeed is named: %s" % text[-500:])
+        alpha = (folder / "test_alpha.txt").read_text(encoding="utf-8")
+        expect(re.search(r"(?m)^ci 120$", alpha) and re.search(r"(?m)^windows 250$", alpha), "the entries the rule gives: %s" % alpha)
+        expect(MEASURED.search(alpha) and "# measured 2026-11-25 501" in alpha and "2026-11-01" not in alpha, "a new `# measured` line replaces the old: %s" % alpha)
+        expect("# why: a note that stays" in alpha and "x 1.25" in alpha, "other comments stay; the rule is written: %s" % alpha)
+        gamma = (folder / "test_gamma.txt").read_text(encoding="utf-8")
+        expect(re.search(r"(?m)^ci 4$", gamma) and re.search(r"(?m)^windows 38$", gamma), "a file measured on Windows only keeps its ci entry: %s" % gamma)
+        expect((folder / "test_beta.txt").read_text(encoding="utf-8") == beta_before, "a file not named in --write is not touched")
+        rc = ct.main(["--runs", "3", "--write", str(folder / "test_beta.txt")], gh=fake_gh(runs, jobs, logs, []), out=io.StringIO())
+        beta = (folder / "test_beta.txt").read_text(encoding="utf-8")
+        expect(rc == 0 and re.search(r"(?m)^ci 15$", beta) and re.search(r"(?m)^windows 30$", beta),
+               "a file measured on Linux only (12 s, the longer of its two runs) gets ci 15 and keeps windows: %s" % beta)
+        lint = lint_module()
+        _, _, problems = lint.read_timings(folder)
+        expect(problems == [], "what it writes is a timing file the lint reads: %s" % problems)
+        # Forced failures: no gh, gh without network, no timing line in any log, a file with no measurement.
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(Path(tmp) / "empty")
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as e1:
+                rc = ct.main(["--runs", "1"], out=io.StringIO())
+        finally:
+            os.environ["PATH"] = saved
+        expect(rc == 2 and "gh is not installed" in e1.getvalue(), "without gh: rc %d %r" % (rc, e1.getvalue()))
+
+        def offline(args):
+            raise ct.Failure("gh run list failed (1): error connecting to api.github.com")
+        with contextlib.redirect_stderr(io.StringIO()) as e2:
+            rc = ct.main(["--runs", "1"], gh=offline, out=io.StringIO())
+        expect(rc == 2 and "error connecting" in e2.getvalue() and "Traceback" not in e2.getvalue(), "without network: one line: %r" % e2.getvalue())
+        empty = {"11": "2026-11-25T10:00:00.0000000Z nothing\n", "12": "", "13": "", "14": "", "21": ""}
+        with contextlib.redirect_stderr(io.StringIO()) as e3:
+            rc = ct.main(["--runs", "3"], gh=fake_gh(runs, jobs, empty, []), out=io.StringIO())
+        expect(rc == 2 and "no file timings" in e3.getvalue(), "logs with no timing lines: %r" % e3.getvalue())
+        write(folder, "test_delta.txt", "ci 5\nwindows 30\n")
+        with contextlib.redirect_stderr(io.StringIO()) as e4:
+            rc = ct.main(["--runs", "3", "--write", str(folder / "test_delta.txt")], gh=fake_gh(runs, jobs, logs, []), out=io.StringIO())
+        expect(rc == 2 and "no measurement of test_delta" in e4.getvalue(), "a file the runs did not measure is not written: %r" % e4.getvalue())
+        expect((folder / "test_delta.txt").read_text(encoding="utf-8") == "ci 5\nwindows 30\n", "and stays as it was")
+    return "3 runs read (1 cancelled), 2 files written by the rule, 4 failures said in one line"
+
+
+TESTS += [timing_rule_has_room_for_a_slow_runner, ci_timings_reads_runs_and_writes_entries]
 
 
 def main():

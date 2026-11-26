@@ -168,12 +168,22 @@ def fresh_reads_a_crlf_epoch(r):
                                                % log.as_posix()).encode("utf-8"))
     (gd / "uak-pace.seen").write_bytes(b"%d\r\n" % (int(time.time()) - 600))
     hook(r, w, [".uak/bin/hook", "tick"], tick, env)
+    # UAK-197: this case failed now and then on Linux (pull request #71). The wait ended as soon as the log file existed
+    # and then read it once, but the fake pace's `>>` creates the file before its printf writes the line: a read in
+    # between found it empty, under load. The wait is now for the line itself, bounded as before.
     deadline = time.monotonic() + 30
-    while time.monotonic() < deadline and not log.exists():
-        time.sleep(1)
-    expect(log.exists() and "--caps" in log.read_text(encoding="utf-8"),
-           "a seen file of 10 minutes ago, written with CRLF, must let the pace check run")
+    while time.monotonic() < deadline and not called(log, "--caps"):
+        time.sleep(0.2)
+    expect(called(log, "--caps"), "a seen file of 10 minutes ago, written with CRLF, must let the pace check run")
     return "pace checked"
+
+
+def called(log, word):
+    """The fake pace has written a line with this word (not merely created its log)."""
+    try:
+        return word in log.read_text(encoding="utf-8").split()
+    except OSError:
+        return False
 
 
 TESTS = [stop_reads_the_inbox_from_the_cache, tick_runs_pace_in_the_background, fresh_reads_a_crlf_epoch]
@@ -184,21 +194,31 @@ def main():
     parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--jobs", type=int, default=3)
     args = parser.parse_args()
+    # UAK_CRLF_ROUNDS=N runs fresh_reads_a_crlf_epoch N times, each in a scratch folder of its own, beside the other cases
+    # (UAK-197: the 20 runs in a row on Linux that the fix is judged by). Off by default.
+    rounds = int(os.environ.get("UAK_CRLF_ROUNDS", "1"))
     with tempfile.TemporaryDirectory(prefix="uak-hook-claims-") as tmp:
         runner = Runner(args.package.resolve(), Path(tmp), resolve_binary("bash"), resolve_binary("git"))
+        work = [(t, runner) for t in TESTS]
+        work += [(fresh_reads_a_crlf_epoch, Runner(args.package.resolve(), Path(tmp) / ("round-%d" % k), resolve_binary("bash"),
+                                                   resolve_binary("git"))) for k in range(2, rounds + 1)]
 
-        def one(test):
+        def one(item):
+            test, r = item
             started = time.monotonic()
             try:
-                note = test(runner)
+                note = test(r)
                 return test.__name__, True, "%s, %.2fs" % (note, time.monotonic() - started)
             except Exception as exc:  # noqa: BLE001
                 return test.__name__, False, str(exc)[:2500]
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-            results = list(pool.map(one, TESTS))
+            results = list(pool.map(one, work))
     for name, ok, info in results:
         print(("PASS " if ok else "FAIL ") + name + " (" + info + ")")
     passed = sum(1 for _, ok, _ in results if ok)
+    if rounds > 1:
+        runs = [ok for name, ok, _ in results if name == "fresh_reads_a_crlf_epoch"]
+        print("MEASURED fresh_reads_a_crlf_epoch: %d of %d rounds passed" % (sum(runs), len(runs)))
     print("HOOK_CLAIMS_RESULT %s passed=%d failed=%d" % ("PASS" if passed == len(results) else "FAIL", passed, len(results) - passed))
     return 0 if passed == len(results) else 1
 

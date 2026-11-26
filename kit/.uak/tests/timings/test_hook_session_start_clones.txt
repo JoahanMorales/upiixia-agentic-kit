@@ -1,0 +1,5 @@
+# measured 2026-11-25 45693940366
+# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 63.0 s (45693940366), macos 102.6 s (45693940366), windows 174.2 s (45693940366)
+# UAK-197: the flush's clones and the jobs killed at their limit moved from test_hook_session_start_speed; measured on this task's run 45693940366 (both runs of the file there: it failed once, the issue #83 case, and passed on its second run)
+ci 129
+windows 218

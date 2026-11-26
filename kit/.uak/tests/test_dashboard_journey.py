@@ -5,12 +5,15 @@ a local bare remote, no network. Inside an installed project (no install.sh next
 installed by copying the package, and only the steps that need the kit's installer are skipped, with a note."""
 import argparse
 import hashlib
+import http.client
 import importlib.util
 import json
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
+import time
 import traceback
 from pathlib import Path
 
@@ -18,6 +21,55 @@ import test_setup_wizard as wizard
 from test_hack import resolve_binary
 
 START_NEXT = "Start the next task"
+
+# UAK-197: new_project_visual_setup_journey passed only on its second run on Windows (run 45635485890, windows (1): "TimeoutError:
+# timed out" in socket recv_into, 43 s into the case), and test_setup_branches install_refuses_a_non_base_branch timed out
+# the same way twice in one Windows job (main at aaa61b01, run 45335549258, windows (9)). Both read the setup server with
+# test_setup_wizard.request, whose client waits 10 s for an answer. The server answers some requests only after running
+# Git and the kit's engine in the project (/api/inspect, /api/check, /api/dashboard: several processes, each 0.1 to 0.5 s
+# on a Windows runner, more under load), so 10 s is a bound a slow runner passes while the server works normally. The
+# log said neither which request nor how long it took. patient_requests() puts a client that waits REQUEST_BOUND_S, names
+# the request when it gives up and keeps how long each request took; each case prints its slowest (MEASURED lines), so a
+# run says which request was slow and by how much.
+REQUEST_BOUND_S = 60
+TIMES = []
+
+
+def bounded_request(server, method, path, data=None, token=True, origin=True, extra=None):
+    """test_setup_wizard.request with a bound of REQUEST_BOUND_S, the time it took kept in TIMES, and a timeout that says
+    which request it was."""
+    host = "127.0.0.1:%d" % server.server_port
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["X-UAK-Token"] = server.token
+    if origin:
+        headers["Origin"] = "http://" + host
+    headers.update(extra or {})
+    body = json.dumps(data).encode() if data is not None else None
+    conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=REQUEST_BOUND_S)
+    began = time.monotonic()
+    try:
+        conn.request(method, path, body, headers)
+        res = conn.getresponse()
+        return res.status, res.read(), dict(res.getheaders())
+    except (socket.timeout, TimeoutError):
+        raise AssertionError("%s %s had no answer in %d s" % (method, path, REQUEST_BOUND_S))
+    finally:
+        TIMES.append((time.monotonic() - began, method, path))
+        conn.close()
+
+
+def patient_requests():
+    """Every request of this process (test_setup_wizard.request, which the planning helpers call too) goes through
+    bounded_request."""
+    wizard.request = bounded_request
+
+
+def slowest(n=3):
+    """The n slowest requests since the last call, as one line, and forget them."""
+    got = sorted(TIMES, reverse=True)[:n]
+    del TIMES[:]
+    return ", ".join("%s %s %.1f s" % (m, p, t) for t, m, p in got)
 
 
 def git(cwd, *args):
@@ -338,18 +390,26 @@ def main():
     spec = importlib.util.spec_from_file_location("uak_journey_setup", root / ".uak/bin/lib/setup.py")
     wizard.MODULE = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(wizard.MODULE)
+    patient_requests()
+    # UAK_JOURNEY_ROUNDS=N runs new_project_visual_setup_journey N times (UAK-197: the 20 runs in a row on Windows the fix
+    # is judged by). Off by default.
+    rounds = int(os.environ.get("UAK_JOURNEY_ROUNDS", "1"))
     failed = 0
     for test in TESTS:
         if args.case and test.__name__ not in args.case:
             continue
-        with tempfile.TemporaryDirectory(prefix="uak-journey-") as folder:
-            try:
-                note = test(root, Path(folder))
-                print("PASS " + test.__name__ + (" (%s)" % note if note else ""))
-            except Exception as exc:
-                failed += 1
-                frame = traceback.extract_tb(exc.__traceback__)[-1]
-                print("FAIL %s: %s: %s (line %s: %s)" % (test.__name__, type(exc).__name__, exc, frame.lineno, frame.line))
+        for k in range(rounds if test is new_project_visual_setup_journey else 1):
+            label = test.__name__ + (" round %d" % (k + 1) if rounds > 1 and test is new_project_visual_setup_journey else "")
+            with tempfile.TemporaryDirectory(prefix="uak-journey-") as folder:
+                began = time.monotonic()
+                try:
+                    note = test(root, Path(folder))
+                    print("PASS " + label + (" (%s)" % note if note else ""), flush=True)
+                except Exception as exc:
+                    failed += 1
+                    frame = traceback.extract_tb(exc.__traceback__)[-1]
+                    print("FAIL %s: %s: %s (line %s: %s)" % (label, type(exc).__name__, exc, frame.lineno, frame.line), flush=True)
+                print("MEASURED %s: %.1f s; slowest requests: %s" % (label, time.monotonic() - began, slowest()), flush=True)
     print("DASHBOARD_JOURNEY_RESULT failed=%d" % failed)
     return 1 if failed else 0
 
