@@ -132,7 +132,7 @@ OUTLINE = ["Why it exists", "See it run", "Get started", "How it works", "What i
 # The top of the README, before the four answers.
 BANNER = "docs/media/banner.png"
 TITLE = "# UPIIXIA Agentic Kit"
-TAGLINE = "**The harness for multi-agent teams.**"   # the human's words (2026-11-26), right under the title
+TAGLINE = "**The orchestration harness for multi-agent teams.**"   # the human's words (2026-11-26), right under the title
 TAGLINE_TRUTH = "no model"   # and in the same line, what it is not: it runs no model, it coordinates your tools
 VISION_MARK = "aim"   # the vision line says it is the aim, not a claim about today
 BADGES = {   # what each badge is, and a piece of its image URL

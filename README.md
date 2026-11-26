@@ -2,7 +2,7 @@
 
 # UPIIXIA Agentic Kit
 
-**The harness for multi-agent teams.** It runs no model of its own: it coordinates the coding tools you already use, such as Claude Code, Codex and Cursor.
+**The orchestration harness for multi-agent teams.** It runs no model of its own: it coordinates the coding tools you already use, such as Claude Code, Codex and Cursor.
 
 **The aim:** several people and their coding agents working on one repository at the same time, without stepping on each other. No chaos.
 
