@@ -240,6 +240,15 @@ entries that link to nothing are only in the list. Under 640 px wide it shows th
 spend down by kind of token, harness, model, scope, agent (the owner of the task) and task, with the most expensive tasks and
 the average and median per integrated task; the data carries no dates and no budget, and the page says so.
 
+**On a wide monitor** (UAK-198) the page scales up: up to 1432 px it is exactly the page at 1280 px; wider, everything grows
+with the window (its width over 1432, at most 1.8: ×1.34 at 1920 px, ×1.79 at 2560 px), type, squares, cards, charts, the
+task's detail and Share, so the composition stays the approved one, drawn larger and sharp. The side gutters stay 24 px on the
+screen, so every tab reaches the right edge. Running text stays under about 90 characters a line and a task row's status
+sits next to its title. Past the cap (a window of about 2900 px) the summary's side shows its blocks in two columns and the
+other tabs gain columns. The scale is the page's decision from the width, never saved: your arrangement is still the two
+lists, and Edit, the handles and a drag work at every scale. Nothing scrolls sideways from 320 to 3840 px, and a block moved
+to the side column (what needs you, the tasks) stacks its rows as on a phone.
+
 ### Sharing the card from a phone
 
 The Share dialog shows each card (1200 x 630 and the 1080 x 1920 story) as a real image: press and hold it to get "Save to Photos", "Copy" or "Share" from the system. The buttons under it appear only where they can work, decided by testing what the browser offers and never by its name:

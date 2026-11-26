@@ -24,12 +24,53 @@ shw() { # PATH [always]: plain stays bare (or "double-quoted" with a space, or a
 }
 remote=${UAK_REMOTE:-origin} base=${UAK_BASE:-main}
 n=0 todo=0
-ok()   { n=$((n + 1)); printf 'OK    %s. %s\n' "$n" "$1"; }
-need() { n=$((n + 1)); todo=$((todo + 1)); printf 'TODO  %s. %s\n' "$n" "$1"; shift; for l in "$@"; do printf '         %s\n' "$l"; done; }
-note() { printf 'NOTE  %s\n' "$*"; }
+# Codes (UAK-160): the page never reads this prose. With UAK_START_CODES=1 (the wizard) or under `uak --json` (UAK_JSON_META
+# is set), every check and every line under it also says what it is as a stable code with its values, on a line of its own:
+#   CODE {"state":"todo","n":2,"check":{"code":"remote_missing","values":{"remote":"origin"}},"hints":[{"code":"…","values":{…}}]}
+# The call sites keep the sentence a person at a terminal reads. C CODE [key=value …] names the check that comes next and
+# HC CODE [key=value …] names, in order, each line under it (the arguments after the first of need and note_hints). Reword
+# a sentence and the code, and so the page, stay the same; a command or a path travels as a value, never inside prose.
+codes=no
+{ [ "${UAK_START_CODES:-}" = 1 ] || [ -n "${UAK_JSON_META:-}" ]; } && codes=yes
+US=$(printf '\037') RS=$(printf '\036')
+pend_check= pend_hints= defer=
+spec() { printf '%s' "$1"; shift; for _kv in "$@"; do printf '%s%s' "$US" "$_kv"; done; }
+C()  { [ "$codes" = yes ] || return 0; pend_check=$(spec "$@"); }
+HC() { [ "$codes" = yes ] || return 0; pend_hints="$pend_hints$(spec "$@")$RS"; }
+jesc() { printf '%s' "$1" | tr '\n\t\r' '   ' | tr -d '\000-\037' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+jcode() { # "code<US>k=v<US>k=v" -> {"code":"…","values":{…}}
+  _rest=$1 _code=${1%%"$US"*} _vals= _sep=
+  case "$_rest" in *"$US"*) _rest=${_rest#*"$US"};; *) _rest=;; esac
+  while [ -n "$_rest" ]; do
+    _kv=${_rest%%"$US"*}
+    _vals="$_vals$_sep\"$(jesc "${_kv%%=*}")\":\"$(jesc "${_kv#*=}")\""; _sep=,
+    case "$_rest" in *"$US"*) _rest=${_rest#*"$US"};; *) _rest=;; esac
+  done
+  printf '{"code":"%s","values":{%s}}' "$(jesc "$_code")" "$_vals"
+}
+jhints() { # the pending hints as a JSON list
+  _hs= _sep= _p=$pend_hints
+  while [ -n "$_p" ]; do _h=${_p%%"$RS"*}; _p=${_p#*"$RS"}; _hs="$_hs$_sep$(jcode "$_h")"; _sep=,; done
+  printf '[%s]' "$_hs"
+}
+machine() { # STATE: the CODE line of the check just printed; the pending codes are spent
+  if [ "$codes" = yes ]; then
+    if [ -n "$pend_check" ]; then printf 'CODE {"state":"%s","n":%s,"check":%s,"hints":%s}\n' "$1" "$n" "$(jcode "$pend_check")" "$(jhints)"
+    elif [ -n "$pend_hints" ]; then printf 'CODE {"state":"note-hints","n":%s,"hints":%s}\n' "$n" "$(jhints)"; fi
+  fi
+  pend_check= pend_hints=
+}
+ok()   { n=$((n + 1)); printf 'OK    %s. %s\n' "$n" "$1"; machine ok; }
+need() { n=$((n + 1)); todo=$((todo + 1)); printf 'TODO  %s. %s\n' "$n" "$1"; shift; for l in "$@"; do printf '         %s\n' "$l"; done; machine todo; }
+note() { printf 'NOTE  %s\n' "$*"; [ -n "$defer" ] || machine note; }
+note_hints() { for _l in "$@"; do printf '         %s\n' "$_l"; done; defer=; machine note; }
 finish() {
   printf '\n'
-  if [ "$todo" -eq 0 ] && [ -n "${1:-}" ]; then printf 'START READY · %s\n' "$1"; exit 0; fi
+  if [ "$todo" -eq 0 ] && [ -n "${1:-}" ]; then
+    printf 'START READY · %s\n' "$1"
+    [ "$codes" != yes ] || [ -z "${ready_spec:-}" ] || printf 'CODE {"state":"ready","check":%s,"hints":[]}\n' "$(jcode "$ready_spec")"
+    exit 0
+  fi
   [ "$todo" -gt 0 ] || todo=1
   if [ "$todo" -eq 1 ]; then printf 'START · 1 thing to do before the first claim. Then run uak start again.\n'
   else printf 'START · %s things to do before the first claim, in this order. Then run uak start again.\n' "$todo"; fi
@@ -39,6 +80,7 @@ finish() {
 from() { uak_cfg - "$1"; }
 
 root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  C no_git_repository; HC git_init_then_install
   need "a Git repository" "git init -b main, then: bash ~/.uak-kit/install.sh --mode sprint|marathon ."; finish; }
 cd "$root" || exit 1
 
@@ -103,8 +145,9 @@ fi
 # 1. The kit
 mode=$({ from Mode < .uak/PROJECT.md; } 2>/dev/null)
 case "$mode" in
-  sprint|marathon) ok "kit installed ($mode, uak $(cat "$here/../VERSION" 2>/dev/null))";;
-  *) need "install the kit" "bash ~/.uak-kit/install.sh --mode sprint .   (deadline with judges)" \
+  sprint|marathon) C kit_installed mode="$mode" version="$(cat "$here/../VERSION" 2>/dev/null)"; ok "kit installed ($mode, uak $(cat "$here/../VERSION" 2>/dev/null))";;
+  *) C install_kit; HC install_sprint command='bash ~/.uak-kit/install.sh --mode sprint .'; HC install_marathon command='bash ~/.uak-kit/install.sh --mode marathon .'
+     need "install the kit" "bash ~/.uak-kit/install.sh --mode sprint .   (deadline with judges)" \
           "bash ~/.uak-kit/install.sh --mode marathon .   (a product; add --solo if you are alone on the GitHub repo)"; finish;;
 esac
 # A project started from an older one keeps that one's kit. Why (HackADA): the repo began as a copy of the previous
@@ -130,20 +173,22 @@ if [ -n "$kit_home" ] && [ -e "$kit_home/.git" ]; then tags_dir=$kit_home tags_f
 tag=$(GIT_TERMINAL_PROMPT=0 git -C "$tags_dir" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 \
       ls-remote --tags --refs "$tags_from" 'v*' 2>/dev/null | sed 's#.*refs/tags/v##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' |
       sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
-pull=
+pull= pull_cmd= source=clone uh=
 # A path with a space is quoted in the hints, so they still paste (uak.kitHome can be any folder).
 qh=$kit_home qi=$kit_home/install.sh
 qh=$(shw "$kit_home") qi=$(shw "$kit_home")/install.sh
 if [ -n "$tag" ] && [ "$(vnum "$tag")" -gt "$(vnum "${newest:-0.0.0}")" ]; then
-  newest=$tag where="the kit's GitHub"
+  newest=$tag where="the kit's GitHub" source=github
   if [ -z "$kit_home" ]; then :
-  elif [ -e "$kit_home/.git" ]; then pull="git -C $qh pull --ff-only, then "
-  else pull="git clone --depth 1 $kit_url $qh, then "; fi
+  elif [ -e "$kit_home/.git" ]; then pull="git -C $qh pull --ff-only, then " pull_cmd="git -C $qh pull --ff-only"
+  else pull="git clone --depth 1 $kit_url $qh, then " pull_cmd="git clone --depth 1 $kit_url $qh"; fi
 fi
 if [ -n "$newest" ] && [ "$(vnum "$newest")" -gt "$(vnum "${mine:-0.0.0}")" ] && [ -z "${UAK_KIT_PIN:-}" ]; then
   if [ -n "$kit_home" ]; then
     set -- "${pull}bash $qi --mode $mode --update .   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)"
+    uh="$(spec "update${pull:+_pull}_command" pull="$pull_cmd" install="bash $qi --mode $mode --update .")$RS"
   else
+    uh="$(spec update_in_clone install="bash install.sh --mode $mode --update $(shw "$root" always)")$RS$(spec update_no_clone clone="git clone --depth 1 $kit_url <folder>" install="bash <folder>/install.sh --mode $mode --update $(shw "$root" always)")$RS"
     set -- "in the kit folder you installed this project from (the clone with install.sh): git pull --ff-only, then bash install.sh --mode $mode --update $(shw "$root" always)   (keeps PROJECT.md, TASKS.md and OWNERS.md; commit and push it)" \
          "no clone at hand: git clone --depth 1 $kit_url <folder>, then bash <folder>/install.sh --mode $mode --update $(shw "$root" always)"
   fi
@@ -155,25 +200,31 @@ if [ -n "$newest" ] && [ "$(vnum "$newest")" -gt "$(vnum "${mine:-0.0.0}")" ] &&
   if git cat-file -e "refs/remotes/$remote/$base:.uak/VERSION" 2>/dev/null || case "$freeze" in [1-9]*) true;; *) false;; esac; then
     if ! printf '%s\n' "$mine" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
       # printf, not note: the setup page's translation table (lib/setup.py) has no pattern for this line yet.
-      printf 'NOTE  the kit version of this project is unreadable (%s), so no update check can run: .uak/VERSION should hold MAJOR.MINOR.PATCH\n' "${mine:-empty}"
+      C version_unreadable version="${mine:-empty}"
+      printf 'NOTE  the kit version of this project is unreadable (%s), so no update check can run: .uak/VERSION should hold MAJOR.MINOR.PATCH\n' "${mine:-empty}"; machine note
     elif [ "${newest%%.*}" -gt "${mine%%.*}" ]; then
+      C "update_kit_$source" mine="$mine" newest="$newest" where="$where"; HC update_major; pend_hints="$pend_hints$uh"; HC stay_on_version version="$mine"
       need "update the kit: this project has uak $mine and $where has $newest" "a new major version: it blocks until the kit is updated" "$@" "to stay on $mine on purpose: UAK_KIT_PIN=1 uak start"
     else
       # The line itself stays the gate's (the setup page translates it); the next one says it does not block.
-      note "update the kit: this project has uak $mine and $where has $newest"
-      for l in "not blocking: this project already works on uak $mine; update when the team agrees" "$@"; do printf '         %s\n' "$l"; done
+      C "update_kit_$source" mine="$mine" newest="$newest" where="$where"; HC not_blocking_update version="$mine"; pend_hints="$pend_hints$uh"
+      defer=yes; note "update the kit: this project has uak $mine and $where has $newest"
+      note_hints "not blocking: this project already works on uak $mine; update when the team agrees" "$@"
     fi
   else
+    C "update_kit_$source" mine="$mine" newest="$newest" where="$where"; pend_hints="$pend_hints$uh"; HC stay_on_version version="$mine"
     need "update the kit: this project has uak $mine and $where has $newest" "$@" "to stay on $mine on purpose: UAK_KIT_PIN=1 uak start"
   fi
 fi
 
 # 2. The remote: claims, branches and reviews all live there.
 url=$(git config --get "remote.$remote.url" 2>/dev/null) ||
-  { need "a remote named $remote" "git remote add $remote <URL of the empty GitHub repo>"; finish; }
+  { C remote_missing remote="$remote"; HC remote_add remote="$remote"
+    need "a remote named $remote" "git remote add $remote <URL of the empty GitHub repo>"; finish; }
 git ls-remote --heads "$remote" >/dev/null 2>&1 ||
-  { need "reach $remote ($url)" "git ls-remote $remote must work: check credentials (gh auth login) or the network"; finish; }
-ok "remote $remote reachable"
+  { C remote_unreachable remote="$remote" url="$url"; HC remote_ls_remote remote="$remote"
+    need "reach $remote ($url)" "git ls-remote $remote must work: check credentials (gh auth login) or the network"; finish; }
+C remote_reachable remote="$remote"; ok "remote $remote reachable"
 
 # 3. Preflight: doctor's failures are the blockers; its warnings stay in doctor.
 doc=$(bash "$here/doctor" $([ "$fix" = yes ] && printf -- --fix) 2>&1)
@@ -181,28 +232,31 @@ if [ "$fix" = yes ] && printf '%s\n' "$doc" | grep -q 'only collaborator'; then
   if grep -q '^Review-Mode:' .uak/PROJECT.md; then sed 's/^Review-Mode:.*/Review-Mode: claims/' .uak/PROJECT.md > .uak/PROJECT.md.uak-tmp
   else { cat .uak/PROJECT.md; printf 'Review-Mode: claims\n'; } > .uak/PROJECT.md.uak-tmp; fi
   mv .uak/PROJECT.md.uak-tmp .uak/PROJECT.md
-  note "fixed: Review-Mode: claims in .uak/PROJECT.md (you are the only collaborator; agent identities review each other)"
+  C fixed_review_mode; note "fixed: Review-Mode: claims in .uak/PROJECT.md (you are the only collaborator; agent identities review each other)"
   doc=$(bash "$here/doctor" 2>&1)
 fi
 fails=$(printf '%s\n' "$doc" | sed -n 's/^FAIL  //p')
 warns=$(printf '%s\n' "$doc" | grep -c '^WARN')
 if [ -z "$fails" ]; then
-  if [ "$warns" -gt 0 ]; then ok "preflight: doctor has no failures ($warns warning(s): bash .uak/bin/doctor)"; else ok "preflight: doctor clean"; fi
+  if [ "$warns" -gt 0 ]; then C preflight_warnings count="$warns"; ok "preflight: doctor has no failures ($warns warning(s): bash .uak/bin/doctor)"; else C preflight_clean; ok "preflight: doctor clean"; fi
 else
   # A note per failure; the fixable ones say so.
-  set --; while IFS= read -r l; do set -- "$@" "· $l"; done <<EOF
+  set --; while IFS= read -r l; do set -- "$@" "· $l"; HC doctor_failure line="$l"; done <<EOF
 $fails
 EOF
   printf '%s\n' "$fails" | grep -Eq 'only collaborator|core.hooksPath is not set|not executable' &&
-    set -- "$@" "uak start --fix does the hooks, the skills folders and, alone on the repo, Review-Mode: claims"
+    { set -- "$@" "uak start --fix does the hooks, the skills folders and, alone on the repo, Review-Mode: claims"; HC start_fix_hint; }
+  C preflight_failures count="$(printf '%s\n' "$fails" | grep -c .)"
   need "preflight: doctor found $(printf '%s\n' "$fails" | grep -c .) failure(s)" "$@"
 fi
 
 # 4. The team reads .uak/ from $remote/$base, never from this checkout.
 cur=$(git symbolic-ref --short HEAD 2>/dev/null || printf '%s' HEAD)
 push_cmd="git add -A && git commit -m 'chore: uak setup' && git push -u $remote HEAD:$base"
-[ "$cur" = "$base" ] || push_cmd="commit them, then merge $cur into $base and push $base"
+push_code=push_command
+[ "$cur" = "$base" ] || { push_cmd="commit them, then merge $cur into $base and push $base"; push_code=push_command_branch; }
 if ! git fetch -q "$remote" "$base" 2>/dev/null || ! main_project=$(git show "FETCH_HEAD:.uak/PROJECT.md" 2>/dev/null); then
+  C push_kit base="$base" remote="$remote"; HC "$push_code" command="$push_cmd" branch="$cur" base="$base"
   need "push the kit to $base: agents read .uak/PROJECT.md and .uak/TASKS.md from $remote/$base, and it has none yet" "$push_cmd"
   finish
 fi
@@ -214,8 +268,9 @@ for f in .uak/PROJECT.md .uak/TASKS.md .uak/OWNERS.md .uak/VERSION; do
   [ -f "$f" ] || continue
   git diff --quiet FETCH_HEAD -- "$f" 2>/dev/null || drift="$drift $f"
 done
-if [ -n "$drift" ]; then need "push your changes to$drift: the agents still read $base's copy" "$push_cmd"
-else ok ".uak/ on $remote/$base matches this checkout${main_version:+ (uak $main_version)}"; fi
+if [ -n "$drift" ]; then C push_changes files="${drift# }" base="$base"; HC "$push_code" command="$push_cmd" branch="$cur" base="$base"
+  need "push your changes to$drift: the agents still read $base's copy" "$push_cmd"
+else C kit_on_main remote="$remote" base="$base" version="$main_version"; ok ".uak/ on $remote/$base matches this checkout${main_version:+ (uak $main_version)}"; fi
 
 # 5. What the gates read on $base: autonomy and the plan's approval.
 p_auto=$(printf '%s\n' "$main_project" | from Autonomy)
@@ -232,20 +287,22 @@ if git ls-remote --exit-code --heads "$remote" claims >/dev/null 2>&1 && git fet
 fi
 tasks=$(printf '%s\n%s\n' "$main_tasks" "$claims_tasks" | grep -c '^## [A-Z][A-Z0-9]*-[0-9]')
 if [ "$tasks" -eq 0 ]; then
-  if [ "$p_channel" = claims ]; then need "a plan: no tasks yet" "open your agent here and run /uak-plan (it publishes with uak plan on claims; no PR)"
-  else need "a plan: no tasks in .uak/TASKS.md on $base" "open your agent here and run /uak-plan, then push TASKS.md to $base"; fi
+  if [ "$p_channel" = claims ]; then C plan_none; HC plan_open_agent_claims; need "a plan: no tasks yet" "open your agent here and run /uak-plan (it publishes with uak plan on claims; no PR)"
+  else C plan_none_main base="$base"; HC plan_open_agent_main base="$base"; need "a plan: no tasks in .uak/TASKS.md on $base" "open your agent here and run /uak-plan, then push TASKS.md to $base"; fi
 else
   lint=$(bash "$here/uak" lint 2>&1 | grep '^LINT: ' | head -n 4)
   if [ -n "$lint" ]; then
-    set --; while IFS= read -r l; do set -- "$@" "· ${l#LINT: }"; done <<EOF
+    set --; while IFS= read -r l; do set -- "$@" "· ${l#LINT: }"; HC lint_problem line="${l#LINT: }"; done <<EOF
 $lint
 EOF
+    C plan_lint tasks="$tasks"
     need "fix the plan ($tasks tasks): uak lint found problems" "$@"
-  else ok "plan: $tasks task(s), lint clean"; fi
+  else C plan_ok tasks="$tasks"; ok "plan: $tasks task(s), lint clean"; fi
 fi
-[ "$p_auto" = yes ] || need "Autonomy: yes on $base: without it no agent can claim" "set Autonomy: yes in .uak/PROJECT.md and push it to $base"
+[ "$p_auto" = yes ] || { C autonomy_off base="$base"; HC autonomy_set base="$base"; false; } || need "Autonomy: yes on $base: without it no agent can claim" "set Autonomy: yes in .uak/PROJECT.md and push it to $base"
 # Approved here but not pushed yet: step 4 already says to push it.
 if [ "$tasks" -gt 0 ] && [ "$p_approved" != yes ] && [ "$(from Backlog-Approved < .uak/PROJECT.md)" != yes ]; then
+  C approve_plan base="$base"; HC approve_plan_hint base="$base"
   need "approve the plan: Backlog-Approved is not yes on $base, so nothing can be claimed for 10 min and then only P0" \
        "you are the human: read the backlog (uak graph, or .uak/TASKS.md plus what uak plan published), set Backlog-Approved: yes in .uak/PROJECT.md, push it to $base"
 fi
@@ -254,7 +311,8 @@ fi
 review=${p_review:-auto}
 case "$review:$url" in auto:*github.com*) review=gh;; auto:*) review=claims;; esac
 [ "$review" != claims ] || [ "$reviewers" -gt 0 ] ||
-  note "reviews: no reviewer is registered, so the first PR waits until a second agent holds a claim. Working alone? Register one from this checkout: UAK_HUMAN=<you> UAK_AGENT= bash .uak/bin/uak register-reviewer <you>-r, and a second session as <you>-r runs /uak-review."
+  { C no_reviewer command="UAK_HUMAN=<you> UAK_AGENT= bash .uak/bin/uak register-reviewer <you>-r"
+  note "reviews: no reviewer is registered, so the first PR waits until a second agent holds a claim. Working alone? Register one from this checkout: UAK_HUMAN=<you> UAK_AGENT= bash .uak/bin/uak register-reviewer <you>-r, and a second session as <you>-r runs /uak-review."; }
 
 # The product smoke: /uak-ship and the merge gate run .uak/bin/smoke-project from $base. Why (QA round C, UAK-181):
 # nothing on the onboarding path created it, start said READY, then the first ship and merge stopped at
@@ -265,18 +323,24 @@ if [ "$base_smoke" != yes ]; then
   app=no; bash "$here/lib/smoke-init.sh" detect >/dev/null 2>&1 && app=yes
   if [ -f .uak/bin/smoke-project ]; then
     set -- "commit .uak/bin/smoke-project and .uak/bin/.smoke-project.provenance, then push them to $base"
+    sh=$(spec smoke_commit base="$base")$RS
   else
-    set -- "$(bash "$here/lib/smoke-init.sh" suggest 2>/dev/null)" \
+    _sg=$(bash "$here/lib/smoke-init.sh" suggest 2>/dev/null)
+    sh=$(spec smoke_suggest command="$_sg")$RS$(spec smoke_boots base="$base")$RS
+    set -- "$_sg" \
       "it boots the app and requests one route (init-smoke with no --command does it for the web app it detects: the stacks of uak deploy except Expo); then commit .uak/bin/smoke-project and .uak/bin/.smoke-project.provenance and push them to $base"
-    [ "$app" = yes ] || set -- "$@" "no app yet: give that step to the walking-skeleton task, or run init-smoke now with the check you have"
+    [ "$app" = yes ] || { set -- "$@" "no app yet: give that step to the walking-skeleton task, or run init-smoke now with the check you have"; sh="$sh$(spec smoke_no_app)$RS"; }
   fi
   if [ "$mode" = sprint ] && [ "$app" = yes ]; then
+    C smoke_missing base="$base"; pend_hints=$sh
     need "a product smoke: $base has no .uak/bin/smoke-project, so /uak-ship and the merge gate stop at PRODUCT_UNVERIFIED" "$@"
   else
+    C smoke_missing base="$base"; defer=yes
     note "a product smoke: $base has no .uak/bin/smoke-project, so /uak-ship and the merge gate stop at PRODUCT_UNVERIFIED"
-    if [ "$mode" = sprint ]; then set -- "not blocking yet: init-smoke finds no web app it can boot here; it blocks once there is one" "$@"
-    else set -- "not blocking in marathon: the human merges on GitHub" "$@"; fi
-    for l in "$@"; do printf '         %s\n' "$l"; done
+    if [ "$mode" = sprint ]; then set -- "not blocking yet: init-smoke finds no web app it can boot here; it blocks once there is one" "$@"; HC smoke_not_blocking_yet
+    else set -- "not blocking in marathon: the human merges on GitHub" "$@"; HC smoke_not_blocking_marathon; fi
+    pend_hints="$pend_hints$sh"
+    note_hints "$@"
   fi
 fi
 
@@ -286,17 +350,21 @@ nx=$(UAK_DEDUPE=off bash "$here/uak" next 2>&1)   # the whole answer, not "= unc
 first=$(printf '%s\n' "$nx" | sed -n 's/^\([A-Z][A-Z0-9]*-[0-9][0-9]*\) | AVAILABLE | .*/\1/p' | head -n 1)
 held=$(printf '%s\n' "$nx" | grep -E '^[A-Z][A-Z0-9]*-[0-9]+ \| (CLAIMED|BLOCKED|REVIEW) \| ' | head -n 1 | awk -F' [|] ' '{print $1, $2}')
 if [ -n "$held" ]; then
-  ok "you already hold ${held% *} (${held#* })"
+  C holds_task id="${held% *}" state="${held#* }"; ok "you already hold ${held% *} (${held#* })"
   wt=$(printf '%s\n' "$nx" | sed -n 's/^Worktree: //p' | head -n 1)
+  ready_spec=$(spec ready_hold worktree="$wt" id="${held% *}")
   finish "cd \"$wt\" and open your agent there; its next step: $(printf '%s\n' "$nx" | sed -n 's/^Next: //p' | head -n 1)"
 elif [ -n "$first" ]; then
-  ok "first task: $first ($(printf '%s\n' "$main_tasks" "$claims_tasks" | sed -n "s/^## $first[ ·:-]*//p" | head -n 1))"
+  _title=$(printf '%s\n' "$main_tasks" "$claims_tasks" | sed -n "s/^## $first[ ·:-]*//p" | head -n 1)
+  C first_task id="$first" title="$_title"; ok "first task: $first ($_title)"
+  ready_spec=$(spec ready_claim id="$first" command="bash .uak/bin/wt new $first")
   finish "bash .uak/bin/wt new $first   (branch + worktree + claim; then your agent in it)"
 else
-  set --; while IFS= read -r l; do case "$l" in 'Why'*|'Waiting on'*|FREEZE*|ERROR*|GIT_ERROR*|CONFLICT*) set -- "$@" "· $l";; esac; done <<EOF
+  set --; while IFS= read -r l; do case "$l" in 'Why'*|'Waiting on'*|FREEZE*|ERROR*|GIT_ERROR*|CONFLICT*) set -- "$@" "· $l"; HC next_reason line="$l";; esac; done <<EOF
 $nx
 EOF
-  [ "$#" -gt 0 ] || set -- "· $(printf '%s\n' "$nx" | head -n 1)"
+  [ "$#" -gt 0 ] || { set -- "· $(printf '%s\n' "$nx" | head -n 1)"; HC next_reason line="$(printf '%s\n' "$nx" | head -n 1)"; }
+  C no_claimable_task
   need "a claimable task: uak next offers none" "$@"
   finish
 fi
