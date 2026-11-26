@@ -454,7 +454,22 @@ EOF
 qt=$(shq "$target")
 term_cmd="cd $qt && bash .uak/bin/uak start"
 wiz_cmd="bash $(shq "$here/install.sh") --wizard $qt"
-both() { printf 'Continue in the terminal: %s\nContinue in the browser:  %s\n' "$term_cmd" "$wiz_cmd"; }
+# The person's language (UAK-160): the question, its answers and the lines that say how to continue are written in Spanish
+# when the locale says Spanish (the first of LC_ALL, LC_MESSAGES and LANG that is set: es, es_MX.UTF-8, es-419…), as the
+# setup page chooses its language, and in English otherwise. The tokens other tools read do not change: `Next:`, the exit
+# codes and the commands themselves.
+spanish=
+for _v in "${LC_ALL:-}" "${LC_MESSAGES:-}" "${LANG:-}"; do
+  [ -z "$_v" ] || { case "$_v" in es|es_*|es-*|es.*|es@*) spanish=yes;; esac; break; }
+done
+if [ -n "$spanish" ]; then
+  T_TERMINAL='Continúa en la terminal: ' T_BROWSER='Continúa en el navegador:'
+  KEY_BROWSER=n
+else
+  T_TERMINAL='Continue in the terminal:' T_BROWSER='Continue in the browser: '
+  KEY_BROWSER=b
+fi
+both() { printf '%s %s\n%s %s\n' "$T_TERMINAL" "$term_cmd" "$T_BROWSER" "$wiz_cmd"; }
 agent_here=
 [ -z "${UAK_AGENT:-}" ] || agent_here=yes
 [ -z "${CI:-}" ] || agent_here=yes
@@ -469,7 +484,10 @@ printf '\n'
 [ "$choice" != terminal ] || git -C "$target" config --local uak.start terminal
 if [ -n "$agent_here" ] || [ -z "$at_terminal" ]; then
   if [ "$choice" = browser ]; then
-    if [ -n "$agent_here" ]; then printf '%s\n' "You asked for the browser, but an agent or CI runs this, so the page was not opened."
+    if [ -n "$spanish" ]; then
+      if [ -n "$agent_here" ]; then printf '%s\n' "Pediste el navegador, pero esto lo ejecuta un agente o CI, así que no se abrió la página."
+      else printf '%s\n' "Pediste el navegador, pero aquí no hay una terminal, así que no se abrió la página."; fi
+    elif [ -n "$agent_here" ]; then printf '%s\n' "You asked for the browser, but an agent or CI runs this, so the page was not opened."
     else printf '%s\n' "You asked for the browser, but there is no terminal here, so the page was not opened."; fi
   fi
   both; exit 0
@@ -487,34 +505,51 @@ have_python() {
   return 1
 }
 remembered=$(git -C "$target" config --local --get uak.start 2>/dev/null || true)
-case "$remembered" in browser) dflt=b;; *) dflt=t;; esac
+case "$remembered" in browser) dflt=$KEY_BROWSER;; *) dflt=t;; esac
 if [ -z "$choice" ]; then
-  printf 'Continue in the browser (b: a local page) or here in the terminal (t or Enter: uak start)? [%s] ' "$dflt"
+  if [ -n "$spanish" ]; then printf '¿Seguir en el navegador (n: una página local) o aquí en la terminal (t o Enter: uak start)? [%s] ' "$dflt"
+  else printf 'Continue in the browser (b: a local page) or here in the terminal (t or Enter: uak start)? [%s] ' "$dflt"; fi
   line=; got=yes
   read -r line || got=
   [ -n "$got" ] || [ -n "$line" ] || printf '\n'  # Ctrl-D: the line the person never ended
   shown=$(printf '%s' "$line" | tr -d '[:cntrl:]' | sed 's/^ *//; s/ *$//')
   key=$(printf '%s' "$shown" | tr '[:upper:]' '[:lower:]')
   if [ -z "$got" ] && [ -z "$key" ]; then
-    printf 'No answer, so here in the terminal.\n'; both; exit 0
+    if [ -n "$spanish" ]; then printf 'Sin respuesta, así que seguimos aquí en la terminal.\n'; else printf 'No answer, so here in the terminal.\n'; fi
+    both; exit 0
   fi
   case "$key" in
-    '') case "$dflt" in b) choice=browser;; *) choice=terminal;; esac;;
+    '') case "$dflt" in b|n) choice=browser;; *) choice=terminal;; esac;;
     b|browser|navegador) choice=browser;;
+    n) if [ -n "$spanish" ]; then choice=browser; else choice=; fi;;
     t|terminal) choice=terminal;;
-    *) printf '"%s" is not b or t, so here in the terminal.\n' "$shown"; both; exit 0;;
+    *) choice=;;
   esac
+  if [ -z "$choice" ]; then
+    if [ -n "$spanish" ]; then printf '"%s" no es n ni t, así que seguimos aquí en la terminal.\n' "$shown"
+    else printf '"%s" is not b or t, so here in the terminal.\n' "$shown"; fi
+    both; exit 0
+  fi
 fi
 if [ "$choice" = browser ]; then
   if ! have_python; then
-    printf 'No Python 3.8 or newer here, so the browser page cannot run. Continue in the terminal: %s\n' "$term_cmd"; exit 0
+    if [ -n "$spanish" ]; then printf 'No hay Python 3.8 o más reciente, así que la página del navegador no puede ejecutarse. Continúa en la terminal: %s\n' "$term_cmd"
+    else printf 'No Python 3.8 or newer here, so the browser page cannot run. Continue in the terminal: %s\n' "$term_cmd"; fi
+    exit 0
   fi
   if ! have_browser; then
-    printf 'No browser to open here. Continue in the terminal: %s\n' "$term_cmd"
-    printf 'Or open the page by hand: %s --no-open\n' "$wiz_cmd"; exit 0
+    if [ -n "$spanish" ]; then
+      printf 'No hay un navegador que abrir aquí. Continúa en la terminal: %s\n' "$term_cmd"
+      printf 'O abre la página por tu cuenta: %s --no-open\n' "$wiz_cmd"
+    else
+      printf 'No browser to open here. Continue in the terminal: %s\n' "$term_cmd"
+      printf 'Or open the page by hand: %s --no-open\n' "$wiz_cmd"
+    fi
+    exit 0
   fi
   git -C "$target" config --local uak.start browser
-  printf 'Opening the browser setup. Keep this terminal open; Ctrl+C ends it. The terminal way stays: %s\n' "$term_cmd"
+  if [ -n "$spanish" ]; then printf 'Abriendo el asistente en el navegador. Deja abierta esta terminal; Ctrl+C lo termina. Seguir en la terminal sigue disponible: %s\n' "$term_cmd"
+  else printf 'Opening the browser setup. Keep this terminal open; Ctrl+C ends it. The terminal way stays: %s\n' "$term_cmd"; fi
   # exec: the wizard replaces this process (it keeps this terminal). have_python above already made sure it can start.
   run_wizard "$target" $no_open
   exit 1

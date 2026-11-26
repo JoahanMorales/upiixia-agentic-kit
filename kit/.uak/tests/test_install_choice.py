@@ -22,6 +22,10 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 INSTALL = ROOT / "install.sh"
 WINDOWS = os.name == "nt"
+# UAK-160: the question is written in the person's language (LC_ALL, LC_MESSAGES, LANG), so the cases that read it in
+# English run in a neutral locale whatever the machine speaks; the Spanish cases set theirs.
+for _name in ("LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"):
+    os.environ.pop(_name, None)
 QUESTION = "Continue in the browser (b"
 TERMINAL_WORDS = "Continue in the terminal:"
 BROWSER_WORDS = "Continue in the browser:"
@@ -486,10 +490,145 @@ def cli_row_names_the_flags(c):
     return "label lists --steps and --wizard"
 
 
+# --- UAK-160: the question, its answers and the lines that say how to continue, in the person's language -----------------
+
+ES_QUESTION = "\u00bfSeguir en el navegador (n"
+
+
+def ask(c, keys, env, question):
+    """The install at a pty: type `keys` once `question` is on screen. Returns (output, exit code, the wizard opened)."""
+    import pty
+    d = c.repo()
+    master, slave = pty.openpty()
+    base = len(c.opens())
+    proc = subprocess.Popen(c.argv(d, []), stdin=slave, stdout=slave, stderr=slave, env=env, close_fds=True,
+                            cwd=str(c.tmp), start_new_session=True)
+    os.close(slave)
+    out, sent, opened, deadline = b"", False, False, time.time() + 240
+    try:
+        while time.time() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.2)
+            if ready:
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError:
+                    chunk = b""
+                if not chunk:
+                    break
+                out += chunk
+            if not sent and question.encode("utf-8") in out:
+                time.sleep(0.2)
+                os.write(master, keys)
+                sent = True
+            if sent and len(c.opens()) > base:
+                opened = True
+                break
+            if proc.poll() is not None and not ready:
+                break
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+        os.close(master)
+    return out.decode("utf-8", "replace").replace("\r\n", "\n"), proc.returncode, opened, d
+
+
+def install_question_is_spanish_for_a_spanish_speaker(c):
+    es = c.env(LANG="es_MX.UTF-8")
+    if not pty_only():
+        out, code, _, d = ask(c, b"t\n", es, ES_QUESTION)
+        expect(code == 0 and out.count(ES_QUESTION) == 1, "the question is asked once, in Spanish: " + tail(out))
+        line = [l for l in out.splitlines() if ES_QUESTION in l][0]
+        expect("navegador" in line and "terminal" in line and "Enter" in line and len(line) < 130, "one short line: " + line)
+        expect(QUESTION not in out and "or here in the terminal" not in out, "no English question beside it: " + tail(out))
+        # the answers: the Spanish words, the English words, Enter, and a wrong one said in Spanish
+        _, code, opened, _ = ask(c, b"navegador\n", es, ES_QUESTION)
+        expect(opened, "navegador opens the wizard")
+        _, code, opened, _ = ask(c, b"n\n", es, ES_QUESTION)
+        expect(opened, "n opens the wizard in Spanish")
+        before = len(c.opens())
+        out, code, opened, d = ask(c, b"terminal\n", es, ES_QUESTION)
+        expect(code == 0 and not opened and cfg(d) == "terminal" and len(c.opens()) == before, "terminal: " + tail(out))
+        _, code, opened, _ = ask(c, b"browser\n", es, ES_QUESTION)
+        expect(opened, "browser is accepted in a Spanish locale too")
+        out, code, _, d = ask(c, b"\n", es, ES_QUESTION)
+        expect(code == 0 and cfg(d) == "terminal" and out.rstrip().splitlines()[-1].startswith("Next: "), "Enter: " + tail(out))
+        out, code, _, _ = ask(c, b"qq\n", es, ES_QUESTION)
+        expect('"qq" no es n ni t' in out and "is not b or t" not in out and "Continúa en la terminal:" in out,
+               "a wrong answer is said in Spanish and continues in the terminal: " + tail(out))
+        # English: the question as it was, and 'n' is not an answer there
+        out, code, _, d = ask(c, b"n\n", c.env(LANG="en_US.UTF-8"), QUESTION)
+        expect('"n" is not b or t' in out and "¿" not in out and "Continue in the terminal:" in out, "English stays English: " + tail(out))
+    # No terminal: the two lines are Spanish in a Spanish locale, and the same lines as before in every other one.
+    # Each case is its own real install; they run side by side (the folders are separate) to keep the file's clock down.
+    english = ({"LC_ALL": "C", "LANG": "es_MX.UTF-8"}, {"LANG": "en_US.UTF-8"}, {"LC_ALL": "de_DE.UTF-8", "LANG": "es_ES.UTF-8"}, {})
+    spanish = ({"LC_ALL": "es_MX.UTF-8"}, {"LC_MESSAGES": "es_ES"}, {"LANG": "es"}, {"LANG": "es-419"})
+    jobs = [((), es), (("--wizard",), es)] + [((), c.env(**l)) for l in english + spanish]
+    folders = [c.repo() for _ in jobs]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        outs = list(pool.map(lambda pair: c.piped(pair[1], *pair[0][0], env=pair[0][1]).stdout, zip(jobs, folders)))
+    out = outs[0]
+    expect("Continúa en la terminal:  cd " in out and "Continúa en el navegador: bash " in out, "the two lines in Spanish: " + tail(out))
+    expect("Continue in" not in out, "no English left on those lines: " + tail(out))
+    expect("Pediste el navegador, pero aquí no hay una terminal, así que no se abrió la página." in outs[1], "the reason: " + tail(outs[1]))
+    for locale, out in zip(english, outs[2:6]):
+        expect(TERMINAL_WORDS in out and BROWSER_WORDS in out and "Continúa" not in out, "%r is English: %s" % (locale, tail(out)))
+    for locale, out in zip(spanish, outs[6:]):
+        expect("Continúa en la terminal:" in out, "%r is Spanish: %s" % (locale, tail(out)))
+    return "Spanish by LC_ALL, LC_MESSAGES, then LANG; the question, n/navegador/terminal/browser, the wrong answer and both lines"
+
+
+def install_tokens_do_not_change(c):
+    en = c.env(LANG="en_US.UTF-8")
+    es = c.env(LANG="es_MX.UTF-8")
+    # No terminal: the English lines are exactly what they were, the Spanish ones carry the same two commands.
+    d1, d2 = c.repo(), c.repo()
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        english, spanish = pool.map(lambda job: c.piped(job[0], env=job[1]), ((d1, en), (d2, es)))
+    expect(english.returncode == 0 and spanish.returncode == 0, "exit codes: %r %r" % (english.returncode, spanish.returncode))
+    mine = [l for l in english.stdout.splitlines() if l.startswith("Continue in the")]
+    expect(len(mine) == 2, "the English lines: %r" % mine)
+    expect(mine[0].startswith("Continue in the terminal: cd ") and mine[0].endswith(" && bash .uak/bin/uak start")
+           and mine[1].startswith("Continue in the browser:  bash ") and " --wizard " in mine[1], "the English lines as before: %r" % mine)
+    theirs = [l for l in spanish.stdout.splitlines() if l.startswith("Contin\u00faa en")]
+    expect(len(theirs) == 2, "the Spanish lines: %r" % theirs)
+    cmd = lambda line: line.split(": ", 1)[1].strip()
+    # the project folder is told apart by its own name (Git Bash writes /tmp/... where Windows Python says D:\\...)
+    same = lambda line, d: re.sub(r"'?[^' ]*%s'?" % re.escape(d.name), "P", cmd(line))
+    expect(same(theirs[0], d2) == same(mine[0], d1), "the terminal command is the same: %r %r" % (theirs, mine))
+    expect(same(theirs[1], d2) == same(mine[1], d1), "the browser command is the same: %r %r" % (theirs, mine))
+    # Every other line of the install is the same words in both languages (only the continuation is written twice)
+    strip = lambda text, d: [re.sub(r"'?[^' ]*%s'?" % re.escape(d.name), "P", l) for l in text.splitlines()
+                             if not l.startswith(("Continue in", "Contin\u00faa en"))]
+    expect(strip(english.stdout, d1) == strip(spanish.stdout, d2), "the rest of the install does not change with the language")
+    if not pty_only():
+        # At a terminal the last line is `Next: <command>` in both, and the exit code is 0
+        for env in (en, es):
+            question = QUESTION if env is en else ES_QUESTION
+            out, code, _, d = ask(c, b"t\n", env, question)
+            last = out.rstrip().splitlines()[-1]
+            expect(code == 0 and last.startswith("Next: cd ") and str(d) in last and last.endswith(" && bash .uak/bin/uak start"),
+                   "the token Next: and its command: %r" % last)
+    # The wizard's own launch line and the refusal with an agent keep their exit code
+    d = c.repo()
+    out = subprocess.run(c.argv(d, ["--wizard", "--terminal"]), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, universal_newlines=True, env=es, timeout=120, cwd=str(c.tmp))
+    expect(out.returncode == 2 and "--wizard and --terminal answer the same question: use one" in out.stdout,
+           "an option error keeps its code and words: %r" % out.stdout[-200:])
+    return "English lines byte for byte, same commands, Next: and exit codes"
+
+
 TESTS = [install_asks_once_at_a_terminal, no_terminal_no_question, flags_answer_the_question, choice_is_remembered,
          terminal_and_wizard_share_the_state, start_names_the_same_steps, no_python_continues_in_terminal,
          printed_commands_are_safe, the_answer_is_a_whole_line, the_flag_says_why_nothing_opened,
          steps_do_not_call_a_default_done, cli_row_names_the_flags]
+TESTS += [install_question_is_spanish_for_a_spanish_speaker, install_tokens_do_not_change]
 
 
 def main():
