@@ -1027,6 +1027,14 @@ def sweep_removes_only_its_own_folders(root, tmp):
         made.append(mine)
         m.sweep_launchers(record, key="another-wizards-key-0123456789")
         assert mine.is_dir(), "a line signed with another key removes nothing"
+        # A proved line whose folder is now another one at the same path (another inode): left alone.
+        stale = m.write_launcher("true").parent
+        made.append(stale)
+        si = os.lstat(str(stale))
+        record.write_text("%s %d %d %s\n" % (m.launcher_proof(m.LAUNCH_KEY[0], stale, si.st_dev, si.st_ino + 1),
+                                             si.st_dev, si.st_ino + 1, stale), encoding="utf-8")
+        m.sweep_launchers(record)
+        assert stale.is_dir(), "a folder whose inode is not the recorded one is left alone"
         # The record file is a link: it is not read through, only the link goes.
         if not WINDOWS:
             mine = m.write_launcher("true").parent
