@@ -258,7 +258,7 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
     # The text is cut into segments at ; & | ( ) < > and each is judged by its command word (wrappers skipped).
     function bname(w,    b) { b = w; sub(/\/+$/, "", b); sub(/.*[\/=@:]/, "", b); return b }
     function nm(b, name) { return b == name || (b ~ /[*?\[]/ && literal(b) >= 3 && match(name, globre(b))) }
-    function anyname(b) { return nm(b, "uak-wizard.key") || nm(b, "uak-wizard.port") || nm(b, "uak-wizard.children") }
+    function anyname(b) { return nm(b, "uak-wizard.key") || nm(b, "uak-wizard.port") || nm(b, "uak-wizard.children") || nm(b, "uak-wizard.refused") || nm(b, "uak-wizard.launchers") }
     function iswrap(w) { return w ~ /^(sudo|doas|env|nohup|command|time|timeout|nice|ionice|setsid|stdbuf|exec|builtin)$/ }
     function gitpath(p,    d, k, c, cc) {   # a path whose directory part runs through the git directory
       sub(/^[-a-z0-9_.~$]*[=@:]/, "", p); if (index(p, "/") == 0) return 0
@@ -330,7 +330,7 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
           if (fincl && !fgit && seg ~ /-prune|\.git/) fexcl = 1
           # a find that names the key and feeds xargs is a read of it (seen below); one that acts is judged here
           if (fact && ((fgit && (npat == 0 || pat_ok)) || (fincl && !fexcl && !fgit && pat_ok)))
-            return "removes or reads the wizard record files (uak-wizard.port, .key, .children) in the git directory"
+            return "removes or reads the wizard record files (uak-wizard.port, .key, .children, .refused, .launchers) in the git directory"
           if (fgit && pat_ok) kseen = 1
         }
         kh = 0; rh = 0; gh = 0; hasx = 0; hasclean = 0
@@ -351,7 +351,7 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
         if (rh && (rem || fw ~ /^(cp|ln|tee|dd|install|rsync|xargs|perl|ruby|node|nodejs|php|awk|gawk|mawk|:|>|true)$/ || fw ~ /^(python[0-9.]*|py|pypy[0-9]*|sh|bash|zsh|dash|ksh|powershell|pwsh|cmd)$/ ||
                    fw ~ /^(del|erase|rd|rmdir|ri|remove-item|mi|move-item|move|ren|rename|rename-item|rni|copy|xcopy|robocopy|copy-item|set-content|sc|add-content|ac|out-file|clear-content|clc|new-item|ni)$/ ||
                    (fw == "sed" && seg ~ /[ \t](-[a-z]*i|--in-place)/) || (fw == "find" && seg ~ /[ \t]-(delete|exec|execdir|ok)/)))
-          return "removes or rewrites the wizard record files (uak-wizard.port, .key, .children) in the git directory"
+          return "removes or rewrites the wizard record files (uak-wizard.port, .key, .children, .refused, .launchers) in the git directory"
         if (kh && !rem && (insub || !(fw ~ /^(ls|stat|test|\[|\[\[|echo|printf|file)$/)))
           return "reads or copies the wizard reopen key (uak-wizard.key) in the git directory"
         if (kseen && fw ~ /^(xargs|parallel)$/)
@@ -549,12 +549,12 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
         s = substr(s, 1, RSTART - 1) " " substr(rest, e + 1)
       }
       n2 = norm(s)
-      if (n2 ~ /(chdir|cd|set-location|sl|pushd|push-location)[ (]*\.git/ && (n2 ~ /uak-wizard\.(key|port|children)/ || n2 ~ /uak-[w*?\[]/))
-        return "changes into the git directory and names a wizard record file (uak-wizard.key, .port, .children)"
+      if (n2 ~ /(chdir|cd|set-location|sl|pushd|push-location)[ (]*\.git/ && (n2 ~ /uak-wizard\.(key|port|children|refused|launchers)/ || n2 ~ /uak-[w*?\[]/))
+        return "changes into the git directory and names a wizard record file (uak-wizard.key, .port, .children, .refused, .launchers)"
       if (n2 ~ /(\.git|git-dir)\/+uak-(wizard|[*?\[w])/)
-        return (n2 ~ /uak-wizard\.(key|k)|uak-[*?\[w]/) ? "reads or copies the wizard reopen key (uak-wizard.key) in the git directory" : "removes or rewrites the wizard record files (uak-wizard.port, .key, .children) in the git directory"
-      if (cw == 1 && (n2 ~ /uak-wizard\.(key|port|children)/ || n2 ~ /uak-[w*?\[]/))
-        return "names a wizard record file from inside the git directory (uak-wizard.key, .port, .children)"
+        return (n2 ~ /uak-wizard\.(key|k)|uak-[*?\[w]/) ? "reads or copies the wizard reopen key (uak-wizard.key) in the git directory" : "removes or rewrites the wizard record files (uak-wizard.port, .key, .children, .refused, .launchers) in the git directory"
+      if (cw == 1 && (n2 ~ /uak-wizard\.(key|port|children|refused|launchers)/ || n2 ~ /uak-[w*?\[]/))
+        return "names a wizard record file from inside the git directory (uak-wizard.key, .port, .children, .refused, .launchers)"
       if (request(n2, 2)) return "sends a request to the running wizard"
       return ""
     }
@@ -713,7 +713,7 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
     # command does not show. Only while a wizard is live for this project.
     function request(n, rt,    m, rest, seen, unreadable, loopre, client) {
       if (!live) return 0
-      if (rt == 2 ? !(n ~ /\/api\/(reopen|closing)/) : !(n ~ /\/api\/(session|human|team|plan|publish-kit|install|repair|settings|idea|schedule|inspect|check|status|dashboard)/)) return 0
+      if (rt == 2 ? !(n ~ /\/api\/(reopen|clos(e|ing)|run)/) : !(n ~ /\/api\/(session|human|team|plan|publish-kit|install|repair|settings|idea|schedule|inspect|check|status|dashboard)/)) return 0
       loopre = "(localhost|127\\.[0-9][0-9.]*|\\[?::1?\\]?|0\\.0\\.0\\.0|2130706433|0x7f[0-9a-f]*|017700000001)"
       client = (n ~ /(^|[^a-z0-9_])(curl|wget|nc|ncat|netcat|socat|telnet|http|https|xh|node|nodejs|deno|bun|ruby|perl|php|python[0-9.]*|py|powershell|pwsh|invoke-webrequest|iwr|irm|openssl)([^a-z0-9_]|$)|urlopen|requests|httpx|aiohttp|http\.client|fetch|dev\/tcp/)
       m = n; seen = 0; unreadable = 0
@@ -742,6 +742,12 @@ wizard_mentioned() { # $1 the command (heredocs dropped), $2 the same with quote
       if (r == "" && live) r = judge(ENVIRON["WZ_NL"], 1, ingit + 0)
       print r
     }' </dev/null)
+  # UAK-196: an error of this awk (a program it cannot parse, a missing awk) printed nothing, so it read as "allowed":
+  # a duplicated function name once let every refusal pass. While a wizard is live the guard refuses what it could not
+  # decide; with none live the result is what it was before this rule (the start rules' only other barrier is the
+  # wizard's own refusal to start for an agent, see SECURITY.md).
+  WZ_RC=$? WZ_FAIL=
+  [ "$WZ_RC" = 0 ] || [ -z "$WZ_LIVE" ] || WZ_FAIL=$WZ_RC
 }
 # A segment that sets VAR for the command it runs: `VAR=x cmd`, `A=1 VAR=x cmd`, `env VAR=x cmd`,
 # `export VAR=x`, `export VAR`, or the same inside `bash -c`. A search for the text (`rg UAK_NOW= bin/`) does not.
@@ -861,6 +867,8 @@ check_bash() {
   fi
   if [ -n "$wzg" ]; then
     wizard_mentioned "$cmd" "$envcmd"
+    [ -z "$WZ_FAIL" ] ||
+      block "the guard could not decide this command: the awk that reads the setup wizard's rules failed (exit $WZ_FAIL) while a wizard is live for this project, so the command is refused instead of let through. Check that awk works (awk 'BEGIN { print 1 }'), or end the wizard with Ctrl+C in its terminal."
     [ -z "$WZ" ] ||
       block "the setup wizard performs a human's acts (register a reviewer, approve the plan, publish the kit), so only a human starts it, in their own terminal (bash install.sh --wizard), and an agent never drives it. This command $WZ."
   fi

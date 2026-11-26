@@ -7,6 +7,7 @@ project name, and only the reviewed plan files are committed and pushed (WHY.md,
 """
 import argparse
 import copy
+import hashlib
 import hmac
 import importlib.util
 import io
@@ -268,19 +269,125 @@ KEY_FILE = "uak-wizard.key"
 
 
 def process_stamp(pid):
-    """Something that changes when the number is reused: the start time of the process, or "" when it is not there."""
+    """Something that changes when the number is reused: the start time of the process, or "" when it is not there or
+    cannot be read."""
+    return read_stamp(pid) or ""
+
+
+def process_exists(pid):
+    """Is there a process with this number (a zombie counts)? POSIX: signal 0. Windows: OpenProcess (os.kill there would
+    end the process)."""
     if os.name == "nt":
-        return ""
+        return windows_stamp(pid) is not None
     try:
-        with open("/proc/%d/stat" % pid, encoding="utf-8") as handle:
-            return handle.read().rsplit(")", 1)[1].split()[19]
-    except (OSError, IndexError):
-        pass
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except (OSError, OverflowError, ValueError):
+        return False
+    return True
+
+
+def read_stamp(pid):
+    """UAK-196: the start time of PID, read ONE way per system, the same when it is recorded and when it is compared
+    (a record of another wizard of this project is read by the same code): Linux the start field of /proc/PID/stat
+    (clock ticks since boot); macOS the kernel's p_starttime by sysctl (microseconds); Windows the creation time of
+    GetProcessTimes; other systems `ps -o lstart=` in the C locale and UTC. None when no process has the number, ""
+    when one has it and its start time cannot be read (then nothing is signalled: see process_state)."""
+    if not isinstance(pid, int) or pid <= 0:
+        return None
+    if os.name == "nt":
+        return windows_stamp(pid)
+    if os.path.isdir("/proc/self"):
+        try:
+            with open("/proc/%d/stat" % pid, encoding="utf-8") as handle:
+                return handle.read().rsplit(")", 1)[1].split()[19]
+        except (OSError, IndexError, ValueError):
+            return "" if process_exists(pid) else None
+    if sys.platform == "darwin":
+        return darwin_stamp(pid)
     try:
-        done = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=10)
-        return " ".join(done.stdout.split()) if done.returncode == 0 else ""
+        env = dict(os.environ, LC_ALL="C", TZ="UTC0")
+        done = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=10, env=env)
+        found = " ".join(done.stdout.split()) if done.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError):
+        found = ""
+    return found or ("" if process_exists(pid) else None)
+
+
+def darwin_stamp(pid):
+    """macOS: sysctl kern.proc.pid.PID; the struct kinfo_proc starts with p_starttime (a timeval) and holds p_pid at
+    byte 40. The pid is checked, so a layout this code does not know reads as "cannot be read", never as a match."""
+    try:
+        import ctypes
+        import struct
+        libc = ctypes.CDLL(None, use_errno=True)
+        mib = (ctypes.c_int * 4)(1, 14, 1, pid)  # CTL_KERN, KERN_PROC, KERN_PROC_PID
+        buf = ctypes.create_string_buffer(1024)
+        size = ctypes.c_size_t(1024)
+        if libc.sysctl(mib, 4, buf, ctypes.byref(size), None, ctypes.c_size_t(0)) != 0:
+            return "" if process_exists(pid) else None
+        if size.value == 0:
+            return None  # no process has the number
+        raw = buf.raw[:size.value]
+        seconds, micros = struct.unpack_from("=qi", raw, 0)
+        if size.value < 44 or struct.unpack_from("=i", raw, 40)[0] != pid or seconds <= 0:
+            return ""
+        return "%d%06d" % (seconds, micros)
+    except Exception:  # noqa: BLE001 - no ctypes or no sysctl: unreadable, so nothing is signalled
+        return "" if process_exists(pid) else None
+
+
+def windows_stamp(pid):
+    """Windows: the creation time of PID (100 ns since 1601) by OpenProcess and GetProcessTimes; None when no process has
+    the number (ERROR_INVALID_PARAMETER), "" when it cannot be opened or read."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return None if ctypes.get_last_error() == 87 else ""
+        try:
+            times = [wintypes.FILETIME() for _ in range(4)]
+            if not kernel.GetProcessTimes(handle, *[ctypes.byref(t) for t in times]):
+                return ""
+            value = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+            return "%d" % value if value else ""
+        finally:
+            kernel.CloseHandle(handle)
+    except Exception:  # noqa: BLE001
         return ""
+
+
+def process_state(pid, stamp):
+    """UAK-196: is PID still the process recorded with STAMP? "same" (its start time is the recorded one), "other" (the
+    number now belongs to another process), "gone" (no process has the number) or "unknown" (its start time cannot be
+    read, or none was recorded). Only "same" may be signalled; "gone" may only have its group ended (a group or session
+    keeps its number reserved, so the group is still the one this server started)."""
+    now = read_stamp(pid)
+    if now is None:
+        return "gone"
+    if not now or not stamp:
+        return "unknown"
+    return "same" if now == stamp else "other"
+
+
+LEFT_WHY = {"other": "its number now belongs to another program, so setup did not touch it",
+            "unknown": "setup could not read its start time, so it cannot tell it is the process it started and left it alone"}
+
+
+def report_left(pid, state):
+    """A recorded process that setup did not signal is said on the terminal, never left in silence."""
+    try:
+        print("UAK SETUP did not end process %d: %s. If it is still running and it is yours, end it yourself." % (
+            pid, LEFT_WHY.get(state, state)), flush=True)
+    except (OSError, ValueError):
+        pass
 
 
 def write_children():
@@ -298,9 +405,11 @@ def write_children():
         pass
 
 
-def track_child(pid):
+def track_child(pid, stamp=None):
+    """Record PID with its start time, always (UAK-196: a kill compares it, with or without a record file)."""
+    stamp = process_stamp(pid) if stamp is None else stamp
     with CHILD_LOCK:
-        CHILDREN[pid] = process_stamp(pid) if CHILD_FILE[0] else ""
+        CHILDREN[pid] = stamp
     write_children()
 
 
@@ -354,31 +463,70 @@ def descendants(pid):
     return found
 
 
-def kill_pids(pids, wait=1.0):
-    """TERM every PID, wait a bounded time, KILL what is left. Never this process."""
-    pids = [p for p in pids if p > 1 and p != os.getpid()]
-    for pid in pids:
+def kill_pids(targets, wait=1.0):
+    """TERM every PID of TARGETS ({pid: start time}, checked by the caller), wait a bounded time, then KILL only what is
+    still the same process (UAK-196: a number freed and given to another program during the wait is not killed).
+    Never this process."""
+    targets = dict((p, s) for p, s in targets.items() if p > 1 and p != os.getpid())
+    for pid in targets:
         try:
             os.kill(pid, signal.SIGTERM)
         except (OSError, OverflowError):
             pass
     end = time.monotonic() + wait
-    while time.monotonic() < end and any(pid_alive(p) for p in pids):
+    while time.monotonic() < end and any(pid_alive(p) for p in targets):
         time.sleep(0.05)
-    for pid in pids:
-        if pid_alive(pid):
+    for pid, stamp in targets.items():
+        if pid_alive(pid) and stamp and read_stamp(pid) == stamp:
             try:
                 os.kill(pid, signal.SIGKILL)
             except (OSError, OverflowError):
                 pass
 
 
+def stamped(pids):
+    """{pid: start time} of the PIDs whose start time can be read now (one that ended meanwhile drops out)."""
+    found = {}
+    for pid in pids:
+        stamp = read_stamp(pid)
+        if stamp:
+            found[pid] = stamp
+    return found
+
+
+def end_dead_group(pid):
+    """The leader PID is gone: end what is left of its group. Its number stays reserved while the group exists, so the
+    group is the one this server started; with no group this signals nothing."""
+    if os.name == "nt":
+        return
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except (OSError, OverflowError):
+        pass
+
+
+def kill_recorded(pid, tree=False):
+    """End PID's group (with TREE, its descendants too) only while PID is the process this server recorded (UAK-196):
+    the same start time, or gone with its group left. A number no longer in the record, or another process's now, is
+    never signalled."""
+    with CHILD_LOCK:
+        stamp = CHILDREN.get(pid)
+    if stamp is None:
+        return
+    state = process_state(pid, stamp)
+    if state == "same":
+        kill_group(pid, tree=tree)
+    elif state == "gone":
+        end_dead_group(pid)
+    else:
+        report_left(pid, state)
+
+
 def kill_group(pid, tree=False):
     """End PID's process group (Windows: its tree). With TREE (UAK-192) also every descendant by parent links, leaving the
-    group or not: TERM, a bounded wait, then KILL."""
+    group or not: TERM, a bounded wait, then KILL. The caller has checked that PID is the process it recorded."""
     if os.name != "nt" and tree:
-        below = descendants(pid)
-        kill_pids([pid] + below)
+        kill_pids(stamped([pid] + descendants(pid)))
         try:
             os.killpg(pid, signal.SIGKILL)
         except OSError:
@@ -397,11 +545,19 @@ def kill_group(pid, tree=False):
 
 
 def stop_children():
-    """Every child still running, with its descendants (the way out of the server, whatever the cause)."""
+    """Every child still running, with its descendants (the way out of the server, whatever the cause). UAK-196: each
+    recorded number is compared with its recorded start time first; one that differs or cannot be read is not
+    signalled, and is said on the terminal."""
     with CHILD_LOCK:
-        pids = list(CHILDREN)
-    for pid in pids:
-        kill_group(pid, tree=True)
+        recorded = list(CHILDREN.items())
+    for pid, stamp in recorded:
+        state = process_state(pid, stamp)
+        if state == "same":
+            kill_group(pid, tree=True)
+        elif state == "gone":
+            end_dead_group(pid)
+        else:
+            report_left(pid, state)
         forget_child(pid)
 
 
@@ -411,6 +567,7 @@ class TreeWatch:
 
     def __init__(self, pid, pipes=()):
         self.pid, self.seen, self.done = pid, {}, threading.Event()
+        self.stamp = process_stamp(pid)  # UAK-196: what is below the number counts only while it is still the run's
         self.every = 0.25 if os.path.isdir("/proc/self") else 1.0
         self.started = time.monotonic()
         self.pipes = set()
@@ -422,11 +579,18 @@ class TreeWatch:
         self.thread = threading.Thread(target=self.poll, daemon=True)
         self.thread.start()
 
+    def mine(self):
+        """The run's own process is still the one started (a zombie counts): what is below it is the run's."""
+        return process_state(self.pid, self.stamp) == "same"
+
     def look(self):
+        if not self.mine():
+            return
         for pid in descendants(self.pid):
             if pid not in self.seen:
-                self.seen[pid] = process_stamp(pid)
-                track_child(pid)
+                stamp = process_stamp(pid)
+                self.seen[pid] = stamp
+                track_child(pid, stamp)
 
     def holders(self):
         found = []
@@ -452,8 +616,16 @@ class TreeWatch:
         if threading.current_thread() is not self.thread:
             self.thread.join(3)
         self.look()
-        left = [p for p, stamp in list(self.seen.items()) if pid_alive(p) and process_stamp(p) == stamp]
-        left += [p for p in descendants(self.pid) + self.holders() if p not in left]
+        left = {}
+        for pid, stamp in list(self.seen.items()):
+            state = process_state(pid, stamp)  # UAK-196: a number given to another program meanwhile is left alone
+            if state == "same":
+                left[pid] = stamp
+            elif state == "unknown":
+                report_left(pid, state)
+        below = descendants(self.pid) if self.mine() else []
+        for pid, stamp in stamped(below + self.holders()).items():
+            left.setdefault(pid, stamp)
         kill_pids(left)
         for pid in list(self.seen):
             forget_child(pid)
@@ -496,10 +668,13 @@ def reap_children(path):
             pid, stamp = int(found.group(1)), found.group(2)
             if pid <= 1 or pid in keep_away:
                 continue
-            now = process_stamp(pid)
-            if now and now != stamp:
+            state = process_state(pid, stamp)
+            if state == "other":
                 continue  # the number belongs to another process now
-            if not now and sys.platform.startswith("linux") and not group_members(pid):
+            if state == "unknown":
+                report_left(pid, state)  # UAK-196: a start time that cannot be read signals nothing
+                continue
+            if state == "gone" and sys.platform.startswith("linux") and not group_members(pid):
                 continue
             try:
                 os.killpg(pid, 0)  # the leader may be gone (it died with the server) while its children are not
@@ -597,12 +772,12 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
                 windows_job_end(holder[0], True)
                 holder[0] = None
             else:
-                kill_group(proc.pid)
+                kill_recorded(proc.pid)
         elif watch:
-            kill_group(proc.pid, tree=proc.poll() is None)
+            kill_recorded(proc.pid, tree=proc.poll() is None)
             watch.kill()
         else:
-            kill_group(proc.pid)
+            kill_recorded(proc.pid)
 
     def finish(wait=None):
         if not readers:
@@ -634,10 +809,10 @@ def run_command(command, cwd=None, timeout=120, group=False, env=None, on_line=N
             if holder[0]:  # the job holds a descendant that outlived its tool; closing it ends it
                 windows_job_end(holder[0], True)
         elif watch:
-            kill_group(proc.pid)
+            kill_recorded(proc.pid)
             watch.kill()
         else:
-            kill_group(proc.pid)  # a descendant that outlived its tool does not outlive the call
+            kill_recorded(proc.pid)  # a descendant that outlived its tool does not outlive the call
         forget_child(proc.pid)
 
 
@@ -1325,6 +1500,8 @@ SKILL_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 REFUSED_LOG = "uak-wizard.refused"
 LAUNCH_RECORD = "uak-wizard.launchers"
 LAUNCHERS = [None]
+LAUNCH_KEY = [secrets.token_urlsafe(24)]  # this process's own until main() sets the server's (kept in uak-wizard.key)
+REFUSED_KEEP = 200  # UAK-196: uak-wizard.refused keeps its last 200 lines
 ACTION_NAME = re.compile(r"[a-z][a-z0-9-]{0,39}\Z")
 RUN_ROLES = ("implement", "review")
 RUN_TIMEOUT = 120
@@ -1378,33 +1555,104 @@ def write_launcher(command):
     return path
 
 
+def launcher_proof(key, folder, device, inode):
+    """UAK-196: what proves a launcher folder is this wizard's: an HMAC, under the wizard's key, of the folder's path,
+    device and inode as they were when the wizard made it. The key lives in the server's memory and in uak-wizard.key
+    (0600, which the guard refuses to read while the wizard is live), so a line written by hand proves nothing."""
+    text = "%s\0%d\0%d" % (folder, int(device), int(inode))
+    return hmac.new(str(key).encode("utf-8"), text.encode("utf-8", "surrogateescape"), hashlib.sha256).hexdigest()
+
+
+def append_private(path, text):
+    """Append TEXT to PATH (created 0600), never through a link: O_NOFOLLOW where the system has it, and a link is
+    refused before opening where it does not. An OSError is the caller's."""
+    if os.path.islink(str(path)):
+        raise OSError("a link stands at %s" % path)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(str(path), flags, 0o600)
+    with os.fdopen(descriptor, "ab") as handle:
+        handle.write(text.encode("utf-8", "surrogateescape"))
+
+
+def append_bounded(path, line, keep=None):
+    """UAK-196: append LINE to PATH (never through a link) and keep only its last KEEP lines (REFUSED_KEEP): a page that
+    sends refused requests for ever cannot fill the disk. Only the tail is read; the shortened file replaces the old
+    one in one rename."""
+    keep = REFUSED_KEEP if keep is None else keep
+    try:
+        with open(str(path), "rb") as handle:
+            handle.seek(-1, os.SEEK_END)
+            if handle.read(1) != b"\n":
+                line = "\n" + line  # a record that does not end its last line: ours starts on a line of its own
+    except OSError:
+        pass  # no record yet, or an empty one
+    append_private(path, line)
+    window = keep * 256
+    size = os.path.getsize(str(path))
+    with open(str(path), "rb") as handle:
+        handle.seek(max(0, size - window))
+        tail = handle.read()
+    lines = tail.splitlines(True)
+    if size > window and lines:
+        lines = lines[1:]  # the first line of the window may be cut
+    if size <= window and len(lines) <= keep:
+        return
+    descriptor, temporary = tempfile.mkstemp(prefix=Path(path).name + ".", dir=str(Path(path).parent))
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(b"".join(lines[-keep:]))
+        os.replace(temporary, str(path))
+    except OSError:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
 def remember_launcher(folder):
-    """The folders this wizard made are recorded by path (in the git directory), so a launcher that no terminal ever ran
-    is removed when the wizard closes or the next one starts."""
+    """The folders this wizard made are recorded (in the git directory) with what proves they are its own (UAK-196: the
+    folder's device and inode, signed with the wizard's key), so a launcher that no terminal ever ran is removed when
+    the wizard closes or the next one starts, and nothing else is."""
     record = LAUNCHERS[0]
     if record:
         try:
-            with open(str(record), "a", encoding="utf-8") as handle:
-                handle.write(str(folder) + "\n")
+            info = os.lstat(str(folder))
+            append_private(record, "%s %d %d %s\n" % (launcher_proof(LAUNCH_KEY[0], folder, info.st_dev, info.st_ino),
+                                                     info.st_dev, info.st_ino, folder))
         except OSError:
             pass
 
 
-def sweep_launchers(record):
-    """Remove the launcher folders RECORD names (only ours: a uak-agent-* folder of the temp directory holding at most
-    start.sh), then the record."""
-    try:
-        lines = Path(record).read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError):
-        lines = []
+def sweep_launchers(record, key=None):
+    """Remove the launcher folders RECORD names that this wizard made, then the record. A line counts only when its
+    proof is the HMAC under KEY (the key of the wizard that wrote the record: this one's on close, the previous one's
+    from uak-wizard.key on the next start) of the path, device and inode, and the folder there still has that device
+    and inode, is a real folder (not a link) named uak-agent-* directly in the temp directory, and holds at most
+    start.sh. A hand-written line, a line of another wizard and a garbled line remove nothing."""
+    key = LAUNCH_KEY[0] if key is None else key
+    lines = []
+    if key and not os.path.islink(str(record)):
+        try:
+            lines = Path(record).read_text(encoding="utf-8", errors="surrogateescape").splitlines()[:4096]
+        except OSError:
+            lines = []
     base = Path(tempfile.gettempdir()).resolve()
     for line in lines:
-        folder = Path(line)
+        parts = line.split(" ", 3)
+        if len(parts) != 4 or not (parts[1].isdigit() and parts[2].isdigit()):
+            continue
+        proof, device, inode, path = parts
         try:
-            if (folder.name.startswith("uak-agent-") and folder.resolve().parent == base and not folder.is_symlink()
-                    and folder.is_dir() and set(os.listdir(str(folder))) <= {"start.sh"}):
-                shutil.rmtree(str(folder), ignore_errors=True)
-        except OSError:
+            if not hmac.compare_digest(proof, launcher_proof(key, path, device, inode)):
+                continue  # not a line this wizard wrote
+            folder = Path(path)
+            info = os.lstat(path)
+            if (stat.S_ISDIR(info.st_mode) and info.st_dev == int(device) and info.st_ino == int(inode)
+                    and folder.name.startswith("uak-agent-") and folder.resolve().parent == base
+                    and set(os.listdir(path)) <= {"start.sh"}):
+                shutil.rmtree(path, ignore_errors=True)
+        except (OSError, ValueError, TypeError):
             pass
     try:
         Path(record).unlink()
@@ -1592,7 +1840,7 @@ class SetupServer(ThreadingHTTPServer):
                 job["pid"] = pid
                 stopped = job["stop"]
             if stopped:
-                kill_group(pid)
+                kill_recorded(pid)
 
         code, output = 1, ""
         try:
@@ -1617,7 +1865,7 @@ class SetupServer(ThreadingHTTPServer):
             job["stop"] = True
             pid = job["pid"]
         if pid:
-            kill_group(pid, tree=True)
+            kill_recorded(pid, tree=True)
         return True
 
     def refuse_run(self, token):
@@ -1632,8 +1880,7 @@ class SetupServer(ThreadingHTTPServer):
                 _, common = self.git_dirs(project_root(target))
                 if common:
                     detail = token if isinstance(token, str) and ACTION_NAME.fullmatch(token) else "command-line"
-                    with open(str(common / REFUSED_LOG), "a", encoding="utf-8") as handle:
-                        handle.write("%d refused-run %s\n" % (int(time.time()), detail))
+                    append_bounded(common / REFUSED_LOG, "%d refused-run %s\n" % (int(time.time()), detail))
         except (OSError, ValueError, subprocess.SubprocessError):
             pass  # the refusal stands even when the record cannot be written
 
@@ -4340,6 +4587,17 @@ def running_wizard(announced):
     return port, launcher, failure
 
 
+def stale_key(path):
+    """The key a previous wizard left in uak-wizard.key, or "" (no file, a link, not text): "" proves nothing."""
+    try:
+        if os.path.islink(str(path)):
+            return ""
+        text = Path(path).read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError):
+        return ""
+    return text if re.fullmatch(r"[A-Za-z0-9_-]{16,128}", text) else ""
+
+
 def duration(seconds):
     return "%d minutes" % (seconds // 60) if seconds >= 60 and seconds % 60 == 0 else "%d seconds" % seconds
 
@@ -4380,6 +4638,9 @@ def main():
             seen = None
         if seen is not None:
             reap_children(announced.parent / CHILD_RECORD)
+            # UAK-196: the folders of the wizard that left this record are proved by ITS key (uak-wizard.key of the
+            # record's wizard); with no key file nothing is proved and nothing is removed.
+            LAUNCH_KEY[0] = stale_key(announced.parent / KEY_FILE)
             sweep_launchers(announced.parent / LAUNCH_RECORD)
             try:
                 unchanged = announced.read_bytes() == seen  # another start may have replaced it meanwhile
@@ -4393,6 +4654,7 @@ def main():
         CHILD_FILE[0] = announced.parent / CHILD_RECORD
         LAUNCHERS[0] = announced.parent / LAUNCH_RECORD
     server = make_server(args.target)
+    LAUNCH_KEY[0] = server.key  # written to uak-wizard.key below, so the next start can prove this wizard's folders
     why = ["it was stopped"]
 
     def ended(signum, frame):

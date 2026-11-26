@@ -1696,6 +1696,165 @@ def a_word_is_decided_by_its_position(tmp):
                      "python3 -c \"print('uak-wizard.key')\"", "cat HEAD", "git status"], cwd=gitdir(repo))
 
 
+# --- UAK-196: the wizard's newer routes and files, and an awk that fails ------------------------------------------------
+NEW_ROUTES = [
+    "curl -s -X POST http://127.0.0.1:%d/api/run -d '{\"action\":\"smoke\"}'" % PORT,
+    "curl -s -X POST http://127.0.0.1:%d/api/run/stop -d '{}'" % PORT,
+    "curl -s -X POST http://localhost:%d/api/close -d '{}'" % PORT,
+    "curl -s -d x http://127.0.0.1:${P}/api/run",
+    "curl -s -d x $WIZARD/api/close",
+    "curl -s http://127.0.0.1:%d/API/Run/Stop -d x" % PORT,
+    "curl -s http://127.0.0.1:%d/%%61pi/close -d x" % PORT,
+    "python3 -c \"import urllib.request as u; u.urlopen('http://127.0.0.1:%d/api/run/stop', b'x')\"" % PORT,
+    "wget -qO- --post-data x http://[::1]:%d/api/close" % PORT,
+    "bash -c 'curl -s -d x http://127.0.0.1:%d/api/run'" % PORT,
+]
+# The project's own routes on other ports, and the names in prose: pass live or not.
+NEW_ROUTES_PASS = [
+    "curl -s -X POST http://127.0.0.1:3000/api/run -d x",
+    "curl -s http://localhost:8000/api/close",
+    "curl -s -X POST http://127.0.0.1:%d/api/run/stop -d x" % (PORT + 1),
+    "git commit -m \"guard: curl localhost:%d/api/run is refused\"" % PORT,
+    "gh pr create --title t --body \"refuses curl 127.0.0.1:%d/api/close and /api/run/stop\"" % PORT,
+    "grep -rn \"/api/run\" src/",
+    "echo /api/close",
+    "git status",
+]
+RECORD_WRITES = [
+    "rm .git/uak-wizard.refused",
+    "rm -f .git/uak-wizard.launchers",
+    ": > .git/uak-wizard.refused",
+    "> .git/uak-wizard.launchers",
+    "truncate -s 0 .git/uak-wizard.refused",
+    "echo 1 refused-run x >> .git/uak-wizard.refused",
+    "printf 'x\\n' > .git/uak-wizard.launchers",
+    "mv .git/uak-wizard.refused /tmp/r",
+    "cp /dev/null .git/uak-wizard.launchers",
+    "sed -i d .git/uak-wizard.refused",
+    "ln -sf ~/.bashrc .git/uak-wizard.refused",
+    "cd .git && rm uak-wizard.refused",
+    "find .git -name 'uak-wizard.refused' -delete",
+    "python3 -c \"import os; os.remove('.git/uak-wizard.launchers')\"",
+    "bash -c 'rm .git/uak-wizard.launchers'",
+    "rm .git/uak-wizard.{refused,launchers}",
+    "Remove-Item .git\\uak-wizard.refused",
+    "del .git\\uak-wizard.launchers",
+]
+# Reading the two records, and their names in prose, pass while live.
+RECORD_READS = [
+    "cat .git/uak-wizard.refused",
+    "tail -n 20 .git/uak-wizard.refused",
+    "grep refused-run .git/uak-wizard.refused",
+    "wc -l .git/uak-wizard.launchers",
+    "ls -la .git/uak-wizard.refused",
+    "git commit -m \"rm .git/uak-wizard.refused is refused while live\"",
+    "rm docs/uak-wizard.refused.md",
+]
+
+
+def few(commands, n=3):
+    """Off Linux every `guard check` is an expensive process start: a few commands per list (the Windows paths kept)."""
+    return commands if FULL else commands[:n] + [c for c in commands[n:] if windows_path(c)]
+
+
+def refuse_each(repo, commands, cwd=None):
+    for command in few(commands):
+        result = check(repo, command, cwd)
+        assert result.returncode == 2 and "wizard" in result.stderr.lower(), \
+            "must be refused while live: %r -> %d %r" % (command, result.returncode, result.stderr)
+
+
+def pass_each(repo, commands, cwd=None):
+    for command in few(commands):
+        result = check(repo, command, cwd)
+        assert result.returncode == 0, "must pass: %r -> %d %r" % (command, result.returncode, result.stderr)
+
+
+def guard_refuses_the_new_routes_while_live(tmp):
+    repo = project(tmp)
+    go_live(repo)
+    refuse_each(repo, NEW_ROUTES)
+    pass_each(repo, NEW_ROUTES_PASS)
+    # the routes of UAK-153 and UAK-188 keep their results
+    refuse_each(repo, [REOPEN[0], REOPEN[2]])
+    pass_each(repo, ["curl -s -X POST http://127.0.0.1:3000/api/reopen -d x"])
+    go_dead(repo)
+    pass_each(repo, NEW_ROUTES + NEW_ROUTES_PASS)  # with no wizard live these are the project's own routes
+
+
+def guard_protects_the_refused_and_launcher_records(tmp):
+    repo = project(tmp)
+    gd = go_live(repo)
+    for name in ("uak-wizard.refused", "uak-wizard.launchers"):
+        (gd / name).write_text("1 refused-run x\n", encoding="utf-8")
+    refuse_each(repo, RECORD_WRITES)
+    refuse_each(repo, ["rm uak-wizard.refused", "> uak-wizard.launchers"], cwd=gd)
+    pass_each(repo, RECORD_READS)
+    for name in ("uak-wizard.refused", "uak-wizard.launchers"):
+        assert (gd / name).read_text(encoding="utf-8") == "1 refused-run x\n", "the guard only reads text: %s stands" % name
+    go_dead(repo)
+    pass_each(repo, RECORD_WRITES + RECORD_READS)
+
+
+AWK_PROBE = 'for a in awk mawk gawk nawk original-awk; do p=$(command -v "$a" 2>/dev/null) && echo "$a $p"; done; ' \
+            'command -v busybox >/dev/null 2>&1 && busybox awk "BEGIN{}" >/dev/null 2>&1 && echo "busybox $(command -v busybox)"'
+# The guard run with `awk` replaced by a function (exported, so the guard's Bash uses it before any awk on PATH).
+AWK_SHIM = 'awk() { case "$*" in *"function clean("*) %s;; esac; %s "$@"; }; export -f awk; exec bash "$1" check "$2"'
+
+
+def with_awk(repo, command, fail=None, impl="command awk", guard=None, cwd=None):
+    body = AWK_SHIM % ("return %d" % fail if fail is not None else ":", impl)
+    return subprocess.run([bash_bin(), "-c", body, "uak-awk", str(guard or GUARD), command], cwd=str(cwd or repo),
+                          capture_output=True, text=True, env=env(), stdin=subprocess.DEVNULL)
+
+
+def awk_error_blocks(tmp):
+    repo = project(tmp)
+    go_live(repo)
+    undecided = "could not decide"
+    for fail in (2, 127):  # a program awk cannot parse; no awk at all
+        for command in ("cat .git/uak-wizard.key", "cat .git/uak-wizard.port", "curl -s http://127.0.0.1:%d/api/run" % PORT):
+            got = with_awk(repo, command, fail=fail)
+            assert got.returncode == 2 and undecided in got.stderr and "exit %d" % fail in got.stderr, \
+                "live, an awk error refuses and says why: %r -> %d %r" % (command, got.returncode, got.stderr)
+        got = with_awk(repo, "git status", fail=fail)
+        assert got.returncode == 0, "an unrelated command runs no wizard awk, so it passes: %r" % got.stderr
+    go_dead(repo)
+    for command in ("cat .git/uak-wizard.key", "curl -s http://127.0.0.1:%d/api/run" % PORT, "git status"):
+        got = with_awk(repo, command, fail=2)
+        assert got.returncode == 0 and undecided not in got.stderr, \
+            "no wizard live: the result it had before (allowed): %r -> %d %r" % (command, got.returncode, got.stderr)
+    # The real awks of this system, on a copy of the guard whose wizard program does not parse.
+    broken = tmp / "broken"
+    (broken / "lib").mkdir(parents=True)
+    text = GUARD.read_text(encoding="utf-8")
+    assert text.count("    function clean(s) {") == 1
+    (broken / "guard").write_text(text.replace("    function clean(s) {", "    ( (\n    function clean(s) {"), encoding="utf-8")
+    shutil.copy(str(GUARD.parent / "lib/config.sh"), str(broken / "lib/config.sh"))
+    probe = subprocess.run([bash_bin(), "-c", AWK_PROBE], capture_output=True, text=True, env=env())
+    impls = [line.split(" ", 1) for line in probe.stdout.splitlines() if " " in line]
+    assert impls, "this system has an awk: %r" % probe.stderr
+    seen = []
+    for name, path in impls:
+        run = "busybox awk" if name == "busybox" else "command %s" % name
+        bare = run.replace("command ", "")
+        version = subprocess.run([bash_bin(), "-c", "{ %s --version || %s -W version; } </dev/null 2>/dev/null | head -n 1" % (bare, bare)],
+                                 capture_output=True, text=True, env=env()).stdout.strip()
+        go_live(repo)
+        got = with_awk(repo, "cat .git/uak-wizard.key", impl=run, guard=broken / "guard")
+        assert got.returncode == 2 and undecided in got.stderr, "%s: a program it cannot parse refuses live: %r" % (name, got.stderr)
+        fine = with_awk(repo, "cat .git/uak-wizard.key", impl=run)
+        assert fine.returncode == 2 and undecided not in fine.stderr, "%s runs the real rules: %r" % (name, fine.stderr)
+        assert with_awk(repo, "cat .git/uak-wizard.port", impl=run).returncode == 0, "%s: a read of the port passes" % name
+        duplicate = subprocess.run([bash_bin(), "-c", "%s 'function f(x) { return x } function f(y) { return y } BEGIN { }' </dev/null" % run],
+                                   capture_output=True, text=True, env=env())
+        go_dead(repo)
+        assert with_awk(repo, "cat .git/uak-wizard.key", impl=run, guard=broken / "guard").returncode == 0, name
+        seen.append("%s (%s%s; a duplicated function name: exit %d)" % (name, path, ", " + version if version else "",
+                                                                          duplicate.returncode))
+    print("awk implementations exercised: " + "; ".join(seen))
+
+
 TESTS = [key_read_is_refused_while_live, reopen_and_closing_are_refused_on_the_wizard_port,
          same_names_pass_without_a_wizard, other_port_passes, record_files_cannot_be_removed_while_live,
          security_doc_names_the_reopen_key, ordinary_work_passes_while_live,
@@ -1703,6 +1862,7 @@ TESTS = [key_read_is_refused_while_live, reopen_and_closing_are_refused_on_the_w
          residuals_are_stated_and_still_pass, no_port_file_costs_no_process, security_doc_is_true_line_by_line,
          runner_arguments_are_command_lines, windows_removers_and_readers_are_refused, second_review_lists,
          representatives_are_in_the_lists, live_costs_nothing_for_unrelated_commands, a_word_is_decided_by_its_position]
+TESTS += [guard_refuses_the_new_routes_while_live, guard_protects_the_refused_and_launcher_records, awk_error_blocks]  # UAK-196
 
 
 def main():
