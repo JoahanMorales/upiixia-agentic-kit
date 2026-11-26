@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-"""Regenerate docs/media/banner.png (1280x640); with --gif also the legacy docs/media/demo.gif from a REAL `uak demo` run;
-with --dash only docs/media/dash.png and dash-task.png (this repository's dashboard, dark, Lavanda; UAK-202).
-The README animation is docs/media/demo.svg, made by scripts/render_demo.py (no browser needed).
+"""The README's images (UAK-202: all of them in the dark theme, Lavanda).
 
-    uv run --with playwright --with pillow python scripts/make_media.py
+    python3 scripts/make_media.py --from DIR     the art drawn by docs/video (UAK-199): first
+        cd docs/video && npm ci && npx playwright-core install chromium-headless-shell && npm run readme -- DIR
+      then this copies DIR's banner.png, parallel-loop.webp, parallel-loop.gif and lanes-into-main.png into docs/media/,
+      the still images and the animated WebP with rounded corners of their own (GitHub shows them on a light page too),
+      and writes docs/media/banner.version. Run it again after kit/.uak/VERSION moves: the banner says its major.minor.
+    uv run --with playwright --with pillow python scripts/make_media.py --dash
+      docs/media/dash.png and dash-task.png: this repository's own dashboard, dark, Lavanda.
+    uv run --with playwright --with pillow python scripts/make_media.py --fallback [--gif]
+      a banner drawn here without Node (banner_html, the same direction), and with --gif the legacy demo.gif.
+The terminal animation is docs/media/demo.svg, made by scripts/render_demo.py (no browser needed).
 
 HTML/CSS is rendered in headless Chromium (Inter + JetBrains Mono, cached locally); frames are
 assembled into a GIF with Pillow. Every line shown in the GIF comes from the actual demo output.
@@ -88,8 +95,8 @@ def page_html(body, w, h, extra_css=""):
 
 # ---------------------------------------------------------------- banner
 def banner_html():
-    """The README's banner, in the kit's direction (docs/design/DIRECTION.md, UAK-202): the Lavanda palette in light,
-    Inter for text and JetBrains Mono for IDs and state pills, one hairline per panel, no glow, no gradient, no shadow.
+    """The README's banner, in the kit's direction (docs/design/DIRECTION.md, UAK-202): the Lavanda palette
+    in the dark theme, Inter for text and JetBrains Mono for IDs and state pills, one hairline per panel, no glow, no gradient, no shadow.
     It carries no figure: the old one said "~2 s" and "144x" with no source. The board's rows are the cast of `uak demo`."""
     rows = [("integrated", "INTEGRATED", "HACK-001", "ana-1", "Search API", "reviewed by bob-1 · merged"),
             ("claimed", "IN PROGRESS", "HACK-002", "bob-1", "Results UI", "its own branch and worktree"),
@@ -114,32 +121,32 @@ def banner_html():
   </div>
 </div>"""
     css = """
-body{background:hsl(250 22% 97%);color:hsl(250 18% 13%)}
+body{background:#0e0e12;color:hsl(250 25% 96%)}
 .left{position:absolute;left:72px;top:92px;width:560px}
-.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:500;color:hsl(250 9% 31%);padding:5px 11px;
-  border:1px solid hsl(250 13% 82%);border-radius:999px;background:#fff;letter-spacing:.02em}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:500;color:hsl(250 12% 78%);padding:5px 11px;
+  border:1px solid hsl(250 8% 27%);border-radius:999px;background:hsl(250 9% 10%);letter-spacing:.02em}
 .eyebrow i{width:7px;height:7px;border-radius:50%;background:hsl(250 72% 68%)}
-h1{margin-top:26px;font-size:64px;line-height:1.04;font-weight:700;letter-spacing:-.03em;color:hsl(250 18% 13%)}
-.aim{margin-top:22px;font-size:22px;line-height:1.42;color:hsl(250 9% 31%);font-weight:400;max-width:520px}
+h1{margin-top:26px;font-size:64px;line-height:1.04;font-weight:700;letter-spacing:-.03em;color:hsl(250 25% 96%)}
+.aim{margin-top:22px;font-size:22px;line-height:1.42;color:hsl(250 12% 78%);font-weight:400;max-width:520px}
 .nodes{list-style:none;display:flex;margin-top:34px;width:480px}
-.nodes li{flex:1;position:relative;font-size:12px;color:hsl(250 9% 31%)}
-.nodes li i{display:block;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid hsl(250 72% 68%);position:relative;z-index:1}
+.nodes li{flex:1;position:relative;font-size:12px;color:hsl(250 12% 78%)}
+.nodes li i{display:block;width:12px;height:12px;border-radius:50%;background:#0e0e12;border:2px solid hsl(250 72% 74%);position:relative;z-index:1}
 .nodes li.end i{background:hsl(250 72% 68%)}
-.nodes li:not(:last-child)::after{content:'';position:absolute;left:12px;right:0;top:5px;height:2px;background:hsl(250 72% 86%)}
+.nodes li:not(:last-child)::after{content:'';position:absolute;left:12px;right:0;top:5px;height:2px;background:hsl(250 36% 30%)}
 .nodes li span{display:block;margin-top:9px;text-transform:uppercase;letter-spacing:.06em;font-size:11px;font-weight:500}
-.foot{position:absolute;top:470px;font-size:13px;color:hsl(250 7% 40%)} .foot b{color:hsl(250 13% 82%);margin:0 10px;font-weight:400}
+.foot{position:absolute;top:470px;font-size:13px;color:hsl(250 7% 60%)} .foot b{color:hsl(250 8% 27%);margin:0 10px;font-weight:400}
 .right{position:absolute;right:64px;top:150px;width:520px}
-.panel{background:#fff;border:1px solid hsl(250 16% 90%);border-radius:8px;overflow:hidden}
-.head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid hsl(250 16% 90%)}
+.panel{background:hsl(250 9% 10%);border:1px solid hsl(250 8% 17.5%);border-radius:8px;overflow:hidden}
+.head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid hsl(250 8% 17.5%)}
 .mark{width:30px;height:30px;border-radius:6px;background:hsl(250 72% 86%);color:hsl(250 45% 20%);display:grid;place-items:center;font-size:11px;font-weight:700}
-.head b{font-size:15px;font-weight:600} .src{margin-left:auto;font-size:11px;color:hsl(250 7% 40%)}
+.head b{font-size:15px;font-weight:600} .src{margin-left:auto;font-size:11px;color:hsl(250 7% 60%)}
 .rows{border-collapse:collapse;width:100%}
-.rows td{padding:15px 0 15px 18px;border-top:1px solid hsl(250 16% 90%);vertical-align:top;white-space:nowrap}
+.rows td{padding:15px 0 15px 18px;border-top:1px solid hsl(250 8% 17.5%);vertical-align:top;white-space:nowrap}
 .rows tr:first-child td{border-top:0} .rows td:last-child{padding-right:18px;white-space:normal}
 .pill{display:inline-block;padding:3px 8px;border-radius:999px;font:600 10px/1.3 'JetBrains Mono',monospace;letter-spacing:.06em}
-.p-integrated{background:#e0f3e9;color:#2a7551} .p-claimed{background:#e4eefa;color:#2c69ab} .p-blocked{background:#fbe8e5;color:#a8463c}
-.id{font:500 13px 'JetBrains Mono',monospace;color:hsl(250 18% 13%)} .who{font:400 12px 'JetBrains Mono',monospace;color:hsl(250 47% 34%)}
-.ttl{font-size:14px;font-weight:500;color:hsl(250 18% 13%)} .ttl span{display:block;margin-top:3px;font-size:12px;font-weight:400;color:hsl(250 7% 40%)}
+.p-integrated{background:#16301f;color:#a3dcbd} .p-claimed{background:#16273d;color:#a9cdf3} .p-blocked{background:#361d19;color:#f5a79e}
+.id{font:500 13px 'JetBrains Mono',monospace;color:hsl(250 25% 96%)} .who{font:400 12px 'JetBrains Mono',monospace;color:hsl(250 72% 82%)}
+.ttl{font-size:14px;font-weight:500;color:hsl(250 25% 96%)} .ttl span{display:block;margin-top:3px;font-size:12px;font-weight:400;color:hsl(250 7% 60%)}
 """
     return page_html(body, 1280, 640, css)
 
@@ -285,6 +292,44 @@ def build_gif(page, out):
     return len(frames)
 
 
+# ---------------------------------------------------------------- the art of docs/video (UAK-199 → UAK-202)
+README_ART = ("banner.png", "lanes-into-main.png", "parallel-loop.webp", "parallel-loop.gif")
+
+
+def rounded(img, radius=18):
+    """IMG (RGBA) with transparent rounded corners."""
+    from PIL import Image, ImageDraw
+    mask = Image.new("L", img.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, img.size[0] - 1, img.size[1] - 1), radius=radius, fill=255)
+    out = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    out.paste(img, (0, 0), mask)
+    return out
+
+
+def import_art(src):
+    """Copy the README's art drawn by docs/video from SRC into docs/media/: PNGs and the animated WebP get rounded
+    corners; the GIF (the fallback for readers without WebP) is copied as it is."""
+    import shutil
+    from PIL import Image, ImageSequence
+    src = Path(src)
+    for name in README_ART:
+        if not (src / name).is_file():
+            sys.exit("missing %s in %s: run `npm run readme -- %s` in docs/video first" % (name, src, src))
+    for name in ("banner.png", "lanes-into-main.png"):
+        rounded(Image.open(src / name).convert("RGBA")).save(OUT / name, optimize=True)
+    anim = Image.open(src / "parallel-loop.webp")
+    frames, durations = [], []
+    for f in ImageSequence.Iterator(anim):
+        frames.append(rounded(f.convert("RGBA"), radius=14))
+        durations.append(f.info.get("duration", 83))
+    frames[0].save(OUT / "parallel-loop.webp", save_all=True, append_images=frames[1:], duration=durations, loop=0,
+                   quality=80, method=6, minimize_size=True)
+    shutil.copy(src / "parallel-loop.gif", OUT / "parallel-loop.gif")
+    (OUT / "banner.version").write_text(banner_version() + "\n", encoding="utf-8")  # kit_lint: the banner is not stale
+    for name in README_ART:
+        print(name, (OUT / name).stat().st_size // 1024, "KB")
+
+
 # ---------------------------------------------------------------- dashboard screenshots (UAK-202)
 DASH_GROUND = (14, 14, 18)   # the dark theme's page ground under Lavanda (hsl 250 9% 6%), as the frame of the shot
 
@@ -334,10 +379,14 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     if "--dash" in sys.argv:   # the README's dashboard shots only (UAK-202)
         dash_shots(); return
+    if "--from" in sys.argv:   # the README's art, drawn by docs/video (UAK-199)
+        import_art(sys.argv[sys.argv.index("--from") + 1]); return
     if "--html" in sys.argv:   # no Playwright browser: render the HTML with any Chromium, e.g.
         # chromium --headless --screenshot=banner.png --window-size=1280,640 --virtual-time-budget=3000 file://…/banner.html
         dest = Path(sys.argv[sys.argv.index("--html") + 1])
         dest.write_text(banner_html(), encoding="utf-8"); print(dest); return
+    if "--fallback" not in sys.argv:
+        sys.exit(__doc__)
     from playwright.sync_api import sync_playwright
     gif = "--gif" in sys.argv
     out = demo_output() if gif else None

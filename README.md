@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/media/banner.png" alt="UPIIXIA Agentic Kit: a team board where three agents' tasks are integrated, in progress, or refused because their files overlap, beside the steps claim, test first, review, merge" width="860"></p>
+<p align="center"><img src="docs/media/banner.png" alt="UPIIXIA Agentic Kit: several people and their coding agents build one product at once. Four pixel avatars of coding agents, one on Claude Code, one on Codex, one on Cursor, and a reviewer on Codex, above a row of task squares filling in" width="860"></p>
 
 # UPIIXIA Agentic Kit
 
@@ -48,13 +48,15 @@ Where it is going: adding one more agent, or one more teammate, should cost the 
 
 ## See it run
 
-No install, no AI and no key. Three scripted agents share a temporary repository with a local remote:
+<picture><source srcset="docs/media/parallel-loop.webp" type="image/webp"><img src="docs/media/parallel-loop.gif" alt="Animation: a grid of task squares. Agent avatars take squares, a reviewer passes over them, and each square turns green when its work is merged" width="860"></picture>
+
+Each square is a task. Agents take the ones whose files nobody else holds, another agent reviews the result, and the square turns green when it merges. To watch the real thing, with no install, no AI and no key:
 
 ```bash
 git clone --depth 1 https://github.com/JoahanMorales/upiixia-agentic-kit && bash upiixia-agentic-kit/kit/.uak/bin/uak demo
 ```
 
-Two claims go through, a third is refused because its files overlap, a test fails before the code exists, a bounded fix loop makes it pass, another agent reviews that exact commit, the gate merges it, and a task that was waiting on it opens by itself.
+Three scripted agents share a temporary repository with a local remote. Two claims go through, a third is refused because its files overlap, a test fails before the code exists, a bounded fix loop makes it pass, another agent reviews that exact commit, the gate merges it, and a task that was waiting on it opens by itself.
 
 <img src="docs/media/demo.svg" alt="A terminal recording of uak demo: three agents claim tasks, one overlap is refused, a fix loop passes, another agent approves and the task merges" width="860">
 
@@ -66,7 +68,7 @@ A click on a task tells its whole story:
 
 <img src="docs/media/dash-task.png" alt="One task of this repository opened on the dashboard: what it waits for and what it unblocks, the time it spent in each state and who took part" width="860">
 
-There is also a [simulated video walkthrough](kit/.uak/media/tutorial.mp4), from an empty project to a deployed app, with [English](kit/.uak/media/tutorial-en.vtt) and [Spanish](kit/.uak/media/tutorial-es.vtt) captions.
+There is also a [74-second video](kit/.uak/media/tutorial.mp4) (UAK-199): a demonstration, with drawn screens of the setup page and the dashboard, from an empty project to a deployed app, with [English](kit/.uak/media/tutorial-en.vtt) and [Spanish](kit/.uak/media/tutorial-es.vtt) captions.
 
 ## Get started
 
@@ -110,6 +112,8 @@ Everything lives in your repository. The plan is `.uak/TASKS.md`, the project's 
 4. **Review.** `uak done` asks one reviewer, picked by rotation and never the author, who runs `Verify` on the exact commit and approves or rejects that commit.
 5. **Merge.** `uak merge` merges the approved commit, runs the checks again on the result and pushes `main` and `claims` together.
 6. **Next.** `uak next` tells each agent what to do now, and when there is nothing, why. `uak board` prints the team in a terminal; `uak dash` draws it as a page.
+
+<img src="docs/media/lanes-into-main.png" alt="Three agents' lanes side by side: each task moves through claim, red, green and review, then merges into one line, main" width="860">
 
 You choose one of two modes at install. `sprint` is for a deadline: an agent merges after the review, and new work stops at a freeze before the end. `marathon` is for a product with users: a person merges every pull request, with specs and security reviews. The walkthroughs are in `docs/GUIDE.md`.
 
