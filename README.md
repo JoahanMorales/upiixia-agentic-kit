@@ -60,11 +60,11 @@ Two claims go through, a third is refused because its files overlap, a test fail
 
 While agents work, a person follows them on one local page drawn from the `claims` branch:
 
-<img src="docs/media/dash.png" alt="The dashboard of a project: what needs a person, a square per task coloured by state, the task list with each task's steps, progress and the agents online" width="860">
+<img src="docs/media/dash.png" alt="This repository's own dashboard in the dark theme: what needs a person, one square per task coloured by state, progress and the agents online" width="860">
 
 A click on a task tells its whole story:
 
-<img src="docs/media/dash-task.png" alt="One task opened on the dashboard: what it waits for, the time it spent in each state, who took part and every move in order" width="860">
+<img src="docs/media/dash-task.png" alt="One task of this repository opened on the dashboard: what it waits for and what it unblocks, the time it spent in each state and who took part" width="860">
 
 There is also a [simulated video walkthrough](kit/.uak/media/tutorial.mp4), from an empty project to a deployed app, with [English](kit/.uak/media/tutorial-en.vtt) and [Spanish](kit/.uak/media/tutorial-es.vtt) captions.
 

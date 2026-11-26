@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Regenerate docs/media/banner.png (1280x640); with --gif also the legacy docs/media/demo.gif from a REAL `uak demo` run.
+"""Regenerate docs/media/banner.png (1280x640); with --gif also the legacy docs/media/demo.gif from a REAL `uak demo` run;
+with --dash only docs/media/dash.png and dash-task.png (this repository's dashboard, dark, Lavanda; UAK-202).
 The README animation is docs/media/demo.svg, made by scripts/render_demo.py (no browser needed).
 
     uv run --with playwright --with pillow python scripts/make_media.py
@@ -284,8 +285,55 @@ def build_gif(page, out):
     return len(frames)
 
 
+# ---------------------------------------------------------------- dashboard screenshots (UAK-202)
+DASH_GROUND = (14, 14, 18)   # the dark theme's page ground under Lavanda (hsl 250 9% 6%), as the frame of the shot
+
+
+def framed(src, dest, pad=16, radius=18):
+    """The shot on a dark rounded ground of its own, transparent outside the corners: dark art on GitHub's light
+    page reads as a deliberate card, and on its dark page as the page itself."""
+    from PIL import Image, ImageDraw
+    shot = Image.open(src).convert("RGBA")
+    w, h = shot.size[0] + 2 * pad, shot.size[1] + 2 * pad
+    card = Image.new("RGBA", (w, h), DASH_GROUND + (255,))
+    card.paste(shot, (pad, pad))
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, fill=255)
+    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    out.paste(card, (0, 0), mask)
+    out.save(dest, optimize=True)
+
+
+def dash_shots(task="UAK-165"):
+    """docs/media/dash.png and dash-task.png: this repository's own dashboard (its public claims branch), dark theme,
+    Lavanda, 1280x760, English; the task opened is TASK. Run from a checkout of this repository with its claims."""
+    import tempfile
+    from playwright.sync_api import sync_playwright
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run([sys.executable, str(ROOT / "kit/.uak/bin/lib/dash.py"), "--out", tmp], cwd=str(ROOT), check=True)
+        page_file = Path(tmp) / "index.html"
+        with sync_playwright() as p:
+            b = p.chromium.launch()
+            ctx = b.new_context(viewport={"width": 1280, "height": 760}, color_scheme="dark")
+            ctx.add_init_script("try{localStorage.setItem('uak-look',JSON.stringify({theme:'dark',pal:'lavanda'}));"
+                                "localStorage.setItem('uak-language','en')}catch(e){}")
+            page = ctx.new_page()
+            page.goto(page_file.as_uri())
+            page.wait_for_timeout(2000)
+            page.screenshot(path=str(Path(tmp) / "dash.png"))
+            page.locator("text='%s'" % task.split("-")[-1]).first.click()
+            page.wait_for_timeout(1500)
+            page.screenshot(path=str(Path(tmp) / "dash-task.png"))
+            b.close()
+        for name in ("dash.png", "dash-task.png"):
+            framed(Path(tmp) / name, OUT / name)
+            print(name, (OUT / name).stat().st_size // 1024, "KB")
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
+    if "--dash" in sys.argv:   # the README's dashboard shots only (UAK-202)
+        dash_shots(); return
     if "--html" in sys.argv:   # no Playwright browser: render the HTML with any Chromium, e.g.
         # chromium --headless --screenshot=banner.png --window-size=1280,640 --virtual-time-budget=3000 file://…/banner.html
         dest = Path(sys.argv[sys.argv.index("--html") + 1])
