@@ -169,3 +169,4 @@ Why: a reversible option after 15 min keeps work moving.
 - 1795642307 | UAK-199 | CRF 27, poster best q under 38328, frames 320x180 PNG with source sha | Why: headroom under v6.8 sizes
 - 1795645769 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-199 | Why: scope or criteria fixed before review
 - 1795652415 | plan --amend | JoahanMorales/JoahanMorales | amended: UAK-198 | Why: scope or criteria fixed before review
+- 1795652928 | plan | JoahanMorales/JoahanMorales | tasks added: UAK-203 UAK-204 | Why: backlog without PR (Plan-Channel: claims)
