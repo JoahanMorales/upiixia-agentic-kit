@@ -8,7 +8,10 @@ Real processes (the wizard as a person starts it, a project whose `uak` is a scr
 while the signal arrives), real HTTP, real Git with a local bare remote. The page's timers are read in its source and
 its scheduling functions run in Node when there is one. Every process this file starts is stopped by its PID."""
 import argparse
+import contextlib
+import gc
 import importlib.util
+import io
 import json
 import os
 import re
@@ -829,12 +832,321 @@ def reopen_notice_says_what_happened(root, tmp):
     assert "!" not in spanish
 
 
+# --- UAK-196: every kill checks the start time; the sweep removes only its own folders; the refused record is bounded ---
+# The "unrelated program" of these cases is a bystander this test starts itself (its own group or session), checked by
+# start time; every process the test ends is one it started, ended by its PID.
+SPAWNER = ("import subprocess, sys, time\n"
+           "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'], start_new_session=True)\n"
+           "print(g.pid, flush=True)\n"
+           "g.wait()\n"  # reaped when it ends (no zombie that still has its start time, as on macOS)
+           "time.sleep(120)\n")
+
+
+def bystander():
+    extra = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if WINDOWS else {"start_new_session": True}
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], **extra)
+    stamp = wizard.MODULE.process_stamp(proc.pid)
+    assert stamp, "the start time of a process this test started is read on %s" % sys.platform
+    return proc, stamp
+
+
+def end(proc):
+    if proc.poll() is None:
+        proc.kill()
+    proc.wait(15)
+
+
+def end_pid(pid, stamp):
+    """A grandchild this test's own child started: ended by PID only while it is still that process."""
+    if pid and stamp and wizard.MODULE.process_stamp(pid) == stamp:
+        os.kill(pid, signal.SIGKILL)
+
+
+def still_running_pid(pid):
+    return wizard.MODULE.read_stamp(pid) is not None
+
+
+def still_running(proc, seconds=0.6):
+    time.sleep(seconds)
+    return proc.poll() is None
+
+
+class Recorded:
+    """The server's record of children, replaced for one case (and the module's read of start times, when given)."""
+
+    def __init__(self, entries, unreadable=()):
+        self.entries, self.unreadable = entries, set(unreadable)
+
+    def __enter__(self):
+        m = wizard.MODULE
+        with m.CHILD_LOCK:
+            self.saved = dict(m.CHILDREN)
+            m.CHILDREN.clear()
+            m.CHILDREN.update(self.entries)
+        self.file, m.CHILD_FILE[0] = m.CHILD_FILE[0], None
+        self.real = getattr(m, "read_stamp", None)
+        if self.unreadable:
+            m.read_stamp = lambda pid: "" if pid in self.unreadable else self.real(pid)
+        self.out = io.StringIO()
+        self.redirect = contextlib.redirect_stdout(self.out)
+        self.redirect.__enter__()
+        return self
+
+    def __exit__(self, *args):
+        m = wizard.MODULE
+        self.redirect.__exit__(*args)
+        if self.real is not None:
+            m.read_stamp = self.real
+        with m.CHILD_LOCK:
+            m.CHILDREN.clear()
+            m.CHILDREN.update(self.saved)
+        m.CHILD_FILE[0] = self.file
+
+    def said(self, pid):
+        return "did not end process %d" % pid in self.out.getvalue()
+
+
+def stop_children_checks_the_start_time(root, tmp):
+    m = wizard.MODULE
+    other, other_stamp = bystander()
+    mine, mine_stamp = bystander()
+    try:
+        assert m.process_stamp(other.pid) == other_stamp, "read twice, the start time is the same"
+        assert other_stamp != mine_stamp or other.pid != mine.pid
+        # The number of `other` recorded with a start time that is not its own: a child of the server that ended and
+        # whose number was given to another program.
+        with Recorded({other.pid: "1" + other_stamp, mine.pid: mine_stamp}) as rec:
+            m.stop_children()
+        assert wait_until(lambda: mine.poll() is not None, 15), "the recorded child, the same start time, is ended"
+        assert still_running(other), "a number whose start time differs is never signalled"
+        assert rec.said(other.pid) and "another program" in rec.out.getvalue(), "and it is said: %r" % rec.out.getvalue()
+        assert not rec.said(mine.pid)
+        # A start time that cannot be read means: do not kill, and say so.
+        with Recorded({other.pid: other_stamp}, unreadable=[other.pid]) as rec:
+            m.stop_children()
+        assert still_running(other), "a start time that cannot be read signals nothing"
+        assert rec.said(other.pid) and "could not read its start time" in rec.out.getvalue(), rec.out.getvalue()
+        # Nothing recorded as a start time (a garbled entry): the same.
+        with Recorded({other.pid: ""}) as rec:
+            m.stop_children()
+        assert still_running(other) and rec.said(other.pid), "an entry with no start time signals nothing"
+        # A number nobody has any more is forgotten without a word.
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait(15)
+        gone_pid = gone.pid
+        del gone  # Windows: the handle Popen holds keeps the number (and its start time) until it is closed
+        gc.collect()
+        with Recorded({gone_pid: "123"}) as rec:
+            m.stop_children()
+        assert not m.CHILDREN, "it is forgotten"
+        assert not rec.said(gone_pid) or not still_running_pid(gone_pid), rec.out.getvalue()
+    finally:
+        end(other)
+        end(mine)
+
+
+def start_time_check_is_pinned_in_three_places(root, tmp):
+    """Each of stop_children, reap_children and TreeWatch.kill compares the start time itself: a case per place goes red
+    when the comparison is removed from that place alone."""
+    m = wizard.MODULE
+    other, stamp = bystander()
+    try:
+        with Recorded({other.pid: "9" + stamp}):
+            m.stop_children()
+        assert still_running(other), "stop_children: a recorded number with another start time is not signalled"
+    finally:
+        end(other)
+    if WINDOWS:
+        return  # reap_children and TreeWatch do not run there: the children are in a job that closes with the server
+    # reap_children: a record a killed server left, with a stranger's start time, garbage, and an unreadable one.
+    other, stamp = bystander()
+    victim, victim_stamp = bystander()
+    unread, unread_stamp = bystander()
+    try:
+        record = tmp / "uak-wizard.children"
+        record.write_text("garbage\n\n0 1\n%d 7%s\n%d %s\n%d %s\n" % (other.pid, stamp, victim.pid, victim_stamp, unread.pid,
+                                                                    unread_stamp), encoding="utf-8")
+        with Recorded({}, unreadable=[unread.pid]) as rec:
+            m.reap_children(record)
+        assert wait_until(lambda: victim.poll() is not None, 15), "reap_children: the same start time is ended"
+        assert still_running(other), "reap_children: a number with another start time is not signalled"
+        assert still_running(unread, 0) and rec.said(unread.pid), "reap_children: unreadable is not signalled, and said"
+        assert not record.exists()
+    finally:
+        for proc in (other, victim, unread):
+            end(proc)
+    # TreeWatch.kill: what it saw below the run is ended, a number it saw that is now another program's is not.
+    other, stamp = bystander()
+    parent = subprocess.Popen([sys.executable, "-c", SPAWNER], stdout=subprocess.PIPE, text=True, start_new_session=True)
+    grand, grand_stamp = 0, ""
+    try:
+        grand = int(parent.stdout.readline().strip())
+        grand_stamp = m.process_stamp(grand)
+        with Recorded({}):
+            watch = m.TreeWatch(parent.pid)
+            assert wait_until(lambda: grand in watch.seen, 15), "the watch sees the run's grandchild"
+            watch.seen[other.pid] = "5" + stamp
+            watch.kill()
+        assert wait_until(lambda: not m.pid_alive(grand) or m.process_stamp(grand) != grand_stamp, 15), \
+            "TreeWatch.kill ends what it saw below the run"
+        assert still_running(other), "TreeWatch.kill: a number it saw, now with another start time, is not signalled"
+    finally:
+        end(other)
+        end(parent)
+        end_pid(grand, grand_stamp)
+
+
+def sweep_removes_only_its_own_folders(root, tmp):
+    m = wizard.MODULE
+    base = Path(tempfile.gettempdir())
+    record = tmp / "uak-wizard.launchers"
+    keys = getattr(m, "LAUNCH_KEY", [None])  # (before UAK-196 there was none: the case then fails on its assertion)
+    saved = (m.LAUNCHERS[0], keys[0])
+    made = []
+    link = None
+    try:
+        m.LAUNCHERS[0] = record
+        mine = m.write_launcher("true").parent
+        made.append(mine)
+        foreign = Path(tempfile.mkdtemp(prefix="uak-agent-"))  # empty, another program's
+        made.append(foreign)
+        foreign_sh = Path(tempfile.mkdtemp(prefix="uak-agent-"))  # a start.sh, another wizard's
+        (foreign_sh / "start.sh").write_text("true\n", encoding="utf-8")
+        made.append(foreign_sh)
+        mine_line = record.read_text(encoding="utf-8").splitlines()[0]
+        info = os.lstat(str(foreign))
+        hand = [str(foreign), str(foreign_sh), "%s %d %d %s" % ("0" * 64, info.st_dev, info.st_ino, foreign),
+                "%s %d %d %s" % (mine_line.split(" ")[0], info.st_dev, info.st_ino, foreign), "1 2", "x y z", "\x00\x01"]
+        if not WINDOWS:
+            pointed = Path(tempfile.mkdtemp(prefix="uak-agent-"))
+            made.append(pointed)
+            link = base / ("uak-agent-link-%d" % os.getpid())
+            os.symlink(str(pointed), str(link))
+            hand.append(str(link))
+        with open(str(record), "a", encoding="utf-8") as handle:
+            handle.write("\n".join(hand) + "\n")
+        m.sweep_launchers(record)
+        assert foreign.is_dir(), "an empty uak-agent-* folder that a hand-written record names is left alone"
+        assert foreign_sh.is_dir() and (foreign_sh / "start.sh").is_file(), "another wizard's launcher is left alone"
+        assert not mine.exists(), "the launcher this wizard made, never run by a terminal, is removed"
+        assert not record.exists(), "the record goes with it"
+        if link is not None:
+            assert link.is_symlink() and pointed.is_dir(), "a link in the record is neither followed nor removed"
+        # A line of another wizard's key proves nothing.
+        mine = m.write_launcher("true").parent
+        made.append(mine)
+        m.sweep_launchers(record, key="another-wizards-key-0123456789")
+        assert mine.is_dir(), "a line signed with another key removes nothing"
+        # A proved line whose folder is now another one at the same path (another inode): left alone.
+        stale = m.write_launcher("true").parent
+        made.append(stale)
+        si = os.lstat(str(stale))
+        record.write_text("%s %d %d %s\n" % (m.launcher_proof(m.LAUNCH_KEY[0], stale, si.st_dev, si.st_ino + 1),
+                                             si.st_dev, si.st_ino + 1, stale), encoding="utf-8")
+        m.sweep_launchers(record)
+        assert stale.is_dir(), "a folder whose inode is not the recorded one is left alone"
+        # The record file is a link: it is not read through, only the link goes.
+        if not WINDOWS:
+            mine = m.write_launcher("true").parent
+            made.append(mine)
+            elsewhere = tmp / "elsewhere"
+            os.replace(str(record), str(elsewhere))
+            os.symlink(str(elsewhere), str(record))
+            m.sweep_launchers(record)
+            assert mine.is_dir() and elsewhere.is_file() and not os.path.lexists(str(record)), \
+                "a record that is a link is not followed"
+            m.remember_launcher(mine)
+            assert not os.path.lexists(str(record)) or not record.is_symlink(), "and nothing is appended through a link"
+    finally:
+        m.LAUNCHERS[0], keys[0] = saved
+        if link is not None and os.path.lexists(str(link)):
+            os.unlink(str(link))
+        for folder in made:
+            shutil.rmtree(str(folder), ignore_errors=True)
+    # Across a restart: the next start proves the folders of the wizard that left the record with the key it left.
+    target = project(root, tmp)
+    folder = gitdir(target)
+    key = "previous-wizard-key-" + "a" * 20
+    old = Path(tempfile.mkdtemp(prefix="uak-agent-"))
+    (old / "start.sh").write_text("true\n", encoding="utf-8")
+    stranger = Path(tempfile.mkdtemp(prefix="uak-agent-"))
+    try:
+        oi, si = os.lstat(str(old)), os.lstat(str(stranger))
+        (folder / "uak-wizard.launchers").write_text("%s %d %d %s\n%s\n%s %d %d %s\n" % (
+            m.launcher_proof(key, old, oi.st_dev, oi.st_ino), oi.st_dev, oi.st_ino, old, stranger,
+            m.launcher_proof("not-the-key-0123456789", stranger, si.st_dev, si.st_ino), si.st_dev, si.st_ino, stranger),
+            encoding="utf-8")
+        (folder / "uak-wizard.key").write_text(key + "\n", encoding="ascii")
+        dead = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead.wait(15)
+        (folder / "uak-wizard.port").write_text("%d 1\n" % dead.pid, encoding="ascii")
+        wiz = Wizard(root, tmp, target)
+        try:
+            assert "UAK SETUP http" in " ".join(wiz.out), wiz.out
+            assert not old.exists(), "the previous wizard's launcher, proved by the key it left, is removed at the next start"
+            assert stranger.is_dir(), "a folder the record names without that proof is left alone"
+            assert not (folder / "uak-wizard.launchers").exists()
+        finally:
+            wiz.stop()
+    finally:
+        shutil.rmtree(str(old), ignore_errors=True)
+        shutil.rmtree(str(stranger), ignore_errors=True)
+
+
+def refused_record_is_bounded(root, tmp):
+    m = wizard.MODULE
+    target = project(root, tmp)
+    log = gitdir(target) / m.REFUSED_LOG
+    log.write_text("".join("%d refused-run old-%d\n" % (1700000000, n) for n in range(500)), encoding="utf-8")
+    with wizard.LiveServer(str(target)) as srv:
+        with srv.lock:
+            srv.target = str(target)
+
+        def refuse():
+            status, body, _ = wizard.request(srv, "POST", "/api/run", {"action": "remove-everything"})
+            assert status == 400 and json.loads(body)["error"] == m.RUN_REFUSAL, (status, body)
+
+        refuse()
+        lines = log.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == getattr(m, "REFUSED_KEEP", 0) == 200, "it keeps its last 200 lines: %d" % len(lines)
+        assert lines[-1].endswith("refused-run remove-everything") and lines[0].endswith("old-301"), (lines[0], lines[-1])
+        for _ in range(3):
+            refuse()
+        assert len(log.read_text(encoding="utf-8").splitlines()) == 200, "and stays at 200"
+        assert not [p for p in log.parent.iterdir() if p.name.startswith(m.REFUSED_LOG + ".")], "no temporary file is left"
+        # A huge record (a long line with no end) is cut from its tail, not read whole.
+        log.write_bytes(b"x" * 300000)
+        refuse()
+        assert log.read_text(encoding="utf-8").splitlines()[-1].endswith("refused-run remove-everything")
+        assert log.stat().st_size < 300000
+        if not WINDOWS:
+            # A link standing at the record's name is not followed; the refusal stands.
+            victim = tmp / "a person's file.txt"
+            victim.write_text("keep me\n", encoding="utf-8")
+            log.unlink()
+            os.symlink(str(victim), str(log))
+            refuse()
+            assert victim.read_text(encoding="utf-8") == "keep me\n", "nothing is written through a link"
+            log.unlink()
+            if os.geteuid() != 0:
+                # A record that cannot be written: the refusal stands, nothing breaks.
+                log.write_text("1 refused-run x\n", encoding="utf-8")
+                log.chmod(0o400)
+                try:
+                    refuse()
+                    assert log.read_text(encoding="utf-8") == "1 refused-run x\n"
+                finally:
+                    log.chmod(0o600)
+
+
 TESTS = [second_start_reuses_the_first, idle_server_ends, closed_page_ends_the_server, no_child_survives_sigterm,
          no_child_survives_sigkill_on_linux, stale_record_is_reaped, idle_page_starts_no_process,
          hidden_page_does_not_poll, dashboard_refresh_is_one_ls_remote, bad_record_signals_nothing_and_is_removed,
          two_tabs_one_closes, cached_dashboard_keeps_time_moving, reopen_is_never_silent,
          two_simultaneous_starts_leave_one_server, invented_page_ids_are_not_kept,
          reopen_before_the_first_request_is_shown, reopen_notice_says_what_happened]
+TESTS += [stop_children_checks_the_start_time, start_time_check_is_pinned_in_three_places,  # UAK-196
+          sweep_removes_only_its_own_folders, refused_record_is_bounded]
 
 
 def main():

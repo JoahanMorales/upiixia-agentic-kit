@@ -1,4 +1,5 @@
-# measured 2026-11-24 45463249224
+# measured 2026-11-26 45756544805
+# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 50.7 s (45753706969), macos 20.3 s (45753706969), windows 85.4 s (45751796663)
 # each entry is ceil(MAXIMUM over the runs read) + 1 s: runs 45463249224 (all four files below their entries there) 45456950612 45448338317 45440020253 45400014832 45395715008 45378320442 45377822264 45362548285, `ci` over Linux and macOS, `windows` over Windows: only the 5 runs that have the file: Linux max 48.26, macOS max 16.82, Windows max 56.4
-ci 50
-windows 58
+ci 64
+windows 107
