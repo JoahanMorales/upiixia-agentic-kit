@@ -1,5 +1,5 @@
-# measured 2026-11-25 45705330053
-# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 78.0 s (45697407039), macos 10.0 s (45705330053), windows 30.2 s (45638994194)
-# UAK-198: runs of this task's pull request (the file with 13 cases; Linux runs them in Chromium, macOS and Windows the node parts) and 45638994194 for Windows (30.2 s, before UAK-198)
-ci 98
+# measured 2026-11-26 45730747487
+# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 90.2 s (45730747487), macos 10.0 s (45705330053), windows 30.2 s (45638994194)
+# UAK-198: runs of this task's pull request (Linux runs the file's cases in Chromium, macOS and Windows its node parts; 45730747487 is the file of the scale-up, 13 cases) and 45638994194 for Windows (30.2 s, before UAK-198)
+ci 113
 windows 38
