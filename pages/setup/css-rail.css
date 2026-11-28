@@ -1,0 +1,84 @@
+/* the wizard (docs/design/DIRECTION.md rule 11): the line of nodes on top, the choices at the left, what they write at the right, one primary at the bottom */
+.surface { min-width: 0; }
+.surface:focus { outline: none; }
+.mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--r-s); background: var(--btn); color: var(--on-btn); flex: none; }
+.wz-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; max-width: 1080px; margin: 0 auto; padding: 12px 24px; }
+.brand { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.journey { order: 3; flex: 1 0 100%; min-width: 0; }
+.journey .nodes { gap: 0; }
+.journey li { font-size: 12px; white-space: nowrap; }
+.journey li[hidden] { display: none; }
+.journey li.done { color: var(--ink-2); }
+.journey li.done i, .journey li[aria-current] i { border-color: var(--accent-line); background: var(--accent-line); }
+.journey li.done::after { background: var(--accent-line); }
+.ap.term { margin-left: auto; }
+.ap.term .pop { width: min(360px, calc(100vw - 32px)); }
+.ap.term summary span { font-weight: 500; }
+.ap.term .short { display: none; }
+.wz-top .ap + .ap { margin-left: 0; }
+.wz-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 400px); gap: 32px; align-items: start; max-width: 1080px; margin: 0 auto; padding: 24px 24px 32px; }
+.wz-body.closed { grid-template-columns: minmax(0, 1fr); }
+.wz-main > * + * { margin-top: 16px; }
+.wz-main > h1 { margin-top: 0; max-width: 28ch; }
+.wz-main p { max-width: 62ch; }
+.wz-prev .win { position: sticky; top: 16px; }
+.win-b { padding: 12px; font: 500 12px/1.7 var(--mono); overflow-x: auto; }
+.win-b .row { display: flex; justify-content: space-between; gap: 12px; white-space: pre; }
+.win-b .add { color: var(--integrated-ink); }
+.win-b .mod { color: var(--review-ink); }
+.win-b .keep, .win-b .dim { color: var(--muted); }
+.win-b .row span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.win-b p { margin: 0; white-space: normal; font-family: var(--sans); font-weight: 400; color: var(--ink-2); }
+.win-f > span { padding: 8px 12px; border-left: 1px solid var(--line); font-size: 11px; color: var(--muted); line-height: 1.3; }
+.win-f > span:first-child { border-left: 0; }
+.win-f > span b { display: block; font-size: 16px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.where { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--ink-2); overflow-wrap: anywhere; }
+.found { margin-top: 8px; }
+.found li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.found .k { color: var(--muted); font-size: 11px; }
+.found .v { overflow-wrap: anywhere; }
+.found .v code { font: 500 12px var(--mono); }
+.q { border: 0; padding: 0; margin: 24px 0 0; }
+.q legend { font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.opts .choice { margin-top: 0; }
+.tag { font: 600 11px/1 var(--mono); letter-spacing: .05em; text-transform: uppercase; font-style: normal; color: var(--accent-ink); border: 1px solid currentColor; border-radius: 3px; padding: 4px; margin-left: 8px; vertical-align: 1px; }
+.plain > li, .rules > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; }
+.rules .why { display: block; color: var(--ink-2); font-size: 12px; }
+.rules .val { font: 600 11px var(--mono); color: var(--accent-ink); white-space: nowrap; }
+.foot { position: sticky; bottom: 0; z-index: 20; border-top: 1px solid var(--line); background: var(--page); }
+.foot-in { display: flex; align-items: center; gap: 12px; max-width: 1032px; margin: 0 auto; padding: 12px 24px; }
+.foot-note { flex: 1; min-width: 0; margin-left: 4px; font-size: 12px; color: var(--muted); text-align: right; overflow-wrap: anywhere; }
+.foot-note .error, .foot-note [role=alert] { color: var(--blocked-ink); }
+.foot .action-result { margin: 0; }
+.screen:not([data-on]) { display: none; }
+.screen[data-on] { display: flex; flex-direction: column; min-height: calc(100vh - 56px); min-height: calc(100dvh - 56px); }
+.screen .wz-body { flex: 1; width: 100%; align-content: start; }
+.demo summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; min-height: 28px; color: var(--accent-ink); }
+.demo summary::-webkit-details-marker { display: none; }
+.demo summary h2 { font-size: 13px; font-weight: 600; letter-spacing: 0; }
+.demo summary::before { content: ""; width: 0; height: 0; border-style: solid; border-width: 4px 0 4px 6px; border-color: transparent transparent transparent currentColor; }
+.demo details[open] summary::before { border-width: 6px 4px 0 4px; border-color: currentColor transparent transparent transparent; }
+.demo video { width: 100%; max-width: 560px; margin-top: 8px; aspect-ratio: 16 / 9; border-radius: var(--r-s); background: var(--ink); }
+.foot .action-result { order: -1; flex: 1 0 100%; text-align: right; }
+.foot-in { flex-wrap: wrap; }
+.screen .actions { margin-top: 16px; padding-top: 0; border-top: 0; justify-content: flex-start; }
+.screen .actions .primary { margin-left: 0; }
+.more { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--line); }
+.more h2 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.more .list > li { display: grid; gap: 4px; }
+.team-step { margin: 0; padding: 0; border: 0; }
+.your-app { margin-top: 24px; padding-top: 16px; }
+#dashboard-frame { width: 100%; min-height: 560px; border: 1px solid var(--line); border-radius: var(--r); background: var(--page); }
+#prepare { display: none !important; }
+#finish .status-heading h2 { font-size: 16px; letter-spacing: 0; }
+.prepare-step > button, .step-body > button, .prepare-step form > button { justify-self: start; }
+#error { position: sticky; bottom: 80px; z-index: 40; max-width: 1032px; margin: 0 auto; width: calc(100% - 48px); }
+#planning { display: grid; gap: 16px; margin: 0; padding: 0; border: 0; }
+.prepare-step > h4 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.prepare-step { padding: 16px; }
+.screen #plan-done { margin-top: 0; }
+#planning > button { justify-self: start; }
+#planner-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+#planner-options .choice { margin-top: 0; padding: 8px 12px; }
+#planner-choice { margin-top: 0; }

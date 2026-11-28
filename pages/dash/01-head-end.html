@@ -1,0 +1,4 @@
+// The page's language before its first paint (UAK-165): the same choice workspace.js makes, read the same way; its words come with the page's script.
+try { document.documentElement.lang = (localStorage.getItem("uak-language") || (/^es\b/i.test(navigator.language || "") ? "es" : "en")) === "es" ? "es" : "en"; } catch (e) {}
+</script>
+<style>

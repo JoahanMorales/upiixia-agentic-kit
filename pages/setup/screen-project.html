@@ -1,0 +1,45 @@
+<section class="screen" id="screen-project" data-screen="project" aria-labelledby="h-project">
+<div class="wz-body"><div class="wz-main" id="welcome">
+<h1 id="h-project" tabindex="-1">Check what we found in this project</h1>
+
+<p class="says" id="project-says"></p>
+<p class="where" id="project-where"><span class="mono" id="selected-project" data-no-i18n></span> <button type="button" class="link-button" id="change-folder">Change</button></p>
+<form id="project-form" novalidate hidden>
+  <div class="field"><label class="field-label" for="target">Project folder</label>
+  <input type="text" id="target" required autocomplete="off" spellcheck="false" aria-describedby="target-hint target-error" />
+  <p class="hint" id="target-hint">Use the full folder path, for example C:\Projects\my-app or /Users/you/my-app.</p>
+  <p class="field-error" id="target-error" role="alert"></p></div>
+  <div class="actions"><button class="secondary-button" type="submit" id="check-folder">Check this folder</button></div>
+</form>
+<ul class="found list" id="found"></ul>
+<form id="workflow-form" novalidate>
+<fieldset class="q"><legend>Work mode</legend>
+<div class="opts" id="mode-options">
+<label class="choice"><input type="radio" name="mode" value="marathon" required /><span><strong>Product with real users <em class="tag" id="tag-marathon" hidden>Proposed</em></strong><small>No deadline. A human makes the final merge decision.</small></span></label>
+<label class="choice"><input type="radio" name="mode" value="sprint" required /><span><strong>Hackathon or prototype <em class="tag" id="tag-sprint" hidden>Proposed</em></strong><small>A deadline and a freeze before the demo. Reviewed changes merge by themselves after the checks pass.</small></span></label>
+</div><p class="hint" id="mode-reason"></p></fieldset>
+<fieldset class="q"><legend>Which coding tools do you use?</legend>
+<div class="tools">
+<label><input type="checkbox" name="harness" value="claude" checked />Claude Code</label>
+<label><input type="checkbox" name="harness" value="codex" checked />Codex</label>
+<label><input type="checkbox" name="harness" value="cursor" />Cursor</label>
+<label><input type="checkbox" name="harness" value="gemini" />Gemini CLI</label>
+</div>
+<p class="hint" id="tool-roles">One tool implements, the other reviews its work as a second identity, so no change merges unchecked. We recommend Claude Code + Codex: Claude Code writes the code and Codex reviews it.</p>
+<p class="hint">With only one tool, it does both jobs under two names.</p></fieldset>
+<label class="choice"><input id="solo" type="checkbox" /><span><strong>I’m the only human on this repository</strong><small>Nobody else reviews here, so your agents review each other under a second name you register (for example ana-r). Product mode still leaves the final merge to you.</small></span></label>
+<details id="installation-options"><summary>Advanced</summary>
+<div class="field"><label for="stack" class="field-label">Project technology preset</label>
+<select id="stack"><option value="none">No preset / decide later</option><option value="fastapi-react">FastAPI + React</option><option value="nextjs">Next.js</option><option value="django">Django</option><option value="go">Go</option><option value="expo">Expo</option><option value="python-data">Python data</option><option value="ai-agent">AI agent</option><option value="spring-boot">Spring Boot</option></select></div>
+<label class="choice"><input type="checkbox" id="blackbox" /><span><strong>Keep anonymous kit diagnostics</strong><small>Writes filtered kit events (no names, paths or secrets) to the coordination branch of this repository. In a public repository those events are public. Off unless you turn it on.</small></span></label>
+</details>
+<p class="field-error" id="workflow-error" role="alert"></p>
+</form>
+<section id="demo" class="demo" aria-labelledby="demo-heading" hidden><details><summary><h2 id="demo-heading">Watch the 75-second demo</h2></summary>
+<p class="secondary">A simulated walkthrough: from an empty project to a deployed app. Captions in English and Spanish.</p>
+<video id="demo-video" data-src="/media/tutorial.mp4" data-poster="/media/tutorial-poster.jpg" controls preload="none" playsinline width="1280" height="720" aria-labelledby="demo-heading"><track kind="captions" srclang="en" label="English" data-src="/media/tutorial-en.vtt" /><track kind="captions" srclang="es" label="Español" data-src="/media/tutorial-es.vtt" /></video></details></section>
+<p id="demo-link" class="secondary" hidden><a href="https://github.com/JoahanMorales/upiixia-agentic-kit/blob/main/kit/.uak/media/tutorial.mp4" target="_blank" rel="noopener noreferrer">Watch the 75-second demo on GitHub</a></p>
+</div>
+<aside class="wz-prev" aria-label="What this step changes" data-i18n-aria="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-project-title">what will be written</span></div><div class="win-b" id="win-project-body"></div><div class="win-f" id="win-project-foot"></div></div></aside></div>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-project"></div><button class="primary" type="submit" form="workflow-form" id="project-continue">Continue</button></div></footer>
+</section>

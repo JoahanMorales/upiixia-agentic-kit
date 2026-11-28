@@ -1,0 +1,34 @@
+</style>
+</head>
+<body>
+<a class="skip" href="#view">Skip to content</a>
+<div class="app">
+<div class="tabs" id="tabs" role="tablist" aria-label="Views"></div>
+<div class="main">
+<header class="head">
+  <div class="brand"><span id="logo"></span><h1 id="repo" data-no-i18n>uak dash</h1><span class="chip" id="modechip" data-no-i18n hidden></span></div>
+  <span class="fresh" id="fresh"><span class="live"></span><span id="freshtxt"></span></span>
+  <span class="fresh" id="freeze" hidden></span>
+  <button class="chip" id="share-btn" type="button" data-no-i18n></button>
+  <details class="ap" id="look">
+    <summary data-no-i18n><i aria-hidden="true"></i>Apariencia</summary>
+    <div class="pop">
+      <label for="workspace-theme">Theme</label><span id="theme-box"></span>
+      <select id="workspace-theme" hidden aria-hidden="true" tabindex="-1"><option value="">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select>
+      <span class="lbl" id="pal-label" data-no-i18n>Palette</span>
+      <div class="pals" data-no-i18n role="group" aria-labelledby="pal-label"></div>
+    </div>
+  </details>
+  <span id="dash-language" data-no-i18n></span>
+</header>
+<h1 class="sr-only" id="embedded-title" data-no-i18n hidden></h1>
+<section id="view" tabindex="-1" role="tabpanel"></section>
+</div>
+</div>
+<dialog id="story" aria-labelledby="story-title"></dialog>
+<dialog id="share" aria-labelledby="share-t"></dialog>
+<div id="tip" role="tooltip"></div>
+<p id="arr-live" class="sr-only" role="status"></p>
+<script src="workspace.js"></script>
+<script src="data.js"></script>
+<script>
