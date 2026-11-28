@@ -45,7 +45,7 @@ written in the same second; a non-numeric `UAK_RC_SPINS` disables the read cache
 when a global `core.hooksPath` names a missing directory; `install.sh` run from a checkout copies Python's
 `__pycache__` directories (13 files that pushed a local install from 248 to 261).
 
-**v6.9 · The visual setup, one design, and nothing left running.** Plan: `docs/plans/visual-setup.md` (written
+**v6.9 · The visual setup, one design, and nothing left running (shipped 2026-11-28).** Plan: `docs/plans/visual-setup.md` (written
 2026-11-23, UAK-152 … UAK-162). The contributed wizard and unified dashboard (external PR #2 and its two follow-up
 deliveries) come in with their history and are brought to v6.8; then: the wizard acts for the human only when a human
 runs it; one server per project that ends by itself, no child that outlives it, an idle page that starts no process;

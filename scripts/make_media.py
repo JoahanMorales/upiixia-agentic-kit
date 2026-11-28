@@ -8,8 +8,9 @@
       and writes docs/media/banner.version. Run it again after kit/.uak/VERSION moves: the banner says its major.minor.
     uv run --with playwright --with pillow python scripts/make_media.py --dash
       docs/media/dash.png and dash-task.png: this repository's own dashboard, dark, Lavanda.
-    uv run --with playwright --with pillow python scripts/make_media.py --fallback [--gif]
+    uv run --with playwright --with pillow python scripts/make_media.py --fallback [--gif] [--out DIR]
       a banner drawn here without Node (banner_html, the same direction), and with --gif the legacy demo.gif.
+      It writes into DIR, a new temporary folder when --out is absent, never into docs/media/ on its own.
 The terminal animation is docs/media/demo.svg, made by scripts/render_demo.py (no browser needed).
 
 HTML/CSS is rendered in headless Chromium (Inter + JetBrains Mono, cached locally); frames are
@@ -376,6 +377,7 @@ def dash_shots(task="UAK-165"):
 
 
 def main():
+    global OUT
     OUT.mkdir(parents=True, exist_ok=True)
     if "--dash" in sys.argv:   # the README's dashboard shots only (UAK-202)
         dash_shots(); return
@@ -388,6 +390,9 @@ def main():
     if "--fallback" not in sys.argv:
         sys.exit(__doc__)
     from playwright.sync_api import sync_playwright
+    OUT = Path(sys.argv[sys.argv.index("--out") + 1]) if "--out" in sys.argv else Path(tempfile.mkdtemp(prefix="uak-media-"))
+    OUT.mkdir(parents=True, exist_ok=True)
+    print("writing into", OUT)
     gif = "--gif" in sys.argv
     out = demo_output() if gif else None
     with sync_playwright() as p:

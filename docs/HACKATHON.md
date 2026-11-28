@@ -41,6 +41,8 @@ Then open your agent in the repo:
 | Variants all look the same | `bash .uak/bin/uak design round --from R<k> --creativity 4` (clone warnings and a 0-100 score in `design shoot`) |
 | A task was merged on GitHub and stays in REVIEW | `bash .uak/bin/uak integrate ID` (records the approved SHA that is on main; names commits nobody reviewed) |
 | Why is a card stuck in review | `bash .uak/bin/uak timeline ID` (every move, who, which model, each reject with its reason), or click the card in `uak dash` |
+| Set up from a browser instead of the terminal | `bash ~/.uak-kit/install.sh --wizard .` (a local page: install, rules, people, plan, one button per agent; it acts only when a person runs it and ends by itself) |
+| Follow the work on one page | `bash .uak/bin/uak dash` (Edit arranges the summary, Share saves a card, a wide monitor scales the page up) |
 | A quick check before pushing | `bash .uak/bin/smoke --affected` (the tests your change touches; the full suite runs at the merge gate) |
 | Your repo already has husky or lefthook | `bash .uak/bin/doctor` says what to add; call `bash .uak/githooks/pre-commit` and `bash .uak/githooks/pre-push "$@"` from your own hooks |
 | How the event went, in numbers | `bash .uak/bin/uak metrics`, and `bash .uak/bin/uak autopsy --out report.md` afterwards |

@@ -37,7 +37,7 @@ Nothing is written to your project before you press Install.
 
 | Step | What you do |
 |---|---|
-| 1. Welcome | Read what will happen, and watch the 75-second demo if you like (a simulated walkthrough from an empty project to a deployed app; captions in English and Spanish; it never starts by itself). |
+| 1. Welcome | Read what will happen, and watch the 74-second demonstration if you like (drawn screens of the setup page and the dashboard, from an empty project to a deployed app; captions in English and Spanish; it never starts by itself). |
 | 2. Your project | Enter the full path of the repository root. Checking it installs nothing. |
 | 3. Your workflow | Hackathon or prototype (`sprint`) or Product with real users (`marathon`); your coding tools (Claude Code, Codex, Cursor, Gemini CLI); "I'm the only human on this repository" (`--solo`). More options: a technology preset, anonymous kit diagnostics. |
 | 4. Review & install | See every choice and what will be added (including `.mcp.json`), then install. Setup runs `install.sh` with those options. |
@@ -244,7 +244,7 @@ the average and median per integrated task; the data carries no dates and no bud
 with the window (its width over 1432, at most 1.8: ×1.34 at 1920 px, ×1.79 at 2560 px), type, squares, cards, charts, the
 task's detail and Share, so the composition stays the approved one, drawn larger and sharp. The side gutters stay 24 px on the
 screen, so every tab reaches the right edge. Running text stays under about 90 characters a line and a task row's status
-sits next to its title. Past the cap (a window of about 2900 px) the summary's side shows its blocks in two columns and the
+sits next to its title. The cap is reached near 2578 px; past about 2900 px the summary's side shows its blocks in two columns and the
 other tabs gain columns. The scale is the page's decision from the width, never saved: your arrangement is still the two
 lists, and Edit, the handles and a drag work at every scale. Nothing scrolls sideways from 320 to 3840 px, and a block moved
 to the side column (what needs you, the tasks) stacks its rows as on a phone.

@@ -517,7 +517,7 @@ def reach(page, name, timeout=15000):
             "[...document.querySelectorAll('#error, .action-result, .toast')].map(e => e.textContent.trim()).filter(Boolean).join(' | ')")))
 
 
-def kit_repo(tmp, name, mode="sprint", commits=2, version="6.8.0"):
+def kit_repo(tmp, name, mode="sprint", commits=2, version=None):
     return tg.kit_project(tmp, name, mode, commits, version)
 
 
