@@ -110,19 +110,41 @@ def claim_shows_the_lessons_of_its_paths(r):
 
 
 def claim_is_not_slower(r):
-    """A claim with ten lessons on its paths costs at most 300 ms more than one with none (and a handful of processes)."""
-    f = r.fixture("slow", paths={"HACK-%03d" % i: "src/t%d/" % i for i in range(1, 7)}, count=6)
-    for n in range(10):
-        lesson(f, "lesson number %d on the paths of the last three tasks: keep it short" % n, "src/t%d/" % (4 + n % 3), now=1000001 + n)
-    times = {"plain": [], "lessons": []}
-    for i, kind in ((0, "plain"), (1, "plain"), (2, "plain"), (3, "lessons"), (4, "lessons"), (5, "lessons")):
+    """A claim with ten lessons on its paths costs at most 300 ms more than one with none, and no more processes.
+    Processes are counted with test_claims_perf's PATH shims (bash 3.2 has no $BASHPID: there they count 0); the wall clock of a
+    Windows runner moves by more than 300 ms between two identical claims (CI run 46117727894: 4.7 to 5.0 s), so there the
+    time is held to 1 s and the process count is the proof."""
+    from test_claims_perf import processes
+
+    def fourth_claim(name, lessons, count_processes):
+        """Claim 1..3, then claim 4 (a claim's cost grows with the claims already on the board, so both sides take the 4th)."""
+        f = r.fixture(name, paths={"HACK-%03d" % i: "src/t%d/" % i for i in range(1, 5)}, count=4)
+        for n in range(10 if lessons else 0):
+            lesson(f, "lesson number %d on the paths of the fourth task: keep it short" % n, "src/t4/", now=1000001 + n)
+        for i in range(3):
+            f.claim(i, "HACK-%03d" % (i + 1))
+        if count_processes:
+            env = {"UAK_AGENT": "agent-4", "UAK_HUMAN": "", "UAK_REMOTE": "origin", "UAK_NOW": "1000000", "UAK_DEDUPE": "off"}
+            n, out = processes(r, f.worktrees[3], [".uak/bin/uak", "claim", "HACK-004", "--branch", f.branches[3], "--worktree",
+                                                   f.worktrees[3].as_posix(), "--next", "x"], "", env)
+            expect(out.returncode == 0, out.stdout + out.stderr)
+            return n
         t0 = time.monotonic()
-        out = f.claim(i, "HACK-%03d" % (i + 1)).stdout
-        times[kind].append(time.monotonic() - t0)
-        expect(("Lessons for these paths" in out) == (kind == "lessons"), out)
-    delta = min(times["lessons"]) - min(times["plain"])
-    expect(delta <= 0.3, "a claim with ten lessons took %.0f ms longer (%r)" % (delta * 1000, times))
-    return "%+.0f ms with ten lessons (plain %.2f s, lessons %.2f s, best of three)" % (delta * 1000, min(times["plain"]), min(times["lessons"]))
+        out = f.claim(3, "HACK-004").stdout
+        expect(("Lessons for these paths" in out) == lessons, out)
+        return time.monotonic() - t0
+
+    times = {False: [], True: []}
+    for rnd in range(3):
+        for lessons in (False, True):
+            times[lessons].append(fourth_claim("slow-%d-%d" % (rnd, lessons), lessons, False))
+    delta = min(times[True]) - min(times[False])
+    limit = 1.0 if os.name == "nt" else 0.3
+    expect(delta <= limit, "a claim with ten lessons took %.0f ms longer (%r)" % (delta * 1000, times))
+    procs = {k: fourth_claim("count-%d" % k, k, True) for k in (False, True)}
+    expect(procs[True] - procs[False] <= 2, "a claim with ten lessons started %d processes more than one with none: %r" % (procs[True] - procs[False], procs))
+    return "%+.0f ms and %+d processes with ten lessons (plain %.2f s, lessons %.2f s, best of three)" % (
+        delta * 1000, procs[True] - procs[False], min(times[False]), min(times[True]))
 
 
 TESTS = [reject_needs_a_cause, reject_offers_its_lesson, claim_shows_the_lessons_of_its_paths, claim_is_not_slower]

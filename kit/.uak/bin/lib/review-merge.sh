@@ -146,6 +146,7 @@ rm_main_merges_only() {
 # clock the guard forbids an agent to set and the kit's older tests set on every call: those events carry no cause and
 # `uak metrics --trend` says "no cause recorded" for them (UAK-201).
 rm_cause_check() {
+  [ "$REVIEW_LEARN_GIVEN" != yes ] || case "$REVIEW_LEARN_TEXT" in *[![:space:]]*) ;; *) die "--learn \"TEXT\" needs the sentence: what bites, where, what to do instead (a bare --learn records the --note).";; esac
   [ "$REVIEW_START" != yes ] && [ -n "$REVIEW_VERDICT" ] || return 0
   if [ -n "$REVIEW_CAUSE" ]; then
     [ "$REVIEW_VERDICT" = reject ] || die "--cause goes with --verdict reject only."

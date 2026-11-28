@@ -131,20 +131,31 @@ mem_similar() {
 }
 # For `next` and `claim`: the lessons of a task's paths, then what the team learned on similar work; silent when none.
 mem_for_task() {
-  local paths out shown sim
-  paths=$(mem_paths_of "$1")
-  if [ -n "$paths" ]; then
-    out=$(mem_select "$paths" 3 path)
-    [ -z "$out" ] || { say "Lessons for these paths (uak recall $1 for all):"; say "$out"; }
+  local paths out shown= sim line
+  if [ -n "$MEM_CACHE_ID" ] && [ "$MEM_CACHE_ID" = "$1" ]; then out=$MEM_CACHE_OUT
+  else
+    paths=$(mem_paths_of "$1")
+    [ -z "$paths" ] || out=$(mem_select "$paths" 3 path)
   fi
-  shown=$(printf '%s\n' "$out" | sed -n 's/^  \(#[0-9][0-9]*\) .*/\1/p' | tr '\n' ' ')
+  [ -z "$out" ] || { say "Lessons for these paths (uak recall $1 for all):"; say "$out"; }
+  while IFS= read -r line; do case $line in "  #"[0-9]*) line=${line#"  "}; shown="$shown${line%% *} ";; esac; done <<EOF
+$out
+EOF
   sim=$(mem_similar "$(mem_task_text "$1")" 3 "$shown")
   [ -z "$sim" ] || { say "Learned on similar work (by words; uak recall $1 --similar):"; say "$sim"; }
 }
-# The lesson numbers mem_for_task shows for a task ("#21,#20"), for the record of its claim; empty when there are none.
+# The lessons a claim shows, selected once: the same lines go into the claim's record ("#21,#20") and onto the screen.
+# MEM_CACHE_ID names the task they are for; mem_for_task reuses them (no second select, no extra process on a claim).
+MEM_CACHE_ID= MEM_CACHE_OUT= MEM_CACHE_IDS=
 mem_shown_ids() {
-  local p; p=$(mem_paths_of "$1"); [ -n "$p" ] || return 0
-  mem_select "$p" 3 path | sed -n 's/^  #\([0-9][0-9]*\) .*/#\1/p' | tr '\n' ',' | sed 's/,$//'
+  local p line n; MEM_CACHE_ID=$1 MEM_CACHE_OUT= MEM_CACHE_IDS=
+  p=$(mem_paths_of "$1"); [ -n "$p" ] || return 0
+  MEM_CACHE_OUT=$(mem_select "$p" 3 path)
+  while IFS= read -r line; do
+    case $line in "  #"[0-9]*) n=${line#"  #"}; MEM_CACHE_IDS="$MEM_CACHE_IDS${MEM_CACHE_IDS:+,}#${n%% *}";; esac
+  done <<EOF
+$MEM_CACHE_OUT
+EOF
 }
 recall_run() {
   ATTEMPT=read; fresh_state; coord_init

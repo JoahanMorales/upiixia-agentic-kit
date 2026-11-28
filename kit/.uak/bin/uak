@@ -203,10 +203,8 @@ while [ "$#" -gt 0 ]; do
     --start) [ "$CMD" = review ] || bad_opt; REVIEW_START=yes;;
     --stop) [ "$CMD" = review ] || bad_opt; REVIEW_STOP=yes;;
     --decline) [ "$CMD" = review ] || bad_opt; REVIEW_DECLINE=yes;;
-    # A bare --learn turns the reject note into the lesson (as before); --learn "TEXT" records TEXT (UAK-201).
-    --learn) [ "$CMD" = review ] || bad_opt; REVIEW_LEARN=yes
-      if [ "$#" -gt 0 ]; then case "$1" in --*) ;; *) REVIEW_LEARN_TEXT=$1; REVIEW_LEARN_GIVEN=yes; shift
-        case "$REVIEW_LEARN_TEXT" in *[![:space:]]*) ;; *) die "--learn \"TEXT\" needs the sentence: what bites, where, what to do instead (bare --learn records the --note).";; esac;; esac; fi;;
+    --learn) [ "$CMD" = review ] || bad_opt; REVIEW_LEARN=yes   # bare: the --note becomes the lesson; --learn "TEXT": TEXT (UAK-201)
+      [ "$#" -eq 0 ] || case "$1" in --*) ;; *) REVIEW_LEARN_TEXT=$1; REVIEW_LEARN_GIVEN=yes; shift;; esac;;
     --amend) [ "$CMD" = plan ] || bad_opt; PLAN_AMEND=yes;;
     --check) [ "$CMD" = plan ] || bad_opt; PLAN_CHECK=yes;;
     --similar) [ "$CMD" = recall ] || bad_opt; MEM_SIMILAR=yes;;
@@ -240,9 +238,8 @@ while [ "$#" -gt 0 ]; do
         --integrated) case "$CMD" in done|integrate) MERGE_COMMIT=$value;; *) bad_opt;; esac;;
         --reviewer) [ "$CMD" = done ] || bad_opt; REVIEWER=$value;;
         --sha) [ "$CMD" = review ] || bad_opt; REVIEW_SHA=$value;;
-        --verdict) [ "$CMD" = review ] || bad_opt; REVIEW_VERDICT=$value;;
+        --verdict|--cause) [ "$CMD" = review ] || bad_opt; case $opt in --verdict) REVIEW_VERDICT=$value;; *) REVIEW_CAUSE=$value;; esac;;
         --note) case "$CMD" in review|done) REVIEW_NOTE=$value;; *) bad_opt;; esac;;
-        --cause) [ "$CMD" = review ] || bad_opt; REVIEW_CAUSE=$value;;
         --for) [ "$CMD" = wait ] || bad_opt; case "$value" in approve|integrated|message) WAIT_FOR=$value;; *) die "--for approve|integrated|message";; esac;;
         --timeout) [ "$CMD" = wait ] || bad_opt; case "$value" in ''|*[!0-9]*) die "--timeout takes seconds";; esac; WAIT_TIMEOUT=$value;;
         --to) case "$CMD" in done|handover) ;; *) bad_opt;; esac; case "$value" in *[!A-Za-z0-9_.-]*) die "--to takes an agent name.";; esac; DONE_TO=$value;;

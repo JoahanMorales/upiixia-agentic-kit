@@ -246,7 +246,7 @@ claim_mutate() {
   FAILS_TEXT="No validation run yet"; COMMANDS_TEXT=$VERIFY
   if [ -f "$TX/$WL" ]; then update_summary_field Next "$NEXT_TEXT"; else set_summary; fi
   # The lessons the claim shows (memory.sh, three per path) are named in its record: "did the lesson reach anyone?" (UAK-201).
-  local shown; shown=$(mem_shown_ids "$ID")
+  mem_shown_ids "$ID"; local shown=$MEM_CACHE_IDS
   event "claim; next: $NEXT_TEXT${shown:+; lessons shown $shown}"
 }
 # heartbeat: renew the lease and record the worktree's progress. A no-op (MUTATE_NOOP) on the owner's own task that
