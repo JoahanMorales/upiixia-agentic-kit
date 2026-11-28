@@ -66,6 +66,7 @@ source of truth for what shipped is `CHANGELOG.md`, and for what is next, `docs/
 | [`followups-v69-amend-198.md`](followups-v69-amend-198.md) | Amend of UAK-198: the human chose to scale the interface up on wide screens (option A of three shown live) | written 2026-11-25, published 2026-11-25 |
 | [`v610-faster.md`](v610-faster.md) | Plan v6.10, first two tasks: UAK-200 (the pages assembled from parts, so tasks can share a page) and UAK-201 (a trend in `uak metrics`, a cause on every reject, lessons shown at claim) | written 2026-11-25, published 2026-11-25 |
 | [`v610-faster-2.md`](v610-faster-2.md) | Plan v6.10, speed: UAK-203 (the gate regenerates a conflicting generated file) and UAK-204 (two tasks in one file when they claim different regions) | published 2026-11-26 |
-| [`v610-amend-201.md`](v610-amend-201.md) | Amend of UAK-201: the option parser and the files that show how to reject join its Paths | written 2026-11-28, waiting for the human |
+| [`v610-amend-201.md`](v610-amend-201.md) | Amend of UAK-201: the option parser and the files that show how to reject join its Paths | published 2026-11-28 |
+| [`v610-amend-parts.md`](v610-amend-parts.md) | Amend of UAK-163, UAK-164, UAK-166 and UAK-167: their Paths name the parts of `pages/` instead of the generated page | written 2026-11-28, waiting for the human |
 | [`port-go.md`](port-go.md) | Porting the engine to Go (or Rust): an estimate | decided: not porting |
 | [`video.md`](video.md) | Plan: `uak video` (the project's video, made from the repo's own facts) | not published; v7.2 |
