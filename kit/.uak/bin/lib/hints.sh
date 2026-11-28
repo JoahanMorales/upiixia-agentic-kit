@@ -23,7 +23,7 @@ unknown_hint() {
 unexpected_arg() { # a word where a flag or nothing goes: the base message, then the spelling that works
   local hint= v=
   case "$CMD:$opt" in
-    review:--approve|review:--reject) v=${opt#--}; hint=" The verdict is a flag value: bash .uak/bin/uak review ${ID:-ID} --sha SHA --verdict $v";;
+    review:--approve|review:--reject) v=${opt#--}; [ "$v" != reject ] || v="reject --cause CAUSE"; hint=" The verdict is a flag value: bash .uak/bin/uak review ${ID:-ID} --sha SHA --verdict $v";;
     review:*|status:*)
       case "$opt" in *[!0-9a-f]*|'') ;; *) if [ "${#opt}" -ge 7 ] && [ "${#opt}" -le 40 ]; then
         if [ "$CMD" = review ]; then hint=" A SHA needs its flag: bash .uak/bin/uak review ${ID:-ID} --sha $opt --verdict approve|reject"

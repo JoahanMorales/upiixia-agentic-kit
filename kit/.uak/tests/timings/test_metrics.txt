@@ -1,2 +1,4 @@
-ci 3
-windows 5
+# measured 2026-11-28 46119499590
+# rule: max x 1.25 rounded up, never less than max + 2 s; maxima linux 2.1 s (46119499590), macos 6.1 s (46119499590), windows 5.1 s (46119499590)
+ci 9
+windows 8

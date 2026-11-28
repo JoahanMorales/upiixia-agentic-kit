@@ -21,7 +21,7 @@ done	tx	done_mutate	done.sh	uak_ship	done ID --pr URL --evidence TEXT [--to REVI
 digest	digest_run	-	status.sh	uak_cli	digest
 tick	tick_run	coord_tick_mutate	uak-coordination	uak_cli	tick
 next	status_run	-	status.sh	uak_next	next
-review	tx	review_mutate	review-merge.sh	uak_review	review ID --start | --stop | --decline | --sha SHA --verdict approve|reject [--note "file:line · what · how to reproduce"] [--learn]
+review	tx	review_mutate	review-merge.sh	uak_review	review ID --start | --stop | --decline | --sha SHA --verdict approve|reject [--cause CAUSE] [--note "file:line · what · how to reproduce"] [--learn ["TEXT"]]
 followup	tx	followup_mutate	claim.sh	uak_cli	followup ID --title TEXT   new task on ID's Paths after ID is INTEGRATED (fixes and polish; no human needed)
 handover	tx	handover_mutate	claim.sh	uak_cli	handover ID --to NAME   pass your claim (or an expired one, or as UAK_HUMAN) to another agent without AVAILABLE
 pr-sync	pr_sync_run	pr_sync_mutate	github.sh	uak_cli	pr-sync [ID]   failed checks and new human review comments on a task's GitHub PR → one message to the task (gh)

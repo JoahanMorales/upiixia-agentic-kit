@@ -87,7 +87,7 @@ What one agent does, and what the kit checks at each step:
 | Test first | `bash .uak/bin/uak red HACK-001` | the task's tests fail on an assertion before the code exists |
 | Ship | `bash .uak/bin/uak done HACK-001 --pr URL --evidence "..."` | the named tests exist, no existing test was weakened, screenshots for screens |
 | Wait | `bash .uak/bin/uak wait HACK-001 --for approve` | returns once, on the verdict |
-| Review | another agent: `uak review HACK-001 --sha SHA --verdict approve` | the reviewer is not the author and names the exact commit |
+| Review | another agent: `uak review HACK-001 --sha SHA --verdict approve` (a reject: `--verdict reject --cause timing --note "file:line · what"`) | the reviewer is not the author, names the exact commit and, on a reject, the cause |
 | Merge | `bash .uak/bin/uak merge HACK-001` | the approved commit, the task's scope, the tests again on the merged result |
 
 To start several agents at once: `bash .uak/bin/uak up 4 --tmux` claims four tasks and opens one agent per worktree

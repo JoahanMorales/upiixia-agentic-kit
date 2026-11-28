@@ -119,7 +119,7 @@ Run as `bash .uak/bin/uak COMMAND`. The most used ones:
 | `plan FILE [--amend]` | publish or amend tasks on `claims` (a person: `UAK_HUMAN`) |
 | `red [ID]` | records that the task's tests fail on an assertion before the code |
 | `done ID --pr URL --evidence TEXT` | send the task to review |
-| `review ID --sha SHA --verdict approve\|reject` | review the exact commit |
+| `review ID --sha SHA --verdict approve\|reject [--cause C] [--learn "TEXT"]` | review the exact commit; a reject needs its cause (CLI.md lists them) |
 | `merge ID` | the gated merge |
 | `wait [ID] --for approve\|integrated\|message` | returns once when that happens, instead of polling |
 | `msg TO TEXT [--kind KIND]` · `inbox` · `digest` | messages between agents · an agent's inbox · a person's summary |

@@ -7,6 +7,10 @@
 # contract message from day 1. Messages scroll away; lessons stay where the code is. Research on long-running
 # agents points the same way: situational knowledge retrieved by the harness, not chosen by the agent.
 MEM_LOG=memory/LESSONS.md
+# The causes of a reject (UAK-201), in one place: `uak review --verdict reject --cause C` takes one of these; `uak metrics
+# --trend` counts them; CLI.md prints them (a test keeps the three equal). Why: 36 % of 158 tasks were rejected at least once
+# and nothing said what for, so "the same cause again" could not be seen.
+REJECT_CAUSES="failure-path-not-handled test-does-not-test timing process-left protocol wording-false security other"
 MEM_TEXT= MEM_PATHS= MEM_FORGET= MEM_DONE= MEM_SEARCH= MEM_SIMILAR=no
 mem_paths_of() { # $1 task ID → its Paths from the backlog, comma separated
   local saved=$ID; ID=$1; task_field Paths 2>/dev/null | tr -d '` '; ID=$saved
@@ -31,22 +35,27 @@ learn_mutate() {
   printf -- '- %s | %s | %s | %s | %s | %s\n' "$n" "$NOW" "$AGENT" "${task:--}" "$paths" "$text" >> "$TX/$MEM_LOG"
   MEM_DONE="#$n on ${paths}"
 }
-# Lessons whose paths overlap $1 (comma-separated paths; "*" = all). Newest first, at most $2 (default 5).
+# Lessons whose paths overlap $1 (comma-separated paths; "*" = all). Newest first, at most $2 (default 5), or with
+# $3 = path at most $2 per path of $1 (a lesson that fits several paths shows once). One awk, whatever the paths.
 mem_select() {
   [ -f "$TX/$MEM_LOG" ] || return 0
-  awk -F' [|] ' -v want="$1" -v max="${2:-5}" -v now="$NOW" '
+  awk -F' [|] ' -v want="$1" -v max="${2:-5}" -v now="$NOW" -v perpath="${3:-}" '
     function ov(a, b,   x, y) { x = a; y = b; sub(/\*.*$/, "", x); sub(/\*.*$/, "", y)
       if (x == "" || y == "") return 1
       return index(x, y) == 1 || index(y, x) == 1 }
     /^- [0-9]/ { n = substr($1, 3) + 0; if ($6 ~ /^forget #[0-9]+$/) { f = $6; sub(/^forget #/, "", f); gone[f + 0] = 1; next }
       line[n] = $0; P[n] = $5; T[n] = $6; W[n] = $3; K[n] = $4; E[n] = $2; if (n > top) top = n }
     END { nw = split(want, w, ","); shown = 0
-      for (i = top; i >= 1 && shown < max; i--) { if (!(i in line) || (i in gone)) continue
-        np = split(P[i], p, ","); hit = 0
-        for (a = 1; a <= np && !hit; a++) for (b = 1; b <= nw && !hit; b++) if (ov(p[a], w[b])) hit = 1
-        if (!hit) continue
+      if (perpath != "") { for (b = 1; b <= nw; b++) { c = 0
+          for (i = top; i >= 1 && c < max; i--) { if (!(i in line) || (i in gone)) continue
+            np = split(P[i], p, ","); for (a = 1; a <= np; a++) if (ov(p[a], w[b])) { pick[i] = 1; c++; break } } } }
+      for (i = top; i >= 1 && (perpath != "" || shown < max); i--) { if (!(i in line) || (i in gone)) continue
+        if (perpath != "") { if (!(i in pick)) continue }
+        else { np = split(P[i], p, ","); hit = 0
+          for (a = 1; a <= np && !hit; a++) for (b = 1; b <= nw && !hit; b++) if (ov(p[a], w[b])) hit = 1
+          if (!hit) continue }
         age = now - E[i]; ag = (age >= 86400) ? int(age / 86400) "d" : (age >= 3600 ? int(age / 3600) "h" : int(age / 60) "m")
-        printf "  #%d · %s ago · %s%s: %s\n", i, ag, W[i], (K[i] != "-" ? " · " K[i] : ""), T[i]; shown++ } }' "$TX/$MEM_LOG"
+        printf "  #%d · %s ago · %s%s: %s\n", i, ag, W[i], (K[i] != "-" ? " · " K[i] : ""), substr(T[i], 1, 300); shown++ } }' "$TX/$MEM_LOG"
 }
 # The words of a task for retrieval: its title, acceptance and Paths in the backlog.
 mem_task_text() {
@@ -122,15 +131,31 @@ mem_similar() {
 }
 # For `next` and `claim`: the lessons of a task's paths, then what the team learned on similar work; silent when none.
 mem_for_task() {
-  local paths out shown sim
-  paths=$(mem_paths_of "$1")
-  if [ -n "$paths" ]; then
-    out=$(mem_select "$paths" 3)
-    [ -z "$out" ] || { say "Lessons for these paths (uak recall $1 for all):"; say "$out"; }
+  local paths out shown= sim line
+  if [ -n "$MEM_CACHE_ID" ] && [ "$MEM_CACHE_ID" = "$1" ]; then out=$MEM_CACHE_OUT
+  else
+    paths=$(mem_paths_of "$1")
+    [ -z "$paths" ] || out=$(mem_select "$paths" 3 path)
   fi
-  shown=$(printf '%s\n' "$out" | sed -n 's/^  \(#[0-9][0-9]*\) .*/\1/p' | tr '\n' ' ')
+  [ -z "$out" ] || { say "Lessons for these paths (uak recall $1 for all):"; say "$out"; }
+  while IFS= read -r line; do case $line in "  #"[0-9]*) line=${line#"  "}; shown="$shown${line%% *} ";; esac; done <<EOF
+$out
+EOF
   sim=$(mem_similar "$(mem_task_text "$1")" 3 "$shown")
   [ -z "$sim" ] || { say "Learned on similar work (by words; uak recall $1 --similar):"; say "$sim"; }
+}
+# The lessons a claim shows, selected once: the same lines go into the claim's record ("#21,#20") and onto the screen.
+# MEM_CACHE_ID names the task they are for; mem_for_task reuses them (no second select, no extra process on a claim).
+MEM_CACHE_ID= MEM_CACHE_OUT= MEM_CACHE_IDS=
+mem_shown_ids() {
+  local p line n; MEM_CACHE_ID=$1 MEM_CACHE_OUT= MEM_CACHE_IDS=
+  p=$(mem_paths_of "$1"); [ -n "$p" ] || return 0
+  MEM_CACHE_OUT=$(mem_select "$p" 3 path)
+  while IFS= read -r line; do
+    case $line in "  #"[0-9]*) n=${line#"  #"}; MEM_CACHE_IDS="$MEM_CACHE_IDS${MEM_CACHE_IDS:+,}#${n%% *}";; esac
+  done <<EOF
+$MEM_CACHE_OUT
+EOF
 }
 recall_run() {
   ATTEMPT=read; fresh_state; coord_init
