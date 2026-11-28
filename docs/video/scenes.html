@@ -269,9 +269,9 @@ SCENE.team = (lt) => {
     html: screen(2, `<h1>Say who is on your team</h1>
         <div class="box"><strong style="color:var(--integrated-ink)">${IC.check.replace('class="ic"', 'class="ic" style="vertical-align:-3px"')} Done</strong> Saved: ana. <button type="button" class="link-button">Change</button></div>
         <div class="box"><h4>1. Register the reviewer</h4>
-          <p style="margin-top:4px"><strong>ana-r</strong> reviews your agents' work. In Hackathon mode an approved change merges after the checks pass.</p>
-          ${reg ? '<p class="hint" style="color:var(--integrated-ink)">ana-r is registered: it reviews your agents\' work.</p>' : '<div style="margin-top:8px"><button class="secondary-button" type="button" id="reg">Register ana-r</button></div>'}</div>`,
-      win("people and roles", [["", "You", "ana"], [reg ? "add" : "keep", "Your reviewer", reg ? "ana-r" : "not registered"], ["", "Implements", "Claude Code"], ["", "Reviews", "Codex"]],
+          <p style="margin-top:4px"><strong>José</strong> reviews your agents' work. In Hackathon mode an approved change merges after the checks pass.</p>
+          ${reg ? '<p class="hint" style="color:var(--integrated-ink)">José is registered: it reviews your agents\' work.</p>' : '<div style="margin-top:8px"><button class="secondary-button" type="button" id="reg">Register José</button></div>'}</div>`,
+      win("people and roles", [["", "You", "ana"], [reg ? "add" : "keep", "Your reviewer", reg ? "José" : "not registered"], ["", "Implements", "Claude Code"], ["", "Reviews", "Codex"]],
         [["1", "people"], [reg ? "1" : "0", "reviewers"], ["0", "agents running"]]),
       foot("", '<button class="primary" type="button" id="go">Continue</button>')),
     cursor: [{ t: 2.6, at: [560, 300] }, { t: 3.9, sel: "#reg", click: true }, { t: 4.9, at: [420, 330] }],
@@ -349,7 +349,7 @@ function startScreen(lt, claimed, opened) {
       <ul class="agents list">
         ${agentLi("Implements", "Claude Code", n ? "claimed APP-001" : "waiting", n ? "p-prog" : "", `cd ${WHERE} && UAK_HUMAN= bash .uak/bin/wt new APP-001`, "s1",
           opened ? "Opened a terminal window for Claude Code at 10:42. It is yours: it stays open if you close the wizard." : "")}
-        ${agentLi("Reviews", "Codex", "waiting", "", `cd ${WHERE} && UAK_HUMAN= UAK_AGENT=ana-r codex`, "s2", "")}
+        ${agentLi("Reviews", "Codex", "waiting", "", `cd ${WHERE} && UAK_HUMAN= UAK_AGENT=José codex`, "s2", "")}
       </ul>`,
     win("your agents", [[n ? "add" : "keep", "Implements", n ? "claimed APP-001" : "waiting"], ["keep", "Reviews", "waiting"], ["", "Claimed tasks", String(n)]],
       [[String(n), "tasks claimed"], ["1", "reviewers"], ["0", "tasks integrated"]]),
@@ -365,7 +365,7 @@ SCENE.start = (lt) => ({
 SCENE.follow = (lt) => ({
   host: "wiz",
   html: screen(6, `<h1>Follow your project</h1>
-      <div><p class="muted" style="font-size:12px">Your next step</p><h3>APP-001 is in review</h3><p class="secondary" style="font-size:12px">ana-r reviews it; an approved change merges after the checks pass.</p></div>
+      <div><p class="muted" style="font-size:12px">Your next step</p><h3>APP-001 is in review</h3><p class="secondary" style="font-size:12px">José reviews it; an approved change merges after the checks pass.</p></div>
       <ul class="list" style="margin-top:10px">${[["APP-001 · Set up the app", "in review"], ["APP-002 · Show the queue", "waiting on dependencies"]]
         .map(([a, b]) => `<li style="display:flex;justify-content:space-between;gap:12px"><span>${a}</span><span class="muted">${b}</span></li>`).join("")}</ul>
       <div><h4>Your app</h4><p class="secondary" style="font-size:12px;margin-top:2px">Not deployed yet. When your app is online, add its link under More.</p></div>`,
@@ -376,9 +376,9 @@ SCENE.follow = (lt) => ({
 
 // ---- the dashboard (kit/.uak/bin/lib/dash.html) ----------------------------------------------------------------------
 const PLAN = [ // number, title, state, owner, waits for
-  [1, "Set up the app", "INTEGRATED", "ana-1"], [2, "Show the queue", "INTEGRATED", "luis-1"], [3, "Take a number", "INTEGRATED", "sofi-1"],
-  [4, "Staff calls the next number", "INTEGRATED", "ana-1"], [5, "Now serving screen", "REVIEW", "luis-1"], [6, "Sound when a number is called", "CLAIMED", "sofi-1"],
-  [7, "Menu of the day", "CLAIMED", "ana-1"], [8, "Prices on the menu", "AVAILABLE", ""], [9, "Order ahead from the menu", "WAITING", "", [7]],
+  [1, "Set up the app", "INTEGRATED", "Asumi"], [2, "Show the queue", "INTEGRATED", "Fer"], [3, "Take a number", "INTEGRATED", "Noemí"],
+  [4, "Staff calls the next number", "INTEGRATED", "Asumi"], [5, "Now serving screen", "REVIEW", "Fer"], [6, "Sound when a number is called", "CLAIMED", "Noemí"],
+  [7, "Menu of the day", "CLAIMED", "Asumi"], [8, "Prices on the menu", "AVAILABLE", ""], [9, "Order ahead from the menu", "WAITING", "", [7]],
   [10, "Wait time estimate", "AVAILABLE", ""], [11, "Pay at the counter", "WAITING", "", [9]], [12, "Deploy the board", "WAITING", "", [5, 6]],
   [13, "Staff sign in", "AVAILABLE", ""], [14, "Close the queue at night", "WAITING", "", [4]], [15, "Daily report of waits", "WAITING", "", [10]],
   [16, "Allergens on the menu", "WAITING", "", [7]], [17, "Several counters", "AVAILABLE", ""], [18, "Queue on a phone", "WAITING", "", [2]],
@@ -423,18 +423,18 @@ function progressBlock(st) {
     <div class="stack">${rows.filter((r) => c[r[2]]).map((r) => `<i style="--c:var(--${r[0]});flex:${c[r[2]]} 1 0"></i>`).join("")}</div>
     <dl class="kv">${rows.map((r) => `<dt><i class="sw" style="--c:var(--${r[0]})"></i>${r[1]}</dt><dd style="margin:0"><b>${c[r[2]] || 0}</b></dd>`).join("")}</dl></div></section>`;
 }
-const AGENTS = [["ana-1", "ana", "in progress APP-007", "12 s"], ["luis-1", "luis", "in review APP-005", "40 s"], ["sofi-1", "sofi", "in progress APP-006", "2 min"], ["ana-r", "ana", "in review APP-005", "3 min"]];
+const AGENTS = [["Asumi", "Asumi", "in progress APP-007", "12 s"], ["Fer", "Fer", "in review APP-005", "40 s"], ["Noemí", "Noemí", "in progress APP-006", "2 min"], ["José", "José", "in review APP-005", "3 min"]];
 function agentsBlock() {
   return `<section class="blk b-agents"><div class="bh"><h2>Agents</h2><span class="n">4 online</span><div class="x"><span class="pres online"></span></div></div>
     <div class="card"><ul class="list ppl">${AGENTS.map(([a, h, task, ago]) => `<li>${idc(a, h, 24)}<div style="min-width:0"><b>${a}</b><small>${task}</small></div><span class="muted num">${ago}</span></li>`).join("")}</ul></div></section>`;
 }
 function needsBlock(waiting) {
-  const items = waiting ? `<li><span class="ico">${IC.eye}</span><div><b><span class="mono">APP-005</span> waits for review</b><p>owner luis-1 · offered to all</p></div>
+  const items = waiting ? `<li><span class="ico">${IC.eye}</span><div><b><span class="mono">APP-005</span> waits for review</b><p>owner Fer · offered to all</p></div>
       <div class="act"><div class="cmd"><code>uak status --task APP-005</code><button type="button">${IC.copy}</button></div><div class="when num">4 min</div></div></li>`
     : `<li class="allclear"><span class="ico">${IC.ok}</span><div><p>Nothing needs you right now: no review waiting, nothing stalled, nothing for a human.</p></div></li>`;
   return `<section class="blk b-needs"><div class="bh"><h2>Needs you</h2>${waiting ? '<span class="n">1 thing, the most urgent first</span>' : ""}</div>
     <div class="win"><ul class="list need">${items}</ul><div class="win-f f4">
-      <div><b>4</b>Agents online<small>ana-1, luis-1 +2</small></div><div><b>${waiting ? 1 : 0}</b>Reviews waiting<small>${waiting ? "oldest 4 min" : "none waiting"}</small></div>
+      <div><b>4</b>Agents online<small>Asumi, Fer +2</small></div><div><b>${waiting ? 1 : 0}</b>Reviews waiting<small>${waiting ? "oldest 4 min" : "none waiting"}</small></div>
       <div><b>0</b>Stalled<small>every task is moving</small></div><div><b>0</b>Needs a human<small>nothing for you</small></div></div></div></section>`;
 }
 function pipe(s) {
@@ -443,7 +443,7 @@ function pipe(s) {
 }
 function tasksBlock(st, phase) {
   const review = { waiting: "waiting for a reviewer · 4 min", approved: "approved, waiting for the merge" }[phase] || "";
-  const rows = [[5, review], [7, "ana-1 · 12 s"], [6, "sofi-1 · 2 min"]];
+  const rows = [[5, review], [7, "Asumi · 12 s"], [6, "Noemí · 2 min"]];
   const pk = { CLAIMED: "p-prog", REVIEW: "p-rev", INTEGRATED: "p-int" };
   return `<section class="blk b-tasks"><div class="bh"><h2>Tasks</h2><span class="n">${PLAN.length} tasks</span></div>
     <ul class="list rows">${rows.map(([n, w]) => { const s = st[n - 1]; return `<li><span class="pill ${pk[s]}">${LABEL[s]}</span><button class="tid">${id3(n)}</button><span class="t">${PLAN[n - 1][1]}</span>${pipe(s)}<span class="w">${s === "INTEGRATED" ? "integrated" : w}</span></li>`; }).join("")}</ul></section>`;
@@ -471,14 +471,14 @@ SCENE.squares = (lt) => {
   return { host: "dash", html: dApp(0, summary(st, { sel }), tip, Math.round(120 * ease((lt - 0.3) / 0.6))), cursor: [{ t: 0.2, at: [760, 420] }, { t: 2.1, sel: "#sq9" }] };
 };
 SCENE.needs = (lt) => {
-  // ana-r reviews APP-005 and approves it; the checks pass and it merges: the row walks its line of nodes to the end.
+  // José reviews APP-005 and approves it; the checks pass and it merges: the row walks its line of nodes to the end.
   const phase = lt < 1.8 ? "waiting" : lt < 3.2 ? "approved" : "merged", st = states(lt, phase === "merged");
   return { host: "dash", html: dApp(0, summary(st, { phase, order: ["needs", "tasks", "map"] })) };
 };
 SCENE.agents = (lt) => {
   const card = ([a, h, task, ago]) => `<article class="ac"><div class="ac-h">${idc(a, h, 26)}<b>${a}</b></div><div class="sub"><span class="pres online"></span> online · ${ago} ago</div>
     <div class="chips" style="margin:0"><button class="chip"><i class="sw" style="--c:var(--${task.startsWith("in progress") ? "claimed" : "review"})"></i><span class="mono">${task.slice(-7)}</span><span class="muted">${task.slice(0, -8)}</span></button></div>
-    <div class="sub ell">${a === "ana-r" ? "gpt-5-codex" : "claude-sonnet-5-5"}</div><div class="sub num">${{ "ana-1": "31 messages · 0 verdicts · 2 checkpoints", "luis-1": "18 messages · 0 verdicts · 1 checkpoint", "sofi-1": "12 messages · 0 verdicts · 1 checkpoint", "ana-r": "9 messages · 4 verdicts · 0 checkpoints" }[a]}</div></article>`;
+    <div class="sub ell">${a === "José" ? "gpt-5-codex" : "claude-sonnet-5-5"}</div><div class="sub num">${{ "Asumi": "31 messages · 0 verdicts · 2 checkpoints", "Fer": "18 messages · 0 verdicts · 1 checkpoint", "Noemí": "12 messages · 0 verdicts · 1 checkpoint", "José": "9 messages · 4 verdicts · 0 checkpoints" }[a]}</div></article>`;
   const people = [["ana", "human"], ["luis", "human"], ["sofi", "human"]];
   return {
     host: "dash",
@@ -549,23 +549,23 @@ const tint = (name) => `hsl(${hue(name)} 60% 62%)`;
 const backOut = (x) => { x = clamp(x, 0, 1); const c = 1.6; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
 const lerp = (a, b, f) => a + (b - a) * f;
 const brandx = () => `<div class="brandx"><span class="mark">${MARK}</span>UPIIXIA Agentic Kit</div>`;
-const CREW = [["ana-1", "ana", "Claude Code"], ["luis-1", "luis", "Codex"], ["sofi-1", "sofi", "Cursor"], ["ana-r", "ana", "Codex", "reviewer"]];
+const CREW = [["Asumi", "Asumi", "Claude Code"], ["Fer", "Fer", "Codex"], ["Noemí", "Noemí", "Cursor"], ["José", "José", "Codex", "reviewer"]];
 // What each terminal prints, in the kit's words (wt new, uak red, the hooks' DONE line, /uak-review, uak merge).
 const SAYS = {
-  "ana-1": [[0.3, '<span class="p">$</span> wt new APP-007'], [0.9, '<span class="ok">OK claim APP-007</span>'], [1.8, '<span class="red">RED 1 failed</span>'], [3.2, '<span class="ok">PASS 4 passed</span>']],
-  "luis-1": [[0.5, '<span class="p">$</span> wt new APP-005'], [1.1, '<span class="ok">OK claim APP-005</span>'], [2.0, '<span class="ok">PASS 6 passed</span>'], [2.8, "DONE APP-005 → review"]],
-  "sofi-1": [[0.7, '<span class="p">$</span> wt new APP-006'], [1.3, '<span class="ok">OK claim APP-006</span>'], [2.4, '<span class="red">RED 1 failed</span>'], [3.6, '<span class="ok">PASS 2 passed</span>']],
-  "ana-r": [[0.9, '<span class="p">&gt;</span> /uak-review APP-004'], [1.7, '<span class="rv">APPROVE APP-004</span>'], [2.5, '<span class="p">$</span> uak merge APP-004'], [3.4, '<span class="p">&gt;</span> /uak-review APP-005']],
+  "Asumi": [[0.3, '<span class="p">$</span> wt new APP-007'], [0.9, '<span class="ok">OK claim APP-007</span>'], [1.8, '<span class="red">RED 1 failed</span>'], [3.2, '<span class="ok">PASS 4 passed</span>']],
+  "Fer": [[0.5, '<span class="p">$</span> wt new APP-005'], [1.1, '<span class="ok">OK claim APP-005</span>'], [2.0, '<span class="ok">PASS 6 passed</span>'], [2.8, "DONE APP-005 → review"]],
+  "Noemí": [[0.7, '<span class="p">$</span> wt new APP-006'], [1.3, '<span class="ok">OK claim APP-006</span>'], [2.4, '<span class="red">RED 1 failed</span>'], [3.6, '<span class="ok">PASS 2 passed</span>']],
+  "José": [[0.9, '<span class="p">&gt;</span> /uak-review APP-004'], [1.7, '<span class="rv">APPROVE APP-004</span>'], [2.5, '<span class="p">$</span> uak merge APP-004'], [3.4, '<span class="p">&gt;</span> /uak-review APP-005']],
 };
 // The poster's terminals: one line each, large enough to read at the 560 px the setup page shows it.
-const SAYS_POSTER = { "ana-1": '<span class="red">RED</span> APP-007', "luis-1": "DONE APP-005", "sofi-1": '<span class="ok">PASS</span> APP-006', "ana-r": '<span class="rv">APPROVE</span> APP-004' };
-// The 24 tasks of the plan as the crew finds them: 1-3 integrated, 4 in review until ana-r merges it, 5 in review, 6 and 7 in progress.
+const SAYS_POSTER = { "Asumi": '<span class="red">RED</span> APP-007', "Fer": "DONE APP-005", "Noemí": '<span class="ok">PASS</span> APP-006', "José": '<span class="rv">APPROVE</span> APP-004' };
+// The 24 tasks of the plan as the crew finds them: 1-3 integrated, 4 in review until José merges it, 5 in review, 6 and 7 in progress.
 function planState(i, t) {
   if (i < 3) return ["int"];
-  if (i === 3) return t >= 0 ? ["int"] : ["rev", "ana-r"];
-  if (i === 4) return ["rev", "ana-r"];
-  if (i === 5) return ["prog", "sofi-1"];
-  if (i === 6) return ["prog", "ana-1"];
+  if (i === 3) return t >= 0 ? ["int"] : ["rev", "José"];
+  if (i === 4) return ["rev", "José"];
+  if (i === 5) return ["prog", "Noemí"];
+  if (i === 6) return ["prog", "Asumi"];
   return [[8, 10, 13, 15, 16, 18, 21, 23].includes(i) ? "wt" : "av"];
 }
 function strip(x, y, sz, gap, t, label) {
@@ -604,10 +604,10 @@ SCENE.you = (lt) => {
 SCENE.crew = (lt) => ({ host: "own", html: `<div class="abs" style="left:72px;top:46px">${brandx()}</div>
   <h1 class="abs big" style="left:72px;top:90px;font-size:56px">Each agent, its own task<br><em>and its own terminal.</em></h1>
   ${crewRow(lt, 262, 96, false)}${strip(72, 590, 24, 9, -1, "one plan · 24 tasks")}` });
-// Lanes: each agent's task rides the line of nodes and joins one line, main. ana-1 merges APP-004 (ana-r approved it),
-// then claims APP-007; luis-1's APP-005 reaches review; sofi-1's APP-006 turns green.
-const LANES = [["ana-1", "ana", "Claude Code"], ["luis-1", "luis", "Codex"], ["sofi-1", "sofi", "Cursor"]];
-const RIDES = { "ana-1": [["APP-004", 0.6, -0.9, 1.6], ["APP-007", 0.0, 2.4, 4.2]], "luis-1": [["APP-005", 0.5, 0.0, 4.0]], "sofi-1": [["APP-006", 0.25, 0.2, 4.2]] };
+// Lanes: each agent's task rides the line of nodes and joins one line, main. Asumi merges APP-004 (José approved it),
+// then claims APP-007; Fer's APP-005 reaches review; Noemí's APP-006 turns green.
+const LANES = [["Asumi", "Asumi", "Claude Code"], ["Fer", "Fer", "Codex"], ["Noemí", "Noemí", "Cursor"]];
+const RIDES = { "Asumi": [["APP-004", 0.6, -0.9, 1.6], ["APP-007", 0.0, 2.4, 4.2]], "Fer": [["APP-005", 0.5, 0.0, 4.0]], "Noemí": [["APP-006", 0.25, 0.2, 4.2]] };
 const STOPS = [["claim", 0], ["red", 0.25], ["green", 0.5], ["review", 0.75], ["merge", 1]];
 SCENE.lanes = (lt) => {
   const X0 = 330, X1 = 1040, MAINX = 1150, TOP = 236, GAP = 118;
@@ -639,7 +639,7 @@ SCENE.lanes = (lt) => {
   });
   return { host: "own", html: html + `<svg class="abs" style="left:0;top:0;overflow:visible" width="1280" height="720">${svg}</svg>` };
 };
-// The grid: the plan's strip grows into the whole wall of squares; ana-r merges APP-004 (it pops green), the avatars sit
+// The grid: the plan's strip grows into the whole wall of squares; José merges APP-004 (it pops green), the avatars sit
 // on the squares they hold.
 SCENE.grid = (lt) => {
   const g = ease(lt / 1.1), SZ = 96, GAPG = 12, GX = 592, GY = 84;
@@ -649,13 +649,13 @@ SCENE.grid = (lt) => {
     let [k, who] = planState(i, lt - 1.6);
     let pop = 1;
     if (i === 3 && lt >= 1.6) pop = 1 + 0.14 * (1 - ease((lt - 1.6) / 0.35));
-    const on = who && g > 0.85 ? `<span class="on" style="opacity:${ease((g - 0.85) / 0.15)}">${face(who, who.split("-")[0], 44, "box-shadow:0 0 0 3px var(--page)")}</span>` : "";
+    const on = who && g > 0.85 ? `<span class="on" style="opacity:${ease((g - 0.85) / 0.15)}">${face(who, who, 44, "box-shadow:0 0 0 3px var(--page)")}</span>` : "";
     return `<div class="gsq ${k}" style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${sz.toFixed(1)}px;height:${sz.toFixed(1)}px;font-size:${(sz * 0.24).toFixed(1)}px;border-radius:${lerp(5, 10, g).toFixed(1)}px;--c:${who ? tint(who) : "var(--claimed)"};transform:scale(${pop.toFixed(3)})">${g > 0.6 ? i + 1 : ""}${on}</div>`;
   }).join("");
   const done = lt >= 1.6 ? 4 : 3;
   return { host: "own", html: `<div class="abs" style="left:72px;top:46px">${brandx()}</div>
     <h1 class="abs big" style="left:72px;top:130px;font-size:60px;width:470px">Every task<br>is a square.<br><em>Green when it merges.</em></h1>
-    <p class="abs lead" style="left:72px;top:388px;width:440px">The plan's 24 tasks; each avatar sits on the task its agent holds, ana-r on the ones in review.</p>
+    <p class="abs lead" style="left:72px;top:388px;width:440px">The plan's 24 tasks; each avatar sits on the task its agent holds, José on the ones in review.</p>
     <div class="abs mono" style="left:72px;top:500px;font:500 16px var(--mono);color:var(--muted)"><b style="color:var(--ink);font-size:30px">${done}</b> of 24 integrated</div>${sqs}` };
 };
 
@@ -666,8 +666,8 @@ SCENE.grid = (lt) => {
 // loop(t): 8 s that loop, the parallel moment: avatars take squares, a reviewer passes, squares turn green.
 const LOOP_LEN = 8;
 const LOOP_RUNS = [ // square, agent, claim, review, merge (seconds of the loop)
-  [3, "ana-1", 0.4, 2.6, 3.6], [4, "luis-1", 0.8, 3.4, 4.4], [5, "sofi-1", 1.2, 4.2, 5.2],
-  [6, "ana-1", 3.9, 5.6, 6.5], [9, "luis-1", 4.7, 6.2, 7.0], [10, "sofi-1", 5.5, 6.9, 7.6]];
+  [3, "Asumi", 0.4, 2.6, 3.6], [4, "Fer", 0.8, 3.4, 4.4], [5, "Noemí", 1.2, 4.2, 5.2],
+  [6, "Asumi", 3.9, 5.6, 6.5], [9, "Fer", 4.7, 6.2, 7.0], [10, "Noemí", 5.5, 6.9, 7.6]];
 function loopFrame(t) {
   const SZ = 104, G = 14, COLS = 8, X = (1280 - (COLS * SZ + (COLS - 1) * G)) / 2, Y = 236;
   const fade = t > 7.6 ? 1 - ease((t - 7.6) / 0.4) : t < 0.25 ? ease(t / 0.25) : 1;
@@ -676,11 +676,11 @@ function loopFrame(t) {
     for (const [sq, a, c, r, m] of LOOP_RUNS) {
       if (sq !== i) continue;
       if (t >= m) { k = "int"; pop = 1 + 0.14 * (1 - ease((t - m) / 0.35)); }
-      else if (t >= r) { k = "rev"; who = "ana-r"; }
+      else if (t >= r) { k = "rev"; who = "José"; }
       else if (t >= c) { k = "prog"; who = a; }
     }
     const x = X + (i % COLS) * (SZ + G), y = Y + Math.floor(i / COLS) * (SZ + G);
-    const on = who ? `<span class="on">${face(who, who.split("-")[0], 46, "box-shadow:0 0 0 3px var(--page)")}</span>` : "";
+    const on = who ? `<span class="on">${face(who, who, 46, "box-shadow:0 0 0 3px var(--page)")}</span>` : "";
     return `<div class="gsq ${k}" style="left:${x}px;top:${y}px;width:${SZ}px;height:${SZ}px;font-size:24px;--c:${who ? tint(who) : "var(--claimed)"};transform:scale(${pop.toFixed(3)})">${i + 1}${on}</div>`;
   }).join("");
   return `<div style="opacity:${fade.toFixed(3)}"><div class="abs" style="left:72px;top:56px">${brandx()}</div>

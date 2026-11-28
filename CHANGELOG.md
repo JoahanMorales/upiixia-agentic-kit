@@ -1,6 +1,44 @@
 # Changelog
 
-## Unreleased · The visual setup
+## v6.9.0 · 2026-11-28 · The visual setup
+
+What landed after the contribution below (UAK-152), by task:
+
+- **The wizard and its guard (UAK-153, 156, 192, 196).** The wizard acts for the human only when a human runs it, and the
+  guard reads what a command mentions (UAK-153). It is one process per project that ends by itself, leaves no child or
+  port, and an open page starts no process (UAK-156). Kills check the process start time, so the wizard never kills a
+  process it did not start; the guard knows the new routes and files (UAK-196, UAK-188). Where the wizard showed a
+  command to copy, it has a button that runs it (UAK-192).
+- **The wizard's screens (UAK-158, 159, 161, 163, 164).** One design system for the wizard and the dashboard, and
+  `design-lint` reads HTML (UAK-158). Ten screens with one job each, a line of nodes for the steps, and coverage of
+  what the kit does today (UAK-159). The install ends by asking "browser or terminal" and both reach the same place
+  (UAK-161). Joining a project that is already set up takes three screens (UAK-163); pasting or dropping what you
+  already have lets the agent fill the form (UAK-164).
+- **Spanish (UAK-160).** The wizard's Spanish is written by the page from the engine's codes, not translated from the
+  engine's sentences; the install question is in Spanish too.
+- **The dashboard (UAK-162, 165, 166, 167, 194, 198).** Redrawn in the chosen direction (UAK-162). The summary is made
+  of components the viewer arranges (move, hide, add), with more components to choose from, and Share (UAK-165, 166);
+  a component can be described in words as a declarative spec (UAK-167). The Share card can be saved on a phone
+  (UAK-194). On a wide monitor the page scales up from 1432 px (x1.34 at 1920 px, x1.79 at 2560 px); the cap is reached
+  near 2578 px and the extra columns start near 2900 px (UAK-198).
+- **The tutorial video and the README (UAK-199, 202).** The 74-second video is redrawn on the dark theme with drawn
+  screens of the setup page and the dashboard, and its four agents are Asumi, Fer, Noemí and José; the poster and captions in English and Spanish are regenerated with it
+  (`docs/video/`, `npm run render`). The README is rewritten in plain words and its images come from the same drawing
+  (UAK-202).
+- **Install and start (UAK-154, 155, 157, 185, 186, 193).** A newer kit blocks a published project only on a major
+  version (UAK-154). `done --pr none` is tested under every review mode and the generated smoke does not trust file
+  names (UAK-155). The hook's background start cannot hang or pile up, and it survives its own files being wrong
+  (UAK-157, 185). The merge reads the review mode from the base (UAK-186). An install never copies Python's bytecode
+  (UAK-193).
+- **Tests and CI (UAK-148, 150, 151, 168, 187, 189, 190, 191, 195, 197).** A generated file does not send a task to the
+  human (UAK-148). `test_flaky_guard` is two files and the lint says when a file is too long (UAK-150, 151). Pull
+  requests wait for CI in two tiers (UAK-168). A test's seconds live in its own file (UAK-187). CI has a browser
+  (Chromium), and a case that did not run says so (UAK-195). The intermittent cases are listed in one place,
+  `test_ci_flaky.py`, with a timing rule for slow runners (UAK-197, 191, 189, 190). UAK-149 was cancelled after review.
+- **Release files.** `make_media.py --fallback` takes `--out DIR` and no longer writes into `docs/media/` by default;
+  `docs/EVIDENCE.md` says the OpenAI x Kavak entry was named AXIA.
+
+### The visual setup, as contributed (UAK-152)
 
 The terminal-only setup was hard to follow. Now the terminal starts a local page and stays in the background;
 installing, the next step, planning and progress happen in the browser. The CLI path is unchanged.
