@@ -68,5 +68,6 @@ source of truth for what shipped is `CHANGELOG.md`, and for what is next, `docs/
 | [`v610-faster-2.md`](v610-faster-2.md) | Plan v6.10, speed: UAK-203 (the gate regenerates a conflicting generated file) and UAK-204 (two tasks in one file when they claim different regions) | published 2026-11-26 |
 | [`v610-amend-201.md`](v610-amend-201.md) | Amend of UAK-201: the option parser and the files that show how to reject join its Paths | published 2026-11-28 |
 | [`v610-amend-parts.md`](v610-amend-parts.md) | Amend of UAK-163, UAK-164, UAK-166 and UAK-167: their Paths name the parts of `pages/` instead of the generated page | written 2026-11-28, waiting for the human |
+| [`v610-amend-204.md`](v610-amend-204.md) | Amend of UAK-204: the option parser, `wait.sh`, `status.sh` and the two lists of `wait --for` values join its Paths | written 2026-11-28, waiting for the human |
 | [`port-go.md`](port-go.md) | Porting the engine to Go (or Rust): an estimate | decided: not porting |
 | [`video.md`](video.md) | Plan: `uak video` (the project's video, made from the repo's own facts) | not published; v7.2 |
