@@ -490,6 +490,9 @@ def check_structure(findings):
     sys.path.insert(0, str(ROOT / "scripts"))
     import gen_registry
     findings.extend("registry · " + x for x in gen_registry.problems())
+    # The two pages are assembled from the parts in pages/ (scripts/gen_pages.py): a stale page or a broken part is a finding.
+    import gen_pages
+    findings.extend("pages · " + x for x in gen_pages.problems())
     check_test_discovery(findings)
     check_workflow_dispatch(findings)
     install = (ROOT / "install.sh").read_text(encoding="utf-8")

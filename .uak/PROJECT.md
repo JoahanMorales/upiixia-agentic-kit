@@ -38,5 +38,7 @@ Max-Worktree-Agents: 4
 Blackbox: on
 Additive-Paths: -
 Generated: kit/.uak/settings/known-files.txt = python3 scripts/kit_hashes.py
+Generated: kit/.uak/bin/lib/dash.html = python3 scripts/gen_pages.py
+Generated: kit/.uak/bin/lib/setup.html = python3 scripts/gen_pages.py
 Test-First: yes
 ```
