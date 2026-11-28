@@ -217,7 +217,7 @@ def unpublished_project_is_blocked_by_any_release(r):
 
 
 def versions_compare_as_numbers(r):
-    """UAK-154: 6.10.0 is newer than 6.9.0; 6.9.0 is not newer than 6.10.0; an unreadable version blocks nothing and says so."""
+    """UAK-154: 6.10.0 is newer than 6.9.99; 6.9.99 is not newer than 6.10.0; an unreadable version blocks nothing and says so."""
     t, env, start, kit_src, kit_bare, _ = ready_project(r, "gate-num")
     version = t / ".uak/VERSION"
 
@@ -225,11 +225,11 @@ def versions_compare_as_numbers(r):
         version.write_text(text + "\n", encoding="utf-8")
         r.run([r.git, "commit", "-qam", "chore: version " + text], cwd=t, env=env)
         r.run([r.git, "push", "-q", "origin", "main"], cwd=t, env=env)
-    set_version("6.9.0")
+    set_version("6.9.99")
     release(r, kit_src, kit_bare, "6.10.0")
     out = start()
     expect(out.returncode == 0 and "START READY" in out.stdout and [l for l in out.stdout.splitlines() if l.startswith("NOTE") and "6.10.0" in l],
-           "6.10.0 is newer than 6.9.0: " + out.stdout)
+           "6.10.0 is newer than 6.9.99: " + out.stdout)
     set_version("6.11.0")
     out = start()
     expect("6.10.0" not in out.stdout and "TODO" not in out.stdout, "6.11.0 is not older than 6.10.0: " + out.stdout)
