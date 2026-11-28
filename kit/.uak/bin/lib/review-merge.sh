@@ -142,6 +142,18 @@ rm_main_merges_only() {
     c=$p1
   done
 }
+# A reject carries its cause, from REJECT_CAUSES (memory.sh). A missing cause is accepted only under UAK_NOW, the simulated
+# clock the guard forbids an agent to set and the kit's older tests set on every call: those events carry no cause and
+# `uak metrics --trend` says "no cause recorded" for them (UAK-201).
+rm_cause_check() {
+  [ "$REVIEW_START" != yes ] && [ -n "$REVIEW_VERDICT" ] || return 0
+  if [ -n "$REVIEW_CAUSE" ]; then
+    [ "$REVIEW_VERDICT" = reject ] || die "--cause goes with --verdict reject only."
+    case " $REJECT_CAUSES " in *" $REVIEW_CAUSE "*) ;; *) die "--cause $REVIEW_CAUSE is not one of: $REJECT_CAUSES.";; esac
+  elif [ "$REVIEW_VERDICT" = reject ] && [ -z "${UAK_NOW:-}" ]; then
+    die "A reject needs its cause: --cause one of: $REJECT_CAUSES (so the next agent and uak metrics --trend can see what keeps coming back)."
+  fi
+}
 # A reject that still covers the current tip: same SHA, or later commits that are only clean merges of the base
 # (the rejected code is unchanged). Sets RM_REJECTER. Why (audit of v5.5.0): a second reviewer undid a reject by
 # rejecting too and then approving, or by approving the rejected SHA after the owner merged main into the branch.
@@ -170,6 +182,7 @@ review_mutate() {
     MSG_DECLINED="$ID $AGENT"; msg_reoffer_reviews; MSG_DECLINED=
     return 0
   fi
+  rm_cause_check
   if [ "$AGENT" = "$(field "$RECORD" Owner)" ]; then
     # In the author's worktree its .uak-env wins over the shell's UAK_AGENT: say so, and where a review runs from.
     [ -z "${UAK_ENV_SHELL_AGENT:-}" ] || UAK_CODE=own-review conflict "The owner cannot approve their own task. This worktree's .uak-env names $AGENT (the shell had $UAK_ENV_SHELL_AGENT): review from the main checkout or your own clone, not the author's worktree."
@@ -257,16 +270,21 @@ review_mutate() {
   [ -z "$unseen" ] || say "NOTE review $ID | replaces an approval by $unseen, never seen on claims or retired (merge would have refused it)."
   put "$RECORD" Task-Tip "$RM_TIP"
   WL=$(field "$RECORD" Worklog); STATE=$(field "$RECORD" State)
-  event "review; $REVIEW_VERDICT; SHA $RM_TIP; reviewer $AGENT"
+  event "review; $REVIEW_VERDICT; SHA $RM_TIP; reviewer $AGENT${REVIEW_CAUSE:+; cause $REVIEW_CAUSE}"
   # --note goes in the same message: one message per verdict, not a verdict plus a separate detail message.
   local note=; [ -z "$REVIEW_NOTE" ] || note=" · $REVIEW_NOTE"
   if [ "$REVIEW_VERDICT" = approve ]; then
     msg_append "task:$ID" approve "$ID" "Approved SHA ${RM_TIP%"${RM_TIP#???????}"} by $AGENT$note. Next: bash .uak/bin/uak merge $ID (the owner; after $(( $(rm_config Merge-Adopt-Seconds 1200) / 60 )) min any agent can)"
   else
     msg_append "task:$ID" reject "$ID" "Rejected SHA ${RM_TIP%"${RM_TIP#???????}"} by $AGENT$note. Fix, push, and rerun /uak-ship"
-    # --learn: the reason becomes a lesson on the task's paths, so the next task there does not repeat it.
-    if [ "$REVIEW_LEARN" = yes ] && [ -n "$REVIEW_NOTE" ]; then MEM_TEXT=$REVIEW_NOTE; MEM_PATHS=; learn_mutate
-    else REVIEW_HINT="If this mistake can happen in other tasks too, keep it for them: bash .uak/bin/uak learn \"what bites · where · what to do\" --task $ID"; fi
+    # --learn "TEXT" records TEXT, a bare --learn the note (it becomes a lesson on the task's paths); nothing is recorded
+    # unless the reviewer wrote the sentence. Without --learn the engine offers the one command that records it.
+    if [ "$REVIEW_LEARN_GIVEN" = yes ]; then MEM_TEXT=$REVIEW_LEARN_TEXT; MEM_PATHS=; learn_mutate
+    elif [ "$REVIEW_LEARN" = yes ] && [ -n "$REVIEW_NOTE" ]; then MEM_TEXT=$REVIEW_NOTE; MEM_PATHS=; learn_mutate
+    else
+      local lp; lp=$(mem_paths_of "$ID")
+      REVIEW_HINT="If this mistake can happen in other tasks too, keep it for them: bash .uak/bin/uak learn \"what bites · where · what to do\"${lp:+ --path $lp} --task $ID"
+    fi
   fi
 }
 # Review-Mode: auto with no gh in PATH reviews on claims; the command says so once per run, on stderr (UAK-189: it never

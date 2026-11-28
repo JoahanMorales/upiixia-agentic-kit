@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """uak metrics: every speed number next to its instability number, from the claims branch (read-only).
 
-    bash .uak/bin/uak metrics [--since DAYS] [--task ID] [--json] [--claims DIR]
+    bash .uak/bin/uak metrics [--since DAYS] [--task ID] [--trend] [--json] [--claims DIR]
 
 Reads claims only: the ledger files metrics/<day>-<machine>.tsv (UAK-116), tasks, worklog histories, queue, DECISIONS,
 the backlog, the black box. One fetch (dash.snapshot, the reader `uak dash` uses), then passes over local files.
@@ -90,10 +90,10 @@ def history(wl_text):
 
 
 def verdict_of(ev):
-    m = re.match(r"review; (approve|reject)(?:; SHA ([0-9a-f]+))?(?:; reviewer (\S+))?", ev["text"])
+    m = re.match(r"review; (approve|reject)(?:; SHA ([0-9a-f]+))?(?:; reviewer ([^\s;]+))?(?:; cause (\S+))?", ev["text"])
     if ev["state"] == "REVIEW" and m:
         return {"epoch": ev["epoch"], "verdict": m.group(1), "sha": (m.group(2) or "")[:7],
-                "reviewer": m.group(3) or ev["actor"], "model": ev["model"]}
+                "reviewer": m.group(3) or ev["actor"], "model": ev["model"], "cause": m.group(4) or ""}
     return None
 
 
@@ -164,7 +164,17 @@ def load(claims):
                 bb_versions.append((f.name[:10], tuple(int(x) for x in vm.groups())))
             if len(p) >= 6 and p[5].strip() == "manual":
                 manual.append({"day": f.name[:10], "text": p[7].strip() if len(p) > 7 else ""})
-    return {"tasks": tasks, "ledger": ledger, "sums": sums, "queue": queue, "allows": allows, "followups": followups,
+    lessons = {}   # memory/LESSONS.md: "- N | epoch | agent | task | paths | text"; "forget #N" lines remove one
+    for line in lines_of(c / "memory" / "LESSONS.md"):
+        p = line[2:].split(" | ") if re.match(r"^- \d", line) else []
+        if len(p) < 6:
+            continue
+        fm = re.match(r"^forget #(\d+)$", p[5].strip())
+        if fm:
+            lessons.pop(int(fm.group(1)), None)
+        elif p[0].strip().isdigit() and p[1].strip().isdigit():
+            lessons[int(p[0])] = {"id": int(p[0]), "epoch": int(p[1]), "task": p[3].strip(), "paths": p[4].strip(), "text": p[5]}
+    return {"lessons": lessons, "tasks": tasks, "ledger": ledger, "sums": sums, "queue": queue, "allows": allows, "followups": followups,
             "manual": manual, "humans": humans, "bb_versions": bb_versions}
 
 
@@ -408,6 +418,149 @@ def build(data, since_days, now, git_root, claims_given):
     }
 
 
+TREND_MIN = 5          # a window with fewer tasks than this gives counts, never a percentage or a median (UAK-201)
+NO_CAUSE = "no cause recorded"
+TREND_WEEKS = 8
+
+
+def week_start(epoch):
+    """Monday 00:00 UTC of the week of `epoch`, in integers (1970-01-01 was a Thursday): no locale, no date library."""
+    d = int(epoch) // 86400
+    return (d - (d + 3) % 7) * 86400
+
+
+def share(n, d):
+    """'3 of 8 (38%)', or '3 of 3 (fewer than 5 tasks: no percentage)'."""
+    return "%d of %d" % (n, d) + (" (%d%%)" % round(100.0 * n / d) if d >= TREND_MIN else " (fewer than %d tasks: no percentage)" % TREND_MIN if d else "")
+
+
+def lessons_shown(ev):
+    m = re.search(r"; lessons shown ((?:#\d+,?)+)$", ev["text"]) if ev["state"] == "CLAIMED" else None
+    return [int(x) for x in re.findall(r"#(\d+)", m.group(1))] if m else []
+
+
+def path_overlap(a, b):
+    """The engine's rule (memory.sh mem_select): paths overlap when one is a prefix of the other up to a glob; '*' or '' = all."""
+    for x in a.replace(" ", "").split(","):
+        for y in b.replace(" ", "").split(","):
+            x1, y1 = x.split("*")[0], y.split("*")[0]
+            if x1 == "" or y1 == "" or x1.startswith(y1) or y1.startswith(x1):
+                return True
+    return False
+
+
+def window(data, lo, hi, label):
+    done = [t for t in data["tasks"].values() if integrated_event(t) and lo <= integrated_event(t)["epoch"] < hi]
+    verdicts = {t["id"]: [v for v in (verdict_of(e) for e in t["hist"]) if v] for t in done}
+    reviewed = [t for t in done if verdicts[t["id"]]]
+    rejected = sum(1 for t in reviewed if any(v["verdict"] == "reject" for v in verdicts[t["id"]]))
+    rounds = sum(len(verdicts[t["id"]]) for t in reviewed)
+    hours = []
+    for t in done:
+        c1, i1 = first_claim(t), integrated_event(t)
+        if c1 and i1["epoch"] >= c1["epoch"]:
+            hours.append((i1["epoch"] - c1["epoch"]) / 3600.0)
+    human = sum(1 for t in done if not integrated_event(t)["text"].startswith("merge"))
+    causes, shown, claims = {}, {}, 0
+    for t in data["tasks"].values():
+        for e in t["hist"]:
+            v = verdict_of(e)
+            if v and v["verdict"] == "reject" and lo <= e["epoch"] < hi:
+                k = v["cause"] or NO_CAUSE
+                causes[k] = causes.get(k, 0) + 1
+            ls = lessons_shown(e)
+            if ls and lo <= e["epoch"] < hi:
+                claims += 1
+                for n in ls:
+                    shown[n] = shown.get(n, 0) + 1
+    few = len(done) < TREND_MIN
+    return {"label": label, "from": day_of(lo), "to": day_of(hi - 1), "tasks": len(done), "few": few,
+            "rejected": count(rejected, len(reviewed)),
+            "review_rounds": {"rounds": rounds, "tasks": len(reviewed), "per_task": round(rounds / float(len(reviewed)), 2) if reviewed and not few else None},
+            "claim_to_integrated_hours": {"n": len(hours), "median": None if few else median(hours)},
+            "needed_a_human": count(human, len(done)),
+            "reject_causes": dict(sorted(causes.items(), key=lambda kv: (-kv[1], kv[0]))),
+            "lessons_shown": {"claims": claims, "by_lesson": {"#%d" % k: v for k, v in sorted(shown.items(), key=lambda kv: (-kv[1], kv[0]))}}}
+
+
+def lesson_effect(data):
+    """Per lesson: tasks that saw it (the claim's record names it) and how many were later rejected with the lesson's cause,
+    next to tasks claimed before it existed on overlapping paths. The lesson's cause is the one its own task was rejected for."""
+    tasks = data["tasks"].values()
+    rej = {t["id"]: [v for v in (verdict_of(e) for e in t["hist"]) if v and v["verdict"] == "reject"] for t in tasks}
+    saw = {}
+    for t in tasks:
+        for e in t["hist"]:
+            for n in lessons_shown(e):
+                saw.setdefault(n, set()).add(t["id"])
+    out = []
+    for n, ls in sorted(data["lessons"].items()):
+        causes = [v["cause"] for v in rej.get(ls["task"], []) if v["cause"]]
+        cause = causes[-1] if causes else None
+        seen = sorted(i for i in saw.get(n, ()) if i != ls["task"])
+        before = sorted(t["id"] for t in tasks if t["id"] != ls["task"] and first_claim(t) and first_claim(t)["epoch"] < ls["epoch"]
+                        and path_overlap(ls["paths"], t["f"].get("Paths", "")))
+        hit = lambda ids: sum(1 for i in ids if any(v["cause"] == cause for v in rej.get(i, [])))
+        e = {"lesson": n, "task": ls["task"], "cause": cause, "saw": count(hit(seen), len(seen)) if cause else {"n": None, "of": len(seen)},
+             "before": count(hit(before), len(before)) if cause else {"n": None, "of": len(before)}}
+        e["verdict"] = ("its task has no recorded reject cause: cannot be judged" if not cause else
+                        "too few to tell" if len(seen) < TREND_MIN or len(before) < TREND_MIN else "counted")
+        out.append(e)
+    return out
+
+
+def trend(data, now):
+    this = week_start(now)
+    first = min([integrated_event(t)["epoch"] for t in data["tasks"].values() if integrated_event(t)] or [now])
+    start = max(week_start(first), this - (TREND_WEEKS - 1) * 7 * 86400)
+    weeks = [window(data, w, w + 7 * 86400, "week of %s" % day_of(w)) for w in range(start, this + 1, 7 * 86400)]
+    last7 = window(data, now - 7 * 86400, now + 1, "last 7 days")
+    prev7 = window(data, now - 14 * 86400, now - 7 * 86400, "the 7 days before")
+    return {"min_tasks": TREND_MIN, "weeks": weeks, "last_7_days": last7, "before_that": prev7, "lessons": lesson_effect(data)}
+
+
+def render_trend(t):
+    o = ["UAK TREND · weeks start on Monday (UTC) · a window with fewer than %d tasks says so and gives counts, no percentage or median" % t["min_tasks"]]
+
+    def block(w):
+        o.append("%s (%s .. %s): %d task(s) integrated%s" % (w["label"], w["from"], w["to"], w["tasks"],
+                 " · fewer than %d tasks" % t["min_tasks"] if w["few"] else ""))
+        if not w["tasks"] and not w["reject_causes"] and not w["lessons_shown"]["claims"]:
+            return
+        r = w["rejected"]
+        o.append("  rejected at least once: %s reviewed tasks" % share(r["n"], r["of"]))
+        rr = w["review_rounds"]
+        o.append("  review rounds per task: %s (%d rounds, %d reviewed tasks)" % (
+            "%.2f" % rr["per_task"] if rr["per_task"] is not None else "n/a: fewer than %d tasks" % t["min_tasks"], rr["rounds"], rr["tasks"]))
+        h = w["claim_to_integrated_hours"]
+        o.append("  claim to INTEGRATED: median %s (%d tasks)" % ("%.1f h" % h["median"] if h["median"] is not None else "n/a: fewer than %d tasks" % t["min_tasks"], h["n"]))
+        nh = w["needed_a_human"]
+        o.append("  needed a human at merge (integrated after the gate did not merge): %s tasks" % share(nh["n"], nh["of"]))
+        nrej = sum(w["reject_causes"].values())
+        o.append("  reject causes (%d reject%s): %s" % (nrej, "" if nrej == 1 else "s", " · ".join("%s %d" % kv for kv in w["reject_causes"].items()) or "none"))
+        ls = w["lessons_shown"]
+        o.append("  lessons shown at claim (%d claim%s): %s" % (ls["claims"], "" if ls["claims"] == 1 else "s",
+                 " · ".join("%s x%d" % kv for kv in ls["by_lesson"].items()) or "none"))
+
+    for w in t["weeks"]:
+        block(w)
+    o.append("last 7 days against the 7 before:")
+    block(t["last_7_days"])
+    block(t["before_that"])
+    o.append("what each lesson changed (tasks that saw it vs tasks before it on its paths, rejected with its cause; needs %d tasks per side):" % t["min_tasks"])
+    for e in t["lessons"][-20:]:
+        if e["verdict"] == "counted":
+            o.append("  lesson #%d (cause %s, from %s): saw it %s · before it %s" % (e["lesson"], e["cause"], e["task"],
+                     "%d of %d tasks rejected with it" % (e["saw"]["n"], e["saw"]["of"]), "%d of %d" % (e["before"]["n"], e["before"]["of"])))
+        elif e["verdict"] == "too few to tell":
+            o.append("  lesson #%d (cause %s, from %s): too few to tell (%d tasks saw it, %d before it)" % (e["lesson"], e["cause"], e["task"], e["saw"]["of"], e["before"]["of"]))
+        else:
+            o.append("  lesson #%d (from %s): %s (%d tasks saw it)" % (e["lesson"], e["task"], e["verdict"], e["saw"]["of"]))
+    if not t["lessons"]:
+        o.append("  no lessons recorded")
+    return "\n".join(o)
+
+
 def hhmm(seconds):
     seconds = int(seconds)
     if seconds < 60:
@@ -563,11 +716,15 @@ def main(argv=None):
     ap.add_argument("--since", type=int, metavar="DAYS")
     ap.add_argument("--task", metavar="ID")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--trend", action="store_true", help="per week and last 7 days against the 7 before, reject causes, lessons")
     ap.add_argument("--claims", metavar="DIR")
     ap.add_argument("--fresh", action="store_true", help="accepted; metrics always fetches")
     a = ap.parse_args(argv)
     if a.since is not None and a.since < 1:
         print("metrics: --since needs a number of days of 1 or more", file=sys.stderr)
+        return 2
+    if a.trend and (a.task or a.since is not None):
+        print("metrics: --trend takes no --task or --since (it has its own windows)", file=sys.stderr)
         return 2
     if a.task and not TASK_RE.match(a.task):
         print("metrics: %s is not a task ID" % a.task, file=sys.stderr)
@@ -593,6 +750,10 @@ def main(argv=None):
                 print("metrics: %s is not on the claims branch" % a.task, file=sys.stderr)
                 return 1
             print(json.dumps(v, ensure_ascii=False, indent=1) if a.json else render_task(v))
+            return 0
+        if a.trend:
+            tr = trend(data, now)
+            print(json.dumps(tr, ensure_ascii=False, indent=1) if a.json else render_trend(tr))
             return 0
         m = build(data, a.since, now, root, bool(a.claims))
         print(json.dumps(m, ensure_ascii=False, indent=1) if a.json else render(m))

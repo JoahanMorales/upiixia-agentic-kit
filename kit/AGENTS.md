@@ -17,7 +17,7 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 1. Run `uak next` (Claude Code runs it at start) and follow its `Next`.
 2. New task: `bash .uak/bin/wt new ID`. It creates branch, worktree, identity, port and claim. Work only inside that worktree. One identity = one live task.
 3. New session in the same worktree: `bash .uak/bin/wt session`.
-4. Don't ask what `next`, the task or the code already answers. Ask only for authorization.
+4. Ask only for authorization, never what `next`, the task or the code answers.
 5. Phase scripts: `/uak-X`; in Codex `$uak-X`.
 
 ## 3. Parallel work
@@ -36,16 +36,16 @@ Mode: `.uak/PROJECT.md` → `Mode: sprint` (hackathon) or `marathon` (product); 
 1. Every task is vertical, with testable criteria, `Paths` and an exact `Verify` command.
 2. Test first (skill `test-first`): the `Tests:` names fail on an assertion (`uak red ID`), then implement → `bash .uak/bin/q <Verify>` → fix. Tests only grow (`done` refuses edited assertions, skips, deletes); report a wrong test. After 5 failed attempts or 2 identical failures: BLOCKED with the exact error, or `uak decision` (`.uak/docs/LOOPS.md`).
 3. Chain dependent steps with `&&`, never `;`.
-4. Evidence = a command you ran + its real output. Output older than your diff (`dist/`, caches) proves nothing.
-5. Commit and push on every green criterion. Open a small PR as soon as smoke passes (`/uak-ship`).
+4. Evidence = a command you ran + its real output; output older than your diff (`dist/`, caches) proves nothing.
+5. Commit and push on every green criterion; open a small PR once smoke passes (`/uak-ship`).
 6. UI: build from `web/DESIGN.md` (your screen's recipe row), the locked screens and the UI kit; test in a real browser (Playwright, reduced motion). `done` needs `.uak-shots/ID/` and a `design-critic` SHIP.
-7. The reviewer is never the author. Review the SHA, criteria, scope, and run Verify. One message per verdict: `uak review ID --sha SHA --verdict V --note "file:line · what fails · how to reproduce"`. Skip a SHA that already has an approval. Merging main after an approval needs no new review.
+7. The reviewer is never the author. Review the SHA, criteria, scope, and run Verify. One message per verdict: `uak review ID --sha SHA --verdict V --note "file:line · what fails · how to reproduce"`; a reject adds `--cause C` (CLI.md lists them; refused without). Skip a SHA that already has an approval. Merging main after an approval needs no new review.
 8. Re-review after a reject: push, then `uak done ID … --note "what changed"` (it asks the rejecter). No extra messages.
 
 ## 5. Messages
 1. If you change something another task consumes, tell them BEFORE pushing: `uak msg impact:ID --kind contract "what changed · what to do"`: the code map finds who imports your files.
 2. Handle `reject`, `request`, `contract`, `approve` and `review` first. Answer with `--kind reply`, then `uak inbox --ack`.
-3. Keep messages to 3 lines or fewer, with SHA, file or command. No greetings, no recaps, no acks ("received", "ok"): `uak inbox --ack` is the ack. Plain words, never glued ones.
+3. Keep messages to 3 lines or fewer, with SHA, file or command. No greetings, recaps or acks ("received", "ok"): `uak inbox --ack` is the ack.
 4. Targets: `ID`, `related:ID`, `impact:ID`, `NAME`, `all`, `human`, or a comma list. Humans get one `uak digest`.
 5. Identities: agents use their own name (`ana-1`); humans use `UAK_HUMAN`. No "coordinator" agent speaks for a human: the human runs `uak allow` or `uak decision` personally. Closing an agent for good: `uak retire NAME`. In the main checkout, prefix: `UAK_AGENT=NAME bash .uak/bin/uak …`.
 6. Reviewing: `uak review ID --start` first; if someone else is already reviewing that SHA, pick other work. Cannot review: `uak review ID --decline`; it moves on at once. Never ask around for reviewers.

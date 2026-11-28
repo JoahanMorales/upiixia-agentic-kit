@@ -21,7 +21,7 @@ You review someone else's task. Your context is disposable, so read the full dif
    - marathon: look for N+1 queries, missing pagination, per-resource authz, edge validation, PII in logs and irreversible migrations.
 6. Verdict, ONE command (the note travels in the same message; never send a second one):
    - OK → `bash .uak/bin/uak review ID --sha SHA --verdict approve --note "Verify N passed; smoke --affected PASS (M of T test files); <1 risk if any>"`.
-   - Not OK → `bash .uak/bin/uak review ID --sha SHA --verdict reject --note "<file:line · what fails · how to reproduce>; ..."` (max 5 points).
+   - Not OK → `bash .uak/bin/uak review ID --sha SHA --verdict reject --cause CAUSE --note "<file:line · what fails · how to reproduce>; ..."` (max 5 points). CAUSE is one of `failure-path-not-handled`, `test-does-not-test`, `timing`, `process-left`, `protocol`, `wording-false`, `security`, `other`; a reject without one is refused. Add `--learn "what bites · where · what to do"` when it can bite other tasks.
    - `already approved by X` → stop: the SHA needs a merge, not you.
    - `HEAD moved` → the owner pushed after your SHA: review the new commits it names, then use the new SHA.
 7. Return 5 lines or fewer: verdict, SHA, key points.

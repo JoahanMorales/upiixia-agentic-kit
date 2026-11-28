@@ -245,7 +245,9 @@ claim_mutate() {
   WHY_TEXT="Parallel work without touching the main checkout"
   FAILS_TEXT="No validation run yet"; COMMANDS_TEXT=$VERIFY
   if [ -f "$TX/$WL" ]; then update_summary_field Next "$NEXT_TEXT"; else set_summary; fi
-  event "claim; next: $NEXT_TEXT"
+  # The lessons the claim shows (memory.sh, three per path) are named in its record: "did the lesson reach anyone?" (UAK-201).
+  local shown; shown=$(mem_shown_ids "$ID")
+  event "claim; next: $NEXT_TEXT${shown:+; lessons shown $shown}"
 }
 # heartbeat: renew the lease and record the worktree's progress. A no-op (MUTATE_NOOP) on the owner's own task that
 # already left CLAIMED/REVIEW.

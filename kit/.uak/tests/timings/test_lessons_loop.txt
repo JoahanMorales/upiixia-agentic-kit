@@ -1,0 +1,2 @@
+ci 40
+windows 80

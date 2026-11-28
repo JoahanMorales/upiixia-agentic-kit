@@ -3,6 +3,7 @@
 Why (audit of v6.5.0, docs/audit-2026-11.md section 4): `stats` counts events but pairs no speed with its cost and has no
 per-command error rate or duration. A synthetic claims checkout (--claims DIR, in a folder with a space and an accent)."""
 import argparse
+import calendar
 import json
 import os
 import subprocess
@@ -223,7 +224,143 @@ def manual_notes_print_zero(r):
     return "zero is printed"
 
 
-TESTS = [merge_paths_classified_by_base_history, throughput_is_printed_with_instability, per_command_error_rate_and_p95, small_samples_print_counts, task_view_lists_review_rounds,
+# ---- UAK-201: `uak metrics --trend` (weeks, causes, lessons) -------------------------------------------------------------
+def ts(day, hour=12):
+    y, m, d = (int(x) for x in day.split("-"))
+    return calendar.timegm((y, m, d, hour, 0, 0))
+
+
+NOW = ts("2026-11-27")   # a Friday: its week starts Monday 2026-11-23; last 7 days = 11-20 12:00 .. 11-27 12:00
+
+
+def mk(c, tid, claim_day, done_day, rej=None, how="merge", paths="", shown=""):
+    """A task claimed on claim_day, rejected once when `rej` is not None ('' = a reject with no cause: an old entry), integrated."""
+    t0 = ts(claim_day, 8)
+    h = [(t0, "CLAIMED", "a-1", "claim; next: x" + ("; lessons shown " + shown if shown else ""))]
+    if rej is not None:
+        h.append((t0 + 600, "REVIEW", "r-1", "review; reject; SHA abcdef0123; reviewer r-1" + ("; cause " + rej if rej else "")))
+        h.append((t0 + 900, "REVIEW", "a-1", "done; PR x"))
+    h.append((t0 + 1200, "REVIEW", "r-1", "review; approve; SHA 1234567abc; reviewer r-1"))
+    h.append((ts(done_day), "INTEGRATED", "a-2" if how == "merge" else "h-1", "merge; smoke PASS" if how == "merge" else "integrate; recorded by h-1"))
+    task(c, tid, hist=h, extra=("Paths: %s\n" % paths if paths else ""))
+
+
+def trend_claims(tmp):
+    c = Path(tmp) / "claims é dir"
+    # Week of 11-16: six tasks, four rejected (timing x2, wording-false x1, one with no cause), two integrated by a human, plus an old reject with no cause.
+    for i, (rej, how) in enumerate([("timing", "merge"), ("timing", "merge"), ("wording-false", "integrate"), (None, "integrate"), (None, "merge"), ("", "merge")]):
+        mk(c, "UAK-1%02d" % i, "2026-11-16", "2026-11-17", rej=rej, how=how)
+    # Week of 11-23: six tasks, one rejected for security, all by the gate; two saw lessons #1 and #2.
+    for i, rej in enumerate(["security", None, None, None, None, None]):
+        mk(c, "UAK-2%02d" % i, "2026-11-24", "2026-11-25", rej=rej, shown="#1,#2" if i < 2 else "")
+    # Week of 11-09: three tasks only.
+    for i in range(3):
+        mk(c, "UAK-3%02d" % i, "2026-11-10", "2026-11-11", rej="protocol" if i == 0 else None)
+    return c
+
+
+def trend(r, c, *args):
+    return run(r, c, "--trend", *args, extra=None) if False else run_at(r, c, NOW, "--trend", *args)
+
+
+def run_at(r, c, now, *args):
+    env = dict(os.environ, UAK_METRICS_NOW=str(now))
+    p = subprocess.run([r["bash"], str(r["pkg"] / "bin" / "metrics"), "--claims", str(c)] + list(args), cwd=str(c.parent), env=env,
+                       capture_output=True, text=True, timeout=120)
+    expect(p.returncode == 0, "rc %d: %s" % (p.returncode, p.stdout + p.stderr))
+    return p.stdout
+
+
+def block(out, title):
+    lines = out.splitlines()
+    i = [n for n, l in enumerate(lines) if l.startswith(title)][0]
+    j = i + 1
+    while j < len(lines) and lines[j].startswith("  "):
+        j += 1
+    return "\n".join(lines[i:j])
+
+
+def trend_compares_two_weeks(r):
+    out = trend(r, trend_claims(r["tmp"]))
+    a, b = block(out, "week of 2026-11-16"), block(out, "week of 2026-11-23")
+    expect("6 task(s) integrated" in a and "rejected at least once: 4 of 6 (67%)" in a, a)
+    expect("needed a human at merge (integrated after the gate did not merge): 2 of 6 (33%)" in a, a)
+    expect("review rounds per task: 1.67 (10 rounds, 6 reviewed tasks)" in a, a)
+    expect("6 task(s) integrated" in b and "rejected at least once: 1 of 6 (17%)" in b and "2 of 6" not in b and "0 of 6 (0%)" in b, b)
+    expect("review rounds per task: 1.17 (7 rounds, 6 reviewed tasks)" in b, b)
+    expect("claim to INTEGRATED: median 28.0 h (6 tasks)" in b, b)  # claimed 08:00, integrated 12:00 the next day = 28 h
+    last, before = block(out, "last 7 days ("), block(out, "the 7 days before")
+    expect("1 of 6 (17%)" in last and "4 of 6 (67%)" in before, last + before)
+    expect(out.index("week of 2026-11-16") < out.index("week of 2026-11-23") < out.index("last 7 days"), out)
+    t = json.loads(trend(r, trend_claims(r["tmp"]), "--json"))
+    expect(sorted(t) == ["before_that", "last_7_days", "lessons", "min_tasks", "weeks"] and t["last_7_days"]["rejected"] == {"n": 1, "of": 6}, sorted(t))
+    return "two weeks and the rolling 7 against 7"
+
+
+def a_week_with_few_tasks_says_so(r):
+    out = trend(r, trend_claims(r["tmp"]))
+    w = block(out, "week of 2026-11-09")
+    expect("3 task(s) integrated · fewer than 5 tasks" in w and "rejected at least once: 1 of 3 (fewer than 5 tasks: no percentage)" in w, w)
+    expect("%" not in w.replace("no percentage", "") and "n/a: fewer than 5 tasks" in w, w)
+    expect("median n/a" in w and "per task: n/a" in w, w)
+    full = block(out, "week of 2026-11-16")
+    expect("fewer than 5" not in full.split("\n")[0], full)
+    # the week with exactly five tasks gets its percentage
+    c = Path(r["tmp"]) / "five"
+    for i in range(5):
+        mk(c, "UAK-4%02d" % i, "2026-11-24", "2026-11-25", rej="timing" if i == 0 else None)
+    five = block(run_at(r, c, NOW, "--trend"), "week of 2026-11-23")
+    expect("1 of 5 (20%)" in five and "fewer than 5 tasks" not in five, five)
+    # an empty ledger: no task at all
+    empty = Path(r["tmp"]) / "empty"
+    (empty / "tasks").mkdir(parents=True)
+    out = run_at(r, empty, NOW, "--trend")
+    expect("0 task(s) integrated" in out and "no lessons recorded" in out, out)
+    return "under five: counts and the words, never a percentage"
+
+
+def causes_are_counted_per_week(r):
+    out = trend(r, trend_claims(r["tmp"]))
+    a, b = block(out, "week of 2026-11-16"), block(out, "week of 2026-11-23")
+    expect("reject causes (4 rejects): timing 2 · no cause recorded 1 · wording-false 1" in a, a)
+    expect("reject causes (1 reject): security 1" in b, b)
+    expect("reject causes (1 reject): protocol 1" in block(out, "week of 2026-11-09"), out)
+    # a line from before the causes existed is never guessed
+    expect("no cause recorded 1" in a and "no cause recorded" not in b, out)
+    # a corrupt ledger line next to good ones does not stop the report
+    c = trend_claims(r["tmp"])
+    put(c / "metrics" / "2026-11-20-1.tsv", "garbage\n\t\t\n#sum\tx\n")
+    expect("reject causes (4 rejects)" in trend(r, c), "corrupt ledger")
+    return "causes per week, old rejects as no cause recorded"
+
+
+def lesson_effect_is_counted_or_too_few(r):
+    c = Path(r["tmp"]) / "lessons"
+    mk(c, "UAK-500", "2026-11-01", "2026-11-02", rej="timing", paths="kit/x/a.py")        # the lesson's own task: rejected for timing
+    mk(c, "UAK-501", "2026-11-02", "2026-11-03", rej="wording-false", paths="kit/y.py")    # a lesson whose task has other causes
+    for i in range(5):   # before lesson #1 (11-10) on its path: two rejected with timing
+        mk(c, "UAK-51%d" % i, "2026-11-05", "2026-11-06", rej="timing" if i < 2 else None, paths="kit/x/b.py")
+    mk(c, "UAK-519", "2026-11-05", "2026-11-06", paths="docs/z.md")                         # other paths: not counted
+    for i in range(5):   # saw lesson #1: none rejected with timing, one with another cause
+        mk(c, "UAK-52%d" % i, "2026-11-20", "2026-11-21", rej="security" if i == 0 else None, paths="kit/x/c.py", shown="#1")
+    for i in range(3):   # saw lesson #2 only: too few
+        mk(c, "UAK-53%d" % i, "2026-11-21", "2026-11-22", paths="kit/y.py", shown="#2")
+    put(c / "memory" / "LESSONS.md", "# Lessons\n\n- 1 | %d | kit-r1 | UAK-500 | kit/x/* | a lesson\n- 2 | %d | kit-r1 | UAK-501 | kit/y.py | another\n"
+        "- 3 | %d | kit-r1 | UAK-530 | kit/z.py | no reject behind it\n" % (ts("2026-11-10"), ts("2026-11-11"), ts("2026-11-12")))
+    out = trend(r, c)
+    expect("lesson #1 (cause timing, from UAK-500): saw it 0 of 5 tasks rejected with it · before it 2 of 5" in out, out)
+    expect("lesson #2 (cause wording-false, from UAK-501): too few to tell (3 tasks saw it, 3 before it)" in out
+           or "lesson #2 (cause wording-false, from UAK-501): too few to tell (3 tasks saw it" in out, out)
+    expect("lesson #3 (from UAK-530): its task has no recorded reject cause: cannot be judged (0 tasks saw it)" in out, out)
+    # a forgotten lesson disappears; shown counts are in the week lines
+    put(c / "memory" / "LESSONS.md", (c / "memory" / "LESSONS.md").read_text() + "- 4 | %d | kit-r1 | - | - | forget #1\n" % ts("2026-11-13"))
+    expect("lesson #1" not in trend(r, c), "forgotten")
+    wk = block(trend(r, c), "week of 2026-11-16")
+    expect("lessons shown at claim (8 claims): #1 x5 · #2 x3" in wk or "lessons shown at claim (8 claims): #2 x3 · #1 x5" in wk, wk)
+    return "saw vs before, too few to tell, no cause"
+
+
+TESTS = [trend_compares_two_weeks, a_week_with_few_tasks_says_so, causes_are_counted_per_week, lesson_effect_is_counted_or_too_few, merge_paths_classified_by_base_history, throughput_is_printed_with_instability, per_command_error_rate_and_p95, small_samples_print_counts, task_view_lists_review_rounds,
          json_has_stable_keys, old_lines_are_counted_apart, direct_commits_inside_a_window, manual_notes_print_zero]
 
 
