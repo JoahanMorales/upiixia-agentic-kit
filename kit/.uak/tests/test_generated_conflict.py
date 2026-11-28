@@ -24,7 +24,6 @@ Run: python3 kit/.uak/tests/test_generated_conflict.py [--case NAME]."""
 import argparse
 import concurrent.futures
 import os
-import stat
 import sys
 import tempfile
 import threading
@@ -294,15 +293,11 @@ def uak(r, f, index, *args, now, env=None):
     return r.run([r.bash, ".uak/bin/uak", *args], cwd=f.worktrees[index], env=e, allowed=None, timeout=400)
 
 
-def git_shim(r, name):
-    """A `git` first in PATH that logs its arguments, then runs the real one: what the gate asks of git, counted."""
-    d = r.scratch / ("shim-" + name)
-    d.mkdir()
+def git_trace(r, name):
+    """GIT_TRACE to a file: every git command the gate runs, as git itself names it after its options (-C, -c) on every
+    system (a `git` shim first in PATH was not used by Git Bash on Windows)."""
     log = r.scratch / ("git-" + name + ".log")
-    (d / "git").write_text('#!/usr/bin/env bash\nprintf \'%%s\\n\' "$*" >> "%s"\nexec "%s" "$@"\n' % (log.as_posix(), Path(r.git).as_posix()),
-                           encoding="utf-8", newline="\n")
-    os.chmod(str(d / "git"), os.stat(str(d / "git")).st_mode | stat.S_IXUSR)
-    return {"PATH": d.as_posix() + os.pathsep + r.env["PATH"]}, log
+    return {"GIT_TRACE": log.as_posix()}, log
 
 
 def scene(r, name, generated=True, make=MAKE):
@@ -369,12 +364,12 @@ def land_on_main(r, f, files):
     r.g(f.seed, "push", "origin", "main")
 
 
-def git_cmd(line):
-    """A logged git call without its leading -C DIR and -c KEY=VALUE options: `worktree add ...`, `clone ...`."""
-    words = line.split(" ")
-    while len(words) > 1 and words[0] in ("-C", "-c"):
-        words = words[2:]
-    return " ".join(words)
+def git_cmds(log):
+    """The built-in git commands of a GIT_TRACE log: `clone -q ...`, `worktree add ...`."""
+    if not log.exists():
+        return []
+    key = "trace: built-in: git "
+    return [l.split(key, 1)[1] for l in log.read_text(encoding="utf-8", errors="replace").splitlines() if key in l]
 
 
 def marks(path):
@@ -392,9 +387,9 @@ def run_scene(r, name):
     env = {"GEN_MARK": mark.as_posix()}
     if name == "regen":
         tip2, _ = ship(r, f, 1, "HACK-002", task_files(f, "HACK-002", 6), 1000000)
-        shim, log = git_shim(r, name + "-happy")
+        shim, log = git_trace(r, name + "-happy")
         res["happy"] = uak(r, f, 1, "merge", "HACK-002", now=1000030, env=dict(env, **shim))
-        res["happy_git"] = [git_cmd(l) for l in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
+        res["happy_git"] = git_cmds(log)
         res["happy_marks"] = marks(mark)
         f.files.update(task_files(f, "HACK-002", 6))
     else:
@@ -404,9 +399,9 @@ def run_scene(r, name):
     res["main_before"] = r.g(f.remote, "rev-parse", "main").stdout.strip()
     res["tip"], res["done"] = ship(r, f, 0, "HACK-001", task_files(f, "HACK-001", 0), 1000040)
     before = len(marks(mark))
-    shim, log = git_shim(r, name + "-merge")
+    shim, log = git_trace(r, name + "-merge")
     res["merge"] = uak(r, f, 0, "merge", "HACK-001", now=1000070, env=dict(env, **shim))
-    res["merge_git"] = [git_cmd(l) for l in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
+    res["merge_git"] = git_cmds(log)
     res["merge_marks"] = marks(mark)[before:]
     res["main_after"] = r.g(f.remote, "rev-parse", "main").stdout.strip()
     res["record"] = f.show("tasks/HACK-001.md")
