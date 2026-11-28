@@ -76,6 +76,11 @@ def parts_of(root):
     return [(page, name) for page in ("dash", "setup") for name in order(root, page)]
 
 
+def other_eol(b):
+    """The part with the line endings the other parts do not have (CRLF on a checkout of LF, LF on a CRLF checkout)."""
+    return b.replace(b"\r\n", b"\n") if b"\r\n" in b else b.replace(b"\n", b"\r\n")
+
+
 def flip_first_byte(path):
     b = bytearray(path.read_bytes())
     i = next(n for n, c in enumerate(b) if c not in (10, 13))
@@ -222,9 +227,9 @@ def two_tasks_on_one_page_merge(r):
     def task(branch, part, old, new):
         git(r, fixture, "checkout", "-q", "-b", branch, "main")
         p = fixture / "pages/dash" / part
-        text = p.read_text(encoding="utf-8")
-        expect(text.count(old) == 1, "%s holds %r once" % (part, old))
-        p.write_text(text.replace(old, new), encoding="utf-8", newline="")
+        raw = p.read_bytes()  # bytes: a CRLF checkout (Windows) keeps its line endings
+        expect(raw.count(old.encode()) == 1, "%s holds %r once" % (part, old))
+        p.write_bytes(raw.replace(old.encode(), new.encode()))
         out = run_gen(fixture)
         expect(out.returncode == 0, "the generator runs in the branch: " + out.stderr)
         git(r, fixture, "add", "-A")
@@ -251,7 +256,7 @@ def two_tasks_on_one_page_merge(r):
     root_commit = git(r, fixture, "rev-list", "--max-parents=0", "main").stdout.split()[0]
     git(r, fixture, "checkout", "-q", "-b", "task-b2", root_commit)
     p = fixture / "pages/dash/css-board.css"
-    p.write_text(p.read_text(encoding="utf-8").replace("/* Board */", "/* Board (B2) */"), encoding="utf-8", newline="")
+    p.write_bytes(p.read_bytes().replace(b"/* Board */", b"/* Board (B2) */"))
     git(r, fixture, "add", "-A")
     git(r, fixture, *ident, "commit", "-q", "-m", "b2")
     clash = git(r, fixture, *ident, "merge", "--no-edit", "task-a2", allowed=(0, 1))
@@ -294,7 +299,7 @@ def broken_parts_are_refused(r):
     expect(any("css-board.css is listed but" in f for f in found), "a part listed but missing: %s" % found)
     found = problems_with(lambda x: (x / "pages/dash/stray.css").write_bytes(b"a\n"))
     expect(any("stray.css" in f and "no ORDER" in f for f in found), "a file in pages/ that no ORDER lists: %s" % found)
-    found = problems_with(lambda x: (x / "pages/dash/css-board.css").write_bytes((REPO / "pages/dash/css-board.css").read_bytes().replace(b"\n", b"\r\n")))
+    found = problems_with(lambda x: (x / "pages/dash/css-board.css").write_bytes(other_eol((REPO / "pages/dash/css-board.css").read_bytes())))
     expect(any("line endings" in f for f in found), "a part with CRLF among LF parts: %s" % found)
     found = problems_with(lambda x: (x / "pages/dash/css-board.css").write_bytes((REPO / "pages/dash/css-board.css").read_bytes()[:-1]))
     expect(any("css-board.css" in f and "newline" in f for f in found), "a part without a final newline: %s" % found)
