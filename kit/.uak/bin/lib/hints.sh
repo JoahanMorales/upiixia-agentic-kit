@@ -32,3 +32,14 @@ unexpected_arg() { # a word where a flag or nothing goes: the base message, then
   esac
   die "Unexpected argument: $opt (quote multi-word values: --flag \"two words\").$hint"
 }
+# UAK-203: a generated file among the conflicts of a task the gate sent to the human anyway: the three commands that
+# resolve it on the branch (merge the base, run the base's COMMAND, commit). $1: lines "PATH<TAB>COMMAND".
+generated_conflict_hint() {
+  local line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    say "HUMAN: ${line%%$'\t'*} is generated and conflicts with $BASE: git fetch origin && git merge --no-edit origin/$BASE; ${line#*$'\t'}; git add ${line%%$'\t'*} && git commit --no-edit"
+  done <<EOF2
+$1
+EOF2
+}
