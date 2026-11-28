@@ -553,10 +553,11 @@ rm_coord_mutate() {
       put "$RECORD" State INTEGRATED; put "$RECORD" Merge-Commit "$RM_CANDIDATE"; put "$RECORD" Reviewer "$APPROVED_BY"
       put "$RECORD" Task-Tip "$RM_REVIEWED_TIP"; put "$RECORD" Integration-Proof ancestry
       put "$RECORD" Smoke "${RM_SMOKE_NOTE:-full}"
+      [ -z "${RM_REGENERATED:-}" ] || put "$RECORD" Regenerated "$RM_REGENERATED"
       if [ "$RM_CI_RELEASED" = yes ]; then put "$RECORD" Merge-Policy ci; put "$RECORD" Merge-Checks "$RM_CI_COUNT: $RM_CI_CHECKS"; fi
       [ "${RM_ADOPTED:-no}" != yes ] || put "$RECORD" Merged-By "$AGENT"
       put "$RECORD" Lease-Until 0; put "$RECORD" Updated "$NOW"; put "$RECORD" Next "Integrated in $BASE: $RM_CANDIDATE"
-      update_summary_field Next "Integrated in $BASE: $RM_CANDIDATE"; event "merge; smoke and Verify PASS (smoke: ${RM_SMOKE_NOTE:-full}); commit $RM_CANDIDATE; reviewer $APPROVED_BY$([ "$RM_CI_RELEASED" != yes ] || printf '; policy ci (%s checks)' "$RM_CI_COUNT")"
+      update_summary_field Next "Integrated in $BASE: $RM_CANDIDATE"; event "merge; smoke and Verify PASS (smoke: ${RM_SMOKE_NOTE:-full}); commit $RM_CANDIDATE; reviewer $APPROVED_BY${RM_REGENERATED:+; regenerated $RM_REGENERATED}$([ "$RM_CI_RELEASED" != yes ] || printf '; policy ci (%s checks)' "$RM_CI_COUNT")"
       rm -f "$CLAIM" "$lock"; put "$TX/queue/$ID.md" State INTEGRATED; put "$TX/queue/$ID.md" Commit "$RM_CANDIDATE"
       msg_notify_related "$ID" integrated "$ID integrated in $BASE ($RM_CANDIDATE). If you depend on it: git fetch origin && git merge --no-edit origin/$BASE";;
   esac
@@ -1065,7 +1066,9 @@ rm_prepare_candidate() {
   git -C "$RM_BUILD" fetch -q "$TX" "$RM_REVIEWED_TIP:refs/uak/task" || { RM_REASON='Task TIP not available'; return 1; }
   git -C "$RM_BUILD" checkout -q --detach "$RM_BASE_TIP" || return 1
   # Validates the merge with the current base without rewriting the approved SHA.
-  git -C "$RM_BUILD" merge --no-ff --no-commit "$RM_REVIEWED_TIP" > "$TXROOT/candidate-merge.log" 2>&1 || {
+  # A conflict only in files the base declares Generated: is resolved by regenerating them (UAK-203, rm_generated_conflict).
+  RM_REGEN= RM_REGENERATED= RM_GEN_HINT=
+  git -C "$RM_BUILD" merge --no-ff --no-commit "$RM_REVIEWED_TIP" > "$TXROOT/candidate-merge.log" 2>&1 || rm_generated_conflict || {
     RM_REASON='Conflict with current base; a human must resolve and request a new review'; return 1;
   }
   RM_TREE=$(git -C "$RM_BUILD" write-tree) || { RM_REASON='Could not capture the candidate tree'; return 1; }
@@ -1074,6 +1077,14 @@ rm_prepare_candidate() {
   (cd "$RM_BUILD" && bash .uak/bin/secret-scan --tracked --decisions "$TX/DECISIONS.md") > "$TXROOT/gate-secrets.log" 2>&1 || {
     RM_REASON='Secret gate red'; return 1;
   }
+  # The regenerated files (UAK-203): only once the scope check and the secret scan passed, then scanned again.
+  if [ -n "$RM_REGEN" ]; then
+    rm_gate_env; rm_regenerate || return 1
+    RM_TREE=$(git -C "$RM_BUILD" write-tree) || { RM_REASON='Could not capture the candidate tree'; return 1; }
+    (cd "$RM_BUILD" && bash .uak/bin/secret-scan --tracked --decisions "$TX/DECISIONS.md") > "$TXROOT/gate-secrets.log" 2>&1 || {
+      RM_REASON='Secret gate red'; return 1;
+    }
+  fi
   rm_gate_env
   rm_smoke_scope
   # The project's commands run with the caller's SSH settings, not uak's (lib/net.sh, uak_caller_ssh).
@@ -1135,6 +1146,131 @@ rm_generated_check() {
   done < "$TXROOT/merge-generated"
   return 0
 }
+# A conflict only in generated files (UAK-203). After a merge that stopped on conflicts: when every unmerged path is a
+# file the BASE tip's PROJECT.md declares `Generated:` (once, never the branch's lines), each one a plain file (mode
+# 100644 at every stage) that both sides changed in place (stages 2 and 3 are the base tip's and the reviewed tip's blob
+# at that same path, stage 1 the single merge base's, or no stage 1 and no file in the merge base: add/add), it takes
+# the branch's side of each, stages it, writes the paths and the base's commands to merge-regen and sets RM_REGEN;
+# rm_regenerate puts the command's output there later. Anything else (another file, a deletion, a rename, a symlink, a
+# mode, a criss-cross history with no single merge base) returns 1 before anything is resolved, and the caller refuses
+# as before. RM_GEN_HINT keeps "PATH<TAB>COMMAND" of the generated files among the conflicts, refused or not, for the
+# human's hint. Runs only on a conflict: the clean merge starts no process for it.
+rm_generated_conflict() {
+  local gl="$TXROOT/merge-conflict-gen" u="$TXROOT/merge-unmerged" v="$TXROOT/merge-conflict-verdict" mb verdict gp s1 s2 s3 cmd
+  RM_REGEN= RM_GEN_HINT=; : > "$TXROOT/merge-regen"; : > "$TXROOT/merge-gen-hint"
+  git -C "$RM_BUILD" show "$RM_BASE_TIP:.uak/PROJECT.md" 2>/dev/null | uak_generated_list > "$gl" 2>/dev/null
+  [ -s "$gl" ] || return 1
+  git -C "$RM_BUILD" ls-files -u -z > "$u.z" 2>/dev/null || return 1
+  tr '\n\000' '\001\n' < "$u.z" > "$u" || return 1
+  [ -s "$u" ] || return 1
+  UAK_GC_GEN=$gl UAK_GC_HINT="$TXROOT/merge-gen-hint" awk '
+    BEGIN { f = ENVIRON["UAK_GC_GEN"]; while ((getline l < f) > 0) { t = index(l, "\t"); p = substr(l, 1, t - 1); n[p]++; c[p] = substr(l, t + 1) }
+            close(f); hint = ENVIRON["UAK_GC_HINT"]; ok = 1 }
+    { t = index($0, "\t"); split(substr($0, 1, t - 1), m, " "); p = substr($0, t + 1)
+      if (!(p in seen)) { seen[p] = 1; order[++np] = p; if (n[p] == 1) print p "\t" c[p] >> hint }
+      mode[p, m[3]] = m[1]; sha[p, m[3]] = m[2] }
+    END {
+      for (i = 1; i <= np; i++) {
+        p = order[i]
+        if (n[p] != 1 || index(p, "\001") || index(p, "\r") || sha[p, 2] == "" || sha[p, 3] == "") ok = 0
+        for (s = 1; s <= 3; s++) if (sha[p, s] != "" && mode[p, s] != "100644") ok = 0
+      }
+      if (!ok) { print "no"; exit }
+      print "ok"
+      for (i = 1; i <= np; i++) { p = order[i]; print p "\t" (sha[p, 1] == "" ? "-" : sha[p, 1]) "\t" sha[p, 2] "\t" sha[p, 3] "\t" c[p] }
+    }' "$u" > "$v" || return 1
+  [ ! -s "$TXROOT/merge-gen-hint" ] || RM_GEN_HINT=$(cat "$TXROOT/merge-gen-hint")
+  IFS= read -r verdict < "$v"; [ "$verdict" = ok ] || return 1
+  mb=$(git -C "$RM_BUILD" merge-base --all "$RM_BASE_TIP" "$RM_REVIEWED_TIP" 2>/dev/null) || return 1
+  case "$mb" in ''|*[!0-9a-f]*) return 1;; esac
+  while IFS="$(printf '\t')" read -r gp s1 s2 s3 cmd; do
+    [ "$s2" = "$(git -C "$RM_BUILD" rev-parse -q --verify "$RM_BASE_TIP:$gp" 2>/dev/null)" ] &&
+      [ "$s3" = "$(git -C "$RM_BUILD" rev-parse -q --verify "$RM_REVIEWED_TIP:$gp" 2>/dev/null)" ] || return 1
+    if [ "$s1" = - ]; then ! git -C "$RM_BUILD" cat-file -e "$mb:$gp" 2>/dev/null || return 1
+    else [ "$s1" = "$(git -C "$RM_BUILD" rev-parse -q --verify "$mb:$gp" 2>/dev/null)" ] || return 1; fi
+  done <<EOF
+$(sed 1d "$v")
+EOF
+  while IFS="$(printf '\t')" read -r gp s1 s2 s3 cmd; do
+    git -C "$RM_BUILD" checkout -q --theirs -- "$gp" && git -C "$RM_BUILD" add -- "$gp" || return 1
+    printf '%s\t%s\n' "$gp" "$cmd" >> "$TXROOT/merge-regen"
+  done <<EOF
+$(sed 1d "$v")
+EOF
+  [ -z "$(git -C "$RM_BUILD" ls-files -u 2>/dev/null)" ] || return 1
+  RM_REGEN=yes
+}
+# The regeneration (UAK-203), after the scope check and the secret scan, with the gate's environment (rm_gate_env):
+# on a merge commit of the base tip and the reviewed tip (made in the gate's clone, never pushed: a generator that reads
+# history sees the task's commits) checked out in a worktree of that clone under TXROOT, it runs each base command of
+# merge-regen there, as the check of a generated file does (no stdin, the gate's PATH, port and SSH), each within
+# Generated-Seconds (base PROJECT.md, default 600). Refused, nothing written into the clone, when a command fails, is
+# missing or runs over; moves HEAD or stages; leaves an untracked file that is not ignored; changes a tracked file that
+# is not one of the conflicted generated files; writes in the clone itself; or leaves the file deleted or with another
+# mode. Then the regenerated blobs replace the branch's side in the clone's index and tree, and the files join
+# merge-generated, so the merge commit is checked against the command again before it can land.
+rm_regenerate() {
+  local wt="$TXROOT/regen" tree m0 line gp cmd limit changed fresh entry
+  RM_REGENERATED=
+  uak_cfg_var "$TXROOT/merge-engine-project" Generated-Seconds 600; limit=$CFG
+  case "$limit" in ''|*[!0-9]*|0) limit=600;; esac
+  git -C "$RM_BUILD" ls-files --others --exclude-standard > "$TXROOT/regen-clone-before" 2>/dev/null
+  cut -f 1 "$TXROOT/merge-regen" > "$TXROOT/regen-paths"
+  tree=$(git -C "$RM_BUILD" write-tree) &&
+    m0=$(git -C "$RM_BUILD" commit-tree "$tree" -p "$RM_BASE_TIP" -p "$RM_REVIEWED_TIP" -m "Merge $ID (regeneration of generated files)") &&
+    git -C "$RM_BUILD" worktree add -q --detach "$wt" "$m0" > "$TXROOT/gate-regenerate.log" 2>&1 ||
+    { RM_REASON="Could not prepare the regeneration of a generated file$(rm_gate_log regenerate)"; rm_regen_drop; return 1; }
+  while IFS= read -r line || [ -n "$line" ]; do
+    gp=${line%%$'\t'*}; cmd=${line#*$'\t'}
+    if ! rm_regen_run "$wt" "$cmd" "$limit"; then
+      if [ "$RM_REGEN_LATE" = yes ]; then RM_REASON="Generated file $gp: conflict with $BASE, and its command ran over $limit s ($cmd)"
+      else RM_REASON="Generated file $gp: conflict with $BASE, and its command failed or is missing ($cmd)$(rm_gate_log regenerate)"; fi
+      rm_regen_drop; return 1
+    fi
+    RM_REASON="Generated file $gp: conflict with $BASE, and its command ($cmd)"
+    [ "$(git -C "$wt" rev-parse HEAD 2>/dev/null)" = "$m0" ] && git -C "$wt" diff --cached --quiet ||
+      { RM_REASON="$RM_REASON moved HEAD or staged changes"; rm_regen_drop; return 1; }
+    fresh=$(git -C "$wt" ls-files --others --exclude-standard 2>/dev/null | head -n 5 | tr '\n' ' ')
+    [ -z "$fresh" ] || { RM_REASON="$RM_REASON left untracked files: ${fresh% }"; rm_regen_drop; return 1; }
+    changed=$(git -C "$wt" -c core.quotePath=false diff --name-only HEAD 2>/dev/null | grep -vxF -f "$TXROOT/regen-paths" 2>/dev/null | head -n 5 | tr '\n' ' ')
+    [ -z "$changed" ] || { RM_REASON="$RM_REASON changed other files too: ${changed% }"; rm_regen_drop; return 1; }
+    fresh=$(git -C "$RM_BUILD" ls-files --others --exclude-standard 2>/dev/null | grep -vxF -f "$TXROOT/regen-clone-before" | head -n 5 | tr '\n' ' ')
+    changed=$(git -C "$RM_BUILD" -c core.quotePath=false diff --name-only 2>/dev/null | head -n 5 | tr '\n' ' ')
+    [ -z "$fresh$changed" ] || { RM_REASON="$RM_REASON wrote in the gate's clone: ${changed}${fresh% }"; RM_REASON=${RM_REASON% }; rm_regen_drop; return 1; }
+  done < "$TXROOT/merge-regen"
+  : > "$TXROOT/regen-blobs"
+  while IFS= read -r line || [ -n "$line" ]; do
+    gp=${line%%$'\t'*}; cmd=${line#*$'\t'}
+    git -C "$wt" add -- "$gp" 2>/dev/null; entry=$(git -C "$wt" ls-files -s -- "$gp" 2>/dev/null)
+    case "$entry" in
+      '') RM_REASON="Generated file $gp: conflict with $BASE, and after its command ($cmd) the file is not in the result (a deletion is the human's)"; rm_regen_drop; return 1;;
+      '100644 '*) printf '%s\t%s\n' "$(printf '%s' "$entry" | cut -d ' ' -f 2)" "$gp" >> "$TXROOT/regen-blobs";;
+      *) RM_REASON="Generated file $gp: conflict with $BASE, and its command ($cmd) changed its mode (${entry%% *})"; rm_regen_drop; return 1;;
+    esac
+  done < "$TXROOT/merge-regen"
+  rm_regen_drop
+  while IFS="$(printf '\t')" read -r entry gp; do
+    git -C "$RM_BUILD" update-index --cacheinfo "100644,$entry,$gp" && git -C "$RM_BUILD" checkout-index -f -- "$gp" ||
+      { RM_REASON="Generated file $gp: could not write the regenerated file into the candidate"; return 1; }
+    RM_REGENERATED="$RM_REGENERATED${RM_REGENERATED:+ }$gp"
+  done < "$TXROOT/regen-blobs"
+  grep -vxF -f "$TXROOT/merge-generated" "$TXROOT/merge-regen" > "$TXROOT/regen-more" 2>/dev/null || :
+  cat "$TXROOT/regen-more" >> "$TXROOT/merge-generated"
+}
+# One command of rm_regenerate in DIR, stopped after SECONDS (RM_REGEN_LATE=yes). The process is the gate's own child.
+rm_regen_run() {
+  local pid t=0
+  RM_REGEN_LATE=no
+  (cd "$1" && { uak_caller_ssh 2>/dev/null || :; } && PATH="${RM_GATE_PATH:-$PATH}" UAK_MAIN_CHECKOUT="${RM_MAIN:-}" UAK_PORT="${RM_GATE_PORT:-}" exec bash -c "$2" < /dev/null) > "$TXROOT/gate-regenerate.log" 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$t" -ge "$3" ]; then RM_REGEN_LATE=yes; kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; return 1; fi
+    sleep 1; t=$((t + 1))
+  done
+  wait "$pid"
+}
+# The regeneration worktree is a folder of the gate's temp dir: removed, then forgotten by the clone.
+rm_regen_drop() { rm -rf "$TXROOT/regen"; git -C "$RM_BUILD" worktree prune 2>/dev/null || :; }
 # The merge commit, then the generated-file check ON it (UAK-148: a generator reads the history of the result), then the
 # commit the gate lands. One function so the test drives the gate's own sequence, not a copy of it.
 rm_commit_and_check() {
@@ -1146,6 +1282,7 @@ rm_commit_and_check() {
 rm_human_hint() {
   local pr; pr=$(field "$(task_file)" PR)
   say "HUMAN: review the reason; if the PR is fine, merge ${pr:-it} on the forge, then any agent runs: bash .uak/bin/uak integrate $ID"
+  [ -z "${RM_GEN_HINT:-}" ] || generated_conflict_hint "$RM_GEN_HINT"
 }
 rm_already_integrated() {
   local rec; rec=$(task_file)
@@ -1260,4 +1397,5 @@ merge_run_gate() {
   fi
   RM_FINISHED=yes; RM_HELD=no
   say "OK merge $ID | INTEGRATED | $RM_CANDIDATE | review $APPROVED_BY | atomic claims+$BASE"
+  [ -z "${RM_REGENERATED:-}" ] || say "NOTE $ID: the gate regenerated $RM_REGENERATED after a conflict with $BASE, so the forge may still show the pull request as conflicting although the merge is in $BASE."
 }
