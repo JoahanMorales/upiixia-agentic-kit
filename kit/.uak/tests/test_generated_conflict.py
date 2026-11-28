@@ -55,6 +55,8 @@ UAK_BIN=$1
 for l in lib/core.sh uak-coordination lib/config.sh lib/backlog.sh lib/review-merge.sh lib/hints.sh; do . "$UAK_BIN/$l" || exit 9; done
 RM_BUILD=$2 RM_BASE_TIP=$3 RM_REVIEWED_TIP=$4 TXROOT=$5 ROOT=$2 ID=HACK-001 BASE=main NOW=1
 RM_GATE_PATH=$PATH RM_MAIN=$5 RM_GATE_PORT=9999 RM_REGEN= RM_REGENERATED= RM_GEN_HINT=
+# GC_LINK: a node_modules the gate linked into its clone (rm_gate_node), listed in gate-links as the gate lists it.
+[ -z "${GC_LINK:-}" ] || { ln -s "$GC_LINK" "$RM_BUILD/node_modules" && printf '%s\n' "$RM_BUILD/node_modules" > "$TXROOT/gate-links"; }
 : > "$TXROOT/merge-generated"
 if git -C "$RM_BUILD" merge --no-ff --no-commit "$RM_REVIEWED_TIP" > "$TXROOT/merge.log" 2>&1; then echo "VERDICT CLEAN"
 elif rm_generated_conflict; then echo "VERDICT RESOLVED"; else echo "VERDICT REFUSED"; fi
@@ -192,6 +194,17 @@ def handled_kinds(r):
                "%s: the clone is resolved, its tree matches its index, no worktree is left: %s" % (name, res))
         expect("%s\t%s" % (GEN, cmd) in res.get("GENLIST", []), "%s: queued for the check on the merge commit: %s" % (name, res.get("GENLIST")))
         seen.append(name)
+    if os.name != "nt":  # the gate links with mklink /J there; this case makes its link with ln -s
+        modules = r.scratch / "kind-node-modules-target"
+        modules.mkdir()
+        (modules / "marker.js").write_text("kept\n", encoding="utf-8")
+        cmd = "test -f node_modules/marker.js && " + CMD
+        base, tip, moved = both(cmd)
+        res = case(r, "ok-node-modules", base, tip, moved, mode="regen", env={"GC_LINK": modules.as_posix()})
+        expect(one(res, "REGEN") == "OK " + GEN, "node_modules: the command sees the clone's node_modules: %s" % res)
+        expect((modules / "marker.js").exists(), "node_modules: the link was undone, its target kept")
+        expect(not (res["repo"].parent / "tmp" / "regen").exists(), "node_modules: the worktree folder is gone")
+        seen.append("node_modules")
     return seen
 
 

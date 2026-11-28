@@ -1220,6 +1220,19 @@ rm_regenerate() {
     m0=$(git -C "$RM_BUILD" commit-tree "$tree" -p "$RM_BASE_TIP" -p "$RM_REVIEWED_TIP" -m "Merge $ID (regeneration of generated files)") &&
     git -C "$RM_BUILD" worktree add -q --detach "$wt" "$m0" > "$TXROOT/gate-regenerate.log" 2>&1 ||
     { RM_REASON="Could not prepare the regeneration of a generated file$(rm_gate_log regenerate)"; rm_regen_drop; return 1; }
+  # The node_modules rm_gate_node linked into the clone, linked into the worktree too (the same environment); each link
+  # is listed in gate-links before it is made, so the exit cleanup unlinks it before any recursive delete.
+  : > "$TXROOT/regen-links"
+  if [ -s "$TXROOT/gate-links" ]; then
+    cp "$TXROOT/gate-links" "$TXROOT/regen-gate-links"
+    while IFS= read -r line; do
+      case "$line" in "$RM_BUILD"/*) entry="$wt/${line#"$RM_BUILD"/}";; *) continue;; esac
+      [ ! -e "$entry" ] && [ ! -L "$entry" ] && [ -d "$(dirname "$entry")" ] || continue
+      printf '%s\n' "$entry" >> "$TXROOT/gate-links"
+      if rm_link_dir "$line" "$entry"; then printf '%s\n' "$entry" >> "$TXROOT/regen-links"; fi
+    done < "$TXROOT/regen-gate-links"
+  fi
+  git -C "$wt" ls-files --others --exclude-standard > "$TXROOT/regen-wt-before" 2>/dev/null
   while IFS= read -r line || [ -n "$line" ]; do
     gp=${line%%$'\t'*}; cmd=${line#*$'\t'}
     if ! rm_regen_run "$wt" "$cmd" "$limit"; then
@@ -1230,7 +1243,7 @@ rm_regenerate() {
     RM_REASON="Generated file $gp: conflict with $BASE, and its command ($cmd)"
     [ "$(git -C "$wt" rev-parse HEAD 2>/dev/null)" = "$m0" ] && git -C "$wt" diff --cached --quiet ||
       { RM_REASON="$RM_REASON moved HEAD or staged changes"; rm_regen_drop; return 1; }
-    fresh=$(git -C "$wt" ls-files --others --exclude-standard 2>/dev/null | head -n 5 | tr '\n' ' ')
+    fresh=$(git -C "$wt" ls-files --others --exclude-standard 2>/dev/null | grep -vxF -f "$TXROOT/regen-wt-before" | head -n 5 | tr '\n' ' ')
     [ -z "$fresh" ] || { RM_REASON="$RM_REASON left untracked files: ${fresh% }"; rm_regen_drop; return 1; }
     changed=$(git -C "$wt" -c core.quotePath=false diff --name-only HEAD 2>/dev/null | grep -vxF -f "$TXROOT/regen-paths" 2>/dev/null | head -n 5 | tr '\n' ' ')
     [ -z "$changed" ] || { RM_REASON="$RM_REASON changed other files too: ${changed% }"; rm_regen_drop; return 1; }
@@ -1269,8 +1282,21 @@ rm_regen_run() {
   done
   wait "$pid"
 }
-# The regeneration worktree is a folder of the gate's temp dir: removed, then forgotten by the clone.
-rm_regen_drop() { rm -rf "$TXROOT/regen"; git -C "$RM_BUILD" worktree prune 2>/dev/null || :; }
+# The regeneration worktree is a folder of the gate's temp dir: its node_modules links undone first (never followed by
+# the delete, as at exit), then removed and forgotten by the clone.
+rm_regen_drop() {
+  local l
+  if [ -s "$TXROOT/regen-links" ]; then
+    while IFS= read -r l; do
+      case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*) MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' cmd /c rmdir "$(cygpath -w "$l")" >/dev/null 2>&1 || rm -f "$l";;
+        *) rm -f "$l";;
+      esac
+    done < "$TXROOT/regen-links"
+    : > "$TXROOT/regen-links"
+  fi
+  rm -rf "$TXROOT/regen"; git -C "$RM_BUILD" worktree prune 2>/dev/null || :
+}
 # The merge commit, then the generated-file check ON it (UAK-148: a generator reads the history of the result), then the
 # commit the gate lands. One function so the test drives the gate's own sequence, not a copy of it.
 rm_commit_and_check() {

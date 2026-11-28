@@ -1,0 +1,2 @@
+ci 60
+windows 280
