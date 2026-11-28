@@ -11,10 +11,12 @@ block, the look script) lives once, in pages/shared/, and both ORDER files list 
 nothing that says so; when it differs from its parts, --check names the part that holds the first differing byte.
 pages/ is not part of the kit (install.sh copies kit/ only): whoever installs or uses the kit gets the two files and no build.
 Why (UAK-200, plan "visual setup", 2026-11-23 to 25): every task listed dash.html or setup.html, and the protocol refuses two
-live claims on one path, so the tasks of a page ran one at a time. A task now lists the parts it edits; the gate regenerates
-the page (Generated: in .uak/PROJECT.md).
+live claims on one path, so the tasks of a page ran one at a time. A task now lists the parts it edits, regenerates the page and
+commits it with them (the page is declared Generated: in .uak/PROJECT.md); the lint fails on a page that differs from its parts.
 """
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +24,20 @@ TARGETS = {"dash": "kit/.uak/bin/lib/dash.html", "setup": "kit/.uak/bin/lib/setu
 MAX_LINES = 600
 SHARED_MARK = b"uak-system:begin"
 REGEN = "python3 scripts/gen_pages.py"
+
+
+class Refused(Exception):
+    """A path the generator will not read or write through (a symbolic link)."""
+
+
+def reject_links(base, rel):
+    """Raise Refused when base/rel, or a folder on the way from base, is a symbolic link: reading or writing it would reach a
+    file outside the folder the parts and the pages live in. `base` itself is where the walk starts (not checked)."""
+    here = Path(base)
+    for piece in Path(rel).parts:
+        here = here / piece
+        if here.is_symlink():
+            raise Refused("%s is a symbolic link" % here.relative_to(base).as_posix())
 
 
 def parse_order(text):
@@ -36,11 +52,20 @@ def assemble(root, read=None):
     root = Path(root)
     pages_dir = root / "pages"
     disk = read is None
-    read = read or (lambda rel: (pages_dir / rel).read_bytes())
+
+    def from_disk(rel):
+        reject_links(root, "pages/" + rel)
+        if (root / "pages").is_symlink():
+            raise Refused("pages is a symbolic link")
+        return (pages_dir / rel).read_bytes()
+    read = read or from_disk
     found, data, layout, listed, marked = [], {}, {}, set(), {}
     for page in TARGETS:
         try:
             names = parse_order(read(page + "/ORDER").decode("utf-8"))
+        except Refused as e:
+            found.append("pages/%s/ORDER · %s: a symbolic link is never followed (replace it with the file itself)" % (page, e))
+            continue
         except (OSError, KeyError, UnicodeDecodeError) as e:
             found.append("pages/%s/ORDER · cannot be read (%s)" % (page, e.__class__.__name__))
             continue
@@ -50,7 +75,7 @@ def assemble(root, read=None):
         out, spans, seen, eols = b"", [], set(), set()
         for name in names:
             p = Path(name)
-            if p.is_absolute() or ".." in p.parts or name.endswith("ORDER") or name.startswith("/"):
+            if p.is_absolute() or ".." in p.parts or p.name == "ORDER" or name.startswith("/"):
                 found.append("pages/%s/ORDER · %s is not a path under pages/" % (page, name))
                 continue
             if name in seen:
@@ -59,6 +84,9 @@ def assemble(root, read=None):
             seen.add(name)
             try:
                 b = read(name)
+            except Refused as e:
+                found.append("pages/%s/ORDER · %s: a symbolic link is never followed (replace it with the file itself)" % (page, e))
+                continue
             except (OSError, KeyError):
                 found.append("pages/%s/ORDER · %s is listed but pages/%s does not exist" % (page, name, name))
                 continue
@@ -85,11 +113,17 @@ def assemble(root, read=None):
     if len(marked) != 1 or any(len(v) != len(TARGETS) for v in marked.values()):
         found.append("pages · the design system block (uak-system:begin) must live in one shared part that both ORDER files list; found in %s"
                      % ", ".join("%s (%s)" % (k, " ".join(v)) for k, v in sorted(marked.items())))
-    if disk and pages_dir.is_dir():
-        for f in sorted(pages_dir.rglob("*")):
-            rel = f.relative_to(pages_dir).as_posix()
-            if f.is_file() and rel not in listed and rel not in {p + "/ORDER" for p in TARGETS}:
-                found.append("pages/%s · is in no ORDER (list it in the page that carries it, or delete it)" % rel)
+    if disk and pages_dir.is_dir() and not pages_dir.is_symlink():
+        for folder, dirs, files in os.walk(str(pages_dir)):  # never follows a link
+            here = Path(folder)
+            for entry in dirs + files:
+                if (here / entry).is_symlink():
+                    found.append("pages/%s · is a symbolic link: a part, an ORDER and a folder of pages/ are real files (it would reach outside the folder)"
+                                 % (here / entry).relative_to(pages_dir).as_posix())
+            for entry in files:
+                rel = (here / entry).relative_to(pages_dir).as_posix()
+                if rel not in listed and rel not in {p + "/ORDER" for p in TARGETS} and not (here / entry).is_symlink():
+                    found.append("pages/%s · is in no ORDER (list it in the page that carries it, or delete it)" % rel)
     return data, layout, found
 
 
@@ -114,6 +148,11 @@ def problems(root=ROOT):
     data, layout, found = assemble(root)
     for page, wanted in data.items():
         target = root / TARGETS[page]
+        try:
+            reject_links(root, TARGETS[page])
+        except Refused as e:
+            found.append("%s · %s: a generated page is a real file, never a link (it would be written outside kit/.uak/bin/lib/)" % (TARGETS[page], e))
+            continue
         if not target.is_file():
             found.append("%s · is missing: run %s" % (TARGETS[page], REGEN))
             continue
@@ -140,13 +179,47 @@ def main(argv):
         print("gen_pages --check: %s" % ("ok" if not found else "%d problem(s)" % len(found)))
         return 1 if found else 0
     data, layout, found = assemble(ROOT)
+    for page in TARGETS:
+        try:
+            reject_links(ROOT, TARGETS[page])
+        except Refused as e:
+            found.append("%s · %s: a generated page is a real file, never a link (it would be written outside kit/.uak/bin/lib/)" % (TARGETS[page], e))
     if found:
         for f in found:
             print("gen_pages: " + f, file=sys.stderr)
         return 1
-    for page, b in data.items():
-        (ROOT / TARGETS[page]).write_bytes(b)
-        print("wrote %s (%d parts, %d bytes)" % (TARGETS[page], len(layout[page]), len(b)))
+    return write_pages(ROOT, data, layout)
+
+
+def write_pages(root, data, layout):
+    """Both pages or neither: each is written to a temp file next to its page, then both replace their pages."""
+    staged = []
+    try:
+        for page in data:  # what would fail at the replace fails now, before any page changes
+            if (root / TARGETS[page]).is_dir():
+                raise IsADirectoryError(21, "%s is a directory" % TARGETS[page])
+        for page, b in data.items():
+            target = root / TARGETS[page]
+            fd, tmp = tempfile.mkstemp(prefix=".gen_pages-", dir=str(target.parent))
+            staged.append((tmp, target, page))
+            with os.fdopen(fd, "wb") as f:
+                f.write(b)
+            try:
+                os.chmod(tmp, target.stat().st_mode & 0o777 if target.exists() else 0o644)
+            except OSError:
+                pass
+        for tmp, target, _page in staged:
+            os.replace(tmp, str(target))
+    except OSError as e:
+        for tmp, _t, _p in staged:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        print("gen_pages: cannot write the pages (%s); no page was changed" % (e.strerror or e.__class__.__name__), file=sys.stderr)
+        return 1
+    for _tmp, target, page in staged:
+        print("wrote %s (%d parts, %d bytes)" % (TARGETS[page], len(layout[page]), len(data[page])))
     return 0
 
 

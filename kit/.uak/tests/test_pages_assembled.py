@@ -311,13 +311,86 @@ def broken_parts_are_refused(r):
     expect(any("not a path under pages/" in f for f in found), "a path that leaves pages/: %s" % found)
     found = problems_with(lambda x: (x / "pages/setup/ORDER").unlink())
     expect(any("pages/setup/ORDER" in f and "cannot be read" in f for f in found), "a missing ORDER: %s" % found)
+    # a link is never followed: a part, an ORDER, a folder of pages/ and a generated page (the lint, --check and the writer)
+    outside = r.scratch / "outside-the-pages"
+    outside.mkdir()
+    (outside / "evil.css").write_bytes(b"/* outside */\n")
+    linked = 0
+
+    def link(path, target):
+        try:
+            os.symlink(str(target), str(path))
+            return True
+        except (OSError, NotImplementedError):  # a Windows account without the privilege cannot make one: nothing to refuse
+            return False
+
+    def with_link(name, make):
+        x = scratch_root(r, name)
+        return x if make(x) else None
+    x = with_link("lnk-part", lambda x: (x / "pages/dash/css-board.css").unlink() or link(x / "pages/dash/css-board.css", outside / "evil.css"))
+    if x:
+        linked += 1
+        found = g.assemble(x)[2]
+        expect(any("css-board.css" in f and "symbolic link" in f for f in found), "a part that is a link: %s" % found)
+        expect(any("symbolic link" in f for f in g.problems(x)), "and the lint says so")
+        out = run_gen(x)
+        expect(out.returncode == 1 and "symbolic link" in out.stderr and b"outside" not in (x / "kit/.uak/bin/lib/dash.html").read_bytes()[:0] and b"/* outside */" not in (x / "kit/.uak/bin/lib/dash.html").read_bytes(),
+               "the generator refuses and embeds nothing: " + out.stderr)
+    x = with_link("lnk-order", lambda x: (x / "pages/setup/ORDER").rename(x / "pages/setup/ORDER.real") and link(x / "pages/setup/ORDER", x / "pages/setup/ORDER.real"))
+    if x:
+        linked += 1
+        found = g.assemble(x)[2]
+        expect(any("pages/setup/ORDER" in f and "symbolic link" in f for f in found), "an ORDER that is a link: %s" % found)
+    def dir_link(x):
+        real = x / "pages/dash-real"
+        (x / "pages/dash").rename(real)
+        return link(x / "pages/dash", real)
+    x = with_link("lnk-dir", dir_link)
+    if x:
+        linked += 1
+        found = g.assemble(x)[2]
+        expect(any("symbolic link" in f for f in found), "a folder of pages/ that is a link: %s" % found)
+    def dir_inside(x):
+        (x / "pages/shared-real").mkdir()
+        return link(x / "pages/shared-real/more", outside)
+    x = with_link("lnk-inside", dir_inside)
+    if x:
+        linked += 1
+        found = g.assemble(x)[2]
+        expect(any("more" in f and "symbolic link" in f for f in found), "a link to a folder inside pages/: %s" % found)
+    x = with_link("lnk-target", lambda x: (x / "kit/.uak/bin/lib/dash.html").unlink() or link(x / "kit/.uak/bin/lib/dash.html", outside / "dash-out.html"))
+    if x:
+        linked += 1
+        expect(any("dash.html" in f and "symbolic link" in f for f in g.problems(x)), "a generated page that is a link: the lint says so")
+        out = run_gen(x, "--check")
+        expect(out.returncode == 1 and "symbolic link" in out.stderr, "--check refuses: " + out.stderr)
+        out = run_gen(x)
+        expect(out.returncode == 1 and "symbolic link" in out.stderr and not (outside / "dash-out.html").exists(), "the writer does not write through it: " + out.stderr)
+    # all or nothing, no traceback: the second page cannot be replaced (it is a folder), so the first is not changed either
+    x = scratch_root(r, "atomic")
+    page = x / "kit/.uak/bin/lib/dash.html"
+    hand = page.read_bytes() + b"<!-- hand -->\n"
+    page.write_bytes(hand)
+    (x / "kit/.uak/bin/lib/setup.html").unlink()
+    (x / "kit/.uak/bin/lib/setup.html").mkdir()
+    out = run_gen(x)
+    expect(out.returncode == 1 and "Traceback" not in out.stderr and out.stderr.count("\n") == 1 and "no page was changed" in out.stderr, "one line, no traceback: " + out.stderr)
+    expect(page.read_bytes() == hand and not list((x / "kit/.uak/bin/lib").glob(".gen_pages-*")), "no page changed and no temp file left")
+    shutil.rmtree(x / "kit/.uak/bin/lib")
+    out = run_gen(x)
+    expect(out.returncode == 1 and "Traceback" not in out.stderr and out.stderr.count("\n") == 1, "a missing folder is one line too: " + out.stderr)
+    # an ORDER is matched by its exact name: a part whose name only ends in ORDER is a part
+    x = scratch_root(r, "exact")
+    (x / "pages/dash/MYORDER").write_bytes(b"/* part */\n")
+    (x / "pages/dash/ORDER").write_text((x / "pages/dash/ORDER").read_text() + "dash/MYORDER\n")
+    expect(not any("not a path" in f for f in g.assemble(x)[2]), "a name that ends in ORDER is not the ORDER file")
     # the command exits non-zero and writes nothing when a part is broken
     (root / "pages/dash/css-board.css").unlink()
     before = (root / "kit/.uak/bin/lib/dash.html").read_bytes()
     out = run_gen(root, cwd=root.parent)
     expect(out.returncode == 1 and "css-board.css" in out.stderr and (root / "kit/.uak/bin/lib/dash.html").read_bytes() == before,
            "the generator stops and leaves the page alone: " + out.stderr)
-    return "9 failure paths refused"
+    return "9 failure paths refused, %d link cases, atomic write" % linked
 
 
 def parts_are_not_installed(r):
