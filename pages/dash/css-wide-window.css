@@ -1,0 +1,49 @@
+/* A wide window (UAK-198, the human's choice A): the page scales up. From 1433 px the app is zoomed by --z = width / 1432
+   (at most 1.8, so a 3840 px window is not absurd): type, squares, cards, charts, paddings and the drawer and Share dialog grow
+   together and the composition stays the one approved at 1280 px, laid out as at 1432 px. CSS zoom lays text out again at its
+   new size (crisp, unlike a transform); its 100vh is scaled too, so what is as tall as the window divides by --z. Nothing here
+   applies up to 1432 px: the screens approved at 1280 and 390 px are unchanged. */
+html { --z: 1; }   /* the scale; the script sets it from the window's width (wideScale) */
+@media (min-width:1433px) {
+  .app { min-height: calc(100vh / var(--z, 1)); }
+  .tabs { height: calc(100vh / var(--z, 1)); }
+  .gside { max-height: calc(100vh / var(--z, 1) - 32px); }
+  dialog#story { zoom: var(--z, 1); width: min(760px, calc(100vw / var(--z, 1))); height: calc(100dvh / var(--z, 1)); }
+  dialog#share { zoom: var(--z, 1); width: min(560px, calc(100vw / var(--z, 1) - 32px)); max-height: calc(100dvh / var(--z, 1) - 24px); }
+  .share-img.v { max-height: min(560px, calc(100dvh / var(--z, 1) - 330px)); }
+  .page, .wide { max-width: none; }
+  /* the page's side gutters stay 24 px on the screen (scaled they would leave a wider band at the right than at 1280 px) */
+  .head, .page, .wide { padding-left: calc(24px / var(--z, 1)); padding-right: calc(24px / var(--z, 1)); }
+  /* what should not stretch: running text under about 90 characters, and a row's status next to its title */
+  .need > li { grid-template-columns: 24px minmax(0,64ch) auto; justify-content: start; }
+  .rows > li { grid-template-columns: 96px 72px minmax(0,56ch) 112px minmax(0,164px); justify-content: start; }
+  .tk p, .g2.mem .row > div { max-width: 64ch; }
+  .msg { max-width: min(72ch,90%); }
+  .bbx dd, .bbx details[open] summary .t { max-width: 60ch; }
+  .card.next { max-width: 720px; }
+  .col.flow { display: block; column-gap: 16px; }
+  .col.flow > * { break-inside: avoid; margin-bottom: 16px; }
+}
+/* Past the scale's cap (a page more than 1600 px wide once scaled, a window of about 2900 px) the extra width becomes columns:
+   the summary's side in two (sumCols), the board's small stages in a row, agent groups side by side, and so on. */
+html.vw .wide.bmap { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 12px; }
+html.vw .bmap > .bh, html.vw .bmap > .depline { flex: 1 1 100%; }
+html.vw .bmap > section { flex: 1 1 auto; min-width: 0; }
+html.vw .cv { grid-template-columns: 380px minmax(0,1fr) 340px; }
+html.vw .wide.bbw { display: grid; grid-template-columns: minmax(0,1fr) clamp(520px, 36%, 640px); grid-template-rows: auto auto 1fr; column-gap: 16px; align-items: start; }
+html.vw .bbw > :not(.g2) { grid-column: 1; }
+html.vw .bbw > .g2 { grid-column: 2; grid-row: 1 / span 3; grid-template-columns: minmax(0,1fr); }
+html.vw .g2.mem .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); }
+html.vw .g2.mem .list > * { border-left: 1px solid var(--line); margin: -1px 0 0 -1px; }
+html.vw .g2.mem .list > .mre { grid-column: 1 / -1; }
+html.vw .gv { grid-template-columns: minmax(0,1fr) clamp(360px, 26%, 520px); }
+html.vw .g2.tkg { display: flex; flex-wrap: wrap; }
+html.vw .tkg > * { flex: 1 1 360px; min-width: 0; }
+html.vw .tkg > .full { flex-basis: 100%; }
+html.vw .g2 > .full .hb { grid-template-columns: repeat(2, minmax(64px,160px) minmax(0,1fr) auto); }
+html.vw .wide.agw { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 24px; }
+html.vw .agw > section { flex: var(--n, 1) 1 calc(min(var(--n, 1), 6) * (var(--cw, 220px) + 8px) - 8px); min-width: min(100%, 360px); }
+html.vw .agw .agrid > * { max-width: var(--cx, 300px); }
+@media (prefers-reduced-motion:reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

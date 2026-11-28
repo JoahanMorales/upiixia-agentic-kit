@@ -1,0 +1,36 @@
+/* dashboard */
+#dashboard-frame { width: 100%; min-height: 560px; border: 1px solid var(--line); border-radius: var(--r); background: var(--page); }
+#beginner-dashboard { padding: 24px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.dashboard-metrics { margin: 0 0 24px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raised); overflow: hidden; }
+.dashboard-metrics strong { font-size: 26px; line-height: 1.2; font-weight: 700; }
+#simple-next { padding-top: 24px; border-top: 1px solid var(--line); }
+#simple-next h3 { margin: 12px 0 8px; }
+.beginner-checklist { display: grid; gap: 4px; margin-top: 4px; color: var(--ink-2); }
+.beginner-checklist li { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.beginner-checklist .ic { width: 14px; height: 14px; stroke-width: 2.5; color: var(--integrated-ink); }
+#simple-tasks { margin-top: 16px; }
+#simple-tasks li { display: flex; justify-content: space-between; gap: 24px; }
+#simple-tasks li > span:first-child { overflow-wrap: anywhere; }
+.your-app { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
+.your-app a { font-weight: 600; overflow-wrap: anywhere; }
+#live-url-input { width: 100%; max-width: 520px; margin: 4px 0; }
+#checks.stale, .team-step.stale, #beginner-dashboard.stale { opacity: .55; transition: opacity .2s; }
+
+/* toast and the notices that stay on top */
+.toast { position: fixed; z-index: 50; right: 24px; bottom: 24px; display: grid; gap: 8px; width: min(380px, calc(100vw - 48px)); padding: 12px 16px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.toast-title { font-weight: 600; }
+.toast-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.toast-close { min-width: 44px; min-height: 44px; border: 0; background: none; font-size: 16px; line-height: 1; }
+.server-gone { position: fixed; top: 12px; left: 50%; z-index: 60; transform: translateX(-50%); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; width: min(720px, calc(100% - 32px)); margin: 0; box-shadow: var(--shadow); }
+.reopened { top: 68px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .spotlight {
+    transition: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after { animation: none !important; scroll-behavior: auto !important; transition: none !important; }
+}
+    

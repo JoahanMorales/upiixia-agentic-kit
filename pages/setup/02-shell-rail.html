@@ -1,0 +1,43 @@
+</style>
+  </head>
+  <body data-profile="beginner">
+    <div class="notice error server-gone" id="server-gone" role="alert" hidden>
+      <span id="server-gone-text">Setup has closed: run the command again and open the new link.</span>
+      <button type="button" class="secondary-button" id="server-gone-retry">Retry</button>
+    </div>
+    <div class="notice error server-gone reopened" id="reopened" role="alert" hidden>
+      <span id="reopened-text"></span>
+      <button type="button" class="secondary-button" id="reopened-dismiss" data-i18n="Dismiss">Dismiss</button>
+    </div>
+    <a class="skip" href="#content">Skip to setup</a>
+    <header class="wz-top">
+      <div class="brand"><span class="mark" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 5 5" shape-rendering="crispEdges"><path fill="currentColor" d="M0 0h1v4H0zM4 0h1v5H4zM1 4h3v1H1zM2 1h1v1H2z"/></svg></span><b>UPIIXIA</b></div>
+      <nav class="journey" id="journey" aria-label="Your journey"><ol class="nodes">
+          <li data-step="project"><i></i><span>Project detected</span></li>
+          <li data-step="rules"><i></i><span>Rules</span></li>
+          <li data-step="people"><i></i><span>People</span></li>
+          <li data-step="schedule"><i></i><span>Schedule</span></li>
+          <li data-step="publish"><i></i><span>Publish the kit</span></li>
+          <li data-step="plan"><i></i><span>Idea and plan</span></li>
+          <li data-step="start"><i></i><span>Start the agents</span></li>
+      </ol></nav>
+      <details class="ap term" id="terminal-alt"><summary><span class="long">Continue in the terminal</span><span class="short">Terminal</span></summary>
+        <div class="pop"><p class="lbl">One command, in the project's folder</p>
+          <div class="next-command"><code id="terminal-command" data-no-i18n></code><button type="button" class="secondary-button" id="copy-terminal-command">Copy</button></div></div></details>
+      <div class="profile"><details class="ap" id="look">
+        <summary data-no-i18n><i aria-hidden="true"></i>Apariencia</summary>
+        <div class="pop">
+          <label for="language" data-i18n-aria="Language">Language</label>
+          <select id="language" data-no-i18n><option value="es">Español</option><option value="en">English</option></select>
+          <label for="profile">View</label>
+          <select id="profile"><option value="beginner">Beginner</option><option value="advanced">Advanced</option></select>
+          <label for="workspace-theme">Theme</label>
+          <select id="workspace-theme"><option value="">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select>
+          <span class="lbl" id="pal-label" data-no-i18n>Palette</span>
+          <div class="pals" data-no-i18n role="group" aria-labelledby="pal-label"></div>
+        </div>
+      </details></div>
+    </header>
+    <div hidden data-no-i18n><button type="button" id="open-setup" aria-pressed="true">Configuration</button><button type="button" id="open-dashboard" aria-pressed="false">Dashboard</button><div id="steps"></div><div id="running-review"><button type="button" id="back-to-progress">Return to progress</button></div><button type="button" id="begin">Set up</button></div>
+    <div class="shell" id="setup-shell">
+    <main class="surface" id="content" tabindex="-1" data-loading>

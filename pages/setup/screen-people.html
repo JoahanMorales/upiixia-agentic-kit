@@ -1,0 +1,93 @@
+<section class="screen" id="screen-people" data-screen="people" aria-labelledby="h-people">
+<div class="wz-body"><div class="wz-main">
+<h1 id="h-people" tabindex="-1">Say who is on your team</h1>
+
+<p class="notice" id="identity-warning" role="status" data-no-i18n hidden></p>
+<div class="prepare-step" id="name-step">
+
+<p class="step-done" id="name-done" hidden>
+<strong><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Done</strong>
+<span id="name-done-text" data-no-i18n></span>
+<button type="button" class="link-button" id="name-reopen">Change</button>
+</p>
+<div class="step-body">
+<p class="hint">
+Some steps only a person may do (publishing, approving). Setup
+records them with this name.
+</p>
+<div class="prepare-row">
+<div>
+<label class="field-label" for="human-name">Your name (from your Git identity)</label>
+<input type="text" id="human-name" maxlength="32" autocomplete="off" spellcheck="false" readonly />
+</div>
+
+</div>
+<p class="hint" id="human-status" role="status"></p>
+</div>
+</div>
+<div class="team-block" id="team-two-people" hidden>
+<h3>Two or more people?</h3>
+<p>
+Each person uses their own computer: they clone the project, open this page there, save their own name and
+register their own reviewer (name-r).
+</p>
+<p>
+You run the commands shown on your page; your teammate runs the ones on theirs. Never paste a teammate's
+commands: they carry their name.
+</p>
+</div>
+<div class="team-block" id="team-name-block" hidden>
+<h3>Your name</h3>
+<p class="hint">
+Registering the reviewer is a human act: setup records it with your name, and remembers it for this project.
+</p>
+<div class="prepare-row">
+<div>
+<label class="field-label" for="team-name">Your name (from your Git identity)</label>
+<input type="text" id="team-name" maxlength="32" autocomplete="off" spellcheck="false" readonly />
+</div>
+<button type="button" class="secondary-button" id="team-name-save">Use this name</button>
+</div>
+<p class="hint" id="team-name-status" role="status"></p>
+</div>
+<div class="team-block" id="team-reviewer">
+<h3>1. Register the reviewer</h3>
+<p>
+<strong id="team-reviewer-name" data-no-i18n></strong>
+<span>reviews your agents' work. In Hackathon mode an approved change can merge automatically after the checks pass.</span>
+</p>
+<button type="button" class="secondary-button" id="team-register" data-p="2">Register the reviewer</button>
+<p class="hint" id="team-reviewer-status" role="status" aria-live="polite"></p>
+</div>
+<p class="notice" id="team-note" role="status" hidden></p>
+<p class="notice" id="team-review-note" role="status" hidden></p>
+<div class="actions" id="team-note-actions" hidden><button type="button" class="secondary-button" id="team-retry" hidden>Retry</button><button type="button" class="secondary-button" id="team-check" hidden>Check what's next</button></div>
+<div class="team-block" id="team-roles" hidden>
+<h3>Your tools</h3>
+<p class="hint">
+Choose which of your coding tools writes the code and which one reviews it. This choice is yours and stays
+on this computer; teammates choose their own.
+</p>
+<fieldset>
+<legend>Who implements?</legend>
+<div class="tools" id="team-implement-options"></div>
+</fieldset>
+<fieldset>
+<legend>Who reviews?</legend>
+<div class="tools" id="team-review-options"></div>
+</fieldset>
+<p class="hint" id="team-same-tool" hidden>
+<span id="team-same-tool-text" data-no-i18n></span>
+<span>The reviewer never reviews its own identity's work.</span>
+</p>
+<p class="hint" id="team-roles-note" role="status" hidden></p>
+<div id="team-unavailable" hidden>
+<p class="hint">Not available here:</p>
+<ul class="hint" id="team-unavailable-list"></ul>
+</div>
+</div>
+<p class="hint blocked-reason" id="team-locked-why" hidden></p>
+</div>
+<aside class="wz-prev" aria-label="What this step changes" data-i18n-aria="What this step changes"><div class="win"><div class="win-h"><i></i><i></i><i></i><span id="win-people-title">people and roles</span></div><div class="win-b" id="win-people-body"></div><div class="win-f" id="win-people-foot"></div></div></aside></div>
+<footer class="foot"><div class="foot-in"><button type="button" class="ghost" data-exit>Exit</button><div class="foot-note" id="note-people"></div><span class="grp" data-unless="name-done"><button type="button" class="secondary-button" id="human-save" data-p="2">Use this name</button></span><button type="button" class="primary" id="go-people" data-p="1" data-next hidden>Continue</button></div></footer>
+</section>
