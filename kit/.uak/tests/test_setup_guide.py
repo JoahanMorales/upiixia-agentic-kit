@@ -131,8 +131,14 @@ def screen_html(html, name):
     return section(html, "screen-%s" % name)
 
 
-def kit_project(tmp, name, mode="sprint", commits=2, version="6.8.0"):
+def kit_version():
+    """The version of the kit under test (a fixture project is at the kit's own version)."""
+    return ((ROOT or Path(__file__).resolve().parents[2]) / ".uak/VERSION").read_text().strip()
+
+
+def kit_project(tmp, name, mode="sprint", commits=2, version=None):
     """A repository that has the kit (the three files the wizard looks for), with COMMITS commits."""
+    version = version or kit_version()   # the kit under test: a project at its version
     root = tmp / name
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True)
@@ -396,7 +402,7 @@ def first_install_in_four_clicks(root, tmp):
     subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
     fake = tmp / "install.sh"
     fake.write_text("#!/bin/sh\nset -e\nT=$(eval echo \\${$#})\nmkdir -p \"$T/.uak/bin\"\nprintf '# P\\n\\n```text\\nMode: sprint\\nBlackbox: off\\n```\\n' > \"$T/.uak/PROJECT.md\"\n"
-                    "printf '#!/bin/sh\\n' > \"$T/.uak/bin/uak\"\nprintf '6.8.0\\n' > \"$T/.uak/VERSION\"\n")
+                    "printf '#!/bin/sh\\n' > \"$T/.uak/bin/uak\"\nprintf '" + kit_version() + "\\n' > \"$T/.uak/VERSION\"\n")
     clicks = 0
     with wizard.LiveServer(str(repo), installer=fake) as srv, sync_playwright() as p:
         browser = p.chromium.launch(args=["--no-sandbox"], **kwargs)
